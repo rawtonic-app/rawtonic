@@ -1585,6 +1585,7 @@
         "newRadialOutside": "Nova capa radial (fora) · clic dret per a opcions",
         "newTitle": "Nova capa: dibuixa, selecciona o rang",
         "noneYet": "Encara no hi ha capes. Afegeix-ne una amb + o a la pestanya Capes.",
+        "quickAria": "Capa nova amb un clic",
         "select": "Selecciona {{name}}",
         "toggle": "Mostra/amaga {{name}}"
       },

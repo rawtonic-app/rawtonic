@@ -1585,6 +1585,7 @@
         "newRadialOutside": "Nouveau calque radial (extérieur) · clic droit pour les options",
         "newTitle": "Nouveau calque : dessiner, sélectionner ou plage",
         "noneYet": "Aucun calque. Ajoutez-en un avec + ou dans l'onglet Calques.",
+        "quickAria": "Nouveau calque en un clic",
         "select": "Sélectionner {{name}}",
         "toggle": "Afficher/masquer {{name}}"
       },

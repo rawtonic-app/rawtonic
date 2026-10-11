@@ -799,6 +799,52 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
     expect(useEditorStore.getState().activeMaskContainerId).toBe(masks[1].id);
   });
 
+  it("creates the common layers in one click from the quick row, as the + menu does", () => {
+    withMenu();
+    fireEvent.click(screen.getByRole("button", { name: "New sky layer" }));
+    const quick = screen.getByRole("toolbar", { name: "Quick new layer" });
+    const buttons = within(quick).getAllByRole("button");
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "New subject layer",
+      "New sky layer",
+      "New background layer",
+      "New people layer",
+      "New brush layer",
+      "New linear gradient layer",
+      "New radial gradient layer",
+    ]);
+    expect(buttons.every((b) => b.querySelector("svg") && b.title)).toBe(true);
+    // Without its id, a component is the same whichever way it was made.
+    const shape = (index: number) =>
+      useEditorStore.getState().adjustments.masks[index].subMasks.map(({ id: _, ...rest }) => rest);
+    const menuItems = ["Subject", "Sky", "Background", "People", "Brush", "Linear", "Radial"];
+    menuItems.forEach((item, i) => {
+      const before = useEditorStore.getState().adjustments.masks.length;
+      fireEvent.click(within(screen.getByRole("toolbar", { name: "Quick new layer" })).getAllByRole("button")[i]);
+      const masks = useEditorStore.getState().adjustments.masks;
+      expect(masks).toHaveLength(before + 1);
+      expect(useEditorStore.getState().activeMaskContainerId).toBe(masks.at(-1)!.id);
+      fireEvent.click(screen.getByRole("button", { name: "New layer" }));
+      fireEvent.click(within(screen.getAllByRole("menu").at(-1)!).getByRole("menuitem", { name: item }));
+      expect(shape(before)).toEqual(shape(before + 1));
+    });
+  });
+
+  it("disables the quick row, as the + menu, until the photo is ready", () => {
+    withMenu();
+    fireEvent.click(screen.getByRole("button", { name: "New sky layer" }));
+    act(() =>
+      useEditorStore.setState({
+        selectedImage: { ...useEditorStore.getState().selectedImage!, isReady: false },
+      }),
+    );
+    const quick = screen.getByRole("toolbar", { name: "Quick new layer" });
+    expect(within(quick).getAllByRole("button").every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+    expect((screen.getByRole("button", { name: "New layer" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(quick).getByRole("button", { name: "New subject layer" }));
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(1);
+  });
+
   it("nests the selected layer's components under its row, marking busy ones", () => {
     const sky = createSubMask(Mask.AiSky, image);
     const subject = { ...createSubMask(Mask.AiForeground, image), mode: SubMaskMode.Subtractive };
@@ -969,6 +1015,10 @@ describe("what the tools act on (tool tabs vs. the selected layer)", () => {
     mount();
     expect(screen.queryByRole("group", { name: "New layer" })).toBeNull();
     expect(screen.getByText(/No layers yet/)).toBeTruthy();
+    // The quick row still makes a layer in one click.
+    const quick = screen.getByRole("toolbar", { name: "Quick new layer" });
+    fireEvent.click(within(quick).getByRole("button", { name: "New subject layer" }));
+    expect(useEditorStore.getState().adjustments.masks[0].subMasks[0].type).toBe(Mask.AiForeground);
   });
 });
 

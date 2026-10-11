@@ -1510,6 +1510,7 @@
         "newRadialOutside": "新增放射狀圖層（外部）· 按右鍵查看選項",
         "newTitle": "新增圖層：繪製、選取或範圍",
         "noneYet": "尚無圖層。用 + 或在「圖層」標籤中新增。",
+        "quickAria": "一鍵新增圖層",
         "select": "選擇{{name}}",
         "toggle": "顯示/隱藏{{name}}"
       },

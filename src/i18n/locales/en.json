@@ -1537,6 +1537,7 @@
         "newRadialOutside": "New radial layer (outside) · right-click for options",
         "newTitle": "New layer: draw, select or range",
         "noneYet": "No layers yet. Add one with + or in the Layers tab.",
+        "quickAria": "Quick new layer",
         "select": "Select {{name}}",
         "toggle": "Toggle {{name}}"
       },

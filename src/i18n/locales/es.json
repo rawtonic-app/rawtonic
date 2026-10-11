@@ -1585,6 +1585,7 @@
         "newRadialOutside": "Nueva capa radial (fuera) · clic derecho para opciones",
         "newTitle": "Nueva capa: dibujar, seleccionar o rango",
         "noneYet": "Aún no hay capas. Añade una con + o en la pestaña Capas.",
+        "quickAria": "Capa nueva con un clic",
         "select": "Seleccionar {{name}}",
         "toggle": "Mostrar/ocultar {{name}}"
       },
