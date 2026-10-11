@@ -215,3 +215,40 @@ it("takes merge events only from the run the dialog waits for", () => {
   expect(useUIStore.getState().mergeModalState).toMatchObject({ isProcessing: false, previewBase64: "current" });
   useUIStore.getState().setUI({ mergeModalState: CLOSED_MERGE_MODAL });
 });
+
+it('shows ingested photographs in the grid as they arrive, listing the folder again at most four times a second', async () => {
+  vi.useFakeTimers();
+  const refreshImageList = vi.fn(async () => {});
+  const refreshAllFolderTrees = vi.fn();
+  useLibraryStore.getState().setLibrary({ currentFolderPath: '/jobs/Acme/Capture' });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees, handleSelectSubfolder: vi.fn(), refreshImageList, markGenerated: vi.fn(),
+  }));
+  const imported = (destination: string, extra: Record<string, unknown> = {}) =>
+    callbacks.get('session-ingest-imported')!({
+      payload: { destination, skipped: false, error: null, ...extra },
+    });
+  // The first photograph appears at once.
+  imported('/jobs/Acme/Capture/A.ARW');
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(refreshImageList).toHaveBeenCalledTimes(1);
+  // 40 more within a second: the grid is listed again at most four times.
+  for (let i = 0; i < 40; i++) {
+    imported(`/jobs/Acme/Capture/B${i}.ARW`);
+    await act(() => vi.advanceTimersByTimeAsync(25));
+  }
+  expect(refreshImageList.mock.calls.length).toBeLessThanOrEqual(5);
+  expect(refreshImageList.mock.calls.length).toBeGreaterThanOrEqual(4);
+  // The last one is shown too, and the folder counts follow (less often).
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  const listed = refreshImageList.mock.calls.length;
+  expect(listed).toBeLessThanOrEqual(6);
+  expect(refreshAllFolderTrees).toHaveBeenCalled();
+  expect(refreshAllFolderTrees.mock.calls.length).toBeLessThanOrEqual(3);
+  // Skipped duplicates, failures and photographs for another folder leave the grid as it is.
+  imported('/jobs/Acme/Capture/C.ARW', { skipped: true });
+  imported('/jobs/Acme/Capture/D.ARW', { error: 'disk full' });
+  imported('/jobs/Acme/Selects/E.ARW');
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  expect(refreshImageList).toHaveBeenCalledTimes(listed);
+});

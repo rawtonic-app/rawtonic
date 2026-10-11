@@ -1,4 +1,5 @@
 //! Verified ingest: streaming reads, bounded memory and no-clobber publication.
+pub mod batch;
 pub mod hot_folder;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -211,6 +212,73 @@ pub fn import_one_with_start(
     backup: Option<&Path>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult> {
+    import_one_into(
+        library,
+        source,
+        None,
+        template,
+        sequence,
+        sequence_start,
+        backup,
+        cancel,
+    )
+}
+
+/// Folders of a session or catalog that hold no photographs of their own:
+/// its Trash and the app's mask bitmaps and previews.
+const RESERVED_FOLDERS: &[&str] = &["Trash", "masks", "previews", "smart-previews"];
+
+/// The folder an import copies into: the library's capture folder, or
+/// `folder` (a photo dropped onto a folder of the library). It must be a
+/// folder inside the library directory, never one reached through a
+/// symlink, the session's Trash or a hidden folder (`.cache`).
+pub fn destination_folder(library: &Library, folder: Option<&Path>) -> Result<PathBuf> {
+    let folder = match folder {
+        None => {
+            let capture = library.directory.join(&library.manifest.capture);
+            fs::create_dir_all(&capture)?;
+            capture
+        }
+        Some(folder) => {
+            ensure!(
+                folder.is_dir(),
+                "The destination folder does not exist: {}",
+                folder.display()
+            );
+            folder.to_path_buf()
+        }
+    };
+    let canonical = folder.canonicalize()?;
+    let relative = canonical.strip_prefix(&library.directory).map_err(|_| {
+        anyhow::anyhow!("Photographs can only be copied into a folder of this library")
+    })?;
+    let first = relative
+        .components()
+        .next()
+        .map(|c| c.as_os_str().to_string_lossy());
+    ensure!(
+        first.is_some_and(|first| {
+            !RESERVED_FOLDERS.contains(&first.as_ref()) && !first.starts_with('.')
+        }),
+        "Photographs cannot be copied into {}",
+        folder.display()
+    );
+    Ok(folder)
+}
+
+/// `import_one_with_start` into `folder` (see `destination_folder`; `None`
+/// is the capture folder).
+#[allow(clippy::too_many_arguments)]
+pub fn import_one_into(
+    library: &Library,
+    source: &Path,
+    folder: Option<&Path>,
+    template: &str,
+    sequence: u64,
+    sequence_start: u64,
+    backup: Option<&Path>,
+    cancel: &AtomicBool,
+) -> Result<ImportResult> {
     let mut context = NamingContext::new(
         source
             .file_name()
@@ -230,12 +298,7 @@ pub fn import_one_with_start(
         context.captured = chrono_from_system(modified);
     }
     let name = render(template, &context)?;
-    let folder = library.directory.join(&library.manifest.capture);
-    fs::create_dir_all(&folder)?;
-    ensure!(
-        folder.canonicalize()?.starts_with(&library.directory),
-        "Capture folder escapes session through a symlink"
-    );
+    let folder = destination_folder(library, folder)?;
     // Detect duplicates by sampled fingerprint then full SHA, never by sampled hash alone.
     let fp = rawtonic_catalog::fingerprint(source)?;
     for asset in library

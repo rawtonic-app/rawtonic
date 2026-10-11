@@ -535,6 +535,91 @@ pub fn generate_thumbnail_data(
     Ok(apply_coarse_rotation(Cow::Owned(final_image), fallback_orientation_steps).into_owned())
 }
 
+/// A small JPEG (at most `size` pixels on its long side) of a photograph that
+/// is not in the library yet, for the import dialog's previews: a RAW's
+/// smallest embedded camera preview that is at least `size / 2` pixels on its
+/// short side, else its small TIFF thumbnail (no RAW decode); other images
+/// decoded and scaled. Only a file without any of these is developed (fast
+/// mode, as the library's thumbnails). Reads the file only (memory-mapped);
+/// never writes or caches anything. `None` when nothing could be read, and
+/// for cloud placeholders (no download).
+pub(crate) fn source_preview_jpeg(path: &Path, size: u32) -> Option<Vec<u8>> {
+    if !path.is_file() || is_cloud_placeholder(path) {
+        return None;
+    }
+    let image = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let bytes = read_file_mapped(path).ok()?;
+        quick_source_preview(&bytes, path, size).or_else(|| {
+            let path_str = path.to_string_lossy();
+            let mut image = image_loader::load_and_composite(
+                &bytes,
+                &path_str,
+                &serde_json::Value::Null,
+                true,
+                &AppSettings::default(),
+                None,
+            )
+            .ok()?;
+            if is_raw_file(path) {
+                apply_cpu_default_raw_processing(&mut image);
+            }
+            Some(image)
+        })
+    }))
+    .ok()
+    .flatten()?;
+    encode_thumbnail(&image, size).ok()
+}
+
+/// `source_preview_jpeg`'s previews that need no develop.
+fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicImage> {
+    let orient = |image: DynamicImage, orientation: Option<u16>| match orientation {
+        Some(o) if o > 1 => rawtonic_rawdecode::orientation::apply_orientation(
+            image,
+            rawler::Orientation::from_u16(o),
+        ),
+        _ => image,
+    };
+    let jpeg =
+        |data: &[u8]| image::load_from_memory_with_format(data, image::ImageFormat::Jpeg).ok();
+    if !is_raw_file(path) {
+        let image = image::ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()?
+            .decode()
+            .ok()?;
+        return Some(orient(image, image_loader::exif_orientation(bytes)));
+    }
+    let small_enough = |data: &&[u8]| {
+        image::ImageReader::with_format(Cursor::new(*data), image::ImageFormat::Jpeg)
+            .into_dimensions()
+            .is_ok_and(|(w, h)| w.min(h) >= size / 2)
+    };
+    // Candidates come largest first: take the smallest that suffices.
+    if let Some(image) = image_loader::tiff_jpeg_candidates(bytes)
+        .and_then(|candidates| candidates.into_iter().rev().find(small_enough))
+        .and_then(jpeg)
+    {
+        return Some(orient(image, image_loader::exif_orientation(bytes)));
+    }
+    if let Some(data) = image_loader::raf_embedded_jpeg(bytes)
+        && let Some(image) = jpeg(data)
+    {
+        return Some(orient(image, image_loader::exif_orientation(data)));
+    }
+    // A DNG without a JPEG preview (DNG Converter's "None") still has its
+    // small uncompressed thumbnail as the first image.
+    let small_tiff = image::ImageReader::with_format(Cursor::new(bytes), image::ImageFormat::Tiff)
+        .into_dimensions()
+        .is_ok_and(|(w, h)| w.max(h) <= 1024);
+    if small_tiff
+        && let Ok(image) = image::load_from_memory_with_format(bytes, image::ImageFormat::Tiff)
+    {
+        return Some(orient(image, image_loader::exif_orientation(bytes)));
+    }
+    image_loader::safe_embedded_preview_fallback(bytes, &path.to_string_lossy())
+}
+
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
     let thumbnail = if matches!(
         image,
@@ -940,6 +1025,72 @@ pub fn get_cached_or_generate_thumbnail_image(
         Ok(thumb_image)
     } else {
         generate_thumbnail_data(path_str, gpu_context, None, app_handle)
+    }
+}
+
+#[cfg(test)]
+mod source_preview_tests {
+    use super::*;
+
+    /// The import dialog's preview of a photograph not yet in the library:
+    /// small, upright, and the file is only read.
+    #[test]
+    fn previews_a_source_photograph_small_without_touching_it() {
+        let directory = tempfile::tempdir().unwrap();
+        let source = directory.path().join("card.png");
+        image::RgbImage::from_pixel(1200, 800, image::Rgb([200, 120, 40]))
+            .save(&source)
+            .unwrap();
+        let before = fs::read(&source).unwrap();
+        let modified = fs::metadata(&source).unwrap().modified().unwrap();
+        let jpeg = source_preview_jpeg(&source, 320).expect("a preview");
+        let preview = image::load_from_memory(&jpeg).unwrap();
+        assert_eq!((preview.width(), preview.height()), (320, 213));
+        assert_eq!(fs::read(&source).unwrap(), before);
+        assert_eq!(fs::metadata(&source).unwrap().modified().unwrap(), modified);
+        assert_eq!(
+            fs::read_dir(directory.path()).unwrap().count(),
+            1,
+            "nothing written"
+        );
+        assert!(source_preview_jpeg(&directory.path().join("missing.ARW"), 320).is_none());
+        let broken = directory.path().join("broken.ARW");
+        fs::write(&broken, b"not a raw file").unwrap();
+        assert!(source_preview_jpeg(&broken, 320).is_none());
+    }
+
+    /// Times the import dialog's previews on the photographs in
+    /// `INGEST_PREVIEW_DIR` (use copies): `cargo test -p rawtonic-app
+    /// --release --lib times_source_previews -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "needs INGEST_PREVIEW_DIR"]
+    fn times_source_previews() {
+        let directory = std::env::var("INGEST_PREVIEW_DIR").expect("INGEST_PREVIEW_DIR");
+        let mut times = Vec::new();
+        for entry in fs::read_dir(directory).unwrap().flatten() {
+            let path = entry.path();
+            if !crate::formats::is_supported_image_file(&path) {
+                continue;
+            }
+            let started = std::time::Instant::now();
+            let jpeg = source_preview_jpeg(&path, 320);
+            let ms = started.elapsed().as_secs_f64() * 1000.0;
+            let size = jpeg
+                .as_deref()
+                .and_then(|j| image::load_from_memory(j).ok())
+                .map(|i| (i.width(), i.height()));
+            println!("{:>8.1} ms {:?} {}", ms, size, path.display());
+            times.push(ms);
+        }
+        times.sort_by(f64::total_cmp);
+        if !times.is_empty() {
+            println!(
+                "{} files, median {:.1} ms, max {:.1} ms",
+                times.len(),
+                times[times.len() / 2],
+                times[times.len() - 1]
+            );
+        }
     }
 }
 

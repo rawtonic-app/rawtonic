@@ -56,6 +56,7 @@ import {
   type FolderTree,
 } from "../../utils/folderTree";
 import { isInternalSessionFolder } from "../../utils/sessionFolders";
+import { folderAcceptsDrop } from "../session/fileDrop";
 import {
   catalogTreePaths,
   formatSpace,
@@ -259,6 +260,8 @@ function FolderRow({
       <div
         className={`studio-folder ${current === path ? "is-selected" : ""} ${missing ? "is-offline" : ""}`}
         style={{ paddingLeft: 10 + depth * 12 }}
+        // Photographs dragged from Finder onto the folder are imported into it.
+        data-folder-drop={!missing && folderAcceptsDrop(path, sessionRoot) ? path : undefined}
         onContextMenu={menu}
       >
         <button

@@ -822,6 +822,11 @@
       "close": "Tanca",
       "openTitle": "Obre una sessió o un catàleg del Rawtonic"
     },
+    "drop": {
+      "importing": "Hi ha una importació en curs; deixa anar més fotografies quan acabi.",
+      "noLibrary": "Primer obre o crea una sessió i després deixa-hi anar fotografies per importar-les.",
+      "overlay": "Deixa anar per importar a {{name}}"
+    },
     "fields": {
       "filenameTemplate": "Plantilla de nom de fitxer"
     },
@@ -875,25 +880,45 @@
       "title": "Importa del Lightroom o del Capture One"
     },
     "ingest": {
+      "addFiles": "Afegeix fotografies…",
+      "addFolder": "Afegeix una carpeta…",
+      "addToAlbum": "Afegeix a l’àlbum «{{name}}» després d’importar",
       "choose": "Tria fotos…",
       "chooseBackup": "Tria una carpeta de còpia de seguretat…",
+      "chooseFolderTitle": "Selecciona les carpetes per importar",
       "chooseTitle": "Selecciona les fotos que vols importar",
       "copyNote": "Copia a <strong>{{target}}</strong>. Els fitxers existents es conserven; els duplicats verificats s’ometen.",
+      "dropHint": "Deixa anar aquí fotografies o carpetes, o afegeix-les amb els botons de dalt.",
+      "duplicates_one": "{{count}} ja és a la biblioteca",
+      "duplicates_many": "{{count}} ja són a la biblioteca",
+      "duplicates_other": "{{count}} ja són a la biblioteca",
+      "gridLabel": "Fotografies per importar",
+      "inLibrary": "A la biblioteca",
+      "inLibraryTitle": "Ja és en aquesta biblioteca (mateixa mida i contingut). No seleccionada; si s’importa, un duplicat verificat s’omet.",
       "keepEditing": "Pots continuar editant durant la importació.",
+      "noPhotos": "No s’ha trobat cap fotografia en el que s’ha afegit.",
       "optional": "(opcional)",
       "photographs": "Fotos",
       "removeBackup": "Treu la carpeta de còpia de seguretat",
+      "scanning": "S’estan cercant fotografies…",
       "secondCopy": "Segona còpia",
+      "selectAll": "Selecciona-ho tot",
       "selected_one": "{{count}} foto seleccionada",
       "selected_many": "{{count}} fotos seleccionades",
       "selected_other": "{{count}} fotos seleccionades",
+      "selectedOf_one": "{{selected}} de {{total}} fotografia seleccionada · {{size}}",
+      "selectedOf_many": "{{selected}} de {{total}} fotografies seleccionades · {{size}}",
+      "selectedOf_other": "{{selected}} de {{total}} fotografies seleccionades · {{size}}",
+      "selectNone": "No en seleccionis cap",
       "submit_one": "Copia {{count}} foto",
       "submit_many": "Copia {{count}} fotos",
       "submit_other": "Copia {{count}} fotos",
       "submitNone": "Copia les fotos",
       "subtitle": "Cada còpia es comprova amb l’original mitjançant SHA-256.",
       "templateHint": "Conserva els noms originals amb {{orig}}, o fes servir {{pattern}}.",
-      "title": "Importa les teves fotos"
+      "title": "Importa les teves fotos",
+      "truncated": "Només es mostren les primeres {{n}} fotografies; importa la resta en una altra passada.",
+      "useCapture": "Utilitza {{folder}}"
     },
     "menu": {
       "importFrom": "Importa del Lightroom o del Capture One…",
@@ -911,6 +936,8 @@
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
     "toasts": {
+      "addedToAlbum": "afegides a {{name}}",
+      "albumAddFailed": "Fotografies importades, però no afegides a {{name}}: {{error}}",
       "duplicatesSkipped_one": "{{count}} duplicat omès",
       "duplicatesSkipped_many": "{{count}} duplicats omesos",
       "duplicatesSkipped_other": "{{count}} duplicats omesos",

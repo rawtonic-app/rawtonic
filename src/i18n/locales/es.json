@@ -822,6 +822,11 @@
       "close": "Cerrar",
       "openTitle": "Abrir una sesión o un catálogo de Rawtonic"
     },
+    "drop": {
+      "importing": "Hay una importación en curso; suelta más fotos cuando termine.",
+      "noLibrary": "Primero abre o crea una sesión y luego suelta fotos para importarlas.",
+      "overlay": "Suelta para importar en {{name}}"
+    },
     "fields": {
       "filenameTemplate": "Plantilla de nombre de archivo"
     },
@@ -875,25 +880,45 @@
       "title": "Importar desde Lightroom o Capture One"
     },
     "ingest": {
+      "addFiles": "Añadir fotos…",
+      "addFolder": "Añadir carpeta…",
+      "addToAlbum": "Añadir al álbum «{{name}}» después de importar",
       "choose": "Elegir fotos…",
       "chooseBackup": "Elegir una carpeta de copia de seguridad…",
+      "chooseFolderTitle": "Selecciona carpetas para importar",
       "chooseTitle": "Seleccionar fotos para importar",
       "copyNote": "Copiar a <strong>{{target}}</strong>. Los archivos existentes se conservan; los duplicados verificados se omiten.",
+      "dropHint": "Suelta aquí fotos o carpetas, o añádelas con los botones de arriba.",
+      "duplicates_one": "{{count}} ya está en la biblioteca",
+      "duplicates_many": "{{count}} ya están en la biblioteca",
+      "duplicates_other": "{{count}} ya están en la biblioteca",
+      "gridLabel": "Fotos para importar",
+      "inLibrary": "En biblioteca",
+      "inLibraryTitle": "Ya está en esta biblioteca (mismo tamaño y contenido). No seleccionada; si se importa, un duplicado verificado se omite.",
       "keepEditing": "Puedes seguir editando durante la importación.",
+      "noPhotos": "No se encontraron fotos en lo añadido.",
       "optional": "(opcional)",
       "photographs": "Fotos",
       "removeBackup": "Quitar la carpeta de copia de seguridad",
+      "scanning": "Buscando fotos…",
       "secondCopy": "Segunda copia",
+      "selectAll": "Seleccionar todo",
       "selected_one": "{{count}} foto seleccionada",
       "selected_many": "{{count}} fotos seleccionadas",
       "selected_other": "{{count}} fotos seleccionadas",
+      "selectedOf_one": "{{selected}} de {{total}} foto seleccionada · {{size}}",
+      "selectedOf_many": "{{selected}} de {{total}} fotos seleccionadas · {{size}}",
+      "selectedOf_other": "{{selected}} de {{total}} fotos seleccionadas · {{size}}",
+      "selectNone": "No seleccionar ninguna",
       "submit_one": "Copiar {{count}} foto",
       "submit_many": "Copiar {{count}} fotos",
       "submit_other": "Copiar {{count}} fotos",
       "submitNone": "Copiar fotos",
       "subtitle": "Cada copia se comprueba con su original mediante SHA-256.",
       "templateHint": "Conserva los nombres originales con {{orig}}, o usa {{pattern}}.",
-      "title": "Importa tus fotos"
+      "title": "Importa tus fotos",
+      "truncated": "Solo se muestran las primeras {{n}} fotos; importa el resto en otra pasada.",
+      "useCapture": "Usar {{folder}} en su lugar"
     },
     "menu": {
       "importFrom": "Importar desde Lightroom o Capture One…",
@@ -911,6 +936,8 @@
       "opening": "Abriendo {{name}} ({{directory}})… Si macOS pide acceso a este volumen, permítelo."
     },
     "toasts": {
+      "addedToAlbum": "añadidas a {{name}}",
+      "albumAddFailed": "Fotos importadas, pero no añadidas a {{name}}: {{error}}",
       "duplicatesSkipped_one": "{{count}} duplicado omitido",
       "duplicatesSkipped_many": "{{count}} duplicados omitidos",
       "duplicatesSkipped_other": "{{count}} duplicados omitidos",

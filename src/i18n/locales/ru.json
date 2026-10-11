@@ -852,6 +852,11 @@
       "close": "Закрыть",
       "openTitle": "Открыть сессию или каталог Rawtonic"
     },
+    "drop": {
+      "importing": "Идёт импорт; перетащите остальные фотографии, когда он завершится.",
+      "noLibrary": "Сначала откройте или создайте сессию, затем перетащите фотографии для импорта.",
+      "overlay": "Отпустите для импорта в {{name}}"
+    },
     "fields": {
       "filenameTemplate": "Шаблон имени файла"
     },
@@ -911,19 +916,39 @@
       "title": "Импорт из Lightroom или Capture One"
     },
     "ingest": {
+      "addFiles": "Добавить фотографии…",
+      "addFolder": "Добавить папку…",
+      "addToAlbum": "После импорта добавить в альбом «{{name}}»",
       "choose": "Выбрать фото…",
       "chooseBackup": "Выбрать папку резервной копии…",
+      "chooseFolderTitle": "Выберите папки для импорта",
       "chooseTitle": "Выберите фото для импорта",
       "copyNote": "Копирование в <strong>{{target}}</strong>. Существующие файлы сохраняются; проверенные дубликаты пропускаются.",
+      "dropHint": "Перетащите сюда фотографии или папки либо добавьте их кнопками выше.",
+      "duplicates_one": "{{count}} уже в библиотеке",
+      "duplicates_few": "{{count}} уже в библиотеке",
+      "duplicates_many": "{{count}} уже в библиотеке",
+      "duplicates_other": "{{count}} уже в библиотеке",
+      "gridLabel": "Фотографии для импорта",
+      "inLibrary": "В библиотеке",
+      "inLibraryTitle": "Уже в этой библиотеке (тот же размер и содержимое). Не выбрано; при импорте проверенный дубликат пропускается.",
       "keepEditing": "Во время импорта можно продолжать обработку.",
+      "noPhotos": "В добавленном не найдено фотографий.",
       "optional": "(необязательно)",
       "photographs": "Фотографии",
       "removeBackup": "Убрать папку резервной копии",
+      "scanning": "Поиск фотографий…",
       "secondCopy": "Вторая копия",
+      "selectAll": "Выбрать все",
       "selected_one": "Выбрано фото: {{count}}",
       "selected_few": "Выбрано фото: {{count}}",
       "selected_many": "Выбрано фото: {{count}}",
       "selected_other": "Выбрано фото: {{count}}",
+      "selectedOf_one": "Выбрано {{selected}} из {{total}} фотографии · {{size}}",
+      "selectedOf_few": "Выбрано {{selected}} из {{total}} фотографий · {{size}}",
+      "selectedOf_many": "Выбрано {{selected}} из {{total}} фотографий · {{size}}",
+      "selectedOf_other": "Выбрано {{selected}} из {{total}} фотографий · {{size}}",
+      "selectNone": "Снять выбор",
       "submit_one": "Скопировать {{count}} фото",
       "submit_few": "Скопировать {{count}} фото",
       "submit_many": "Скопировать {{count}} фото",
@@ -931,7 +956,9 @@
       "submitNone": "Скопировать фото",
       "subtitle": "Каждая копия сверяется с исходником по SHA-256.",
       "templateHint": "Сохраните исходные имена с помощью {{orig}} или используйте {{pattern}}.",
-      "title": "Импортируйте фотографии"
+      "title": "Импортируйте фотографии",
+      "truncated": "Показаны только первые {{n}} фотографий; остальные импортируйте отдельно.",
+      "useCapture": "Использовать {{folder}}"
     },
     "menu": {
       "importFrom": "Импорт из Lightroom или Capture One…",
@@ -950,6 +977,8 @@
       "opening": "Открывается {{name}} ({{directory}})… Если macOS запросит доступ к этому тому, разрешите его."
     },
     "toasts": {
+      "addedToAlbum": "добавлены в {{name}}",
+      "albumAddFailed": "Фотографии импортированы, но не добавлены в {{name}}: {{error}}",
       "duplicatesSkipped_one": "пропущен {{count}} дубликат",
       "duplicatesSkipped_few": "пропущено {{count}} дубликата",
       "duplicatesSkipped_many": "пропущено {{count}} дубликатов",

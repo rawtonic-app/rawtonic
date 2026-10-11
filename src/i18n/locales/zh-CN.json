@@ -780,6 +780,11 @@
       "close": "关闭",
       "openTitle": "打开 Rawtonic 会话或目录"
     },
+    "drop": {
+      "importing": "正在导入；完成后再拖放更多照片。",
+      "noLibrary": "请先打开或创建一个会话，再拖放照片以导入。",
+      "overlay": "拖放以导入到 {{name}}"
+    },
     "fields": {
       "filenameTemplate": "文件名模板"
     },
@@ -821,21 +826,37 @@
       "title": "从 Lightroom 或 Capture One 导入"
     },
     "ingest": {
+      "addFiles": "添加照片…",
+      "addFolder": "添加文件夹…",
+      "addToAlbum": "导入后添加到相册“{{name}}”",
       "choose": "选择照片…",
       "chooseBackup": "选择备份文件夹…",
+      "chooseFolderTitle": "选择要导入的文件夹",
       "chooseTitle": "选择要导入的照片",
       "copyNote": "复制到 <strong>{{target}}</strong>。已有文件会保留；经校验的重复项会被跳过。",
+      "dropHint": "将照片或文件夹拖放到此处，或用上方的按钮添加。",
+      "duplicates_other": "{{count}} 张已在图库中",
+      "gridLabel": "要导入的照片",
+      "inLibrary": "已在图库",
+      "inLibraryTitle": "已在此图库中（大小和内容相同）。未勾选；若导入，经校验的重复项会被跳过。",
       "keepEditing": "导入期间可以继续编辑。",
+      "noPhotos": "所添加的内容中未找到照片。",
       "optional": "（可选）",
       "photographs": "照片",
       "removeBackup": "移除备份文件夹",
+      "scanning": "正在查找照片…",
       "secondCopy": "第二份副本",
+      "selectAll": "全选",
       "selected_other": "已选择 {{count}} 张照片",
+      "selectedOf_other": "已选择 {{selected}} / {{total}} 张照片 · {{size}}",
+      "selectNone": "全不选",
       "submit_other": "复制 {{count}} 张照片",
       "submitNone": "复制照片",
       "subtitle": "每份副本都会用 SHA-256 与源文件核对。",
       "templateHint": "使用 {{orig}} 保留原始文件名，或使用 {{pattern}}。",
-      "title": "导入你的照片"
+      "title": "导入你的照片",
+      "truncated": "仅列出前 {{n}} 张照片；其余请另行导入。",
+      "useCapture": "改用 {{folder}}"
     },
     "menu": {
       "importFrom": "从 Lightroom 或 Capture One 导入…",
@@ -851,6 +872,8 @@
       "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
     },
     "toasts": {
+      "addedToAlbum": "已添加到 {{name}}",
+      "albumAddFailed": "照片已导入，但未添加到 {{name}}：{{error}}",
       "duplicatesSkipped_other": "已跳过 {{count}} 个重复项",
       "flagsFailed": "无法保存旗标：{{error}}",
       "flagsSavedRefreshFailed": "旗标已保存；无法刷新会话摘要：{{error}}",

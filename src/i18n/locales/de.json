@@ -792,6 +792,11 @@
       "close": "Schließen",
       "openTitle": "Rawtonic-Session oder -Katalog öffnen"
     },
+    "drop": {
+      "importing": "Ein Import läuft; ziehe weitere Fotos hierher, wenn er fertig ist.",
+      "noLibrary": "Öffne oder erstelle zuerst eine Session und ziehe dann Fotos hierher, um sie zu importieren.",
+      "overlay": "Ablegen, um in {{name}} zu importieren"
+    },
     "fields": {
       "filenameTemplate": "Dateinamenvorlage"
     },
@@ -839,23 +844,41 @@
       "title": "Aus Lightroom oder Capture One importieren"
     },
     "ingest": {
+      "addFiles": "Fotos hinzufügen …",
+      "addFolder": "Ordner hinzufügen …",
+      "addToAlbum": "Nach dem Import zum Album „{{name}}“ hinzufügen",
       "choose": "Fotos wählen…",
       "chooseBackup": "Sicherungsordner wählen…",
+      "chooseFolderTitle": "Ordner zum Importieren auswählen",
       "chooseTitle": "Zu importierende Fotos auswählen",
       "copyNote": "Kopieren nach <strong>{{target}}</strong>. Vorhandene Dateien bleiben erhalten; geprüfte Duplikate werden übersprungen.",
+      "dropHint": "Fotos oder Ordner hierher ziehen oder oben hinzufügen.",
+      "duplicates_one": "{{count}} schon in der Bibliothek",
+      "duplicates_other": "{{count}} schon in der Bibliothek",
+      "gridLabel": "Zu importierende Fotos",
+      "inLibrary": "In Bibliothek",
+      "inLibraryTitle": "Schon in dieser Bibliothek (gleiche Größe und gleicher Inhalt). Nicht ausgewählt; beim Import wird ein geprüftes Duplikat übersprungen.",
       "keepEditing": "Sie können während des Imports weiterarbeiten.",
+      "noPhotos": "Darin wurden keine Fotos gefunden.",
       "optional": "(optional)",
       "photographs": "Fotos",
       "removeBackup": "Sicherungsordner entfernen",
+      "scanning": "Fotos werden gesucht …",
       "secondCopy": "Zweite Kopie",
+      "selectAll": "Alle auswählen",
       "selected_one": "{{count}} Foto ausgewählt",
       "selected_other": "{{count}} Fotos ausgewählt",
+      "selectedOf_one": "{{selected}} von {{total}} Foto ausgewählt · {{size}}",
+      "selectedOf_other": "{{selected}} von {{total}} Fotos ausgewählt · {{size}}",
+      "selectNone": "Keine auswählen",
       "submit_one": "{{count}} Foto kopieren",
       "submit_other": "{{count}} Fotos kopieren",
       "submitNone": "Fotos kopieren",
       "subtitle": "Jede Kopie wird per SHA-256 mit ihrer Quelle verglichen.",
       "templateHint": "Mit {{orig}} bleiben die Originalnamen erhalten, oder verwenden Sie {{pattern}}.",
-      "title": "Fotos importieren"
+      "title": "Fotos importieren",
+      "truncated": "Nur die ersten {{n}} Fotos sind aufgelistet; importiere den Rest in einem weiteren Durchgang.",
+      "useCapture": "Stattdessen {{folder}} verwenden"
     },
     "menu": {
       "importFrom": "Aus Lightroom oder Capture One importieren…",
@@ -872,6 +895,8 @@
       "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlauben Sie ihn."
     },
     "toasts": {
+      "addedToAlbum": "zu {{name}} hinzugefügt",
+      "albumAddFailed": "Fotos importiert, aber nicht zu {{name}} hinzugefügt: {{error}}",
       "duplicatesSkipped_one": "{{count}} Duplikat übersprungen",
       "duplicatesSkipped_other": "{{count}} Duplikate übersprungen",
       "flagsFailed": "Markierungen konnten nicht gespeichert werden: {{error}}",

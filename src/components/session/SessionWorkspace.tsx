@@ -19,6 +19,7 @@ import {
   FolderOpen,
   FolderPlus,
   FolderSync,
+  FolderPlus as FolderAdd,
   Import,
   LoaderCircle,
   X,
@@ -35,6 +36,9 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
+import { folderAcceptsDrop, useWindowFileDrop, type FileDrop } from "./fileDrop";
+import { throttleAsync } from "../../utils/throttle";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import "./session.css";
@@ -65,6 +69,31 @@ interface ImportResult {
   skipped: boolean;
   destination: string | null;
 }
+/** Mirrors `session_bridge::IngestScan`. */
+interface IngestScan {
+  files: IngestCandidate[];
+  truncated: boolean;
+}
+/** Mirrors `session_bridge::IngestedFile` (`session-ingest-imported`). */
+export interface IngestedFile {
+  index: number;
+  total: number;
+  source: string;
+  destination: string | null;
+  assetId: string | null;
+  skipped: boolean;
+  error: string | null;
+}
+/** Where photographs dropped onto the window go: a folder of the library
+ * instead of its capture folder, and an album to add them to afterwards. */
+interface IngestTarget {
+  folder: string | null;
+  album: { id: string; name: string } | null;
+}
+const NO_TARGET: IngestTarget = { folder: null, album: null };
+/** The ingest dialog's file dialog filter when the app's list of formats
+ * has not loaded (it normally comes from `get_supported_file_types`). */
+const FALLBACK_EXTENSIONS = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "avif", "jxl"];
 /** Mirrors `hot_folder::NextCapture`. */
 type NextCapture =
   | { mode: "defaults" }
@@ -175,7 +204,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
   const [catalog, setCatalog] = useState(false);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
   const [importAfterCreate, setImportAfterCreate] = useState(false);
-  const [sources, setSources] = useState<string[]>([]);
+  const [sources, setSources] = useState<IngestCandidate[]>([]);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [scanning, setScanning] = useState(false);
+  const [target, setTarget] = useState<IngestTarget>(NO_TARGET);
+  const [addToAlbum, setAddToAlbum] = useState(true);
+  const [fileDrag, setFileDrag] = useState(false);
+  // The ingest dialog's list as scans add to it (`addSources`).
+  const listed = useRef<IngestCandidate[]>([]);
+  const scanList = useRef(0);
+  const scansRunning = useRef(0);
   const [backup, setBackup] = useState<string | null>(null);
   const [template, setTemplate] = useState("{orig}");
   const [sequenceStart, setSequenceStart] = useState(1);
@@ -263,6 +301,25 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
     });
     return () => {
       disposed = true;
+      stop?.();
+    };
+  }, []);
+
+  // The photograph count follows an ingest as each photograph arrives.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    const recount = throttleAsync(() => refreshRef.current(), 500);
+    void listen<IngestedFile>("session-ingest-imported", (event) => {
+      if (!event.payload.error && !event.payload.skipped) recount();
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      recount.cancel();
       stop?.();
     };
   }, []);
@@ -559,23 +616,136 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
       setBusy(false);
     }
   };
+  /** Lists the photographs in `paths` (folders opened up) in the ingest
+   * dialog, after those already there unless `replace`. Photographs the
+   * library already holds start unchecked. */
+  const addSources = async (paths: string[], replace: boolean) => {
+    // A new list (a new dialog) makes scans still running for the old one stale.
+    const list = replace ? ++scanList.current : scanList.current;
+    if (replace) {
+      listed.current = [];
+      setSources([]);
+      setChosen(new Set());
+      scansRunning.current = 0;
+      setScanning(false);
+    }
+    if (!paths.length) return;
+    scansRunning.current++;
+    setScanning(true);
+    try {
+      const scan = await invoke<IngestScan>("session_ingest_scan", {
+        directory: session?.directory ?? null,
+        paths,
+      });
+      if (list !== scanList.current) return;
+      const known = new Set(listed.current.map((file) => file.path));
+      const added = scan.files.filter((file) => !known.has(file.path));
+      listed.current = [...listed.current, ...added];
+      setSources(listed.current);
+      setChosen((selected) => {
+        const next = new Set(selected);
+        for (const file of added) if (!file.duplicate) next.add(file.path);
+        return next;
+      });
+      if (!listed.current.length) setError(t("session.ingest.noPhotos"));
+      else if (scan.truncated) setError(t("session.ingest.truncated", { n: scan.files.length.toLocaleString() }));
+      else setError("");
+    } catch (e) {
+      if (list === scanList.current) setError(String(e));
+    } finally {
+      if (list === scanList.current && --scansRunning.current <= 0) setScanning(false);
+    }
+  };
+  const openIngest = (paths: string[] = [], next: IngestTarget = NO_TARGET) => {
+    setTarget(next);
+    setAddToAlbum(true);
+    setForm("ingest");
+    void addSources(paths, true);
+  };
+  const extensions = () => {
+    const types = useSettingsStore.getState().supportedTypes;
+    return types ? [...types.raw, ...types.nonRaw] : FALLBACK_EXTENSIONS;
+  };
+  const chooseSources = async (folders: boolean) => {
+    try {
+      const value = await open(
+        folders
+          ? { multiple: true, directory: true, title: t("session.ingest.chooseFolderTitle") }
+          : {
+              multiple: true,
+              directory: false,
+              title: t("session.ingest.chooseTitle"),
+              filters: [{ name: t("session.ingest.photographs"), extensions: extensions() }],
+            },
+      );
+      const paths = Array.isArray(value) ? value : value ? [value] : [];
+      if (paths.length) await addSources(paths, false);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  /** Files dropped onto the window: the ingest dialog with them (never a
+   * silent copy), onto an album or folder with that as the target. */
+  const onFileDrop = ({ paths, target: onto }: FileDrop) => {
+    if (!session) {
+      toast.info(t("session.drop.noLibrary"));
+      return;
+    }
+    if (importing) {
+      toast.info(t("session.drop.importing"));
+      return;
+    }
+    if (form && form !== "ingest") return;
+    const next: IngestTarget = {
+      folder: onto?.kind === "folder" && folderAcceptsDrop(onto.path, session.directory) ? onto.path : null,
+      album: onto?.kind === "album" ? { id: onto.id, name: onto.name } : null,
+    };
+    if (form === "ingest") {
+      // More files dropped onto the open dialog join the list.
+      if (next.folder || next.album) setTarget(next);
+      void addSources(paths, false);
+    } else openIngest(paths, next);
+  };
+  useWindowFileDrop(onFileDrop, setFileDrag);
+
   const ingest = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!session) return;
+    const files = sources.filter((file) => chosen.has(file.path)).map((file) => file.path);
+    if (!files.length) return;
+    const folder = target.folder;
+    const album = addToAlbum ? target.album : null;
     setImporting(true);
-    setProgress({ current: 0, total: sources.length, mbps: 0 });
+    setProgress({ current: 0, total: files.length, mbps: 0 });
     setForm(null);
     try {
+      // The grid shows where the photographs go, and they appear in it as
+      // each is copied (useTauriListeners, `session-ingest-imported`).
+      const destination = folder ?? (await join(session.directory, session.manifest.capture));
+      if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
       const results = await invoke<ImportResult[]>("session_ingest", {
         directory: session.directory,
-        sources,
+        sources: files,
         template,
         sequenceStart,
         backup,
+        folder,
       });
       const failures = results.filter((r) => r.error);
       const skipped = results.filter((r) => r.skipped).length;
       const copied = results.length - failures.length - skipped;
+      let albumError: string | null = null;
+      if (album) {
+        const paths = results.filter((r) => r.destination && !r.error).map((r) => r.destination as string);
+        if (paths.length)
+          try {
+            await invoke("session_album_add", { directory: session.directory, id: album.id, paths });
+            window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
+          } catch (e) {
+            albumError = String(e);
+          }
+      }
       if (failures.length)
         toast.error(
           t("session.toasts.ingestFailed", {
@@ -590,12 +760,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
           [
             t("session.toasts.ingested", { count: copied }),
             skipped ? t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
-            results.length < sources.length ? t("session.toasts.ingestCancelled") : null,
+            album && !albumError ? t("session.toasts.addedToAlbum", { name: album.name }) : null,
+            results.length < files.length ? t("session.toasts.ingestCancelled") : null,
           ]
             .filter(Boolean)
             .join(" · "),
         );
-      await onNavigate(await join(session.directory, session.manifest.capture));
+      if (albumError)
+        toast.error(t("session.toasts.albumAddFailed", { name: album?.name, error: albumError }), {
+          autoClose: false,
+        });
       await refresh();
     } catch (e) {
       toast.error(String(e), { autoClose: false });
@@ -688,10 +862,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
             className="session-action"
             disabled={!session || importing}
             title={t("session.bar.ingestTitle")}
-            onClick={() => {
-              setSources([]);
-              setForm("ingest");
-            }}
+            onClick={() => openIngest()}
           >
             <ArrowDownToLine size={14} />
             <span>{t("session.bar.ingest")}</span>
@@ -768,6 +939,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
           <button onClick={() => void invoke("session_cancel_ingest")}>
             {t("session.progress.cancel")}
           </button>
+        </div>
+      )}
+      {fileDrag && session && !importing && (!form || form === "ingest") && (
+        <div className="session-drop-overlay" aria-hidden>
+          <span>
+            <ArrowDownToLine size={18} />
+            {t("session.drop.overlay", { name: session.manifest.name })}
+          </span>
         </div>
       )}
       <dialog
@@ -1102,70 +1281,52 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
         ) : (
           <form className="session-ingest-form" onSubmit={(e) => void ingest(e)}>
             <section className="session-ingest-source">
-              <h3>{t("naming.source")}</h3>
-            <label className="session-field">
-              {t("session.ingest.photographs")}
-              <button
-                type="button"
-                className="session-path"
-                onClick={() =>
-                  void open({
-                    multiple: true,
-                    directory: false,
-                    title: t("session.ingest.chooseTitle"),
-                    filters: [
-                      {
-                        name: t("session.ingest.photographs"),
-                        extensions: [
-                          "arw",
-                          "dng",
-                          "cr3",
-                          "cr2",
-                          "nef",
-                          "raf",
-                          "rw2",
-                          "jpg",
-                          "jpeg",
-                          "png",
-                          "tif",
-                          "tiff",
-                          "heic",
-                          "heif",
-                          "webp",
-                          "avif",
-                          "jxl",
-                        ],
-                      },
-                    ],
-                  })
-                    .then((value) => {
-                      if (Array.isArray(value)) setSources(value);
-                      else if (value) setSources([value]);
-                    })
-                    .catch((e) => setError(String(e)))
-                }
-              >
-                <FolderOpen size={17} />
-                {sources.length
-                  ? t("session.ingest.selected", { count: sources.length })
-                  : t("session.ingest.choose")}
-              </button>
-            </label>
-            {sources.length > 0 && <div className="session-ingest-files">
-              {sources.slice(0, 4).map((path) => <div key={path} title={path}>{path.split(/[\\/]/).pop()}</div>)}
-              {sources.length > 4 && <small>{t("naming.moreFiles", { count: sources.length - 4 })}</small>}
-            </div>}
-            <div className="session-ingest-target"><span>{t("naming.destination")}</span><strong>{`${session?.manifest.name} / ${session?.manifest.capture ?? "Capture"}`}</strong></div>
-            </section>
-            <section className="session-ingest-naming">
-              <h3>{t("naming.title")}</h3>
-              <NamingEditor mode="ingest" value={template} onChange={setTemplate}
-                label={t("session.fields.filenameTemplate")} original={sources[0]} job={session?.manifest.name} total={sources.length}
-                sequenceStart={sequenceStart} onSequenceStartChange={setSequenceStart} />
+              <div className="session-ingest-source-head">
+                <h3>{t("naming.source")}</h3>
+                <button type="button" className="session-action" onClick={() => void chooseSources(false)}>
+                  <FolderOpen size={15} />
+                  {t("session.ingest.addFiles")}
+                </button>
+                <button type="button" className="session-action" onClick={() => void chooseSources(true)}>
+                  <FolderAdd size={15} />
+                  {t("session.ingest.addFolder")}
+                </button>
+              </div>
+              {sources.length ? (
+                <IngestPreviewGrid files={sources} selected={chosen} onSelectedChange={setChosen} />
+              ) : (
+                <div className="session-ingest-empty">
+                  {scanning ? (
+                    <>
+                      <LoaderCircle size={16} className="animate-spin" />
+                      {t("session.ingest.scanning")}
+                    </>
+                  ) : (
+                    t("session.ingest.dropHint")
+                  )}
+                </div>
+              )}
             </section>
             <section className="session-ingest-backup">
-              <h3>{t("naming.backup")}</h3>
-
+              <h3>{t("naming.destination")}</h3>
+            <div className="session-ingest-target">
+              <strong title={target.folder ?? undefined}>
+                {target.folder
+                  ? `${session?.manifest.name} / ${target.folder.slice((session?.directory.replace(/[\\/]+$/, "") ?? "").length + 1).split(/[\\/]/).join(" / ")}`
+                  : `${session?.manifest.name} / ${session?.manifest.capture ?? "Capture"}`}
+              </strong>
+              {target.folder && (
+                <button type="button" className="session-link-button" onClick={() => setTarget({ ...target, folder: null })}>
+                  {t("session.ingest.useCapture", { folder: session?.manifest.capture ?? "Capture" })}
+                </button>
+              )}
+              {target.album && (
+                <label className="session-ingest-album">
+                  <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
+                  {t("session.ingest.addToAlbum", { name: target.album.name })}
+                </label>
+              )}
+            </div>
             <label className="session-field">
               <span>
                 {t("session.ingest.secondCopy")}{" "}
@@ -1193,12 +1354,22 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
               </div>
             </label>
             </section>
+            <section className="session-ingest-naming">
+              <h3>{t("naming.title")}</h3>
+              <NamingEditor mode="ingest" value={template} onChange={setTemplate}
+                label={t("session.fields.filenameTemplate")} original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path} job={session?.manifest.name} total={chosen.size}
+                sequenceStart={sequenceStart} onSequenceStartChange={setSequenceStart} />
+            </section>
             <div className="session-copy-note">
               <Check size={16} />
               <span>
                 <Trans
                   i18nKey="session.ingest.copyNote"
-                  values={{ target: `${session?.manifest.name ?? ""} / Capture` }}
+                  values={{
+                    target: target.folder
+                      ? `${session?.manifest.name ?? ""} / ${fileName(target.folder)}`
+                      : `${session?.manifest.name ?? ""} / ${session?.manifest.capture ?? "Capture"}`,
+                  }}
                   components={{ strong: <strong /> }}
                 />
               </span>
@@ -1213,11 +1384,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
               <button
                 type="submit"
                 className="session-action session-primary"
-                disabled={!sources.length || !validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart)}
+                disabled={!chosen.size || scanning || !validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart)}
               >
                 <ArrowDownToLine size={16} />
-                {sources.length
-                  ? t("session.ingest.submit", { count: sources.length })
+                {chosen.size
+                  ? t("session.ingest.submit", { count: chosen.size })
                   : t("session.ingest.submitNone")}
               </button>
             </div>

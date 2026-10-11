@@ -633,6 +633,8 @@ pub fn run() {
             session_bridge::session_last,
             session_bridge::session_summary,
             session_bridge::session_ingest,
+            session_bridge::session_ingest_scan,
+            session_bridge::session_ingest_thumbnail,
             session_bridge::session_cancel_ingest,
             session_bridge::session_set_flag,
             session_bridge::session_last_directory,

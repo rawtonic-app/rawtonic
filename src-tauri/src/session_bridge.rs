@@ -426,31 +426,161 @@ pub async fn session_summary(directory: String) -> Result<Summary, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+/// One photograph found for the import dialog (`session_ingest_scan`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestCandidate {
+    pub path: PathBuf,
+    pub size: u64,
+    /// The library already holds a file with this content (same size and
+    /// content fingerprint); the import would skip it as a duplicate.
+    pub duplicate: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestScan {
+    pub files: Vec<IngestCandidate>,
+    /// More photographs were there than the dialog lists (`SCAN_LIMIT`).
+    pub truncated: bool,
+}
+
+/// The most photographs one import dialog lists (a drop of a whole drive
+/// stops here rather than walking it for minutes).
+const SCAN_LIMIT: usize = 20_000;
+
+/// The photographs in what was chosen or dropped for an import: files as
+/// they are, folders opened up recursively, only the formats the library
+/// shows (`formats::is_supported_image_file`, as the file dialog's filter),
+/// each with its size and whether the library at `directory` already holds
+/// it. Reads only.
 #[tauri::command]
+pub async fn session_ingest_scan(
+    directory: Option<String>,
+    paths: Vec<String>,
+) -> Result<IngestScan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let (files, truncated) = rawtonic_ingest::batch::expand_sources(
+            &paths,
+            |path| crate::formats::is_supported_image_file(path),
+            SCAN_LIMIT,
+        );
+        let duplicates = match directory {
+            Some(directory) => Library::open(Path::new(&directory))
+                .and_then(|lib| rawtonic_ingest::batch::known_in_library(&lib, &files))
+                .unwrap_or_else(|e| {
+                    log::warn!("Import: duplicates not checked: {e}");
+                    vec![false; files.len()]
+                }),
+            None => vec![false; files.len()],
+        };
+        let files = files
+            .into_iter()
+            .zip(duplicates)
+            .map(|(path, duplicate)| IngestCandidate {
+                size: fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+                path,
+                duplicate,
+            })
+            .collect();
+        Ok(IngestScan { files, truncated })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// A small JPEG preview of a photograph to import (the import dialog's
+/// grid), from its embedded camera preview; empty when there is none quickly.
+#[tauri::command]
+pub async fn session_ingest_thumbnail(path: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::ipc::Response::new(
+            crate::file_management::source_preview_jpeg(Path::new(&path), 320).unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// What `session-ingest-imported` reports for each photograph of an ingest,
+/// in order, as soon as it is in the library.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestedFile {
+    pub index: usize,
+    pub total: usize,
+    pub source: PathBuf,
+    /// The copy in the library (for a skipped duplicate: the photograph the
+    /// library already holds).
+    pub destination: Option<PathBuf>,
+    pub asset_id: Option<String>,
+    pub skipped: bool,
+    pub error: Option<String>,
+}
+
+impl IngestedFile {
+    fn new(done: &rawtonic_ingest::batch::FileDone<'_>) -> Self {
+        Self {
+            index: done.index,
+            total: done.total,
+            source: done.result.source.clone(),
+            destination: done.result.destination.clone(),
+            asset_id: done.result.asset_id.clone(),
+            skipped: done.result.skipped,
+            error: done.result.error.clone(),
+        }
+    }
+}
+
+/// Copies `sources` into the library (its capture folder, or `folder` of
+/// it), verified, one after the other. Each photograph is announced with
+/// `session-ingest-imported` as soon as it is in the library, so the grid
+/// shows it while the rest copy; `session-ingest-progress` carries the
+/// count and speed.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn session_ingest(
     directory: String,
     sources: Vec<String>,
     template: String,
     backup: Option<String>,
     sequence_start: Option<u32>,
+    folder: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
         return Err("An ingest is already running".into());
     }
     CANCEL_IMPORT.store(false, Ordering::Release);
-    let result=tauri::async_runtime::spawn_blocking(move|| {
-        let lib=Library::open(Path::new(&directory)).map_err(|e|e.to_string())?;let mut results=Vec::new();
-        let sequence_start = u64::from(sequence_start.unwrap_or(1));
-        let total=sources.len();let started=std::time::Instant::now();let mut bytes=0u64;
-        for (i,source) in sources.iter().enumerate() {
-            if CANCEL_IMPORT.load(Ordering::Acquire){break;}
-            let result=rawtonic_ingest::import_one_with_start(&lib,Path::new(source),&template,sequence_start + i as u64,sequence_start,backup.as_deref().map(Path::new),&CANCEL_IMPORT);
-            match result {Ok(r)=>{if !r.skipped && r.error.is_none(){bytes+=fs::metadata(source).map(|m|m.len()).unwrap_or(0);}results.push(r);},Err(e)=>results.push(rawtonic_ingest::ImportResult{source:source.into(),destination:None,backup:None,asset_id:None,error:Some(e.to_string()),skipped:false})}
-            let _=app.emit("session-ingest-progress",serde_json::json!({"current":i+1,"total":total,"bytes":bytes,"mbps":bytes as f64/1_000_000.0/started.elapsed().as_secs_f64().max(0.001)}));
-        }
-        Ok(results)
-    }).await.map_err(|e|e.to_string());
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        let sources: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
+        let options = rawtonic_ingest::batch::BatchOptions {
+            template: &template,
+            sequence_start: u64::from(sequence_start.unwrap_or(1)),
+            backup: backup.as_deref().map(Path::new),
+            folder: folder.as_deref().map(Path::new),
+        };
+        let started = std::time::Instant::now();
+        rawtonic_ingest::batch::import_batch(&lib, &sources, &options, &CANCEL_IMPORT, |done| {
+            let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
+            let _ = app.emit(
+                "session-ingest-progress",
+                serde_json::json!({
+                    "current": done.index + 1,
+                    "total": done.total,
+                    "bytes": done.bytes,
+                    "mbps": done.bytes as f64
+                        / 1_000_000.0
+                        / started.elapsed().as_secs_f64().max(0.001),
+                }),
+            );
+        })
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string());
     IMPORT_RUNNING.store(false, Ordering::Release);
     result?
 }
