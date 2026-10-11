@@ -666,8 +666,20 @@ pub struct AppSettings {
     pub active_waveform_channel: Option<String>,
     #[serde(default)]
     pub use_wgpu_renderer: Option<bool>,
-    #[serde(default)]
+    /// Legacy "neutral grey canvas" switch, replaced by `viewer_background`
+    /// (true → "medium", see `migrate_viewer_background`); read, never written.
+    #[serde(default, skip_serializing)]
     pub editor_neutral_grey_bg: Option<bool>,
+    /// Develop viewer background around the photograph: black, veryDark,
+    /// dark, medium, light or white (src/utils/viewerDisplay.ts); None: dark.
+    #[serde(default)]
+    pub viewer_background: Option<String>,
+    /// Fit leaves a proof margin around the photograph (X).
+    #[serde(default)]
+    pub viewer_proof_margin: Option<bool>,
+    /// Proof margin size in % of the viewer's shorter side; None: 6.
+    #[serde(default)]
+    pub viewer_proof_margin_percent: Option<f32>,
     #[serde(default)]
     pub canvas_input_mode: Option<String>,
     #[serde(default)]
@@ -804,7 +816,10 @@ impl Default for AppSettings {
             use_wgpu_renderer: Some(false),
             #[cfg(not(target_os = "linux"))]
             use_wgpu_renderer: Some(true),
-            editor_neutral_grey_bg: Some(false),
+            editor_neutral_grey_bg: None,
+            viewer_background: None,
+            viewer_proof_margin: Some(false),
+            viewer_proof_margin_percent: None,
             canvas_input_mode: Some("mouse".to_string()),
             zoom_speed_multiplier: Some(1.0),
             zoom_photo_to_pixel_click: Some(false),
@@ -859,6 +874,19 @@ pub fn is_tethering_supported() -> bool {
     cfg!(feature = "tethering")
 }
 
+/// The neutral grey canvas switch became the viewer background: a switched-on
+/// canvas is the Medium background. Returns whether the settings changed.
+fn migrate_viewer_background(settings: &mut AppSettings) -> bool {
+    match settings.editor_neutral_grey_bg.take() {
+        Some(true) if settings.viewer_background.is_none() => {
+            settings.viewer_background = Some("medium".to_string());
+            true
+        }
+        Some(_) => true,
+        None => false,
+    }
+}
+
 #[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let path = get_settings_path(&app_handle)?;
@@ -875,7 +903,7 @@ pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     }
     let all_current_keys = all_available_adjustments();
     let default_included = default_included_adjustments();
-    let mut settings_modified = false;
+    let mut settings_modified = migrate_viewer_background(&mut settings);
 
     if settings.root_folders.is_empty()
         && let Some(last) = &settings.last_root_path
@@ -951,6 +979,42 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neutral_grey_canvas_becomes_the_medium_viewer_background() {
+        let mut settings: AppSettings =
+            serde_json::from_value(serde_json::json!({ "editorNeutralGreyBg": true })).unwrap();
+        assert!(migrate_viewer_background(&mut settings));
+        assert_eq!(settings.viewer_background.as_deref(), Some("medium"));
+        let saved = serde_json::to_value(&settings).unwrap();
+        assert_eq!(saved["viewerBackground"], "medium");
+        assert!(saved.get("editorNeutralGreyBg").is_none());
+
+        // A chosen background stays; the switched-off canvas leaves the default.
+        let mut chosen: AppSettings = serde_json::from_value(
+            serde_json::json!({ "editorNeutralGreyBg": true, "viewerBackground": "white" }),
+        )
+        .unwrap();
+        migrate_viewer_background(&mut chosen);
+        assert_eq!(chosen.viewer_background.as_deref(), Some("white"));
+        let mut off: AppSettings =
+            serde_json::from_value(serde_json::json!({ "editorNeutralGreyBg": false })).unwrap();
+        migrate_viewer_background(&mut off);
+        assert_eq!(off.viewer_background, None);
+        assert!(!migrate_viewer_background(&mut off));
+    }
+
+    #[test]
+    fn viewer_settings_survive_a_save() {
+        let settings: AppSettings = serde_json::from_value(serde_json::json!({
+            "viewerBackground": "veryDark", "viewerProofMargin": true, "viewerProofMarginPercent": 10.0
+        }))
+        .unwrap();
+        let saved = serde_json::to_value(&settings).unwrap();
+        assert_eq!(saved["viewerBackground"], "veryDark");
+        assert_eq!(saved["viewerProofMargin"], true);
+        assert_eq!(saved["viewerProofMarginPercent"], 10.0);
+    }
 
     #[test]
     fn export_recipes_keep_their_tiff_depth_colour_space_and_destination_through_a_save() {

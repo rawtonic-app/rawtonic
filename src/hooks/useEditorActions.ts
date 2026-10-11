@@ -24,6 +24,7 @@ import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
 import { saveFailure } from './useLibraryActions';
+import { clampViewerZoom } from '../utils/viewerDisplay';
 
 export const debouncedSetHistory = debounce((newAdj: Adjustments) => {
   useEditorStore.getState().pushHistory(newAdj);
@@ -592,7 +593,8 @@ export function useEditorActions() {
         transformZoom = (targetZoomPercent * effectiveOriginalHeight) / baseRenderSize.height;
       }
     }
-    useEditorStore.getState().setEditor({ zoom: transformZoom });
+    // Never below fit (zoom 1, with the proof margin when it is on).
+    useEditorStore.getState().setEditor({ zoom: clampViewerZoom(transformZoom) });
   }, []);
 
   return {

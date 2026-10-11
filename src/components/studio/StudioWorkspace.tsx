@@ -47,6 +47,7 @@ import Editor from "../panel/Editor";
 import StudioExport from "./StudioExport";
 import PreviewBuildStatus from "./PreviewBuildStatus";
 import PreferencesDialog from "./PreferencesDialog";
+import { ProofMarginButton, ViewerCaptureInfo, ZoomPresetOptions } from "./ViewerControls";
 import OfflineBadge, { OfflineCount } from "./OfflineBadge";
 import ErrorBoundary from "../ui/ErrorBoundary";
 import StudioDevelop from "./StudioDevelop";
@@ -748,6 +749,7 @@ export default function StudioWorkspace(props: Props) {
                 <StudioToolBar />
                 <StudioLayerSelect />
                 <div className="studio-viewer-side is-end">
+                  <ProofMarginButton />
                   <button
                     title={withShortcut(t("studio.workspace.viewer.fitTitle"), ",")}
                     onClick={() => onZoom(1, true)}
@@ -772,11 +774,7 @@ export default function StudioWorkspace(props: Props) {
                     <option value="" disabled>
                       {t("studio.workspace.viewer.zoom")}
                     </option>
-                    <option value="0.25">25%</option>
-                    <option value="0.5">50%</option>
-                    <option value="1">100%</option>
-                    <option value="2">200%</option>
-                    <option value="4">400%</option>
+                    <ZoomPresetOptions />
                   </select>
                   <div className="studio-toolbar-divider" />
                   {/* Capture One keeps Reset at the right of its tool bar. */}
@@ -905,6 +903,7 @@ export default function StudioWorkspace(props: Props) {
                   ))}
                 </div>
                 <div className="studio-viewer-side is-end">
+                  <ViewerCaptureInfo />
                   <button
                     title={withShortcut(t("studio.workspace.footer.copyAdjustments"), "⇧⌘C")}
                     aria-label={t("studio.workspace.footer.copyAdjustments")}

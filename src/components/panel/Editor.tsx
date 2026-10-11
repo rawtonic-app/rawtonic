@@ -29,6 +29,16 @@ import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskO
 import { requestLiveMaskRender, withLiveMaskContainer } from '../../utils/liveMaskRender';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { keepDrawnMasksOnPhoto } from '../../utils/maskGeometry';
+import {
+  MIN_VIEWER_ZOOM,
+  isOutsidePhoto,
+  photoScreenRect,
+  resolveViewerBackground,
+  viewerBackgroundCss,
+  viewerBackgroundRgba,
+} from '../../utils/viewerDisplay';
+import { useContextMenu } from '../../context/ContextMenuContext';
+import { viewerBackgroundMenu } from './editor/viewerBackgroundMenu';
 
 const parseRgb = (rgbStr: string): [number, number, number, number] => {
   const match = rgbStr.match(/[\d.]+/g);
@@ -37,8 +47,6 @@ const parseRgb = (rgbStr: string): [number, number, number, number] => {
   }
   return [0, 0, 0, 1.0];
 };
-
-const NEUTRAL_GREY_RGB: [number, number, number, number] = [128 / 255, 128 / 255, 128 / 255, 1.0];
 
 const checkCropValid = (pixelCrop: Partial<Crop>, imageW: number, imageH: number, rotation: number) => {
   if (pixelCrop.x === undefined || pixelCrop.y === undefined || !pixelCrop.width || !pixelCrop.height) {
@@ -112,6 +120,8 @@ interface EditorProps {
 
 export default function Editor({ onContextMenu, transformWrapperRef }: EditorProps) {
   const appSettings = useSettingsStore((s) => s.appSettings);
+  const viewerBackground = resolveViewerBackground(appSettings);
+  const { showContextMenu } = useContextMenu();
   const isFullScreen = useUIStore((s) => s.isFullScreen);
   const activePanel = useUIStore((s) => s.activePanel);
   const isInstantTransition = useUIStore((s) => s.isInstantTransition);
@@ -404,23 +414,29 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     return null;
   }, [selectedImage, adjustments.crop, adjustments.orientationSteps]);
 
-  const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions);
+  const proofMarginEnabled = appSettings?.viewerProofMargin ?? false;
+  const proofMarginPercent = appSettings?.viewerProofMarginPercent ?? undefined;
+  const proofMargin = useMemo(
+    () => ({ enabled: proofMarginEnabled, percent: proofMarginPercent }),
+    [proofMarginEnabled, proofMarginPercent],
+  );
+  const imageRenderSize = useImageRenderSize(imageContainerRef, croppedDimensions, proofMargin);
   const imageRenderSizeRef = useRef(imageRenderSize);
   imageRenderSizeRef.current = imageRenderSize;
 
   const transformConfig = useMemo(() => {
     if (!selectedImage || !imageRenderSize.scale || !originalSize) {
-      return { minScale: 0.1, maxScale: 20 };
+      return { minScale: MIN_VIEWER_ZOOM, maxScale: 20 };
     }
 
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     const scaleFor100Percent = 1 / imageRenderSize.scale;
 
-    const minScale = (0.1 / dpr) * scaleFor100Percent;
     const maxScale = (2.0 / dpr) * scaleFor100Percent;
 
+    // Never smaller than fit (with the proof margin when it is on).
     return {
-      minScale: Math.max(0.1, minScale),
+      minScale: MIN_VIEWER_ZOOM,
       maxScale: Math.max(20, maxScale),
     };
   }, [selectedImage, imageRenderSize.scale, originalSize]);
@@ -1377,8 +1393,6 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   useEffect(() => {
     const rootStyle = getComputedStyle(document.documentElement);
     const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(24, 24, 24)';
-    const bgSecondaryStr = rootStyle.getPropertyValue('--app-bg-secondary') || 'rgb(35, 35, 35)';
-    const isNeutralGrey = appSettings?.editorNeutralGreyBg ?? false;
 
     wgpuStateRef.current = {
       useWgpuRenderer: appSettings?.useWgpuRenderer,
@@ -1391,11 +1405,12 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       cropBox,
       cropRotation,
       bgPrimary: parseRgb(bgPrimaryStr),
-      bgSecondary: isNeutralGrey ? NEUTRAL_GREY_RGB : parseRgb(bgSecondaryStr),
+      // Around the photograph (proof margin and empty viewer) natively.
+      bgSecondary: viewerBackgroundRgba(viewerBackground),
     };
   }, [
     appSettings?.useWgpuRenderer,
-    appSettings?.editorNeutralGreyBg,
+    viewerBackground,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
     hasRenderedFirstFrame,
@@ -1412,7 +1427,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     syncWgpuRef.current();
   }, [
     appSettings?.useWgpuRenderer,
-    appSettings?.editorNeutralGreyBg,
+    viewerBackground,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
     hasRenderedFirstFrame,
@@ -1578,7 +1593,12 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             // (native activation, contained and centred like irs).
             viewport:
               !state.isCropping && Math.abs(scale - 1) < 1e-3 && Math.abs(posX) < 0.5 && Math.abs(posY) < 0.5
-                ? [currentRect.left * dpr, currentRect.top * dpr, cw * dpr, ch * dpr]
+                ? [
+                    (currentRect.left + (irs.margin ?? 0)) * dpr,
+                    (currentRect.top + (irs.margin ?? 0)) * dpr,
+                    Math.max(cw - 2 * (irs.margin ?? 0), 1) * dpr,
+                    Math.max(ch - 2 * (irs.margin ?? 0), 1) * dpr,
+                  ]
                 : null,
           },
         })
@@ -1610,6 +1630,28 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       window.removeEventListener('resize', scheduleSync);
     };
   }, []);
+
+  // Right-click on the empty area around the photograph chooses the viewer
+  // background (Capture One); on the photograph the editor's menu opens.
+  const handleViewerContextMenu = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const container = imageContainerRef.current;
+      const irs = imageRenderSizeRef.current;
+      if (!container || isCropping || irs.width === 0 || irs.height === 0) {
+        onContextMenu(event);
+        return;
+      }
+      const photo = photoScreenRect(container.getBoundingClientRect(), transformStateRef.current, irs);
+      if (!isOutsidePhoto(event.clientX, event.clientY, photo)) {
+        onContextMenu(event);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      showContextMenu(event.clientX, event.clientY, viewerBackgroundMenu());
+    },
+    [isCropping, onContextMenu, showContextMenu],
+  );
 
   const overlayTriggerHash = useMemo(() => {
     let activeMaskDef = null;
@@ -2272,10 +2314,12 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         className={clsx(
           'flex-1 relative overflow-hidden touch-none',
           'rounded-none',
-          !isWgpuActive && (appSettings?.editorNeutralGreyBg ? 'bg-[#808080]' : 'bg-bg-secondary'),
         )}
-        style={{ cursor: cursorStyle }}
-        onContextMenu={onContextMenu}
+        style={{
+          cursor: cursorStyle,
+          backgroundColor: isWgpuActive ? undefined : viewerBackgroundCss(viewerBackground),
+        }}
+        onContextMenu={handleViewerContextMenu}
         ref={imageContainerRef}
         onPointerDownCapture={handlePointerDown}
         onPointerMove={handlePointerMove}

@@ -1,4 +1,5 @@
 import { useState, useLayoutEffect } from 'react';
+import { fitInViewer, proofMarginPx } from '../utils/viewerDisplay';
 
 export interface ImageDimensions {
   height: number;
@@ -13,6 +14,8 @@ export interface RenderSize {
   offsetY: number;
   scale: number;
   width: number;
+  /** Proof margin around the fitted photograph, CSS pixels (0 when off). */
+  margin?: number;
 }
 
 const DEFAULT_SIZE: RenderSize = {
@@ -23,15 +26,25 @@ const DEFAULT_SIZE: RenderSize = {
   offsetY: 0,
   containerWidth: 0,
   containerHeight: 0,
+  margin: 0,
 };
+
+/** Proof margin of the viewer: on/off and its size in % of the shorter side. */
+export interface ProofMargin {
+  enabled: boolean;
+  percent?: number;
+}
 
 export const useImageRenderSize = (
   containerRef: React.RefObject<HTMLElement | null>,
   imageDimensions: ImageDimensions | null,
+  proofMargin?: ProofMargin,
 ) => {
   const [renderSize, setRenderSize] = useState<RenderSize>(DEFAULT_SIZE);
   const imgWidth = imageDimensions?.width;
   const imgHeight = imageDimensions?.height;
+  const marginEnabled = proofMargin?.enabled ?? false;
+  const marginPercent = proofMargin?.percent;
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -43,22 +56,9 @@ export const useImageRenderSize = (
 
     const updateSize = () => {
       const { clientWidth: containerWidth, clientHeight: containerHeight } = container;
-      const imageAspectRatio = imgWidth / imgHeight;
-      const containerAspectRatio = containerWidth / containerHeight;
-
-      let width, height;
-      if (imageAspectRatio > containerAspectRatio) {
-        width = containerWidth;
-        height = containerWidth / imageAspectRatio;
-      } else {
-        height = containerHeight;
-        width = containerHeight * imageAspectRatio;
-      }
-
-      const offsetX = (containerWidth - width) / 2;
-      const offsetY = (containerHeight - height) / 2;
-
-      setRenderSize({ width, height, scale: width / imgWidth, offsetX, offsetY, containerWidth, containerHeight });
+      const margin = marginEnabled ? proofMarginPx(containerWidth, containerHeight, marginPercent) : 0;
+      const fitted = fitInViewer(containerWidth, containerHeight, imgWidth, imgHeight, margin);
+      setRenderSize({ ...fitted, containerWidth, containerHeight, margin });
     };
 
     updateSize();
@@ -70,7 +70,7 @@ export const useImageRenderSize = (
     resizeObserver.observe(container);
 
     return () => resizeObserver.disconnect();
-  }, [containerRef, imgWidth, imgHeight]);
+  }, [containerRef, imgWidth, imgHeight, marginEnabled, marginPercent]);
 
   return renderSize;
 };

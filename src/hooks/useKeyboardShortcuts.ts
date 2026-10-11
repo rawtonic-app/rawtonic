@@ -373,6 +373,14 @@ export const useKeyboardShortcuts = ({
           s.editor.setEditor({ clippingWarnings: !s.editor.clippingWarnings });
         },
       },
+      toggle_proof_margin: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage && !!s.settings.appSettings,
+        execute: (e, s) => {
+          e.preventDefault();
+          const appSettings = s.settings.appSettings!;
+          void s.settings.handleSettingsChange({ ...appSettings, viewerProofMargin: !appSettings.viewerProofMargin });
+        },
+      },
       toggle_soft_proof: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
