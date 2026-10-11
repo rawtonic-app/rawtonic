@@ -1049,6 +1049,7 @@
         "auto_adjust": "Ajust automàtic",
         "brush_size_down": "Reduir mida del pinzell",
         "brush_size_up": "Augmentar mida del pinzell",
+        "clear_reference": "Treu la referència",
         "color_label_blue": "Etiqueta de color: Blau",
         "color_label_green": "Etiqueta de color: Verd",
         "color_label_none": "Etiqueta de color: Cap",
@@ -1068,6 +1069,7 @@
         "open_settings": "Obrir Configuració",
         "paste_adjustments": "Enganxar ajustaments copiats",
         "paste_files": "Enganxar fitxers a la carpeta actual",
+        "pin_reference": "Fixa la foto principal com a referència",
         "preview_next": "Imatge següent",
         "preview_prev": "Imatge anterior",
         "rate_0": "Puntuació d'estrelles: 0",
@@ -2390,11 +2392,16 @@
       "rating_one": "{{count}} estrella",
       "rating_many": "{{count}} estrelles",
       "rating_other": "{{count}} estrelles",
+      "reference": "Referència: {{name}}",
+      "referenceTitle": "Foto de referència (⇧Retorn fixa la principal, ⌘Retorn la treu)",
       "reject": "Rebutja {{name}}",
       "remove": "Treu {{name}} de la selecció",
       "selectSeveral": "selecciona diverses fotos per comparar-les",
       "toggle": "Vista múltiple",
-      "unsupported": "La vista múltiple necessita la visualització nativa de fotos, que no està disponible en aquest sistema"
+      "unpin": "Desfixa la referència {{name}}",
+      "unsupported": "La vista múltiple necessita la visualització nativa de fotos, que no està disponible en aquest sistema",
+      "zoomLock": "Bloqueja el zoom",
+      "zoomLockTitle": "Bloqueja el zoom: el zoom de la foto principal amplia i desplaça totes les fotos al mateix punt; desactivat, només s’amplia la principal"
     },
     "people": {
       "aria": "Màscara de persones",

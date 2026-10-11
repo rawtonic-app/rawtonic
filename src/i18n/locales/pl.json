@@ -1097,6 +1097,7 @@
         "auto_adjust": "Automatyczna korekta",
         "brush_size_down": "Zmniejsz rozmiar pędzla",
         "brush_size_up": "Zwiększ rozmiar pędzla",
+        "clear_reference": "Usuń wzorzec",
         "color_label_blue": "Etykieta koloru: Niebieski",
         "color_label_green": "Etykieta koloru: Zielony",
         "color_label_none": "Etykieta koloru: Brak",
@@ -1116,6 +1117,7 @@
         "open_settings": "Otwórz ustawienia",
         "paste_adjustments": "Wklej skopiowane ustawienia",
         "paste_files": "Wklej pliki do bieżącego folderu",
+        "pin_reference": "Przypnij zdjęcie główne jako wzorzec",
         "preview_next": "Następny obraz",
         "preview_prev": "Poprzedni obraz",
         "rate_0": "Ocena: 0",
@@ -2461,11 +2463,16 @@
       "rating_few": "{{count}} gwiazdki",
       "rating_many": "{{count}} gwiazdek",
       "rating_other": "{{count}} gwiazdki",
+      "reference": "Wzorzec: {{name}}",
+      "referenceTitle": "Zdjęcie wzorcowe (⇧Return przypina zdjęcie główne, ⌘Return je odpina)",
       "reject": "Odrzuć {{name}}",
       "remove": "Usuń {{name}} z zaznaczenia",
       "selectSeveral": "zaznacz kilka zdjęć, aby je porównać",
       "toggle": "Widok wielu zdjęć",
-      "unsupported": "Widok wielu zdjęć wymaga natywnego wyświetlania zdjęć, niedostępnego w tym systemie"
+      "unpin": "Odepnij zdjęcie wzorcowe {{name}}",
+      "unsupported": "Widok wielu zdjęć wymaga natywnego wyświetlania zdjęć, niedostępnego w tym systemie",
+      "zoomLock": "Zablokuj powiększenie",
+      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa każde zdjęcie do tego samego miejsca; wyłączone — powiększa się tylko zdjęcie główne"
     },
     "people": {
       "aria": "Maska osób",

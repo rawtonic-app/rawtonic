@@ -782,6 +782,7 @@ pub fn run() {
             image_loader::load_image_proxy,
             editor_preview::activate_photo,
             multi_view::set_multi_view,
+            multi_view::set_multi_view_zoom,
             proxy_worker::prepare_preview_proxies,
             proxy_worker::build_previews,
             proxy_worker::stop_preview_build,

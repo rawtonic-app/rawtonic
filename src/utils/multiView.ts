@@ -109,18 +109,26 @@ export interface MultiViewCells {
 }
 
 /**
- * The photographs given a cell: all of them up to {@link MAX_CELLS}; with
- * more, the first ones and a last cell for the rest, the primary always
- * among those shown.
+ * The photographs given a cell: the pinned `reference` first (Capture One's
+ * compare variant, not part of the selection), then the selection up to
+ * {@link MAX_CELLS}; with more, the first ones and a last cell for the rest,
+ * the primary always among those shown.
  */
-export function cellsFor(selection: string[], primary: string | null): MultiViewCells {
-  if (selection.length <= MAX_CELLS) return { shown: selection, more: 0 };
-  const slots = MAX_CELLS - 1;
-  let shown = selection.slice(0, slots);
-  if (primary && !shown.includes(primary) && selection.includes(primary)) {
-    shown = [...selection.slice(0, slots - 1), primary];
+export function cellsFor(
+  selection: string[],
+  primary: string | null,
+  reference: string | null = null,
+): MultiViewCells {
+  const rest = reference ? selection.filter((path) => path !== reference) : selection;
+  const pinned = reference ? [reference] : [];
+  const room = MAX_CELLS - pinned.length;
+  if (rest.length <= room) return { shown: [...pinned, ...rest], more: 0 };
+  const slots = room - 1;
+  let shown = rest.slice(0, slots);
+  if (primary && !shown.includes(primary) && rest.includes(primary)) {
+    shown = [...rest.slice(0, slots - 1), primary];
   }
-  return { shown, more: selection.length - shown.length };
+  return { shown: [...pinned, ...shown], more: rest.length - shown.length };
 }
 
 /** The photograph `step` places from `current` in `selection`, wrapping. */
@@ -191,4 +199,45 @@ export function changedCopyableKeys(previous: Adjustments, next: Adjustments): P
     if (!sameAdjustmentValue(before[key], after[key])) changed[key] = after[key];
   }
   return changed as Partial<Adjustments>;
+}
+
+/** The zoom all cells share (Lightroom's locked zoom): device pixels per
+ * full-resolution pixel of the shown photograph and the photograph point
+ * (0–1 of its shown width and height) at the centre of each cell. */
+export interface SharedZoom {
+  scale: number;
+  center: [number, number];
+}
+
+/**
+ * The primary's zoom as the editor shows it in its cell: `transform` is the
+ * editor's pan/zoom (scale relative to fit, position in CSS px), `fit` the
+ * photograph's fit-size placement in its container (CSS px) and `shown` the
+ * shown photograph's size in full-resolution pixels. None at fit.
+ */
+export function sharedZoomOf(
+  transform: { scale: number; positionX: number; positionY: number },
+  fit: { width: number; height: number; offsetX: number; offsetY: number; containerWidth: number; containerHeight: number },
+  shown: { width: number; height: number },
+  dpr: number,
+): SharedZoom | null {
+  if (transform.scale <= 1.01 || fit.width <= 0 || fit.height <= 0 || shown.width <= 0 || shown.height <= 0) {
+    return null;
+  }
+  const visibleX = (fit.containerWidth / 2 - transform.positionX) / transform.scale;
+  const visibleY = (fit.containerHeight / 2 - transform.positionY) / transform.scale;
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  return {
+    scale: (fit.width * transform.scale * dpr) / shown.width,
+    center: [clamp((visibleX - fit.offsetX) / fit.width), clamp((visibleY - fit.offsetY) / fit.height)],
+  };
+}
+
+export function sameZoom(a: SharedZoom | null, b: SharedZoom | null): boolean {
+  if (a === null || b === null) return a === b;
+  return (
+    Math.abs(a.scale - b.scale) < 1e-4 &&
+    Math.abs(a.center[0] - b.center[0]) < 1e-4 &&
+    Math.abs(a.center[1] - b.center[1]) < 1e-4
+  );
 }

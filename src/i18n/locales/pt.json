@@ -1049,6 +1049,7 @@
         "auto_adjust": "Ajuste automático",
         "brush_size_down": "Diminuir tamanho do pincel",
         "brush_size_up": "Aumentar tamanho do pincel",
+        "clear_reference": "Remover a referência",
         "color_label_blue": "Rótulo de cor: Azul",
         "color_label_green": "Rótulo de cor: Verde",
         "color_label_none": "Rótulo de cor: Nenhum",
@@ -1068,6 +1069,7 @@
         "open_settings": "Abrir configurações",
         "paste_adjustments": "Colar ajustes copiados",
         "paste_files": "Colar arquivo(s) na pasta atual",
+        "pin_reference": "Fixar a foto principal como referência",
         "preview_next": "Próxima imagem",
         "preview_prev": "Imagem anterior",
         "rate_0": "Avaliação por estrelas: 0",
@@ -2390,11 +2392,16 @@
       "rating_one": "{{count}} estrela",
       "rating_many": "{{count}} estrelas",
       "rating_other": "{{count}} estrelas",
+      "reference": "Referência: {{name}}",
+      "referenceTitle": "Foto de referência (⇧Return fixa a principal, ⌘Return remove)",
       "reject": "Rejeitar {{name}}",
       "remove": "Remover {{name}} da seleção",
       "selectSeveral": "selecione várias fotos para compará-las",
       "toggle": "Vista múltipla",
-      "unsupported": "A vista múltipla precisa da exibição nativa de fotos, que não está disponível neste sistema"
+      "unpin": "Desafixar a referência {{name}}",
+      "unsupported": "A vista múltipla precisa da exibição nativa de fotos, que não está disponível neste sistema",
+      "zoomLock": "Bloquear zoom",
+      "zoomLockTitle": "Bloquear zoom: o zoom da foto principal amplia e move todas as fotos para o mesmo ponto; desligado, só a principal amplia"
     },
     "people": {
       "aria": "Máscara de pessoas",

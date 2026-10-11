@@ -162,3 +162,23 @@
   color: #1d1e20;
   background: #e8890c;
 }
+/* The pinned reference (Capture One's compare variant): orange frame and a
+   pin, first in the grid. */
+.studio-mv-cell.is-reference::after {
+  border-color: #e8890c;
+  border-width: 2px;
+}
+.studio-mv-pin {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  background: #e8890c;
+  color: #1d1e20;
+  pointer-events: auto;
+}

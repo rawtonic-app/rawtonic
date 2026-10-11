@@ -974,6 +974,7 @@
         "auto_adjust": "自動補正",
         "brush_size_down": "ブラシサイズを縮小",
         "brush_size_up": "ブラシサイズを拡大",
+        "clear_reference": "参照を解除",
         "color_label_blue": "カラーラベル: ブルー",
         "color_label_green": "カラーラベル: グリーン",
         "color_label_none": "カラーラベル: なし",
@@ -993,6 +994,7 @@
         "open_settings": "設定を開く",
         "paste_adjustments": "コピーした補正設定を貼り付け",
         "paste_files": "現在のフォルダにファイルを貼り付け",
+        "pin_reference": "メイン写真を参照として固定",
         "preview_next": "次の画像",
         "preview_prev": "前の画像",
         "rate_0": "星評価: 0",
@@ -2269,11 +2271,16 @@
       "pick": "{{name}} を採用",
       "rate_other": "{{name}} に星 {{count}} つを付ける",
       "rating_other": "星 {{count}} つ",
+      "reference": "参照：{{name}}",
+      "referenceTitle": "参照写真（⇧Return でメイン写真を固定、⌘Return で解除）",
       "reject": "{{name}} を不採用",
       "remove": "{{name}} を選択から外す",
       "selectSeveral": "比較する写真を複数選択してください",
       "toggle": "マルチビュー",
-      "unsupported": "マルチビューにはネイティブの写真表示が必要ですが、このシステムでは利用できません"
+      "unpin": "参照写真 {{name}} の固定を解除",
+      "unsupported": "マルチビューにはネイティブの写真表示が必要ですが、このシステムでは利用できません",
+      "zoomLock": "ズームを連動",
+      "zoomLockTitle": "ズームを連動：メイン写真をズームすると、すべての写真が同じ位置にズーム・移動します。オフではメイン写真だけがズームします"
     },
     "people": {
       "aria": "人物マスク",

@@ -14,7 +14,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { updateAdjustments, useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
-import { inSingleView, useMultiViewStore } from '../store/useMultiViewStore';
+import { useMultiViewStore } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 
 interface KeyboardShortcutsProps {
@@ -139,14 +139,13 @@ export const useKeyboardShortcuts = ({
     };
     const ratedPaths = (s: ShortcutState) =>
       multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
-    // The multi view shows every photograph to fit: zooming in first returns
-    // to the single view of the primary; zooming out does nothing there.
-    const zoomAction = (outward: boolean, zoom: (s: ShortcutState) => void): ShortcutAction => ({
+    // In the multi view the zoom keys zoom the primary in its cell; with the
+    // zoom lock every other cell follows (MultiViewStage).
+    const zoomAction = (zoom: (s: ShortcutState) => void): ShortcutAction => ({
       shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-      execute: (e) => {
+      execute: (e, s) => {
         e.preventDefault();
-        if (outward && useMultiViewStore.getState().active) return;
-        inSingleView(() => zoom(getStoreState()));
+        zoom(s);
       },
     });
 
@@ -247,7 +246,7 @@ export const useKeyboardShortcuts = ({
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         },
       },
-      zoom_in_step: zoomAction(false, (s) => {
+      zoom_in_step: zoomAction((s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -255,7 +254,7 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.min(currentPercent + 0.1, 2.0));
       }),
-      zoom_out_step: zoomAction(true, (s) => {
+      zoom_out_step: zoomAction((s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -263,7 +262,7 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
       }),
-      cycle_zoom: zoomAction(false, (s) => {
+      cycle_zoom: zoomAction((s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const { originalSize, displaySize, baseRenderSize } = s.editor;
         const currentPercent =
@@ -290,7 +289,7 @@ export const useKeyboardShortcuts = ({
           handleZoomChange(0, true);
         }
       }),
-      zoom_in: zoomAction(false, (s) => {
+      zoom_in: zoomAction((s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -298,7 +297,7 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.min(currentPercent * 1.2, 2.0));
       }),
-      zoom_out: zoomAction(true, (s) => {
+      zoom_out: zoomAction((s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -310,11 +309,10 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e) => {
           e.preventDefault();
-          // The multi view already shows every photograph to fit.
-          if (!useMultiViewStore.getState().active) handleZoomChange(0, true);
+          handleZoomChange(0, true);
         },
       },
-      zoom_100: zoomAction(false, () => handleZoomChange(1.0)),
+      zoom_100: zoomAction(() => handleZoomChange(1.0)),
       toggle_multi_view: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
@@ -323,6 +321,31 @@ export const useKeyboardShortcuts = ({
           const multi = useMultiViewStore.getState();
           if (osPlatform === 'linux' || appSettings?.useWgpuRenderer === false || multi.unavailable) return;
           multi.toggle();
+        },
+      },
+      pin_reference: {
+        // Capture One's ⇧Return: the primary becomes the reference, shown
+        // first and kept while the primary steps on through the rest.
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e, s) => {
+          e.preventDefault();
+          const primary = s.editor.selectedImage!.path;
+          const selection = orderedSelection(
+            sortedListRef.current.map((image) => image.path),
+            s.library.multiSelectedPaths,
+          );
+          const next = stepPrimary(selection, primary, 1);
+          useMultiViewStore.getState().setReference(primary);
+          if (!next || next === primary) return;
+          s.library.setLibrary({ multiSelectedPaths: selection.filter((path) => path !== primary) });
+          handleImageSelect(next, true);
+        },
+      },
+      clear_reference: {
+        shouldFire: () => useMultiViewStore.getState().reference !== null,
+        execute: (e) => {
+          e.preventDefault();
+          useMultiViewStore.getState().setReference(null);
         },
       },
       rotate_left: {

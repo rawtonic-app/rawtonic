@@ -1001,6 +1001,7 @@
         "auto_adjust": "Auto adjust",
         "brush_size_down": "Decrease brush size",
         "brush_size_up": "Increase brush size",
+        "clear_reference": "Clear the reference",
         "color_label_blue": "Color label: Blue",
         "color_label_green": "Color label: Green",
         "color_label_none": "Color label: None",
@@ -1020,6 +1021,7 @@
         "open_settings": "Open settings",
         "paste_adjustments": "Paste copied adjustments",
         "paste_files": "Paste file(s) to current folder",
+        "pin_reference": "Pin the primary as reference",
         "preview_next": "Next image",
         "preview_prev": "Previous image",
         "rate_0": "Star rating: 0",
@@ -2319,11 +2321,16 @@
       "rate_other": "Rate {{name}} {{count}} stars",
       "rating_one": "{{count}} star",
       "rating_other": "{{count}} stars",
+      "reference": "Reference: {{name}}",
+      "referenceTitle": "Reference photograph (⇧Return pins the primary, ⌘Return clears it)",
       "reject": "Reject {{name}}",
       "remove": "Remove {{name}} from the selection",
       "selectSeveral": "select several photographs to compare them",
       "toggle": "Multi view",
-      "unsupported": "Multi view needs the native photo display, which is not available on this system"
+      "unpin": "Unpin the reference {{name}}",
+      "unsupported": "Multi view needs the native photo display, which is not available on this system",
+      "zoomLock": "Lock zoom",
+      "zoomLockTitle": "Lock zoom: zooming the primary zooms and pans every photograph to the same point; off, only the primary zooms"
     },
     "people": {
       "aria": "People mask",

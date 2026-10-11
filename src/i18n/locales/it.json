@@ -1049,6 +1049,7 @@
         "auto_adjust": "Regolazione automatica",
         "brush_size_down": "Riduci dimensione pennello",
         "brush_size_up": "Aumenta dimensione pennello",
+        "clear_reference": "Rimuovi il riferimento",
         "color_label_blue": "Etichetta colore: Blu",
         "color_label_green": "Etichetta colore: Verde",
         "color_label_none": "Etichetta colore: Nessuna",
@@ -1068,6 +1069,7 @@
         "open_settings": "Apri le impostazioni",
         "paste_adjustments": "Incolla regolazioni copiate",
         "paste_files": "Incolla file nella cartella corrente",
+        "pin_reference": "Fissa la foto principale come riferimento",
         "preview_next": "Immagine successiva",
         "preview_prev": "Immagine precedente",
         "rate_0": "Valutazione stelle: 0",
@@ -2390,11 +2392,16 @@
       "rating_one": "{{count}} stella",
       "rating_many": "{{count}} stelle",
       "rating_other": "{{count}} stelle",
+      "reference": "Riferimento: {{name}}",
+      "referenceTitle": "Foto di riferimento (⇧Invio fissa la principale, ⌘Invio la rimuove)",
       "reject": "Scarta {{name}}",
       "remove": "Rimuovi {{name}} dalla selezione",
       "selectSeveral": "seleziona più foto per confrontarle",
       "toggle": "Vista multipla",
-      "unsupported": "La vista multipla richiede la visualizzazione nativa delle foto, non disponibile su questo sistema"
+      "unpin": "Sblocca il riferimento {{name}}",
+      "unsupported": "La vista multipla richiede la visualizzazione nativa delle foto, non disponibile su questo sistema",
+      "zoomLock": "Blocca zoom",
+      "zoomLockTitle": "Blocca zoom: lo zoom della foto principale ingrandisce e sposta ogni foto nello stesso punto; disattivato, si ingrandisce solo la principale"
     },
     "people": {
       "aria": "Maschera persone",

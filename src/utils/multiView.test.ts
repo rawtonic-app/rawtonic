@@ -12,6 +12,8 @@ import {
   fileName,
   orderedSelection,
   packGrid,
+  sameZoom,
+  sharedZoomOf,
   stepPrimary,
 } from './multiView';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
@@ -144,5 +146,54 @@ describe('changedCopyableKeys', () => {
     const before = { ...INITIAL_ADJUSTMENTS } as Adjustments;
     const after = { ...before, spots: [{ id: 's' }] } as unknown as Adjustments;
     expect(changedCopyableKeys(before, after)).toEqual({});
+  });
+});
+
+describe('reference photograph', () => {
+  const many = Array.from({ length: 15 }, (_, i) => `p${i}`);
+
+  it('comes first and is not counted twice', () => {
+    expect(cellsFor(['a', 'b'], 'a', 'r')).toEqual({ shown: ['r', 'a', 'b'], more: 0 });
+    expect(cellsFor(['a', 'r', 'b'], 'a', 'r')).toEqual({ shown: ['r', 'a', 'b'], more: 0 });
+  });
+
+  it('takes one of the twelve cells; the primary stays visible', () => {
+    const cells = cellsFor(many, 'p14', 'ref');
+    expect(cells.shown).toHaveLength(11);
+    expect(cells.shown[0]).toBe('ref');
+    expect(cells.shown).toContain('p14');
+    expect(cells.more).toBe(5);
+  });
+});
+
+describe('sharedZoomOf', () => {
+  // A 6000 × 4000 photograph fitted to 600 × 400 CSS px in a 600 × 500
+  // container (offset 50 px down), at 2× device pixels.
+  const fit = { width: 600, height: 400, offsetX: 0, offsetY: 50, containerWidth: 600, containerHeight: 500 };
+  const shown = { width: 6000, height: 4000 };
+
+  it('is nothing at fit', () => {
+    expect(sharedZoomOf({ scale: 1, positionX: 0, positionY: 0 }, fit, shown, 2)).toBeNull();
+  });
+
+  it('gives device px per photo px and the photograph point at the centre', () => {
+    // Scale 5: 3000 CSS px wide = 6000 device px for 6000 photo px → 1:1.
+    // The container centre shows CSS (300, 250) of the fit image (its
+    // centre): position = centre − point × scale.
+    const zoom = sharedZoomOf({ scale: 5, positionX: 300 - 300 * 5, positionY: 250 - 250 * 5 }, fit, shown, 2);
+    expect(zoom?.scale).toBeCloseTo(1);
+    expect(zoom?.center[0]).toBeCloseTo(0.5);
+    expect(zoom?.center[1]).toBeCloseTo(0.5);
+    // Panned to the left edge of the photograph.
+    const left = sharedZoomOf({ scale: 5, positionX: 300, positionY: 250 - 250 * 5 }, fit, shown, 2);
+    expect(left?.center[0]).toBeCloseTo(0);
+  });
+
+  it('compares zooms with a tolerance', () => {
+    const a = { scale: 1, center: [0.5, 0.5] as [number, number] };
+    expect(sameZoom(a, { scale: 1.00001, center: [0.50001, 0.5] })).toBe(true);
+    expect(sameZoom(a, { scale: 1.1, center: [0.5, 0.5] })).toBe(false);
+    expect(sameZoom(null, null)).toBe(true);
+    expect(sameZoom(a, null)).toBe(false);
   });
 });

@@ -974,6 +974,7 @@
         "auto_adjust": "자동 보정",
         "brush_size_down": "브러시 크기 줄이기",
         "brush_size_up": "브러시 크기 늘리기",
+        "clear_reference": "기준 해제",
         "color_label_blue": "색상 레이블: 파랑",
         "color_label_green": "색상 레이블: 초록",
         "color_label_none": "색상 레이블: 없음",
@@ -993,6 +994,7 @@
         "open_settings": "설정 열기",
         "paste_adjustments": "복사한 조정값 붙여넣기",
         "paste_files": "현재 폴더에 파일 붙여넣기",
+        "pin_reference": "기본 사진을 기준으로 고정",
         "preview_next": "다음 이미지",
         "preview_prev": "이전 이미지",
         "rate_0": "별점: 0",
@@ -2269,11 +2271,16 @@
       "pick": "{{name}} 선택",
       "rate_other": "{{name}}에 별 {{count}}개 지정",
       "rating_other": "별 {{count}}개",
+      "reference": "기준: {{name}}",
+      "referenceTitle": "기준 사진(⇧Return으로 기본 사진 고정, ⌘Return으로 해제)",
       "reject": "{{name}} 거부",
       "remove": "선택에서 {{name}} 제거",
       "selectSeveral": "비교할 사진을 여러 장 선택하세요",
       "toggle": "다중 보기",
-      "unsupported": "다중 보기는 기본 사진 디스플레이가 필요하지만 이 시스템에서는 사용할 수 없습니다"
+      "unpin": "기준 사진 {{name}} 고정 해제",
+      "unsupported": "다중 보기는 기본 사진 디스플레이가 필요하지만 이 시스템에서는 사용할 수 없습니다",
+      "zoomLock": "확대/축소 연동",
+      "zoomLockTitle": "확대/축소 연동: 기본 사진을 확대하면 모든 사진이 같은 위치로 확대·이동합니다. 끄면 기본 사진만 확대됩니다"
     },
     "people": {
       "aria": "인물 마스크",

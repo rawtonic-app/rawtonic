@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { Flag, Star, X } from "lucide-react";
+import { Flag, Pin, PinOff, Star, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -11,6 +11,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { useMultiViewStore } from "../../store/useMultiViewStore";
 import { useSessionBar } from "../session/sessionBar";
 import { Invokes, type ImageFile } from "../ui/AppProperties";
+import type { TransformWrapperHandle } from "../panel/Editor";
 import {
   captureLine,
   captureValues,
@@ -18,8 +19,11 @@ import {
   fileName,
   orderedSelection,
   packGrid,
+  sameZoom,
+  sharedZoomOf,
   stepPrimary,
   type GridCell,
+  type SharedZoom,
 } from "../../utils/multiView";
 import { useEditAllSelected } from "../../hooks/useEditAllSelected";
 import "./multiView.css";
@@ -31,6 +35,8 @@ interface Props {
   onRate(rating: number, paths?: string[]): void;
   /** The live editor of the primary photograph. */
   children: ReactNode;
+  /** The editor's pan/zoom: with the zoom lock every cell follows it. */
+  transformWrapperRef?: RefObject<TransformWrapperHandle | null>;
 }
 
 /** Removes `path` from the selection; a removed primary hands over to the
@@ -50,16 +56,18 @@ export function removeFromSelection(
   useLibraryStore.getState().setLibrary({ multiSelectedPaths: rest });
 }
 
-/** The primary photograph's shown aspect (width / height), for packing. */
-function useShownAspect(): number {
-  return useEditorStore((s) => {
-    const crop = s.adjustments.crop;
-    if (crop && crop.width > 0 && crop.height > 0) return crop.width / crop.height;
-    const w = s.selectedImage?.width ?? 0;
-    const h = s.selectedImage?.height ?? 0;
-    if (!w || !h) return 1.5;
-    return (s.adjustments.orientationSteps ?? 0) % 2 === 1 ? h / w : w / h;
-  });
+/** The primary photograph's shown size (cropped and turned) in
+ * full-resolution pixels; 0 × 0 while unknown. */
+function useShownSize(): { width: number; height: number } {
+  return useEditorStore(
+    useShallow((s) => {
+      const crop = s.adjustments.crop;
+      if (crop && crop.width > 0 && crop.height > 0) return { width: crop.width, height: crop.height };
+      const w = s.selectedImage?.width ?? 0;
+      const h = s.selectedImage?.height ?? 0;
+      return (s.adjustments.orientationSteps ?? 0) % 2 === 1 ? { width: h, height: w } : { width: w, height: h };
+    }),
+  );
 }
 
 /**
@@ -69,7 +77,7 @@ function useShownAspect(): number {
  * by the native display from its own developed frame. Captions, frames and
  * the hover controls are HTML over the native cells.
  */
-export default function MultiViewStage({ files, onOpen, onRate, children }: Props) {
+export default function MultiViewStage({ files, onOpen, onRate, children, transformWrapperRef }: Props) {
   const { t } = useTranslation();
   const stageRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
@@ -79,11 +87,12 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
   const { imageRatings, imageFlags } = useLibraryStore(
     useShallow((s) => ({ imageRatings: s.imageRatings, imageFlags: s.imageFlags })),
   );
-  const { enabled, editAll, unavailable, setActive, setUnavailable } = useMultiViewStore(
+  const { enabled, editAll, unavailable, reference, setActive, setUnavailable } = useMultiViewStore(
     useShallow((s) => ({
       enabled: s.enabled,
       editAll: s.editAll,
       unavailable: s.unavailable,
+      reference: s.reference,
       setActive: s.setActive,
       setUnavailable: s.setUnavailable,
     })),
@@ -95,11 +104,16 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     })),
   );
   const mark = useSessionBar((s) => s.mark);
-  const aspect = useShownAspect();
+  const shownSize = useShownSize();
+  const aspect = shownSize.width > 0 && shownSize.height > 0 ? shownSize.width / shownSize.height : 1.5;
   const selection = useMemo(
     () => orderedSelection(files.map((file) => file.path), multiSelectedPaths),
     [files, multiSelectedPaths],
   );
+  // The reference stays pinned while it is listed and not the primary.
+  const pinned =
+    reference && reference !== primary && files.some((file) => file.path === reference) ? reference : null;
+  const count = selection.filter((path) => path !== pinned).length + (pinned ? 1 : 0);
   const active =
     develop &&
     enabled &&
@@ -107,12 +121,14 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     osPlatform !== "linux" &&
     !unavailable &&
     primary !== null &&
-    selection.length > 1 &&
+    count > 1 &&
     selection.includes(primary);
   useEffect(() => setActive(active), [active, setActive]);
-  useEditAllSelected(active && editAll, selection);
+  // Edit all selected leaves the reference as it is (it is not selected).
+  const editable = useMemo(() => selection.filter((path) => path !== pinned), [selection, pinned]);
+  useEditAllSelected(active && editAll, editable);
 
-  const { shown, more } = useMemo(() => cellsFor(selection, primary), [selection, primary]);
+  const { shown, more } = useMemo(() => cellsFor(selection, primary, pinned), [selection, primary, pinned]);
   const grid = useMemo(
     () => packGrid(shown.length + (more > 0 ? 1 : 0), box.width, box.height, aspect),
     [shown.length, more, box.width, box.height, aspect],
@@ -193,13 +209,35 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     window.dispatchEvent(new Event("resize"));
   }, [primaryX, primaryY]);
 
-  // Fit only (step 1): zooming the primary returns to the single view of it.
+  // Zoom lock (Lightroom): every cell shows the primary's zoom and the same
+  // photograph point; the native side places and develops them. Off, only
+  // the primary zooms (Capture One). Read each frame, sent when it changes.
+  const shownRef = useRef(shownSize);
+  shownRef.current = shownSize;
   useEffect(() => {
     if (!active) return;
-    return useEditorStore.subscribe((state, previous) => {
-      if (state.zoom > 1.01 && state.zoom !== previous.zoom) useMultiViewStore.getState().setEnabled(false);
-    });
-  }, [active]);
+    let sent: SharedZoom | null | undefined;
+    let frame = 0;
+    const tick = () => {
+      const transform = transformWrapperRef?.current?.instance.transformState;
+      const zoom =
+        transform && useMultiViewStore.getState().zoomLock
+          ? sharedZoomOf(
+              transform,
+              useEditorStore.getState().baseRenderSize,
+              shownRef.current,
+              window.devicePixelRatio || 1,
+            )
+          : null;
+      if (sent === undefined || !sameZoom(sent, zoom)) {
+        sent = zoom;
+        void invoke(Invokes.SetMultiViewZoom, { zoom }).catch(() => {});
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [active, transformWrapperRef]);
 
   const exif = useMemo(() => new Map(files.map((file) => [file.path, file.exif])), [files]);
   const selectedExif = useEditorStore((s) => s.selectedImage?.exif);
@@ -226,7 +264,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     );
   };
 
-  const controls = (path: string) => {
+  const controls = (path: string, isReference: boolean) => {
     const rating = imageRatings[path] || 0;
     const flag = imageFlags[path] ?? 0;
     const name = fileName(path);
@@ -264,14 +302,25 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
             </button>
           ))}
         </span>
-        <button
-          className="studio-mv-remove"
-          aria-label={t("studio.multiView.remove", { name })}
-          title={t("studio.multiView.remove", { name })}
-          onClick={() => removeFromSelection(path, selection, onOpen)}
-        >
-          <X size={13} />
-        </button>
+        {isReference ? (
+          <button
+            className="studio-mv-remove"
+            aria-label={t("studio.multiView.unpin", { name })}
+            title={t("studio.multiView.unpin", { name })}
+            onClick={() => useMultiViewStore.getState().setReference(null)}
+          >
+            <PinOff size={12} />
+          </button>
+        ) : (
+          <button
+            className="studio-mv-remove"
+            aria-label={t("studio.multiView.remove", { name })}
+            title={t("studio.multiView.remove", { name })}
+            onClick={() => removeFromSelection(path, selection, onOpen)}
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
     );
   };
@@ -302,14 +351,25 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
           }
           const path = shown[i];
           const isPrimary = path === primary;
+          const isReference = path === pinned;
           return (
             <div
               key={path}
-              className={`studio-mv-cell${isPrimary ? " is-primary" : ""}${editAll ? " is-edit-all" : ""}`}
+              className={`studio-mv-cell${isPrimary ? " is-primary" : ""}${isReference ? " is-reference" : editAll ? " is-edit-all" : ""}`}
               style={style(g.cell)}
               data-path={path}
             >
-              {!isPrimary && (
+              {isReference && (
+                <span
+                  className="studio-mv-pin"
+                  role="img"
+                  aria-label={t("studio.multiView.reference", { name: fileName(path) })}
+                  title={t("studio.multiView.referenceTitle")}
+                >
+                  <Pin size={12} />
+                </span>
+              )}
+              {!isPrimary && !isReference && (
                 <button
                   className="studio-mv-select"
                   style={{ height: g.photo.height }}
@@ -317,7 +377,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
                   onClick={() => onOpen(path)}
                 />
               )}
-              {controls(path)}
+              {controls(path, isReference)}
               {caption(path, g)}
             </div>
           );

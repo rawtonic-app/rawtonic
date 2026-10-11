@@ -1049,6 +1049,7 @@
         "auto_adjust": "Réglage automatique",
         "brush_size_down": "Diminuer la taille du pinceau",
         "brush_size_up": "Augmenter la taille du pinceau",
+        "clear_reference": "Retirer la référence",
         "color_label_blue": "Étiquette de couleur : Bleu",
         "color_label_green": "Étiquette de couleur : Vert",
         "color_label_none": "Étiquette de couleur : Aucune",
@@ -1068,6 +1069,7 @@
         "open_settings": "Ouvrir les paramètres",
         "paste_adjustments": "Coller les ajustements copiés",
         "paste_files": "Coller le(s) fichier(s) dans le dossier actuel",
+        "pin_reference": "Épingler la photo principale comme référence",
         "preview_next": "Image suivante",
         "preview_prev": "Image précédente",
         "rate_0": "Note : 0",
@@ -2390,11 +2392,16 @@
       "rating_one": "{{count}} étoile",
       "rating_many": "{{count}} étoiles",
       "rating_other": "{{count}} étoiles",
+      "reference": "Référence : {{name}}",
+      "referenceTitle": "Photo de référence (⇧Retour épingle la principale, ⌘Retour la retire)",
       "reject": "Rejeter {{name}}",
       "remove": "Retirer {{name}} de la sélection",
       "selectSeveral": "sélectionnez plusieurs photos pour les comparer",
       "toggle": "Vue multiple",
-      "unsupported": "La vue multiple nécessite l'affichage natif des photos, indisponible sur ce système"
+      "unpin": "Détacher la référence {{name}}",
+      "unsupported": "La vue multiple nécessite l'affichage natif des photos, indisponible sur ce système",
+      "zoomLock": "Verrouiller le zoom",
+      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit ; désactivé, seule la principale zoome"
     },
     "people": {
       "aria": "Masque de personnes",

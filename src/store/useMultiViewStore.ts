@@ -1,13 +1,21 @@
 import { create } from 'zustand';
-import { useEditorStore } from './useEditorStore';
 
 const ENABLED_KEY = 'rawtonic.develop.multiView';
+const ZOOM_LOCK_KEY = 'rawtonic.develop.multiViewZoomLock';
 
-function storedEnabled(): boolean {
+function stored(key: string): boolean {
   try {
-    return localStorage.getItem(ENABLED_KEY) !== 'off';
+    return localStorage.getItem(key) !== 'off';
   } catch {
     return true;
+  }
+}
+
+function remember(key: string, on: boolean) {
+  try {
+    localStorage.setItem(key, on ? 'on' : 'off');
+  } catch {
+    // Not remembered; the switch still applies.
   }
 }
 
@@ -16,7 +24,7 @@ interface MultiViewState {
    * remembered. With one photograph selected Develop shows it alone. */
   enabled: boolean;
   /** Whether the multi view is on screen now (enabled, Develop, more than
-   * one photograph selected and a native display). */
+   * one photograph shown and a native display). */
   active: boolean;
   /** Edits of the primary go to every selected photograph. Off by default
    * and never remembered (a forgotten switch would edit many photographs). */
@@ -24,6 +32,14 @@ interface MultiViewState {
   /** The native display cannot show it (no wgpu display, e.g. Linux). */
   unavailable: boolean;
   recipeRevision: number;
+  /** The pinned reference photograph (Capture One's compare variant,
+   * ⇧Return): shown first with an orange frame, not part of the selection,
+   * kept while the primary steps through the rest; ⌘Return clears it. */
+  reference: string | null;
+  /** Zooming the primary zooms and pans every cell to the same point
+   * (Lightroom's zoom lock); on by default, remembered. Off, only the
+   * primary zooms (Capture One). */
+  zoomLock: boolean;
   setEnabled(enabled: boolean): void;
   toggle(): void;
   setActive(active: boolean): void;
@@ -32,47 +48,20 @@ interface MultiViewState {
   /** Recipes of shown photographs were written (Edit all selected): their
    * cells are developed again without waiting for new thumbnails. */
   recipesSaved(): void;
-}
-
-/**
- * Runs a zoom in the single view: the multi view shows every photograph
- * to fit (zoom is not shared between cells yet), so zooming the primary
- * first returns to the single view of it, as Lightroom's Survey goes to
- * Loupe. The zoom waits until the viewer has its single-view size.
- */
-export function inSingleView(zoom: () => void, timeoutMs = 300) {
-  if (!useMultiViewStore.getState().active) {
-    zoom();
-    return;
-  }
-  const before = useEditorStore.getState().baseRenderSize;
-  let done = false;
-  const run = () => {
-    if (done) return;
-    done = true;
-    unsubscribe();
-    clearTimeout(timer);
-    zoom();
-  };
-  const unsubscribe = useEditorStore.subscribe((state) => {
-    if (state.baseRenderSize !== before) run();
-  });
-  const timer = setTimeout(run, timeoutMs);
-  useMultiViewStore.getState().setEnabled(false);
+  setReference(reference: string | null): void;
+  setZoomLock(zoomLock: boolean): void;
 }
 
 export const useMultiViewStore = create<MultiViewState>((set, get) => ({
-  enabled: storedEnabled(),
+  enabled: stored(ENABLED_KEY),
   active: false,
   editAll: false,
   unavailable: false,
   recipeRevision: 0,
+  reference: null,
+  zoomLock: stored(ZOOM_LOCK_KEY),
   setEnabled: (enabled) => {
-    try {
-      localStorage.setItem(ENABLED_KEY, enabled ? 'on' : 'off');
-    } catch {
-      // Not remembered; the switch still applies.
-    }
+    remember(ENABLED_KEY, enabled);
     set({ enabled });
   },
   toggle: () => get().setEnabled(!get().enabled),
@@ -80,4 +69,9 @@ export const useMultiViewStore = create<MultiViewState>((set, get) => ({
   setEditAll: (editAll) => set({ editAll }),
   setUnavailable: (unavailable) => set({ unavailable }),
   recipesSaved: () => set((state) => ({ recipeRevision: state.recipeRevision + 1 })),
+  setReference: (reference) => set({ reference }),
+  setZoomLock: (zoomLock) => {
+    remember(ZOOM_LOCK_KEY, zoomLock);
+    set({ zoomLock });
+  },
 }));

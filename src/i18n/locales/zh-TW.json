@@ -974,6 +974,7 @@
         "auto_adjust": "自動調整",
         "brush_size_down": "減小畫筆大小",
         "brush_size_up": "增大畫筆大小",
+        "clear_reference": "清除參考",
         "color_label_blue": "顏色標籤：藍色",
         "color_label_green": "顏色標籤：綠色",
         "color_label_none": "顏色標籤：無",
@@ -993,6 +994,7 @@
         "open_settings": "開啟設定",
         "paste_adjustments": "貼上複製的調整",
         "paste_files": "將檔案貼上到當前資料夾",
+        "pin_reference": "將主照片固定為參考",
         "preview_next": "下一張",
         "preview_prev": "上一張",
         "rate_0": "星級評分：0",
@@ -2269,11 +2271,16 @@
       "pick": "留用 {{name}}",
       "rate_other": "將 {{name}} 評為 {{count}} 星",
       "rating_other": "{{count}} 星",
+      "reference": "參考：{{name}}",
+      "referenceTitle": "參考照片（⇧Return 固定主照片，⌘Return 取消）",
       "reject": "排除 {{name}}",
       "remove": "從選取中移除 {{name}}",
       "selectSeveral": "選擇多張照片進行比較",
       "toggle": "多圖檢視",
-      "unsupported": "多圖檢視需要原生照片顯示，本系統無法使用"
+      "unpin": "取消固定參考照片 {{name}}",
+      "unsupported": "多圖檢視需要原生照片顯示，本系統無法使用",
+      "zoomLock": "鎖定縮放",
+      "zoomLockTitle": "鎖定縮放：縮放主照片時，所有照片縮放並平移到同一位置；關閉時只縮放主照片"
     },
     "people": {
       "aria": "人物遮色片",

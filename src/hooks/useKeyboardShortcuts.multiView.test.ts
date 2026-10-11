@@ -96,16 +96,43 @@ describe('multi view keys', () => {
     );
   });
 
-  it('zooming in returns to the single view first; zooming out is ignored', () => {
+  it('zoom keys zoom the primary in its cell and keep the multi view', () => {
     develop('/s/b.CR3', ['/s/b.CR3', '/s/d.CR3'], true);
-    press('Minus', { metaKey: true });
-    expect(useMultiViewStore.getState().enabled).toBe(true);
-    expect(props.handleZoomChange).not.toHaveBeenCalled();
-    vi.useFakeTimers();
     press('Digit1', { metaKey: true });
-    expect(useMultiViewStore.getState().enabled).toBe(false);
-    vi.advanceTimersByTime(400);
-    vi.useRealTimers();
-    expect(props.handleZoomChange).toHaveBeenCalledWith(1.0);
+    expect(props.handleZoomChange).toHaveBeenLastCalledWith(1.0);
+    press('Digit0', { metaKey: true });
+    expect(props.handleZoomChange).toHaveBeenLastCalledWith(0, true);
+    expect(useMultiViewStore.getState().enabled).toBe(true);
+  });
+
+  it('Shift+Return pins the primary as reference and steps on through the rest', () => {
+    develop('/s/b.CR3', ['/s/b.CR3', '/s/c.CR3', '/s/e.CR3'], true);
+    useMultiViewStore.setState({ reference: null });
+    press('Enter', { shiftKey: true });
+    expect(useMultiViewStore.getState().reference).toBe('/s/b.CR3');
+    // Out of the selection (Capture One), the next one is the primary.
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/s/c.CR3', '/s/e.CR3']);
+    expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/c.CR3', true);
+    // Stepping goes through the rest only; the reference stays.
+    develop('/s/c.CR3', ['/s/c.CR3', '/s/e.CR3'], true);
+    press('ArrowRight');
+    expect(props.handleImageSelect).toHaveBeenLastCalledWith('/s/e.CR3', true);
+    expect(useMultiViewStore.getState().reference).toBe('/s/b.CR3');
+  });
+
+  it('Cmd+Return clears the reference', () => {
+    develop('/s/c.CR3', ['/s/c.CR3', '/s/e.CR3'], true);
+    useMultiViewStore.setState({ reference: '/s/b.CR3' });
+    press('Enter', { metaKey: true });
+    expect(useMultiViewStore.getState().reference).toBeNull();
+  });
+
+  it('pinning the only selected photograph keeps it open', () => {
+    develop('/s/b.CR3', ['/s/b.CR3'], false);
+    useMultiViewStore.setState({ reference: null });
+    press('Enter', { shiftKey: true });
+    expect(useMultiViewStore.getState().reference).toBe('/s/b.CR3');
+    expect(props.handleImageSelect).not.toHaveBeenCalled();
+    expect(useLibraryStore.getState().multiSelectedPaths).toEqual(['/s/b.CR3']);
   });
 });
