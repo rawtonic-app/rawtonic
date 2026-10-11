@@ -506,6 +506,38 @@ pub async fn session_ingest_thumbnail(path: String) -> Result<tauri::ipc::Respon
     .map_err(|e| e.to_string())
 }
 
+/// The import dialog's large view of a photograph to import: its largest
+/// embedded camera JPEG (or the file itself for a JPEG), else its largest
+/// preview scaled to `max_size`; empty when there is none. Read-only.
+#[tauri::command]
+pub async fn session_ingest_preview(
+    path: String,
+    max_size: Option<u32>,
+) -> Result<tauri::ipc::Response, String> {
+    let max_size = max_size.unwrap_or(2560).clamp(640, 8192);
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::ipc::Response::new(
+            crate::file_management::source_large_preview_jpeg(Path::new(&path), max_size)
+                .unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// ISO, shutter speed, aperture and focal length of a photograph to import,
+/// for the import dialog's large view. Read-only.
+#[tauri::command]
+pub async fn session_ingest_capture_info(
+    path: String,
+) -> Result<crate::file_management::SourceCaptureInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::file_management::source_capture_info(Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// What `session-ingest-imported` reports for each photograph of an ingest,
 /// in order, as soon as it is in the library.
 #[derive(Debug, Clone, serde::Serialize)]

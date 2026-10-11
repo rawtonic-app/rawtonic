@@ -88,6 +88,10 @@ beforeEach(() => {
           : { files: scanned, truncated: false };
       case "session_ingest_thumbnail":
         return new ArrayBuffer(0);
+      case "session_ingest_preview":
+        return new ArrayBuffer(0);
+      case "session_ingest_capture_info":
+        return { iso: "ISO 200", exposure: "1/500 s", aperture: "f/4", focalLength: "85 mm" };
       case "session_ingest": {
         const { sources, folder } = args as { sources: string[]; folder: string | null };
         return sources.map((source) => ({
@@ -154,6 +158,30 @@ describe("Dropping photographs onto the window", () => {
     expect(navigate).toHaveBeenLastCalledWith("/jobs/Acme/Capture");
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     expect(invoke).not.toHaveBeenCalledWith("session_album_add", expect.anything());
+  });
+
+  it("shows a photograph large inside the dialog; Escape returns to the grid and keeps the dialog open", async () => {
+    const user = userEvent.setup();
+    await open();
+    drop(["/Volumes/CARD/DCIM"]);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
+    await user.dblClick(screen.getByRole("checkbox", { name: "A.ARW" }));
+    const view = screen.getByRole("region", { name: "Large view" });
+    expect(invoke).toHaveBeenCalledWith("session_ingest_preview", {
+      path: "/Volumes/CARD/DCIM/A.ARW",
+      maxSize: expect.any(Number),
+    });
+    await waitFor(() => expect(view.textContent).toContain("ISO 200 · 1/500 s · f/4 · 85 mm"));
+    await user.keyboard("{ArrowRight}");
+    expect(view.textContent).toContain("B.ARW");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Large view" })).toBeNull();
+    expect(document.querySelector("dialog")?.hasAttribute("open")).toBe(true);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(3);
+    await waitFor(() => expect(document.activeElement?.getAttribute("aria-label")).toBe("B.ARW"));
+    // The library's P/X/U flags do not act on the library behind the dialog.
+    await user.keyboard("p");
+    expect(invoke).not.toHaveBeenCalledWith("session_set_flag", expect.anything());
   });
 
   it("dropped onto an album: imports, then adds the photographs to that album", async () => {

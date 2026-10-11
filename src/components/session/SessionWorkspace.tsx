@@ -535,6 +535,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (form) {
+        // The import dialog's photo grid and its large view take their own
+        // keys (arrows, Space; Escape leaves the large view, not the
+        // dialog). Global shortcuts ignore keys while a dialog is open.
+        if (target?.closest?.(".session-ingest-preview")) return;
         e.stopImmediatePropagation();
         if (e.key === "Escape") {
           e.preventDefault();

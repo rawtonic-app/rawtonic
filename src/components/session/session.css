@@ -447,8 +447,8 @@
 .session-link-button:hover { text-decoration: underline; }
 .session-ingest-grid { height: min(300px, 38vh); overflow-y: auto; overflow-x: hidden; border: 1px solid var(--app-border-color); border-radius: 8px; background: var(--app-bg-primary, #1b1d1f); padding: 8px; }
 .session-ingest-tiles { display: grid; gap: 8px; justify-content: start; }
-.session-ingest-tile { display: grid; gap: 4px; width: 112px; padding: 0; border: 0; background: none; color: var(--app-text-secondary); text-align: left; cursor: pointer; }
-.session-ingest-thumb { position: relative; display: flex; align-items: center; justify-content: center; width: 112px; height: 112px; border-radius: 6px; background: #2b2e31; overflow: hidden; outline: 2px solid transparent; outline-offset: -2px; font-size: 11px; letter-spacing: .04em; color: #8a9096; }
+.session-ingest-tile { display: grid; gap: 4px; width: var(--ingest-tile, 112px); padding: 0; border: 0; background: none; color: var(--app-text-secondary); text-align: left; cursor: pointer; }
+.session-ingest-thumb { position: relative; display: flex; align-items: center; justify-content: center; width: var(--ingest-tile, 112px); height: var(--ingest-tile, 112px); border-radius: 6px; background: #2b2e31; overflow: hidden; outline: 2px solid transparent; outline-offset: -2px; font-size: 11px; letter-spacing: .04em; color: #8a9096; }
 .session-ingest-thumb img { width: 100%; height: 100%; object-fit: contain; }
 .session-ingest-tile:not(.is-checked) .session-ingest-thumb img { opacity: .45; }
 .session-ingest-tile.is-checked .session-ingest-thumb { outline-color: #b4c8d3; }
@@ -479,3 +479,19 @@
 .session-ingest-mode label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-ingest-mode label.is-disabled { color: var(--app-text-secondary); cursor: not-allowed; }
 .session-ingest-mode small { color: var(--app-text-secondary); line-height: 1.4; }
+.session-ingest-size { width: 72px; accent-color: #b4c8d3; cursor: pointer; }
+/* The import dialog's large view: over the dialog, nearly window-sized. */
+.session-ingest-loupe { position: fixed; inset: 0; z-index: 10; margin: auto; width: min(1400px, calc(100vw - 40px)); height: calc(100vh - 50px); display: grid; grid-template-rows: auto minmax(0, 1fr); border: 1px solid #4a4e51; border-radius: 10px; background: #141618; box-shadow: 0 28px 90px #000a; overflow: hidden; outline: none; }
+.session-ingest-loupe-bar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-bottom: 1px solid var(--app-border-color); background: var(--app-bg-secondary, #242628); font-size: 12px; }
+.session-ingest-loupe-check { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 6px; border-radius: 5px; color: var(--app-text-primary); cursor: pointer; }
+.session-ingest-loupe-check:hover { background: var(--app-card-active); }
+.session-ingest-loupe-check .session-ingest-check { position: static; }
+.session-ingest-loupe-check.is-checked .session-ingest-check { border-color: #b4c8d3; background: #b4c8d3; }
+.session-ingest-loupe-title { display: grid; min-width: 0; margin-right: auto; line-height: 1.35; }
+.session-ingest-loupe-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.session-ingest-loupe-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--app-text-secondary); font-variant-numeric: tabular-nums; }
+.session-ingest-loupe-count { color: var(--app-text-secondary); font-variant-numeric: tabular-nums; }
+.session-ingest-loupe .session-icon-button:disabled { opacity: .35; cursor: default; background: none; }
+.session-ingest-loupe-image { position: relative; display: flex; align-items: center; justify-content: center; min-height: 0; padding: 12px; color: var(--app-text-secondary); }
+.session-ingest-loupe-image img { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain; user-select: none; }
+.session-ingest-loupe-spinner { position: absolute; right: 16px; bottom: 16px; color: var(--app-text-secondary); }
