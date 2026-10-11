@@ -147,6 +147,34 @@ it("owns P in a managed session instead of also invoking the legacy preset short
   window.removeEventListener("keydown", legacyShortcut);
 });
 
+it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
+  const user = userEvent.setup();
+  const navigate = vi.fn(async () => {});
+  render(<SessionWorkspace onNavigate={navigate} />);
+  await user.click(screen.getByRole("button", { name: "Create a session" }));
+  await user.type(screen.getByLabelText("Session name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Location" }));
+  await user.click(screen.getByRole("button", { name: "Create session" }));
+  await waitFor(() => expect(navigate).toHaveBeenCalled());
+  useLibraryStore.setState({
+    multiSelectedPaths: ["/jobs/Acme/Capture/test.jpg"],
+  });
+  const later = vi.fn();
+  window.addEventListener("keydown", later);
+  await user.keyboard("x");
+  expect(later).toHaveBeenCalledTimes(1);
+  expect(invoke).not.toHaveBeenCalledWith("session_set_flag", expect.anything());
+  await user.keyboard("{Shift>}X{/Shift}");
+  await waitFor(() =>
+    expect(invoke).toHaveBeenCalledWith("session_set_flag", {
+      directory: "/jobs/Acme",
+      paths: ["/jobs/Acme/Capture/test.jpg"],
+      flag: -1,
+    }),
+  );
+  window.removeEventListener("keydown", later);
+});
+
 it("contains modal shortcuts and closes with Escape without invoking editor commands", async () => {
   const user = userEvent.setup();
   render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
@@ -184,7 +212,7 @@ it("restores persisted flags and serializes rapid P/X/U writes without speculati
   const user = await createSession();
   expect(useLibraryStore.getState().imageFlags[path]).toBe(1);
   act(() => useLibraryStore.setState({ multiSelectedPaths: [path] }));
-  await user.keyboard("xpu");
+  await user.keyboard("{Shift>}X{/Shift}pu");
   expect(pending).toHaveLength(1);
   expect(useLibraryStore.getState().imageFlags[path]).toBe(1);
   await act(async () => pending[0]({ [path]: -1 }));
@@ -202,12 +230,12 @@ it("preserves visible flags on failure and ignores acknowledgements from a previ
   const path = "/jobs/Acme/Capture/test.jpg";
   act(() => useLibraryStore.setState({ multiSelectedPaths: [path], imageFlags: { [path]: 1 } }));
   vi.mocked(invoke).mockRejectedValueOnce(new Error("Disk unavailable"));
-  await user.keyboard("x");
+  await user.keyboard("{Shift>}X{/Shift}");
   await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Disk unavailable")));
   expect(useLibraryStore.getState().imageFlags[path]).toBe(1);
   let finish!: (value: unknown) => void;
   vi.mocked(invoke).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
-  await user.keyboard("x");
+  await user.keyboard("{Shift>}X{/Shift}");
   act(() => useLibraryStore.setState({ sessionDirectory: "/jobs/Another", imageFlags: {} }));
   await act(async () => finish({ [path]: -1 }));
   expect(useLibraryStore.getState().imageFlags).toEqual({});

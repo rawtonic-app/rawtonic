@@ -481,13 +481,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
         target.closest('input,textarea,select,[contenteditable="true"]')
       )
         return;
-      if (
-        session &&
-        ["p", "x", "u"].includes(e.key.toLowerCase())
-      ) {
+      // Pick P, unflag U, reject ⇧X: plain X is the proof margin (Capture
+      // One's key, user decision 2026-10-11).
+      const key = e.key.toLowerCase();
+      const flag = key === "p" ? 1 : key === "u" ? 0 : key === "x" && e.shiftKey ? -1 : null;
+      if (session && flag !== null) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        void mark(e.key.toLowerCase() === "p" ? 1 : e.key.toLowerCase() === "x" ? -1 : 0);
+        void mark(flag);
       }
     };
     window.addEventListener("keydown", handler, true);

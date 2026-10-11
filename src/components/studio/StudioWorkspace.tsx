@@ -561,7 +561,7 @@ export default function StudioWorkspace(props: Props) {
       </button>
       <button
         aria-label={reject}
-        title={withShortcut(reject, "X")}
+        title={withShortcut(reject, "⇧X")}
         aria-pressed={current === -1}
         disabled={!sessionBar.mark}
         onClick={() => void sessionBar.mark?.(current === -1 ? 0 : -1)}
