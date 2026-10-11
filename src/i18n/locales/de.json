@@ -1329,9 +1329,12 @@
       },
       "grading": {
         "hueAria": "Farbton ({{range}})",
+        "luminanceArcTitle": "Luminanz ({{range}}) {{value}} · ziehen oder Pfeiltasten · Umschalt fein · Doppelklick setzt zurück",
         "luminanceAria": "Luminanz ({{range}})",
         "ranges": "Bereiche",
         "saturationAria": "Sättigung ({{range}})",
+        "threeWay": "3-Wege",
+        "threeWayTitle": "3-Wege: Tiefen, Mitteltöne und Lichter gleichzeitig",
         "title": "Color Grading",
         "tonalRange": "Tonbereich"
       },

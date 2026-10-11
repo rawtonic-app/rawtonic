@@ -1377,9 +1377,12 @@
       },
       "grading": {
         "hueAria": "To ({{range}})",
+        "luminanceArcTitle": "Luminància ({{range}}) {{value}} · arrossega o fletxes · Maj: fi · doble clic restableix",
         "luminanceAria": "Luminància ({{range}})",
         "ranges": "Rangs",
         "saturationAria": "Saturació ({{range}})",
+        "threeWay": "3 vies",
+        "threeWayTitle": "3 vies: ombres, tons mitjans i llums alhora",
         "title": "Gradació de color",
         "tonalRange": "Rang tonal"
       },

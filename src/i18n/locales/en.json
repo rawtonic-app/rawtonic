@@ -1329,9 +1329,12 @@
       },
       "grading": {
         "hueAria": "{{range}} hue",
+        "luminanceArcTitle": "{{range}} luminance {{value}} · drag or arrow keys · Shift fine · double-click resets",
         "luminanceAria": "{{range}} luminance",
         "ranges": "Ranges",
         "saturationAria": "{{range}} saturation",
+        "threeWay": "3-way",
+        "threeWayTitle": "3-way: shadows, midtones and highlights at once",
         "title": "Color grading",
         "tonalRange": "Tonal range"
       },

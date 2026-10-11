@@ -1302,9 +1302,12 @@
       },
       "grading": {
         "hueAria": "{{range}}の色相",
+        "luminanceArcTitle": "{{range}}の輝度 {{value}} · ドラッグまたは矢印キー · Shift で微調整 · ダブルクリックでリセット",
         "luminanceAria": "{{range}}の輝度",
         "ranges": "範囲",
         "saturationAria": "{{range}}の彩度",
+        "threeWay": "3ウェイ",
+        "threeWayTitle": "3ウェイ：シャドウ・中間調・ハイライトを同時に表示",
         "title": "カラーグレーディング",
         "tonalRange": "階調範囲"
       },

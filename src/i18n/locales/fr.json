@@ -1377,9 +1377,12 @@
       },
       "grading": {
         "hueAria": "Teinte ({{range}})",
+        "luminanceArcTitle": "Luminance ({{range}}) {{value}} · faites glisser ou flèches · Maj : précis · double-clic réinitialise",
         "luminanceAria": "Luminance ({{range}})",
         "ranges": "Plages",
         "saturationAria": "Saturation ({{range}})",
+        "threeWay": "3 voies",
+        "threeWayTitle": "3 voies : ombres, tons moyens et hautes lumières à la fois",
         "title": "Colorimétrie",
         "tonalRange": "Plage tonale"
       },
