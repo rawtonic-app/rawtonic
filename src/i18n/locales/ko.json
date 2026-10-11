@@ -828,6 +828,8 @@
     "ingest": {
       "addFiles": "사진 추가…",
       "addFolder": "폴더 추가…",
+      "addFromCard": "메모리 카드의 사진은 복사해야 합니다. 카드는 지워지고 다시 사용됩니다.",
+      "addNote": "사진은 현재 위치에 그대로 두고 카탈로그에 추가됩니다. 복사, 이름 변경, 옆에 파일 쓰기는 하지 않습니다.",
       "addToAlbum": "가져온 후 앨범 “{{name}}”에 추가",
       "choose": "사진 선택…",
       "chooseBackup": "백업 폴더 선택…",
@@ -840,6 +842,9 @@
       "inLibrary": "라이브러리에 있음",
       "inLibraryTitle": "이미 이 라이브러리에 있습니다(크기와 내용이 같음). 선택 해제됨. 가져오더라도 확인된 중복은 건너뜁니다.",
       "keepEditing": "가져오는 동안에도 계속 편집할 수 있습니다.",
+      "modeAdd": "현재 위치에서 추가",
+      "modeCopy": "{{destination}}(으)로 복사",
+      "modeLabel": "가져오기 방식",
       "noPhotos": "추가한 항목에서 사진을 찾지 못했습니다.",
       "onVolume": "드라이브 “{{name}}”",
       "optional": "(선택 사항)",
@@ -852,6 +857,7 @@
       "selectedOf_other": "{{total}}장 중 {{selected}}장 선택 · {{size}}",
       "selectNone": "선택 해제",
       "submit_other": "사진 {{count}}장 복사",
+      "submitAdd_other": "사진 {{count}}장 추가",
       "submitNone": "사진 복사",
       "subtitle": "모든 복사본은 SHA-256으로 원본과 대조됩니다.",
       "templateHint": "{{orig}}(으)로 원래 이름을 유지하거나 {{pattern}}을(를) 사용하세요.",
@@ -865,6 +871,7 @@
       "open": "세션 열기…"
     },
     "progress": {
+      "adding_other": "{{count}}개 중 {{current}}개 추가 중",
       "cancel": "취소",
       "verifying_other": "파일 {{count}}개 중 {{current}}개 검증 중"
     },
@@ -873,6 +880,7 @@
       "opening": "{{name}} 여는 중({{directory}})… macOS에서 이 볼륨에 대한 접근을 요청하면 허용하세요."
     },
     "toasts": {
+      "added_other": "사진 {{count}}장 추가됨",
       "addedToAlbum": "{{name}}에 추가됨",
       "albumAddFailed": "사진을 가져왔지만 {{name}}에 추가하지 못했습니다: {{error}}",
       "duplicatesSkipped_other": "중복 {{count}}개 건너뜀",

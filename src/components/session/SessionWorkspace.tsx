@@ -47,6 +47,7 @@ import {
   type OpenIngestDetail,
 } from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
+import { preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import "./session.css";
@@ -217,6 +218,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
   const [scanning, setScanning] = useState(false);
   const [target, setTarget] = useState<IngestTarget>(NO_TARGET);
   const [addToAlbum, setAddToAlbum] = useState(true);
+  // Copy or add where they are (catalogs), preselected by the sources.
+  const [mode, setMode] = useState<IngestMode>("copy");
+  const [importMode, setImportMode] = useState<IngestMode>("copy");
   const [fileDrag, setFileDrag] = useState(false);
   // The ingest dialog's list as scans add to it (`addSources`).
   const listed = useRef<IngestCandidate[]>([]);
@@ -734,12 +738,24 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
     return () => window.removeEventListener(OPEN_INGEST_EVENT, open);
   }, []);
 
+  // Recomputed whenever the sources or the target change, never kept from
+  // the last import (ingestMode.ts has the rules).
+  const modeChoice = preselectIngestMode({
+    catalog: session?.manifest.mode === "catalog",
+    files: sources,
+    intoFolder: Boolean(target.folder),
+  });
+  const preselected = modeChoice.mode;
+  useEffect(() => setMode(preselected), [sources, target.folder, preselected]);
+  const ingestMode: IngestMode = mode === "add" && modeChoice.canAdd ? "add" : "copy";
+
   const ingest = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!session) return;
     const files = sources.filter((file) => chosen.has(file.path)).map((file) => file.path);
     if (!files.length) return;
-    const folder = target.folder;
+    const adding = ingestMode === "add";
+    const folder = adding ? null : target.folder;
     const album = addToAlbum ? target.album : null;
     setImporting(true);
     setProgress({ current: 0, total: files.length, mbps: 0 });
@@ -747,11 +763,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
     try {
       // The grid shows where the photographs go, and they appear in it as
       // each is copied (useTauriListeners, `session-ingest-imported`).
-      const destination = folder ?? (await join(session.directory, session.manifest.capture));
+      // Added photographs appear in their own folders: the first one's is shown.
+      const destination = adding
+        ? files[0].slice(0, Math.max(files[0].lastIndexOf("/"), files[0].lastIndexOf("\\")))
+        : (folder ?? (await join(session.directory, session.manifest.capture)));
+      setImportMode(adding ? "add" : "copy");
       if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
       const results = await invoke<ImportResult[]>("session_ingest", {
         directory: session.directory,
         sources: files,
+        mode: adding ? "add" : "copy",
         template,
         sequenceStart,
         backup,
@@ -783,7 +804,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
       else
         toast.success(
           [
-            t("session.toasts.ingested", { count: copied }),
+            adding
+              ? t("session.toasts.added", { count: copied })
+              : t("session.toasts.ingested", { count: copied }),
             skipped ? t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
             album && !albumError ? t("session.toasts.addedToAlbum", { name: album.name }) : null,
             results.length < files.length ? t("session.toasts.ingestCancelled") : null,
@@ -965,7 +988,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
         <div className="session-progress" role="status">
           <LoaderCircle size={15} className="animate-spin" />
           <span>
-            {t("session.progress.verifying", {
+            {t(importMode === "add" ? "session.progress.adding" : "session.progress.verifying", {
               current: progress.current,
               count: progress.total,
             })}
@@ -1345,6 +1368,35 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
             </section>
             <section className="session-ingest-backup">
               <h3>{t("naming.destination")}</h3>
+              {modeChoice.showSwitch && (
+                <div className="session-ingest-mode" role="radiogroup" aria-label={t("session.ingest.modeLabel")}>
+                  <label>
+                    <input
+                      type="radio"
+                      name="ingest-mode"
+                      checked={ingestMode === "copy"}
+                      onChange={() => setMode("copy")}
+                    />
+                    <span>{t("session.ingest.modeCopy", { destination: destinationLabel })}</span>
+                  </label>
+                  <label
+                    className={modeChoice.canAdd ? undefined : "is-disabled"}
+                    title={modeChoice.canAdd ? undefined : t("session.ingest.addFromCard")}
+                  >
+                    <input
+                      type="radio"
+                      name="ingest-mode"
+                      checked={ingestMode === "add"}
+                      disabled={!modeChoice.canAdd}
+                      onChange={() => setMode("add")}
+                    />
+                    <span>{t("session.ingest.modeAdd")}</span>
+                  </label>
+                  {!modeChoice.canAdd && <small>{t("session.ingest.addFromCard")}</small>}
+                </div>
+              )}
+              {ingestMode === "copy" ? (
+                <>
             <div className="session-ingest-target">
               <strong>{destinationLabel}</strong>
               <code className="session-ingest-path" title={destinationPath}>
@@ -1394,16 +1446,30 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
                 )}
               </div>
             </label>
+                </>
+              ) : (
+                target.album && (
+                  <label className="session-ingest-album">
+                    <input type="checkbox" checked={addToAlbum} onChange={(e) => setAddToAlbum(e.target.checked)} />
+                    {t("session.ingest.addToAlbum", { name: target.album.name })}
+                  </label>
+                )
+              )}
             </section>
+            {ingestMode === "copy" && (
             <section className="session-ingest-naming">
               <h3>{t("naming.title")}</h3>
               <NamingEditor mode="ingest" value={template} onChange={setTemplate}
                 label={t("session.fields.filenameTemplate")} original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path} job={session?.manifest.name} total={chosen.size}
                 sequenceStart={sequenceStart} onSequenceStartChange={setSequenceStart} />
             </section>
+            )}
             <div className="session-copy-note">
               <Check size={16} />
               <span>
+                {ingestMode === "add" ? (
+                  t("session.ingest.addNote")
+                ) : (
                 <Trans
                   i18nKey="session.ingest.copyNote"
                   values={{
@@ -1411,6 +1477,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
                   }}
                   components={{ strong: <strong /> }}
                 />
+                )}
               </span>
             </div>
             {error && (
@@ -1423,12 +1490,19 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
               <button
                 type="submit"
                 className="session-action session-primary"
-                disabled={!chosen.size || scanning || !validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart)}
+                disabled={
+                  !chosen.size ||
+                  scanning ||
+                  (ingestMode === "copy" &&
+                    (!validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart)))
+                }
               >
                 <ArrowDownToLine size={16} />
-                {chosen.size
-                  ? t("session.ingest.submit", { count: chosen.size })
-                  : t("session.ingest.submitNone")}
+                {!chosen.size
+                  ? t("session.ingest.submitNone")
+                  : ingestMode === "add"
+                    ? t("session.ingest.submitAdd", { count: chosen.size })
+                    : t("session.ingest.submit", { count: chosen.size })}
               </button>
             </div>
           </form>

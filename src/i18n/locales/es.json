@@ -882,6 +882,8 @@
     "ingest": {
       "addFiles": "Añadir fotos…",
       "addFolder": "Añadir carpeta…",
+      "addFromCard": "Las fotos de una tarjeta de memoria deben copiarse: la tarjeta se borrará y se reutilizará.",
+      "addNote": "Las fotos se quedan donde están y se añaden al catálogo; no se copia, renombra ni escribe nada junto a ellas.",
       "addToAlbum": "Añadir al álbum «{{name}}» después de importar",
       "choose": "Elegir fotos…",
       "chooseBackup": "Elegir una carpeta de copia de seguridad…",
@@ -896,6 +898,9 @@
       "inLibrary": "En biblioteca",
       "inLibraryTitle": "Ya está en esta biblioteca (mismo tamaño y contenido). No seleccionada; si se importa, un duplicado verificado se omite.",
       "keepEditing": "Puedes seguir editando durante la importación.",
+      "modeAdd": "Añadir donde están",
+      "modeCopy": "Copiar a {{destination}}",
+      "modeLabel": "Cómo importar",
       "noPhotos": "No se encontraron fotos en lo añadido.",
       "onVolume": "En la unidad «{{name}}»",
       "optional": "(opcional)",
@@ -914,6 +919,9 @@
       "submit_one": "Copiar {{count}} foto",
       "submit_many": "Copiar {{count}} fotos",
       "submit_other": "Copiar {{count}} fotos",
+      "submitAdd_one": "Añadir {{count}} foto",
+      "submitAdd_many": "Añadir {{count}} fotos",
+      "submitAdd_other": "Añadir {{count}} fotos",
       "submitNone": "Copiar fotos",
       "subtitle": "Cada copia se comprueba con su original mediante SHA-256.",
       "templateHint": "Conserva los nombres originales con {{orig}}, o usa {{pattern}}.",
@@ -927,6 +935,9 @@
       "open": "Abrir sesión…"
     },
     "progress": {
+      "adding_one": "Añadiendo {{current}} de {{count}} archivo",
+      "adding_many": "Añadiendo {{current}} de {{count}} archivos",
+      "adding_other": "Añadiendo {{current}} de {{count}} archivos",
       "cancel": "Cancelar",
       "verifying_one": "Verificando {{current}} de {{count}} archivo",
       "verifying_many": "Verificando {{current}} de {{count}} archivos",
@@ -937,6 +948,9 @@
       "opening": "Abriendo {{name}} ({{directory}})… Si macOS pide acceso a este volumen, permítelo."
     },
     "toasts": {
+      "added_one": "{{count}} foto añadida",
+      "added_many": "{{count}} fotos añadidas",
+      "added_other": "{{count}} fotos añadidas",
       "addedToAlbum": "añadidas a {{name}}",
       "albumAddFailed": "Fotos importadas, pero no añadidas a {{name}}: {{error}}",
       "duplicatesSkipped_one": "{{count}} duplicado omitido",

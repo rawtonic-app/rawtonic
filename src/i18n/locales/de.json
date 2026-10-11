@@ -846,6 +846,8 @@
     "ingest": {
       "addFiles": "Fotos hinzufügen …",
       "addFolder": "Ordner hinzufügen …",
+      "addFromCard": "Fotos auf einer Speicherkarte müssen von ihr kopiert werden: Die Karte wird wieder gelöscht und neu verwendet.",
+      "addNote": "Die Fotos bleiben, wo sie sind, und werden dem Katalog hinzugefügt; nichts wird kopiert, umbenannt oder daneben geschrieben.",
       "addToAlbum": "Nach dem Import zum Album „{{name}}“ hinzufügen",
       "choose": "Fotos wählen…",
       "chooseBackup": "Sicherungsordner wählen…",
@@ -859,6 +861,9 @@
       "inLibrary": "In Bibliothek",
       "inLibraryTitle": "Schon in dieser Bibliothek (gleiche Größe und gleicher Inhalt). Nicht ausgewählt; beim Import wird ein geprüftes Duplikat übersprungen.",
       "keepEditing": "Sie können während des Imports weiterarbeiten.",
+      "modeAdd": "Am Speicherort hinzufügen",
+      "modeCopy": "Nach {{destination}} kopieren",
+      "modeLabel": "Wie importieren",
       "noPhotos": "Darin wurden keine Fotos gefunden.",
       "onVolume": "Auf dem Laufwerk „{{name}}“",
       "optional": "(optional)",
@@ -874,6 +879,8 @@
       "selectNone": "Keine auswählen",
       "submit_one": "{{count}} Foto kopieren",
       "submit_other": "{{count}} Fotos kopieren",
+      "submitAdd_one": "{{count}} Foto hinzufügen",
+      "submitAdd_other": "{{count}} Fotos hinzufügen",
       "submitNone": "Fotos kopieren",
       "subtitle": "Jede Kopie wird per SHA-256 mit ihrer Quelle verglichen.",
       "templateHint": "Mit {{orig}} bleiben die Originalnamen erhalten, oder verwenden Sie {{pattern}}.",
@@ -887,6 +894,8 @@
       "open": "Session öffnen…"
     },
     "progress": {
+      "adding_one": "{{current}} von {{count}} Datei wird hinzugefügt",
+      "adding_other": "{{current}} von {{count}} Dateien wird hinzugefügt",
       "cancel": "Abbrechen",
       "verifying_one": "Prüfung: {{current}} von {{count}} Datei",
       "verifying_other": "Prüfung: {{current}} von {{count}} Dateien"
@@ -896,6 +905,8 @@
       "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlauben Sie ihn."
     },
     "toasts": {
+      "added_one": "{{count}} Foto hinzugefügt",
+      "added_other": "{{count}} Fotos hinzugefügt",
       "addedToAlbum": "zu {{name}} hinzugefügt",
       "albumAddFailed": "Fotos importiert, aber nicht zu {{name}} hinzugefügt: {{error}}",
       "duplicatesSkipped_one": "{{count}} Duplikat übersprungen",

@@ -435,6 +435,8 @@ pub struct IngestCandidate {
     /// The library already holds a file with this content (same size and
     /// content fingerprint); the import would skip it as a duplicate.
     pub duplicate: bool,
+    /// On a memory card or on a drive (decides copy or add for a catalog).
+    pub medium: rawtonic_ingest::batch::Medium,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -480,6 +482,7 @@ pub async fn session_ingest_scan(
             .zip(duplicates)
             .map(|(path, duplicate)| IngestCandidate {
                 size: fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+                medium: rawtonic_ingest::batch::source_medium(&path),
                 path,
                 duplicate,
             })
@@ -533,8 +536,20 @@ impl IngestedFile {
     }
 }
 
+/// How an ingest brings photographs in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IngestMode {
+    /// Verified copies into the library (sessions always).
+    #[default]
+    Copy,
+    /// A catalog registers them where they are (never from a card).
+    Add,
+}
+
 /// Copies `sources` into the library (its capture folder, or `folder` of
-/// it), verified, one after the other. Each photograph is announced with
+/// it), verified, one after the other; with `mode` `add` a catalog
+/// registers them where they are instead (`ingest::batch::add_batch`). Each photograph is announced with
 /// `session-ingest-imported` as soon as it is in the library, so the grid
 /// shows it while the rest copy; `session-ingest-progress` carries the
 /// count and speed.
@@ -547,6 +562,7 @@ pub async fn session_ingest(
     backup: Option<String>,
     sequence_start: Option<u32>,
     folder: Option<String>,
+    mode: Option<IngestMode>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
@@ -569,7 +585,7 @@ pub async fn session_ingest(
             roots: &roots,
         };
         let started = std::time::Instant::now();
-        rawtonic_ingest::batch::import_batch(&lib, &sources, &options, &CANCEL_IMPORT, |done| {
+        let report = |done: rawtonic_ingest::batch::FileDone<'_>| {
             let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
             let _ = app.emit(
                 "session-ingest-progress",
@@ -582,7 +598,23 @@ pub async fn session_ingest(
                         / started.elapsed().as_secs_f64().max(0.001),
                 }),
             );
-        })
+        };
+        match mode.unwrap_or_default() {
+            IngestMode::Copy => rawtonic_ingest::batch::import_batch(
+                &lib,
+                &sources,
+                &options,
+                &CANCEL_IMPORT,
+                report,
+            ),
+            IngestMode::Add => rawtonic_ingest::batch::add_batch(
+                &lib,
+                &sources,
+                rawtonic_ingest::batch::source_medium,
+                &CANCEL_IMPORT,
+                report,
+            ),
+        }
         .map_err(|e| e.to_string())
     })
     .await

@@ -882,6 +882,8 @@
     "ingest": {
       "addFiles": "Aggiungi foto…",
       "addFolder": "Aggiungi cartella…",
+      "addFromCard": "Le foto su una scheda di memoria vanno copiate: la scheda verrà cancellata e riutilizzata.",
+      "addNote": "Le foto restano dove sono e vengono aggiunte al catalogo; nulla viene copiato, rinominato o scritto accanto.",
       "addToAlbum": "Aggiungi all’album «{{name}}» dopo l’importazione",
       "choose": "Scegli le foto…",
       "chooseBackup": "Scegli una cartella di backup…",
@@ -896,6 +898,9 @@
       "inLibrary": "In libreria",
       "inLibraryTitle": "Già in questa libreria (stesse dimensioni e contenuto). Non selezionata; se importata, un duplicato verificato viene saltato.",
       "keepEditing": "Puoi continuare a modificare durante l’importazione.",
+      "modeAdd": "Aggiungi dove si trovano",
+      "modeCopy": "Copia in {{destination}}",
+      "modeLabel": "Come importare",
       "noPhotos": "Nessuna foto trovata in ciò che è stato aggiunto.",
       "onVolume": "Sull’unità «{{name}}»",
       "optional": "(facoltativa)",
@@ -914,6 +919,9 @@
       "submit_one": "Copia {{count}} foto",
       "submit_many": "Copia {{count}} foto",
       "submit_other": "Copia {{count}} foto",
+      "submitAdd_one": "Aggiungi {{count}} foto",
+      "submitAdd_many": "Aggiungi {{count}} foto",
+      "submitAdd_other": "Aggiungi {{count}} foto",
       "submitNone": "Copia le foto",
       "subtitle": "Ogni copia viene confrontata con l’originale tramite SHA-256.",
       "templateHint": "Mantieni i nomi originali con {{orig}}, oppure usa {{pattern}}.",
@@ -927,6 +935,9 @@
       "open": "Apri sessione…"
     },
     "progress": {
+      "adding_one": "Aggiunta di {{current}} di {{count}} file",
+      "adding_many": "Aggiunta di {{current}} di {{count}} file",
+      "adding_other": "Aggiunta di {{current}} di {{count}} file",
       "cancel": "Annulla",
       "verifying_one": "Verifica di {{current}} di {{count}} file",
       "verifying_many": "Verifica di {{current}} di {{count}} file",
@@ -937,6 +948,9 @@
       "opening": "Apertura di {{name}} ({{directory}})… Se macOS chiede l’accesso a questo volume, consentilo."
     },
     "toasts": {
+      "added_one": "{{count}} foto aggiunta",
+      "added_many": "{{count}} foto aggiunte",
+      "added_other": "{{count}} foto aggiunte",
       "addedToAlbum": "aggiunte a {{name}}",
       "albumAddFailed": "Foto importate, ma non aggiunte a {{name}}: {{error}}",
       "duplicatesSkipped_one": "{{count}} duplicato saltato",

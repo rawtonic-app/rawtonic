@@ -882,6 +882,8 @@
     "ingest": {
       "addFiles": "Afegeix fotografies…",
       "addFolder": "Afegeix una carpeta…",
+      "addFromCard": "Les fotografies d’una targeta de memòria s’han de copiar: la targeta s’esborrarà i es reutilitzarà.",
+      "addNote": "Les fotografies es queden on són i s’afegeixen al catàleg; no es copia, reanomena ni escriu res al costat.",
       "addToAlbum": "Afegeix a l’àlbum «{{name}}» després d’importar",
       "choose": "Tria fotos…",
       "chooseBackup": "Tria una carpeta de còpia de seguretat…",
@@ -896,6 +898,9 @@
       "inLibrary": "A la biblioteca",
       "inLibraryTitle": "Ja és en aquesta biblioteca (mateixa mida i contingut). No seleccionada; si s’importa, un duplicat verificat s’omet.",
       "keepEditing": "Pots continuar editant durant la importació.",
+      "modeAdd": "Afegeix-les on són",
+      "modeCopy": "Copia a {{destination}}",
+      "modeLabel": "Com importar",
       "noPhotos": "No s’ha trobat cap fotografia en el que s’ha afegit.",
       "onVolume": "A la unitat «{{name}}»",
       "optional": "(opcional)",
@@ -914,6 +919,9 @@
       "submit_one": "Copia {{count}} foto",
       "submit_many": "Copia {{count}} fotos",
       "submit_other": "Copia {{count}} fotos",
+      "submitAdd_one": "Afegeix {{count}} fotografia",
+      "submitAdd_many": "Afegeix {{count}} fotografies",
+      "submitAdd_other": "Afegeix {{count}} fotografies",
       "submitNone": "Copia les fotos",
       "subtitle": "Cada còpia es comprova amb l’original mitjançant SHA-256.",
       "templateHint": "Conserva els noms originals amb {{orig}}, o fes servir {{pattern}}.",
@@ -927,6 +935,9 @@
       "open": "Obre una sessió…"
     },
     "progress": {
+      "adding_one": "S’està afegint {{current}} de {{count}} fitxer",
+      "adding_many": "S’està afegint {{current}} de {{count}} fitxers",
+      "adding_other": "S’està afegint {{current}} de {{count}} fitxers",
       "cancel": "Cancel·la",
       "verifying_one": "S’està verificant {{current}} de {{count}} fitxer",
       "verifying_many": "S’està verificant {{current}} de {{count}} fitxers",
@@ -937,6 +948,9 @@
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
     "toasts": {
+      "added_one": "{{count}} fotografia afegida",
+      "added_many": "{{count}} fotografies afegides",
+      "added_other": "{{count}} fotografies afegides",
       "addedToAlbum": "afegides a {{name}}",
       "albumAddFailed": "Fotografies importades, però no afegides a {{name}}: {{error}}",
       "duplicatesSkipped_one": "{{count}} duplicat omès",

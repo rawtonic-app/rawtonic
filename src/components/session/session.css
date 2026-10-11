@@ -474,3 +474,8 @@
 }
 .session-ingest-path { display: block; padding: 6px 8px; border-radius: 5px; background: var(--app-bg-primary, #1b1d1f); color: var(--app-text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; user-select: text; }
 .session-ingest-volume { display: flex; align-items: center; gap: 6px; color: var(--app-text-secondary); }
+.session-ingest-mode { display: grid; gap: 6px; margin-bottom: 12px; font-size: 12px; }
+.session-ingest-mode label { display: flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.session-ingest-mode label > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-ingest-mode label.is-disabled { color: var(--app-text-secondary); cursor: not-allowed; }
+.session-ingest-mode small { color: var(--app-text-secondary); line-height: 1.4; }

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { formatBytes } from "../../utils/previews";
+import type { Medium } from "./ingestMode";
 
 /** Mirrors `session_bridge::IngestCandidate`. */
 export interface IngestCandidate {
@@ -10,6 +11,8 @@ export interface IngestCandidate {
   size: number;
   /** The library already holds this photograph (same size and content). */
   duplicate: boolean;
+  /** On a memory card or a drive (decides copy or add for a catalog). */
+  medium?: Medium;
 }
 
 /** A source photograph's small preview (its embedded camera JPEG) as an

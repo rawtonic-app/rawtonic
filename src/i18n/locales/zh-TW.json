@@ -828,6 +828,8 @@
     "ingest": {
       "addFiles": "加入照片…",
       "addFolder": "加入檔案夾…",
+      "addFromCard": "記憶卡上的照片必須拷貝出來：記憶卡會被清除並重複使用。",
+      "addNote": "照片保留在原位置並加入目錄；不會拷貝、重新命名或在旁邊寫入任何內容。",
       "addToAlbum": "匯入後加入相簿「{{name}}」",
       "choose": "選擇照片…",
       "chooseBackup": "選擇備份資料夾…",
@@ -840,6 +842,9 @@
       "inLibrary": "已在圖庫",
       "inLibraryTitle": "已在此圖庫中（大小與內容相同）。未勾選；若匯入，經驗證的重複項會被略過。",
       "keepEditing": "匯入期間可以繼續編輯。",
+      "modeAdd": "在原位置加入",
+      "modeCopy": "拷貝到 {{destination}}",
+      "modeLabel": "匯入方式",
       "noPhotos": "所加入的內容中找不到照片。",
       "onVolume": "位於磁碟「{{name}}」",
       "optional": "（選用）",
@@ -852,6 +857,7 @@
       "selectedOf_other": "已選取 {{selected}} / {{total}} 張照片 · {{size}}",
       "selectNone": "全不選",
       "submit_other": "拷貝 {{count}} 張照片",
+      "submitAdd_other": "加入 {{count}} 張照片",
       "submitNone": "拷貝照片",
       "subtitle": "每份副本都會以 SHA-256 與來源檔案核對。",
       "templateHint": "使用 {{orig}} 保留原始檔名，或使用 {{pattern}}。",
@@ -865,6 +871,7 @@
       "open": "開啟工作階段…"
     },
     "progress": {
+      "adding_other": "正在加入第 {{current}} 個，共 {{count}} 個檔案",
       "cancel": "取消",
       "verifying_other": "正在驗證第 {{current}} / {{count}} 個檔案"
     },
@@ -873,6 +880,7 @@
       "opening": "正在開啟 {{name}}（{{directory}}）… 如果 macOS 要求存取此卷宗，請允許。"
     },
     "toasts": {
+      "added_other": "已加入 {{count}} 張照片",
       "addedToAlbum": "已加入 {{name}}",
       "albumAddFailed": "照片已匯入，但未加入 {{name}}：{{error}}",
       "duplicatesSkipped_other": "已略過 {{count}} 個重複項目",

@@ -918,6 +918,8 @@
     "ingest": {
       "addFiles": "Dodaj zdjęcia…",
       "addFolder": "Dodaj folder…",
+      "addFromCard": "Zdjęcia z karty pamięci trzeba z niej skopiować: karta zostanie wyczyszczona i użyta ponownie.",
+      "addNote": "Zdjęcia zostają na miejscu i są dodawane do katalogu; nic nie jest kopiowane, zmieniane ani zapisywane obok.",
       "addToAlbum": "Po imporcie dodaj do albumu „{{name}}”",
       "choose": "Wybierz zdjęcia…",
       "chooseBackup": "Wybierz folder kopii zapasowej…",
@@ -933,6 +935,9 @@
       "inLibrary": "W bibliotece",
       "inLibraryTitle": "Już jest w tej bibliotece (ten sam rozmiar i zawartość). Niezaznaczone; przy imporcie zweryfikowany duplikat zostanie pominięty.",
       "keepEditing": "Podczas importu możesz dalej edytować.",
+      "modeAdd": "Dodaj w obecnym miejscu",
+      "modeCopy": "Kopiuj do {{destination}}",
+      "modeLabel": "Sposób importu",
       "noPhotos": "W dodanych elementach nie znaleziono zdjęć.",
       "onVolume": "Na dysku „{{name}}”",
       "optional": "(opcjonalnie)",
@@ -954,6 +959,10 @@
       "submit_few": "Kopiuj {{count}} zdjęcia",
       "submit_many": "Kopiuj {{count}} zdjęć",
       "submit_other": "Kopiuj {{count}} zdjęcia",
+      "submitAdd_one": "Dodaj {{count}} zdjęcie",
+      "submitAdd_few": "Dodaj {{count}} zdjęcia",
+      "submitAdd_many": "Dodaj {{count}} zdjęć",
+      "submitAdd_other": "Dodaj {{count}} zdjęcia",
       "submitNone": "Kopiuj zdjęcia",
       "subtitle": "Każda kopia jest porównywana ze źródłem za pomocą SHA-256.",
       "templateHint": "Zachowaj oryginalne nazwy za pomocą {{orig}} lub użyj {{pattern}}.",
@@ -967,6 +976,10 @@
       "open": "Otwórz sesję…"
     },
     "progress": {
+      "adding_one": "Dodawanie {{current}} z {{count}} pliku",
+      "adding_few": "Dodawanie {{current}} z {{count}} plików",
+      "adding_many": "Dodawanie {{current}} z {{count}} plików",
+      "adding_other": "Dodawanie {{current}} z {{count}} pliku",
       "cancel": "Anuluj",
       "verifying_one": "Weryfikacja {{current}} z {{count}} pliku",
       "verifying_few": "Weryfikacja {{current}} z {{count}} plików",
@@ -978,6 +991,10 @@
       "opening": "Otwieranie {{name}} ({{directory}})… Jeśli macOS poprosi o dostęp do tego woluminu, zezwól na niego."
     },
     "toasts": {
+      "added_one": "Dodano {{count}} zdjęcie",
+      "added_few": "Dodano {{count}} zdjęcia",
+      "added_many": "Dodano {{count}} zdjęć",
+      "added_other": "Dodano {{count}} zdjęcia",
       "addedToAlbum": "dodano do {{name}}",
       "albumAddFailed": "Zdjęcia zaimportowano, ale nie dodano do {{name}}: {{error}}",
       "duplicatesSkipped_one": "pominięto {{count}} duplikat",

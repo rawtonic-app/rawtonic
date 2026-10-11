@@ -203,6 +203,151 @@ pub fn import_batch(
     Ok(results)
 }
 
+/// Where a source photograph is, which decides how an import into a
+/// catalog starts (copied off a card, added where it is from a drive).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Medium {
+    /// A memory card or camera: removable media, or a camera's `DCIM` folder.
+    Card,
+    /// A hard drive (internal, external or network).
+    Disk,
+}
+
+/// `path`'s medium from what the system says about it (`media`): a card
+/// when its file system is on removable media or the path runs through a
+/// camera's `DCIM` folder (DCF, every camera's card layout); where the
+/// system does not say, a Linux removable-media mount point (`/media/…`,
+/// `/run/media/…`) counts as a card too. External drives are not
+/// removable media: their photographs are on a drive.
+pub fn classify_medium(path: &Path, media: &rawtonic_catalog::volume::MediaInfo) -> Medium {
+    let dcim = path
+        .components()
+        .any(|c| c.as_os_str().eq_ignore_ascii_case("DCIM"));
+    let removable_mount = media.removable.is_none()
+        && media
+            .mount_point
+            .as_deref()
+            .is_some_and(|mount| mount.starts_with("/media") || mount.starts_with("/run/media"));
+    if dcim || media.removable == Some(true) || removable_mount {
+        Medium::Card
+    } else {
+        Medium::Disk
+    }
+}
+
+/// `classify_medium` with the system's answer for `path`.
+pub fn source_medium(path: &Path) -> Medium {
+    classify_medium(path, &rawtonic_catalog::volume::media_info(path))
+}
+
+/// Adds `sources` to a catalog where they are (Lightroom's "Add"), one
+/// after the other, each reported through `on_file` as `import_batch`
+/// does. Nothing is written into or beside the files: each is registered
+/// (`Library::add_asset`), and an XMP sidecar beside it is read into the
+/// catalog. A file already registered, or whose content the catalog holds
+/// already (fingerprint, then SHA-256), is skipped (`destination` is the
+/// registered one). Refused for a session (it keeps its photographs inside
+/// it) and for photographs on a card (they must be copied off it first,
+/// `classify`). A cancel stops before the next file.
+pub fn add_batch(
+    library: &Library,
+    sources: &[PathBuf],
+    classify: impl Fn(&Path) -> Medium,
+    cancel: &AtomicBool,
+    mut on_file: impl FnMut(FileDone<'_>),
+) -> Result<Vec<ImportResult>> {
+    anyhow::ensure!(
+        library.manifest.mode == rawtonic_catalog::Mode::Catalog,
+        "A session keeps its photographs inside it: copy them into the session"
+    );
+    if let Some(card) = sources.iter().find(|s| classify(s) == Medium::Card) {
+        anyhow::bail!(
+            "{} is on a memory card: copy photographs off the card instead of adding them where they are",
+            card.display()
+        );
+    }
+    let mut known: std::collections::HashMap<(u64, String), Vec<PathBuf>> =
+        std::collections::HashMap::new();
+    for asset in library.assets(None)? {
+        known
+            .entry((asset.size, asset.fingerprint))
+            .or_default()
+            .push(asset.path);
+    }
+    let total = sources.len();
+    let mut results = Vec::with_capacity(total);
+    for (index, source) in sources.iter().enumerate() {
+        if cancel.load(Ordering::Acquire) {
+            break;
+        }
+        let result = add_one(library, source, &mut known).unwrap_or_else(|error| ImportResult {
+            source: source.clone(),
+            destination: None,
+            backup: None,
+            asset_id: None,
+            error: Some(error.to_string()),
+            skipped: false,
+        });
+        on_file(FileDone {
+            index,
+            total,
+            result: &result,
+            bytes: 0,
+        });
+        results.push(result);
+    }
+    Ok(results)
+}
+
+fn add_one(
+    library: &Library,
+    source: &Path,
+    known: &mut std::collections::HashMap<(u64, String), Vec<PathBuf>>,
+) -> Result<ImportResult> {
+    let skipped = |asset: rawtonic_catalog::Asset| ImportResult {
+        source: source.into(),
+        destination: Some(asset.path),
+        backup: None,
+        asset_id: Some(asset.id),
+        error: None,
+        skipped: true,
+    };
+    anyhow::ensure!(source.is_file(), "Not a file: {}", source.display());
+    if let Some(asset) = library.asset_at(source)? {
+        return Ok(skipped(asset));
+    }
+    let key = (
+        fs::metadata(source)?.len(),
+        rawtonic_catalog::fingerprint(source)?,
+    );
+    if let Some(paths) = known.get(&key) {
+        let hash = crate::sha256(source)?;
+        for path in paths {
+            if path.is_file()
+                && crate::sha256(path)? == hash
+                && let Some(asset) = library.asset_at(path)?
+            {
+                return Ok(skipped(asset));
+            }
+        }
+    }
+    let asset = library.add_asset(source)?;
+    known.entry(key).or_default().push(asset.path.clone());
+    // Its XMP sidecar (rating, label, keywords) is read, never written.
+    if asset.path.with_extension("xmp").is_file() && !library.metadata_initialized(&asset.id)? {
+        let _ = library.adopt_xmp(&asset.id);
+    }
+    Ok(ImportResult {
+        source: source.into(),
+        destination: Some(asset.path),
+        backup: None,
+        asset_id: Some(asset.id),
+        error: None,
+        skipped: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,6 +607,180 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn tree(dir: &Path) -> Vec<(PathBuf, Vec<u8>, std::time::SystemTime)> {
+        let mut found = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(folder) = stack.pop() {
+            for entry in fs::read_dir(&folder).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    let meta = fs::metadata(&path).unwrap();
+                    found.push((
+                        path.clone(),
+                        fs::read(&path).unwrap(),
+                        meta.modified().unwrap(),
+                    ));
+                }
+            }
+        }
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found
+    }
+
+    /// Adding where they are registers the photographs and writes nothing
+    /// into or beside them; a file already there or a copy of one is skipped.
+    #[test]
+    fn adds_photographs_where_they_are_without_writing_a_file() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+        let drive = d.path().join("Archive/2026");
+        fs::create_dir_all(&drive).unwrap();
+        let a = drive.join("A.NEF");
+        let b = drive.join("B.NEF");
+        let copy_of_a = drive.join("A copy.NEF");
+        fs::write(&a, vec![1u8; 200_000]).unwrap();
+        fs::write(&b, vec![2u8; 210_000]).unwrap();
+        fs::write(&copy_of_a, vec![1u8; 200_000]).unwrap();
+        fs::write(
+            drive.join("B.xmp"),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="4"/></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let before = tree(d.path().join("Archive").as_path());
+        let sources = vec![a.clone(), b.clone(), copy_of_a.clone(), a.clone()];
+        let mut events = Vec::new();
+        let results = add_batch(
+            &lib,
+            &sources,
+            |_| Medium::Disk,
+            &AtomicBool::new(false),
+            |done| events.push((done.index, done.result.skipped)),
+        )
+        .unwrap();
+        assert_eq!(events, vec![(0, false), (1, false), (2, true), (3, true)]);
+        assert!(results.iter().all(|r| r.error.is_none()));
+        assert_eq!(
+            results[0].destination.as_deref(),
+            Some(a.canonicalize().unwrap().as_path())
+        );
+        assert_eq!(lib.assets(None).unwrap().len(), 2);
+        let b_asset = lib.asset_at(&b).unwrap().unwrap();
+        assert_eq!(b_asset.rating, 4, "XMP sidecar read");
+        // Not a byte, name or timestamp changed, nothing added beside them.
+        assert_eq!(tree(d.path().join("Archive").as_path()), before);
+    }
+
+    #[test]
+    fn adding_in_place_is_refused_for_sessions_and_cards() {
+        let d = tempfile::tempdir().unwrap();
+        let session = library(d.path());
+        let sources = photos(d.path(), 1);
+        let no_files = |_: FileDone<'_>| {};
+        assert!(
+            add_batch(
+                &session,
+                &sources,
+                |_| Medium::Disk,
+                &AtomicBool::new(false),
+                no_files
+            )
+            .is_err()
+        );
+        let catalog = Library::create(&d.path().join("C.catalog"), "C", Mode::Catalog).unwrap();
+        assert!(
+            add_batch(
+                &catalog,
+                &sources,
+                |_| Medium::Card,
+                &AtomicBool::new(false),
+                no_files
+            )
+            .is_err()
+        );
+        assert!(catalog.assets(None).unwrap().is_empty());
+        assert!(session.assets(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn classifies_cards_and_drives() {
+        use rawtonic_catalog::volume::MediaInfo;
+        let info = |removable: Option<bool>, mount: Option<&str>| MediaInfo {
+            removable,
+            mount_point: mount.map(PathBuf::from),
+        };
+        let card = Path::new("/Volumes/EOS_DIGITAL/DCIM/100CANON/IMG_0001.CR3");
+        let drive = Path::new("/Volumes/Archive/2026/Wedding/IMG_0001.CR3");
+        // A camera's DCIM folder is a card, wherever it is mounted.
+        assert_eq!(
+            classify_medium(card, &info(Some(false), Some("/Volumes/EOS_DIGITAL"))),
+            Medium::Card
+        );
+        assert_eq!(
+            classify_medium(Path::new("/Volumes/X/dcim/A.ARW"), &info(None, None)),
+            Medium::Card
+        );
+        // Removable media (an SD card in a reader, a USB stick).
+        assert_eq!(
+            classify_medium(drive, &info(Some(true), Some("/Volumes/Archive"))),
+            Medium::Card
+        );
+        // An external or internal drive.
+        assert_eq!(
+            classify_medium(drive, &info(Some(false), Some("/Volumes/Archive"))),
+            Medium::Disk
+        );
+        assert_eq!(
+            classify_medium(
+                Path::new("/home/me/Pictures/A.NEF"),
+                &info(Some(false), Some("/"))
+            ),
+            Medium::Disk
+        );
+        // Linux: the system does not say; a removable-media mount point is a card.
+        assert_eq!(
+            classify_medium(
+                Path::new("/run/media/me/SD/A.NEF"),
+                &info(None, Some("/run/media/me/SD"))
+            ),
+            Medium::Card
+        );
+        assert_eq!(
+            classify_medium(
+                Path::new("/media/me/CARD/A.NEF"),
+                &info(None, Some("/media/me/CARD"))
+            ),
+            Medium::Card
+        );
+        // …but sysfs saying "fixed" wins over the mount point.
+        assert_eq!(
+            classify_medium(
+                Path::new("/media/me/Archive/A.NEF"),
+                &info(Some(false), Some("/media/me/Archive"))
+            ),
+            Medium::Disk
+        );
+        // Windows: a removable drive letter.
+        assert_eq!(
+            classify_medium(
+                Path::new("E:\\Photos\\A.NEF"),
+                &info(Some(true), Some("E:\\"))
+            ),
+            Medium::Card
+        );
+        assert_eq!(
+            classify_medium(
+                Path::new("D:\\Photos\\A.NEF"),
+                &info(Some(false), Some("D:\\"))
+            ),
+            Medium::Disk
+        );
+        // A folder of this machine is a drive.
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(source_medium(d.path()), Medium::Disk);
     }
 
     #[test]

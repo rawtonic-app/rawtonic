@@ -270,3 +270,113 @@ describe("Dropping photographs onto the window", () => {
     expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
   });
 });
+
+describe("Copy or add where they are (catalogs)", () => {
+  const catalog: SessionSummary = {
+    ...summary,
+    directory: "/Users/me/Main.catalog",
+    manifest: { ...summary.manifest, name: "Main", mode: "catalog" },
+  };
+  const onCard = [
+    { path: "/Volumes/EOS_DIGITAL/DCIM/100CANON/A.CR3", size: 30_000_000, duplicate: false, medium: "card" },
+  ];
+  const onDrive = [
+    { path: "/Volumes/Archive/2026/B.CR3", size: 30_000_000, duplicate: false, medium: "disk" },
+    { path: "/Volumes/Archive/2026/C.CR3", size: 30_000_000, duplicate: false, medium: "disk" },
+  ];
+  beforeEach(() => {
+    lastSession = catalog;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_last" || command === "session_summary") return lastSession;
+      if (command === "session_flags") return {};
+      if (command === "session_ingest_scan")
+        return {
+          files: (args as { paths: string[] }).paths[0].includes("DCIM") ? onCard : onDrive,
+          truncated: false,
+        };
+      if (command === "session_ingest") return [];
+      return { path: "/Users/me/Main.catalog", children: [] };
+    });
+  });
+  const radio = (name: RegExp) => screen.getByRole("radio", { name }) as HTMLInputElement;
+  async function openCatalog() {
+    const navigate = vi.fn(async () => {});
+    render(
+      <ContextMenuProvider>
+        <SessionWorkspace onNavigate={navigate} />
+      </ContextMenuProvider>,
+    );
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    await waitFor(() => expect(drag.handler).not.toBeNull());
+    return navigate;
+  }
+
+  it("photographs on a drive are added where they are; nothing is copied", async () => {
+    const user = userEvent.setup();
+    const navigate = await openCatalog();
+    drop(["/Volumes/Archive/2026"]);
+    await waitFor(() => expect(radio(/Add where they are/).checked).toBe(true));
+    expect(screen.getByText(/nothing is copied, renamed or written/)).toBeTruthy();
+    // No naming or second copy for photographs that stay where they are.
+    expect(screen.queryByText("Second copy")).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Add 2 photographs" }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    expect(ingestCall()![1]).toMatchObject({ mode: "add", folder: null, sources: onDrive.map((f) => f.path) });
+    expect(navigate).toHaveBeenLastCalledWith("/Volumes/Archive/2026");
+  });
+
+  it("photographs on a card are copied; adding them is disabled with the reason", async () => {
+    const user = userEvent.setup();
+    await openCatalog();
+    drop(["/Volumes/EOS_DIGITAL/DCIM"]);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(1));
+    expect(radio(/Copy to/).checked).toBe(true);
+    expect(radio(/Add where they are/).disabled).toBe(true);
+    expect(screen.getAllByText(/must be copied off it/).length).toBeGreaterThan(0);
+    await user.click(screen.getByRole("button", { name: "Copy 1 photograph" }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    expect(ingestCall()![1]).toMatchObject({ mode: "copy" });
+  });
+
+  it("is recomputed when the sources change: a card added to drive photographs switches to copy", async () => {
+    const user = userEvent.setup();
+    await openCatalog();
+    drop(["/Volumes/Archive/2026"]);
+    await waitFor(() => expect(radio(/Add where they are/).checked).toBe(true));
+    drop(["/Volumes/EOS_DIGITAL/DCIM"]);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
+    expect(radio(/Copy to/).checked).toBe(true);
+    expect(radio(/Add where they are/).disabled).toBe(true);
+    // The user's own choice is not kept across a new dialog either.
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    drop(["/Volumes/Archive/2026"]);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
+    expect(radio(/Add where they are/).checked).toBe(true);
+  });
+
+  it("a drop onto a folder copies into it", async () => {
+    await openCatalog();
+    const row = document.createElement("div");
+    row.dataset.folderDrop = "/Volumes/Shoots/2026";
+    document.body.append(row);
+    drop(["/Volumes/Archive/2026"], row);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
+    expect(radio(/Copy to/).checked).toBe(true);
+    expect(radio(/Add where they are/).disabled).toBe(false);
+  });
+
+  it("a session has no switch: it always copies", async () => {
+    lastSession = summary;
+    vi.mocked(invoke).mockImplementation(async (command) => {
+      if (command === "session_last" || command === "session_summary") return summary;
+      if (command === "session_flags") return {};
+      if (command === "session_ingest_scan") return { files: onDrive, truncated: false };
+      return { path: "/jobs/Acme", children: [] };
+    });
+    await open();
+    drop(["/Volumes/Archive/2026"]);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Copy 2 photographs" })).toBeTruthy();
+  });
+});

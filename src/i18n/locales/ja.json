@@ -828,6 +828,8 @@
     "ingest": {
       "addFiles": "写真を追加…",
       "addFolder": "フォルダを追加…",
+      "addFromCard": "メモリーカード上の写真はコピーが必要です。カードは消去して再利用されます。",
+      "addNote": "写真は現在の場所のままカタログに追加されます。コピー、名前の変更、隣へのファイル書き込みは行われません。",
       "addToAlbum": "読み込み後にアルバム「{{name}}」に追加",
       "choose": "写真を選択…",
       "chooseBackup": "バックアップフォルダを選択…",
@@ -840,6 +842,9 @@
       "inLibrary": "登録済み",
       "inLibraryTitle": "このライブラリに登録済み（サイズと内容が同じ）。選択されていません。読み込んでも、確認済みの重複はスキップされます。",
       "keepEditing": "取り込み中も編集を続けられます。",
+      "modeAdd": "現在の場所のまま追加",
+      "modeCopy": "{{destination}} にコピー",
+      "modeLabel": "読み込み方法",
       "noPhotos": "追加した項目に写真が見つかりません。",
       "onVolume": "ドライブ「{{name}}」",
       "optional": "（任意）",
@@ -852,6 +857,7 @@
       "selectedOf_other": "{{total}} 枚中 {{selected}} 枚を選択 · {{size}}",
       "selectNone": "選択を解除",
       "submit_other": "{{count}} 枚の写真をコピー",
+      "submitAdd_other": "{{count}} 枚を追加",
       "submitNone": "写真をコピー",
       "subtitle": "すべてのコピーは SHA-256 で元ファイルと照合されます。",
       "templateHint": "{{orig}} で元の名前を保持するか、{{pattern}} を使用します。",
@@ -865,6 +871,7 @@
       "open": "セッションを開く…"
     },
     "progress": {
+      "adding_other": "{{count}} 件中 {{current}} 件を追加中",
       "cancel": "キャンセル",
       "verifying_other": "{{count}} 件中 {{current}} 件のファイルを検証中"
     },
@@ -873,6 +880,7 @@
       "opening": "{{name}} を開いています（{{directory}}）… macOS がこのボリュームへのアクセスを求めた場合は許可してください。"
     },
     "toasts": {
+      "added_other": "{{count}} 枚を追加しました",
       "addedToAlbum": "{{name}} に追加済み",
       "albumAddFailed": "写真は読み込まれましたが、{{name}} に追加できませんでした: {{error}}",
       "duplicatesSkipped_other": "重複 {{count}} 件をスキップ",

@@ -828,6 +828,8 @@
     "ingest": {
       "addFiles": "添加照片…",
       "addFolder": "添加文件夹…",
+      "addFromCard": "存储卡上的照片必须复制出来：存储卡会被清除并重复使用。",
+      "addNote": "照片保留在原位置并添加到目录；不会复制、重命名或在旁边写入任何内容。",
       "addToAlbum": "导入后添加到相册“{{name}}”",
       "choose": "选择照片…",
       "chooseBackup": "选择备份文件夹…",
@@ -840,6 +842,9 @@
       "inLibrary": "已在图库",
       "inLibraryTitle": "已在此图库中（大小和内容相同）。未勾选；若导入，经校验的重复项会被跳过。",
       "keepEditing": "导入期间可以继续编辑。",
+      "modeAdd": "在原位置添加",
+      "modeCopy": "复制到 {{destination}}",
+      "modeLabel": "导入方式",
       "noPhotos": "所添加的内容中未找到照片。",
       "onVolume": "位于磁盘“{{name}}”",
       "optional": "（可选）",
@@ -852,6 +857,7 @@
       "selectedOf_other": "已选择 {{selected}} / {{total}} 张照片 · {{size}}",
       "selectNone": "全不选",
       "submit_other": "复制 {{count}} 张照片",
+      "submitAdd_other": "添加 {{count}} 张照片",
       "submitNone": "复制照片",
       "subtitle": "每份副本都会用 SHA-256 与源文件核对。",
       "templateHint": "使用 {{orig}} 保留原始文件名，或使用 {{pattern}}。",
@@ -865,6 +871,7 @@
       "open": "打开会话…"
     },
     "progress": {
+      "adding_other": "正在添加第 {{current}} 个，共 {{count}} 个文件",
       "cancel": "取消",
       "verifying_other": "正在校验第 {{current}} / {{count}} 个文件"
     },
@@ -873,6 +880,7 @@
       "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
     },
     "toasts": {
+      "added_other": "已添加 {{count}} 张照片",
       "addedToAlbum": "已添加到 {{name}}",
       "albumAddFailed": "照片已导入，但未添加到 {{name}}：{{error}}",
       "duplicatesSkipped_other": "已跳过 {{count}} 个重复项",

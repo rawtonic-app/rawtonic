@@ -882,6 +882,8 @@
     "ingest": {
       "addFiles": "Ajouter des photos…",
       "addFolder": "Ajouter un dossier…",
+      "addFromCard": "Les photos d’une carte mémoire doivent en être copiées : la carte sera effacée et réutilisée.",
+      "addNote": "Les photos restent où elles sont et sont ajoutées au catalogue ; rien n’est copié, renommé ni écrit à côté.",
       "addToAlbum": "Ajouter à l’album « {{name}} » après l’import",
       "choose": "Choisir des photos…",
       "chooseBackup": "Choisir un dossier de sauvegarde…",
@@ -896,6 +898,9 @@
       "inLibrary": "Déjà importée",
       "inLibraryTitle": "Déjà dans cette bibliothèque (même taille et même contenu). Non cochée ; si elle est importée, un doublon vérifié est ignoré.",
       "keepEditing": "Vous pouvez continuer à retoucher pendant l’importation.",
+      "modeAdd": "Ajouter sans déplacer",
+      "modeCopy": "Copier vers {{destination}}",
+      "modeLabel": "Mode d’import",
       "noPhotos": "Aucune photo trouvée dans ce qui a été ajouté.",
       "onVolume": "Sur le disque « {{name}} »",
       "optional": "(facultatif)",
@@ -914,6 +919,9 @@
       "submit_one": "Copier {{count}} photo",
       "submit_many": "Copier {{count}} photos",
       "submit_other": "Copier {{count}} photos",
+      "submitAdd_one": "Ajouter {{count}} photo",
+      "submitAdd_many": "Ajouter {{count}} photos",
+      "submitAdd_other": "Ajouter {{count}} photos",
       "submitNone": "Copier les photos",
       "subtitle": "Chaque copie est comparée à sa source avec SHA-256.",
       "templateHint": "Conservez les noms d’origine avec {{orig}}, ou utilisez {{pattern}}.",
@@ -927,6 +935,9 @@
       "open": "Ouvrir une session…"
     },
     "progress": {
+      "adding_one": "Ajout de {{current}} sur {{count}} fichier",
+      "adding_many": "Ajout de {{current}} sur {{count}} fichiers",
+      "adding_other": "Ajout de {{current}} sur {{count}} fichiers",
       "cancel": "Annuler",
       "verifying_one": "Vérification de {{current}} sur {{count}} fichier",
       "verifying_many": "Vérification de {{current}} sur {{count}} fichiers",
@@ -937,6 +948,9 @@
       "opening": "Ouverture de {{name}} ({{directory}})… Si macOS demande l’accès à ce volume, autorisez-le."
     },
     "toasts": {
+      "added_one": "{{count}} photo ajoutée",
+      "added_many": "{{count}} photos ajoutées",
+      "added_other": "{{count}} photos ajoutées",
       "addedToAlbum": "ajoutées à {{name}}",
       "albumAddFailed": "Photos importées, mais pas ajoutées à {{name}} : {{error}}",
       "duplicatesSkipped_one": "{{count}} doublon ignoré",
