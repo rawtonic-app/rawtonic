@@ -1,0 +1,20 @@
+# README photography and screenshots
+
+The `readme-*.jpg` images are genuine window captures of Rawtonic 0.1.0-alpha.1 on macOS (October 11, 2026), made in a disposable showcase session. They show JPEG photographs, not RAW comparison results. The retouch screenshot shows Rawtonic's automatic face retouch (Blemishes 40, Even skin 20, Dark circles 25) on the studio portrait as rendered by the app; the photographs themselves were not otherwise edited. The source photographs are used under the [Pexels license](https://www.pexels.com/license/); they are not covered by the repository's software license. The photographers do not endorse Rawtonic.
+
+| Photograph in the demo | Photographer                   | Source                                                                                                                                                            |
+| :--------------------- | :----------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Alpine reflections     | Bri Schneiter                  | [Calm Body of Lake Between Mountains](https://www.pexels.com/photo/calm-body-of-lake-between-mountains-346529/)                                                   |
+| Mountain lake          | Lorenzo Castellino             | [Lake in Mountains](https://www.pexels.com/photo/lake-in-mountains-17666419/)                                                                                     |
+| First light            | Willian Justen de Vasconcellos | [Reflection of Mountains on the Lake](https://www.pexels.com/photo/reflection-of-mountains-on-the-lake-23531520/)                                                 |
+| Still water            | Arina Dmitrieva                | [Mountain Reflecting in a Lake](https://www.pexels.com/photo/mountain-reflecting-in-a-lake-13894085/)                                                             |
+| Mountain mirror        | lil artsy                      | [Reflection of a Mountain on a Lake](https://www.pexels.com/photo/reflection-of-a-mountain-on-a-lake-4390125/)                                                    |
+| Last light             | Nguyễn Thanh Ngọc              | [Landscape of Mountains and the Valley with Forest at Sunset](https://www.pexels.com/photo/landscape-of-mountains-and-the-valley-with-forest-at-sunset-16130584/) |
+| Studio portrait        | Tugrul Kurnaz                  | [Elegant Portrait of a Woman in a Studio](https://www.pexels.com/photo/elegant-portrait-of-a-woman-in-a-studio-31248962/)                                         |
+| Golden hour portrait   | Ehsan                          | [Beautiful Girl with Hair over Her Face](https://www.pexels.com/photo/beautiful-girl-with-hair-over-her-face-16534348/)                                           |
+| Red backdrop           | Fher Garza                     | [Woman Wearing White Top](https://www.pexels.com/photo/woman-wearing-white-top-3610877/)                                                                          |
+| Colour light           | Abenezer Shewaga               | [Captivating Portrait of a Beautiful Ethiopian Woman](https://www.pexels.com/photo/captivating-portrait-of-a-beautiful-ethiopian-woman-31443956/)                 |
+
+Names in the first column are display filenames chosen for the demo. The source links identify the original photographs and their authors. Source JPEGs, private photography and app configuration are not included in the repository. Screenshots were encoded as JPEGs for the README; their interface and photographic content were not composited or retouched after capture.
+
+The README masthead uses the Rawtonic logo from [`docs/brand`](../brand/README.md).

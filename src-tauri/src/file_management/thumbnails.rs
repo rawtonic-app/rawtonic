@@ -1,0 +1,1040 @@
+//! Library thumbnails: cache, generation workers and queue.
+//! Part of `file_management`, split by concern (ADR 0009).
+use super::enqueue_metadata;
+use super::is_cloud_placeholder;
+use super::parse_virtual_path;
+use super::read_file_mapped;
+use crate::AppSettings;
+use crate::app_state::AppState;
+use crate::formats::is_raw_file;
+use crate::gpu_processing;
+use crate::image_loader;
+use crate::image_processing::Crop;
+use crate::image_processing::GpuContext;
+use crate::image_processing::ImageMetadata;
+use crate::image_processing::apply_coarse_rotation;
+use crate::image_processing::apply_cpu_default_raw_processing;
+use crate::image_processing::apply_crop;
+use crate::image_processing::apply_flip;
+use crate::image_processing::apply_geometry_warp;
+use crate::image_processing::apply_rotation;
+use crate::image_processing::get_all_adjustments_from_json;
+use crate::load_settings;
+use crate::mask_generation::MaskDefinition;
+use crate::mask_generation::ParametricMaskSource;
+use crate::mask_generation::prepare_parametric_mask_source;
+use anyhow::Result;
+use image::DynamicImage;
+use image::GenericImageView;
+use image::codecs::jpeg::JpegEncoder;
+use std::borrow::Cow;
+use std::collections::hash_map::DefaultHasher;
+use std::fs;
+use std::hash::{Hash, Hasher};
+use std::io::Cursor;
+use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use tauri::AppHandle;
+use tauri::{Emitter, Manager};
+
+pub(crate) fn resolve_thumbnail_cache_dir(
+    app_handle: &AppHandle,
+) -> std::result::Result<PathBuf, String> {
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+    let thumb_cache_dir = cache_dir.join("thumbnails");
+    if !thumb_cache_dir.exists() {
+        fs::create_dir_all(&thumb_cache_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(thumb_cache_dir)
+}
+
+pub(crate) fn emit_thumbnail_cache_setup_error(app_handle: &AppHandle, path: &str, reason: &str) {
+    let _ = app_handle.emit(
+        "thumbnail-generation-error",
+        serde_json::json!({ "path": path, "reason": reason }),
+    );
+}
+
+/// The editor state for `source`'s thumbnail: its sidecar file, or for an
+/// offline photograph (its file and maybe its sidecar are gone) the
+/// library's.
+fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
+    if let Ok(content) = fs::read_to_string(sidecar) {
+        return serde_json::from_str(&content).ok();
+    }
+    if source.exists() {
+        return None;
+    }
+    crate::session_bridge::read_editor_sidecar(sidecar)
+        .and_then(|state| serde_json::from_value(state).ok())
+}
+
+/// The modification time of `source` in seconds; for an offline photograph
+/// the one the library registered (its cached thumbnails stay valid).
+fn source_mtime(source: &Path) -> Option<u64> {
+    match fs::metadata(source) {
+        Ok(meta) => meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs()),
+        Err(_) => crate::session_bridge::registered_mtime(source),
+    }
+}
+
+pub(crate) fn compute_thumbnail_cache_hash(
+    path_str: &str,
+    adjustments_bytes: &[u8],
+) -> Option<String> {
+    let (source_path, _) = parse_virtual_path(path_str);
+
+    let img_mod_time = source_mtime(&source_path)?;
+
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(path_str.as_bytes());
+    hasher.update(&img_mod_time.to_le_bytes());
+    hasher.update(adjustments_bytes);
+    if is_raw_file(&source_path) {
+        // Old embedded RAW previews could omit camera orientation for non-TIFF
+        // containers (notably RAF). Their pixels must not survive this fix.
+        hasher.update(b"\0embedded-raw-orientation-v1");
+        // Developed RAW pixels change with the decode engine (e.g. highlight
+        // reconstruction), so thumbnails follow its version.
+        hasher.update(format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes());
+        // With a preview proxy the thumbnail is developed from it (not the
+        // camera JPEG), so a new proxy makes a new thumbnail.
+        if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
+            hasher.update(b"\0developed-from-proxy-v1");
+        }
+    }
+    if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
+        .ok()
+        .is_some_and(|adjustments| {
+            adjustments
+                .get("masks")
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|masks| !masks.is_empty())
+        })
+    {
+        // Previously persisted masked previews may contain pixels from another
+        // editor source or shifted layer adjustments. Preserve unmasked entries.
+        hasher.update(b"\0masked-thumbnail-source-and-alignment-v1");
+    }
+    Some(hasher.finalize().to_hex().to_string())
+}
+
+pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
+    let mmap = read_file_mapped(source_path).ok()?;
+    image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
+}
+
+pub fn generate_thumbnail_data(
+    path_str: &str,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    app_handle: &AppHandle,
+) -> anyhow::Result<DynamicImage> {
+    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+    let source_path_str = source_path.to_string_lossy().to_string();
+    let is_raw = is_raw_file(&source_path_str);
+
+    let metadata: Option<ImageMetadata> = if is_cloud_placeholder(&sidecar_path) {
+        enqueue_metadata(
+            app_handle,
+            path_str.to_string(),
+            source_path.clone(),
+            sidecar_path.clone(),
+        );
+        None
+    } else {
+        thumbnail_metadata(&source_path, &sidecar_path)
+    };
+
+    let adjustments = metadata
+        .as_ref()
+        .map_or(serde_json::Value::Null, |m| m.adjustments.clone());
+
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let always_decode_raw = settings.always_decode_raw_thumbnails.unwrap_or(false);
+
+    // A preview proxy (preview_proxy.rs) develops the thumbnail like the
+    // editor does, also for never-edited RAWs (RAW defaults and the camera's
+    // lens data), so the Library and the placeholder show the edited look.
+    let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some())
+        .then(|| crate::preview_proxy::read(&source_path, &settings))
+        .flatten();
+    let (metadata, adjustments) = match (&proxy, metadata) {
+        (Some(_), metadata) if adjustments.is_null() => {
+            let mut recipe = serde_json::json!({});
+            crate::embedded_lens::apply_default(&mut recipe, &source_path);
+            let mut meta = metadata.unwrap_or_default();
+            meta.adjustments = recipe.clone();
+            (Some(meta), recipe)
+        }
+        (_, metadata) => (metadata, adjustments),
+    };
+
+    if is_raw
+        && adjustments.is_null()
+        && preloaded_image.is_none()
+        && !always_decode_raw
+        && let Some(preview) = try_load_embedded_raw_preview(&source_path)
+    {
+        return Ok(preview);
+    }
+
+    if let (Some(context), Some(meta)) = (gpu_context, metadata)
+        && !meta.adjustments.is_null()
+    {
+        let state = app_handle.state::<AppState>();
+        let target_res = settings.medium_thumbnail_resolution.unwrap_or(1280);
+
+        let base_cache_hash = crate::cache_utils::calculate_thumbnail_base_hash(&meta.adjustments);
+
+        let crop_data: Option<Crop> = serde_json::from_value(meta.adjustments["crop"].clone()).ok();
+
+        let mask_definitions: Vec<MaskDefinition> = meta
+            .adjustments
+            .get("masks")
+            .and_then(|m| serde_json::from_value(m.clone()).ok())
+            .unwrap_or_default();
+        let needs_mask_source = mask_definitions
+            .iter()
+            .any(MaskDefinition::requires_warped_image);
+
+        let cached_base: Option<(Arc<DynamicImage>, f32, Option<ParametricMaskSource>)> = {
+            let cache = state.thumbnail_geometry_cache.lock().unwrap();
+            if let Some((cached_hash, img, scale, mask_source)) = cache.get(path_str) {
+                let mut sufficient_resolution = true;
+                if let Some(c) = &crop_data
+                    && c.width > 0.0
+                    && c.height > 0.0
+                {
+                    let final_crop_max_dim =
+                        (c.width as f32 * *scale).max(c.height as f32 * *scale);
+                    if final_crop_max_dim < (target_res as f32 * 0.95) {
+                        sufficient_resolution = false;
+                    }
+                }
+
+                if *cached_hash == base_cache_hash
+                    && sufficient_resolution
+                    && (!needs_mask_source || mask_source.is_some())
+                {
+                    Some((Arc::clone(img), *scale, mask_source.clone()))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        let (processing_base_arc, total_scale, mask_source) = if let Some(cached) = cached_base {
+            cached
+        } else {
+            let mut raw_scale_factor = 1.0f32;
+
+            let pristine_source = if let Some(img) = preloaded_image {
+                Cow::Borrowed(img)
+            } else if let Some(proxy) = &proxy {
+                raw_scale_factor = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
+                Cow::Borrowed(&proxy.image)
+            } else {
+                let mmap_guard;
+                let vec_guard;
+
+                let file_slice: &[u8] = match read_file_mapped(&source_path) {
+                    Ok(mmap) => {
+                        mmap_guard = Some(mmap);
+                        mmap_guard.as_ref().unwrap()
+                    }
+                    Err(e) => {
+                        if preloaded_image.is_none() {
+                            log::warn!("Fallback read for {}: {}", source_path_str, e);
+                        }
+                        let bytes = fs::read(&source_path).map_err(|io_err| {
+                            anyhow::anyhow!(
+                                "Fallback read failed for {}: {}",
+                                source_path_str,
+                                io_err
+                            )
+                        })?;
+                        vec_guard = Some(bytes);
+                        vec_guard.as_ref().unwrap()
+                    }
+                };
+
+                let img = image_loader::load_base_image_from_bytes(
+                    file_slice,
+                    &source_path_str,
+                    true,
+                    &settings,
+                    None,
+                )?;
+
+                if is_raw {
+                    raw_scale_factor = crate::raw_processing::get_fast_demosaic_scale_factor(
+                        file_slice,
+                        img.width(),
+                        img.height(),
+                    );
+                }
+                Cow::Owned(img)
+            };
+
+            let composite_image =
+                image_loader::composite_patches_for_render(&pristine_source, &adjustments)?;
+
+            let warped_image = apply_geometry_warp(composite_image, &meta.adjustments);
+
+            let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, &meta.adjustments);
+
+            let orientation_steps =
+                meta.adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+            let coarse_rotated_image = apply_coarse_rotation(blurred_image, orientation_steps);
+
+            let (full_w, full_h) = coarse_rotated_image.dimensions();
+
+            let mut processing_dim = target_res;
+            if let Some(c) = &crop_data
+                && c.width > 0.0
+                && c.height > 0.0
+            {
+                let crop_max_dim_loaded = c.width.max(c.height) * raw_scale_factor as f64;
+                let full_max_dim = full_w.max(full_h) as f64;
+                if crop_max_dim_loaded > 0.0 {
+                    processing_dim = ((target_res as f64 * full_max_dim / crop_max_dim_loaded)
+                        .round() as u32)
+                        .min(full_w.max(full_h));
+                }
+            }
+
+            let (base, gpu_scale) = if full_w > processing_dim || full_h > processing_dim {
+                let base = crate::image_processing::downscale_f32_image(
+                    &coarse_rotated_image,
+                    processing_dim,
+                    processing_dim,
+                );
+                let scale = if full_w > 0 {
+                    base.width() as f32 / full_w as f32
+                } else {
+                    1.0
+                };
+                (base, scale)
+            } else {
+                (coarse_rotated_image.into_owned(), 1.0)
+            };
+
+            let total_scale = gpu_scale * raw_scale_factor;
+
+            // Keep a separate sampling source before orientation/flip/crop and
+            // lens blur. Its scale maps saved full-resolution picker coordinates
+            // into this target file's reduced pixels, never the editor image.
+            let mask_source = if needs_mask_source {
+                let mut source = prepare_parametric_mask_source(
+                    &pristine_source,
+                    is_raw,
+                    raw_scale_factor,
+                    &meta.adjustments,
+                )
+                .map_err(anyhow::Error::msg)?;
+                if source.image.width().max(source.image.height()) > target_res {
+                    let reduced = crate::image_processing::downscale_f32_image(
+                        &source.image,
+                        target_res,
+                        target_res,
+                    );
+                    source = source.with_resized_image(reduced);
+                }
+                Some(source)
+            } else {
+                None
+            };
+            let mut cache = state.thumbnail_geometry_cache.lock().unwrap();
+            if cache.len() >= 8 {
+                let key_to_remove = cache.keys().next().cloned();
+                if let Some(key) = key_to_remove {
+                    cache.remove(&key);
+                }
+            }
+
+            let base_arc = Arc::new(base);
+            cache.insert(
+                path_str.to_string(),
+                (
+                    base_cache_hash,
+                    Arc::clone(&base_arc),
+                    total_scale,
+                    mask_source.clone(),
+                ),
+            );
+
+            (base_arc, total_scale, mask_source)
+        };
+
+        let rotation_degrees = meta.adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+        let flip_horizontal = meta.adjustments["flipHorizontal"]
+            .as_bool()
+            .unwrap_or(false);
+        let flip_vertical = meta.adjustments["flipVertical"].as_bool().unwrap_or(false);
+
+        let flipped_image = apply_flip(
+            Cow::Borrowed(&*processing_base_arc),
+            flip_horizontal,
+            flip_vertical,
+        );
+        let rotated_image = apply_rotation(flipped_image, rotation_degrees);
+
+        let scaled_crop_json = if let Some(c) = &crop_data {
+            serde_json::to_value(Crop {
+                x: c.x * total_scale as f64,
+                y: c.y * total_scale as f64,
+                width: c.width * total_scale as f64,
+                height: c.height * total_scale as f64,
+            })
+            .unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        };
+
+        let cropped_preview = apply_crop(rotated_image, &scaled_crop_json);
+        let (preview_w, preview_h) = cropped_preview.dimensions();
+        let unscaled_crop_offset = crop_data.map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+
+        // The photo's own size, from the oriented base at its scale.
+        let (base_w, base_h) = processing_base_arc.dimensions();
+        let (base_w, base_h) =
+            if meta.adjustments["orientationSteps"].as_u64().unwrap_or(0) % 2 == 1 {
+                (base_h, base_w)
+            } else {
+                (base_w, base_h)
+            };
+        let mask_geometry =
+            crate::mask_generation::PhotoGeometry::from_adjustments(&meta.adjustments)
+                .with_photo_size(
+                    base_w as f64 / total_scale as f64,
+                    base_h as f64 / total_scale as f64,
+                );
+        let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+            .iter()
+            .filter_map(|def| {
+                crate::mask_generation::get_cached_or_generate_mask(
+                    &state,
+                    def,
+                    preview_w,
+                    preview_h,
+                    total_scale,
+                    (
+                        unscaled_crop_offset.0 * total_scale,
+                        unscaled_crop_offset.1 * total_scale,
+                    ),
+                    &mask_geometry,
+                    mask_source.as_ref(),
+                )
+                .transpose()
+            })
+            .collect::<std::result::Result<_, _>>()
+            .map_err(anyhow::Error::msg)?;
+
+        let tm_override = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+        let mut gpu_adjustments =
+            get_all_adjustments_from_json(&meta.adjustments, is_raw, tm_override);
+        crate::baseline_exposure::apply_base_look(&mut gpu_adjustments.global, &source_path_str);
+        gpu_adjustments.global.detail_scale = total_scale;
+        let lut_path = meta.adjustments["lutPath"].as_str();
+        let lut = lut_path.and_then(|p| {
+            let mut cache = state.lut_cache.lock().unwrap();
+            if let Some(cached_lut) = cache.get(p) {
+                return Some(cached_lut.clone());
+            }
+            if let Ok(loaded_lut) = crate::lut_processing::parse_lut_file(p) {
+                let arc_lut = Arc::new(loaded_lut);
+                cache.insert(p.to_string(), arc_lut.clone());
+                return Some(arc_lut);
+            }
+            None
+        });
+
+        let mut hasher = DefaultHasher::new();
+        path_str.hash(&mut hasher);
+        meta.adjustments.to_string().hash(&mut hasher);
+        let unique_hash = hasher.finish();
+
+        // Thumbnails follow every edit and share the editor's GPU lock. The
+        // display variants keep many-layer recipes fast; exports stay exact.
+        if let Ok(processed_image) =
+            gpu_processing::process_and_get_dynamic_image_with_display_shader(
+                context,
+                &state,
+                cropped_preview.as_ref(),
+                unique_hash,
+                gpu_processing::RenderRequest {
+                    adjustments: gpu_adjustments,
+                    mask_bitmaps: &mask_bitmaps,
+                    lut,
+                    roi: None,
+                },
+                "generate_thumbnail_data",
+            )
+        {
+            return Ok(processed_image);
+        } else {
+            return Ok(cropped_preview.into_owned());
+        }
+    }
+
+    let mut final_image = if let Some(img) = preloaded_image {
+        image_loader::composite_patches_on_image(img, &adjustments)?
+    } else {
+        match read_file_mapped(&source_path) {
+            Ok(mmap) => image_loader::load_and_composite(
+                &mmap,
+                &source_path_str,
+                &adjustments,
+                true,
+                &settings,
+                None,
+            )?,
+            Err(e) => {
+                log::warn!("Fallback read for {}: {}", source_path_str, e);
+                let bytes = fs::read(&source_path)?;
+                image_loader::load_and_composite(
+                    &bytes,
+                    &source_path_str,
+                    &adjustments,
+                    true,
+                    &settings,
+                    None,
+                )?
+            }
+        }
+    };
+
+    if adjustments.is_null() {
+        let tm_override = crate::image_processing::resolve_tonemapper_override(&settings, is_raw);
+        let use_agx = tm_override == Some(1);
+
+        if use_agx {
+            if !is_raw {
+                final_image = crate::image_processing::apply_srgb_to_linear(final_image);
+            }
+            crate::image_processing::apply_cpu_agx_tonemap(&mut final_image);
+        } else if is_raw {
+            apply_cpu_default_raw_processing(&mut final_image);
+        }
+    }
+
+    let fallback_orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+    Ok(apply_coarse_rotation(Cow::Owned(final_image), fallback_orientation_steps).into_owned())
+}
+
+pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
+    let thumbnail = if matches!(
+        image,
+        DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)
+    ) {
+        crate::image_processing::downscale_f32_image(image, target_width, target_width)
+    } else {
+        image.thumbnail(target_width, target_width)
+    };
+    let mut buf = Cursor::new(Vec::new());
+    let mut encoder = JpegEncoder::new_with_quality(&mut buf, 75);
+    encoder.encode_image(&thumbnail.to_rgb8())?;
+    Ok(buf.into_inner())
+}
+
+pub(crate) fn generate_single_thumbnail_and_cache(
+    path_str: &str,
+    thumb_cache_dir: &Path,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    force_regenerate: bool,
+    app_handle: &AppHandle,
+    settings: &AppSettings,
+) -> Option<(String, String, u8, bool)> {
+    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+
+    let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
+        enqueue_metadata(
+            app_handle,
+            path_str.to_string(),
+            source_path.clone(),
+            sidecar_path.clone(),
+        );
+        (0, false, Vec::new())
+    } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
+        {
+            let is_raw = crate::formats::is_raw_file(path_str);
+            let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
+            (
+                meta.rating,
+                crate::image_processing::is_image_edited(&meta.adjustments, is_raw, tm),
+                serde_json::to_vec(&meta.adjustments).unwrap_or_default(),
+            )
+        }
+    } else {
+        (0, false, Vec::new())
+    };
+
+    let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
+
+    let small_path = thumb_cache_dir.join(format!("{}_small.jpg", cache_hash));
+    let medium_path = thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash));
+
+    if !force_regenerate && small_path.exists() && medium_path.exists() {
+        return Some((
+            small_path.to_string_lossy().into_owned(),
+            medium_path.to_string_lossy().into_owned(),
+            rating,
+            is_edited,
+        ));
+    }
+
+    if is_cloud_placeholder(&source_path) {
+        return None;
+    }
+
+    let target_width_small = settings.small_thumbnail_resolution.unwrap_or(480);
+    let target_width_medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
+
+    if let Ok(thumb_image) =
+        generate_thumbnail_data(path_str, gpu_context, preloaded_image, app_handle)
+        && let (Ok(small_data), Ok(medium_data)) = (
+            encode_thumbnail(&thumb_image, target_width_small),
+            encode_thumbnail(&thumb_image, target_width_medium),
+        )
+    {
+        let _ = fs::write(&small_path, &small_data);
+        let _ = fs::write(&medium_path, &medium_data);
+        return Some((
+            small_path.to_string_lossy().into_owned(),
+            medium_path.to_string_lossy().into_owned(),
+            rating,
+            is_edited,
+        ));
+    }
+    None
+}
+
+/// Makes `path`'s thumbnails again after its preview proxy was written (the
+/// thumbnail is then developed from it) and tells the frontend.
+pub fn refresh_thumbnail(app_handle: &AppHandle, path: &str) {
+    let state = app_handle.state::<crate::app_state::AppState>();
+    let gpu_context = crate::gpu_processing::get_or_init_gpu_context(&state, app_handle).ok();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let Ok(cache_dir) = get_thumb_cache_dir(app_handle) else {
+        return;
+    };
+    if let Some((small, medium, rating, is_edited)) = generate_single_thumbnail_and_cache(
+        path,
+        &cache_dir,
+        gpu_context.as_ref(),
+        None,
+        false,
+        app_handle,
+        &settings,
+    ) {
+        emit_thumbnail_generated(app_handle, path, &small, &medium, rating, is_edited);
+    }
+}
+
+pub(crate) fn prefetch_source_file(path_str: &str) {
+    let (source_path, _) = parse_virtual_path(path_str);
+    if let Ok(mut file) = std::fs::File::open(&source_path) {
+        let _ = std::io::copy(&mut file, &mut std::io::sink());
+    }
+}
+
+pub fn start_thumbnail_workers(app_handle: tauri::AppHandle) {
+    let state = app_handle.state::<crate::app_state::AppState>();
+    let manager = state.thumbnail_manager.clone();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let thread_count = settings.thumbnail_worker_threads.unwrap_or(4).clamp(1, 16);
+
+    for _ in 0..thread_count {
+        let app_clone = app_handle.clone();
+        let manager_clone = manager.clone();
+
+        std::thread::spawn(move || {
+            loop {
+                let path_to_process: String = {
+                    let mut queue = manager_clone.queue.lock().unwrap();
+                    while queue.is_empty() {
+                        queue = manager_clone.cvar.wait(queue).unwrap();
+                    }
+                    let path = queue.pop_back().unwrap();
+
+                    let mut processing = manager_clone.processing_now.lock().unwrap();
+                    if processing.contains(&path) {
+                        let state = app_clone.state::<crate::app_state::AppState>();
+                        increment_thumbnail_progress(&state, &app_clone);
+                        continue;
+                    }
+                    processing.insert(path.clone());
+                    path
+                };
+
+                let state = app_clone.state::<crate::app_state::AppState>();
+                let gpu_context =
+                    crate::gpu_processing::get_or_init_gpu_context(&state, &app_clone).ok();
+
+                let current_settings = load_settings(app_clone.clone()).unwrap_or_default();
+
+                if let Ok(cache_dir) = get_thumb_cache_dir(&app_clone) {
+                    if manager_clone.rotational_disk.load(Ordering::Relaxed) {
+                        let _io_permit = manager_clone.io_gate.lock().unwrap();
+                        prefetch_source_file(&path_to_process);
+                    }
+
+                    let result = generate_single_thumbnail_and_cache(
+                        &path_to_process,
+                        &cache_dir,
+                        gpu_context.as_ref(),
+                        None,
+                        false,
+                        &app_clone,
+                        &current_settings,
+                    );
+
+                    if let Some((small_path, medium_path, rating, is_edited)) = result {
+                        emit_thumbnail_generated(
+                            &app_clone,
+                            &path_to_process,
+                            &small_path,
+                            &medium_path,
+                            rating,
+                            is_edited,
+                        );
+                    }
+                    increment_thumbnail_progress(&state, &app_clone);
+                }
+                manager_clone
+                    .processing_now
+                    .lock()
+                    .unwrap()
+                    .remove(&path_to_process);
+            }
+        });
+    }
+}
+
+pub(crate) fn visible_thumbnail_paths(
+    paths: Vec<String>,
+    processing: &std::collections::HashSet<String>,
+) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    paths
+        .into_iter()
+        .filter(|path| !processing.contains(path) && seen.insert(path.clone()))
+        .take(500)
+        .collect()
+}
+
+#[tauri::command]
+pub fn update_thumbnail_queue(
+    paths: Vec<String>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    let state = app_handle.state::<crate::app_state::AppState>();
+
+    let mut queue = state.thumbnail_manager.queue.lock().unwrap();
+
+    if paths.is_empty() {
+        queue.clear();
+        let mut tracker = state.thumbnail_progress.lock().unwrap();
+        tracker.total = 0;
+        tracker.completed = 0;
+        drop(tracker);
+
+        let _ = app_handle.emit(
+            "thumbnail-progress",
+            serde_json::json!({ "current": 0, "total": 0 }),
+        );
+        state.thumbnail_manager.cvar.notify_all();
+        return Ok(());
+    }
+
+    // This command receives a viewport snapshot, not an accumulating job list.
+    // Do not spend CPU decoding images the user has already scrolled past.
+    let processing = state.thumbnail_manager.processing_now.lock().unwrap();
+    let mut unique_paths = visible_thumbnail_paths(paths, &processing);
+    drop(processing);
+    queue.clear();
+    if state
+        .thumbnail_manager
+        .rotational_disk
+        .load(Ordering::Relaxed)
+    {
+        unique_paths.sort();
+    }
+    // Workers pop from the back; preserve visible order and bound oversized input.
+    queue.extend(unique_paths.into_iter().rev());
+
+    let queue_len = queue.len();
+    drop(queue);
+
+    let mut tracker = state.thumbnail_progress.lock().unwrap();
+    tracker.total = tracker.completed + queue_len;
+
+    let current = tracker.completed;
+    let total = tracker.total;
+    drop(tracker);
+
+    let _ = app_handle.emit(
+        "thumbnail-progress",
+        serde_json::json!({ "current": current, "total": total }),
+    );
+
+    state.thumbnail_manager.cvar.notify_all();
+    Ok(())
+}
+
+pub fn add_to_thumbnail_queue(state: &AppState, count: usize, app_handle: &AppHandle) {
+    let mut tracker = state.thumbnail_progress.lock().unwrap();
+    tracker.total += count;
+    let current = tracker.completed;
+    let total = tracker.total;
+    drop(tracker);
+
+    let _ = app_handle.emit(
+        "thumbnail-progress",
+        serde_json::json!({ "current": current, "total": total }),
+    );
+}
+
+pub fn increment_thumbnail_progress(state: &AppState, app_handle: &AppHandle) {
+    let mut tracker = state.thumbnail_progress.lock().unwrap();
+    tracker.completed += 1;
+    let current = tracker.completed;
+    let total = tracker.total;
+
+    if current >= total {
+        tracker.total = 0;
+        tracker.completed = 0;
+        drop(tracker);
+
+        let _ = app_handle.emit(
+            "thumbnail-progress",
+            serde_json::json!({ "current": 0, "total": 0 }),
+        );
+        let _ = app_handle.emit("thumbnail-generation-complete", true);
+    } else {
+        drop(tracker);
+        let _ = app_handle.emit(
+            "thumbnail-progress",
+            serde_json::json!({ "current": current, "total": total }),
+        );
+    }
+}
+
+pub(crate) fn emit_thumbnail_generated(
+    app_handle: &AppHandle,
+    path: &str,
+    small_thumbnail_path: &str,
+    medium_thumbnail_path: &str,
+    rating: u8,
+    is_edited: bool,
+) {
+    let _ = app_handle.emit(
+        "thumbnail-generated",
+        serde_json::json!({
+            "path": path,
+            "thumbnailPath": small_thumbnail_path,
+            "previewPath": medium_thumbnail_path,
+            "rating": rating,
+            "is_edited": is_edited
+        }),
+    );
+}
+
+#[tauri::command]
+pub async fn clear_thumbnail_cache(app_handle: AppHandle) -> Result<(), String> {
+    super::blocking(move || clear_thumbnail_cache_blocking(app_handle)).await?
+}
+
+fn clear_thumbnail_cache_blocking(app_handle: AppHandle) -> Result<(), String> {
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+    let thumb_cache_dir = cache_dir.join("thumbnails");
+
+    if thumb_cache_dir.exists() {
+        fs::remove_dir_all(&thumb_cache_dir)
+            .map_err(|e| format!("Failed to remove thumbnail cache: {}", e))?;
+    }
+
+    fs::create_dir_all(&thumb_cache_dir)
+        .map_err(|e| format!("Failed to recreate thumbnail cache directory: {}", e))?;
+
+    Ok(())
+}
+
+pub fn get_thumb_cache_dir(app_handle: &AppHandle) -> Result<PathBuf, String> {
+    let cache_dir = app_handle
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?;
+    let thumb_cache_dir = cache_dir.join("thumbnails");
+    if !thumb_cache_dir.exists() {
+        fs::create_dir_all(&thumb_cache_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(thumb_cache_dir)
+}
+
+pub fn get_cache_key_hash(path_str: &str) -> Option<String> {
+    let (source_path, sidecar_path) = parse_virtual_path(path_str);
+
+    let adjustments_bytes = thumbnail_metadata(&source_path, &sidecar_path)
+        .map(|meta| serde_json::to_vec(&meta.adjustments).unwrap_or_default())
+        .unwrap_or_default();
+
+    compute_thumbnail_cache_hash(path_str, &adjustments_bytes)
+}
+
+pub fn get_cached_or_generate_thumbnail_image(
+    path_str: &str,
+    app_handle: &AppHandle,
+    gpu_context: Option<&GpuContext>,
+) -> Result<DynamicImage> {
+    let thumb_cache_dir = get_thumb_cache_dir(app_handle).map_err(|e| anyhow::anyhow!(e))?;
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let target_width_small = settings.small_thumbnail_resolution.unwrap_or(480);
+    let target_width_medium = settings.medium_thumbnail_resolution.unwrap_or(1280);
+
+    if let Some(cache_hash) = get_cache_key_hash(path_str) {
+        let cache_path = thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash));
+
+        if cache_path.exists() {
+            if let Ok(image) = image::open(&cache_path) {
+                return Ok(image);
+            }
+            eprintln!(
+                "Could not open cached thumbnail, regenerating: {:?}",
+                cache_path
+            );
+        }
+
+        let thumb_image = generate_thumbnail_data(path_str, gpu_context, None, app_handle)?;
+        if let (Ok(small_data), Ok(medium_data)) = (
+            encode_thumbnail(&thumb_image, target_width_small),
+            encode_thumbnail(&thumb_image, target_width_medium),
+        ) {
+            let _ = fs::write(
+                thumb_cache_dir.join(format!("{}_small.jpg", cache_hash)),
+                &small_data,
+            );
+            let _ = fs::write(
+                thumb_cache_dir.join(format!("{}_medium.jpg", cache_hash)),
+                &medium_data,
+            );
+        }
+
+        Ok(thumb_image)
+    } else {
+        generate_thumbnail_data(path_str, gpu_context, None, app_handle)
+    }
+}
+
+#[cfg(test)]
+mod thumbnail_queue_tests {
+    use super::*;
+
+    #[test]
+    fn raw_thumbnail_cache_invalidates_pre_orientation_pixels_for_originals_and_virtual_copies() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.RAF");
+        fs::write(&path, b"thumbnail-cache-fixture").unwrap();
+        let modified = fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        for path_str in [
+            path.to_string_lossy().to_string(),
+            format!("{}?vc=1", path.display()),
+        ] {
+            for adjustments in [b"null".as_slice(), br#"{"orientationSteps":1}"#] {
+                let mut previous = blake3::Hasher::new();
+                previous.update(path_str.as_bytes());
+                previous.update(&modified.to_le_bytes());
+                previous.update(adjustments);
+                assert_ne!(
+                    compute_thumbnail_cache_hash(&path_str, adjustments).unwrap(),
+                    previous.finalize().to_hex().to_string(),
+                    "old orientation must not survive the on-disk cache"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn masked_thumbnail_cache_invalidates_previous_renderer_only() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.jpg");
+        fs::write(&path, b"thumbnail-cache-fixture").unwrap();
+        let path_str = path.to_str().unwrap();
+        let modified = fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let previous_hash = |adjustments: &[u8]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(path_str.as_bytes());
+            hasher.update(&modified.to_le_bytes());
+            hasher.update(adjustments);
+            hasher.finalize().to_hex().to_string()
+        };
+        for adjustments in [
+            b"".as_slice(),
+            b"null",
+            br#"{"exposure":1}"#,
+            br#"{"masks":[]}"#,
+            br#"{"masks":null}"#,
+            br#"{"masks":{}}"#,
+        ] {
+            assert_eq!(
+                compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
+                previous_hash(adjustments),
+                "unmasked caches remain reusable"
+            );
+        }
+        // The epoch also applies to empty/hidden/malformed definitions in a
+        // nonempty array, since skipped-layer handling is part of this change.
+        for adjustments in [
+            br#"{"masks":[{}]}"#.as_slice(),
+            br#"{"masks":[{"visible":false,"subMasks":[]}]}"#,
+            br#"{"masks":[{"visible":true,"subMasks":[]}]}"#,
+        ] {
+            assert_ne!(
+                compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
+                previous_hash(adjustments),
+                "old masked pixels must be regenerated"
+            );
+        }
+    }
+
+    #[test]
+    fn viewport_queue_is_bounded_ordered_and_excludes_inflight_duplicates() {
+        let mut paths = vec!["busy".to_string(), "first".to_string(), "first".to_string()];
+        paths.extend((0..600).map(|i| i.to_string()));
+        let processing = ["busy".to_string()].into_iter().collect();
+        let queue = visible_thumbnail_paths(paths, &processing);
+        assert_eq!(queue.len(), 500);
+        assert_eq!(queue[0], "first");
+        assert_eq!(queue[499], "498");
+        assert!(visible_thumbnail_paths(Vec::new(), &processing).is_empty());
+    }
+}

@@ -1,0 +1,55 @@
+[package]
+name = "rawtonic-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors = ["Rawtonic contributors", "Timon Käch (RapidRAW)"]
+description = "Rawtonic develop model and CPU stages: adjustments and their GPU uniforms, geometry, detail, scopes, camera defaults, looks, lens maths. No desktop dependencies."
+
+[features]
+default = []
+performance-profiling = [
+    "rawtonic-rawdecode/performance-profiling",
+    "rawtonic-runtime/performance-profiling",
+]
+# Helpers the app's GPU equivalence tests use (camera profile table probes).
+test-support = []
+
+[dependencies]
+rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
+rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
+rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+image = "0.25.10"
+# No `text` feature: its font parser (ttf-parser) is unmaintained and unused;
+# `image` keeps its default features through the direct dependency above.
+imageproc = { version = "0.27.0", default-features = false, features = ["rayon", "fft"] }
+png = "0.18.1"
+rayon = "1.12.0"
+bytemuck = { version = "1.25", features = ["derive"] }
+glam = "0.33.5"
+nalgebra = "0.35.0"
+base64 = "0.23"
+log = "0.4"
+kamadak-exif = "0.6.1"
+fuzzy-matcher = "0.3.7"
+walkdir = "2.5.0"
+anyhow = "1.0.104"
+little_exif = "0.6.23"
+memmap2 = "0.9.11"
+moxcms = "0.8"
+quick-xml = { version = "0.41", features = ["serialize"] }
+# JPEG XL for preview proxies (proxy_codec.rs); the export crate and the app use both.
+jxl-encoder = "0.3.1"
+jxl-oxide = { version = "0.12.6", features = ["image"] }
+# AVIF sources (avif.rs): rav1d decodes AV1 in pure Rust (no assembly, so no
+# NASM or C toolchain), avif-parse reads the HEIF container.
+rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "2.1.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+# AV1 test frames for avif.rs (already in the tree through image → ravif).
+rav1e = { version = "0.8.1", default-features = false }

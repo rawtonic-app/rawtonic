@@ -1,0 +1,25 @@
+[package]
+name = "rawtonic-rawdecode"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors = ["Rawtonic contributors", "Timon Käch (RapidRAW)"]
+description = "RAW decode for Rawtonic: rawler front end, demosaic, DNG opcodes, camera colour and capture metadata. No desktop dependencies."
+
+[features]
+default = []
+performance-profiling = ["rawtonic-runtime/performance-profiling"]
+
+[dependencies]
+rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
+rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
+image = "0.25.10"
+rayon = "1.12.0"
+wgpu = "29.0"
+bytemuck = { version = "1.25", features = ["derive"] }
+anyhow = "1.0.104"
+kamadak-exif = "0.6.1"
+log = "0.4"
+
+[dev-dependencies]
+pollster = "1.0"

@@ -1,0 +1,23 @@
+[package]
+name = "rawtonic-catalog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+rusqlite = { version = "0.40", features = ["bundled", "serde_json"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+log = "0.4"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest = "1"

@@ -1,0 +1,15 @@
+[package]
+name = "rawtonic-onnx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ONNX Runtime sessions for Rawtonic's AI models: GPU execution providers (WebGPU, CUDA) as plugin libraries with the CPU as fallback, independent of Tauri"
+
+[dependencies]
+anyhow.workspace = true
+libloading = "0.8"
+log = "0.4"
+ort = { version = "=2.0.0-rc.10", features = ["ndarray", "load-dynamic"] }
+
+[dev-dependencies]
+ndarray = "0.16"

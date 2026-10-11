@@ -1,0 +1,122 @@
+import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import { Flag, FlagOff, X } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
+import { useLibraryStore } from "../../store/useLibraryStore";
+import { RawStatus, EditedStatus } from "../ui/AppProperties";
+import type { FlagCounts, FlagFilter } from "../../utils/culling";
+
+const flags = [
+  { value: "all", label: "studio.library.flags.all", Icon: null },
+  { value: "picked", label: "studio.library.flags.picked", Icon: Flag },
+  { value: "unflagged", label: "studio.library.flags.unflagged", Icon: FlagOff },
+  { value: "rejected", label: "studio.library.flags.rejected", Icon: X },
+] as const;
+
+const colors = ["red", "yellow", "green", "blue", "purple"] as const;
+
+/** Lightroom's filter bar in one row: flags with counts, colour labels, the
+ * caller's extra filters (rating) and Clear while anything filters. */
+export default function StudioFilters({
+  counts,
+  children,
+}: {
+  counts: FlagCounts;
+  children?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const { filter, search, sessionDirectory, setFilter, setSearch } =
+    useLibraryStore(
+      useShallow((s) => ({
+        filter: s.filterCriteria,
+        search: s.searchCriteria,
+        sessionDirectory: s.sessionDirectory,
+        setFilter: s.setFilterCriteria,
+        setSearch: s.setSearchCriteria,
+      })),
+    );
+  const active =
+    (filter.flag ?? "all") !== "all" ||
+    filter.rating !== 0 ||
+    filter.colors.length > 0 ||
+    filter.rawStatus !== RawStatus.All ||
+    (filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All ||
+    search.text.trim() !== "" ||
+    search.tags.length > 0;
+  return (
+    <div className="studio-library-filters" aria-label={t("studio.library.filters.label")}>
+      {sessionDirectory && (
+        <div
+          className="studio-flag-filters"
+          role="group"
+          aria-label={t("studio.library.filters.byFlag")}
+        >
+          {flags.map(({ value, label: labelKey, Icon }) => {
+            const label = t(labelKey);
+            return (
+            <button
+              key={value}
+              aria-pressed={(filter.flag ?? "all") === value}
+              onClick={() => setFilter({ flag: value as FlagFilter })}
+              title={t("studio.library.filters.matching", {
+                label,
+                count: counts[value],
+                n: counts[value].toLocaleString(),
+              })}
+            >
+              {Icon && <Icon size={12} />}
+              <span className={Icon ? "studio-flag-label" : undefined}>{label}</span>{" "}
+              <span className="studio-filter-count">
+                {counts[value].toLocaleString()}
+              </span>
+            </button>
+            );
+          })}
+        </div>
+      )}
+      <select
+        aria-label={t("studio.library.filters.byColor")}
+        value={
+          filter.colors.length > 1 ? "multiple" : (filter.colors[0] ?? "all")
+        }
+        onChange={(e) =>
+          setFilter({
+            colors: e.target.value === "all" ? [] : [e.target.value],
+          })
+        }
+      >
+        <option value="all">{t("studio.library.filters.allLabels")}</option>
+        <option value="none">{t("studio.library.filters.noLabel")}</option>
+        {colors.map((color) => (
+          <option key={color} value={color}>
+            {t(`studio.library.colors.${color}`)}
+          </option>
+        ))}
+        {filter.colors.length > 1 && (
+          <option value="multiple" disabled>
+            {t("studio.library.filters.multipleLabels")}
+          </option>
+        )}
+      </select>
+      {children}
+      <button
+        className="studio-clear-filters"
+        aria-label={t("studio.library.filters.clearFilters")}
+        title={t("studio.library.filters.clearFilters")}
+        hidden={!active}
+        onClick={() => {
+          setFilter({
+            flag: "all",
+            rating: 0,
+            colors: [],
+            rawStatus: RawStatus.All,
+            editedStatus: EditedStatus.All,
+          });
+          setSearch({ text: "", tags: [] });
+        }}
+      >
+        {t("studio.library.filters.clear")}
+      </button>
+    </div>
+  );
+}

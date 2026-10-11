@@ -1,0 +1,2719 @@
+{
+  "adjustments": {
+    "color": {
+      "ariaSelectColor": "Select {{name}} color",
+      "calibration": {
+        "colors": {
+          "blue": "Blue",
+          "green": "Green",
+          "red": "Red"
+        },
+        "hue": "Hue",
+        "primaries": "Primaries",
+        "saturation": "Saturation",
+        "shadows": "Shadows",
+        "tint": "Tint",
+        "title": "Color Calibration"
+      },
+      "colorGrading": "Color Grading",
+      "colorMixer": "Color Mixer",
+      "grading": {
+        "balance": "Balance",
+        "blending": "Blending",
+        "global": "Global",
+        "highlights": "Highlights",
+        "midtones": "Midtones",
+        "shadows": "Shadows"
+      },
+      "hue": "Hue",
+      "localHue": "Local Hue",
+      "luminance": "Luminance",
+      "mixerColors": {
+        "aquas": "Aquas",
+        "blues": "Blues",
+        "greens": "Greens",
+        "magentas": "Magentas",
+        "oranges": "Oranges",
+        "purples": "Purples",
+        "reds": "Reds",
+        "yellows": "Yellows"
+      },
+      "presence": "Presence",
+      "saturation": "Saturation",
+      "temperature": "Temperature",
+      "tint": "Tint",
+      "toggleSliders": "Toggle Sliders",
+      "vibrance": "Vibrance",
+      "wbPickerTooltip": "White Balance Picker",
+      "wbPickerWgpuDisabled": "WB Picker: Disable WGPU in Settings.",
+      "whiteBalance": "White Balance"
+    },
+    "curves": {
+      "channels": {
+        "blue": "Blue",
+        "green": "Green",
+        "luma": "Luma",
+        "red": "Red"
+      },
+      "channelTitle": "{{channel}} Channel",
+      "copyParametric": "Copy {{channel}} Parametric Curve",
+      "copyPoint": "Copy {{channel}} Point Curve",
+      "curveDataUnavailable": "Curve data not available.",
+      "parametricCurve": "Parametric Curve",
+      "params": {
+        "blackLevel": "Black Level",
+        "darks": "Darks",
+        "highlights": "Highlights",
+        "lights": "Lights",
+        "shadows": "Shadows",
+        "whiteLevel": "White Level"
+      },
+      "pasteFromParametric": "Paste from Parametric Curve",
+      "pasteParametric": "Paste Parametric Curve",
+      "pastePoint": "Paste Point Curve",
+      "pointCurve": "Point Curve",
+      "resetAllParametric": "Reset All Parametric Curves",
+      "resetAllPoint": "Reset All Point Curves",
+      "resetParametric": "Reset {{channel}} Parametric Curve",
+      "resetPoint": "Reset {{channel}} Point Curve"
+    },
+    "details": {
+      "blueYellow": "Blue/Yellow",
+      "centre": "Centré",
+      "chromaticAberration": "Chromatic Aberration",
+      "clarity": "Clarity",
+      "color": "Color",
+      "dehaze": "Dehaze",
+      "luminance": "Luminance",
+      "noiseReduction": "Noise Reduction",
+      "presence": "Presence",
+      "redCyan": "Red/Cyan",
+      "sharpening": "Sharpening",
+      "sharpness": "Sharpness",
+      "structure": "Structure",
+      "threshold": "Threshold"
+    },
+    "effects": {
+      "amount": "Amount",
+      "bokehCircular": "Circular",
+      "bokehHexagonal": "Hexagonal",
+      "bokehOctagonal": "Octagonal",
+      "bokehRing": "Bubble (Ring)",
+      "bokehShape": "Bokeh Shape",
+      "creative": "Creative",
+      "feather": "Feather",
+      "glow": "Glow",
+      "grain": "Grain",
+      "halation": "Halation",
+      "lensBlur": "Lens Blur",
+      "lensDiffusion": "Diffusion",
+      "lightFlares": "Light Flares",
+      "lut": "LUT",
+      "midpoint": "Midpoint",
+      "roughness": "Roughness",
+      "roundness": "Roundness",
+      "size": "Size",
+      "vignette": "Vignette"
+    }
+  },
+  "contextMenus": {
+    "album": {
+      "emptyGroup": "(Empty Group)"
+    },
+    "albumIcons": {
+      "automotive": "Automotive",
+      "default": "Folder (Default)",
+      "favorites": "Favorites",
+      "featured": "Featured",
+      "locations": "Locations",
+      "nature": "Nature",
+      "people": "People",
+      "person": "Person",
+      "photography": "Photography",
+      "portfolio": "Portfolio",
+      "summer": "Summer",
+      "travel": "Travel"
+    },
+    "colors": {
+      "blue": "Blue",
+      "green": "Green",
+      "orange": "Orange",
+      "pink": "Pink",
+      "purple": "Purple",
+      "red": "Red",
+      "yellow": "Yellow"
+    },
+    "editor": {
+      "autoAdjust": "Auto Adjust Image",
+      "autoLensCorrection": "Auto Lens Correction",
+      "cancel": "Cancel",
+      "colorLabel": "Color Label",
+      "confirmReset": "Confirm Reset",
+      "convertNegative": "Convert Negative",
+      "copyAdjustments": "Copy Adjustments",
+      "cullImage": "Cull Image",
+      "editImage": "Open in Develop",
+      "exportImage": "Export Image",
+      "frameImage": "Frame Image",
+      "mergeHdr": "Merge to HDR",
+      "noLabel": "No Label",
+      "noRating": "No Rating",
+      "pasteAdjustments": "Paste Adjustments",
+      "productivity": "Tools",
+      "rating": "Rating",
+      "ratingLabel_one": "{{count}} Star",
+      "ratingLabel_other": "{{count}} Stars",
+      "redo": "Redo",
+      "resetAdjustments": "Reset Adjustments",
+      "stitchPanorama": "Stitch Panorama",
+      "tagging": "Tagging",
+      "undo": "Undo"
+    },
+    "merge": {
+      "focusStack": "Focus Stacking",
+      "hdrPanorama": "HDR Panorama",
+      "title": "Merge"
+    },
+    "tagging": {
+      "addTagTooltip": "Add tag",
+      "noTags": "No tags added",
+      "placeholder": "Add a tag...",
+      "removeTooltip": "Remove tag \"{{tag}}\"",
+      "shortcutsHeading": "SHORTCUTS"
+    },
+    "thumbnail": {
+      "addToAlbum": "Add to Album",
+      "autoAdjust_one": "Auto Adjust Image",
+      "autoAdjust_other": "Auto Adjust Images",
+      "autoLensCorrection_one": "Auto Lens Correction",
+      "autoLensCorrection_other": "Auto Lens Correction",
+      "collage_one": "Frame Image",
+      "collage_other": "Create Collage",
+      "confirmDelete": "Confirm Delete",
+      "confirmDeleteVc": "Confirm Delete + Virtual Copies",
+      "convertNegative_one": "Convert Negative",
+      "convertNegative_other": "Convert Negatives",
+      "copyImage_one": "Copy Image",
+      "copyImage_other": "Copy {{count}} Images",
+      "cullImage_one": "Cull Image",
+      "cullImage_other": "Cull Images",
+      "deleteAssociated": "Delete + Associated",
+      "deleteImage_one": "Delete Image",
+      "deleteImage_other": "Delete {{count}} Images",
+      "deleteSelected": "Delete Selected Only",
+      "duplicateImage": "Duplicate Image",
+      "exportImage_one": "Export Image",
+      "exportImage_other": "Export {{count}} Images",
+      "noAlbums": "No Albums Available",
+      "pasteAdjustments_one": "Paste Adjustments",
+      "pasteAdjustments_other": "Paste Adjustments to {{count}} Images",
+      "physicalCopy": "Physical Copy",
+      "removeFromAlbum_one": "Remove from Album",
+      "removeFromAlbum_other": "Remove {{count}} Images from Album",
+      "renameImage_one": "Rename Image",
+      "renameImage_other": "Rename {{count}} Images",
+      "resetAdjustments_one": "Reset Adjustments",
+      "resetAdjustments_other": "Reset Adjustments on {{count}} Images",
+      "showExplorer": "Show in File Manager",
+      "showFinder": "Show in Finder",
+      "virtualCopy": "Virtual Copy"
+    },
+    "toasts": {
+      "couldNotShowExplorer": "Could not show file in explorer: {{err}}",
+      "failedAddToAlbum": "Failed to add to album: {{err}}",
+      "failedApplyAuto": "Failed to apply auto adjustments: {{err}}",
+      "failedCreateVirtualCopy": "Failed to create virtual copy: {{err}}",
+      "failedDuplicate": "Failed to duplicate file: {{err}}",
+      "failedRemoveImages": "Failed to remove images: {{err}}"
+    }
+  },
+  "editor": {
+    "adjustments": {
+      "actions": {
+        "customizePanels": "Customize Panels",
+        "resetPanelLayout": "Reset to Default",
+        "resetSectionSettings": "Reset {{section}} Settings"
+      },
+      "sections": {
+        "basic": "Basic",
+        "color": "Color",
+        "curves": "Curves",
+        "details": "Details",
+        "effects": "Effects"
+      },
+      "tooltips": {
+        "hideFromPanel": "Hide from Panel",
+        "showInPanel": "Show in Panel"
+      }
+    },
+    "ai": {
+      "actions": {
+        "deleteComponent": "Delete Component"
+      },
+      "connection": {
+        "backendLabel": "AI Backend:",
+        "cloudLabel": "Cloud AI:",
+        "loginRequiredDesc": "Log in via Settings to use Cloud AI.",
+        "monthlyUsage": "Monthly Usage",
+        "notLoggedIn": "Not Logged In",
+        "proRequiredDesc": "Pro subscription required. Upgrade in Settings.",
+        "upgradeRequired": "Upgrade Required"
+      },
+      "createNewTitle": "Create New Generative Edit",
+      "generatingDepthMap": "Calculating AI Depth Map...",
+      "params": {
+        "feather": "Feather",
+        "grow": "Grow",
+        "intensity": "Intensity",
+        "pressure": "Pressure"
+      },
+      "runtimeUnavailable": "The AI runtime could not be loaded, so AI tools are unavailable. Everything else works as usual."
+    },
+    "externalEdit": {
+      "done": "Done",
+      "exporting": "Exporting…",
+      "savesTo": "External edit — saves to"
+    },
+    "guided": {
+      "cancel": "Cancel",
+      "drawingActive": "Drawing Active",
+      "hint": "Draw along edges in your photo that should be vertical or horizontal.",
+      "linesStatus": "Active Guide Lines",
+      "toast": {
+        "angleRejected": "Line angle is too far from horizontal or vertical",
+        "maxLines": "Maximum 2 vertical and 2 horizontal lines allowed"
+      }
+    },
+    "masks": {
+      "actions": {
+        "addNewComponent": "Add New Component",
+        "applyPreset": "Apply Preset",
+        "copyComponent": "Copy Component",
+        "copyMask": "Copy Mask",
+        "deleteComponent": "Delete Component",
+        "deleteMask": "Delete Mask",
+        "duplicateAndInvertComponent": "Duplicate and Invert Component",
+        "duplicateAndInvertMask": "Duplicate and Invert Mask",
+        "duplicateComponent": "Duplicate Component",
+        "duplicateMask": "Duplicate Mask",
+        "hideComponent": "Hide Component",
+        "hideMask": "Hide Mask",
+        "intersectMaskWith": "Intersect Mask with",
+        "noPresets": "No presets",
+        "pasteComponent": "Paste Component",
+        "pasteMask": "Paste Mask",
+        "pasteMaskAdjustments": "Paste Mask Adjustments",
+        "rename": "Rename",
+        "resetMaskAdjustments": "Reset Mask Adjustments",
+        "showComponent": "Show Component",
+        "showMask": "Show Mask",
+        "subtractFromMask": "Subtract from Mask",
+        "switchToAdd": "Switch to Add",
+        "switchToIntersect": "Switch to Intersect",
+        "switchToSubtract": "Switch to Subtract"
+      },
+      "addNewMask": "Add New Mask",
+      "aiTitle": "AI Selections",
+      "basicTitle": "Basic Tools",
+      "brush": {
+        "brush": "Brush",
+        "eraser": "Eraser",
+        "feather": "Brush Feather",
+        "flow": "Flow",
+        "size": "Brush Size"
+      },
+      "comingSoon": "Coming Soon",
+      "depthRange": {
+        "far": "Far",
+        "near": "Near",
+        "reset": "Reset",
+        "title": "Depth Range"
+      },
+      "dropzoneText": "Drop here to create a new mask",
+      "maskAdjustmentsTitle": "Mask Adjustments",
+      "maskingTitle": "Masking",
+      "masksTitle": "Masks",
+      "params": {
+        "feather": "Feather",
+        "globalFeather": "Global Feather",
+        "grow": "Grow",
+        "tolerance": "Tolerance"
+      },
+      "patches": {
+        "copyName": "{{name}} Copy",
+        "invertedName": "{{name}} Inverted",
+        "maskName": "Mask {{count}}",
+        "maskName_one": "Mask {{count}}",
+        "maskName_other": "Mask {{count}}"
+      },
+      "rangeTitle": "Ranges & Global",
+      "resetMaskingTooltip": "Reset Masking",
+      "settings": {
+        "aiModelDownloading": "AI Model Downloading: ",
+        "applyPreset": "Apply Preset",
+        "componentPropertiesTitle": "{{name}} Properties",
+        "copySectionSettings": "Copy {{section}} Settings",
+        "invertComponent": "Invert Component",
+        "invertMask": "Invert Mask",
+        "maskPropertiesTitle": "Mask Properties",
+        "noPresetsFound": "No presets found",
+        "opacity": "Opacity",
+        "pasteSectionSettings": "Paste {{section}} Settings",
+        "pasteSettings": "Paste Settings",
+        "resetSectionSettings": "Reset {{section}} Settings",
+        "select": "Select",
+        "selectPresetTooltip": "Select a preset to apply"
+      },
+      "toggleAnalyticsInAdjustments": "Toggle analytics in Adjustments panel",
+      "toggleAnalyticsTooltip": "Toggle Analytics Display",
+      "tooltips": {
+        "addToCurrent": "Add {{name}} to Current Mask or Create New (Right-click)",
+        "createNew": "Create New {{name}} Mask"
+      }
+    },
+    "metadata": {
+      "fileInfo": {
+        "dimensionsNoMp": "{{width}} × {{height}} px"
+      }
+    }
+  },
+  "library": {
+    "filters": {
+      "rating": {
+        "andUpSuffix": "& up",
+        "onlySuffix": "only"
+      }
+    },
+    "folders": {
+      "collapseSection": "Collapse {{section}}",
+      "expandSection": "Expand {{section}}",
+      "tooltips": {
+        "collapse": "Collapse",
+        "expand": "Expand",
+        "sortFolders": "Sort Folders"
+      }
+    },
+    "header": {
+      "viewOptions": {
+        "exifDisabledTooltip": "Enable EXIF Reading in Settings to use this option."
+      }
+    },
+    "splash": {
+      "goToSettings": "Go to Settings"
+    },
+    "thumbnailSize": {
+      "list": "List"
+    }
+  },
+  "masks": {
+    "types": {
+      "all": "Whole Image",
+      "brush": "Brush",
+      "clone": "Clone",
+      "color": "Color",
+      "depth": "Depth",
+      "flow": "Flow",
+      "foreground": "Foreground",
+      "heal": "Heal",
+      "linear": "Linear",
+      "liquify": "Liquify",
+      "luminance": "Luminance",
+      "people": "People",
+      "quickEraser": "Quick Eraser",
+      "radial": "Radial",
+      "retouch": "Retouch",
+      "sky": "Sky",
+      "subject": "Subject"
+    }
+  },
+  "menus": {
+    "tagging": {
+      "addTagTooltip": "Add tag",
+      "noTags": "No tags added",
+      "placeholder": "Add a tag...",
+      "removeTooltip": "Remove tag \"{{tag}}\"",
+      "shortcutsHeading": "SHORTCUTS"
+    }
+  },
+  "modals": {
+    "collage": {
+      "aspectRatio": "Aspect Ratio",
+      "background": "Background",
+      "borderRadius": "Border Radius",
+      "cancel": "Cancel",
+      "close": "Close",
+      "done": "Done",
+      "errorTitle": "An Error Occurred",
+      "exportSize": "Export Size (px)",
+      "format": "Format",
+      "formats": {
+        "jpeg": "JPEG",
+        "tiff": "TIFF 16-bit"
+      },
+      "keepOriginalRatio": "Keep Original Aspect Ratio",
+      "layout": "Layout",
+      "original": "Original",
+      "saveButton": "Save Collage",
+      "saved": "Collage Saved!",
+      "saving": "Saving...",
+      "shuffleTooltip": "Shuffle Images",
+      "spacing": "Spacing"
+    },
+    "confirm": {
+      "cancel": "Cancel",
+      "confirm": "Confirm"
+    },
+    "copyPaste": {
+      "groups": {
+        "blackAndWhite": "Black & White",
+        "chromaticAberration": "Chromatic Aberration",
+        "clarityDehaze": "Clarity & Dehaze",
+        "colorCalibration": "Color Calibration",
+        "colorGrading": "Color Grading",
+        "colorMixer": "Color Mixer",
+        "cropAspectRatio": "Crop & Aspect Ratio",
+        "curves": "Curves",
+        "exposureToneMapper": "Exposure & Tone Mapper",
+        "grain": "Grain",
+        "guidedPerspective": "Guided Perspective",
+        "halationGlow": "Halation & Glow",
+        "hueShift": "Global Hue Shift",
+        "lensCorrection": "Lens Correction",
+        "lut": "LUT",
+        "masks": "Masks",
+        "noiseReduction": "Noise Reduction",
+        "presence": "Presence",
+        "sharpness": "Sharpness",
+        "tone": "Tone",
+        "transformRotation": "Transform & Rotation",
+        "vignette": "Vignette",
+        "whiteBalance": "White Balance"
+      }
+    },
+    "createFolder": {
+      "cancel": "Cancel",
+      "create": "Create",
+      "placeholder": "Enter folder name...",
+      "title": "Create New Folder"
+    },
+    "culling": {
+      "actionDelete": "Move to Trash",
+      "actionRateZero": "Set Rating to 1 Stars",
+      "actionReject": "Mark as Rejected (Red Label)",
+      "applyButton_one": "Apply to 1 image",
+      "applyButton_other": "Apply to {{count}} images",
+      "bestImage": "Best Image",
+      "blurryImagesTab": "Blurry Images",
+      "blurThreshold": "Blur Threshold",
+      "blurThresholdDesc": "Images with a sharpness score below this value are flagged. Higher is stricter.",
+      "cancel": "Cancel",
+      "close": "Close",
+      "cullingFailed": "Culling Failed",
+      "cullingSuggestions": "Culling Suggestions",
+      "done": "Done",
+      "duplicatesHeader": "Duplicates ({{count}})",
+      "duplicatesHeader_one": "Duplicates ({{count}})",
+      "duplicatesHeader_other": "Duplicates ({{count}})",
+      "filterBlurry": "Filter Blurry Images",
+      "groupHeader": "Group {{index}}",
+      "groupSimilar": "Group Similar Images",
+      "noIssuesDesc": "All images seem to be unique and sharp.",
+      "noIssuesFound": "No issues found!",
+      "score": "Score: {{score}}",
+      "sharpness": "Sharpness: {{sharpness}}",
+      "similarGroupsTab": "Similar Groups",
+      "similarityThreshold": "Similarity Threshold",
+      "similarityThresholdDesc": "Lower is stricter (exact duplicates). Higher is looser (near duplicates). A value of 24-32 is recommended.",
+      "startCulling": "Start Culling",
+      "starting": "Starting...",
+      "title": "Cull Images"
+    },
+    "merge": {
+      "align": "Align photos",
+      "amount": {
+        "high": "High",
+        "low": "Low",
+        "medium": "Medium",
+        "off": "Off"
+      },
+      "autoCrop": "Auto crop",
+      "autoSettings": "Auto settings",
+      "boundaryWarp": "Boundary warp",
+      "cancel": "Cancel",
+      "close": "Close",
+      "deghost": "Ghost removal",
+      "fillEdges": "Fill edges",
+      "ghosts": "ghosts",
+      "merge": "Merge",
+      "notAligned": "not aligned",
+      "notUsed": "no overlap",
+      "open": "Open",
+      "photos_one": "{{count}} photo",
+      "photos_other": "{{count}} photos",
+      "projection": {
+        "auto": "Auto",
+        "cylindrical": "Cylindrical",
+        "panini": "Panini",
+        "perspective": "Perspective",
+        "spherical": "Spherical"
+      },
+      "projectionLabel": "Projection",
+      "showDepth": "Show depth map",
+      "showGhosts": "Show ghost areas",
+      "stale": "Settings changed – update the preview",
+      "title": {
+        "focusStack": "Focus stack",
+        "hdr": "Merge to HDR",
+        "hdrPanorama": "Merge to HDR panorama",
+        "panorama": "Merge to panorama"
+      },
+      "update": "Update preview",
+      "working": "Merging…"
+    },
+    "negativeConversion": {
+      "blueWeight": "Blue (Yellow)",
+      "cancel": "Cancel",
+      "colorTiming": "Color Timing",
+      "compareTooltip": "Hold to View Original",
+      "contrast": "Contrast (Grade)",
+      "convertAndSave": "Convert & Save",
+      "convertAndSaveAll": "Convert & Save All ({{count}})",
+      "convertAndSaveAll_one": "Convert & Save All ({{count}})",
+      "convertAndSaveAll_other": "Convert & Save All ({{count}})",
+      "converting": "Converting",
+      "convertingProgress": "Converting {{current}}/{{total}}",
+      "exposure": "Exposure",
+      "greenWeight": "Green (Magenta)",
+      "noticeText": "Inversion logic inspired by <0>NegPy</0> created by marcinz606 (<1>GPL-3.0</1>).",
+      "originalLabel": "Original Negative",
+      "printGrade": "Print Grade",
+      "redWeight": "Red (Cyan)",
+      "resetTooltip": "Reset",
+      "resetViewTooltip": "Reset View",
+      "title": "Negative Conversion",
+      "zoomInTooltip": "Zoom In",
+      "zoomOutTooltip": "Zoom Out"
+    },
+    "renameFile": {
+      "cancel": "Cancel",
+      "fileNamingTemplate": "File Naming Template",
+      "newName": "New Name",
+      "save": "Save",
+      "titleMultiple": "Rename {{count}} Images",
+      "titleMultiple_one": "Rename {{count}} Image",
+      "titleMultiple_other": "Rename {{count}} Images",
+      "titleSingle": "Rename Image"
+    },
+    "renameFolder": {
+      "cancel": "Cancel",
+      "placeholder": "Enter new folder name...",
+      "save": "Save",
+      "title": "Rename Folder"
+    }
+  },
+  "naming": {
+    "addToken": "Add a naming token",
+    "backup": "Backup copy",
+    "counterStart": "Counter starts at",
+    "custom": "Custom format",
+    "dateNote": "The date is illustrative. The counter starts at the chosen value for each operation; import dates use file modification time.",
+    "deletePreset": "Delete preset",
+    "destination": "Import destination",
+    "dropHere": "Drop here",
+    "edit": "Edit naming format…",
+    "example": "Example filename",
+    "hint": "Drag blocks to reorder them, or drag a token onto a block to insert before it. You can also click tokens and type your own text.",
+    "invalid": "Use the available tokens and a filename without reserved characters.",
+    "keyboardHint": "Select a block and use the Move left, Move right or Remove buttons. Activate a token to insert it at the text cursor.",
+    "moreFiles_one": "{{count}} more file",
+    "moreFiles_other": "{{count}} more files",
+    "moveLeft": "Move block left",
+    "moveRight": "Move block right",
+    "parts": "Naming blocks",
+    "preset": "Naming preset",
+    "presetName": "Preset name",
+    "presets": {
+      "dateOriginal": "Date + original filename",
+      "numbered": "Numbered photographs",
+      "original": "Original filename"
+    },
+    "recipeHint": "Tick recipes to export with them; with none ticked, the current settings export. Click a name to edit it.",
+    "remove": "Remove block",
+    "save": "Save preset",
+    "saveError": "The preset could not be saved on this device.",
+    "source": "Source photographs",
+    "space": "Space",
+    "title": "File naming",
+    "tokens": {
+      "counter4": "Counter · 4 digits",
+      "date": "Date",
+      "day": "Day",
+      "extension": "Extension",
+      "hour": "Hour",
+      "job": "Session name",
+      "minute": "Minute",
+      "month": "Month",
+      "original": "Image name",
+      "originalWithExtension": "Original filename + extension",
+      "sequence": "Counter",
+      "year": "Year"
+    }
+  },
+  "offline": {
+    "badge": "Offline",
+    "badgeTitleMissing": "The file is missing. The photograph opens on its preview; right-click › Locate Photo… to find its file again.",
+    "badgeTitleVolume": "The file is on “{{volume}}”, which is not connected. The photograph opens on its preview; connect the drive, or right-click › Locate Photo…",
+    "dialog": {
+      "locateFile": "Locate {{name}}",
+      "locateFolder": "Where is the folder {{folder}} now?"
+    },
+    "folders": {
+      "missing": "{{path}} is missing (renamed, moved or deleted). Its photographs keep their edits; right-click one › Locate Folder…",
+      "offlineInside_one": "{{count}} photograph here is offline",
+      "offlineInside_other": "{{count}} photographs here are offline",
+      "onVolume": "{{path}} is on “{{volume}}”, which is not connected.",
+      "title": "Missing",
+      "volumeOffline": "Offline",
+      "volumeOfflineTitle": "“{{name}}” is not connected. Its folders stay listed and their photographs keep their edits; connect it to work on the originals.",
+      "volumeSpaceTitle": "{{name}} at {{mount}} · free / total: {{space}}",
+      "volumeTitle": "{{name}} at {{mount}}"
+    },
+    "menu": {
+      "locate": "Locate Photo…",
+      "locateFolder": "Locate Folder…",
+      "showMissing": "Show Missing Photographs"
+    },
+    "missingView": "Missing Photographs",
+    "missingViewTitle": "Photographs whose file is missing or on a disconnected drive. They keep their edits; locate them to relink.",
+    "sessionCount_one": "{{count}} offline",
+    "sessionCount_other": "{{count}} offline",
+    "sessionCountTitle": "Photographs whose file is missing or on a disconnected drive: Library › Albums › Missing Photographs",
+    "toasts": {
+      "failed": "Relinking failed: {{err}}",
+      "mismatched_one": "{{count}} file with the same name is another photograph",
+      "mismatched_other": "{{count}} files with the same name are other photographs",
+      "notFound_one": "{{count}} not found",
+      "notFound_other": "{{count}} not found",
+      "relinked_one": "{{count}} photograph relinked",
+      "relinked_other": "{{count}} photographs relinked",
+      "taken_one": "{{count}} file is already another photograph of this library",
+      "taken_other": "{{count}} files are already other photographs of this library"
+    }
+  },
+  "previews": {
+    "menu": {
+      "buildFull": "Build 1:1 Previews",
+      "buildStandard": "Build Standard Previews",
+      "discardAll": "Discard Standard and 1:1 Previews",
+      "discardFull": "Discard 1:1 Previews",
+      "title": "Previews",
+      "withCount": "{{label}} ({{n}})"
+    },
+    "offline": {
+      "full": "Offline · 1:1 preview",
+      "fullTitle": "The RAW file cannot be read. You see and edit its 1:1 preview at full resolution; export needs the RAW file.",
+      "standard": "Offline · Standard preview",
+      "standardTitle": "The RAW file cannot be read. You see and edit its Standard preview; zooming in enlarges it, and export needs the RAW file. Build 1:1 previews to zoom offline photographs to 100 %. Retouching and Lens Blur are shown at its size; AI masks, Remove and Perspective Correction need the RAW file or a 1:1 preview."
+    },
+    "settings": {
+      "after30Days": "After 30 days",
+      "afterDay": "After one day",
+      "afterWeek": "After one week",
+      "auto": "Auto",
+      "discardAllButton": "Discard all",
+      "discardFull": "Discard 1:1 previews",
+      "discardFullButton": "Discard 1:1",
+      "discardFullDesc": "1:1 previews let offline photographs zoom to 100 %. They are large, so those not used for this long are discarded.",
+      "never": "Never",
+      "noLimit": "No limit",
+      "outsideUsage": "Previews of photographs outside sessions",
+      "sessionUsage": "Previews of this session",
+      "standardLimit": "Standard previews size limit",
+      "standardLimitDesc": "Per previews folder (a session, or photographs outside sessions). Beyond it, the Standard previews used longest ago are discarded and made again when their photograph is opened. Previews of offline photographs are kept.",
+      "standardSize": "Standard preview size",
+      "standardSizeDesc": "Long edge of the previews Develop opens on while a RAW file decodes, and that offline photographs show. Auto follows the size of the Develop view.",
+      "title": "Previews",
+      "usage": "Standard: {{standardFiles}} files, {{standardSize}} · 1:1: {{fullFiles}} files, {{fullSize}}"
+    },
+    "status": {
+      "building": "Building previews {{done}} / {{total}}",
+      "dismiss": "Dismiss",
+      "notBuilt": "Previews not built: {{failed}}",
+      "short": "Previews {{done}}/{{total}}",
+      "stop": "Stop",
+      "stopped": "Previews stopped after {{done}}"
+    },
+    "toasts": {
+      "discarded": "Preview files discarded: {{files}}",
+      "failed": "Previews: {{err}}"
+    }
+  },
+  "session": {
+    "bar": {
+      "hotFolder": "Hot folder",
+      "hotFolderCount": "Hot folder · {{imported}}",
+      "hotFolderTitle": "Watch a folder and copy new photographs into this session",
+      "hotFolderWatching_one": "Watching {{folder}} · {{count}} imported",
+      "hotFolderWatching_other": "Watching {{folder}} · {{count}} imported",
+      "identityTitle": "Open or create a session",
+      "ingest": "Ingest",
+      "ingestTitle": "Copy photographs from a card or folder into this session",
+      "markTitle": "Rawtonic · development build",
+      "noSession": "No session",
+      "photos_one": "{{formatted}} photo",
+      "photos_other": "{{formatted}} photos",
+      "picked_one": "{{count}} picked",
+      "picked_other": "{{count}} picked",
+      "xmpPending_one": "{{count}} XMP pending",
+      "xmpPending_other": "{{count}} XMP pending",
+      "xmpPendingTitle": "Edits are saved in the library. Some XMP sidecars need synchronization or conflict resolution."
+    },
+    "create": {
+      "catalog": "Catalog",
+      "catalogHint": "A library for many assignments",
+      "catalogName": "Catalog name",
+      "catalogPlaceholder": "Photo library",
+      "chooseParent": "Choose a parent folder…",
+      "createCatalog": "Create catalog",
+      "createSession": "Create session",
+      "importSubtitle": "A new catalog for your Lightroom or Capture One library. The import comes next.",
+      "importTitle": "A catalog for your library",
+      "location": "Location",
+      "name": "Session name",
+      "namePlaceholder": "2026-10-01_Client_Job",
+      "namePreview": "Your assignment",
+      "originalsUntouched": "Original photographs stay untouched.",
+      "session": "Session",
+      "sessionHint": "One portable folder per job",
+      "subtitle": "A session is one folder you can take anywhere.",
+      "title": "Start a new assignment"
+    },
+    "dialogs": {
+      "close": "Close",
+      "openTitle": "Open a Rawtonic session or catalog"
+    },
+    "fields": {
+      "filenameTemplate": "Filename template"
+    },
+    "hotFolder": {
+      "chooseFolder": "Choose the watched folder",
+      "copyFromLast": "Copy from last capture",
+      "copyNote": "Complete files are copied to <strong>{{target}}</strong> and verified. The watched folder is left as it is.",
+      "defaults": "Defaults",
+      "folder": "Watched folder",
+      "folderPlaceholder": "/path/to/tethered/captures",
+      "nextCapture": "Next capture adjustments",
+      "preset": "Preset: {{name}}",
+      "start": "Start watching",
+      "stop": "Stop watching",
+      "stopsOnQuit": "Watching stops when the app quits.",
+      "subtitle": "New photographs in the folder are copied in as they arrive.",
+      "switch": "Watch this folder instead",
+      "title": "Hot folder"
+    },
+    "import": {
+      "albums_one": "{{count}} album",
+      "albums_other": "{{count}} albums",
+      "check": "Check",
+      "chooseSource": "Choose the library to import",
+      "copiesNotImported_one": "{{count}} virtual copy (not imported)",
+      "copiesNotImported_other": "{{count}} virtual copies (not imported)",
+      "edited_one": "{{count}} with edits",
+      "edited_other": "{{count}} with edits",
+      "filterName": "Catalogs and sessions",
+      "photos_one": "{{count}} photograph",
+      "photos_other": "{{count}} photographs",
+      "preview": ": {{items}}.",
+      "relinkAria": "New location of {{folder}}",
+      "relinkPlaceholder": "Moved? New folder…",
+      "rootFound_one": "{{folder}} · {{found}} of {{count}} found",
+      "rootFound_other": "{{folder}} · {{found}} of {{count}} found",
+      "separator": ", ",
+      "smartAlbumsNotImported_one": "{{count}} smart album (not imported)",
+      "smartAlbumsNotImported_other": "{{count}} smart albums (not imported)",
+      "source": "Lightroom catalog or Capture One session",
+      "sourceAria": "Library to import",
+      "sourcePlaceholder": "/path/to/Catalog.lrcat or Session.cosessiondb",
+      "submit": "Import into {{name}}",
+      "subtitle": "Ratings, labels, keywords, edits and albums. The other library is only read.",
+      "title": "Import from Lightroom or Capture One"
+    },
+    "ingest": {
+      "choose": "Choose photographs…",
+      "chooseBackup": "Choose a backup folder…",
+      "chooseTitle": "Select photographs to ingest",
+      "copyNote": "Copy to <strong>{{target}}</strong>. Existing files are preserved; verified duplicates are skipped.",
+      "keepEditing": "You can keep editing during ingest.",
+      "optional": "(optional)",
+      "photographs": "Photographs",
+      "removeBackup": "Remove backup folder",
+      "secondCopy": "Second copy",
+      "selected_one": "{{count}} photograph selected",
+      "selected_other": "{{count}} photographs selected",
+      "submit_one": "Copy {{count}} photograph",
+      "submit_other": "Copy {{count}} photographs",
+      "submitNone": "Copy photographs",
+      "subtitle": "Every copy is checked against its source with SHA-256.",
+      "templateHint": "Keep original names with {{orig}}, or use {{pattern}}.",
+      "title": "Bring your photographs in"
+    },
+    "menu": {
+      "importFrom": "Import from Lightroom or Capture One…",
+      "new": "New session…",
+      "open": "Open session…"
+    },
+    "progress": {
+      "cancel": "Cancel",
+      "verifying_one": "Verifying {{current}} of {{count}} file",
+      "verifying_other": "Verifying {{current}} of {{count}} files"
+    },
+    "restore": {
+      "failed": "Last library could not open: {{error}}",
+      "opening": "Opening {{name}} ({{directory}})… If macOS asks for access to this volume, allow it."
+    },
+    "toasts": {
+      "duplicatesSkipped_one": "{{count}} duplicate skipped",
+      "duplicatesSkipped_other": "{{count}} duplicates skipped",
+      "flagsFailed": "Could not save flags: {{error}}",
+      "flagsSavedRefreshFailed": "Flags saved; session summary could not refresh: {{error}}",
+      "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
+      "importCopiesSkipped_one": "{{count}} virtual copy not imported",
+      "importCopiesSkipped_other": "{{count}} virtual copies not imported",
+      "imported_one": "{{count}} photograph imported ({{withSettings}} with edits, {{albums}} albums)",
+      "imported_other": "{{count}} photographs imported ({{withSettings}} with edits, {{albums}} albums)",
+      "importNotFound_one": "{{count}} not found",
+      "importNotFound_other": "{{count}} not found",
+      "ingestCancelled": "ingest cancelled",
+      "ingested_one": "{{count}} photo copied and verified",
+      "ingested_other": "{{count}} photos copied and verified",
+      "ingestFailed_one": "{{copied}} copied; {{count}} failed. {{error}}",
+      "ingestFailed_other": "{{copied}} copied; {{count}} failed. {{error}}",
+      "watching": "Watching {{folder}} for new photographs."
+    },
+    "welcome": {
+      "body": "Create a portable session for your next shoot. Keep captures, edits and deliveries together, from the first frame to the final selection.",
+      "create": "Create a session",
+      "importFrom": "Start from Lightroom or Capture One",
+      "open": "Open a session",
+      "tagline": "Local files. Non-destructive edits. Your photographs.",
+      "title": "A place for every assignment."
+    }
+  },
+  "settings": {
+    "categories": {
+      "general": "General",
+      "processing": "Processing",
+      "shortcuts": "Controls"
+    },
+    "controls": {
+      "keyboardTitle": "Keyboard Controls",
+      "modes": {
+        "mouse": "Mouse",
+        "trackpad": "Touchpad"
+      },
+      "notAssigned": "Not assigned",
+      "optimization": "Input Device Optimization",
+      "optimizationDesc": "Choose the primary input device you use to pan and zoom the canvas.",
+      "pressKey": "Press a key... (Esc to clear)",
+      "resetDefaults": "Reset All to Defaults",
+      "speed": "Speed",
+      "title": "Mouse Controls",
+      "zoom": "Zoom Speed Multiplier",
+      "zoomClick": "Zoom photo to 100%",
+      "zoomClickDesc": "Zoom photo in editor to 100% on mouse click",
+      "zoomClickInfo": "Click the photo to instantly zoom to 100% (1:1 pixels) to assess sharpness and noise. When disabled, clicking zooms in gradually.",
+      "zoomDesc": "Adjust how fast the canvas zooms in and out when using the scroll wheel or pinch gesture."
+    },
+    "data": {
+      "clearSidecars": "Clear All Sidecar Files",
+      "clearSidecarsButton": "Clear",
+      "clearSidecarsDesc": "Deletes the .rrdata files (edits) and .rrexif files (EXIF cache) within your root folders. Photos in a session or catalog are not affected: their edits are stored in its database. Root folders:",
+      "clearThumbnail": "Clear Thumbnail Cache",
+      "clearThumbnailButton": "Clear",
+      "clearThumbnailDesc": "This will delete all cached thumbnail images. They will be regenerated automatically as you browse your library.",
+      "loading": "Loading...",
+      "logs": "View Application Logs",
+      "logsButton": "Open",
+      "logsDesc": "View the application's log file for troubleshooting. The log is located at:",
+      "modals": {
+        "aiMessage": "Are you sure you want to remove all AI-generated tags from all images in all active root folders?\n\nThis will not affect user-added tags. This action cannot be undone.",
+        "allMessage": "Are you sure you want to remove all AI-generated and user-added tags from all images in all active root folders?\n\nThis action cannot be undone.",
+        "cacheMessage": "Are you sure you want to clear the thumbnail cache?\n\nAll thumbnails will need to be regenerated, which may be slow for large folders.",
+        "confirmAiTitle": "Confirm AI Tag Deletion",
+        "confirmAllTitle": "Confirm All Tag Deletion",
+        "confirmCacheTitle": "Confirm Cache Deletion",
+        "confirmClear": "Clear",
+        "confirmClearAi": "Clear AI Tags",
+        "confirmClearAll": "Clear All Tags",
+        "confirmClearCache": "Clear Cache",
+        "confirmDeleteAllEdits": "Delete All Edits",
+        "confirmResetLayout": "Reset Layout",
+        "confirmResetLayoutTitle": "Reset Workspace Layout",
+        "confirmTitle": "Confirm Deletion",
+        "resetLayoutMessage": "Are you sure you want to reset the workspace layout? All docked panels, widths, and switcher positions will be restored to their defaults.",
+        "sidecarMessage": "Are you sure you want to delete all sidecar files?\n\nThis permanently removes the edits stored in .rrdata files for all images inside all active root folders and their subfolders. Photos in a session or catalog are not affected: their edits are stored in its database."
+      },
+      "noFolders": "No folders selected",
+      "resetLayoutButton": "Reset Layout",
+      "resetLayoutDesc": "Restore panel docks, side splitters, heights, and panel switchers to the default layout.",
+      "resetLayoutTitle": "Reset Workspace Layout",
+      "statuses": {
+        "aiSuccess": "{{count}} files updated. AI tags removed.",
+        "aiSuccess_one": "{{count}} file updated. AI tags removed.",
+        "aiSuccess_other": "{{count}} files updated. AI tags removed.",
+        "allSuccess": "{{count}} files updated. All non-color tags removed.",
+        "allSuccess_one": "{{count}} file updated. All non-color tags removed.",
+        "allSuccess_other": "{{count}} files updated. All non-color tags removed.",
+        "cacheSuccess": "Thumbnail cache cleared successfully.",
+        "clearingAi": "Clearing AI tags from all sidecar files...",
+        "clearingAll": "Clearing all tags from sidecar files...",
+        "clearingCache": "Clearing thumbnail cache...",
+        "deleting": "Deleting sidecar files, please wait...",
+        "failedToGetPath": "Could not retrieve log file path.",
+        "layoutResetSuccess": "Workspace layout reset to default.",
+        "processing": "Processing...",
+        "resettingLayout": "Resetting workspace...",
+        "sidecarSuccess": "{{count}} sidecar files deleted successfully.",
+        "sidecarSuccess_one": "{{count}} sidecar file deleted successfully.",
+        "sidecarSuccess_other": "{{count}} sidecar files deleted successfully."
+      },
+      "title": "Data Management"
+    },
+    "general": {
+      "createXmp": "Create Missing XMP Files",
+      "createXmpDesc": "Automatically create a new XMP sidecar file if one does not exist for an image.",
+      "createXmpMissing": "Create XMP if missing",
+      "enableNeutralGreyCanvas": "Enable Neutral Grey Background",
+      "enableOsTitlebar": "Enable OS Titlebar",
+      "enableXmpSync": "Enable XMP Sync",
+      "nativeTitlebar": "Native Titlebar",
+      "nativeTitlebarDesc": "Use your system's default window titlebar instead of the app's own one.",
+      "neutralGreyCanvas": "Neutral Grey Canvas",
+      "neutralGreyCanvasDesc": "Use a neutral grey canvas for more accurate color and exposure grading without changing the app theme.",
+      "title": "General Settings",
+      "uiScale": "Interface size",
+      "uiScaleDesc": "Enlarges the tool panels and the viewer's bars for long sessions. The photo area keeps its own zoom.",
+      "xmpSync": "XMP Metadata Sync",
+      "xmpSyncDesc": "Sync ratings, color labels and tags to standard XMP sidecar files for compatibility with other photo editors."
+    },
+    "keybinds": {
+      "actions": {
+        "auto_adjust": "Auto adjust",
+        "brush_size_down": "Decrease brush size",
+        "brush_size_up": "Increase brush size",
+        "color_label_blue": "Color label: Blue",
+        "color_label_green": "Color label: Green",
+        "color_label_none": "Color label: None",
+        "color_label_purple": "Color label: Purple",
+        "color_label_red": "Color label: Red",
+        "color_label_yellow": "Color label: Yellow",
+        "copy_adjustments": "Copy selected adjustments",
+        "copy_files": "Copy selected file(s)",
+        "copy_image_path": "Copy path of selected image(s)",
+        "cycle_zoom": "Cycle zoom (Fit, 2x Fit, 100%)",
+        "delete_selected": "Delete selected file(s)",
+        "focus_search": "Focus search field",
+        "mask_background": "New background layer",
+        "mask_subject": "New subject layer",
+        "move_to_selects": "Move to Selects Folder",
+        "open_image": "Open selected image",
+        "open_settings": "Open settings",
+        "paste_adjustments": "Paste copied adjustments",
+        "paste_files": "Paste file(s) to current folder",
+        "preview_next": "Next image",
+        "preview_prev": "Previous image",
+        "rate_0": "Star rating: 0",
+        "rate_1": "Star rating: 1",
+        "rate_2": "Star rating: 2",
+        "rate_3": "Star rating: 3",
+        "rate_4": "Star rating: 4",
+        "rate_5": "Star rating: 5",
+        "redo": "Redo adjustment",
+        "remove_objects": "Remove objects",
+        "rotate_left": "Rotate 90° counter-clockwise",
+        "rotate_right": "Rotate 90° clockwise",
+        "select_all": "Select all images",
+        "show_original": "Show original (before/after)",
+        "toggle_adjustments": "Toggle Adjustments panel",
+        "toggle_all_panels": "Hide or show all panels and bars",
+        "toggle_analytics": "Toggle Analytics display",
+        "toggle_bottom_panel": "Toggle Filmstrip",
+        "toggle_clipping": "Show clipping warnings",
+        "toggle_crop": "Toggle Crop / Straighten",
+        "toggle_crop_panel": "Toggle Crop panel",
+        "toggle_export": "Toggle Export panel",
+        "toggle_folder_tree": "Show the Folders tool",
+        "toggle_fullscreen": "Toggle fullscreen",
+        "toggle_left_panel": "Toggle Left Panel",
+        "toggle_library_exif": "Toggle EXIF overlay",
+        "toggle_mask_grayscale": "Grayscale mask view",
+        "toggle_mask_overlay": "Show or hide the mask",
+        "toggle_masks": "Toggle Masks panel",
+        "toggle_metadata": "Show the Metadata tool",
+        "toggle_right_panel": "Toggle Right Panel",
+        "toggle_side_panels": "Hide or show the side panels",
+        "toggle_soft_proof": "Toggle soft proofing",
+        "tool_brush": "Brush (draw mask)",
+        "tool_crop": "Crop",
+        "tool_erase": "Eraser (erase mask)",
+        "tool_linear": "Linear gradient",
+        "tool_radial": "Radial gradient",
+        "tool_select": "Select",
+        "tool_spot": "Spot removal",
+        "tool_straighten": "Straighten",
+        "tool_wb": "White balance picker",
+        "undo": "Undo adjustment",
+        "zoom_100": "Zoom to 100%",
+        "zoom_fit": "Zoom to fit",
+        "zoom_in": "Zoom in",
+        "zoom_in_step": "Zoom in (by step)",
+        "zoom_out": "Zoom out",
+        "zoom_out_step": "Zoom out (by step)"
+      },
+      "sections": {
+        "editing": "Editing",
+        "library": "Library",
+        "panels": "Panels",
+        "rating": "Rating & Labels",
+        "tools": "Cursor tools",
+        "view": "View"
+      }
+    },
+    "language": "Language",
+    "languageDesc": "Change the application language.",
+    "lenses": {
+      "addButton": "Add to My Lenses",
+      "addNew": "Add New Lens",
+      "description": "Create a list of your frequently used lenses to quickly access them in the Lens Correction panel.",
+      "manufacturerPlaceholder": "Select Manufacturer",
+      "modelPlaceholder": "Select Lens Model",
+      "noLenses": "No lenses added yet.",
+      "removeTooltip": "Remove lens",
+      "saved": "Saved Lenses",
+      "title": "My Lenses"
+    },
+    "processing": {
+      "aiGpu": "AI on the graphics card",
+      "aiGpuDesc": "Runs AI masks, tags, object removal and AI Denoise on the graphics card when it can (WebGPU; CUDA when installed), otherwise on the processor. Turn off if an AI tool misbehaves.",
+      "aiGpuLabel": "Use the GPU for AI",
+      "alwaysDecodeRaw": "Always Decode RAW",
+      "alwaysDecodeRawDesc": "Force full RAW decoding for thumbnails instead of using embedded JPEG previews. Enable this if your thumbnails look different in color or contrast compared to the opened image.",
+      "alwaysDecodeRawLabel": "Always decode RAW for thumbnails",
+      "backend": "Processing Backend",
+      "backendDesc": "Select the graphics API. 'Auto' is recommended. May fix crashes on some systems.",
+      "backends": {
+        "auto": "Auto",
+        "dx12": "DirectX 12",
+        "gl": "OpenGL",
+        "metal": "Metal",
+        "vulkan": "Vulkan"
+      },
+      "dynamicDesc": "The editor renders the preview to match your display's actual pixel density. This ensures that every detail is represented with 1:1 pixel accuracy, providing maximum clarity when zooming and checking focus.",
+      "enableLivePreviews": "Enable Live Previews",
+      "highDpi": "High-DPI Rendering",
+      "highDpiDesc": "Render previews at your screen's native {{dpr}}x physical pixel resolution. Produces the sharpest possible preview but uses significantly more memory.",
+      "highDpiDescStandard": "This setting only affects high-DPI displays. Your current display is standard resolution.",
+      "imageCache": "Decoded Image Cache",
+      "imageCacheDesc": "Maximum number of full-resolution images kept in RAM. Higher values make switching between recently edited images instant, but use significantly more memory.",
+      "images": "Images",
+      "linuxCompat": "Linux Compatibility Mode",
+      "linuxCompatDesc": "Force software compositing to work around GPU driver crashes. Nvidia GPUs already get a lighter, automatic workaround, so only enable this if you still experience crashes on launch or when opening images.",
+      "linuxCompatLabel": "Enable Compatibility Mode",
+      "livePreviewQuality": "Live Preview Quality",
+      "livePreviewQualityDesc": "Controls the resolution and compression of the image while dragging sliders. Lower quality significantly improves responsiveness.",
+      "livePreviews": "Live Interactive Previews",
+      "livePreviewsDesc": "Update the preview immediately while dragging sliders. Disable this if the interface feels laggy during adjustments.",
+      "mediumThumbnailRes": "Editor Thumbnail Resolution",
+      "mediumThumbnailResDesc": "Resolution of the preview shown while full images load in the editor.",
+      "modes": {
+        "dynamic": "Dynamic",
+        "static": "Fixed Resolution"
+      },
+      "nativeDpi": "Render at native DPI",
+      "preprocessing": {
+        "appleRaw9": "Apple RAW 9 Engine",
+        "appleRaw9Desc": "Develop RAW files with Apple's Core Image RAW 9 decoder, which demosaics and denoises in one step on the Neural Engine. Requires macOS 27 or later and a supported camera; unsupported files automatically use the built-in decoder. Slower than the default decoder. Thumbnails are not affected.",
+        "applyPreprocessing": "Apply Preprocessing to Non-RAWs",
+        "applyPreprocessingDesc": "If enabled, the base color noise reduction and pre-sharpening above will also be applied to standard formats.",
+        "colorNr": "Base Color Noise Reduction",
+        "colorNrDesc": "Applies a cross-bilateral filter early in the pipeline to remove chroma noise. Higher value = Stronger NR.",
+        "defaultNonRawTonemapper": "Default Non-RAW Tonemapper",
+        "defaultNonRawTonemapperDesc": "The tonemapper to apply to non-RAW images (e.g., JPEG, PNG).",
+        "defaultRawTonemapper": "Default RAW Tonemapper",
+        "defaultRawTonemapperDesc": "The tonemapper to apply to RAW images.",
+        "enableAppleRaw9": "Use Apple RAW 9 for RAW files",
+        "enablePreprocessingNonRaws": "Enable for Non-RAWs",
+        "enableTonemapperOverride": "Enable Tonemapper Override",
+        "highlightRecovery": "RAW Highlight Recovery",
+        "highlightRecoveryDesc": "Controls how much detail is recovered from clipped highlights in RAW files. Higher values recover more detail but can introduce purple artefacts.",
+        "linearOptions": {
+          "auto": "Auto",
+          "gamma": "Apply Gamma",
+          "gamma_skip_calib": "Apply Gamma & Skip Calibrate",
+          "skip_calib": "Skip Calibrate"
+        },
+        "linearRaw": "Linear RAW Processing",
+        "linearRawDesc": "Fixes color casts or pink tint in some DNG files. Controls how already processed LinearRAW data is interpreted.",
+        "sharpening": "Base Pre-Sharpening",
+        "sharpeningDesc": "Applies gentle detail enhancement early in the pipeline. Higher value = More sharpening.",
+        "title": "Image Preprocessing",
+        "tonemapperOptions": {
+          "agx": "AgX",
+          "basic": "Classic",
+          "standard": "Standard"
+        },
+        "tonemapperOverride": "Global Tonemapper Override",
+        "tonemapperOverrideDesc": "Force a specific tonemapper globally for all images, hiding the tonemapper switch from the adjustments panel."
+      },
+      "previewRes": "Preview Resolution",
+      "previewResDesc": "Determines the maximum resolution of the preview. Lower values significantly improve performance.",
+      "previewStrategy": "Preview Rendering Strategy",
+      "qualities": {
+        "full": "Full Resolution",
+        "high": "High Quality",
+        "performance": "Performance"
+      },
+      "renderScale": "Render Resolution Scale",
+      "renderScaleDesc": "Scales the render resolution relative to your display. Lower values improve performance on high-resolution screens at the cost of some sharpness.",
+      "restartRequired": "Changes to the processing engine require an application restart to take effect.",
+      "saveRelaunch": "Save & Relaunch",
+      "smallThumbnailRes": "Grid Thumbnail Resolution",
+      "smallThumbnailResDesc": "Resolution of thumbnails shown in the library grid.",
+      "staticDesc": "The editor renders the image at a fixed resolution. This mode is the fastest and most consistent, making it ideal for lower-end hardware where smooth performance is prioritized over pixel-perfect zoom.",
+      "staticPreviewRes": "Static Preview Resolution",
+      "staticPreviewResDesc": "Sets the resolution for static previews like crop mode, lens correction, and perspective tools. Does not affect the main editor preview.",
+      "threads": "Threads",
+      "thumbnailRes": "Thumbnail Resolution",
+      "thumbnailResDesc": "Determines the resolution of generated library thumbnails. Higher values produce sharper images during loading.",
+      "title": "Processing Engine",
+      "wgpu": "WGPU Direct Rendering",
+      "wgpuDescLinux": "Bypasses browser encoding for instantly responsive live previews. (Disabled on Linux: Tauri uses GTK for webviews, which conflicts with WGPU on the same X11 surface and causes flickering.)",
+      "wgpuDescRecommended": "Bypasses browser encoding for instantly responsive live previews. Highly recommended for performance.",
+      "wgpuLabel": "Enable Direct WGPU Render",
+      "workerThreads": "Thumbnail Worker Threads",
+      "workerThreadsDesc": "Number of parallel threads used to generate thumbnails. Higher values speed up library loading but use more CPU & RAM."
+    },
+    "tagging": {
+      "addCustomPlaceholder": "Add custom AI tags (comma separated)...",
+      "addCustomTooltip": "Add AI tag",
+      "addShortcutsPlaceholder": "Add shortcuts (comma separated)...",
+      "addShortcutTooltip": "Add Shortcut",
+      "aiTagging": "AI Tagging",
+      "aiTaggingDesc": "Enables automatic image tagging using an AI (SigLIP 2) model. This will download an additional model and impact performance while browsing folders. Tags are used for searching a folder.",
+      "amount": "Amount",
+      "automaticAiTagging": "Automatic AI Tagging",
+      "clearAiTagsButton": "Clear",
+      "clearAiTagsDesc": "This will remove all AI-generated tags from your .rrdata files in all active root folders. User-added tags will be kept.",
+      "clearAiTagsTitle": "Clear AI Tags",
+      "clearAllTagsDesc": "This will remove all AI-generated and user-added tags from your .rrdata files in all active root folders. Color labels will be kept.",
+      "clearAllTagsTitle": "Clear All Tags",
+      "clearCustomTooltip": "Clear AI Tag List",
+      "clearShortcutsTooltip": "Clear Shortcuts Tag List",
+      "customList": "Custom AI Tag List",
+      "customListDesc": "If provided, the AI will ONLY use tags from this list, overriding the built-in list. Tagging works only in English.",
+      "maxAiTags": "Maximum AI Tags",
+      "maxAiTagsDesc": "The maximum number of tags to generate per image.",
+      "noCustomTags": "No custom AI tags (Using built-in list)",
+      "noShortcuts": "No shortcuts added",
+      "removeCustomTooltip": "Remove tag \"{{tag}}\"",
+      "removeShortcutTooltip": "Remove shortcut \"{{shortcut}}\"",
+      "shortcuts": "Tagging Shortcuts",
+      "shortcutsDesc": "A list of tags that will appear as shortcuts in the tagging context menu.",
+      "title": "Tagging"
+    },
+    "title": "Settings",
+    "tooltips": {
+      "goHome": "Go to Home"
+    }
+  },
+  "spotRemoval": {
+    "detectObjects": "Detect objects",
+    "detectObjectsBoxHint": "Drag a box around an object or click it to remove it.",
+    "detectObjectsHint": "Brush loosely over an object or click it to remove it.",
+    "detectObjectsRefineHint": "Shift adds to the selected removal, Alt (⌥) subtracts from it.",
+    "feather": "Feather",
+    "featherAria": "Spot feather",
+    "mode": "Spot mode",
+    "modes": {
+      "clone": "Clone",
+      "heal": "Heal",
+      "remove": "Remove"
+    },
+    "objectSelect": "Selection",
+    "objectSelectModes": {
+      "box": "Box",
+      "brush": "Brush"
+    },
+    "opacity": "Opacity",
+    "opacityAria": "Spot opacity",
+    "sensitivity": "Sensitivity",
+    "sensitivityAria": "Visualize spots sensitivity",
+    "size": "Size",
+    "sizeAria": "Spot size",
+    "visualize": "Visualize spots"
+  },
+  "studio": {
+    "adjustment": {
+      "scrubHint": "Drag to adjust · double-click to reset",
+      "value": "{{name}} value",
+      "valueWithUnit": "{{name}} value ({{unit}})"
+    },
+    "color": {
+      "bw": {
+        "auto": "Auto",
+        "autoAria": "Auto black & white mix",
+        "autoFailed": "Auto black & white failed: {{error}}",
+        "autoTitle": "Automatic black & white mix",
+        "channels": {
+          "aqua": "Aqua",
+          "blue": "Blue",
+          "green": "Green",
+          "magenta": "Magenta",
+          "orange": "Orange",
+          "purple": "Purple",
+          "red": "Red",
+          "yellow": "Yellow"
+        },
+        "convert": "Convert to black & white",
+        "title": "Black & white"
+      },
+      "calibration": {
+        "hueAria": {
+          "blue": "Blue primary hue",
+          "green": "Green primary hue",
+          "red": "Red primary hue"
+        },
+        "primaries": {
+          "blue": "Blue primary",
+          "green": "Green primary",
+          "red": "Red primary"
+        },
+        "saturationAria": {
+          "blue": "Blue primary saturation",
+          "green": "Green primary saturation",
+          "red": "Red primary saturation"
+        },
+        "shadowsTintAria": "Shadows tint",
+        "title": "Calibration"
+      },
+      "editor": {
+        "aria": {
+          "chromaRange": "Color range saturation range",
+          "hueRange": "Color range hue range",
+          "hueShift": "Color range hue",
+          "hueUniformity": "Color range hue uniformity",
+          "lightnessRange": "Color range lightness range",
+          "lightnessShift": "Color range lightness",
+          "lightnessUniformity": "Color range lightness uniformity",
+          "saturation": "Color range saturation",
+          "saturationUniformity": "Color range saturation uniformity",
+          "smoothness": "Color range smoothness"
+        },
+        "hintEmpty": "Pick a colour in the photo to adjust that colour range.",
+        "hintPicking": "Click a colour in the photo.",
+        "lightness": "Lightness",
+        "pickAgainAria": "Pick the range colour again",
+        "pickAgainTitle": "Pick this range's colour again",
+        "pickAria": "Pick a colour range",
+        "pickTitle": "Pick a colour in the photo",
+        "range": "Range",
+        "rangeAria": "Color range {{hue}}°",
+        "removeAria": "Remove color range",
+        "removeTitle": "Remove this range",
+        "selectRange": "Select this colour range",
+        "showAria": "Show range",
+        "showTitle": "Show the selected range (everything else grey)",
+        "smoothness": "Smoothness",
+        "title": "Color editor",
+        "uniformity": "Uniformity"
+      },
+      "grading": {
+        "hueAria": "{{range}} hue",
+        "luminanceAria": "{{range}} luminance",
+        "ranges": "Ranges",
+        "saturationAria": "{{range}} saturation",
+        "title": "Color grading",
+        "tonalRange": "Tonal range"
+      },
+      "wheel": {
+        "aria": "{{range}} hue and saturation",
+        "title": "Drag for hue and saturation · Shift fine · Alt keeps the hue · double-click resets",
+        "valueText": "Hue {{hue}}°, saturation {{saturation}}"
+      }
+    },
+    "crop": {
+      "add": "Add",
+      "addRatioTitle": "Add a ratio of your own",
+      "aria": {
+        "addRatio": "Add a crop ratio",
+        "grid": "Crop grid",
+        "outside": "Darken outside the crop",
+        "overlay": "Crop overlay",
+        "ratio": "Crop aspect ratio",
+        "ratioHeight": "Ratio height",
+        "ratioWidth": "Ratio width",
+        "size": "Crop size",
+        "straightenTool": "Straighten tool"
+      },
+      "flipHorizontal": "Flip horizontal",
+      "flipVertical": "Flip vertical",
+      "grid": {
+        "always": "Always",
+        "drag": "While dragging",
+        "label": "Grid"
+      },
+      "landscape": "Landscape",
+      "levelByLine": "Level by a line",
+      "off": "Off",
+      "outside": "Outside",
+      "overlay": "Overlay",
+      "overlays": {
+        "armature": "Armature",
+        "center": "Centre",
+        "diagonal": "Diagonal",
+        "goldenSpiral": "Golden spiral",
+        "goldenTriangle": "Golden triangle",
+        "phiGrid": "Golden ratio",
+        "thirds": "Thirds"
+      },
+      "portrait": "Portrait",
+      "ratio": "Ratio",
+      "ratios": {
+        "aPaper": "A paper (√2 × 1)",
+        "current": "Current ({{ratio}}:1)",
+        "original": "Original",
+        "unconstrained": "Unconstrained"
+      },
+      "reset": "Reset",
+      "resetTitle": "Reset crop and straighten",
+      "rotateLeft": "Rotate left",
+      "rotateRight": "Rotate right",
+      "size": "Size",
+      "straighten": "Straighten",
+      "straightenToolTitle": "Draw a line along an edge that should be level or plumb",
+      "swapOrientation": "Swap portrait and landscape",
+      "turnOverlay": "Turn the overlay"
+    },
+    "develop": {
+      "auto": {
+        "label": "Auto",
+        "title": "Automatic adjustments ({{shortcut}})"
+      },
+      "baseCurve": {
+        "curve": "Curve",
+        "extraShadow": "Extra shadow",
+        "highContrast": "High contrast",
+        "linear": "Linear response",
+        "profile": "Profile",
+        "standard": "Standard"
+      },
+      "bypass": {
+        "bypassed": "{{section}} bypassed",
+        "enable": "Enable",
+        "enableSection": "Enable {{section}}"
+      },
+      "colorMixer": {
+        "select": {
+          "aquas": "Select aquas",
+          "blues": "Select blues",
+          "greens": "Select greens",
+          "magentas": "Select magentas",
+          "oranges": "Select oranges",
+          "purples": "Select purples",
+          "reds": "Select reds",
+          "yellows": "Select yellows"
+        }
+      },
+      "curve": {
+        "aria": "{{channel}} point curve. Click to add a point; drag to adjust; double-click a point to remove it.",
+        "ariaChannels": {
+          "blue": "blue",
+          "green": "green",
+          "luma": "luma",
+          "red": "red"
+        },
+        "channel": "Curve channel",
+        "input": "Input",
+        "maxPoints": "Maximum {{max}} points per channel. Move or remove a point to refine the curve.",
+        "output": "Output"
+      },
+      "effects": {
+        "light": "Light",
+        "style": "Style",
+        "styles": {
+          "colorPriority": "Color priority",
+          "highlightPriority": "Highlight priority",
+          "paintOverlay": "Paint overlay"
+        },
+        "vignetteStyle": "Vignette style"
+      },
+      "geometry": {
+        "transform": "Transform"
+      },
+      "groups": {
+        "baseCharacteristics": "Base characteristics",
+        "colorMixer": "Color mixer",
+        "crop": "Crop",
+        "defringe": "Defringe",
+        "effects": "Effects",
+        "exposure": "Exposure",
+        "faceRetouch": "Face retouch",
+        "geometry": "Geometry",
+        "layersMasks": "Layers & masks",
+        "moire": "Moiré",
+        "noiseReduction": "Noise reduction",
+        "presence": "Presence",
+        "toneCurve": "Tone curve",
+        "whiteBalance": "White balance"
+      },
+      "history": {
+        "current": "Current",
+        "empty": "Develop history appears here.",
+        "layerAdded": "New layer {{name}}",
+        "layerDeleted": "Deleted layer {{name}}",
+        "layerOrder": "Layer order",
+        "layerRenamed": "Renamed",
+        "many": "{{first}} +{{more}}",
+        "mask": "Mask",
+        "opened": "Opened image",
+        "other": "Adjustment",
+        "spots": "Spot removal",
+        "title": "History"
+      },
+      "layers": {
+        "background": "Background",
+        "copyName": "{{name}} copy",
+        "defaultName": "Layer {{number}}",
+        "delete": "Delete {{name}}",
+        "dragOrder": "Drag to change the layer order",
+        "drawMaskInside": "Draw Mask Inside",
+        "fromSelection": "New layer from a selection",
+        "groups": {
+          "draw": "Draw",
+          "range": "Range",
+          "select": "Select"
+        },
+        "image": "Image",
+        "kindButtons": {
+          "background": "Background",
+          "brush": "Brush",
+          "color": "Color",
+          "depth": "Depth",
+          "linear": "Linear",
+          "luminance": "Luminance",
+          "object": "Object",
+          "people": "People",
+          "radial": "Radial",
+          "sky": "Sky",
+          "subject": "Subject"
+        },
+        "listAria": "Layers",
+        "menu": {
+          "drawMask": "Draw Mask",
+          "duplicate": "Duplicate Layer",
+          "duplicateInvert": "Duplicate and Invert",
+          "eraseMask": "Erase Mask",
+          "moveDown": "Move Layer Down",
+          "moveUp": "Move Layer Up",
+          "rename": "Rename Layer…"
+        },
+        "nameOf": "Name of {{name}}",
+        "new": "New layer",
+        "newKind": {
+          "background": "New background layer",
+          "brush": "New brush layer",
+          "color": "New color range layer",
+          "depth": "New depth range layer",
+          "linear": "New linear gradient layer",
+          "luminance": "New luminance range layer",
+          "object": "New object layer",
+          "people": "New people layer",
+          "radial": "New radial gradient layer",
+          "sky": "New sky layer",
+          "subject": "New subject layer"
+        },
+        "newLayerTitle": "New layer: {{kind}}",
+        "newRadialInside": "New radial layer (inside) · right-click for options",
+        "newRadialOutside": "New radial layer (outside) · right-click for options",
+        "newTitle": "New layer: draw, select or range",
+        "noneYet": "No layers yet. Add one with + or in the Layers tab.",
+        "select": "Select {{name}}",
+        "toggle": "Toggle {{name}}"
+      },
+      "layout": {
+        "collapseAll": "Collapse All Tools",
+        "expandAll": "Expand All Tools",
+        "moveDown": "Move Down",
+        "moveUp": "Move Up",
+        "restoreOrder": "Restore default tool order",
+        "restoreOrderMenu": "Restore Default Tool Order",
+        "restoreOrderTitle": "Put the tools back in their original order"
+      },
+      "maskOverlay": {
+        "button": "Mask overlay",
+        "color": "Mask color",
+        "colorMask": "{{color}} mask",
+        "colors": {
+          "black": "Black",
+          "green": "Green",
+          "red": "Red",
+          "white": "White"
+        },
+        "custom": "Custom mask color",
+        "display": "Mask display",
+        "modes": {
+          "always": "Always",
+          "drawing": "While drawing",
+          "grayscale": "Grayscale",
+          "never": "Never"
+        },
+        "opacity": "Mask opacity",
+        "showMask": "Show mask",
+        "showMaskTitle": "M shows or hides the mask, {{key}} the grayscale mask",
+        "title": "Mask overlay: when and how masks are shown"
+      },
+      "noise": {
+        "colorDetailAria": "Color noise detail",
+        "colorSmoothnessAria": "Color noise smoothness",
+        "denoising": "Denoising the RAW… The first time takes about half a minute.",
+        "lumaContrastAria": "Luminance noise contrast",
+        "lumaDetailAria": "Luminance noise detail"
+      },
+      "noPhoto": "Open a photograph in Develop to make adjustments.",
+      "params": {
+        "blackAndWhite": "Black & white",
+        "bwMix": "B&W mix",
+        "calibration": "Calibration",
+        "colorDetail": "Color detail",
+        "colorGrading": "Color grading",
+        "colorRanges": "Color ranges",
+        "colorSmoothness": "Color smoothness",
+        "curves": "Curves",
+        "grainSize": "Grain size",
+        "greenAmount": "Green amount",
+        "greenHueFrom": "Green hue from",
+        "greenHueTo": "Green hue to",
+        "hsl": "Hue, saturation, luminance",
+        "levels": "Levels",
+        "lumaContrast": "Luminance contrast",
+        "lumaDetail": "Luminance detail",
+        "lutAmount": "LUT amount",
+        "purpleAmount": "Purple amount",
+        "purpleHueFrom": "Purple hue from",
+        "purpleHueTo": "Purple hue to",
+        "regionCurve": "Region curve"
+      },
+      "sliders": {
+        "aiDenoise": "AI Denoise",
+        "aspect": "Aspect",
+        "blacks": "Blacks",
+        "brightness": "Brightness",
+        "contrast": "Contrast",
+        "detail": "Detail",
+        "distortion": "Distortion",
+        "exposure": "Exposure",
+        "falloff": "Falloff",
+        "highlights": "Highlights",
+        "horizontal": "Horizontal",
+        "lightFlare": "Light flare",
+        "masking": "Masking",
+        "offsetX": "Offset X",
+        "offsetY": "Offset Y",
+        "pattern": "Pattern",
+        "radius": "Radius",
+        "rotation": "Rotation",
+        "scale": "Scale",
+        "shadows": "Shadows",
+        "smoothness": "Smoothness",
+        "vertical": "Vertical",
+        "whites": "Whites"
+      },
+      "tabs": {
+        "adjust": "Adjust",
+        "adjustTitle": "Adjustments",
+        "aria": "Adjustment tools",
+        "color": "Color",
+        "crop": "Crop",
+        "cropTitle": "Crop, geometry & lens",
+        "detail": "Detail",
+        "layers": "Layers",
+        "layersTitle": "Layers & masks",
+        "retouch": "Retouch"
+      },
+      "target": {
+        "background": "Edit Background",
+        "layer": "Editing: {{name}}",
+        "photoOnly": "Face retouch works on the whole photo. Choose Background to use it."
+      },
+      "targeted": {
+        "bwMix": "Targeted black & white mix",
+        "hint": "{{tool}}: drag up or down on the photo (Shift: finer, Esc: off)",
+        "hue": "Targeted hue",
+        "label": "Targeted",
+        "luminance": "Targeted luminance",
+        "saturation": "Targeted saturation",
+        "toneCurve": "Targeted tone curve"
+      },
+      "toolGroup": {
+        "isOn": "{{tool}} on",
+        "reset": "Reset {{tool}}",
+        "turnOff": "Turn {{tool}} off",
+        "turnOn": "Turn {{tool}} on"
+      },
+      "whiteBalance": {
+        "camera": "Camera white balance",
+        "picker": "White balance picker",
+        "pickerOnBackground": "White balance picker is available on Background",
+        "pickNeutral": "Pick a neutral area",
+        "relative": "Relative correction",
+        "relativeTemperature": "Relative temperature",
+        "relativeTint": "Relative tint",
+        "temp": "Temp"
+      }
+    },
+    "export": {
+      "actions": {
+        "addToQueue": "Add to queue",
+        "cancel": "Cancel export",
+        "chooseAndExport": "Choose destination & export",
+        "choosing": "Choose destination…",
+        "export": "Export",
+        "exportWithRecipes_one": "Export with {{count}} recipe",
+        "exportWithRecipes_other": "Export with {{count}} recipes"
+      },
+      "border": {
+        "add": "Add a border",
+        "color": "Border colour",
+        "eachEdge": "Each edge",
+        "leftRight": "Left and right (%)",
+        "legend": "Border",
+        "longEdge": "Long edge",
+        "measuredOn": "Measured on",
+        "measuredOnAria": "Border measured on",
+        "shortEdge": "Short edge",
+        "topBottom": "Top and bottom (%)"
+      },
+      "canvas": {
+        "color": "Canvas colour",
+        "legend": "Canvas",
+        "pad": "Pad to an aspect ratio",
+        "ratio": "Aspect ratio",
+        "ratioHeight": "Ratio height",
+        "ratioWidth": "Ratio width"
+      },
+      "destination": {
+        "aria": "Export destination",
+        "choose": "Choose a folder…",
+        "errors": {
+          "fullPath": "Use a folder name, not a drive or full path.",
+          "outside": "The subfolder must stay inside the destination folder."
+        },
+        "exportTo": "Export to",
+        "keepStructure": "Keep the folder structure",
+        "legend": "Destination",
+        "original": "Next to the originals",
+        "output": "Session Output folder",
+        "subfolder": "Put in subfolder",
+        "subfolderAria": "Subfolder"
+      },
+      "dialogs": {
+        "customName": "custom",
+        "exportFile": "Export photograph ({{name}})",
+        "exportFolder_one": "Export {{count}} photograph ({{name}})",
+        "exportFolder_other": "Export {{count}} photographs ({{name}})",
+        "imageFilter": "Image",
+        "watermarkTitle": "Choose a watermark image"
+      },
+      "estimate": "Estimated size: about {{size}}",
+      "estimatePerFile": "Estimated size: about {{size}} ({{perFile}} per file)",
+      "file": {
+        "bitDepth": "Bit depth",
+        "bits": "{{bits}} bit",
+        "colorSpace": "Colour space",
+        "cubeLut": "CUBE LUT (the look)",
+        "format": "Format",
+        "jxlLossless": "Quality 100 is lossless.",
+        "legend": "File settings",
+        "proPhotoWarning": "ProPhoto RGB needs 16-bit TIFF; 8 bits per channel can band.",
+        "quality": "Quality",
+        "qualityAria": "{{format}} quality",
+        "template": "Filename template",
+        "templateHelp": "Use {{original}}, {{sequence}} and the capture date {{date}}."
+      },
+      "help": "Existing files are never overwritten. Your source photographs stay unchanged.",
+      "masks": {
+        "exportEach": "Also export each mask",
+        "hint": "Each mask as an image and an alpha PNG beside the photo.",
+        "legend": "Masks"
+      },
+      "metadata": {
+        "include": "Include metadata",
+        "legend": "Metadata",
+        "stripGps": "Remove location data",
+        "timestamps": "Date files with the capture time"
+      },
+      "more": "More",
+      "none": "None",
+      "plan": {
+        "fullSize": "full size",
+        "legend": "This export",
+        "quality": "quality {{quality}}"
+      },
+      "progress": {
+        "cancelling": "Cancelling…",
+        "complete": "Export complete.",
+        "exporting": "Exporting {{current}} of {{total}}"
+      },
+      "queue": {
+        "cancelled": "Cancelled ({{done}} of {{total}} exported)",
+        "done": "Done",
+        "failed": "{{failed}} of {{total}} failed",
+        "interrupted": "Interrupted ({{done}} of {{total}} exported)",
+        "remove": "Remove",
+        "resume": "Resume",
+        "retry": "Retry",
+        "running": "Exporting ({{done}} of {{total}} exported)",
+        "start": "Start",
+        "title": "Export queue",
+        "waiting": "Waiting",
+        "waitingProgress": "Waiting ({{done}} of {{total}} exported)"
+      },
+      "recipes": {
+        "current": "Current settings",
+        "currentUnused": "Current settings. The ticked recipes export with their own settings.",
+        "delete": "Delete recipe {{name}}",
+        "edit": "Show and edit this recipe",
+        "editingCurrent": "Current settings, not saved as a recipe.",
+        "editingRecipe": "Editing the recipe {{name}}. Changes are saved to it.",
+        "empty": "Save these settings as a recipe to reuse them.",
+        "exportWith": "Export with {{name}}",
+        "legend": "Recipes",
+        "newName": "New recipe name",
+        "save": "Save as recipe"
+      },
+      "selected_one": "{{count}} photograph selected",
+      "selected_other": "{{count}} photographs selected",
+      "sharpening": {
+        "amount": "Amount (%)",
+        "amountAria": "Sharpening amount",
+        "distance": "Viewing distance (cm)",
+        "hints": {
+          "off": "Applied after resizing, so a smaller photograph stays crisp.",
+          "print": "Radius {{radius}} px: the finest detail visible at that distance.",
+          "screen": "Applied after resizing; borders and the watermark stay unsharpened."
+        },
+        "legend": "Output sharpening",
+        "off": "Off",
+        "ppi": "Print resolution (ppi)",
+        "print": "Print",
+        "radius": "Radius (px)",
+        "radiusAria": "Sharpening radius",
+        "screen": "Screen",
+        "sharpenFor": "Sharpen for",
+        "threshold": "Threshold",
+        "thresholdAria": "Sharpening threshold"
+      },
+      "sizing": {
+        "dontEnlarge": "Don’t enlarge",
+        "fit": "Fit",
+        "hints": {
+          "box": "Fits inside the box, turned to each photo's orientation.",
+          "enlarge": "Smaller photographs are enlarged to fit.",
+          "fullResolution": "Export at full resolution.",
+          "noEnlarge": "Smaller photographs will not be enlarged."
+        },
+        "legend": "Image sizing",
+        "modeAria": "Resize mode",
+        "modes": {
+          "dimensions": "Dimensions",
+          "height": "Height",
+          "longEdge": "Long edge",
+          "megapixels": "Megapixels",
+          "percentage": "Percentage",
+          "shortEdge": "Short edge",
+          "width": "Width"
+        },
+        "otherSideAria": "Dimensions other side (px)",
+        "resize": "Resize to fit",
+        "valueLabel": "{{name}} ({{unit}})"
+      },
+      "toasts": {
+        "queuedMany_one": "{{count}} export added to the queue.",
+        "queuedMany_other": "{{count}} exports added to the queue.",
+        "queuedOne": "Added to the export queue."
+      },
+      "watermark": {
+        "add": "Add a watermark",
+        "anchors": {
+          "bottomCenter": "Bottom centre",
+          "bottomLeft": "Bottom left",
+          "bottomRight": "Bottom right",
+          "center": "Centre",
+          "centerLeft": "Centre left",
+          "centerRight": "Centre right",
+          "topCenter": "Top centre",
+          "topLeft": "Top left",
+          "topRight": "Top right"
+        },
+        "choose": "Choose…",
+        "chooseAria": "Choose watermark image",
+        "color": "Colour",
+        "colorAria": "Watermark colour",
+        "font": "Font",
+        "fontAria": "Watermark font",
+        "image": "Image",
+        "inset": "Inset (% of short edge)",
+        "kind": "Kind",
+        "kindAria": "Watermark kind",
+        "legend": "Watermark",
+        "missingImage": "Choose a watermark image or turn the watermark off.",
+        "missingText": "Enter the watermark text or turn the watermark off.",
+        "opacity": "Opacity (%)",
+        "positionAria": "Watermark position",
+        "shadow": "Shadow",
+        "systemFont": "System sans-serif",
+        "text": "Text",
+        "textAria": "Watermark text",
+        "width": "Width (% of short edge)"
+      }
+    },
+    "faceRetouch": {
+      "allFaces": "All faces",
+      "applied": "Applied to {{done}} of {{total}}",
+      "applying_one": "Applying to {{count}} photo…",
+      "applying_other": "Applying to {{count}} photos…",
+      "applyTo_one": "Apply to {{count}} selected photo",
+      "applyTo_other": "Apply to {{count}} selected photos",
+      "aria": {
+        "blemishes": "Face blemishes",
+        "contouring": "Face contouring",
+        "darkCircles": "Face dark circles",
+        "evenSkin": "Face even skin",
+        "impact": "Face impact",
+        "shine": "Face shine",
+        "texture": "Face texture"
+      },
+      "downloadModels": "Download face models",
+      "face": "Face {{n}}",
+      "faceOwn": "Face {{n}} (own settings)",
+      "facesAria": "Faces",
+      "finding": "Finding faces…",
+      "healed_one": "{{count}} blemish healed",
+      "healed_other": "{{count}} blemishes healed",
+      "includeNeck": "Include neck",
+      "modelsMissing": "The face retouch needs its face models. They are downloaded once from Rawtonic's model pack on GitHub and run on this computer.",
+      "noFaces": "No faces found in this photograph.",
+      "showBlemishes": "Show blemishes (click one to keep or heal it)",
+      "sliders": {
+        "blemishes": "Blemishes",
+        "contouring": "Contouring",
+        "darkCircles": "Dark circles",
+        "evenSkin": "Even skin",
+        "impact": "Impact",
+        "shine": "Shine",
+        "texture": "Texture"
+      },
+      "useAll": "Use the values of all faces"
+    },
+    "histogram": {
+      "aria": "Image histogram",
+      "clipping": "Clipping",
+      "clippingTitle": "Clipping warnings: clipped highlights red, clipped shadows blue ({{shortcut}})",
+      "gamut": "Gamut warning",
+      "gamutTitle": "Gamut warning: colours outside the proofed colour space in red",
+      "graphAria": "RGB luminance distribution of the selected photograph",
+      "graphEmpty": "Histogram available after opening a photograph",
+      "proof": "Proof",
+      "proofSpace": "Proof colour space",
+      "proofTitle": "Soft proofing: show the photo as an export in the chosen colour space looks ({{shortcut}})",
+      "selectPhoto": "Select a photograph",
+      "title": "Histogram"
+    },
+    "layers": {
+      "brush": {
+        "autoMask": "Auto mask",
+        "brushFlow": "Brush flow",
+        "brushOpacity": "Brush opacity",
+        "brushSize": "Brush size",
+        "hardness": "Hardness",
+        "size": "Size"
+      },
+      "draw": "Draw",
+      "drawInside": "Draw mask inside",
+      "drawTitle": "Paint onto this layer's mask (keeps gradients editable)",
+      "erase": "Erase",
+      "eraseTitle": "Erase from this layer's mask (keeps gradients editable)",
+      "invert": "Invert",
+      "invertTitle": "Invert this layer's mask",
+      "lumaRange": {
+        "falloff": "Falloff",
+        "highlights": "Highlights",
+        "limit": "Limit to a luma range…",
+        "limitTitle": "Limit this layer to a range of tones",
+        "removeAria": "Remove luma range",
+        "removeTitle": "Remove the luma range",
+        "sample": "Sample tones on the photo",
+        "sampleHint": "Click a tone on the photo, or drag over an area. Shift adds to the range.",
+        "shadows": "Shadows",
+        "title": "Luma range"
+      },
+      "paintAria": "Paint on the mask",
+      "select": {
+        "aria": "Layer",
+        "background": "Background",
+        "title": "Layer the adjustments act on"
+      }
+    },
+    "lens": {
+      "aria": {
+        "make": "Lens make",
+        "model": "Lens model"
+      },
+      "cameraData": "Camera data",
+      "cameraDataOf": "Camera data ({{maker}})",
+      "chooseLens": "Choose a lens",
+      "chromaticShort": "Chromatic ab.",
+      "diffraction": "Diffraction correction",
+      "diffractionTitle": "Sharpens away the blur of small apertures, by the f-number and pixel size",
+      "distortion": "Distortion",
+      "enable": "Enable profile corrections",
+      "lookingUp": "Looking up the lens…",
+      "make": "Make",
+      "model": "Model",
+      "noFocalData": "The profile has no data for this focal length.",
+      "none": "None",
+      "notFound": "No profile found for {{lens}}; choose the lens below.",
+      "notFoundPhoto": "No profile found for this photograph; choose the lens below.",
+      "profile": "Profile",
+      "removeCa": "Remove chromatic aberration",
+      "removeCaTitle": "Measures the red and blue fringes of this photo's edges and lines the colours up; replaces the profile's chromatic aberration",
+      "title": "Lens correction",
+      "useCameraData": "Use the camera's data ({{maker}})",
+      "useDatabase": "Use lens database…",
+      "useDatabaseTitle": "Choose a profile from the lens database instead",
+      "vignetting": "Vignetting"
+    },
+    "library": {
+      "albumMenu": {
+        "added_one": "Photograph added to {{album}}",
+        "added_other": "{{n}} photographs added to {{album}}",
+        "addFailed": "Could not add to {{album}}: {{error}}",
+        "empty": "No albums yet. Create one in the Library's Albums tool.",
+        "label": "Add to album",
+        "reading": "Reading albums…"
+      },
+      "albums": {
+        "albumHint": "Drop photographs here to add them",
+        "confirm": {
+          "cancel": "Cancel",
+          "delete": "Delete",
+          "deleteAlbum": "Delete “{{name}}”? Its photographs stay.",
+          "deleteGroup": "Delete “{{name}}” and the albums in it? Their photographs stay.",
+          "label": "Delete album"
+        },
+        "empty": "Select photographs and press + to keep them together in an album.",
+        "groupHint": "Drag albums into this group",
+        "menu": {
+          "addSelected": "Add selected photographs",
+          "addSelectedCount_one": "Add {{count}} selected photograph",
+          "addSelectedCount_other": "Add {{count}} selected photographs",
+          "deleteAlbum": "Delete album…",
+          "deleteGroup": "Delete group…",
+          "newAlbum": "New album",
+          "newAlbumFromSelected_one": "New album from {{count}} selected photograph",
+          "newAlbumFromSelected_other": "New album from {{count}} selected photographs",
+          "newAlbumInGroup": "New album in this group",
+          "newGroup": "New group",
+          "newGroupInGroup": "New group in this group",
+          "removeSelected": "Remove selected photographs",
+          "rename": "Rename"
+        },
+        "newAlbumName": "New album name",
+        "newGroupName": "New group name",
+        "newTitle": "New album or group",
+        "renameLabel": "Rename {{name}}",
+        "title": "Albums",
+        "toasts": {
+          "addFailed": "Photographs could not be added: {{error}}",
+          "createAlbumFailed": "The album could not be created: {{error}}",
+          "createGroupFailed": "The group could not be created: {{error}}",
+          "deleteFailed": "The album could not be deleted: {{error}}",
+          "moveFailed": "The album could not be moved: {{error}}",
+          "openFailed": "The album could not be opened: {{error}}",
+          "readFailed": "Albums could not be read: {{error}}",
+          "removeFailed": "Photographs could not be removed: {{error}}",
+          "renameFailed": "The album could not be renamed: {{error}}"
+        }
+      },
+      "browser": {
+        "emptyHint": "Choose a folder, import photographs or clear the filter.",
+        "emptyTitle": "No photographs to display",
+        "filmstrip": "Filmstrip",
+        "photographs": "Photographs",
+        "picked": "Picked",
+        "rate_one": "Rate {{name}} {{count}} star",
+        "rate_other": "Rate {{name}} {{count}} stars",
+        "rating": "Rating",
+        "rejected": "Rejected",
+        "stars_one": "{{count}} star",
+        "stars_other": "{{count}} stars",
+        "virtualCopy": "Virtual copy",
+        "virtualCopyName": "{{name}} (virtual copy)"
+      },
+      "colorLabels": {
+        "blue": "Blue label",
+        "green": "Green label",
+        "purple": "Purple label",
+        "red": "Red label",
+        "yellow": "Yellow label"
+      },
+      "colors": {
+        "blue": "Blue",
+        "green": "Green",
+        "purple": "Purple",
+        "red": "Red",
+        "yellow": "Yellow"
+      },
+      "drag": {
+        "photographs_one": "{{n}} photograph",
+        "photographs_other": "{{n}} photographs"
+      },
+      "filters": {
+        "allLabels": "All labels",
+        "byColor": "Filter by color label",
+        "byFlag": "Filter by flag",
+        "clear": "Clear",
+        "clearFilters": "Clear filters",
+        "label": "Library filters",
+        "matching_one": "{{label}}: {{n}} matching photograph",
+        "matching_other": "{{label}}: {{n}} matching photographs",
+        "multipleLabels": "Multiple labels",
+        "noLabel": "No label"
+      },
+      "flags": {
+        "all": "All",
+        "picked": "Picked",
+        "rejected": "Rejected",
+        "unflagged": "Unflagged"
+      },
+      "folders": {
+        "addFolder": "Add folder",
+        "addFolderButton": "Add folder…",
+        "addFolderTitle": "Add a folder to the library",
+        "collapse": "Collapse {{name}}",
+        "empty": "Add a folder to see its photographs.",
+        "expand": "Expand {{name}}",
+        "favorites": "Favorites",
+        "find": "Find folders",
+        "library": "Library",
+        "menu": {
+          "addToFavorites": "Add to Favorites",
+          "moveCopiedHere_one": "Move {{count}} Copied Photo Here",
+          "moveCopiedHere_other": "Move {{count}} Copied Photos Here",
+          "moveSelectedHere_one": "Move Selected Photo Here",
+          "moveSelectedHere_other": "Move {{count}} Selected Photos Here",
+          "newFolder": "New Folder…",
+          "pasteCopiesHere_one": "Paste Copies of {{count}} Photo Here",
+          "pasteCopiesHere_other": "Paste Copies of {{count}} Photos Here",
+          "refresh": "Refresh Folders",
+          "removeFromFavorites": "Remove from Favorites",
+          "removeFromLibrary": "Remove from Library",
+          "renameFolder": "Rename Folder…",
+          "showInFileManager": "Show in file manager",
+          "showInFinder": "Show in Finder",
+          "trashFolder": "Move Folder to Trash"
+        },
+        "noMatch": "No folder names contain “{{filter}}”.",
+        "reading": "Reading folders…",
+        "session": "Session",
+        "sort": {
+          "ascending": "Ascending",
+          "created": "Date created",
+          "descending": "Descending",
+          "imageCount": "Photo count",
+          "modified": "Date modified",
+          "name": "Name"
+        },
+        "sortFolders": "Sort folders",
+        "title": "Folders",
+        "toasts": {
+          "showFailed": "Could not show the folder: {{error}}"
+        }
+      },
+      "navigator": {
+        "empty": "Select a photograph",
+        "title": "Navigator"
+      }
+    },
+    "lut": {
+      "amount": "Amount",
+      "aria": {
+        "amount": "LUT amount"
+      },
+      "builtIn": "Built in",
+      "import": "Import…",
+      "imported": "Imported",
+      "importTitle": "Import .cube, .3dl or HALD image LUTs",
+      "none": "None",
+      "remove": "Remove",
+      "removeTitle": "Remove this imported LUT from Rawtonic",
+      "toasts": {
+        "importFailed": "The LUT could not be imported.",
+        "removeFailed": "The LUT could not be removed."
+      }
+    },
+    "masks": {
+      "addTitle": "Add to this layer's mask",
+      "aria": {
+        "combine": "Combine with the mask",
+        "components": "Mask components",
+        "delete": "Delete {{name}}",
+        "invert": "Invert {{name}}",
+        "mode": "Mode of {{name}}",
+        "modeValue": "Mode of {{name}}: {{mode}}",
+        "select": "Select {{name}}",
+        "toggle": "Toggle {{name}}"
+      },
+      "colorSampleHint": "Click to sample a colour, drag to sample an area; Shift adds up to five samples.",
+      "computing": "computing…",
+      "depth": {
+        "falloff": "Falloff",
+        "farLimit": "Far limit",
+        "nearLimit": "Near limit"
+      },
+      "erase": "Erase",
+      "hints": {
+        "color": "Click the colour to select.",
+        "object": "Drag a box around the object."
+      },
+      "intersectTitle": "Keep only where this and the mask overlap",
+      "invertTitle": "Invert this component",
+      "kinds": {
+        "all": "Whole photo",
+        "background": "Background",
+        "brush": "Brush",
+        "color": "Color range",
+        "depth": "Depth range",
+        "linear": "Linear",
+        "luminance": "Luminance range",
+        "object": "Object",
+        "people": "People",
+        "radial": "Radial",
+        "sky": "Sky",
+        "subject": "Subject"
+      },
+      "modes": {
+        "additive": "Add",
+        "intersect": "Intersect",
+        "subtractive": "Subtract"
+      },
+      "modeTitle": "Mode: {{mode}} · click to change",
+      "refine": "Refine",
+      "refineAria": "Colour range refine",
+      "subtractTitle": "Subtract from this layer's mask"
+    },
+    "metadata": {
+      "appliesTo_one": "Changes apply to {{count}} photograph.",
+      "appliesTo_other": "Changes apply to {{count}} photographs.",
+      "colorLabel": {
+        "colorAria": "{{color}} label",
+        "group": "Colour label",
+        "label": "Label",
+        "none": "No label"
+      },
+      "details": {
+        "camera": "Camera",
+        "captured": "Captured",
+        "exposure": "Exposure",
+        "file": "File",
+        "fileSize": "File size",
+        "format": "Format",
+        "lens": "Lens",
+        "size": "Size",
+        "virtualCopy": "virtual copy"
+      },
+      "exif": {
+        "copy": "Copy",
+        "copyPosition": "Copy the position",
+        "findAria": "Find EXIF fields",
+        "findPlaceholder": "Find fields",
+        "mapFrame": "Map of the photograph's position",
+        "mapHint": "Loads a map from openstreetmap.org",
+        "noData": "No EXIF data loaded for this photograph.",
+        "openInBrowser": "Open in browser",
+        "selectPhoto": "Select a photograph.",
+        "showOnMap": "Show on map"
+      },
+      "fields": {
+        "comment": "Comment",
+        "copyright": "Copyright",
+        "creator": "Creator",
+        "description": "Description",
+        "title": "Title"
+      },
+      "iptc": {
+        "fields": {
+          "city": "City",
+          "country": "Country",
+          "countryCode": "ISO country code",
+          "creatorAddress": "Address",
+          "creatorCity": "Contact city",
+          "creatorCountry": "Contact country",
+          "creatorEmail": "Email",
+          "creatorJobTitle": "Job title",
+          "creatorPhone": "Phone",
+          "creatorPostalCode": "Postal code",
+          "creatorRegion": "Contact state / province",
+          "creatorUrl": "Website",
+          "credit": "Credit line",
+          "headline": "Headline",
+          "instructions": "Instructions",
+          "jobId": "Job identifier",
+          "location": "Sublocation",
+          "source": "Source",
+          "state": "State / Province",
+          "usageTerms": "Rights usage terms"
+        },
+        "sections": {
+          "content": "Content",
+          "creatorContact": "Creator contact",
+          "location": "Location",
+          "status": "Status"
+        }
+      },
+      "keywords": {
+        "add": "Add keywords",
+        "addTo_one": "Add to {{count}} photograph",
+        "addTo_other": "Add to {{count}} photographs",
+        "none": "No keywords",
+        "ofSelection": "Keywords of the selection",
+        "partial_one": "On {{on}} of {{count}} photograph",
+        "partial_other": "On {{on}} of {{count}} photographs",
+        "removeAria": "Remove keyword {{keyword}}",
+        "removeTitle": "Remove {{keyword}}",
+        "selectToAdd": "Select photographs to add keywords.",
+        "title": "Keywords"
+      },
+      "mixed": "Mixed",
+      "notInSession": "Some selected photographs are not part of this session.",
+      "outsideSessions": "Outside sessions, description, creator, copyright and comment are saved with each photo's edits; the title and IPTC fields are saved in sessions.",
+      "selectToSee": "Select photographs to see their metadata.",
+      "title": "Metadata",
+      "toasts": {
+        "keywordsRemoveFailed": "Keywords could not be removed: {{error}}",
+        "keywordsSaveFailed": "Keywords could not be saved: {{error}}",
+        "readFailed": "Metadata could not be read: {{error}}",
+        "saveFailed": "Metadata could not be saved: {{error}}"
+      }
+    },
+    "people": {
+      "aria": "People mask",
+      "everyone": "Everyone",
+      "finding": "Finding people…",
+      "noFaces": "No faces found. Body parts and the entire person still work for everyone.",
+      "parts": {
+        "bodySkin": "Body skin",
+        "clothes": "Clothes",
+        "entirePerson": "Entire person",
+        "eyebrows": "Eyebrows",
+        "faceSkin": "Face skin",
+        "hair": "Hair",
+        "iris": "Iris and pupil",
+        "lips": "Lips",
+        "sclera": "Eye sclera",
+        "teeth": "Teeth"
+      },
+      "partsAria": "Parts",
+      "person": "Person {{n}}",
+      "personAria": "Person",
+      "personProfile": "Person {{n}} (profile: no eyes, brows, lips or teeth)"
+    },
+    "presets": {
+      "amount": "Preset amount",
+      "appliesAll": "Applies all settings it was saved with",
+      "appliesSaved": "Applies the settings it was saved with",
+      "appliesToSelection_one": "A click applies to {{count}} selected photograph.",
+      "appliesToSelection_other": "A click applies to {{count}} selected photographs.",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "deleteConfirm": "Delete “{{name}}”?",
+      "deleteFolder": "Delete folder",
+      "deleteFolderWithPresets_one": "Delete “{{name}}” and its {{count}} preset?",
+      "deleteFolderWithPresets_other": "Delete “{{name}}” and its {{count}} presets?",
+      "deletePreset": "Delete preset",
+      "empty": "No presets yet. Adjust a photograph and press + to save its settings.",
+      "exportTitle": "Export {{name}}",
+      "fileType": "Rawtonic preset",
+      "find": "Find presets",
+      "folderName": "Folder name",
+      "form": {
+        "crop": "Crop & geometry",
+        "folderAria": "Preset folder",
+        "masks": "Layers & masks",
+        "nameAria": "Preset name",
+        "namePlaceholder": "Name",
+        "onlyChanged": "Only changed settings",
+        "save": "Save"
+      },
+      "importButton": "Import presets",
+      "importButtonTitle": "Import Lightroom presets or Capture One styles",
+      "importFilter": "Presets and styles",
+      "importTitle": "Import presets and styles",
+      "menu": {
+        "delete": "Delete…",
+        "duplicate": "Duplicate",
+        "export": "Export…",
+        "moveTo": "Move to",
+        "rename": "Rename",
+        "update": "Update with current settings"
+      },
+      "newFolder": "New preset folder",
+      "newFolderTitle": "New folder",
+      "newPreset": "New preset",
+      "newPresetTitle": "Save the current settings as a preset",
+      "noFolder": "No folder",
+      "renameAria": "Rename {{name}}",
+      "sort": "Sort presets",
+      "sortTitle": "Sort folders and presets A–Z",
+      "style": "Style",
+      "title": "Styles & presets",
+      "toasts": {
+        "exported": "Exported {{name}}",
+        "exportFailed": "Export failed: {{error}}",
+        "imported_one": "{{count}} imported",
+        "imported_other": "{{count}} imported",
+        "importedWithFailures": "{{imported}} imported, {{failed}} failed: {{files}}",
+        "importFailed": "Import failed: {{error}}"
+      }
+    },
+    "profile": {
+      "aria": "Camera profile",
+      "dcpFilter": "DCP camera profile",
+      "forCamera": "For {{camera}}",
+      "importDcp": "Import DCP…",
+      "label": "Profile"
+    },
+    "spot": {
+      "withShortcut": "{{text}} ({{key}})"
+    },
+    "tone": {
+      "defringe": {
+        "green": "Green",
+        "greenFrom": "Green from",
+        "greenTo": "Green to",
+        "purple": "Purple",
+        "purpleFrom": "Purple from",
+        "purpleTo": "Purple to",
+        "title": "Defringe"
+      },
+      "levels": {
+        "auto": "Auto",
+        "autoAria": "Auto levels",
+        "autoTitle": "Set black and white points from the histogram",
+        "black": "Black",
+        "channelAria": "Levels channel",
+        "highlight": "Highlight",
+        "midtone": "Midtone",
+        "output": "Output",
+        "shadow": "Shadow",
+        "title": "Levels",
+        "white": "White"
+      },
+      "regionCurve": {
+        "aria": {
+          "darks": "Region curve darks",
+          "highlights": "Region curve highlights",
+          "highlightSplit": "Region curve highlight split",
+          "lights": "Region curve lights",
+          "midtoneSplit": "Region curve midtone split",
+          "shadows": "Region curve shadows",
+          "shadowSplit": "Region curve shadow split"
+        },
+        "labels": {
+          "darks": "Darks",
+          "highlights": "Highlights",
+          "highlightSplit": "Highlight",
+          "lights": "Lights",
+          "midtoneSplit": "Midtone",
+          "shadows": "Shadows",
+          "shadowSplit": "Shadow"
+        },
+        "region": "Region",
+        "splits": "Splits"
+      }
+    },
+    "tools": {
+      "bar": {
+        "aria": "Cursor tools",
+        "brush": {
+          "label": "Brush",
+          "title": "Draw on the selected layer, or start a brush layer"
+        },
+        "crop": {
+          "label": "Crop",
+          "title": "Crop & geometry"
+        },
+        "erase": {
+          "label": "Eraser",
+          "title": "Erase from the selected layer's mask"
+        },
+        "linear": {
+          "label": "Linear gradient",
+          "title": "New linear gradient layer"
+        },
+        "radial": {
+          "label": "Radial gradient",
+          "title": "New radial gradient layer"
+        },
+        "rightClickHint": "{{hint}} · right-click the photo for its settings",
+        "select": {
+          "label": "Select",
+          "title": "Select and edit (no drawing tool)"
+        },
+        "spot": {
+          "label": "Spot removal",
+          "title": "Remove, heal or clone: click a spot or drag along it; Remove fills it with the local AI model, and with Detect objects a click or box selects an object to remove"
+        },
+        "straighten": {
+          "label": "Straighten",
+          "title": "Draw a line along an edge that should be level or plumb"
+        },
+        "wb": {
+          "label": "White balance picker",
+          "title": "Pick a neutral area for the white balance"
+        }
+      },
+      "copy": {
+        "apply": "Apply",
+        "applyCount": "Apply ({{n}})",
+        "applyHere": "Apply here",
+        "applyTo_one": "Apply to {{count}} other selected photo",
+        "applyTo_other": "Apply to {{count}} other selected photos",
+        "aria": "Copy and apply {{tool}}",
+        "buttonTitle": "Copy or apply {{tool}} (Option-click copies, Shift-click copies and applies)",
+        "cancel": "Cancel",
+        "copiedFrom": "Copied from {{source}}",
+        "copy": "Copy",
+        "from": "From {{source}}",
+        "noOthers": "Select other photos in the filmstrip to apply to them"
+      },
+      "popover": {
+        "resetBrush": "Reset brush",
+        "resetCrop": "Reset crop and straighten",
+        "resetOpacity": "Reset opacity",
+        "resetOpacityFeather": "Reset opacity and feather",
+        "resetSpot": "Reset spot settings",
+        "settings": "{{tool}} settings",
+        "titles": {
+          "brush": "Brush",
+          "crop": "Crop",
+          "eraser": "Eraser",
+          "layer": "Layer",
+          "linear": "Linear gradient",
+          "radial": "Radial gradient",
+          "spot": "Spot removal"
+        }
+      }
+    },
+    "upright": {
+      "autoDone": {
+        "full": "Auto: vertical and horizontal perspective corrected.",
+        "level": "Auto: levelled by the photo's straight lines.",
+        "vertical": "Auto: converging verticals made parallel."
+      },
+      "clear": "Clear",
+      "constrainCrop": "Constrain crop",
+      "constrainTitle": "Zoom in so no empty corners remain",
+      "corrected": "Corrected along your guides.",
+      "done": {
+        "full": "Vertical and horizontal perspective corrected.",
+        "level": "Levelled by the photo's straight lines.",
+        "vertical": "Converging verticals made parallel."
+      },
+      "doneButton": "Done",
+      "doneTitle": "Done (Esc)",
+      "drawHelp": "Draw along edges that should be <v>vertical</v> or <h>horizontal</h>; the correction starts with the second guide. Drag an end to adjust; click a guide and press Delete to remove it.",
+      "drawTwo": "Draw at least two guides to correct the perspective.",
+      "editGuides": "Edit guides",
+      "failed": "Perspective correction failed: {{error}}",
+      "finding": "Finding straight lines in the photo…",
+      "guideCount": "{{vertical}} vertical · {{horizontal}} horizontal",
+      "modes": {
+        "auto": {
+          "label": "Auto",
+          "title": "Vertical where the photo has converging verticals, otherwise level"
+        },
+        "full": {
+          "label": "Full",
+          "title": "Vertical and horizontal perspective"
+        },
+        "guided": {
+          "label": "Guided",
+          "title": "Draw up to two vertical and two horizontal guides on the photo"
+        },
+        "level": {
+          "label": "Level",
+          "title": "Rotation only"
+        },
+        "off": {
+          "label": "Off",
+          "title": "No perspective correction"
+        },
+        "vertical": {
+          "label": "Vertical",
+          "title": "Converging verticals made parallel"
+        }
+      },
+      "noLines": "No straight lines found to level by.",
+      "notEnoughLines": "Not enough converging lines found; try Level or Guided.",
+      "title": "Perspective Correction"
+    },
+    "whiteBalance": {
+      "aria": {
+        "mode": "White balance mode",
+        "temperature": "White balance temperature",
+        "tint": "White balance tint"
+      },
+      "modes": {
+        "asShot": "As Shot",
+        "auto": "Auto",
+        "cloudy": "Cloudy",
+        "custom": "Custom",
+        "daylight": "Daylight",
+        "flash": "Flash",
+        "fluorescent": "Fluorescent",
+        "shade": "Shade",
+        "tungsten": "Tungsten"
+      },
+      "short": "WB",
+      "temp": "Temp",
+      "tint": "Tint",
+      "toasts": {
+        "autoFailed": "Auto white balance failed: {{error}}",
+        "needsPreview": "Auto white balance needs the photo's preview"
+      }
+    },
+    "workspace": {
+      "edges": {
+        "showBars": "Show the bars",
+        "showBarsAndFilmstrip": "Show the bars and filmstrip",
+        "showLeft": "Show the left panel",
+        "showRight": "Show the right panel"
+      },
+      "errors": {
+        "developTools": "Develop tools",
+        "libraryTools": "Library tools"
+      },
+      "export": {
+        "button": "Export",
+        "buttonCount": "Export {{n}}",
+        "close": "Close tools",
+        "progress": "Exporting {{current}} / {{total}}",
+        "title": "Export photographs"
+      },
+      "flags": {
+        "clearSelected": "Clear flags of selected photographs",
+        "group": "Flag",
+        "pickSelected": "Pick selected photographs",
+        "pickThis": "Pick this photograph",
+        "rejectSelected": "Reject selected photographs",
+        "rejectThis": "Reject this photograph"
+      },
+      "footer": {
+        "copy": "Copy",
+        "copyAdjustments": "Copy adjustments",
+        "filmstrip": "Filmstrip",
+        "hideFilmstrip": "Hide filmstrip",
+        "next": "Next photograph",
+        "noPhotograph": "No photograph",
+        "paste": "Paste",
+        "pasteAdjustments": "Paste adjustments",
+        "photographs_one": "{{n}} photograph",
+        "photographs_other": "{{n}} photographs",
+        "previous": "Previous photograph",
+        "rate_one": "Rate {{count}} star",
+        "rate_other": "Rate {{count}} stars",
+        "selected_one": "{{n}} selected",
+        "selected_other": "{{n}} selected",
+        "showFilmstrip": "Show filmstrip",
+        "stars_one": "{{count}} star",
+        "stars_other": "{{count}} stars"
+      },
+      "grid": {
+        "anyRating": "Any rating",
+        "filterByRating": "Filter by rating",
+        "reverseSort": "Reverse sort order",
+        "search": "Search",
+        "searchLabel": "Search photographs",
+        "sort": "Sort photographs",
+        "sortBy": {
+          "date": "Modified",
+          "name": "Filename",
+          "rating": "Rating"
+        },
+        "starsAndUp_one": "{{count}}+ stars",
+        "starsAndUp_other": "{{count}}+ stars",
+        "thumbnailSize": "Thumbnail size",
+        "unrated": "Unrated"
+      },
+      "layout": {
+        "moveToolsLeft": "Move tools to the left",
+        "moveToolsRight": "Move tools to the right",
+        "toolsLeft": "Tools on the left",
+        "toolsRight": "Tools on the right"
+      },
+      "modules": {
+        "develop": "Develop",
+        "library": "Library",
+        "workspace": "Workspace"
+      },
+      "noKey": "no key",
+      "panelWidth": "Tool panel width",
+      "preferences": "Preferences",
+      "viewer": {
+        "actualPixels": "Actual pixels",
+        "before": "Before",
+        "empty": "Choose a photograph from the browser.",
+        "fit": "Fit",
+        "fitTitle": "Fit in window",
+        "hidePanels": "Hide panels",
+        "imageViewer": "Image viewer",
+        "redo": "Redo",
+        "reset": "Reset",
+        "resetAll": "Reset all adjustments",
+        "resetAllTitle": "Reset all adjustments of this photograph (undo with ⌘Z)",
+        "showOriginal": "Show the unedited photograph",
+        "showPanels": "Show panels",
+        "togglePanels": "Toggle panels",
+        "undo": "Undo",
+        "zoom": "Zoom"
+      },
+      "withShortcut": "{{label}} ({{shortcut}})"
+    }
+  },
+  "tethering": {
+    "expMode": "Exp. Mode"
+  },
+  "ui": {
+    "bottomBar": {
+      "tooltips": {
+        "export": "Export"
+      }
+    },
+    "errorBoundary": {
+      "editsSafe": "Saved edits are not affected.",
+      "reload": "Reload",
+      "stopped": "{{name}} stopped working",
+      "tryAgain": "Try again"
+    },
+    "filmstrip": {
+      "tooltips": {
+        "color": "Color: {{color}}"
+      }
+    },
+    "slider": {
+      "clickToEdit": "Click to edit",
+      "reset": "Reset"
+    }
+  }
+}

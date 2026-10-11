@@ -1,0 +1,19 @@
+[package]
+name = "rawtonic-fileops"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Journaled, undoable file operations (rename, move, trash) for Rawtonic, independent of Tauri"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
+[dev-dependencies]
+tempfile.workspace = true

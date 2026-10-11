@@ -1,0 +1,31 @@
+[package]
+name = "rawtonic-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors = ["Rawtonic contributors", "Timon Käch (RapidRAW)"]
+description = "Rawtonic's wgpu develop pipeline: GpuProcessor, shader variants, tiled readback and the native display presentation. No desktop dependencies."
+
+[features]
+default = []
+performance-profiling = [
+    "wgpu/counters",
+    "rawtonic-engine/performance-profiling",
+    "rawtonic-runtime/performance-profiling",
+]
+
+[dependencies]
+rawtonic-engine = { path = "../engine", version = "0.1.0" }
+rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
+rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
+wgpu = "29.0"
+bytemuck = { version = "1.25", features = ["derive"] }
+half = { version = "2.7.1", features = ["bytemuck"] }
+image = "0.25.10"
+rayon = "1.12.0"
+serde_json = "1.0"
+log = "0.4"
+pollster = "1.0"
+
+[dev-dependencies]
+rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }

@@ -1,0 +1,184 @@
+import { Progress } from './AppProperties';
+
+export enum FileFormats {
+  Jpeg = 'jpeg',
+  Png = 'png',
+  Tiff = 'tiff',
+  Webp = 'webp',
+  Jxl = 'jxl',
+  Avif = 'avif',
+  Cube = 'cube',
+}
+
+export const FILE_FORMATS: Array<FileFormat> = [
+  { id: FileFormats.Jpeg, name: 'JPEG', extensions: ['jpg', 'jpeg'] },
+  { id: FileFormats.Png, name: 'PNG', extensions: ['png'] },
+  { id: FileFormats.Tiff, name: 'TIFF', extensions: ['tiff'] },
+  { id: FileFormats.Webp, name: 'WebP', extensions: ['webp'] },
+  { id: FileFormats.Jxl, name: 'JPEG XL', extensions: ['jxl'] },
+  { id: FileFormats.Avif, name: 'AVIF', extensions: ['avif'] },
+  { id: FileFormats.Cube, name: 'CUBE LUT', extensions: ['cube'] },
+];
+
+export const FILENAME_VARIABLES: Array<string> = [
+  '{original_filename}',
+  '{sequence}',
+  '{YYYY}',
+  '{MM}',
+  '{DD}',
+  '{hh}',
+  '{mm}',
+];
+
+export type TiffBitDepth = 8 | 16;
+
+/** Output colour space of an export (output_color_space.rs); the file carries its ICC profile. */
+export type OutputColorSpace = 'srgb' | 'displayP3' | 'adobeRgb' | 'proPhoto';
+
+export interface ExportSettings {
+  filenameTemplate: string | null;
+  sequenceStart?: number;
+  jpegQuality: number;
+  tiffBitDepth: TiffBitDepth;
+  colorSpace?: OutputColorSpace;
+  keepMetadata: boolean;
+  preserveTimestamps: boolean;
+  resize: {
+    mode: string;
+    value: number;
+    dontEnlarge: boolean;
+    /** The box's other side for the `dimensions` mode. */
+    secondValue?: number;
+  } | null;
+  border: {
+    basis: BorderBasis;
+    horizontalPercent: number;
+    verticalPercent: number;
+    color: string;
+  } | null;
+  pad: {
+    ratioWidth: number;
+    ratioHeight: number;
+    color: string;
+  } | null;
+  stripGps: boolean;
+  watermark: WatermarkSettings | null;
+  exportMasks?: boolean;
+  preserveFolders?: boolean;
+  destinationType?: string;
+  subfolder?: string;
+  /** Unsharp mask on the output's lightness after the resize. */
+  outputSharpening?: { amount: number; radius: number; threshold: number } | null;
+}
+
+/** A recipe's output sharpening: for screen with a radius, for print from the viewing distance. */
+export interface OutputSharpeningRecipe {
+  mode: 'off' | 'screen' | 'print';
+  amount: number;
+  radius: number;
+  threshold: number;
+  distanceCm: number;
+  ppi: number;
+}
+
+export enum BorderBasis {
+  LongEdge = 'longEdge',
+  ShortEdge = 'shortEdge',
+  EachEdge = 'eachEdge',
+}
+
+export enum WatermarkAnchor {
+  TopLeft = 'topLeft',
+  TopCenter = 'topCenter',
+  TopRight = 'topRight',
+  CenterLeft = 'centerLeft',
+  Center = 'center',
+  CenterRight = 'centerRight',
+  BottomLeft = 'bottomLeft',
+  BottomCenter = 'bottomCenter',
+  BottomRight = 'bottomRight',
+}
+
+interface WatermarkSettings {
+  path: string;
+  anchor: WatermarkAnchor;
+  scale: number;
+  spacing: number;
+  opacity: number;
+  /** A text watermark instead of the image. */
+  text?: { text: string; fontFamily: string | null; color: string; shadow: boolean } | null;
+}
+
+export interface ExportState {
+  errorMessage: string;
+  progress: Progress;
+  status: Status;
+}
+
+export interface FileFormat {
+  extensions: Array<string>;
+  id: string;
+  name: string;
+}
+
+export interface ImportState {
+  errorMessage: string;
+  path?: string;
+  progress?: Progress;
+  status: Status;
+}
+
+export enum Status {
+  Cancelled = 'cancelled',
+  Cancelling = 'cancelling',
+  Exporting = 'exporting',
+  Error = 'error',
+  Idle = 'idle',
+  Importing = 'importing',
+  Success = 'success',
+}
+
+export interface ExportPreset {
+  id: string;
+  name: string;
+  fileFormat: string;
+  jpegQuality: number;
+  tiffBitDepth?: TiffBitDepth;
+  colorSpace?: OutputColorSpace;
+  enableResize: boolean;
+  resizeMode: string;
+  resizeValue: number;
+  resizeValue2?: number;
+  dontEnlarge: boolean;
+  enablePad?: boolean;
+  padRatioWidth?: number;
+  padRatioHeight?: number;
+  padColor?: string;
+  enableBorder?: boolean;
+  borderBasis?: string;
+  borderHorizontalPercent?: number;
+  borderVerticalPercent?: number;
+  borderColor?: string;
+  keepMetadata: boolean;
+  preserveTimestamps: boolean;
+  stripGps: boolean;
+  exportMasks?: boolean;
+  preserveFolders?: boolean;
+  filenameTemplate: string;
+  sequenceStart?: number;
+  enableWatermark: boolean;
+  watermarkPath: string | null;
+  watermarkAnchor: string;
+  watermarkScale: number;
+  watermarkSpacing: number;
+  watermarkOpacity: number;
+  watermarkKind?: string;
+  watermarkText?: string;
+  watermarkFont?: string | null;
+  watermarkColor?: string;
+  watermarkShadow?: boolean;
+  lastExportPath?: string;
+  destinationType?: string;
+  subfolder?: string;
+  outputSharpening?: OutputSharpeningRecipe;
+}

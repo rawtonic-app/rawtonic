@@ -1,0 +1,54 @@
+[package]
+name = "rawtonic-export"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors = ["Rawtonic contributors", "Timon Käch (RapidRAW)"]
+description = "Rawtonic export: full-resolution render, resize/border/watermark, encoders and no-clobber output. No desktop dependencies."
+
+[features]
+default = []
+performance-profiling = [
+    "rawtonic-gpu/performance-profiling",
+    "rawtonic-engine/performance-profiling",
+    "rawtonic-runtime/performance-profiling",
+]
+
+[dependencies]
+rawtonic-engine = { path = "../engine", version = "0.1.0" }
+rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
+rawtonic-gpu = { path = "../gpu", version = "0.1.0" }
+rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
+rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
+kamadak-exif = "0.6.1"
+little_exif = "0.6.23"
+chrono = "0.4"
+crc32fast = "1.5"
+blake3 = "1.8.7"
+filetime = "0.2"
+walkdir = "2.5.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+image = "0.25.10"
+turbojpeg = { version = "1.5", default-features = false, features = ["cmake"] }
+png = "0.18.1"
+mozjpeg-rs = "0.9.2"
+webp = "0.3"
+jxl-encoder = "0.3.1"
+rgb = "0.8.53"
+imgref = "1.12.2"
+rayon = "1.12.0"
+log = "0.4"
+tempfile = "3.27.0"
+anyhow = "1.0"
+uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
+fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs", "memmap"] }
+ab_glyph = "0.2.32"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+jxl-oxide = { version = "0.12.6", features = ["image"] }
+half = "2.7.1"
+flate2 = "1.1.9"

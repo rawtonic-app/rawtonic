@@ -1,0 +1,14 @@
+make = "Leaf"
+model = "Credo 50"
+clean_make = "Leaf"
+clean_model = "Credo 50"
+#blackpoint = 0
+whitepoint = 65535
+color_pattern = "RGGB"
+
+# Rawtonic: Adobe writes diagonal ColorMatrix tags for this back and puts
+# the colour in ForwardMatrix; these are the equivalent colour matrices
+# diag(neutral) * inverse(FM) * Bradford(illuminant -> D50).
+[cameras.color_matrix]
+A = [0.6941, -0.2288, 0.1156, -0.6454, 1.6956, 0.0379, 0.0257, -0.0429, 1.2282]
+Flash = [0.5214, -0.0923, -0.0276, -0.5364, 1.4958, 0.019, -0.0034, 0.0056, 0.7642]

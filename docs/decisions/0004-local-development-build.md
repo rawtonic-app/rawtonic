@@ -1,0 +1,5 @@
+# ADR 0004 — Safe development capabilities
+Status: accepted.
+The default native build has no hosted authentication or cloud service. ONNX runtime downloads are opt-in at build time (RAWTONIC_BUNDLE_ONNX=1); local AI calls report a missing runtime before attempting inference or model download. This is not yet the requested on-demand runtime installer.
+Inherited move/rename/trash and legacy import are blocked at the backend because they lack the required verified undo journal. Session ingest is the authorized copying path. Export publication uses no-clobber temporary-file persistence. Existing output files are never silently replaced.
+The default build excludes tethering; the inherited in-process feature is not a supported release artifact. Flatpak/AUR configuration is labeled a packaging skeleton. No production parity, speed superiority, native Linux, or camera compatibility claim is inferred from compilation.

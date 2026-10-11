@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Rawtonic
+Comment=Non-destructive photo editor (development build)
+Exec=rawtonic-app %F
+Icon=cc.rawtonic.editor
+Terminal=false
+Categories=Graphics;Photography;
+MimeType=image/jpeg;image/png;image/tiff;image/x-adobe-dng;image/x-sony-arw;

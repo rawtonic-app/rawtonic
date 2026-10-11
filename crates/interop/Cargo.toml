@@ -1,0 +1,16 @@
+[package]
+name = "rawtonic-interop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only readers for Lightroom Classic catalogs and Capture One sessions, independent of Tauri"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+tempfile.workspace = true
+rusqlite = { version = "0.40", features = ["bundled"] }
+rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,169 @@
+# GPU AI providers against the CPU on machines without a GPU: WebGPU on
+# Linux (Vulkan on Mesa's lavapipe) and the plugin set-up on Windows. Run by hand
+# (gh workflow run gpu-ai.yml --ref BRANCH); not part of the quality gates.
+# Checks correctness and the provider set-up and fallback, not speed:
+# software GPUs are far slower than real ones (docs/decisions/0011-gpu-ai.md).
+# GitHub's Windows runners have no GPU that ONNX Runtime's device discovery
+# lists, so there the WebGPU plugin offers no device: the Windows job checks
+# that the plugin loads (without the DirectX Shader Compiler), that every
+# model then runs on the CPU, and ONNX Runtime 1.30's CPU path.
+#
+# The models are rebuilt from their public sources (BiRefNet, sky and SAM 2.1
+# by Rawtonic's export scripts, the rest unchanged); the inputs are renders of
+# CC0 files of raw.pixls.us.
+name: GPU AI providers
+on:
+  workflow_dispatch:
+env:
+  CARGO_TERM_COLOR: always
+  ORT_VERSION: "1.30.0"
+  WEBGPU_EP_VERSION: "0.4.0"
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: CC0 samples from raw.pixls.us, rendered to JPEG
+        run: |
+          mkdir -p samples raw
+          for f in "Canon/EOS%20R7/443A0161.CR3" "Panasonic/DC-G90/PMAT0201.RW2" \
+                   "Canon/EOS%206D/EOS_6D_RAW.CR2" "Panasonic/DC-LX100M2/P1020077.RW2"; do
+            curl -sSfL -o "raw/$(basename "$f" | sed 's/%20/_/g')" "https://raw.pixls.us/data/$f"
+          done
+          sha256sum raw/*
+          uv run --no-project --python 3.12 --with rawpy --with pillow python - <<'PY'
+          import os, rawpy
+          from PIL import Image
+          for i, name in enumerate(sorted(os.listdir("raw"))):
+              with rawpy.imread(os.path.join("raw", name)) as raw:
+                  rgb = raw.postprocess(use_camera_wb=True, output_bps=8)
+              img = Image.fromarray(rgb)
+              img.thumbnail((1536, 1536))
+              img.save(f"samples/s{i:02d}.jpg", quality=92)
+              print(name, img.size)
+          PY
+      - name: Public model files (unchanged upstream files, as in build_model_pack.py)
+        run: |
+          mkdir -p models
+          get() { curl -sSfL -o "models/$1" "$2"; echo "$3  models/$1" | sha256sum -c; }
+          get depth_anything_v2_vits.onnx https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits.onnx d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be
+          get migan_pipeline_v2.onnx https://huggingface.co/andraniksargsyan/migan/resolve/406830d0fa60666da0071c342ad2fbc8f30c5c64/migan_pipeline_v2.onnx 6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b
+          get face_detection_yunet_2023mar.onnx https://media.githubusercontent.com/media/opencv/opencv_zoo/f12e12798e8314f7c074a6656816c048dcc95b7a/models/face_detection_yunet/face_detection_yunet_2023mar.onnx 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+          get nlmf.onnx https://huggingface.co/sheldonxxxx/RapidRAW-Nonlocal-Denoise/resolve/af6bf36ca55591d103e465200efc4f13b7112a7b/onnx/model.onnx ba788a97f247058ea03d14bbf2f289adc8f4666039f27d0d530e6f67d23dd73c
+      - name: Export BiRefNet, sky and SAM 2.1 (Rawtonic's export scripts)
+        env:
+          SAM2_BUILD_CUDA: "0"
+        run: |
+          curl -sSfL -o sam2.1_hiera_tiny.pt https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_tiny.pt
+          echo "7402e0d864fa82708a20fbd15bc84245c2f26dff0eb43a4b5b93452deb34be69  sam2.1_hiera_tiny.pt" | sha256sum -c
+          uv run --no-project --python 3.12 --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
+            --with "torch==2.9.1+cpu" --with "torchvision==0.24.1+cpu" \
+            --with "SAM-2 @ git+https://github.com/facebookresearch/sam2@2b90b9f5ceec907a1c18123530e92e794ad901a4" \
+            --with transformers==4.57.3 --with timm==1.0.30 --with kornia==0.8.3 --with einops==0.8.2 \
+            --with onnx==1.23.2 --with onnxruntime==1.22.0 \
+            sh -c 'python scripts/models/export_birefnet.py models && python scripts/models/export_sky.py models && python scripts/models/export_sam2.py sam2.1_hiera_tiny.pt tiny models'
+          sha256sum models/*.onnx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: inputs
+          path: |
+            models/*.onnx
+            samples/*.jpg
+          retention-days: 3
+
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: inputs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ONNX Runtime and the WebGPU plugin
+        run: |
+          python -m pip install -q onnxruntime==$ORT_VERSION onnxruntime-ep-webgpu==$WEBGPU_EP_VERSION numpy pillow
+          LIB=$(python -c "import onnxruntime_ep_webgpu as w; print(w.get_library_path())")
+          mkdir -p plugin-only
+          cp "$LIB" plugin-only/   # without the DirectX Shader Compiler (not shipped)
+          sha256sum "$LIB" plugin-only/*
+          curl -sSfL -o ort.zip https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-win-x64-$ORT_VERSION.zip
+          unzip -q ort.zip
+          sha256sum onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll
+          echo "PLUGIN_FULL=$LIB" >> "$GITHUB_ENV"
+      - name: Python, WebGPU on WARP, plugin alone (as Rawtonic ships it)
+        continue-on-error: true
+        run: python -I scripts/models/compare_providers.py models samples results-windows-plugin-only.json --lib "$(cygpath -w "$PWD/plugin-only/onnxruntime_providers_webgpu.dll")" --limit 2
+      - name: Python, WebGPU on WARP, plugin with the DirectX Shader Compiler
+        continue-on-error: true
+        run: python -I scripts/models/compare_providers.py models samples results-windows-dxc.json --lib "$PLUGIN_FULL" --limit 2 --only birefnet_subject,sam2.1_tiny_encoder,skyseg_upernet_convnext_t
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: Rust path (rawtonic-onnx), plugin alone
+        continue-on-error: true
+        run: |
+          export ORT_DYLIB_PATH="$PWD/onnxruntime-win-x64-$ORT_VERSION/lib/onnxruntime.dll"
+          export RAWTONIC_ORT_PLUGIN_DIR="$PWD/plugin-only" AI_MODELS="$PWD/models"
+          cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-windows
+          path: results-*.json
+
+  linux:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: inputs
+      - name: Mesa lavapipe (software Vulkan); a stand-in DRM card for ONNX Runtime's device discovery
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1 vulkan-tools
+          vulkaninfo --summary | grep -E "deviceName|driverName|apiVersion"
+          # ONNX Runtime lists GPUs from /sys/class/drm; a runner has none,
+          # so the WebGPU plugin would offer no device. Dawn itself picks
+          # the Vulkan adapter (lavapipe).
+          sudo mount -t tmpfs tmpfs /sys/class/drm
+          sudo mkdir -p /sys/class/drm/card0/device
+          echo 0x1af4 | sudo tee /sys/class/drm/card0/device/vendor
+          echo 0x1050 | sudo tee /sys/class/drm/card0/device/device
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ONNX Runtime and the WebGPU plugin
+        run: |
+          python -m pip install -q onnxruntime==$ORT_VERSION onnxruntime-ep-webgpu==$WEBGPU_EP_VERSION numpy pillow
+          LIB=$(python -c "import onnxruntime_ep_webgpu as w; print(w.get_library_path())")
+          sha256sum "$LIB"; mkdir -p plugin && cp "$LIB" plugin/
+          curl -sSfL https://github.com/microsoft/onnxruntime/releases/download/v$ORT_VERSION/onnxruntime-linux-x64-$ORT_VERSION.tgz | tar xz
+          sha256sum onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so.$ORT_VERSION
+      - name: Python, WebGPU on lavapipe
+        continue-on-error: true
+        run: python -I scripts/models/compare_providers.py models samples results-linux.json --lib "$PWD/plugin/libonnxruntime_providers_webgpu.so" --limit 2
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - name: Rust path (rawtonic-onnx)
+        continue-on-error: true
+        run: |
+          export ORT_DYLIB_PATH="$PWD/onnxruntime-linux-x64-$ORT_VERSION/lib/libonnxruntime.so.$ORT_VERSION"
+          export RAWTONIC_ORT_PLUGIN_DIR="$PWD/plugin" AI_MODELS="$PWD/models"
+          cargo test -p rawtonic-onnx --locked --test providers -- --ignored --nocapture --test-threads 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-linux
+          path: results-*.json

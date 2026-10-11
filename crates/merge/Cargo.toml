@@ -1,0 +1,22 @@
+[package]
+name = "rawtonic-merge"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rawtonic photo merges (HDR, panorama, focus stack) on scene-linear frames, written as linear DNGs that develop like RAWs. No desktop dependencies."
+
+[dependencies]
+rawtonic-engine = { path = "../engine", version = "0.1.0" }
+rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
+rawler = { git = "https://github.com/CyberTimon/RapidRAW-DngLab.git", version = "0.7.1" }
+anyhow.workspace = true
+image = "0.25.10"
+half = "2.7.1"
+kamadak-exif = "0.6.1"
+flate2 = "1.1"
+rayon = "1.12.0"
+nalgebra = "0.35.0"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tempfile = "3.27.0"

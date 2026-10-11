@@ -1,0 +1,5 @@
+Learned Nonlocal Feature Matching and Filtering for RAW Image Denoising
+Marco Sanchez Beeckman and Antoni Buades (2026)
+https://github.com/MIA-UIB/nonlocal-matchfilter
+Upstream commit: 6df6a79ce128a7741af88ff0f3e9794f9b5e03d4
+MIT license (see LICENSE). Retained the RAW multiscale architecture and its supporting layers; omitted unused architectures and replaced the sampling import with a selectable equivalent implementation. Weights remain a separate download from the authors.

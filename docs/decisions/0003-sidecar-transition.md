@@ -1,0 +1,4 @@
+# ADR 0003 — Preserve XMP during storage extraction
+Status: accepted, transitional deviation.
+The inherited editor's XMP handling is not based on xmp-toolkit. A complete migration to Adobe's native SDK needs cross-platform SDK packaging and unknown-namespace corpus validation, absent in this environment. The new pure-Rust preservation layer therefore edits only explicitly owned XML properties and retains unknown namespace subtrees and attributes byte-for-byte. Malformed/unsupported packets fail closed. This is a transitional subset, not complete XMP Toolkit parity; full IPTC and real LR/C1 fixtures remain release blockers.
+Atomic filesystem writes use same-directory unique temporary files, sync and rename. External changes detected against the stored digest cause a conflict. This is optimistic detection, not a cross-process compare-and-swap guarantee. Preserve external packets before resolving conflicts in a future UI.

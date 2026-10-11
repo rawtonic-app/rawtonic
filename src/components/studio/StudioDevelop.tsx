@@ -1,0 +1,1646 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { useTranslation } from "react-i18next";
+import {
+  ChevronDown,
+  RotateCcw,
+  Pipette,
+  SlidersHorizontal,
+  Palette,
+  Focus,
+  Crop,
+  Layers,
+  Eye,
+  EyeOff,
+  Sparkles,
+  GripVertical,
+  Crosshair,
+  ScanFace,
+} from "lucide-react";
+import { useEditorStore } from "../../store/useEditorStore";
+import { useUIStore } from "../../store/useUIStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { useEditorActions } from "../../hooks/useEditorActions";
+import {
+  INITIAL_ADJUSTMENTS,
+  initialAdjustmentsFor,
+  BRIGHTNESS_CONTROL,
+  MAX_CURVE_POINTS,
+  INITIAL_REGION_CURVE,
+  type Adjustments,
+  type Curves,
+  type RegionCurve,
+} from "../../utils/adjustments";
+import {
+  Panel,
+  type AppSettings,
+  type MaskDisplay,
+} from "../ui/AppProperties";
+import {
+  DEFAULT_MASK_OPACITY,
+  MASK_COLOR_PRESETS,
+  MASK_DISPLAY_OPTIONS,
+  chooseMaskDisplay,
+  maskColorOf,
+  maskDisplayOf,
+  maskOpacityOf,
+} from "../../utils/maskDisplay";
+import AdjustmentControl from "./AdjustmentControl";
+import StudioCameraProfile from "./StudioCameraProfile";
+import StudioWhiteBalance from "./StudioWhiteBalance";
+import type { TatTarget } from "../../utils/targetedAdjustment";
+import StudioHistogram from "./StudioHistogram";
+import StudioLayers, { NewLayerButton } from "./StudioLayers";
+import StudioLut from "./StudioLut";
+import StudioCropControls from "./StudioCropControls";
+import StudioPresets from "./StudioPresets";
+import StudioLensCorrection from "./StudioLensCorrection";
+import StudioUpright from "./StudioUpright";
+import StudioFaceRetouch from "./StudioFaceRetouch";
+import StudioToolCopy, { type ToolParams } from "./StudioToolCopy";
+import { ToolColumn, useToolMenu, useToolOpen } from "./toolLayout";
+import StudioHistory from "./StudioHistory";
+import {
+  StudioBlackAndWhite,
+  StudioCalibration,
+  StudioColorGrading,
+} from "./StudioColorTools";
+import {
+  RegionCurveControls,
+  StudioDefringe,
+  StudioLevels,
+} from "./StudioToneTools";
+import StudioColorEditor from "./StudioColorEditor";
+import {
+  isNeutralRegionCurve,
+  regionCurveValue,
+} from "../../utils/regionCurve";
+
+export function ToolGroup({
+  title,
+  label,
+  children,
+  open = true,
+  onReset,
+  copy,
+  toggle,
+  actions,
+}: {
+  /** Stable id of the tool (remembered open state and order, copy/apply,
+   * `data-tool-title`); never translated. */
+  title: string;
+  /** The shown, translated name; `title` when absent. */
+  label?: string;
+  children: ReactNode;
+  /** Extra header buttons (before reset). */
+  actions?: ReactNode;
+  open?: boolean;
+  onReset?: () => void;
+  /** Parameters for Capture One's per-tool copy/apply (photo only). */
+  copy?: ToolParams;
+  /** Lightroom's eye: the tool's effect on or off without losing values. */
+  toggle?: { enabled: boolean; onToggle(): void };
+}) {
+  const { t } = useTranslation();
+  const name = label ?? title;
+  const [isOpen, setOpen] = useToolOpen(title, open);
+  const menu = useToolMenu();
+  return (
+    <details
+      className={`studio-tool-group ${toggle && !toggle.enabled ? "is-off" : ""}`}
+      open={isOpen}
+      data-tool-title={title}
+      onToggle={(e) => {
+        // Native toggles (header clicks) are remembered for this column.
+        if (e.currentTarget.open !== isOpen) setOpen(e.currentTarget.open);
+      }}
+    >
+      <summary onContextMenu={menu}>
+        {toggle && (
+          <button
+            type="button"
+            className="studio-tool-eye"
+            title={
+              toggle.enabled
+                ? t("studio.develop.toolGroup.turnOff", { tool: name })
+                : t("studio.develop.toolGroup.turnOn", { tool: name })
+            }
+            aria-label={t("studio.develop.toolGroup.isOn", { tool: name })}
+            aria-pressed={toggle.enabled}
+            onClick={(e) => {
+              e.preventDefault();
+              toggle.onToggle();
+            }}
+          >
+            {toggle.enabled ? <Eye size={12} /> : <EyeOff size={12} />}
+          </button>
+        )}
+        {menu && (
+          // Tools in a column move by dragging their header.
+          <GripVertical className="studio-tool-grip" size={11} aria-hidden />
+        )}
+        <ChevronDown size={12} />
+        <span>{name}</span>
+        {copy && <StudioToolCopy tool={title} label={name} params={copy} />}
+        {actions}
+        {onReset && (
+          <button
+            type="button"
+            title={t("studio.develop.toolGroup.reset", { tool: name })}
+            aria-label={t("studio.develop.toolGroup.reset", { tool: name })}
+            onClick={(e) => {
+              e.preventDefault();
+              onReset();
+            }}
+          >
+            <RotateCcw size={12} />
+          </button>
+        )}
+      </summary>
+      <div className="studio-tool-body">{children}</div>
+    </details>
+  );
+}
+
+function PointCurve({
+  curves,
+  region,
+  onChange,
+  disabled,
+  onInteraction,
+}: {
+  curves: Curves;
+  /** Lightroom's region curve, drawn under the luma curve when set. */
+  region?: RegionCurve;
+  onChange(curves: Curves): void;
+  disabled: boolean;
+  onInteraction(active: boolean): void;
+}) {
+  const { t } = useTranslation();
+  const [channel, setChannel] = useState<"luma" | "red" | "green" | "blue">(
+    "luma",
+  );
+  const [selected, setSelected] = useState<number | null>(null);
+  const points = curves[channel];
+  const dragging = useRef(false);
+  const interaction = useRef(onInteraction);
+  interaction.current = onInteraction;
+  useEffect(
+    () => () => {
+      if (dragging.current) interaction.current(false);
+    },
+    [],
+  );
+  const end = () => {
+    if (dragging.current) interaction.current(false);
+    dragging.current = false;
+  };
+  const position = (event: React.PointerEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return {
+      x: Math.max(
+        0,
+        Math.min(255, ((event.clientX - rect.left) / rect.width) * 255),
+      ),
+      y: Math.max(
+        0,
+        Math.min(255, 255 - ((event.clientY - rect.top) / rect.height) * 255),
+      ),
+    };
+  };
+  return (
+    <div className="studio-curve">
+      <div
+        className="studio-segments"
+        aria-label={t("studio.develop.curve.channel")}
+      >
+        {(
+          [
+            ["luma", t("adjustments.curves.channels.luma")],
+            ["red", "R"],
+            ["green", "G"],
+            ["blue", "B"],
+          ] as const
+        ).map(([key, label]) => (
+          <button
+            key={key}
+            aria-pressed={channel === key}
+            onClick={() => {
+              setChannel(key);
+              setSelected(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <svg
+        viewBox="0 0 255 255"
+        role="img"
+        aria-label={t("studio.develop.curve.aria", {
+          channel: t(`studio.develop.curve.ariaChannels.${channel}`),
+        })}
+        onPointerDown={(e) => {
+          if (disabled || e.button !== 0) return;
+          const p = position(e);
+          const nearest = points.findIndex(
+            (q) =>
+              Math.hypot(q.x - p.x, q.y - p.y) < 14 || Math.abs(q.x - p.x) < 1,
+          );
+          if (nearest === -1 && points.length >= MAX_CURVE_POINTS) return;
+          const next =
+            nearest === -1 ? [...points, p].sort((a, b) => a.x - b.x) : points;
+          setSelected(nearest === -1 ? next.indexOf(p) : nearest);
+          if (nearest === -1) onChange({ ...curves, [channel]: next });
+          dragging.current = true;
+          onInteraction(true);
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (disabled || !dragging.current || !e.buttons || selected === null)
+            return;
+          const p = position(e);
+          const next = points.map((q, i) =>
+            i === selected
+              ? {
+                  x:
+                    i === 0
+                      ? 0
+                      : i === points.length - 1
+                        ? 255
+                        : Math.max(
+                            points[i - 1].x + 1,
+                            Math.min(points[i + 1].x - 1, p.x),
+                          ),
+                  y: p.y,
+                }
+              : q,
+          );
+          onChange({ ...curves, [channel]: next });
+        }}
+        onPointerUp={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId))
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          end();
+        }}
+        onPointerCancel={end}
+        onLostPointerCapture={end}
+      >
+        {[64, 128, 192].map((p) => (
+          <g key={p} className="curve-grid">
+            <line x1={p} x2={p} y1="0" y2="255" />
+            <line y1={p} y2={p} x1="0" x2="255" />
+          </g>
+        ))}
+        <line x1="0" y1="255" x2="255" y2="0" className="curve-reference" />
+        {channel === "luma" && region && !isNeutralRegionCurve(region) && (
+          <polyline
+            points={Array.from({ length: 65 }, (_, i) => {
+              const x = i / 64;
+              return `${x * 255},${255 - regionCurveValue(region, x) * 255}`;
+            }).join(" ")}
+            fill="none"
+            className="curve-region"
+          />
+        )}
+        <polyline
+          points={points.map((p) => `${p.x},${255 - p.y}`).join(" ")}
+          fill="none"
+          className={`curve-line curve-${channel}`}
+        />
+        {points.map((p, i) => (
+          <circle
+            key={i}
+            cx={p.x}
+            cy={255 - p.y}
+            r={selected === i ? 4.5 : 3}
+            className="curve-point"
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              if (!disabled && i > 0 && i < points.length - 1) {
+                onChange({
+                  ...curves,
+                  [channel]: points.filter((_, n) => n !== i),
+                });
+                setSelected(null);
+              }
+            }}
+          />
+        ))}
+      </svg>
+      {selected !== null && points[selected] && (
+        <div className="curve-coordinate">
+          <label>
+            {t("studio.develop.curve.input")}{" "}
+            <input
+              type="number"
+              min="0"
+              max="255"
+              value={Math.round(points[selected].x)}
+              disabled={
+                disabled || selected === 0 || selected === points.length - 1
+              }
+              onChange={(e) => {
+                const value = Number(e.target.value);
+                onChange({
+                  ...curves,
+                  [channel]: points.map((p, i) =>
+                    i === selected
+                      ? {
+                          ...p,
+                          x: Math.max(
+                            points[i - 1].x + 1,
+                            Math.min(points[i + 1].x - 1, value),
+                          ),
+                        }
+                      : p,
+                  ),
+                });
+              }}
+            />
+          </label>
+          <label>
+            {t("studio.develop.curve.output")}{" "}
+            <input
+              type="number"
+              min="0"
+              max="255"
+              value={Math.round(points[selected].y)}
+              disabled={disabled}
+              onChange={(e) =>
+                onChange({
+                  ...curves,
+                  [channel]: points.map((p, i) =>
+                    i === selected
+                      ? {
+                          ...p,
+                          y: Math.max(0, Math.min(255, Number(e.target.value))),
+                        }
+                      : p,
+                  ),
+                })
+              }
+            />
+          </label>
+        </div>
+      )}
+      {points.length >= MAX_CURVE_POINTS && (
+        <p className="studio-help">
+          {t("studio.develop.curve.maxPoints", { max: MAX_CURVE_POINTS })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+export default function StudioDevelop() {
+  const { t } = useTranslation();
+  const appSettings = useSettingsStore((s) => s.appSettings);
+  const handleSettingsChange = useSettingsStore((s) => s.handleSettingsChange);
+  const setAppSettings = useSettingsStore((s) => s.setAppSettings);
+  const isMac = useSettingsStore((s) => s.osPlatform === "macos");
+  const maskColor = maskColorOf(appSettings);
+  // Names of the overlay swatches (MASK_COLOR_PRESETS keeps English ids).
+  const maskColorName = (name: string) =>
+    ({
+      Red: t("studio.develop.maskOverlay.colors.red"),
+      Green: t("studio.develop.maskOverlay.colors.green"),
+      White: t("studio.develop.maskOverlay.colors.white"),
+      Black: t("studio.develop.maskOverlay.colors.black"),
+    })[name] ?? name;
+  const maskOpacity = maskOpacityOf(appSettings);
+  // Overlay colour/opacity apply at once while dragging; the settings file is
+  // written once the value settles instead of on every frame.
+  const settingsSave = useRef<number | null>(null);
+  const saveSettingsNow = () => {
+    if (settingsSave.current === null) return;
+    window.clearTimeout(settingsSave.current);
+    settingsSave.current = null;
+    const latest = useSettingsStore.getState().appSettings;
+    if (latest) void useSettingsStore.getState().handleSettingsChange(latest);
+  };
+  const saveSettingsNowRef = useRef(saveSettingsNow);
+  saveSettingsNowRef.current = saveSettingsNow;
+  useEffect(() => () => saveSettingsNowRef.current(), []);
+  const previewSettings = (patch: Partial<AppSettings>) => {
+    const current = useSettingsStore.getState().appSettings;
+    if (!current) return;
+    setAppSettings({ ...current, ...patch });
+    if (settingsSave.current !== null)
+      window.clearTimeout(settingsSave.current);
+    settingsSave.current = window.setTimeout(saveSettingsNow, 300);
+  };
+  const {
+    adjustments,
+    selectedImage,
+    activeMaskContainerId,
+    isWbPickerActive,
+    aiDenoiseBusy,
+    setEditor,
+  } = useEditorStore(
+    useShallow((s) => ({
+      adjustments: s.adjustments,
+      selectedImage: s.selectedImage,
+      activeMaskContainerId: s.activeMaskContainerId,
+      isWbPickerActive: s.isWbPickerActive,
+      aiDenoiseBusy: s.aiDenoiseBusy,
+      setEditor: s.setEditor,
+    })),
+  );
+  const { setAdjustments, handleAutoAdjustments } = useEditorActions();
+  const activePanel = useUIStore((s) => s.activePanel);
+  const [tab, setTab] = useState("all");
+  useEffect(() => {
+    if (activePanel === Panel.Crop) setTab("geometry");
+    // Capture One keeps Layers on top of the Adjustments tab: selecting a
+    // layer there keeps the tab and the tools act on the layer.
+    else if (activePanel === Panel.Masks)
+      setTab((current) => (current === "all" ? "all" : "layers"));
+    else if (activePanel === Panel.Adjustments)
+      setTab((current) =>
+        current === "geometry" || current === "layers" ? "all" : current,
+      );
+  }, [activePanel]);
+  const [hsl, setHsl] = useState("reds");
+  // Targeted Adjustment Tool (Lightroom's TAT): one target at a time; the
+  // colour mixer follows the channel a drag acts on most.
+  const { tatTarget, tatFocus } = useEditorStore(
+    useShallow((s) => ({ tatTarget: s.tatTarget, tatFocus: s.tatFocus })),
+  );
+  useEffect(() => {
+    if (tatFocus) setHsl(tatFocus);
+  }, [tatFocus]);
+  const targetToggle = (target: TatTarget, label: string, text?: string) => (
+    <button
+      type="button"
+      className={text ? "studio-tat-button" : undefined}
+      aria-label={label}
+      aria-pressed={tatTarget === target}
+      title={t("studio.develop.targeted.hint", { tool: label })}
+      disabled={!selectedImage?.isReady}
+      onClick={(e) => {
+        e.preventDefault();
+        setEditor({
+          tatTarget: tatTarget === target ? null : target,
+          isWbPickerActive: false,
+          colorPickerTarget: null,
+        });
+      }}
+    >
+      {text ?? <Crosshair size={12} />}
+    </button>
+  );
+  // Overlay display settings stay folded away until asked for.
+  const [maskOptions, setMaskOptions] = useState(false);
+  const layer =
+    activePanel === Panel.Masks
+      ? adjustments.masks.find((m) => m.id === activeMaskContainerId)
+      : undefined;
+  const values = layer?.adjustments || adjustments;
+  const onInteraction = (active: boolean) =>
+    setEditor({ isSliderDragging: active });
+  const change = (patch: Partial<Adjustments>) =>
+    selectedImage?.isReady &&
+    setAdjustments((prev) =>
+      layer
+        ? {
+            ...prev,
+            masks: prev.masks.map((m) =>
+              m.id === layer.id
+                ? { ...m, adjustments: { ...m.adjustments, ...patch } }
+                : m,
+            ),
+          }
+        : { ...prev, ...patch },
+    );
+  // Layers start neutral; the photo itself starts from the RAW defaults.
+  const defaults = layer
+    ? INITIAL_ADJUSTMENTS
+    : initialAdjustmentsFor(!!selectedImage?.isRaw);
+  const reset = (keys: string[]) =>
+    change(
+      Object.fromEntries(
+        keys.map((key) => [key, structuredClone(defaults[key])]),
+      ),
+    );
+  const control = (
+    label: string,
+    key: string,
+    min = -100,
+    max = 100,
+    step = 1,
+    track?: "temperature" | "tint" | "hue",
+  ) => (
+    <AdjustmentControl
+      key={key}
+      label={label}
+      value={(values[key] ?? defaults[key] ?? 0) as number}
+      min={min}
+      max={max}
+      step={step}
+      defaultValue={(defaults[key] ?? 0) as number}
+      disabled={!selectedImage?.isReady}
+      track={track}
+      onChange={(v) => change({ [key]: v })}
+      onInteraction={onInteraction}
+    />
+  );
+  // Relative Temperature/Tint: JPEGs, layers and RAW edits made before the
+  // Kelvin white balance (shown while they hold a correction).
+  const relativeWhiteBalance = (
+    <>
+      {control(
+        t("adjustments.color.temperature"),
+        "temperature",
+        -100,
+        100,
+        1,
+        "temperature",
+      )}
+      {control(t("adjustments.color.tint"), "tint", -100, 100, 1, "tint")}
+    </>
+  );
+  // A refinement under its amount (Lightroom's Detail, Contrast,
+  // Smoothness): 0–100 with its own default, idle while the amount is 0.
+  const refinement = (
+    label: string,
+    key: string,
+    fallback: number,
+    ariaLabel: string,
+    idle: boolean,
+  ) => (
+    <AdjustmentControl
+      key={key}
+      label={label}
+      ariaLabel={ariaLabel}
+      value={(values[key] ?? fallback) as number}
+      min={0}
+      max={100}
+      step={1}
+      defaultValue={fallback}
+      disabled={!selectedImage?.isReady || idle}
+      onChange={(v) => change({ [key]: v })}
+      onInteraction={onInteraction}
+    />
+  );
+  // A tab chooses tools, not what they act on: a selected layer stays the
+  // target in every tab but Crop (as Capture One's layer selector does);
+  // tools the layer cannot take are hidden there.
+  const selectTab = (next: string) => {
+    setTab(next);
+    const keepLayer = !!layer && next !== "geometry";
+    useUIStore
+      .getState()
+      .setPanel(
+        next === "layers" || keepLayer
+          ? Panel.Masks
+          : next === "geometry"
+            ? Panel.Crop
+            : Panel.Adjustments,
+      );
+    if (next !== "layers" && !keepLayer)
+      setEditor({ activeMaskContainerId: null, activeMaskId: null });
+    setEditor({ isWbPickerActive: false });
+  };
+  const editBackground = () => {
+    setEditor({ activeMaskContainerId: null, activeMaskId: null });
+    useUIStore.getState().setPanel(Panel.Adjustments);
+  };
+  const inTab = (...names: string[]) => names.includes(tab);
+  // Copy/apply works on the photograph's own values, not a layer's.
+  const photoOnly = (params: ToolParams) => (layer ? undefined : params);
+  // Per-tool switch in sectionVisibility (missing = on).
+  const toolSwitch = (section: string) => ({
+    enabled: values.sectionVisibility?.[section] !== false,
+    onToggle: () =>
+      change({
+        sectionVisibility: {
+          ...values.sectionVisibility,
+          [section]: values.sectionVisibility?.[section] === false,
+        },
+      }),
+  });
+  return (
+    <div className="studio-develop">
+      <StudioHistogram />
+      <nav
+        className="studio-tool-tabs"
+        aria-label={t("studio.develop.tabs.aria")}
+      >
+        {[
+          [
+            "all",
+            t("studio.develop.tabs.adjust"),
+            t("studio.develop.tabs.adjustTitle"),
+            SlidersHorizontal,
+          ],
+          [
+            "color",
+            t("studio.develop.tabs.color"),
+            t("studio.develop.tabs.color"),
+            Palette,
+          ],
+          [
+            "detail",
+            t("studio.develop.tabs.detail"),
+            t("studio.develop.tabs.detail"),
+            Focus,
+          ],
+          [
+            "geometry",
+            t("studio.develop.tabs.crop"),
+            t("studio.develop.tabs.cropTitle"),
+            Crop,
+          ],
+          [
+            "retouch",
+            t("studio.develop.tabs.retouch"),
+            t("studio.develop.tabs.retouch"),
+            ScanFace,
+          ],
+          [
+            "layers",
+            t("studio.develop.tabs.layers"),
+            t("studio.develop.tabs.layersTitle"),
+            Layers,
+          ],
+        ].map(([id, label, title, Icon]) => {
+          const ToolIcon = Icon as typeof Focus;
+          return (
+            <button
+              key={id as string}
+              title={title as string}
+              aria-label={title as string}
+              aria-pressed={tab === id}
+              onClick={() => selectTab(id as string)}
+            >
+              <ToolIcon size={16} />
+              <span>{label as string}</span>
+            </button>
+          );
+        })}
+      </nav>
+      <div
+        className="studio-tools-scroll"
+        inert={Boolean(selectedImage && !selectedImage.isReady)}
+      >
+        {!selectedImage && (
+          <p className="studio-help">
+            {t("studio.develop.noPhoto")}
+          </p>
+        )}
+        {selectedImage &&
+          // Sections without their own eye in a tool header (inherited
+          // master switches); the others show their state in the header.
+          (
+            [
+              ["color", t("studio.develop.tabs.color")],
+              ["details", t("studio.develop.tabs.detail")],
+            ] as const
+          )
+            .filter(([key]) => values.sectionVisibility?.[key] === false)
+            .map(([key, label]) => (
+              <div className="studio-inline" key={key}>
+                <span>
+                  {t("studio.develop.bypass.bypassed", { section: label })}
+                </span>
+                <button
+                  aria-label={t("studio.develop.bypass.enableSection", {
+                    section: label,
+                  })}
+                  onClick={() =>
+                    change({
+                      sectionVisibility: {
+                        ...values.sectionVisibility,
+                        [key]: true,
+                      },
+                    })
+                  }
+                >
+                  <Eye size={14} /> {t("studio.develop.bypass.enable")}
+                </button>
+              </div>
+            ))}
+        {layer && tab !== "all" && tab !== "layers" && (
+          <div className="studio-target" role="status">
+            <Layers size={13} aria-hidden />
+            <span>{t("studio.develop.target.layer", { name: layer.name })}</span>
+            <button type="button" onClick={editBackground}>
+              {t("studio.develop.target.background")}
+            </button>
+          </div>
+        )}
+        {layer && tab === "retouch" && (
+          <p className="studio-help">{t("studio.develop.target.photoOnly")}</p>
+        )}
+        <ToolColumn key={tab} scope={`develop:${tab}`}>
+          {(tab === "layers" || tab === "all") && (
+            <ToolGroup
+              key="layers"
+              title="Layers & masks"
+              label={t("studio.develop.groups.layersMasks")}
+              actions={
+                <>
+                  <button
+                    type="button"
+                    aria-label={t("studio.develop.maskOverlay.button")}
+                    aria-pressed={maskOptions}
+                    title={t("studio.develop.maskOverlay.title")}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setMaskOptions(!maskOptions);
+                    }}
+                  >
+                    <Eye size={12} />
+                  </button>
+                  <NewLayerButton />
+                </>
+              }
+            >
+              {maskOptions && (
+              <div className="studio-mask-options">
+              <div className="studio-inline">
+                <label
+                  title={t("studio.develop.maskOverlay.showMaskTitle", {
+                    key: isMac ? "⌥M" : "Alt+M",
+                  })}
+                >
+                  {t("studio.develop.maskOverlay.showMask")}
+                  <select
+                    aria-label={t("studio.develop.maskOverlay.display")}
+                    value={maskDisplayOf(appSettings)}
+                    disabled={!appSettings}
+                    onChange={(e) => {
+                      if (!appSettings) return;
+                      handleSettingsChange({
+                        ...appSettings,
+                        ...chooseMaskDisplay(
+                          appSettings,
+                          e.target.value as MaskDisplay,
+                        ),
+                      });
+                      // A mode chosen here shows the overlay, also after the
+                      // layer's first adjustment switched it off.
+                      setEditor({ maskOverlayAuto: "pinned" });
+                    }}
+                  >
+                    {MASK_DISPLAY_OPTIONS.map(([mode]) => (
+                      <option key={mode} value={mode}>
+                        {t(`studio.develop.maskOverlay.modes.${mode}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="studio-inline">
+                <span>{t("studio.develop.maskOverlay.color")}</span>
+                <div
+                  className="studio-mask-colors"
+                  role="group"
+                  aria-label={t("studio.develop.maskOverlay.color")}
+                >
+                  {MASK_COLOR_PRESETS.map(([color, name]) => (
+                    <button
+                      key={color}
+                      type="button"
+                      className="studio-mask-swatch"
+                      style={{ background: color }}
+                      title={maskColorName(name)}
+                      aria-label={t("studio.develop.maskOverlay.colorMask", {
+                        color: maskColorName(name),
+                      })}
+                      aria-pressed={maskColor === color}
+                      disabled={!appSettings}
+                      onClick={() => previewSettings({ maskColor: color })}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    className="studio-mask-picker"
+                    title={t("studio.develop.maskOverlay.custom")}
+                    aria-label={t("studio.develop.maskOverlay.custom")}
+                    value={maskColor}
+                    disabled={!appSettings}
+                    onChange={(e) =>
+                      previewSettings({ maskColor: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+              <AdjustmentControl
+                label={t("studio.develop.maskOverlay.opacity")}
+                min={0}
+                max={100}
+                unit="%"
+                value={maskOpacity}
+                defaultValue={DEFAULT_MASK_OPACITY}
+                disabled={!appSettings}
+                onChange={(maskOpacity) => previewSettings({ maskOpacity })}
+              />
+              </div>
+              )}
+              <StudioLayers compact={tab === "all"} />
+            </ToolGroup>
+          )}
+          {tab === "all" && selectedImage && <StudioPresets key="presets" />}
+          {inTab("all") && selectedImage?.isRaw && !layer && (
+            <ToolGroup
+              key="baseCharacteristics"
+              title="Base characteristics"
+              label={t("studio.develop.groups.baseCharacteristics")}
+              copy={photoOnly([
+                ["baseCurve", t("studio.develop.baseCurve.curve")],
+                ["cameraProfile", t("studio.develop.baseCurve.profile")],
+              ])}
+              onReset={() =>
+                change({ baseCurve: "standard", cameraProfile: undefined })
+              }
+            >
+              <StudioCameraProfile
+                value={adjustments.cameraProfile}
+                imagePath={selectedImage?.path}
+                disabled={!selectedImage?.isReady}
+                onChange={(cameraProfile) => change({ cameraProfile })}
+              />
+              <label className="studio-inline">
+                <span>{t("studio.develop.baseCurve.curve")}</span>
+                <select
+                  aria-label={t("studio.develop.baseCurve.curve")}
+                  value={adjustments.baseCurve ?? "standard"}
+                  disabled={!selectedImage?.isReady}
+                  onChange={(e) =>
+                    change({
+                      baseCurve: e.target.value as Adjustments["baseCurve"],
+                    })
+                  }
+                >
+                  <option value="standard">
+                    {t("studio.develop.baseCurve.standard")}
+                  </option>
+                  <option value="highContrast">
+                    {t("studio.develop.baseCurve.highContrast")}
+                  </option>
+                  <option value="extraShadow">
+                    {t("studio.develop.baseCurve.extraShadow")}
+                  </option>
+                  <option value="linear">
+                    {t("studio.develop.baseCurve.linear")}
+                  </option>
+                </select>
+              </label>
+            </ToolGroup>
+          )}
+          {inTab("all", "layers") && (
+            <ToolGroup
+              key="whiteBalance"
+              title="White balance"
+              label={t("studio.develop.groups.whiteBalance")}
+              onReset={() =>
+                reset(
+                  layer
+                    ? ["temperature", "tint"]
+                    : [
+                        "temperature",
+                        "tint",
+                        "whiteBalance",
+                        "wbTemperature",
+                        "wbTint",
+                      ],
+                )
+              }
+              copy={photoOnly([
+                ["whiteBalance", t("studio.develop.groups.whiteBalance")],
+                ["wbTemperature", t("studio.develop.whiteBalance.temp")],
+                ["wbTint", t("adjustments.color.tint")],
+                [
+                  "temperature",
+                  t("studio.develop.whiteBalance.relativeTemperature"),
+                ],
+                ["tint", t("studio.develop.whiteBalance.relativeTint")],
+              ])}
+              toggle={toolSwitch("whiteBalance")}
+            >
+              <div className="studio-inline">
+                <span>
+                  {selectedImage?.isRaw && !layer
+                    ? t("studio.develop.whiteBalance.camera")
+                    : t("studio.develop.whiteBalance.relative")}
+                </span>
+                <button
+                  aria-label={t("studio.develop.whiteBalance.picker")}
+                  aria-pressed={isWbPickerActive}
+                  disabled={!selectedImage?.isReady || !!layer}
+                  title={
+                    layer
+                      ? t("studio.develop.whiteBalance.pickerOnBackground")
+                      : t("studio.develop.whiteBalance.pickNeutral")
+                  }
+                  onClick={() =>
+                    setEditor({ isWbPickerActive: !isWbPickerActive })
+                  }
+                >
+                  <Pipette size={15} />
+                </button>
+              </div>
+              {selectedImage?.isRaw && !layer ? (
+                <StudioWhiteBalance
+                  values={adjustments}
+                  imagePath={selectedImage.path}
+                  disabled={!selectedImage.isReady}
+                  onChange={change}
+                  onInteraction={onInteraction}
+                  fallback={relativeWhiteBalance}
+                />
+              ) : (
+                relativeWhiteBalance
+              )}
+              {selectedImage?.isRaw &&
+                !layer &&
+                (!!adjustments.temperature || !!adjustments.tint) &&
+                relativeWhiteBalance}
+            </ToolGroup>
+          )}
+          {inTab("all", "layers") && (
+            <ToolGroup
+              key="exposure"
+              title="Exposure"
+              label={t("studio.develop.groups.exposure")}
+              toggle={toolSwitch("basic")}
+              actions={
+                !layer && (
+                  <button
+                    type="button"
+                    className="studio-tool-auto"
+                    disabled={!selectedImage?.isReady}
+                    title={t("studio.develop.auto.title", { shortcut: "⌘L" })}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleAutoAdjustments();
+                    }}
+                  >
+                    <Sparkles size={12} />
+                    {t("studio.develop.auto.label")}
+                  </button>
+                )
+              }
+              copy={photoOnly([
+                ["exposure", t("studio.develop.sliders.exposure")],
+                ["contrast", t("studio.develop.sliders.contrast")],
+                ["highlights", t("studio.develop.sliders.highlights")],
+                ["shadows", t("studio.develop.sliders.shadows")],
+                ["whites", t("studio.develop.sliders.whites")],
+                ["blacks", t("studio.develop.sliders.blacks")],
+                ["brightness", t("studio.develop.sliders.brightness")],
+              ])}
+              onReset={() =>
+                reset([
+                  "exposure",
+                  "contrast",
+                  "brightness",
+                  "highlights",
+                  "shadows",
+                  "whites",
+                  "blacks",
+                ])
+              }
+            >
+              {control(
+                t("studio.develop.sliders.exposure"),
+                "exposure",
+                -5,
+                5,
+                0.01,
+              )}
+              {control(t("studio.develop.sliders.contrast"), "contrast")}
+              {control(t("studio.develop.sliders.highlights"), "highlights")}
+              {control(t("studio.develop.sliders.shadows"), "shadows")}
+              {control(t("studio.develop.sliders.whites"), "whites")}
+              {control(t("studio.develop.sliders.blacks"), "blacks")}
+              {control(
+                t("studio.develop.sliders.brightness"),
+                "brightness",
+                BRIGHTNESS_CONTROL.min,
+                BRIGHTNESS_CONTROL.max,
+                BRIGHTNESS_CONTROL.step,
+              )}
+            </ToolGroup>
+          )}
+          {inTab("all", "layers") && (
+            <ToolGroup
+              key="presence"
+              title="Presence"
+              label={t("studio.develop.groups.presence")}
+              toggle={toolSwitch("presence")}
+              copy={photoOnly([
+                ["clarity", t("adjustments.details.clarity")],
+                ["structure", t("adjustments.details.structure")],
+                ["dehaze", t("adjustments.details.dehaze")],
+                ["vibrance", t("adjustments.color.vibrance")],
+                ["saturation", t("adjustments.color.saturation")],
+              ])}
+              onReset={() =>
+                reset([
+                  "clarity",
+                  "structure",
+                  "dehaze",
+                  "vibrance",
+                  "saturation",
+                  ...(layer ? ["hue"] : []),
+                ])
+              }
+            >
+              {control(t("adjustments.details.clarity"), "clarity")}
+              {control(t("adjustments.details.structure"), "structure")}
+              {control(t("adjustments.details.dehaze"), "dehaze")}
+              {control(t("adjustments.color.vibrance"), "vibrance")}
+              {control(t("adjustments.color.saturation"), "saturation")}
+              {/* Lightroom's local Hue: turns the layer's colours (Oklab LCh,
+                  lightness and chroma kept). */}
+              {layer &&
+                control(t("adjustments.color.hue"), "hue", -180, 180, 1, "hue")}
+            </ToolGroup>
+          )}
+          {inTab("all") && (
+            <ToolGroup
+              key="toneCurve"
+              title="Tone curve"
+              label={t("studio.develop.groups.toneCurve")}
+              toggle={toolSwitch("curves")}
+              actions={
+                !layer &&
+                targetToggle("curve", t("studio.develop.targeted.toneCurve"))
+              }
+              copy={photoOnly([
+                ["curves", t("studio.develop.params.curves")],
+                ["regionCurve", t("studio.develop.params.regionCurve")],
+              ])}
+              open={false}
+              onReset={() =>
+                change({
+                  curves: structuredClone(INITIAL_ADJUSTMENTS.curves),
+                  pointCurves: structuredClone(INITIAL_ADJUSTMENTS.curves),
+                  parametricCurve: structuredClone(
+                    INITIAL_ADJUSTMENTS.parametricCurve,
+                  ),
+                  curveMode: "point",
+                  ...(layer ? {} : { regionCurve: { ...INITIAL_REGION_CURVE } }),
+                })
+              }
+            >
+              <PointCurve
+                curves={values.curves}
+                region={
+                  layer
+                    ? undefined
+                    : {
+                        ...INITIAL_REGION_CURVE,
+                        ...(values.regionCurve as RegionCurve | undefined),
+                      }
+                }
+                disabled={!selectedImage?.isReady}
+                onInteraction={onInteraction}
+                onChange={(curves) =>
+                  change({ curves, pointCurves: curves, curveMode: "point" })
+                }
+              />
+              {!layer && (
+                <RegionCurveControls
+                  value={{
+                    ...INITIAL_REGION_CURVE,
+                    ...(values.regionCurve as RegionCurve | undefined),
+                  }}
+                  disabled={!selectedImage?.isReady}
+                  onInteraction={onInteraction}
+                  onChange={(regionCurve) => change({ regionCurve })}
+                />
+              )}
+            </ToolGroup>
+          )}
+          {inTab("all") && !layer && (
+            <StudioLevels
+              key="levels"
+              values={values}
+              disabled={!selectedImage?.isReady}
+              change={change}
+              onInteraction={onInteraction}
+              toggle={toolSwitch("levels")}
+              copy={photoOnly([["levels", t("studio.develop.params.levels")]])}
+            />
+          )}
+          {inTab("color") && (
+            <ToolGroup
+              key="colorMixer"
+              title="Color mixer"
+              label={t("studio.develop.groups.colorMixer")}
+              toggle={toolSwitch("colorMixer")}
+              copy={photoOnly([["hsl", t("studio.develop.params.hsl")]])}
+              open
+              onReset={() => reset(["hsl"])}
+            >
+              {!layer && (
+                <div className="studio-inline studio-tat-row">
+                  <span>
+                    <Crosshair size={12} /> {t("studio.develop.targeted.label")}
+                  </span>
+                  <span className="studio-tat-group">
+                    {targetToggle("hue", t("studio.develop.targeted.hue"), "H")}
+                    {targetToggle(
+                      "saturation",
+                      t("studio.develop.targeted.saturation"),
+                      "S",
+                    )}
+                    {targetToggle(
+                      "luminance",
+                      t("studio.develop.targeted.luminance"),
+                      "L",
+                    )}
+                  </span>
+                </div>
+              )}
+              <div className="studio-color-channels">
+                {(
+                  [
+                    ["reds", "#dd6767"],
+                    ["oranges", "#e6a461"],
+                    ["yellows", "#dac878"],
+                    ["greens", "#86bb77"],
+                    ["aquas", "#72b9b9"],
+                    ["blues", "#6d9cc9"],
+                    ["purples", "#a18ac5"],
+                    ["magentas", "#ca83b0"],
+                  ] as const
+                ).map(([key, color]) => (
+                  <button
+                    key={key}
+                    aria-label={t(`studio.develop.colorMixer.select.${key}`)}
+                    aria-pressed={hsl === key}
+                    style={{ "--swatch": color } as React.CSSProperties}
+                    onClick={() => setHsl(key)}
+                  />
+                ))}
+              </div>
+              {(["hue", "saturation", "luminance"] as const).map((key) => (
+                <AdjustmentControl
+                  key={key}
+                  label={t(`adjustments.color.${key}`)}
+                  value={values.hsl[hsl][key]}
+                  disabled={!selectedImage?.isReady}
+                  onInteraction={onInteraction}
+                  onChange={(v) =>
+                    change({
+                      hsl: {
+                        ...values.hsl,
+                        [hsl]: { ...values.hsl[hsl], [key]: v },
+                      },
+                    })
+                  }
+                />
+              ))}
+            </ToolGroup>
+          )}
+          {inTab("color", "layers") && (
+            <StudioColorEditor
+              key="colorEditor"
+              values={values}
+              layerId={layer?.id}
+              disabled={!selectedImage?.isReady}
+              change={change}
+              onInteraction={onInteraction}
+              toggle={toolSwitch("colorEditor")}
+              copy={photoOnly([
+                ["colorRanges", t("studio.develop.params.colorRanges")],
+              ])}
+            />
+          )}
+          {inTab("color", "layers") && (
+            <StudioColorGrading
+              key="colorGrading"
+              values={values}
+              disabled={!selectedImage?.isReady}
+              change={change}
+              onInteraction={onInteraction}
+              toggle={toolSwitch("colorGrading")}
+              copy={photoOnly([
+                ["colorGrading", t("studio.develop.params.colorGrading")],
+              ])}
+            />
+          )}
+          {inTab("color") && !layer && (
+            <StudioBlackAndWhite
+              key="blackAndWhite"
+              targeted={targetToggle(
+                "grayMixer",
+                t("studio.develop.targeted.bwMix"),
+              )}
+              values={values}
+              disabled={!selectedImage?.isReady}
+              change={change}
+              onInteraction={onInteraction}
+              copy={photoOnly([
+                ["blackAndWhite", t("studio.develop.params.blackAndWhite")],
+                ["grayMixer", t("studio.develop.params.bwMix")],
+              ])}
+            />
+          )}
+          {inTab("color") && !layer && (
+            <StudioCalibration
+              key="calibration"
+              values={adjustments}
+              disabled={!selectedImage?.isReady}
+              change={change}
+              onInteraction={onInteraction}
+              toggle={toolSwitch("calibration")}
+              copy={photoOnly([
+                ["colorCalibration", t("studio.develop.params.calibration")],
+              ])}
+            />
+          )}
+          {tab === "retouch" && !layer && (
+            // Capture One's Retouch Faces (Skin): per face or all faces.
+            // Only in its own tab: showing it finds the photo's faces.
+            <ToolGroup
+              key="faceRetouch"
+              title="Face retouch"
+              label={t("studio.develop.groups.faceRetouch")}
+              open
+              onReset={() => change({ faceRetouch: null })}
+            >
+              <StudioFaceRetouch onInteraction={onInteraction} />
+            </ToolGroup>
+          )}
+          {inTab("detail") && (
+            <ToolGroup
+              key="sharpening"
+              title="Sharpening"
+              label={t("adjustments.details.sharpening")}
+              toggle={toolSwitch("sharpening")}
+              open
+              copy={photoOnly([
+                ["sharpness", t("adjustments.effects.amount")],
+                ["sharpenRadius", t("studio.develop.sliders.radius")],
+                ["sharpenDetail", t("studio.develop.sliders.detail")],
+                ["sharpenMasking", t("studio.develop.sliders.masking")],
+                ["sharpnessThreshold", t("adjustments.details.threshold")],
+                ["sharpnessFalloff", t("studio.develop.sliders.falloff")],
+              ])}
+              onReset={() =>
+                reset(
+                  layer
+                    ? ["sharpness", "sharpnessThreshold"]
+                    : [
+                        "sharpness",
+                        "sharpenRadius",
+                        "sharpenDetail",
+                        "sharpenMasking",
+                        "sharpnessThreshold",
+                        "sharpnessFalloff",
+                      ],
+                )
+              }
+            >
+              {control(t("adjustments.effects.amount"), "sharpness")}
+              {/* Lightroom's Radius / Detail / Masking act on the whole photo. */}
+              {!layer &&
+                control(
+                  t("studio.develop.sliders.radius"),
+                  "sharpenRadius",
+                  0.5,
+                  3,
+                  0.1,
+                )}
+              {!layer &&
+                control(t("studio.develop.sliders.detail"), "sharpenDetail", 0, 100)}
+              {!layer &&
+                control(
+                  t("studio.develop.sliders.masking"),
+                  "sharpenMasking",
+                  0,
+                  100,
+                )}
+              {control(
+                t("adjustments.details.threshold"),
+                "sharpnessThreshold",
+                0,
+                80,
+              )}
+              {/* Capture One's Sharpness Falloff, for softer lens corners. */}
+              {!layer &&
+                control(
+                  t("studio.develop.sliders.falloff"),
+                  "sharpnessFalloff",
+                  0,
+                  100,
+                )}
+            </ToolGroup>
+          )}
+          {inTab("detail") && (
+            <ToolGroup
+              key="noiseReduction"
+              title="Noise reduction"
+              label={t("studio.develop.groups.noiseReduction")}
+              toggle={toolSwitch("noiseReduction")}
+              open
+              copy={photoOnly([
+                ["aiDenoise", t("studio.develop.sliders.aiDenoise")],
+                ["lumaNoiseReduction", t("adjustments.details.luminance")],
+                ["lumaNoiseDetail", t("studio.develop.params.lumaDetail")],
+                ["lumaNoiseContrast", t("studio.develop.params.lumaContrast")],
+                ["colorNoiseReduction", t("adjustments.details.color")],
+                ["colorNoiseDetail", t("studio.develop.params.colorDetail")],
+                [
+                  "colorNoiseSmoothness",
+                  t("studio.develop.params.colorSmoothness"),
+                ],
+              ])}
+              onReset={() =>
+                reset([
+                  "aiDenoise",
+                  "lumaNoiseReduction",
+                  "colorNoiseReduction",
+                  "lumaNoiseDetail",
+                  "lumaNoiseContrast",
+                  "colorNoiseDetail",
+                  "colorNoiseSmoothness",
+                ])
+              }
+            >
+              {/* AI Denoise works on the RAW mosaic before demosaicing, so it
+                  is photo-wide and develops the photograph again. */}
+              {!layer && selectedImage?.isRaw && (
+                <>
+                  {control(
+                    t("studio.develop.sliders.aiDenoise"),
+                    "aiDenoise",
+                    0,
+                    100,
+                  )}
+                  {aiDenoiseBusy && (
+                    <p className="studio-help" role="status">
+                      {t("studio.develop.noise.denoising")}
+                    </p>
+                  )}
+                </>
+              )}
+              {control(
+                t("adjustments.details.luminance"),
+                "lumaNoiseReduction",
+                0,
+              )}
+              {/* Lightroom's refinements, photo-wide (layers have amounts). */}
+              {!layer && (
+                <div className="studio-subcontrols">
+                  {refinement(
+                    t("studio.develop.sliders.detail"),
+                    "lumaNoiseDetail",
+                    50,
+                    t("studio.develop.noise.lumaDetailAria"),
+                    !values.lumaNoiseReduction,
+                  )}
+                  {refinement(
+                    t("studio.develop.sliders.contrast"),
+                    "lumaNoiseContrast",
+                    0,
+                    t("studio.develop.noise.lumaContrastAria"),
+                    !values.lumaNoiseReduction,
+                  )}
+                </div>
+              )}
+              {control(
+                t("adjustments.details.color"),
+                "colorNoiseReduction",
+                0,
+              )}
+              {!layer && (
+                <div className="studio-subcontrols">
+                  {refinement(
+                    t("studio.develop.sliders.detail"),
+                    "colorNoiseDetail",
+                    50,
+                    t("studio.develop.noise.colorDetailAria"),
+                    !values.colorNoiseReduction,
+                  )}
+                  {refinement(
+                    t("studio.develop.sliders.smoothness"),
+                    "colorNoiseSmoothness",
+                    50,
+                    t("studio.develop.noise.colorSmoothnessAria"),
+                    !values.colorNoiseReduction,
+                  )}
+                </div>
+              )}
+            </ToolGroup>
+          )}
+          {inTab("detail") && !layer && (
+            <StudioDefringe
+              key="defringe"
+              values={values}
+              disabled={!selectedImage?.isReady}
+              change={change}
+              onInteraction={onInteraction}
+              copy={photoOnly([
+                ["defringePurpleAmount", t("studio.develop.params.purpleAmount")],
+                ["defringePurpleHueLo", t("studio.develop.params.purpleHueFrom")],
+                ["defringePurpleHueHi", t("studio.develop.params.purpleHueTo")],
+                ["defringeGreenAmount", t("studio.develop.params.greenAmount")],
+                ["defringeGreenHueLo", t("studio.develop.params.greenHueFrom")],
+                ["defringeGreenHueHi", t("studio.develop.params.greenHueTo")],
+              ])}
+            />
+          )}
+          {inTab("detail") && layer && (
+            // Lightroom's local Defringe: above 0 colour fringes along edges
+            // lose their colour (any hue; a coloured object keeps its edge),
+            // below 0 the photo's Defringe is held back here.
+            <ToolGroup
+              key="layerDefringe"
+              title="Defringe"
+              label={t("studio.develop.groups.defringe")}
+              onReset={() => reset(["defringe"])}
+            >
+              {control(t("studio.develop.groups.defringe"), "defringe")}
+            </ToolGroup>
+          )}
+          {inTab("detail") && (
+            <ToolGroup
+              key="moire"
+              title="Moiré"
+              label={t("studio.develop.groups.moire")}
+              open={false}
+              copy={photoOnly([
+                ["moireAmount", t("adjustments.effects.amount")],
+                ["moirePattern", t("studio.develop.sliders.pattern")],
+              ])}
+              onReset={() => reset(["moireAmount", "moirePattern"])}
+            >
+              {control(t("adjustments.effects.amount"), "moireAmount", 0)}
+              {control(t("studio.develop.sliders.pattern"), "moirePattern", 0)}
+            </ToolGroup>
+          )}
+          {tab === "geometry" && (
+            <ToolGroup
+              key="crop"
+              title="Crop"
+              label={t("studio.develop.groups.crop")}
+              onReset={() =>
+                reset([
+                  "crop",
+                  "aspectRatio",
+                  "rotation",
+                  "orientationSteps",
+                  "flipHorizontal",
+                  "flipVertical",
+                ])
+              }
+            >
+              <StudioCropControls />
+            </ToolGroup>
+          )}
+          {tab === "geometry" && (
+            <ToolGroup
+              key="geometry"
+              title="Geometry"
+              label={t("studio.develop.groups.geometry")}
+              onReset={() =>
+                reset([
+                  "transformDistortion",
+                  "transformVertical",
+                  "transformHorizontal",
+                  "transformRotate",
+                  "transformScale",
+                  "transformAspect",
+                  "transformXOffset",
+                  "transformYOffset",
+                  "guidedPerspective",
+                ])
+              }
+            >
+              <StudioUpright />
+              {/* Lightroom's manual Transform sliders, on top of Upright. */}
+              <div className="studio-subheading">
+                {t("studio.develop.geometry.transform")}
+              </div>
+              {/* Lightroom's manual Distortion, fitted to Camera Raw; the frame
+                  is filled without blank corners (Capture One). */}
+              {control(
+                t("studio.develop.sliders.distortion"),
+                "transformDistortion",
+              )}
+              {control(t("studio.develop.sliders.vertical"), "transformVertical")}
+              {control(
+                t("studio.develop.sliders.horizontal"),
+                "transformHorizontal",
+              )}
+              {control(
+                t("studio.develop.sliders.rotation"),
+                "transformRotate",
+                -45,
+                45,
+                0.1,
+              )}
+              {control(t("studio.develop.sliders.aspect"), "transformAspect")}
+              {control(
+                t("studio.develop.sliders.scale"),
+                "transformScale",
+                50,
+                150,
+              )}
+              {control(t("studio.develop.sliders.offsetX"), "transformXOffset")}
+              {control(t("studio.develop.sliders.offsetY"), "transformYOffset")}
+            </ToolGroup>
+          )}
+          {tab === "geometry" && <StudioLensCorrection key="lens" />}
+          {inTab("all") && !layer && (
+            <ToolGroup
+              key="effects"
+              title="Effects"
+              label={t("studio.develop.groups.effects")}
+              toggle={toolSwitch("effects")}
+              open={false}
+              copy={photoOnly([
+                ["vignetteAmount", t("adjustments.effects.vignette")],
+                ["vignetteMidpoint", t("adjustments.effects.midpoint")],
+                ["vignetteRoundness", t("adjustments.effects.roundness")],
+                ["vignetteFeather", t("adjustments.effects.feather")],
+                ["vignetteStyle", t("studio.develop.effects.style")],
+                ["vignetteHighlights", t("studio.develop.sliders.highlights")],
+                ["grainAmount", t("adjustments.effects.grain")],
+                ["grainSize", t("studio.develop.params.grainSize")],
+                ["grainRoughness", t("adjustments.effects.roughness")],
+                ["glowAmount", t("adjustments.effects.glow")],
+                ["halationAmount", t("adjustments.effects.halation")],
+                ["flareAmount", t("studio.develop.sliders.lightFlare")],
+                ["lutPath", "LUT"],
+                ["lutIntensity", t("studio.develop.params.lutAmount")],
+              ])}
+              onReset={() =>
+                reset([
+                  "vignetteAmount",
+                  "vignetteMidpoint",
+                  "vignetteRoundness",
+                  "vignetteFeather",
+                  "vignetteStyle",
+                  "vignetteHighlights",
+                  "grainAmount",
+                  "grainSize",
+                  "grainRoughness",
+                  "glowAmount",
+                  "halationAmount",
+                  "flareAmount",
+                ])
+              }
+            >
+              {control(t("adjustments.effects.vignette"), "vignetteAmount")}
+              {control(t("adjustments.effects.midpoint"), "vignetteMidpoint", 0)}
+              {control(t("adjustments.effects.roundness"), "vignetteRoundness")}
+              {control(t("adjustments.effects.feather"), "vignetteFeather", 0)}
+              <label className="studio-inline">
+                <span>{t("studio.develop.effects.style")}</span>
+                <select
+                  aria-label={t("studio.develop.effects.vignetteStyle")}
+                  value={(values.vignetteStyle as string) ?? "highlightPriority"}
+                  disabled={!selectedImage?.isReady}
+                  onChange={(e) =>
+                    change({
+                      vignetteStyle: e.target
+                        .value as Adjustments["vignetteStyle"],
+                    })
+                  }
+                >
+                  <option value="highlightPriority">
+                    {t("studio.develop.effects.styles.highlightPriority")}
+                  </option>
+                  <option value="colorPriority">
+                    {t("studio.develop.effects.styles.colorPriority")}
+                  </option>
+                  <option value="paintOverlay">
+                    {t("studio.develop.effects.styles.paintOverlay")}
+                  </option>
+                </select>
+              </label>
+              {values.vignetteStyle !== "paintOverlay" &&
+                control(
+                  t("studio.develop.sliders.highlights"),
+                  "vignetteHighlights",
+                  0,
+                )}
+              {control(t("adjustments.effects.grain"), "grainAmount", 0)}
+              {control(t("adjustments.effects.size"), "grainSize", 0)}
+              {control(t("adjustments.effects.roughness"), "grainRoughness", 0)}
+              {/* Beyond Lightroom and Capture One: soft glow of the
+                  highlights, red halation around them, light flares. */}
+              <div className="studio-subheading">
+                {t("studio.develop.effects.light")}
+              </div>
+              {control(t("adjustments.effects.glow"), "glowAmount", 0)}
+              {control(t("adjustments.effects.halation"), "halationAmount", 0)}
+              {control(t("studio.develop.sliders.lightFlare"), "flareAmount", 0)}
+              <div className="studio-subheading">LUT</div>
+              <StudioLut disabled={!selectedImage?.isReady} onInteraction={onInteraction} />
+            </ToolGroup>
+          )}
+          <StudioHistory key="history" />
+        </ToolColumn>
+      </div>
+    </div>
+  );
+}

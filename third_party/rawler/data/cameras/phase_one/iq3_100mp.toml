@@ -1,0 +1,16 @@
+make = "Phase One A/S"
+model = "IQ3 100MP"
+clean_make = "Phase One"
+clean_model = "IQ3 100MP"
+#blackpoint = 0
+whitepoint = 65535
+color_pattern = "RGGB"
+active_area = [148, 120, 220, 24]
+
+# Rawtonic: Adobe writes diagonal ColorMatrix tags for this back and puts
+# the colour in ForwardMatrix; these are the equivalent colour matrices
+# diag(neutral) * inverse(FM) * Bradford(illuminant -> D50).
+[cameras.color_matrix]
+D55 = [0.3791, -0.0347, -0.0341, -0.4963, 1.3095, 0.1795, -0.1357, 0.3293, 0.5899]
+D75 = [0.3082, -0.0205, -0.0344, -0.48, 1.2802, 0.1352, -0.1828, 0.4397, 0.582]
+

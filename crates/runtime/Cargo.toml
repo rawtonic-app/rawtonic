@@ -1,0 +1,17 @@
+[package]
+name = "rawtonic-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Process helpers shared by the Rawtonic engine crates: opt-in stage timing and allocator release."
+
+[features]
+default = []
+# Stage timing written to stderr and the log; never in normal builds.
+performance-profiling = ["dep:serde_json", "dep:log", "dep:libc"]
+
+[dependencies]
+serde_json = { workspace = true, optional = true }
+log = { version = "0.4", optional = true }
+libc = { version = "0.2.189", optional = true }
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }

@@ -1,0 +1,647 @@
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+import { GLOBAL_KEYS } from './AppProperties';
+
+type SliderChangeEvent =
+  | React.ChangeEvent<HTMLInputElement>
+  | {
+      target: {
+        value: number | string;
+      };
+    };
+
+export interface SliderMarker {
+  color: string;
+  value: number;
+}
+
+interface SliderProps {
+  defaultValue?: number;
+  disabled?: boolean;
+  label: React.ReactNode;
+  markers?: Array<SliderMarker>;
+  max: number;
+  min: number;
+  onChange(event: SliderChangeEvent): void;
+  onDragStateChange?(state: boolean): void;
+  onPointerUp?(): void;
+  step: number;
+  value: number;
+  trackClassName?: string;
+  fillOrigin?: 'min' | 'default';
+  suffix?: string;
+}
+
+const DOUBLE_CLICK_THRESHOLD_MS = 150;
+const FINE_ADJUSTMENT_MULTIPLIER = 0.2;
+const TOUCH_DRAG_THRESHOLD_PX = 10;
+const TOUCH_THUMB_HIT_RADIUS_PX = 24;
+
+const getFraction = (value: number, min: number, max: number) => (max !== min ? (value - min) / (max - min) : 0);
+
+const hasFineAdjustmentModifier = (event: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent) =>
+  'shiftKey' in event && (event.shiftKey || event.altKey);
+
+const Slider = ({
+  defaultValue = 0,
+  disabled = false,
+  label,
+  markers,
+  max,
+  min,
+  onChange,
+  onDragStateChange = () => {},
+  onPointerUp,
+  step = 1,
+  value,
+  trackClassName,
+  fillOrigin = 'default',
+  suffix = '',
+}: SliderProps) => {
+  const { t } = useTranslation();
+  const [displayValue, setDisplayValue] = useState<number>(value);
+  const [isDragging, setIsDragging] = useState(false);
+  const animationFrameRef = useRef<number | undefined>(undefined);
+  const [isEditing, setIsEditing] = useState(false);
+  const [inputValue, setInputValue] = useState<string>(String(value));
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const rangeInputRef = useRef<HTMLInputElement | null>(null);
+  const [isLabelHovered, setIsLabelHovered] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastUpTime = useRef(0);
+  const lastPointerXRef = useRef<number>(0);
+  const accumulatedValueRef = useRef<number>(0);
+  const pendingTouchRef = useRef<{
+    startX: number;
+    startY: number;
+    latestX: number;
+    startValue: number;
+  } | null>(null);
+  const suppressTouchChangeRef = useRef(false);
+  const isWheelActivelyChangingRef = useRef(false);
+  const wheelTimeoutRef = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (wheelTimeoutRef.current !== undefined) {
+        window.clearTimeout(wheelTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  const fillPercentage = getFraction(displayValue, min, max) * 100;
+  const originPercentage = useMemo(() => {
+    if (fillOrigin === 'min') {
+      return 0;
+    }
+    return getFraction(defaultValue, min, max) * 100;
+  }, [fillOrigin, defaultValue, min, max]);
+
+  const stepStr = String(step);
+  const decimalPlaces = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+
+  const snapToStep = useCallback(
+    (val: number): number => {
+      const snapped = Math.round((val - min) / step) * step + min;
+      const clamped = Math.max(min, Math.min(max, snapped));
+      return parseFloat(clamped.toFixed(decimalPlaces));
+    },
+    [min, max, step, decimalPlaces],
+  );
+
+  const onChangeRef = useRef(onChange);
+  const snapToStepRef = useRef(snapToStep);
+  const rangeRef = useRef({ min, max });
+
+  onChangeRef.current = onChange;
+  snapToStepRef.current = snapToStep;
+  rangeRef.current = { min, max };
+
+  const onDragStateChangeRef = useRef(onDragStateChange);
+  onDragStateChangeRef.current = onDragStateChange;
+  const onPointerUpRef = useRef(onPointerUp);
+  onPointerUpRef.current = onPointerUp;
+
+  useEffect(() => {
+    onDragStateChangeRef.current(isDragging);
+  }, [isDragging]);
+
+  useEffect(() => {
+    if (!disabled) return;
+
+    pendingTouchRef.current = null;
+    suppressTouchChangeRef.current = false;
+    isWheelActivelyChangingRef.current = false;
+
+    if (wheelTimeoutRef.current !== undefined) {
+      window.clearTimeout(wheelTimeoutRef.current);
+      wheelTimeoutRef.current = undefined;
+    }
+    if (animationFrameRef.current !== undefined) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = undefined;
+    }
+
+    setIsDragging(false);
+    setIsEditing(false);
+    setIsLabelHovered(false);
+    setDisplayValue(value);
+    setInputValue(String(value));
+  }, [disabled, value]);
+
+  useEffect(() => {
+    const sliderElement = containerRef.current;
+    if (!sliderElement) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (disabled || !event.shiftKey) {
+        return;
+      }
+
+      event.preventDefault();
+      const direction = -Math.sign(event.deltaY || event.deltaX);
+      const newValue = value + direction * step;
+      const roundedNewValue = parseFloat(newValue.toFixed(decimalPlaces));
+
+      const clampedValue = Math.max(min, Math.min(max, roundedNewValue));
+
+      if (clampedValue !== value && !isNaN(clampedValue)) {
+        isWheelActivelyChangingRef.current = true;
+        setDisplayValue(clampedValue);
+        setInputValue(String(clampedValue));
+
+        if (wheelTimeoutRef.current !== undefined) {
+          window.clearTimeout(wheelTimeoutRef.current);
+        }
+        wheelTimeoutRef.current = window.setTimeout(() => {
+          isWheelActivelyChangingRef.current = false;
+        }, 150);
+
+        const syntheticEvent = {
+          target: {
+            value: clampedValue,
+          },
+        };
+        onChange(syntheticEvent);
+      }
+    };
+
+    sliderElement.addEventListener('wheel', handleWheel, { passive: false });
+
+    return () => {
+      sliderElement.removeEventListener('wheel', handleWheel);
+    };
+  }, [disabled, value, min, max, step, onChange, decimalPlaces]);
+
+  // Handle Dragging
+  useEffect(() => {
+    if (!isDragging || disabled) return;
+
+    const inputEl = rangeInputRef.current;
+    if (!inputEl) return;
+    const sliderWidth = inputEl.getBoundingClientRect().width || 1;
+
+    const handlePointerMove = (e: MouseEvent | TouchEvent) => {
+      let clientX: number;
+      let shiftKey: boolean;
+
+      if ('touches' in e) {
+        if (e.touches.length === 0) return;
+        clientX = e.touches[0].clientX;
+        shiftKey = hasFineAdjustmentModifier(e);
+        if (e.cancelable) e.preventDefault();
+      } else {
+        clientX = (e as MouseEvent).clientX;
+        shiftKey = hasFineAdjustmentModifier(e);
+      }
+
+      const deltaX = clientX - lastPointerXRef.current;
+      const { min: curMin, max: curMax } = rangeRef.current;
+
+      const multiplier = shiftKey ? FINE_ADJUSTMENT_MULTIPLIER : 1;
+      const deltaValue = (deltaX / sliderWidth) * (curMax - curMin) * multiplier;
+
+      const prevAccumulated = accumulatedValueRef.current;
+      accumulatedValueRef.current = Math.max(curMin, Math.min(curMax, prevAccumulated + deltaValue));
+
+      const actualDeltaValue = accumulatedValueRef.current - prevAccumulated;
+      if (deltaValue !== 0) {
+        lastPointerXRef.current += deltaX * (actualDeltaValue / deltaValue);
+      } else {
+        lastPointerXRef.current = clientX;
+      }
+
+      const snappedValue = snapToStepRef.current(accumulatedValueRef.current);
+
+      setDisplayValue(snappedValue);
+      setInputValue(String(snappedValue));
+      onChangeRef.current({ target: { value: snappedValue } });
+    };
+
+    const handlePointerUp = () => {
+      lastUpTime.current = Date.now();
+      pendingTouchRef.current = null;
+      suppressTouchChangeRef.current = false;
+      if (isDragging) {
+        onPointerUpRef.current?.();
+      }
+      setIsDragging(false);
+    };
+
+    window.addEventListener('mousemove', handlePointerMove, { passive: false });
+    window.addEventListener('mouseup', handlePointerUp);
+    window.addEventListener('touchmove', handlePointerMove, { passive: false });
+    window.addEventListener('touchend', handlePointerUp);
+    window.addEventListener('touchcancel', handlePointerUp);
+
+    return () => {
+      window.removeEventListener('mousemove', handlePointerMove);
+      window.removeEventListener('mouseup', handlePointerUp);
+      window.removeEventListener('touchmove', handlePointerMove);
+      window.removeEventListener('touchend', handlePointerUp);
+      window.removeEventListener('touchcancel', handlePointerUp);
+    };
+  }, [disabled, isDragging]);
+
+  useEffect(() => {
+    if (isDragging) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      return;
+    }
+
+    if (isWheelActivelyChangingRef.current) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      setDisplayValue(value);
+      return;
+    }
+
+    const startValue = displayValue;
+    const endValue = value;
+    const duration = 300;
+    let startTime: number | null = null;
+
+    const easeInOut = (t: number) => t * t * (3 - 2 * t);
+
+    const animate = (timestamp: number) => {
+      if (!startTime) {
+        startTime = timestamp;
+      }
+
+      const progress = timestamp - startTime;
+      const linearFraction = Math.min(progress / duration, 1);
+      const easedFraction = easeInOut(linearFraction);
+      const currentValue = startValue + (endValue - startValue) * easedFraction;
+      setDisplayValue(currentValue);
+
+      if (linearFraction < 1) {
+        animationFrameRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    animationFrameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- displayValue is the tween's start point and this effect writes it every frame; listing it would restart the animation on each frame
+  }, [value, isDragging]);
+
+  useEffect(() => {
+    if (!isEditing || isDragging) {
+      setInputValue(String(value));
+    }
+  }, [value, isEditing, isDragging]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [isEditing]);
+
+  const handleReset = () => {
+    if (disabled) return;
+
+    setInputValue(String(defaultValue));
+    const syntheticEvent = {
+      target: {
+        value: defaultValue,
+      },
+    };
+    onChange(syntheticEvent);
+    onPointerUp?.();
+  };
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled || suppressTouchChangeRef.current) {
+      return;
+    }
+
+    if (!isDragging) {
+      const numVal = Number(e.target.value);
+      setDisplayValue(numVal);
+      setInputValue(String(numVal));
+      onChange(e);
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
+    if (Date.now() - lastUpTime.current < DOUBLE_CLICK_THRESHOLD_MS) {
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const rawValue = min + fraction * (max - min);
+    const snappedValue = snapToStep(rawValue);
+
+    accumulatedValueRef.current = rawValue;
+    lastPointerXRef.current = e.clientX;
+
+    setIsDragging(true);
+    setDisplayValue(snappedValue);
+    setInputValue(String(snappedValue));
+    onChange({ target: { value: snappedValue } });
+  };
+
+  const handleTouchStart = (e: React.TouchEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
+    if (e.touches.length === 0) return;
+
+    const touch = e.touches[0];
+    suppressTouchChangeRef.current = true;
+
+    const inputEl = rangeInputRef.current;
+    if (!inputEl) return;
+
+    const rect = inputEl.getBoundingClientRect();
+    const thumbX = rect.left + Math.max(0, Math.min(1, getFraction(displayValue, min, max))) * rect.width;
+
+    if (Math.abs(touch.clientX - thumbX) > TOUCH_THUMB_HIT_RADIUS_PX) {
+      pendingTouchRef.current = null;
+      return;
+    }
+
+    pendingTouchRef.current = {
+      startX: touch.clientX,
+      startY: touch.clientY,
+      latestX: touch.clientX,
+      startValue: displayValue,
+    };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
+    if (isDragging || !pendingTouchRef.current || e.touches.length === 0) return;
+
+    const touch = e.touches[0];
+    const pendingTouch = pendingTouchRef.current;
+    pendingTouch.latestX = touch.clientX;
+
+    const deltaX = touch.clientX - pendingTouch.startX;
+    const deltaY = touch.clientY - pendingTouch.startY;
+
+    if (Math.abs(deltaY) > TOUCH_DRAG_THRESHOLD_PX && Math.abs(deltaY) > Math.abs(deltaX)) {
+      pendingTouchRef.current = null;
+      return;
+    }
+
+    if (Math.abs(deltaX) < TOUCH_DRAG_THRESHOLD_PX || Math.abs(deltaX) < Math.abs(deltaY)) {
+      return;
+    }
+
+    const inputEl = rangeInputRef.current;
+    if (!inputEl) return;
+
+    const rect = inputEl.getBoundingClientRect();
+    const multiplier = hasFineAdjustmentModifier(e) ? FINE_ADJUSTMENT_MULTIPLIER : 1;
+    const rawValue = pendingTouch.startValue + (deltaX / rect.width) * (max - min) * multiplier;
+    const snappedValue = snapToStep(rawValue);
+
+    accumulatedValueRef.current = rawValue;
+    lastPointerXRef.current = touch.clientX;
+    pendingTouchRef.current = null;
+
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+
+    setIsDragging(true);
+    setDisplayValue(snappedValue);
+    setInputValue(String(snappedValue));
+    onChange({ target: { value: snappedValue } });
+  };
+
+  const handleTouchEnd = () => {
+    pendingTouchRef.current = null;
+    suppressTouchChangeRef.current = false;
+  };
+
+  const handleValueClick = () => {
+    if (disabled) return;
+
+    setIsEditing(true);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
+    const textVal = e.target.value;
+    if (!/^[0-9.,-]*$/.test(textVal)) {
+      return;
+    }
+    setInputValue(textVal);
+    const parseableText = textVal.replace(',', '.');
+    const parsedValue = parseFloat(parseableText);
+    if (!isNaN(parsedValue)) {
+      const clampedValue = Math.max(min, Math.min(max, parsedValue));
+      onChange({
+        target: {
+          value: clampedValue,
+        },
+      });
+    }
+  };
+
+  const handleInputCommit = () => {
+    if (disabled) {
+      setInputValue(String(value));
+      setIsEditing(false);
+      return;
+    }
+
+    let newValue = parseFloat(inputValue.replace(',', '.'));
+    if (isNaN(newValue)) {
+      newValue = value;
+    } else {
+      newValue = Math.max(min, Math.min(max, newValue));
+    }
+    const syntheticEvent = {
+      target: {
+        value: newValue,
+      },
+    };
+    onChange(syntheticEvent);
+    setIsEditing(false);
+    onPointerUp?.();
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (disabled) return;
+
+    if (e.key === 'Enter') {
+      handleInputCommit();
+      e.currentTarget.blur();
+    } else if (e.key === 'Escape') {
+      setInputValue(String(value));
+      setIsEditing(false);
+      e.currentTarget.blur();
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      let currentNum = parseFloat(inputValue.replace(',', '.'));
+      if (isNaN(currentNum)) {
+        currentNum = value;
+      }
+      const direction = e.key === 'ArrowUp' ? 1 : -1;
+      const newValue = currentNum + direction * step;
+      const snappedNewValue = snapToStep(newValue);
+      setInputValue(String(snappedNewValue));
+      onChange({
+        target: {
+          value: snappedNewValue,
+        },
+      });
+    }
+  };
+
+  const handleRangeKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.ctrlKey || e.metaKey) {
+      e.currentTarget.blur();
+      return;
+    }
+    if (GLOBAL_KEYS.includes(e.key)) {
+      e.currentTarget.blur();
+    }
+  };
+
+  const numericValue = isNaN(Number(value)) ? 0 : Number(value);
+
+  return (
+    <div className={`mb-2 group ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`} ref={containerRef}>
+      <div className="flex justify-between items-center mb-1">
+        <div
+          className={`grid ${typeof label === 'string' && !disabled ? 'cursor-pointer' : ''}`}
+          onClick={typeof label === 'string' && !disabled ? handleReset : undefined}
+          onDoubleClick={typeof label === 'string' && !disabled ? handleReset : undefined}
+          onMouseEnter={typeof label === 'string' && !disabled ? () => setIsLabelHovered(true) : undefined}
+          onMouseLeave={typeof label === 'string' && !disabled ? () => setIsLabelHovered(false) : undefined}
+        >
+          <span
+            aria-hidden={isLabelHovered && typeof label === 'string'}
+            className={`col-start-1 row-start-1 text-sm font-medium text-text-secondary select-none transition-opacity duration-200 ease-in-out ${
+              isLabelHovered && typeof label === 'string' ? 'opacity-0' : 'opacity-100'
+            }`}
+          >
+            {label}
+          </span>
+          {typeof label === 'string' && (
+            <span
+              aria-hidden={!isLabelHovered}
+              className={`col-start-1 row-start-1 text-sm font-medium text-text-primary select-none transition-opacity duration-200 ease-in-out pointer-events-none ${
+                isLabelHovered ? 'opacity-100' : 'opacity-0'
+              }`}
+            >
+              {t('ui.slider.reset')}
+            </span>
+          )}
+        </div>
+        <div className="w-12 text-right">
+          {isEditing ? (
+            <input
+              className="w-full text-sm text-right bg-card-active border border-gray-500 rounded-sm px-1 py-0 outline-none focus:ring-1 focus:ring-blue-500 text-text-primary"
+              disabled={disabled}
+              max={max}
+              min={min}
+              onBlur={handleInputCommit}
+              onChange={handleInputChange}
+              onKeyDown={handleInputKeyDown}
+              ref={inputRef}
+              step={step}
+              type="text"
+              value={inputValue}
+            />
+          ) : (
+            <span
+              className={`text-sm text-text-primary w-full text-right select-none ${disabled ? '' : 'cursor-text'}`}
+              onClick={disabled ? undefined : handleValueClick}
+              onDoubleClick={disabled ? undefined : handleReset}
+              data-tooltip={disabled ? undefined : t('ui.slider.clickToEdit')}
+            >
+              {decimalPlaces > 0 && numericValue === 0 ? '0' : numericValue.toFixed(decimalPlaces)}
+              {suffix && <span className="text-[10px] align-top inline-block mt-0.5 ml-0.5">{suffix}</span>}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="relative w-full h-5">
+        <div
+          className={`absolute top-1/2 left-0 w-full h-1.5 -translate-y-1/2 rounded-full pointer-events-none ${
+            trackClassName || 'bg-card-active'
+          }`}
+        />
+        <div
+          className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full pointer-events-none bg-accent/25"
+          style={{
+            left: `${Math.min(fillPercentage, originPercentage)}%`,
+            width: `${Math.abs(fillPercentage - originPercentage)}%`,
+          }}
+        />
+        {markers?.map(({ color, value: markerValue }, index) => (
+          <div
+            className="absolute top-1/2 w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full pointer-events-none opacity-70"
+            key={index}
+            style={{
+              backgroundColor: color,
+              left: `calc(8px + (100% - 16px) * ${Math.max(0, Math.min(1, getFraction(markerValue, min, max)))})`,
+            }}
+          />
+        ))}
+        <input
+          ref={rangeInputRef}
+          className={`absolute top-1/2 left-0 w-full h-7 -translate-y-1/2 appearance-none bg-transparent cursor-pointer m-0 p-0 slider-input z-10 ${
+            isDragging ? 'slider-thumb-active' : ''
+          } ${disabled ? 'cursor-not-allowed' : ''}`}
+          style={{ margin: 0, touchAction: isDragging ? 'none' : 'pan-y' }}
+          max={String(max)}
+          min={String(min)}
+          onChange={handleChange}
+          onDoubleClick={handleReset}
+          onKeyDown={handleRangeKeyDown}
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchEnd}
+          step={String(step)}
+          type="range"
+          value={displayValue}
+        />
+      </div>
+    </div>
+  );
+};
+
+export default Slider;

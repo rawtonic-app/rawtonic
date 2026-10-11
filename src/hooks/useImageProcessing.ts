@@ -1,0 +1,737 @@
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import debounce from 'lodash.debounce';
+import { toast } from 'react-toastify';
+import throttle from 'lodash.throttle';
+import { useEditorStore } from '../store/useEditorStore';
+import { useUIStore } from '../store/useUIStore';
+import { useSettingsStore } from '../store/useSettingsStore';
+import { useLibraryStore } from '../store/useLibraryStore';
+import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer } from '../utils/adjustments';
+import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
+import type { SubMask } from '../components/panel/right/Masks';
+import type { TransformWrapperHandle } from '../components/panel/Editor';
+import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
+import { saveFailure } from './useLibraryActions';
+import { globalImageCache } from '../utils/ImageLRUCache';
+import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue } from './usePerformanceDiagnostics';
+import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
+import { aiDenoiseToApply } from '../utils/aiDenoise';
+import { toastAiError } from '../utils/aiErrors';
+
+// Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
+const PREVIEW_RENDER_FAILED = 'Preview rendering failed';
+import { registerLiveMaskRenderer } from '../utils/liveMaskRender';
+import { frameDrawnMasks } from '../utils/maskGeometry';
+
+interface PreviewRequest {
+  path: string;
+  adjustments: Adjustments;
+  dragging: boolean;
+  targetRes?: number;
+  live?: boolean;
+  /** Profiling only: the pointer event that produced this live frame. */
+  inputAt?: number;
+  /** Profiling only: when that event reached the page's capture listener. */
+  dispatchAt?: number;
+}
+
+// The native worker drops requests older than the newest it has taken. Job ids
+// restart when the webview reloads, so they are offset by the page's load time
+// in microseconds (fewer than 1,000 jobs per millisecond keeps this monotonic).
+const PREVIEW_SEQUENCE_BASE = Date.now() * 1000;
+
+/** The recipe last handed to the renderer, and the photograph it belongs to. */
+export interface PreviousAdjustments {
+  path: string;
+  adjustments: Adjustments;
+}
+
+export function useImageProcessing(
+  transformWrapperRef: React.RefObject<TransformWrapperHandle | null>,
+  prevAdjustmentsRef: React.RefObject<PreviousAdjustments | null>,
+  renderRefs: {
+    previewJobIdRef: React.RefObject<number>;
+    latestRenderedJobIdRef: React.RefObject<number>;
+    currentResRef: React.RefObject<number>;
+  },
+) {
+  const { previewJobIdRef, latestRenderedJobIdRef, currentResRef } = renderRefs;
+
+  const selectedImage = useEditorStore((state) => state.selectedImage);
+  const adjustments = useEditorStore((state) => state.adjustments);
+  const previewOverride = useEditorStore((state) => state.previewOverride);
+  const isWaveformVisible = useEditorStore((state) => state.isWaveformVisible);
+  const activeWaveformChannel = useEditorStore((state) => state.activeWaveformChannel);
+  const displaySize = useEditorStore((state) => state.displaySize);
+  const baseRenderSize = useEditorStore((state) => state.baseRenderSize);
+  const originalSize = useEditorStore((state) => state.originalSize);
+  const isSliderDragging = useEditorStore((state) => state.isSliderDragging);
+  const setEditor = useEditorStore((state) => state.setEditor);
+
+  const activeView = useUIStore((state) => state.activeView);
+  const activePanel = useUIStore((state) => state.activePanel);
+  const appSettings = useSettingsStore((state) => state.appSettings);
+  const multiSelectedPaths = useLibraryStore((state) => state.multiSelectedPaths);
+
+  const uncroppedJobIdRef = useRef(0);
+  const latestUncroppedJobIdRef = useRef(0);
+
+  const lastAnalyticsTimeRef = useRef<number>(0);
+  const activeWaveformChannelRef = useRef(activeWaveformChannel);
+  activeWaveformChannelRef.current = activeWaveformChannel;
+
+  const selectedImagePathRef = useRef<string | null>(null);
+  selectedImagePathRef.current = selectedImage?.path ?? null;
+  // Live brush frames need the native display: the JPEG fallback would encode
+  // and crossfade a whole preview for every pointer move.
+  const nativeDisplayRef = useRef(false);
+
+  const calculateROI = useCallback(() => {
+    if (!transformWrapperRef.current) return null;
+    const state = transformWrapperRef.current.instance.transformState;
+    if (!state) return null;
+
+    if (!baseRenderSize) return null;
+
+    const { scale, positionX, positionY } = state;
+    const { width: baseW, height: baseH, offsetX, offsetY, containerWidth, containerHeight } = baseRenderSize;
+
+    if (!baseW || !baseH || !containerWidth || !containerHeight) return null;
+    if (scale <= 1.01) return null;
+
+    const paddingPixels = 2.0;
+    const paddingX = paddingPixels / baseW;
+    const paddingY = paddingPixels / baseH;
+
+    const visibleLeft = -positionX / scale;
+    const visibleTop = -positionY / scale;
+    const visibleRight = visibleLeft + containerWidth / scale;
+    const visibleBottom = visibleTop + containerHeight / scale;
+
+    const imgLeft = offsetX;
+    const imgTop = offsetY;
+    const imgRight = offsetX + baseW;
+    const imgBottom = offsetY + baseH;
+
+    const intersectLeft = Math.max(visibleLeft, imgLeft);
+    const intersectTop = Math.max(visibleTop, imgTop);
+    const intersectRight = Math.min(visibleRight, imgRight);
+    const intersectBottom = Math.min(visibleBottom, imgBottom);
+
+    if (intersectLeft >= intersectRight || intersectTop >= intersectBottom) {
+      return null;
+    }
+
+    const roiX = (intersectLeft - imgLeft) / baseW;
+    const roiY = (intersectTop - imgTop) / baseH;
+    const roiW = (intersectRight - intersectLeft) / baseW;
+    const roiH = (intersectBottom - intersectTop) / baseH;
+
+    const newRoiX = roiX - paddingX;
+    const newRoiY = roiY - paddingY;
+    const newRoiW = roiW + paddingX * 2;
+    const newRoiH = roiH + paddingY * 2;
+
+    const clampedX = Math.max(0, newRoiX);
+    const clampedY = Math.max(0, newRoiY);
+    const clampedW = Math.min(1 - clampedX, newRoiW);
+    const clampedH = Math.min(1 - clampedY, newRoiH);
+
+    if (clampedW > 0.999 && clampedH > 0.999) return null;
+
+    return [clampedX, clampedY, clampedW, clampedH] as [number, number, number, number];
+  }, [baseRenderSize, transformWrapperRef]);
+
+  const executeApplyAdjustments = useCallback(
+    async (
+      currentAdjustments: Adjustments,
+      dragging: boolean = false,
+      targetRes?: number,
+      live = false,
+      inputAt = 0,
+      dispatchAt = 0,
+    ) => {
+      const enteredAt = performanceDiagnosticsEnabled ? performance.now() : 0;
+      const currentPath = selectedImage?.path;
+      if (!currentPath) return;
+
+      let shouldRequestAnalytics = false;
+      if (dragging || live) {
+        const now = performance.now();
+        if (now - lastAnalyticsTimeRef.current > 100) {
+          shouldRequestAnalytics = true;
+          lastAnalyticsTimeRef.current = now;
+        }
+      } else {
+        shouldRequestAnalytics = true;
+        lastAnalyticsTimeRef.current = 0;
+      }
+
+      // While cropping, the native display shows the photo uncropped and
+      // unrotated and turns it by the straighten angle itself (crop editing
+      // after Capture One and Lightroom: the photo stays on screen). Crop and
+      // angle changes therefore re-use the same frame.
+      const cropEdit = isNativeCropEditing();
+      const payload = structuredClone(currentAdjustments);
+      // View states the renderer shows but the recipe never stores.
+      const view = useEditorStore.getState();
+      if (view.clippingWarnings) payload.showClipping = true;
+      if (view.softProof) {
+        payload.softProof = view.softProofSpace;
+        payload.softProofWarning = view.softProofWarning;
+      }
+      payload.colorRangeShow = view.colorRangeShow;
+      if (cropEdit) {
+        payload.crop = null;
+        payload.rotation = 0;
+      }
+      const { patchesSentToBackend } = useEditorStore.getState();
+      const newlySentPatches = new Set<string>();
+
+      const processSubMasks = (subMasks: SubMask[]) => {
+        if (!Array.isArray(subMasks)) return;
+        subMasks.forEach((sm: SubMask) => {
+          if (sm.id && sm.parameters) {
+            const keys = ['mask_data_base64', 'maskDataBase64'];
+            let foundMaskData = false;
+
+            for (const key of keys) {
+              if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
+                foundMaskData = true;
+                if (patchesSentToBackend.has(sm.id)) {
+                  sm.parameters[key] = null;
+                }
+              }
+            }
+            if (foundMaskData && !patchesSentToBackend.has(sm.id)) {
+              newlySentPatches.add(sm.id);
+            }
+          }
+        });
+      };
+
+      if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
+        payload.aiPatches.forEach((p: AiPatch) => {
+          if (p.id && p.patchData && !p.isLoading) {
+            if (patchesSentToBackend.has(p.id)) {
+              p.patchData = null;
+            } else {
+              newlySentPatches.add(p.id);
+            }
+          }
+          if (p.subMasks) processSubMasks(p.subMasks);
+        });
+      }
+
+      if (payload.masks && Array.isArray(payload.masks)) {
+        payload.masks.forEach((container: MaskContainer) => {
+          if (container.subMasks) processSubMasks(container.subMasks);
+        });
+      }
+
+      const jobId = ++previewJobIdRef.current;
+      const roi = cropEdit ? null : calculateROI();
+      const performanceStart = performanceDiagnosticsEnabled ? performance.now() : 0;
+
+      try {
+        const buffer: ArrayBuffer = await invoke(Invokes.ApplyAdjustments, {
+          jsAdjustments: payload,
+          isInteractive: dragging,
+          targetResolution: targetRes || null,
+          roi: roi || null,
+          requestAnalytics: shouldRequestAnalytics,
+          computeWaveform: !!isWaveformVisible,
+          activeWaveformChannel: activeWaveformChannelRef.current || null,
+          sequence: PREVIEW_SEQUENCE_BASE + jobId,
+          // Drawn by the native display over this frame (mask layers only).
+          maskOverlay: cropEdit ? null : useEditorStore.getState().nativeMaskOverlay,
+          cropEdit,
+        });
+        if (performanceDiagnosticsEnabled) {
+          const performanceEnd = performance.now();
+          // Wall-clock bounds let the log split IPC from native preview work.
+          const stage = live
+            ? 'preview_live_roundtrip'
+            : dragging
+              ? 'preview_interactive_roundtrip'
+              : 'preview_final_roundtrip';
+          reportPerformance(stage, {
+            ms: performanceEnd - performanceStart,
+            start_epoch_ms: epochOf(performanceStart),
+            end_epoch_ms: epochOf(performanceEnd),
+            // Pointer event to a GPU-complete frame (present already queued)
+            // as seen here; excludes scanout and the display itself.
+            ...(inputAt > 0 ? { input_ms: performanceEnd - inputAt } : {}),
+            // Event time stamp to its capture listener, listener to this
+            // request (canvas handlers, overlay request, queue wait), and the
+            // payload preparation before the IPC call.
+            ...(inputAt > 0 && dispatchAt > 0
+              ? {
+                  dispatch_ms: dispatchAt - inputAt,
+                  handler_ms: enteredAt - dispatchAt,
+                  prep_ms: performanceStart - enteredAt,
+                }
+              : {}),
+          });
+          if (live && inputAt > 0) notePointerSessionFrame('preview', performanceEnd - inputAt);
+        }
+
+        if (newlySentPatches.size > 0) {
+          newlySentPatches.forEach((id) => patchesSentToBackend.add(id));
+        }
+
+        if (currentPath !== selectedImagePathRef.current) return;
+
+        if (buffer && buffer.byteLength > 0 && jobId >= latestRenderedJobIdRef.current) {
+          latestRenderedJobIdRef.current = jobId;
+
+          const textDecoder = new TextDecoder();
+          const prefix = textDecoder.decode(buffer.slice(0, 11));
+          nativeDisplayRef.current = prefix === 'WGPU_RENDER';
+          if (prefix === 'WGPU_RENDER') {
+            setEditor((state) => {
+              if (state.interactivePatch && state.interactivePatch.url) URL.revokeObjectURL(state.interactivePatch.url);
+              return { interactivePatch: null, nativeCropFrame: cropEdit };
+            });
+            return;
+          }
+
+          if (dragging) {
+            const view = new DataView(buffer);
+            const patchX = view.getUint32(0, true);
+            const patchY = view.getUint32(4, true);
+            const patchW = view.getUint32(8, true);
+            const patchH = view.getUint32(12, true);
+            const fullW = view.getUint32(16, true);
+            const fullH = view.getUint32(20, true);
+
+            const imageBuffer = buffer.slice(24);
+            const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+
+            setEditor((state) => {
+              const previousUrl = state.interactivePatch?.url;
+              if (previousUrl) setTimeout(() => URL.revokeObjectURL(previousUrl), 100);
+              return {
+                interactivePatch: {
+                  url,
+                  normX: patchX / fullW,
+                  normY: patchY / fullH,
+                  normW: patchW / fullW,
+                  normH: patchH / fullH,
+                },
+              };
+            });
+          } else {
+            const blob = new Blob([buffer], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+
+            if (currentPath !== selectedImagePathRef.current || jobId < latestRenderedJobIdRef.current) {
+              URL.revokeObjectURL(url);
+              return;
+            }
+
+            setEditor((state) => {
+              const prevUrl = state.finalPreviewUrl;
+              if (prevUrl && prevUrl.startsWith('blob:') && !globalImageCache.isProtected(prevUrl)) {
+                setTimeout(() => {
+                  if (!globalImageCache.isProtected(prevUrl)) {
+                    URL.revokeObjectURL(prevUrl);
+                  }
+                }, 250);
+              }
+              return { finalPreviewUrl: url };
+            });
+
+            setEditor((state) => {
+              const oldUrl = state.interactivePatch?.url;
+              if (oldUrl) {
+                setTimeout(() => URL.revokeObjectURL(oldUrl), 500);
+              }
+              return { interactivePatch: null };
+            });
+          }
+        }
+      } catch (err) {
+        if (err !== 'Superseded or worker failed') {
+          console.error('Failed to apply adjustments:', err);
+        }
+        // The native worker could not render at all (e.g. an invalid GPU shader).
+        // Say so instead of leaving a stale or black frame; one toast at a time.
+        if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
+          toast.error(err, { toastId: PREVIEW_RENDER_FAILED });
+        }
+        if (!dragging) {
+          setEditor((state) => {
+            if (state.interactivePatch && state.interactivePatch.url) URL.revokeObjectURL(state.interactivePatch.url);
+            return { interactivePatch: null };
+          });
+        }
+      }
+    },
+    [selectedImage?.path, calculateROI, isWaveformVisible, setEditor, previewJobIdRef, latestRenderedJobIdRef],
+  );
+
+  const executeRef = useRef(executeApplyAdjustments);
+  executeRef.current = executeApplyAdjustments;
+  // Requests go to the native worker right away instead of waiting for the
+  // previous response (5–7 ms with real mouse drags). The worker takes only the
+  // newest queued request when it becomes free and rejects the others, so each
+  // render starts from the latest pointer state; sequence numbers keep it in
+  // submission order. Four in flight bound the backlog if the GPU stalls.
+  const previewQueue = useMemo(
+    () => new LatestPreviewQueue<PreviewRequest>(async (request) => {
+      const image = useEditorStore.getState().selectedImage;
+      if (!canRenderSource(image) || image.path !== request.path) return;
+      await executeRef.current(
+        request.adjustments,
+        request.dragging,
+        request.targetRes,
+        request.live,
+        request.inputAt,
+        request.dispatchAt,
+      );
+    }, 4),
+    [],
+  );
+  useLayoutEffect(() => () => previewQueue.clear(), [previewQueue, selectedImage?.path]);
+  useEffect(() => registerDiagnosticQueue('preview', previewQueue), [previewQueue]);
+  // Quitting saves the recipe of a slider still being dragged (its save is
+  // scheduled only when the drag ends).
+  useEffect(() => registerScheduledRecipe(() => prevAdjustmentsRef.current), [prevAdjustmentsRef]);
+  useLayoutEffect(() => {
+    nativeDisplayRef.current = false;
+  }, [selectedImage?.path]);
+
+  // Brush strokes render the developed image at the committed preview
+  // resolution while the mask overlay stays on top. The display then redraws
+  // only the changed pixels; saving and history wait for the committed stroke.
+  useEffect(
+    () =>
+      registerLiveMaskRenderer((liveAdjustments) => {
+        const editor = useEditorStore.getState();
+        const image = editor.selectedImage;
+        const targetRes = currentResRef.current;
+        if (
+          !canRenderSource(image) ||
+          !nativeDisplayRef.current ||
+          !targetRes ||
+          editor.isSliderDragging ||
+          editor.previewOverride ||
+          useSettingsStore.getState().appSettings?.enableLivePreviews === false
+        ) {
+          return;
+        }
+        previewQueue.submit({
+          path: image.path,
+          adjustments: liveAdjustments,
+          dragging: false,
+          targetRes,
+          live: true,
+          inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
+          dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+        });
+      }),
+    [previewQueue, currentResRef],
+  );
+
+  // Showing, hiding or restyling the mask overlay changes no adjustment, so
+  // render the current state again. The native display then redraws no image
+  // pixels (nothing changed) and only blends the new overlay. Sent as a live
+  // frame: no histogram, and a newer pointer state still wins.
+  useEffect(
+    () =>
+      useEditorStore.subscribe((state, previous) => {
+        if (
+          state.nativeMaskOverlay === previous.nativeMaskOverlay &&
+          state.clippingWarnings === previous.clippingWarnings &&
+          state.softProof === previous.softProof &&
+          state.softProofSpace === previous.softProofSpace &&
+          state.softProofWarning === previous.softProofWarning &&
+          state.colorRangeShow === previous.colorRangeShow
+        )
+          return;
+        const image = state.selectedImage;
+        const targetRes = currentResRef.current;
+        if (!canRenderSource(image) || !nativeDisplayRef.current || !targetRes || state.isSliderDragging) return;
+        previewQueue.submit({
+          path: image.path,
+          adjustments: state.previewOverride ?? state.adjustments,
+          dragging: false,
+          targetRes,
+          live: true,
+        });
+      }),
+    [previewQueue, currentResRef],
+  );
+
+  // AI Denoise lives in the decode: develop the RAW again when the recipe's
+  // amount differs from the source's (src/utils/aiDenoise.ts), then render.
+  const aiDenoiseTarget = aiDenoiseToApply(selectedImage, adjustments, isSliderDragging);
+  useEffect(() => {
+    const path = useEditorStore.getState().selectedImage?.path;
+    if (aiDenoiseTarget === null || !path) return;
+    setEditor({ aiDenoiseBusy: true });
+    invoke<number>(Invokes.ApplyAiDenoise, { path, amount: aiDenoiseTarget })
+      .then((applied) => {
+        const editor = useEditorStore.getState();
+        if (editor.selectedImage?.path !== path) return;
+        editor.setEditor({
+          aiDenoiseBusy: false,
+          selectedImage: { ...editor.selectedImage, aiDenoise: Math.round(applied) },
+        });
+        const targetRes = currentResRef.current;
+        if (targetRes) {
+          previewQueue.submit({
+            path,
+            adjustments: editor.previewOverride ?? editor.adjustments,
+            dragging: false,
+            targetRes,
+          });
+        }
+      })
+      .catch((err) => {
+        const editor = useEditorStore.getState();
+        // A newer request or another photograph replaced this one.
+        if (String(err).includes('Load cancelled')) return;
+        editor.setEditor({
+          aiDenoiseBusy: false,
+          ...(editor.selectedImage?.path === path
+            ? { selectedImage: { ...editor.selectedImage, aiDenoiseFailed: aiDenoiseTarget } }
+            : {}),
+        });
+        toastAiError(err, `AI Denoise failed: ${err}`);
+      });
+  }, [aiDenoiseTarget, setEditor, previewQueue, currentResRef]);
+
+  const applyAdjustments = useCallback(
+    (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {
+      if (!canRenderSource(selectedImage)) return;
+      previewQueue.submit({ path: selectedImage!.path, adjustments: currentAdjustments, dragging, targetRes });
+    },
+    [selectedImage, previewQueue],
+  );
+
+  const throttledUncroppedPreview = useMemo(
+    () =>
+      throttle(
+        (adj: Adjustments) => {
+          if (!useEditorStore.getState().selectedImage?.isReady) return;
+          const jobId = ++uncroppedJobIdRef.current;
+          invoke<string>(Invokes.GenerateUncroppedPreview, { jsAdjustments: adj })
+            .then((dataUrl) => {
+              if (jobId >= latestUncroppedJobIdRef.current) {
+                latestUncroppedJobIdRef.current = jobId;
+                useEditorStore.getState().setEditor({ uncroppedAdjustedPreviewUrl: dataUrl });
+              }
+            })
+            .catch(console.error);
+        },
+        30,
+        { leading: true, trailing: true },
+      ),
+    [],
+  );
+
+  const generateUncroppedPreview = useCallback(
+    (currentAdjustments: Adjustments) => {
+      throttledUncroppedPreview(currentAdjustments);
+    },
+    [throttledUncroppedPreview],
+  );
+
+  useEffect(() => {
+    if (activeView === 'editor' && activePanel === Panel.Crop && selectedImage?.isReady && !isNativeCropEditing()) {
+      generateUncroppedPreview(adjustments);
+    }
+  }, [activeView, adjustments, activePanel, selectedImage?.isReady, generateUncroppedPreview]);
+
+  const calculateTargetRes = useCallback(() => {
+    const baseTargetRes = appSettings?.editorPreviewResolution || 1920;
+    if (!(appSettings?.enableZoomHifi ?? true) || displaySize.width === 0) {
+      return baseTargetRes;
+    }
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const sharpnessFactor = 1.25;
+    const zoomMultiplier = appSettings?.highResZoomMultiplier || 1.0;
+    const effectiveDpr = appSettings?.useFullDpiRendering ? dpr : 1;
+
+    let targetRes = Math.max(displaySize.width, displaySize.height) * effectiveDpr * sharpnessFactor * zoomMultiplier;
+    targetRes = Math.max(targetRes, 512);
+
+    if (originalSize && originalSize.width > 0 && originalSize.height > 0) {
+      const origMax = Math.max(originalSize.width, originalSize.height);
+      targetRes = Math.min(targetRes, origMax);
+      if (targetRes >= origMax * 0.8) {
+        targetRes = origMax;
+      }
+    }
+
+    if (originalSize && targetRes !== Math.max(originalSize.width, originalSize.height)) {
+      targetRes = Math.ceil(targetRes / 256) * 256;
+    }
+
+    return Math.round(targetRes);
+  }, [
+    appSettings?.enableZoomHifi,
+    appSettings?.editorPreviewResolution,
+    appSettings?.highResZoomMultiplier,
+    appSettings?.useFullDpiRendering,
+    displaySize.width,
+    displaySize.height,
+    originalSize,
+  ]);
+
+  const requestHiFiZoom = useMemo(
+    () =>
+      debounce((targetRes: number) => {
+        if (targetRes > currentResRef.current) {
+          currentResRef.current = targetRes;
+          const { adjustments, previewOverride } = useEditorStore.getState();
+          const renderAdjustments = previewOverride ?? adjustments;
+          applyAdjustments(renderAdjustments, false, targetRes);
+        }
+      }, 50),
+    [applyAdjustments, currentResRef],
+  );
+
+  useEffect(() => {
+    if (activeView === 'editor' && canRenderSource(selectedImage) && displaySize.width > 0 && !isSliderDragging) {
+      let baseRes = calculateTargetRes();
+      if (originalSize.width > 0 && originalSize.height > 0) {
+        const maxRes = Math.max(originalSize.width, originalSize.height);
+        if (baseRes > maxRes) baseRes = maxRes;
+      }
+      const finalRes = Math.round(baseRes);
+
+      if (finalRes > currentResRef.current) {
+        requestHiFiZoom(finalRes);
+      }
+    }
+    return () => {
+      requestHiFiZoom.cancel();
+    };
+  }, [
+    activeView,
+    displaySize.width,
+    displaySize.height,
+    calculateTargetRes,
+    selectedImage?.isReady,
+    selectedImage?.isPreviewReady,
+    selectedImage?.isDecoded,
+    isSliderDragging,
+    requestHiFiZoom,
+    originalSize,
+    currentResRef,
+  ]);
+
+  useLayoutEffect(() => {
+    // A preview proxy renders before the full decode; its arrival
+    // (isReady) renders again from the full source.
+    if (!canRenderSource(selectedImage)) return;
+
+    const targetRes = calculateTargetRes();
+    const renderAdjustments = previewOverride ?? adjustments;
+
+    if (activeView !== 'editor') {
+      if (isSliderDragging) return;
+    }
+
+    if (isSliderDragging) {
+      if (appSettings?.enableLivePreviews !== false) {
+        applyAdjustments(renderAdjustments, true, targetRes);
+      }
+    } else {
+      currentResRef.current = targetRes;
+
+      applyAdjustments(renderAdjustments, false, targetRes);
+
+      if (previewOverride) return;
+
+      const prev = prevAdjustmentsRef.current;
+
+      if (!prev || prev.path !== selectedImage.path) {
+        prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
+        return;
+      }
+
+      const hasAdjustmentsChanged = prev.adjustments !== adjustments;
+
+      if (hasAdjustmentsChanged) {
+        debouncedSave(selectedImage.path, adjustments);
+
+        const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);
+        if (appSettings?.copyPasteSettings?.autoSync && otherPaths.length > 0) {
+          const delta: Partial<Adjustments> = {};
+          const includedKeys = appSettings?.copyPasteSettings?.includedAdjustments || COPYABLE_ADJUSTMENT_KEYS;
+          for (const key of Object.keys(adjustments) as Array<keyof Adjustments>) {
+            if (includedKeys.includes(key as string)) {
+              if (JSON.stringify(adjustments[key]) !== JSON.stringify(prev.adjustments[key])) {
+                delta[key] = adjustments[key];
+              }
+            }
+          }
+          // Synced drawn masks keep the frame of this photo, so the others
+          // place them on the same part of themselves.
+          if (delta.masks)
+            delta.masks = frameDrawnMasks(delta.masks, adjustments, selectedImage.width, selectedImage.height);
+          if (Object.keys(delta).length > 0) {
+            otherPaths.forEach((p) => globalImageCache.delete(p));
+            invoke(Invokes.ApplyAdjustmentsToPaths, { paths: otherPaths, adjustments: delta }).catch((err) => {
+              console.error('Failed to apply adjustments to multi-selection:', err);
+              toast.error(`Failed to sync adjustments to the selection: ${saveFailure(err, otherPaths).message}`);
+            });
+          }
+        }
+
+        prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when the recipe or view changes; applyAdjustments and the resolution refs are read at that moment, so a new applyAdjustments alone must not re-render
+  }, [
+    activeView,
+    adjustments,
+    previewOverride,
+    selectedImage?.path,
+    selectedImage?.isReady,
+    selectedImage?.isPreviewReady,
+    selectedImage?.isDecoded,
+    isSliderDragging,
+    multiSelectedPaths,
+    appSettings?.enableLivePreviews,
+    appSettings?.copyPasteSettings?.includedAdjustments,
+    appSettings?.copyPasteSettings?.autoSync,
+    isWaveformVisible,
+  ]);
+
+  // Entering or leaving crop changes which frame the display needs.
+  const isCropping = activeView === 'editor' && activePanel === Panel.Crop;
+  const wasCroppingRef = useRef(isCropping);
+  useEffect(() => {
+    if (wasCroppingRef.current === isCropping) return;
+    wasCroppingRef.current = isCropping;
+    const state = useEditorStore.getState();
+    if (!canRenderSource(state.selectedImage)) return;
+    applyAdjustments(state.previewOverride ?? state.adjustments, false, currentResRef.current || calculateTargetRes());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the crop state change triggers; the rest is read now
+  }, [isCropping]);
+
+  return {
+    applyAdjustments,
+    executeApplyAdjustments,
+  };
+}
+
+/** Whether preview frames are the native display's crop-editing frames. */
+export function isNativeCropEditing() {
+  const ui = useUIStore.getState();
+  const editor = useEditorStore.getState();
+  return (
+    ui.activeView === 'editor' &&
+    ui.activePanel === Panel.Crop &&
+    useSettingsStore.getState().appSettings?.useWgpuRenderer !== false &&
+    editor.hasRenderedFirstFrame
+  );
+}

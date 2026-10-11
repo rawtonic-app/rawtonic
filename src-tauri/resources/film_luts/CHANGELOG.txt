@@ -1,0 +1,15 @@
+Changes to the spektrafilm LUTs shipped with Rawtonic
+=====================================================
+
+The LUTs in this folder are by Andrea Volpato (spektrafilm,
+https://github.com/andreavolpato/spektrafilm) under CC BY-SA 4.0
+(SPEKTRAFILM_LICENSE.txt). Their data is unchanged; changes are listed
+below.
+
+2026-10-08: files renamed to neutral display names.
+
+2026-10-11: the header lines naming the spektrafilm bundle, film stock,
+print stock and bundle file were replaced by one "Source" line, and the
+TITLE by the display name, because they named other companies' film
+products. Each file is one of the six one-LUT bundles (V-Log to sRGB,
+25^3) of spektrafilm 0.3.4. The LUT data is unchanged.

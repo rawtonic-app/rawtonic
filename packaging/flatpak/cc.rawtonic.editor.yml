@@ -1,0 +1,20 @@
+# Packaging skeleton. Offline Cargo/npm vendoring and runtime validation are
+# release blockers; this manifest deliberately has no pretend downloadable build.
+app-id: cc.rawtonic.editor
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: rawtonic-app
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=host
+modules:
+  - name: retouch
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 rawtonic-app /app/bin/rawtonic-app
+    sources:
+      - type: file
+        path: ../../target/release/rawtonic-app

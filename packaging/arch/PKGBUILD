@@ -1,0 +1,21 @@
+# Local source recipe skeleton; publish only after Linux qualification.
+pkgname=retouch-editor-git
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Non-destructive RAW editor with portable sessions (development build)'
+arch=('x86_64')
+license=('AGPL-3.0-or-later')
+depends=('webkit2gtk-4.1' 'gtk3' 'libxdo')
+makedepends=('rust' 'npm' 'cmake' 'pkgconf' 'python')
+build() {
+  cd "$startdir/../.."
+  npm ci
+  npm run tauri -- build --no-bundle
+}
+package() {
+  cd "$startdir/../.."
+  install -Dm755 target/release/rawtonic-app "$pkgdir/usr/bin/rawtonic-app"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 src-tauri/resources/licenses/THIRD_PARTY_LICENSES.txt "$pkgdir/usr/share/licenses/$pkgname/THIRD_PARTY_LICENSES.txt"
+  # Resource installation/layout must be qualified before AUR publication.
+}

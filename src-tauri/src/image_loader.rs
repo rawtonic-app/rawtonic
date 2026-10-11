@@ -1,0 +1,998 @@
+//! Desktop glue for `rawtonic_engine::image_loader` (ADR 0009): the Tauri commands
+//! and app-state access stay here, the logic lives in the engine crate.
+pub use rawtonic_engine::image_loader::*;
+
+use crate::app_settings::{AppSettings, load_settings};
+use crate::app_state::{AppState, LoadedImage};
+use crate::exif_processing;
+use crate::file_management::{parse_virtual_path, read_file_mapped};
+use crate::formats::is_raw_file;
+use crate::image_processing::ImageMetadata;
+use anyhow::{Result, anyhow};
+use image::{DynamicImage, GenericImageView};
+use serde_json::Value;
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::fs;
+use std::panic;
+use std::path::Path;
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
+use std::time::Instant;
+
+#[derive(serde::Serialize)]
+pub struct LoadImageResult {
+    pub width: u32,
+    pub height: u32,
+    pub metadata: ImageMetadata,
+    pub exif: HashMap<String, String>,
+    pub is_raw: bool,
+    /// The AI Denoise amount the source was developed with (0 … 100).
+    pub ai_denoise: f32,
+    /// Why the recipe's AI Denoise could not be applied, if it could not.
+    pub ai_denoise_error: Option<String>,
+    /// The RAW is offline and the photograph opened on its preview proxy:
+    /// "full" (its 1:1 preview, full resolution) or "standard".
+    pub offline: Option<&'static str>,
+}
+
+pub fn load_and_composite(
+    base_image: &[u8],
+    path: &str,
+    adjustments: &Value,
+    use_fast_raw_dev: bool,
+    settings: &AppSettings,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+) -> Result<DynamicImage> {
+    let base_image =
+        load_base_image_from_bytes(base_image, path, use_fast_raw_dev, settings, cancel_token)?;
+    match composite_patches_for_render(&base_image, adjustments)? {
+        Cow::Borrowed(_) => Ok(base_image),
+        Cow::Owned(composited) => Ok(composited),
+    }
+}
+
+pub fn load_base_image_from_bytes(
+    bytes: &[u8],
+    path_for_ext_check: &str,
+    use_fast_raw_dev: bool,
+    settings: &AppSettings,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+) -> Result<DynamicImage> {
+    load_base_image_from_bytes_with(
+        bytes,
+        path_for_ext_check,
+        use_fast_raw_dev,
+        settings,
+        cancel_token,
+        None,
+    )
+}
+
+/// `load_base_image_from_bytes` with AI Denoise (ai_denoise.rs) for full
+/// RAW developments.
+pub fn load_base_image_from_bytes_with(
+    bytes: &[u8],
+    path_for_ext_check: &str,
+    use_fast_raw_dev: bool,
+    settings: &AppSettings,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+) -> Result<DynamicImage> {
+    load_base_image_from_bytes_with_draft(
+        bytes,
+        path_for_ext_check,
+        use_fast_raw_dev,
+        settings,
+        cancel_token,
+        denoise,
+        None,
+    )
+}
+
+/// `load_base_image_from_bytes_with`; a full RAW development hands `draft`
+/// an early reduced development first (raw_processing::DraftSink).
+pub fn load_base_image_from_bytes_with_draft(
+    bytes: &[u8],
+    path_for_ext_check: &str,
+    use_fast_raw_dev: bool,
+    settings: &AppSettings,
+    cancel_token: Option<(Arc<AtomicUsize>, usize)>,
+    denoise: Option<rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+    draft: Option<Arc<rawtonic_rawdecode::raw_processing::DraftSink>>,
+) -> Result<DynamicImage> {
+    let mut options = BaseImageOptions::from_preferences(
+        settings.raw_highlight_compression,
+        settings.linear_raw_mode.clone(),
+        settings.raw_preprocessing_color_nr,
+        settings.raw_preprocessing_sharpening,
+        settings.apply_preprocessing_to_non_raws,
+    );
+    options.mosaic_denoise = denoise;
+    options.draft = draft;
+
+    {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("source_exif_cache");
+        crate::exif_processing::persist_exif_if_missing(
+            Path::new(path_for_ext_check),
+            path_for_ext_check,
+            bytes,
+        );
+    }
+
+    // AI Denoise works on Rawtonic's own mosaic, so it develops with rawler.
+    if is_raw_file(path_for_ext_check)
+        && !use_fast_raw_dev
+        && settings.use_apple_raw9.unwrap_or(false)
+        && options.mosaic_denoise.is_none()
+    {
+        if let Some((tracker, generation)) = &cancel_token
+            && tracker.load(Ordering::SeqCst) != *generation
+        {
+            return Err(anyhow!("Load cancelled"));
+        }
+
+        match crate::apple_raw::develop_raw9(
+            bytes,
+            path_for_ext_check,
+            &crate::apple_raw::Raw9Options::for_loading(),
+        ) {
+            Ok(image) => return Ok(image),
+            Err(e) => log::warn!(
+                "Apple RAW 9 unavailable for '{}', falling back to rawler: {}",
+                path_for_ext_check,
+                e
+            ),
+        }
+    }
+
+    crate::image_loader::load_base_image(
+        bytes,
+        path_for_ext_check,
+        use_fast_raw_dev,
+        &options,
+        cancel_token,
+    )
+}
+
+#[tauri::command]
+pub async fn load_embedded_preview(path: String) -> Result<tauri::ipc::Response, String> {
+    tokio::task::spawn_blocking(move || {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("selected_embedded_preview");
+        let (source_path, _) = parse_virtual_path(&path);
+        if !is_raw_file(&source_path) || crate::file_management::is_cloud_placeholder(&source_path)
+        {
+            return Ok(tauri::ipc::Response::new(Vec::new()));
+        }
+        let bytes = read_file_mapped(&source_path).map_err(|error| error.to_string())?;
+        let jpeg = panic::catch_unwind(panic::AssertUnwindSafe(|| priority_embedded_jpeg(&bytes)))
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        Ok(tauri::ipc::Response::new(jpeg))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// Why a tool that needs full-resolution pixels cannot run on an offline
+/// photograph shown from its Standard preview.
+pub const OFFLINE_NEEDS_ORIGINAL: &str = "This photograph is offline and shown from its Standard preview: this tool needs the RAW file or a 1:1 preview. Reconnect the RAW file, or build 1:1 previews while it is available.";
+
+/// The open photograph's full decode. While it is still running behind its
+/// preview proxy (the editor already shows and edits the photograph), waits
+/// for it (briefly, a decode takes well under a second) instead of failing
+/// the command that needs full resolution. An offline photograph on its
+/// Standard preview gets no decode: `OFFLINE_NEEDS_ORIGINAL` at once (on its
+/// 1:1 preview, that is the source and is returned).
+pub fn wait_for_original_image(state: &AppState) -> Result<LoadedImage, String> {
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if let Some(loaded) = state
+            .original_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+        {
+            return Ok(loaded);
+        }
+        if state
+            .offline_source
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some()
+        {
+            return Err(OFFLINE_NEEDS_ORIGINAL.to_string());
+        }
+        let decoding = state
+            .proxy_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some();
+        if !decoding || Instant::now() > deadline {
+            return Err("No photograph is loaded".to_string());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+fn publish_loaded_image(
+    original_image: &std::sync::Mutex<Option<LoadedImage>>,
+    generation: &AtomicUsize,
+    expected_generation: usize,
+    loaded: LoadedImage,
+) -> Result<(), String> {
+    let mut original = original_image.lock().unwrap();
+    // A newer cache hit may finish while this request is waiting for the
+    // source lock. Check after acquiring it so an old decode cannot replace it.
+    if generation.load(Ordering::SeqCst) != expected_generation {
+        return Err("Load cancelled".to_string());
+    }
+    *original = Some(loaded);
+    Ok(())
+}
+
+/// Full size of the photograph whose preview proxy `load_image_proxy` made
+/// current.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProxyInfo {
+    pub width: u32,
+    pub height: u32,
+    pub is_raw: bool,
+}
+
+/// Makes the photograph's stored preview proxy (preview_proxy.rs) the
+/// preview source until `load_image` has decoded it, so Develop shows the
+/// developed photograph at once. None without a stored proxy (`load_image`
+/// then hands over a draft, `DRAFT_EVENT`) or when the full decode is
+/// already in memory (then `load_image` is quick anyway).
+#[tauri::command]
+pub async fn load_image_proxy(
+    path: String,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<ProxyInfo>, String> {
+    #[cfg(feature = "performance-profiling")]
+    let performance_start = Instant::now();
+    let (source_path, _) = parse_virtual_path(&path);
+    let source_path_str = source_path.to_string_lossy().to_string();
+    if !is_raw_file(&source_path_str) {
+        return Ok(None);
+    }
+    *state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    if state
+        .decoded_image_cache
+        .lock()
+        .unwrap()
+        .get(&source_path_str)
+        .is_some()
+    {
+        return Ok(None);
+    }
+    let remembered = state
+        .proxy_memory
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&path);
+    let settings = load_settings(app_handle).unwrap_or_default();
+    let loaded = if let Some(loaded) = remembered {
+        Some(loaded)
+    } else {
+        let read_path = path.clone();
+        let proxy = tokio::task::spawn_blocking(move || {
+            crate::preview_proxy::read(&source_path, &settings)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+        proxy.map(|proxy| {
+            state
+                .proxy_memory
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remember(&read_path, proxy)
+        })
+    };
+    let Some(loaded) = loaded else {
+        return Ok(None);
+    };
+    // Another photograph was asked for meanwhile, or the decode finished.
+    let current = state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
+    let decoded = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|o| o.path == path);
+    if current != path || decoded {
+        return Ok(None);
+    }
+    let info = ProxyInfo {
+        width: loaded.full_width,
+        height: loaded.full_height,
+        is_raw: true,
+    };
+    // The preview job renders the proxy, not the previous photograph's
+    // decode (`load_image`, which clears it too, may start later).
+    if state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|o| o.path != path)
+    {
+        clear_source_caches(&state);
+    }
+    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(loaded);
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({
+            "stage": "load_image_proxy", "ms": performance_start.elapsed().as_secs_f64() * 1000.0,
+            "width": info.width, "height": info.height,
+            "start_epoch_ms": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+                - performance_start.elapsed().as_secs_f64() * 1000.0
+        })
+    );
+    Ok(Some(info))
+}
+
+const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
+
+/// The decoded-image cache key: the path, plus the AI Denoise amount.
+fn decoded_cache_key(
+    path: &str,
+    denoise: Option<&rawtonic_rawdecode::mosaic_denoise::MosaicDenoise>,
+) -> String {
+    match denoise {
+        Some(d) => format!("{path}\u{1}ai-denoise {:.3}", d.amount),
+        None => path.to_string(),
+    }
+}
+
+/// Drops the open photograph's source and everything derived from it.
+fn clear_source_caches(state: &AppState) {
+    *state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    clear_derived_caches(state);
+}
+
+/// Drops what was computed from the open photograph's source (previews,
+/// warps, masks, patches, tool results).
+fn clear_derived_caches(state: &AppState) {
+    *state
+        .cached_preview
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    *state
+        .gpu_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    *state
+        .full_warped_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    *state
+        .full_transformed_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    *state
+        .patched_warped_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+
+    state
+        .mask_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    state
+        .mask_thumbnail_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    state
+        .patch_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+    state
+        .geometry_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
+
+    *state.merge_result.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
+/// Develops the open photograph again with AI Denoise at `amount` (0 … 100)
+/// and makes that the source; returns the amount it was developed with.
+#[tauri::command]
+pub async fn apply_ai_denoise(
+    path: String,
+    amount: f32,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<f32, String> {
+    let (source_path, _) = parse_virtual_path(&path);
+    let source = source_path.to_string_lossy().to_string();
+    if !is_raw_file(&source) {
+        return Err("AI Denoise works on RAW files only".to_string());
+    }
+    let denoise =
+        crate::ai_denoise::option_for(&app_handle, &serde_json::json!({ "aiDenoise": amount }))
+            .await?;
+    let applied = denoise.as_ref().map_or(0.0, |d| d.amount * 100.0);
+    let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let tracker = state.load_image_generation.clone();
+    let key = decoded_cache_key(&source, denoise.as_ref());
+    let cached = state.decoded_image_cache.lock().unwrap().get(&key);
+    let image = match cached {
+        Some((image, _)) => image,
+        None => {
+            let settings = load_settings(app_handle.clone()).unwrap_or_default();
+            let cancel_token = Some((tracker, my_generation));
+            let decode_source = source.clone();
+            let (image, exif) = tokio::task::spawn_blocking(move || {
+                let bytes = fs::read(&decode_source).map_err(|e| e.to_string())?;
+                let image = load_base_image_from_bytes_with(
+                    &bytes,
+                    &decode_source,
+                    false,
+                    &settings,
+                    cancel_token,
+                    denoise.clone(),
+                )
+                .map_err(|e| e.to_string())?;
+                if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
+                    return Err(NOT_BAYER.to_string());
+                }
+                let exif = exif_processing::read_exif_data(&decode_source, &bytes);
+                Ok::<_, String>((image, exif))
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            let image = Arc::new(image);
+            state
+                .decoded_image_cache
+                .lock()
+                .unwrap()
+                .insert(key, image.clone(), exif);
+            image
+        }
+    };
+    if *state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        != path
+    {
+        return Err("Load cancelled".to_string());
+    }
+    publish_loaded_image(
+        &state.original_image,
+        &state.load_image_generation,
+        my_generation,
+        LoadedImage {
+            path,
+            image,
+            is_raw: true,
+        },
+    )?;
+    clear_derived_caches(&state);
+    Ok(applied)
+}
+
+/// Event with a never-opened photograph's draft (`DraftInfo`), made by its
+/// full decode before demosaicing and shown until the decode is in.
+pub const DRAFT_EVENT: &str = "develop-draft-ready";
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DraftInfo {
+    path: String,
+    width: u32,
+    height: u32,
+    is_raw: bool,
+}
+
+/// The draft sink of the full decode of `path` (load request `generation`):
+/// the draft becomes the preview source while that photograph is still the
+/// one asked for and shows nothing else, and the editor is told. Never
+/// stored as a preview proxy.
+fn draft_sink(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    generation: usize,
+) -> Arc<rawtonic_rawdecode::raw_processing::DraftSink> {
+    use tauri::{Emitter, Manager};
+    let app = app_handle.clone();
+    let path = path.to_string();
+    Arc::new(rawtonic_rawdecode::raw_processing::DraftSink(Box::new(
+        move |image, (full_width, full_height)| {
+            let state = app.state::<AppState>();
+            if state.load_image_generation.load(Ordering::SeqCst) != generation
+                || *state
+                    .current_source
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    != path
+            {
+                return;
+            }
+            {
+                let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
+                if proxy.as_ref().is_some_and(|p| p.path == path) {
+                    return;
+                }
+                *proxy = Some(crate::app_state::LoadedProxy {
+                    path: path.clone(),
+                    image: Arc::new(image),
+                    full_width,
+                    full_height,
+                    is_raw: true,
+                });
+            }
+            #[cfg(feature = "performance-profiling")]
+            log::info!(
+                "[PERF] {}",
+                serde_json::json!({"stage": "develop_draft", "width": full_width, "height": full_height})
+            );
+            let _ = app.emit(
+                DRAFT_EVENT,
+                DraftInfo {
+                    path: path.clone(),
+                    width: full_width,
+                    height: full_height,
+                    is_raw: true,
+                },
+            );
+        },
+    )))
+}
+
+#[tauri::command]
+pub async fn load_image(
+    path: String,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<LoadImageResult, String> {
+    #[cfg(feature = "performance-profiling")]
+    let performance_start = Instant::now();
+    let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let generation_tracker = state.load_image_generation.clone();
+    let cancel_token = Some((generation_tracker.clone(), my_generation));
+    *state
+        .current_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    *state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = None;
+    {
+        // Another photograph's proxy is of no use any more.
+        let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
+        if proxy.as_ref().is_some_and(|p| p.path != path) {
+            *proxy = None;
+        }
+    }
+
+    clear_source_caches(&state);
+
+    let (source_path, sidecar_path) = parse_virtual_path(&path);
+    let source_path_str = source_path.to_string_lossy().to_string();
+
+    let metadata: ImageMetadata = crate::exif_processing::load_sidecar(&sidecar_path);
+
+    // An offline RAW renders with what its previews keep of the file (base
+    // look, colour, lens defaults); one that can be read with its file.
+    let stored_exif = if is_raw_file(&source_path_str) {
+        crate::preview_proxy::prepare_offline(&source_path)
+    } else {
+        None
+    };
+
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let proxy_settings = settings.clone();
+
+    let path_clone = source_path_str.clone();
+
+    // AI Denoise from the recipe; if its model cannot be had, the photograph
+    // still opens and the frontend reports why.
+    let (denoise, mut ai_denoise_error) = if is_raw_file(&source_path_str) {
+        match crate::ai_denoise::option_for(&app_handle, &metadata.adjustments).await {
+            Ok(denoise) => (denoise, None),
+            Err(e) => (None, Some(e)),
+        }
+    } else {
+        (None, None)
+    };
+    let mut ai_denoise = denoise.as_ref().map_or(0.0, |d| d.amount * 100.0);
+    // A photograph shown on nothing developed yet (no stored proxy) gets a
+    // draft from its decode.
+    let draft = (is_raw_file(&source_path_str)
+        && state
+            .proxy_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .is_none_or(|p| p.path != path))
+    .then(|| draft_sink(&app_handle, &path, my_generation));
+    let mut cache_key = decoded_cache_key(&source_path_str, denoise.as_ref());
+    let decode_denoise = denoise.clone();
+
+    let cached_data = {
+        let mut cache = state.decoded_image_cache.lock().unwrap();
+        let cached = cache.get(&cache_key);
+        if cached.is_none() {
+            cache.make_room_for_next();
+        }
+        cached
+    };
+
+    #[cfg(feature = "performance-profiling")]
+    let was_cached = cached_data.is_some();
+    let (pristine_arc, exif_data) = if let Some((cached_img, cached_exif)) = cached_data {
+        (cached_img, cached_exif)
+    } else {
+        // Offline (missing, unreadable or not downloaded): the photograph
+        // opens on its preview proxies, as Lightroom's smart previews and
+        // Capture One's previews of offline images.
+        if is_raw_file(&source_path_str)
+            && !crate::preview_proxy::source_available(&source_path)
+            && let Some(result) = open_offline(
+                &state,
+                &path,
+                &source_path,
+                my_generation,
+                metadata.clone(),
+                stored_exif,
+                &settings,
+            )
+            .await?
+        {
+            return Ok(result);
+        }
+        if let Some(message) = offline_without_preview(&source_path) {
+            return Err(message);
+        }
+        if crate::file_management::is_cloud_placeholder(&source_path) {
+            return Err(format!(
+                "'{}' is stored in iCloud and hasn't been downloaded yet. Download it in Finder, then try again.",
+                source_path_str
+            ));
+        }
+
+        let (pristine_img, exif_data_loaded) = tokio::task::spawn_blocking(move || {
+            if generation_tracker.load(Ordering::SeqCst) != my_generation {
+                return Err("Load cancelled".to_string());
+            }
+
+            let result: Result<(DynamicImage, HashMap<String, String>), String> =
+                (|| match read_file_mapped(Path::new(&path_clone)) {
+                    Ok(mmap) => {
+                        if generation_tracker.load(Ordering::SeqCst) != my_generation {
+                            return Err("Load cancelled".to_string());
+                        }
+
+                        let img = load_base_image_from_bytes_with_draft(
+                            &mmap,
+                            &path_clone,
+                            false,
+                            &settings,
+                            cancel_token.clone(),
+                            decode_denoise.clone(),
+                            draft.clone(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        let exif = {
+                            #[cfg(feature = "performance-profiling")]
+                            let _stage =
+                                crate::performance::PerformanceStage::new("source_exif_read");
+                            exif_processing::read_exif_data(&path_clone, &mmap)
+                        };
+                        Ok((img, exif))
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to memory-map file '{}': {}. Falling back to standard read.",
+                            path_clone,
+                            e
+                        );
+                        let bytes = fs::read(&path_clone).map_err(|io_err| {
+                            format!("Fallback read failed for {}: {}", path_clone, io_err)
+                        })?;
+
+                        if generation_tracker.load(Ordering::SeqCst) != my_generation {
+                            return Err("Load cancelled".to_string());
+                        }
+
+                        let img = load_base_image_from_bytes_with_draft(
+                            &bytes,
+                            &path_clone,
+                            false,
+                            &settings,
+                            cancel_token.clone(),
+                            decode_denoise.clone(),
+                            draft.clone(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        let exif = {
+                            #[cfg(feature = "performance-profiling")]
+                            let _stage =
+                                crate::performance::PerformanceStage::new("source_exif_read");
+                            exif_processing::read_exif_data(&path_clone, &bytes)
+                        };
+                        Ok((img, exif))
+                    }
+                })();
+            result
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+
+        let arc_img = Arc::new(pristine_img);
+        // A sensor the denoiser skips develops as without AI Denoise.
+        if denoise.as_ref().is_some_and(|d| !d.was_applied()) {
+            ai_denoise = 0.0;
+            ai_denoise_error = Some(NOT_BAYER.to_string());
+            cache_key = source_path_str.clone();
+        }
+
+        state.decoded_image_cache.lock().unwrap().insert(
+            cache_key.clone(),
+            arc_img.clone(),
+            exif_data_loaded.clone(),
+        );
+
+        (arc_img, exif_data_loaded)
+    };
+
+    if state.load_image_generation.load(Ordering::SeqCst) != my_generation {
+        return Err("Load cancelled".to_string());
+    }
+
+    let is_raw = is_raw_file(&source_path_str);
+
+    let (orig_width, orig_height) = pristine_arc.dimensions();
+
+    let proxy_source = Arc::clone(&pristine_arc);
+    publish_loaded_image(
+        &state.original_image,
+        &state.load_image_generation,
+        my_generation,
+        LoadedImage {
+            path: path.clone(),
+            image: pristine_arc,
+            is_raw,
+        },
+    )?;
+    // The full decode replaces the proxy; keep (or make) the proxy on disk
+    // for the next time, at the size the viewer needs (from an undenoised
+    // decode only: the proxy stands for the photograph without AI Denoise).
+    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    if is_raw && denoise.is_none() {
+        let settings = proxy_settings;
+        let size = crate::preview_proxy::standard_size(
+            state.last_preview_dim.load(Ordering::Relaxed),
+            &settings,
+        );
+        let source = source_path.clone();
+        let app = app_handle.clone();
+        let thumbnail_path = path.clone();
+        std::thread::spawn(move || {
+            if crate::preview_proxy::proxy_path(&source).is_none()
+                || crate::preview_proxy::stored_size(&source, &settings).is_some_and(|s| s >= size)
+            {
+                return;
+            }
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("preview_proxy_write");
+            match crate::preview_proxy::write(&source, &proxy_source, size, &settings) {
+                Ok(proxy) => {
+                    use tauri::Manager;
+                    app.state::<AppState>()
+                        .proxy_memory
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remember(&thumbnail_path, proxy);
+                    crate::file_management::refresh_thumbnail(&app, &thumbnail_path);
+                    crate::proxy_worker::apply_limits_near(&app, &thumbnail_path);
+                }
+                Err(e) => log::warn!("Preview proxy for {} not written: {}", source.display(), e),
+            }
+        });
+    }
+
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({
+            "stage": "load_image", "ms": performance_start.elapsed().as_secs_f64() * 1000.0,
+            "cached": was_cached, "width": orig_width, "height": orig_height
+        })
+    );
+    Ok(LoadImageResult {
+        width: orig_width,
+        height: orig_height,
+        metadata,
+        exif: exif_data,
+        is_raw,
+        ai_denoise,
+        ai_denoise_error,
+        offline: None,
+    })
+}
+
+/// The error for a photograph whose file is gone and that has no preview to
+/// open on (it was never shown before it went offline), instead of a failed
+/// file read. None when the file is there.
+fn offline_without_preview(source: &Path) -> Option<String> {
+    if source.exists() {
+        return None;
+    }
+    let name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| source.display().to_string());
+    Some(format!(
+        "{name} is offline and has no preview yet: connect its drive, or right-click it › Locate Photo…"
+    ))
+}
+
+/// Opens an offline photograph (its RAW cannot be read) on its preview
+/// proxies: its 1:1 proxy becomes the source at full resolution (zoom,
+/// masks and tools work as with the decode, from the stored data); else its
+/// Standard proxy stays the source and no decode follows. None without
+/// either.
+async fn open_offline(
+    state: &tauri::State<'_, AppState>,
+    path: &str,
+    source: &Path,
+    generation: usize,
+    metadata: ImageMetadata,
+    stored_exif: Option<HashMap<String, String>>,
+    settings: &AppSettings,
+) -> Result<Option<LoadImageResult>, String> {
+    let exif = crate::exif_processing::read_rrexif_sidecar(source)
+        .or(stored_exif)
+        .unwrap_or_default();
+    let read_source = source.to_path_buf();
+    let read_settings = settings.clone();
+    let full = tokio::task::spawn_blocking(move || {
+        crate::preview_proxy::read_kind(
+            &read_source,
+            crate::preview_proxy::ProxyKind::Full,
+            &read_settings,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    if let Some(full) = full {
+        let (width, height) = full.image.dimensions();
+        *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        // Marks the source as preview data (exports never reuse it).
+        *state
+            .offline_source
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
+        publish_loaded_image(
+            &state.original_image,
+            &state.load_image_generation,
+            generation,
+            LoadedImage {
+                path: path.to_string(),
+                image: Arc::new(full.image),
+                is_raw: true,
+            },
+        )?;
+        return Ok(Some(LoadImageResult {
+            width,
+            height,
+            metadata,
+            exif,
+            is_raw: true,
+            ai_denoise: 0.0,
+            ai_denoise_error: None,
+            offline: Some("full"),
+        }));
+    }
+    let remembered = state
+        .proxy_memory
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path);
+    let standard = match remembered {
+        Some(proxy) => Some(proxy),
+        None => {
+            let read_source = source.to_path_buf();
+            let read_settings = settings.clone();
+            tokio::task::spawn_blocking(move || {
+                crate::preview_proxy::read(&read_source, &read_settings)
+            })
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|proxy| {
+                state
+                    .proxy_memory
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remember(path, proxy)
+            })
+        }
+    };
+    let Some(standard) = standard else {
+        return Ok(None);
+    };
+    if state.load_image_generation.load(Ordering::SeqCst) != generation {
+        return Err("Load cancelled".to_string());
+    }
+    let (width, height) = (standard.full_width, standard.full_height);
+    *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = Some(standard);
+    *state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
+    Ok(Some(LoadImageResult {
+        width,
+        height,
+        metadata,
+        exif,
+        is_raw: true,
+        ai_denoise: 0.0,
+        ai_denoise_error: None,
+        offline: Some("standard"),
+    }))
+}
+
+#[cfg(test)]
+mod activation_tests {
+    use super::*;
+
+    #[test]
+    fn obsolete_load_cannot_replace_a_newer_activated_source() {
+        let original = std::sync::Mutex::new(None);
+        let generation = AtomicUsize::new(1);
+        let loaded = |path: &str| LoadedImage {
+            path: path.to_owned(),
+            image: Arc::new(DynamicImage::new_rgb8(2, 1)),
+            is_raw: true,
+        };
+        publish_loaded_image(&original, &generation, 1, loaded("first.raf")).unwrap();
+        generation.store(2, Ordering::SeqCst);
+        publish_loaded_image(&original, &generation, 2, loaded("cached.raf")).unwrap();
+        let active_pixels = original.lock().unwrap().as_ref().unwrap().image.clone();
+        assert!(publish_loaded_image(&original, &generation, 1, loaded("first.raf")).is_err());
+        let active = original.lock().unwrap();
+        let active = active.as_ref().unwrap();
+        assert_eq!(active.path, "cached.raf");
+        assert!(Arc::ptr_eq(&active.image, &active_pixels));
+    }
+
+    #[test]
+    fn an_offline_photograph_without_preview_says_so_instead_of_a_failed_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let present = dir.path().join("A.NEF");
+        std::fs::write(&present, b"raw").unwrap();
+        assert_eq!(offline_without_preview(&present), None);
+        let message = offline_without_preview(&dir.path().join("Gone/B.NEF")).unwrap();
+        assert!(message.starts_with("B.NEF is offline"), "{message}");
+        assert!(message.contains("Locate Photo"), "{message}");
+    }
+}

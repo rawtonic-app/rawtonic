@@ -1,0 +1,108 @@
+#!/bin/sh
+# Install Rawtonic's model pack (github.com/rawtonic-app/models) ahead with
+# `gh`, for example for QA builds. The app itself downloads each model the
+# first time a tool needs it.
+#
+# Usage: scripts/models/install_models.sh [--runtime] [--cuda] [APP_IDENTIFIER]
+#   APP_IDENTIFIER  cc.rawtonic.editor (default) or cc.rawtonic.qa
+#   --runtime       also put this platform's ONNX Runtime library (on Windows
+#                   and Linux with its WebGPU plugin) into src-tauri/resources/
+#                   for the opt-in RAWTONIC_BUNDLE_ONNX=1 build
+#   --cuda          also install NVIDIA's CUDA plugin (Windows and Linux x86-64,
+#                   about 190-300 MB) into the model folder; it needs your own
+#                   CUDA 13 and cuDNN 9 (docs/decisions/0011-gpu-ai.md)
+#
+# Each file is checked against models.json before it replaces an installed one.
+set -eu
+
+REPO=rawtonic-app/models
+TAG=pack-2026-10-08
+RUNTIME=0
+CUDA=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --runtime) RUNTIME=1; shift ;;
+    --cuda) CUDA=1; shift ;;
+    *) break ;;
+  esac
+done
+APP_ID=${1:-cc.rawtonic.editor}
+
+case "$(uname -s)" in
+  Darwin) MODELS="$HOME/Library/Application Support/$APP_ID/models" ;;
+  Linux) MODELS="${XDG_DATA_HOME:-$HOME/.local/share}/$APP_ID/models" ;;
+  MINGW*|MSYS*|CYGWIN*) MODELS="$APPDATA/$APP_ID/models" ;;
+  *) echo "unsupported system: $(uname -s)" >&2; exit 1 ;;
+esac
+# Runtime files: "pack name:name in resources" (Windows and Linux: ONNX
+# Runtime 1.30.0 and the WebGPU plugin; macOS: 1.22.0).
+CUDA_LIB=
+case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) LIBS="libonnxruntime-macos-aarch64.dylib:libonnxruntime.dylib" ;;
+  Darwin-x86_64) LIBS="libonnxruntime-macos-x86_64.dylib:libonnxruntime.dylib" ;;
+  Linux-x86_64)
+    LIBS="libonnxruntime-1.30.0-linux-x86_64.so:libonnxruntime.so libonnxruntime_providers_webgpu-0.4.0-linux-x86_64.so:libonnxruntime_providers_webgpu.so"
+    CUDA_LIB="libonnxruntime_providers_cuda-0.2.0-cuda13-linux-x86_64.so:libonnxruntime_providers_cuda.so" ;;
+  Linux-aarch64)
+    LIBS="libonnxruntime-1.30.0-linux-aarch64.so:libonnxruntime.so libonnxruntime_providers_webgpu-0.4.0-linux-aarch64.so:libonnxruntime_providers_webgpu.so" ;;
+  *-x86_64)
+    LIBS="onnxruntime-1.30.0-windows-x86_64.dll:onnxruntime.dll onnxruntime_providers_webgpu-0.4.0-windows-x86_64.dll:onnxruntime_providers_webgpu.dll"
+    CUDA_LIB="onnxruntime_providers_cuda-0.2.0-cuda13-windows-x86_64.dll:onnxruntime_providers_cuda.dll" ;;
+  *-aarch64|*-arm64)
+    LIBS="onnxruntime-1.30.0-windows-aarch64.dll:onnxruntime.dll onnxruntime_providers_webgpu-0.4.0-windows-aarch64.dll:onnxruntime_providers_webgpu.dll" ;;
+esac
+if [ "$CUDA" = 1 ] && [ -z "$CUDA_LIB" ]; then
+  echo "no CUDA plugin for $(uname -s)-$(uname -m)" >&2; exit 1
+fi
+
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern '*.onnx' --pattern 'siglip2_tags.bin' \
+  --pattern 'siglip2_tokenizer.json' --pattern 'nlmf_coreml_*' --pattern 'birefnet_fp16_coreml_*' --pattern 'skyseg_coreml_*' --pattern models.json
+if [ "$RUNTIME" = 1 ]; then
+  for pair in $LIBS; do
+    gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern "${pair%%:*}"
+  done
+fi
+if [ "$CUDA" = 1 ]; then
+  gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern "${CUDA_LIB%%:*}"
+fi
+
+# Verify every downloaded file against models.json.
+python3 - "$WORK" <<'PY'
+import hashlib, json, os, sys
+work = sys.argv[1]
+for entry in json.load(open(os.path.join(work, "models.json")))["files"]:
+    path = os.path.join(work, entry["file"])
+    if os.path.exists(path):
+        digest = hashlib.sha256()
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+        if digest.hexdigest() != entry["sha256"]:
+            sys.exit(f"{entry['file']}: SHA-256 {digest.hexdigest()}, expected {entry['sha256']}")
+PY
+
+# Copy beside the target, then rename over it: an interrupted install leaves
+# either the old or the new file.
+install_file() {
+  cp "$1" "$2/.$3.install"
+  mv -f "$2/.$3.install" "$2/$3"
+  echo "installed $2/$3"
+}
+
+mkdir -p "$MODELS"
+for file in "$WORK"/*.onnx "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_*; do
+  [ -e "$file" ] || continue
+  install_file "$file" "$MODELS" "$(basename "$file")"
+done
+if [ "$CUDA" = 1 ]; then
+  install_file "$WORK/${CUDA_LIB%%:*}" "$MODELS" "${CUDA_LIB##*:}"
+fi
+if [ "$RUNTIME" = 1 ]; then
+  RESOURCES="$(cd "$(dirname "$0")/../.." && pwd)/src-tauri/resources"
+  mkdir -p "$RESOURCES"
+  for pair in $LIBS; do
+    install_file "$WORK/${pair%%:*}" "$RESOURCES" "${pair##*:}"
+  done
+fi

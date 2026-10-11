@@ -1,0 +1,189 @@
+use rawtonic_catalog::{Library, Mode};
+use std::fs;
+
+#[test]
+fn renamed_and_moved_session_files_keep_identity_metadata_and_edits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let photo = dir.join("Capture/DSC001.ARW");
+    fs::write(&photo, b"raw").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    let mut metadata = lib.metadata(&asset.id).unwrap();
+    metadata.rating = 4;
+    lib.set_metadata(&asset.id, &metadata).unwrap();
+    lib.save_editor_state(
+        &asset.id,
+        &serde_json::json!({"adjustments":{"exposure":1}}),
+    )
+    .unwrap();
+
+    // Rename.
+    let renamed = dir.join("Capture/Portrait.ARW");
+    fs::rename(&photo, &renamed).unwrap();
+    assert_eq!(lib.relocate(&photo, &renamed).unwrap(), 1);
+    let found = lib.asset_at(&renamed).unwrap().unwrap();
+    assert_eq!(found.id, asset.id);
+    assert_eq!(found.rating, 4);
+    assert!(lib.editor_state(&asset.id).unwrap().is_some());
+
+    // Into the session's Trash and back (undo).
+    let trashed = dir.join("Trash/Capture/Portrait.ARW");
+    fs::create_dir_all(trashed.parent().unwrap()).unwrap();
+    fs::rename(&renamed, &trashed).unwrap();
+    lib.relocate(&renamed, &trashed).unwrap();
+    assert_eq!(lib.asset_at(&trashed).unwrap().unwrap().id, asset.id);
+    fs::rename(&trashed, &renamed).unwrap();
+    lib.relocate(&trashed, &renamed).unwrap();
+    assert_eq!(lib.asset_at(&renamed).unwrap().unwrap().id, asset.id);
+
+    // A whole folder.
+    fs::create_dir_all(dir.join("Selects")).unwrap();
+    let in_folder = dir.join("Capture/Day 1/B.ARW");
+    fs::create_dir_all(in_folder.parent().unwrap()).unwrap();
+    fs::write(&in_folder, b"b").unwrap();
+    let b = lib.add_asset(&in_folder).unwrap();
+    fs::rename(dir.join("Capture/Day 1"), dir.join("Capture/Day one")).unwrap();
+    assert_eq!(
+        lib.relocate(&dir.join("Capture/Day 1"), &dir.join("Capture/Day one"))
+            .unwrap(),
+        1
+    );
+    let moved = lib
+        .asset_at(&dir.join("Capture/Day one/B.ARW"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(moved.id, b.id);
+    assert_eq!(
+        lib.assets(Some("Day one")).unwrap().len(),
+        1,
+        "search follows the path"
+    );
+}
+
+#[test]
+fn session_assets_moved_out_of_the_session_are_kept_as_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let photo = dir.join("Capture/A.ARW");
+    fs::write(&photo, b"a").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    let outside = tmp.path().join("Elsewhere/A.ARW");
+    fs::create_dir_all(outside.parent().unwrap()).unwrap();
+    fs::rename(&photo, &outside).unwrap();
+    lib.relocate(&photo, &outside).unwrap();
+    assert!(lib.asset(&asset.id).unwrap().missing);
+    // Moving back finds the same asset again.
+    fs::rename(&outside, &photo).unwrap();
+    lib.relocate(&outside, &photo).unwrap();
+    let back = lib.asset_at(&photo).unwrap().unwrap();
+    assert_eq!(back.id, asset.id);
+    assert!(!back.missing);
+}
+
+#[test]
+fn catalog_files_move_between_external_folders_without_duplicates() {
+    let tmp = tempfile::tempdir().unwrap();
+    let lib = Library::create(&tmp.path().join("Catalog"), "Catalog", Mode::Catalog).unwrap();
+    let photos = tmp.path().join("Photos");
+    fs::create_dir_all(photos.join("2026")).unwrap();
+    fs::create_dir_all(photos.join("Best")).unwrap();
+    let photo = photos.join("2026/A.NEF");
+    fs::write(&photo, b"a").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    let target = photos.join("Best/A.NEF");
+    fs::rename(&photo, &target).unwrap();
+    lib.relocate(&photo, &target).unwrap();
+    // Registering the new place again finds the same asset.
+    assert_eq!(lib.add_asset(&target).unwrap().id, asset.id);
+    assert_eq!(lib.assets(None).unwrap().len(), 1);
+
+    // Renaming the folder holding it re-keys its root.
+    fs::rename(photos.join("Best"), photos.join("Selects")).unwrap();
+    lib.relocate(&photos.join("Best"), &photos.join("Selects"))
+        .unwrap();
+    let moved = photos.join("Selects/A.NEF");
+    assert_eq!(lib.add_asset(&moved).unwrap().id, asset.id);
+    assert_eq!(lib.assets(None).unwrap().len(), 1);
+}
+
+#[test]
+fn a_stale_row_at_the_new_place_keeps_its_edits_aside() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let old = dir.join("Capture/B.ARW");
+    fs::write(&old, b"old").unwrap();
+    let stale = lib.add_asset(&old).unwrap();
+    fs::remove_file(&old).unwrap(); // gone outside Rawtonic
+    let photo = dir.join("Capture/A.ARW");
+    fs::write(&photo, b"a").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    fs::rename(&photo, &old).unwrap();
+    lib.relocate(&photo, &old).unwrap();
+    assert_eq!(lib.asset_at(&old).unwrap().unwrap().id, asset.id);
+    let kept = lib.asset(&stale.id).unwrap();
+    assert!(kept.missing);
+}
+
+#[test]
+fn trashed_assets_are_marked_missing_and_restored() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let photo = dir.join("Capture/A.ARW");
+    fs::write(&photo, b"a").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    fs::rename(&photo, tmp.path().join("system-trash")).unwrap();
+    assert_eq!(lib.set_missing_at(&photo, true).unwrap(), 1);
+    assert!(lib.asset(&asset.id).unwrap().missing);
+    fs::rename(tmp.path().join("system-trash"), &photo).unwrap();
+    assert_eq!(lib.set_missing_at(&photo, false).unwrap(), 1);
+    assert!(!lib.asset(&asset.id).unwrap().missing);
+}
+
+#[test]
+fn a_trashed_folder_marks_everything_below_it_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let a = dir.join("Capture/Day_1/A.ARW");
+    let b = dir.join("Capture/Day_10/B.ARW");
+    for p in [&a, &b] {
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, b"x").unwrap();
+    }
+    let (ida, idb) = (lib.add_asset(&a).unwrap().id, lib.add_asset(&b).unwrap().id);
+    fs::rename(dir.join("Capture/Day_1"), tmp.path().join("gone")).unwrap();
+    // "_" is literal: Day_10 is not below Day_1.
+    assert_eq!(
+        lib.set_missing_at(&dir.join("Capture/Day_1"), true)
+            .unwrap(),
+        1
+    );
+    assert!(lib.asset(&ida).unwrap().missing);
+    assert!(!lib.asset(&idb).unwrap().missing);
+}
+
+#[test]
+fn iptc_fields_are_stored_and_searchable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let photo = dir.join("Capture/A.ARW");
+    fs::write(&photo, b"a").unwrap();
+    let asset = lib.add_asset(&photo).unwrap();
+    let mut meta = lib.metadata(&asset.id).unwrap();
+    meta.set_iptc("city", "Ascona");
+    lib.set_metadata(&asset.id, &meta).unwrap();
+    assert_eq!(
+        lib.metadata(&asset.id)
+            .unwrap()
+            .iptc
+            .get("city")
+            .map(String::as_str),
+        Some("Ascona")
+    );
+    assert_eq!(lib.assets(Some("Ascona")).unwrap().len(), 1);
+}

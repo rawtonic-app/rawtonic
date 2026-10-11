@@ -1,0 +1,35 @@
+[package]
+name = "rawtonic-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+clap = { version = "4", features = ["derive"] }
+walkdir = "2.5.0"
+tempfile.workspace = true
+rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
+rawtonic-ingest = { path = "../ingest", version = "0.1.0" }
+rawtonic-naming = { path = "../naming", version = "0.1.0" }
+rawtonic-engine = { path = "../engine", version = "0.1.0" }
+rawtonic-export = { path = "../export", version = "0.1.0" }
+rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
+rawtonic-denoise = { path = "../denoise", version = "0.1.0" }
+rawtonic-faces = { path = "../faces", version = "0.1.0" }
+rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
+image = "0.25.10"
+rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
+rawtonic-merge = { path = "../merge", version = "0.1.0" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[bin]]
+name = "rawtonic"
+path = "src/main.rs"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"

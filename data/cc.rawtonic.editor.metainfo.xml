@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>cc.rawtonic.editor</id>
+  <name>Rawtonic</name>
+  <summary>Local photo editing with portable sessions</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <developer id="cc.rawtonic"><name>Rawtonic contributors</name></developer>
+  <description><p>Development build of a non-destructive editor with native GPU rendering, portable sessions and verified ingest. Derived from RapidRAW with attribution. Production tool parity and platform qualification remain in progress.</p></description>
+  <launchable type="desktop-id">cc.rawtonic.editor.desktop</launchable>
+  <supports><control>pointing</control><control>keyboard</control></supports>
+  <releases><release version="0.1.0" date="2026-10-01" type="development"/></releases>
+</component>

@@ -1,0 +1,448 @@
+.session-bar {
+  height: 52px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  background: var(--app-bg-secondary);
+  border-bottom: 1px solid var(--app-border-color);
+  font-size: 12px;
+  color: var(--app-text-primary);
+}
+.session-bar-start,
+.session-bar-end {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.session-bar-end {
+  justify-content: flex-end;
+  /* The actions never shrink under the centred modules: when both sides
+     cannot have the same width, the start side (the session's name, which
+     truncates) gives way and the modules move left instead of overlapping. */
+  min-width: max-content;
+}
+.session-bar-center,
+.session-bar-slot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.session-bar-center:empty,
+.session-bar-slot:empty {
+  display: none;
+}
+.session-mark {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--app-text-secondary);
+}
+.session-identity {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  max-width: 260px;
+  min-width: 0;
+  /* Shrinks only once the photo count beside it has given way. */
+  flex: 0 0.001 auto;
+  padding: 4px 7px;
+  border-radius: 4px;
+}
+.session-identity:hover:not(:disabled) {
+  background: var(--app-card-active);
+}
+.session-identity > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.session-identity > svg {
+  flex-shrink: 0;
+}
+.session-count {
+  color: var(--app-text-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  /* Gives way before the session's name does (longer in translations). */
+  flex: 0 1000 auto;
+}
+.session-action {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border-color);
+  border-radius: 5px;
+  color: var(--app-text-primary);
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.session-action:hover:not(:disabled) {
+  background: var(--app-card-active);
+}
+.session-primary {
+  background: #b4c8d3;
+  color: #15232c;
+  border-color: transparent;
+}
+.session-primary:hover:not(:disabled) {
+  background: #ccdae2;
+}
+.session-action:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.session-icon-button {
+  padding: 7px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.session-icon-button:hover {
+  background: var(--app-card-active);
+}
+.session-welcome {
+  position: absolute;
+  inset: 104px 0 0;
+  z-index: 40;
+  background: var(--app-bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  text-align: center;
+}
+.session-welcome > svg {
+  color: #b4c8d3;
+  margin-bottom: 28px;
+}
+.session-welcome h1 {
+  font-size: 31px;
+  letter-spacing: -0.025em;
+  font-weight: 500;
+  line-height: 1.2;
+  margin-bottom: 15px;
+}
+.session-welcome p {
+  max-width: 430px;
+  color: var(--app-text-secondary);
+  line-height: 1.8;
+  font-size: 14px;
+}
+.session-welcome > div {
+  display: flex;
+  gap: 12px;
+  margin-top: 30px;
+}
+.session-welcome > span {
+  font-size: 11px;
+  color: var(--app-text-secondary);
+  margin-top: 50px;
+}
+.session-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  width: min(570px, calc(100vw - 40px));
+  max-height: calc(100vh - 50px);
+  overflow: auto;
+  padding: 0;
+  border: 1px solid #4a4e51;
+  border-radius: 10px;
+  background: var(--app-bg-secondary, #242628);
+  color: var(--app-text-primary, #edf0f2);
+  box-shadow: 0 28px 90px #0008;
+  font-size: 13px;
+}
+.session-dialog::backdrop {
+  background: #090b0ed9;
+}
+.session-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 27px 28px 22px;
+  border-bottom: 1px solid var(--app-border-color);
+}
+.session-dialog h2 {
+  font-size: 21px;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  font-weight: 550;
+}
+.session-dialog-header p {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--app-text-secondary);
+  margin-top: 7px;
+}
+.session-dialog form {
+  padding: 24px 28px;
+}
+.session-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 21px;
+}
+.session-field > input {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--app-bg-primary);
+  border: 1px solid #53565a;
+  border-radius: 5px;
+  color: var(--app-text-primary);
+  font-size: 13px;
+  caret-color: #b4c8d3;
+}
+.session-field small {
+  font-weight: 400;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}
+.session-path {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid #53565a;
+  border-radius: 5px;
+  text-align: left;
+  width: 100%;
+  background: var(--app-bg-primary);
+  font-weight: 400;
+  min-width: 0;
+}
+.session-path span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-path:hover {
+  border-color: #a2b2bd;
+}
+.session-mode {
+  display: flex;
+  gap: 26px;
+  margin: 3px 0 26px;
+}
+.session-mode label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.session-mode input {
+  accent-color: #b4c8d3;
+}
+.session-mode span {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.session-mode strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.session-mode small {
+  font-size: 11px;
+  color: var(--app-text-secondary);
+}
+.session-folder-preview {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  background: var(--app-bg-primary);
+  padding: 14px;
+  border-radius: 5px;
+  min-width: 0;
+}
+.session-folder-preview > span {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  font-size: 12px;
+}
+.session-folder-preview code {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--app-text-secondary);
+  white-space: nowrap;
+}
+.session-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 28px;
+}
+.session-dialog-footer > span {
+  font-size: 10px;
+  line-height: 1.7;
+  color: var(--app-text-secondary);
+}
+.session-error {
+  color: #f1abab;
+  background: #511c1c50;
+  padding: 12px;
+  margin-top: 15px;
+  border-radius: 4px;
+  line-height: 1.6;
+}
+.session-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 9px 22px;
+  background: var(--app-bg-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.session-progress progress {
+  height: 5px;
+  max-width: 220px;
+  flex: 1;
+  accent-color: #b4c8d3;
+}
+.session-progress button {
+  margin-left: auto;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.session-copy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--app-text-secondary);
+}
+.session-copy-note svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: #b4c8d3;
+}
+.session-copy-note strong {
+  font-weight: 500;
+  color: var(--app-text-primary);
+}
+.session-backup {
+  display: flex;
+  gap: 5px;
+}
+.session-backup > input,
+.session-field > select {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  background: var(--app-bg-primary);
+  border: 1px solid var(--app-border-color);
+  border-radius: 5px;
+  color: var(--app-text-primary);
+  font-size: 13px;
+}
+.session-action.is-active {
+  border-color: #b4c8d3;
+  color: #d4e2ea;
+}
+.session-optional {
+  font-weight: 400;
+  color: var(--app-text-secondary);
+}
+:where(.session-bar, .session-dialog, .session-welcome) :focus-visible {
+  outline: 2px solid #b4c8d3 !important;
+  outline-offset: 3px;
+}
+::selection {
+  background: #7e9ca766;
+  color: inherit;
+}
+@media (max-width: 1100px) {
+  .session-count {
+    display: none;
+  }
+  .session-bar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+  .session-identity {
+    max-width: 200px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-progress .animate-spin {
+    animation: none;
+  }
+}
+
+.session-import-preview {
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 18px;
+  color: var(--app-text-secondary);
+}
+.session-import-preview strong {
+  color: var(--app-text-primary);
+  font-weight: 500;
+}
+.session-import-preview ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.session-import-preview li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+}
+.session-import-preview li > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-import-preview input {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--app-bg-primary);
+  border: 1px solid var(--app-border-color);
+  border-radius: 5px;
+  color: var(--app-text-primary);
+  font-size: 12px;
+}
+
+.session-ingest-dialog { width: min(840px, calc(100vw - 40px)); }
+.session-ingest-form { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); gap: 24px; }
+.session-ingest-form h3 { margin: 0 0 14px; font-size: 13px; font-weight: 600; }
+.session-ingest-source { grid-column: 1; grid-row: 1; }
+.session-ingest-naming { grid-column: 2; grid-row: 1 / span 2; padding-left: 24px; border-left: 1px solid var(--app-border-color); min-width: 0; }
+.session-ingest-backup { grid-column: 1; grid-row: 2; }
+.session-ingest-form > :is(.session-copy-note, .session-error, .session-dialog-footer) { grid-column: 1 / -1; margin: 0; }
+.session-ingest-files { display: grid; gap: 6px; margin: 12px 0 20px; font-size: 12px; color: var(--app-text-secondary); }
+.session-ingest-files > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-ingest-target { display: grid; gap: 6px; font-size: 12px; overflow-wrap: anywhere; }
+.session-ingest-target span { color: var(--app-text-secondary); }
+.session-ingest-form .session-dialog-footer { position: sticky; bottom: -24px; padding: 16px 0; background: var(--app-bg-secondary, #242628); border-top: 1px solid var(--app-border-color); }
+.session-dialog form > .naming-editor { margin-bottom: 24px; }
+@media (max-width: 650px) {
+  .session-ingest-form { display: flex; flex-direction: column; }
+  .session-ingest-naming { padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--app-border-color); }
+}

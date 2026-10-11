@@ -1,0 +1,2663 @@
+{
+  "adjustments": {
+    "color": {
+      "ariaSelectColor": "选择 {{name}} 颜色",
+      "calibration": {
+        "colors": {
+          "blue": "蓝色",
+          "green": "绿色",
+          "red": "红色"
+        },
+        "hue": "色相",
+        "primaries": "原色",
+        "saturation": "饱和度",
+        "shadows": "阴影",
+        "tint": "色调",
+        "title": "颜色校准"
+      },
+      "colorGrading": "颜色分级",
+      "colorMixer": "颜色混合器",
+      "grading": {
+        "balance": "平衡",
+        "blending": "混合",
+        "global": "全局",
+        "highlights": "高光",
+        "midtones": "中间调",
+        "shadows": "阴影"
+      },
+      "hue": "色相",
+      "localHue": "局部色调",
+      "luminance": "亮度",
+      "mixerColors": {
+        "aquas": "青色",
+        "blues": "蓝色",
+        "greens": "绿色",
+        "magentas": "洋红",
+        "oranges": "橙色",
+        "purples": "紫色",
+        "reds": "红色",
+        "yellows": "黄色"
+      },
+      "presence": "质感",
+      "saturation": "饱和度",
+      "temperature": "色温",
+      "tint": "色调",
+      "toggleSliders": "切换滑块",
+      "vibrance": "鲜艳度",
+      "wbPickerTooltip": "白平衡选取器",
+      "wbPickerWgpuDisabled": "白平衡选取器：请在设置中禁用 WGPU。",
+      "whiteBalance": "白平衡"
+    },
+    "curves": {
+      "channels": {
+        "blue": "蓝色",
+        "green": "绿色",
+        "luma": "亮度",
+        "red": "红色"
+      },
+      "channelTitle": "{{channel}} 通道",
+      "copyParametric": "复制 {{channel}} 参数曲线",
+      "copyPoint": "复制 {{channel}} 点曲线",
+      "curveDataUnavailable": "曲线数据不可用。",
+      "parametricCurve": "参数曲线",
+      "params": {
+        "blackLevel": "黑色色阶",
+        "darks": "暗部",
+        "highlights": "高光",
+        "lights": "亮部",
+        "shadows": "阴影",
+        "whiteLevel": "白色色阶"
+      },
+      "pasteFromParametric": "从参数曲线粘贴",
+      "pasteParametric": "粘贴参数曲线",
+      "pastePoint": "粘贴点曲线",
+      "pointCurve": "点曲线",
+      "resetAllParametric": "重置所有参数曲线",
+      "resetAllPoint": "重置所有点曲线",
+      "resetParametric": "重置 {{channel}} 参数曲线",
+      "resetPoint": "重置 {{channel}} 点曲线"
+    },
+    "details": {
+      "blueYellow": "蓝/黄",
+      "centre": "居中",
+      "chromaticAberration": "色差",
+      "clarity": "清晰度",
+      "color": "颜色",
+      "dehaze": "去雾",
+      "luminance": "亮度",
+      "noiseReduction": "降噪",
+      "presence": "质感",
+      "redCyan": "红/青",
+      "sharpening": "锐化",
+      "sharpness": "锐度",
+      "structure": "结构",
+      "threshold": "阈值"
+    },
+    "effects": {
+      "amount": "数量",
+      "bokehCircular": "圆形",
+      "bokehHexagonal": "六边形",
+      "bokehOctagonal": "八边形",
+      "bokehRing": "气泡（环形）",
+      "bokehShape": "散景形状",
+      "creative": "创意",
+      "feather": "羽化",
+      "glow": "发光",
+      "grain": "颗粒",
+      "halation": "光晕",
+      "lensBlur": "镜头模糊",
+      "lensDiffusion": "扩散",
+      "lightFlares": "光线耀斑",
+      "lut": "LUT",
+      "midpoint": "中点",
+      "roughness": "粗糙度",
+      "roundness": "圆度",
+      "size": "大小",
+      "vignette": "暗角"
+    }
+  },
+  "contextMenus": {
+    "album": {
+      "emptyGroup": "（空组）"
+    },
+    "albumIcons": {
+      "automotive": "汽车",
+      "default": "文件夹（默认）",
+      "favorites": "收藏",
+      "featured": "精选",
+      "locations": "地点",
+      "nature": "自然",
+      "people": "人物",
+      "person": "个人",
+      "photography": "摄影",
+      "portfolio": "作品集",
+      "summer": "夏天",
+      "travel": "旅行"
+    },
+    "colors": {
+      "blue": "蓝色",
+      "green": "绿色",
+      "orange": "橙色",
+      "pink": "粉色",
+      "purple": "紫色",
+      "red": "红色",
+      "yellow": "黄色"
+    },
+    "editor": {
+      "autoAdjust": "自动调整图像",
+      "autoLensCorrection": "自动镜头校正",
+      "cancel": "取消",
+      "colorLabel": "颜色标签",
+      "confirmReset": "确认重置",
+      "convertNegative": "转换负片",
+      "copyAdjustments": "复制调整",
+      "cullImage": "筛选图像",
+      "editImage": "编辑图像",
+      "exportImage": "导出图像",
+      "frameImage": "装裱图像",
+      "mergeHdr": "合并为 HDR",
+      "noLabel": "无标签",
+      "noRating": "无评分",
+      "pasteAdjustments": "粘贴调整",
+      "productivity": "效率",
+      "rating": "评分",
+      "ratingLabel_one": "{{count}} 星",
+      "ratingLabel_other": "{{count}} 星",
+      "redo": "重做",
+      "resetAdjustments": "重置调整",
+      "stitchPanorama": "拼接全景图",
+      "tagging": "标签",
+      "undo": "撤销"
+    },
+    "merge": {
+      "focusStack": "焦距合成",
+      "hdrPanorama": "HDR 全景图",
+      "title": "合并"
+    },
+    "tagging": {
+      "addTagTooltip": "添加标签",
+      "noTags": "未添加标签",
+      "placeholder": "添加标签...",
+      "removeTooltip": "移除标签 \"{{tag}}\"",
+      "shortcutsHeading": "快捷方式"
+    },
+    "thumbnail": {
+      "addToAlbum": "添加到相册",
+      "autoAdjust_one": "自动调整图像",
+      "autoAdjust_other": "自动调整图像",
+      "autoLensCorrection_one": "自动镜头校正",
+      "autoLensCorrection_other": "自动镜头校正",
+      "collage_one": "装裱图像",
+      "collage_other": "创建拼贴画",
+      "confirmDelete": "确认删除",
+      "confirmDeleteVc": "确认删除 + 虚拟副本",
+      "convertNegative_one": "转换负片",
+      "convertNegative_other": "转换负片",
+      "copyImage_one": "复制图像",
+      "copyImage_other": "复制 {{count}} 张图像",
+      "cullImage_one": "筛选图像",
+      "cullImage_other": "筛选图像",
+      "deleteAssociated": "删除 + 关联文件",
+      "deleteImage_one": "删除图像",
+      "deleteImage_other": "删除 {{count}} 张图像",
+      "deleteSelected": "仅删除选中项",
+      "duplicateImage": "复制图像",
+      "exportImage_one": "导出图像",
+      "exportImage_other": "导出 {{count}} 张图像",
+      "noAlbums": "无可用相册",
+      "pasteAdjustments_one": "粘贴调整",
+      "pasteAdjustments_other": "粘贴调整到 {{count}} 张图像",
+      "physicalCopy": "物理副本",
+      "removeFromAlbum_one": "从相册中移除",
+      "removeFromAlbum_other": "从相册中移除 {{count}} 张图像",
+      "renameImage_one": "重命名图像",
+      "renameImage_other": "重命名 {{count}} 张图像",
+      "resetAdjustments_one": "重置调整",
+      "resetAdjustments_other": "重置 {{count}} 张图像的调整",
+      "showExplorer": "在文件资源管理器中显示",
+      "showFinder": "在访达中显示",
+      "virtualCopy": "虚拟副本"
+    },
+    "toasts": {
+      "couldNotShowExplorer": "无法在文件资源管理器中显示文件：{{err}}",
+      "failedAddToAlbum": "添加到相册失败：{{err}}",
+      "failedApplyAuto": "应用自动调整失败：{{err}}",
+      "failedCreateVirtualCopy": "创建虚拟副本失败：{{err}}",
+      "failedDuplicate": "复制文件失败：{{err}}",
+      "failedRemoveImages": "移除图像失败：{{err}}"
+    }
+  },
+  "editor": {
+    "adjustments": {
+      "actions": {
+        "customizePanels": "自定义面板",
+        "resetPanelLayout": "重置为默认值",
+        "resetSectionSettings": "重置 {{section}} 设置"
+      },
+      "sections": {
+        "basic": "基础",
+        "color": "颜色",
+        "curves": "曲线",
+        "details": "细节",
+        "effects": "效果"
+      },
+      "tooltips": {
+        "hideFromPanel": "在面板中隐藏",
+        "showInPanel": "在面板中显示"
+      }
+    },
+    "ai": {
+      "actions": {
+        "deleteComponent": "删除组件"
+      },
+      "connection": {
+        "backendLabel": "AI 后端：",
+        "cloudLabel": "云端 AI：",
+        "loginRequiredDesc": "通过设置登录以使用云端 AI。",
+        "monthlyUsage": "月度使用量",
+        "notLoggedIn": "未登录",
+        "proRequiredDesc": "需要 Pro 订阅。请在设置中升级。",
+        "upgradeRequired": "需要升级"
+      },
+      "createNewTitle": "创建新的生成式编辑",
+      "generatingDepthMap": "正在计算 AI 深度图...",
+      "params": {
+        "feather": "羽化",
+        "grow": "扩展",
+        "intensity": "强度",
+        "pressure": "压力"
+      },
+      "runtimeUnavailable": "无法加载 AI 运行时，因此 AI 工具不可用。其他功能照常可用。"
+    },
+    "externalEdit": {
+      "done": "完成",
+      "exporting": "正在导出…",
+      "savesTo": "外部编辑 — 保存至"
+    },
+    "guided": {
+      "cancel": "取消",
+      "drawingActive": "绘图中",
+      "hint": "沿着照片中应该是垂直或水平的边缘绘制。",
+      "linesStatus": "活跃引导线",
+      "toast": {
+        "angleRejected": "线条角度偏离水平或垂直太远",
+        "maxLines": "最多允许 2 条垂直线和 2 条水平线"
+      }
+    },
+    "masks": {
+      "actions": {
+        "addNewComponent": "添加新组件",
+        "applyPreset": "应用预设",
+        "copyComponent": "复制组件",
+        "copyMask": "复制蒙版",
+        "deleteComponent": "删除组件",
+        "deleteMask": "删除蒙版",
+        "duplicateAndInvertComponent": "复制并反转组件",
+        "duplicateAndInvertMask": "复制并反转蒙版",
+        "duplicateComponent": "复制组件",
+        "duplicateMask": "复制蒙版",
+        "hideComponent": "隐藏组件",
+        "hideMask": "隐藏蒙版",
+        "intersectMaskWith": "与蒙版相交",
+        "noPresets": "无预设",
+        "pasteComponent": "粘贴组件",
+        "pasteMask": "粘贴蒙版",
+        "pasteMaskAdjustments": "粘贴蒙版调整",
+        "rename": "重命名",
+        "resetMaskAdjustments": "重置蒙版调整",
+        "showComponent": "显示组件",
+        "showMask": "显示蒙版",
+        "subtractFromMask": "从蒙版中减去",
+        "switchToAdd": "切换到添加",
+        "switchToIntersect": "切换到相交",
+        "switchToSubtract": "切换到减去"
+      },
+      "addNewMask": "添加新蒙版",
+      "aiTitle": "AI 选择",
+      "basicTitle": "基本工具",
+      "brush": {
+        "brush": "画笔",
+        "eraser": "橡皮擦",
+        "feather": "画笔羽化",
+        "flow": "流量",
+        "size": "画笔大小"
+      },
+      "comingSoon": "即将推出",
+      "depthRange": {
+        "far": "远",
+        "near": "近",
+        "reset": "重置",
+        "title": "深度范围"
+      },
+      "dropzoneText": "拖放到此处以创建新蒙版",
+      "maskAdjustmentsTitle": "蒙版调整",
+      "maskingTitle": "蒙版",
+      "masksTitle": "蒙版",
+      "params": {
+        "feather": "羽化",
+        "globalFeather": "全局羽化",
+        "grow": "扩展",
+        "tolerance": "容差"
+      },
+      "patches": {
+        "copyName": "{{name}} 副本",
+        "invertedName": "{{name}} 反转",
+        "maskName": "蒙版 {{count}}",
+        "maskName_one": "蒙版 {{count}}",
+        "maskName_other": "蒙版 {{count}}"
+      },
+      "rangeTitle": "范围与全局",
+      "resetMaskingTooltip": "重置蒙版",
+      "settings": {
+        "aiModelDownloading": "AI 模型下载中：",
+        "applyPreset": "应用预设",
+        "componentPropertiesTitle": "{{name}} 属性",
+        "copySectionSettings": "复制 {{section}} 设置",
+        "invertComponent": "反转组件",
+        "invertMask": "反转蒙版",
+        "maskPropertiesTitle": "蒙版属性",
+        "noPresetsFound": "未找到预设",
+        "opacity": "不透明度",
+        "pasteSectionSettings": "粘贴 {{section}} 设置",
+        "pasteSettings": "粘贴设置",
+        "resetSectionSettings": "重置 {{section}} 设置",
+        "select": "选择",
+        "selectPresetTooltip": "选择一个预设以应用"
+      },
+      "toggleAnalyticsInAdjustments": "在调整面板中切换分析",
+      "toggleAnalyticsTooltip": "切换分析显示",
+      "tooltips": {
+        "addToCurrent": "将 {{name}} 添加到当前蒙版或创建新蒙版（右键单击）",
+        "createNew": "创建新 {{name}} 蒙版"
+      }
+    },
+    "metadata": {
+      "fileInfo": {
+        "dimensionsNoMp": "{{width}} × {{height}} 像素"
+      }
+    }
+  },
+  "library": {
+    "filters": {
+      "rating": {
+        "andUpSuffix": "及以上",
+        "onlySuffix": "仅"
+      }
+    },
+    "folders": {
+      "collapseSection": "折叠 {{section}}",
+      "expandSection": "展开 {{section}}",
+      "tooltips": {
+        "collapse": "折叠",
+        "expand": "展开",
+        "sortFolders": "对文件夹排序"
+      }
+    },
+    "header": {
+      "viewOptions": {
+        "exifDisabledTooltip": "在设置中启用 EXIF 读取以使用此选项。"
+      }
+    },
+    "splash": {
+      "goToSettings": "前往设置"
+    },
+    "thumbnailSize": {
+      "list": "列表"
+    }
+  },
+  "masks": {
+    "types": {
+      "all": "整个图像",
+      "brush": "画笔",
+      "clone": "克隆",
+      "color": "颜色",
+      "depth": "深度",
+      "flow": "流线",
+      "foreground": "前景",
+      "heal": "修复",
+      "linear": "线性",
+      "liquify": "液化",
+      "luminance": "亮度",
+      "people": "人物",
+      "quickEraser": "快速橡皮擦",
+      "radial": "径向",
+      "retouch": "修饰",
+      "sky": "天空",
+      "subject": "主体"
+    }
+  },
+  "menus": {
+    "tagging": {
+      "addTagTooltip": "添加标签",
+      "noTags": "未添加标签",
+      "placeholder": "添加标签...",
+      "removeTooltip": "移除标签 \"{{tag}}\"",
+      "shortcutsHeading": "快捷方式"
+    }
+  },
+  "modals": {
+    "collage": {
+      "aspectRatio": "宽高比",
+      "background": "背景",
+      "borderRadius": "边框圆角",
+      "cancel": "取消",
+      "close": "关闭",
+      "done": "完成",
+      "errorTitle": "发生错误",
+      "exportSize": "导出大小（像素）",
+      "format": "格式",
+      "formats": {
+        "jpeg": "JPEG",
+        "tiff": "TIFF 16 位"
+      },
+      "keepOriginalRatio": "保持原始宽高比",
+      "layout": "布局",
+      "original": "原始",
+      "saveButton": "保存拼贴画",
+      "saved": "拼贴画已保存！",
+      "saving": "保存中...",
+      "shuffleTooltip": "随机排列图像",
+      "spacing": "间距"
+    },
+    "confirm": {
+      "cancel": "取消",
+      "confirm": "确认"
+    },
+    "copyPaste": {
+      "groups": {
+        "blackAndWhite": "黑白",
+        "chromaticAberration": "色差",
+        "clarityDehaze": "清晰度与去雾",
+        "colorCalibration": "颜色校准",
+        "colorGrading": "颜色分级",
+        "colorMixer": "颜色混合器",
+        "cropAspectRatio": "裁剪与宽高比",
+        "curves": "曲线",
+        "exposureToneMapper": "曝光与色调映射",
+        "grain": "颗粒",
+        "guidedPerspective": "引导透视",
+        "halationGlow": "光晕与发光",
+        "hueShift": "全局色相偏移",
+        "lensCorrection": "镜头校正",
+        "lut": "LUT",
+        "masks": "蒙版",
+        "noiseReduction": "降噪",
+        "presence": "质感",
+        "sharpness": "锐度",
+        "tone": "色调",
+        "transformRotation": "变换与旋转",
+        "vignette": "暗角",
+        "whiteBalance": "白平衡"
+      }
+    },
+    "createFolder": {
+      "cancel": "取消",
+      "create": "创建",
+      "placeholder": "输入文件夹名称...",
+      "title": "创建新文件夹"
+    },
+    "culling": {
+      "actionDelete": "移至回收站",
+      "actionRateZero": "将评分设为 1 星",
+      "actionReject": "标记为已拒绝（红色标签）",
+      "applyButton_one": "应用到 1 张图像",
+      "applyButton_other": "应用到 {{count}} 张图像",
+      "bestImage": "最佳图像",
+      "blurryImagesTab": "模糊图像",
+      "blurThreshold": "模糊阈值",
+      "blurThresholdDesc": "锐度评分低于此值的图像将被标记。值越高越严格。",
+      "cancel": "取消",
+      "close": "关闭",
+      "cullingFailed": "筛选失败",
+      "cullingSuggestions": "筛选建议",
+      "done": "完成",
+      "duplicatesHeader": "重复项（{{count}}）",
+      "duplicatesHeader_one": "重复项（{{count}}）",
+      "duplicatesHeader_other": "重复项（{{count}}）",
+      "filterBlurry": "过滤模糊图像",
+      "groupHeader": "第 {{index}} 组",
+      "groupSimilar": "分组相似图像",
+      "noIssuesDesc": "所有图像似乎都是唯一且清晰的。",
+      "noIssuesFound": "未发现问题！",
+      "score": "评分：{{score}}",
+      "sharpness": "锐度：{{sharpness}}",
+      "similarGroupsTab": "相似组",
+      "similarityThreshold": "相似度阈值",
+      "similarityThresholdDesc": "值越低越严格（完全重复）。值越高越宽松（近似重复）。建议值 24-32。",
+      "startCulling": "开始筛选",
+      "starting": "启动中...",
+      "title": "筛选图像"
+    },
+    "merge": {
+      "align": "对齐照片",
+      "amount": {
+        "high": "高",
+        "low": "低",
+        "medium": "中",
+        "off": "关"
+      },
+      "autoCrop": "自动裁剪",
+      "autoSettings": "自动设置",
+      "boundaryWarp": "边界变形",
+      "cancel": "取消",
+      "close": "关闭",
+      "deghost": "去除重影",
+      "fillEdges": "填充边缘",
+      "ghosts": "重影",
+      "merge": "合并",
+      "notAligned": "未对齐",
+      "notUsed": "无重叠",
+      "open": "打开",
+      "photos_other": "{{count}} 张照片",
+      "projection": {
+        "auto": "自动",
+        "cylindrical": "圆柱",
+        "panini": "帕尼尼",
+        "perspective": "透视",
+        "spherical": "球面"
+      },
+      "projectionLabel": "投影",
+      "showDepth": "显示深度图",
+      "showGhosts": "显示重影区域",
+      "stale": "设置已更改 – 请更新预览",
+      "title": {
+        "focusStack": "景深合成",
+        "hdr": "合并为 HDR",
+        "hdrPanorama": "合并为 HDR 全景图",
+        "panorama": "合并为全景图"
+      },
+      "update": "更新预览",
+      "working": "正在合并…"
+    },
+    "negativeConversion": {
+      "blueWeight": "蓝色（黄色）",
+      "cancel": "取消",
+      "colorTiming": "色彩时机",
+      "compareTooltip": "按住以查看原始",
+      "contrast": "对比度（分级）",
+      "convertAndSave": "转换并保存",
+      "convertAndSaveAll": "转换并保存全部（{{count}}）",
+      "convertAndSaveAll_one": "转换并保存全部（{{count}}）",
+      "convertAndSaveAll_other": "转换并保存全部（{{count}}）",
+      "converting": "转换中",
+      "convertingProgress": "转换中 {{current}}/{{total}}",
+      "exposure": "曝光",
+      "greenWeight": "绿色（洋红）",
+      "noticeText": "反转逻辑受 <0>NegPy</0>（作者 marcinz606，<1>GPL-3.0</1>）启发。",
+      "originalLabel": "原始负片",
+      "printGrade": "打印分级",
+      "redWeight": "红色（青色）",
+      "resetTooltip": "重置",
+      "resetViewTooltip": "重置视图",
+      "title": "负片转换",
+      "zoomInTooltip": "放大",
+      "zoomOutTooltip": "缩小"
+    },
+    "renameFile": {
+      "cancel": "取消",
+      "fileNamingTemplate": "文件命名模板",
+      "newName": "新名称",
+      "save": "保存",
+      "titleMultiple": "重命名 {{count}} 张图像",
+      "titleMultiple_one": "重命名 {{count}} 张图像",
+      "titleMultiple_other": "重命名 {{count}} 张图像",
+      "titleSingle": "重命名图像"
+    },
+    "renameFolder": {
+      "cancel": "取消",
+      "placeholder": "输入新的文件夹名称...",
+      "save": "保存",
+      "title": "重命名文件夹"
+    }
+  },
+  "naming": {
+    "addToken": "添加命名标记",
+    "backup": "备份副本",
+    "counterStart": "计数器起始值",
+    "custom": "自定义格式",
+    "dateNote": "日期仅作示例。每次操作时计数器都从所选值开始；导入时使用文件的修改时间。",
+    "deletePreset": "删除预设",
+    "destination": "导入目标位置",
+    "dropHere": "拖放到此处",
+    "edit": "编辑命名格式…",
+    "example": "示例文件名",
+    "hint": "拖动块可调整顺序，或将标记拖到某个块上以插入到它前面。也可以点击标记并输入自己的文字。",
+    "invalid": "请使用可用的标记，且文件名中不要包含保留字符。",
+    "keyboardHint": "选择一个块，然后使用“左移”“右移”或“移除”按钮。激活标记即可将其插入到文本光标处。",
+    "moreFiles_other": "另外 {{count}} 个文件",
+    "moveLeft": "将块左移",
+    "moveRight": "将块右移",
+    "parts": "命名块",
+    "preset": "命名预设",
+    "presetName": "预设名称",
+    "presets": {
+      "dateOriginal": "日期 + 原始文件名",
+      "numbered": "编号照片",
+      "original": "原始文件名"
+    },
+    "recipeHint": "勾选配方即可按配方导出；未勾选任何配方时，按当前设置导出。点击名称可进行编辑。",
+    "remove": "移除块",
+    "save": "存储预设",
+    "saveError": "无法在此设备上存储预设。",
+    "source": "源照片",
+    "space": "空格",
+    "title": "文件命名",
+    "tokens": {
+      "counter4": "计数器 · 4 位",
+      "date": "日期",
+      "day": "日",
+      "extension": "扩展名",
+      "hour": "时",
+      "job": "会话名称",
+      "minute": "分",
+      "month": "月",
+      "original": "图像名称",
+      "originalWithExtension": "原始文件名 + 扩展名",
+      "sequence": "计数器",
+      "year": "年"
+    }
+  },
+  "offline": {
+    "badge": "离线",
+    "badgeTitleMissing": "文件缺失。照片以其预览打开；右键 › 查找照片… 可重新找到文件。",
+    "badgeTitleVolume": "文件位于未连接的“{{volume}}”上。照片以其预览打开；请连接该驱动器，或右键 › 查找照片…",
+    "dialog": {
+      "locateFile": "查找 {{name}}",
+      "locateFolder": "文件夹 {{folder}} 现在在哪里？"
+    },
+    "folders": {
+      "missing": "{{path}} 缺失（已重命名、移动或删除）。照片保留编辑；右键其中一张 › 查找文件夹…",
+      "offlineInside_other": "此处 {{count}} 张照片离线",
+      "onVolume": "{{path}} 位于未连接的“{{volume}}”上。",
+      "title": "缺失",
+      "volumeOffline": "离线",
+      "volumeOfflineTitle": "“{{name}}”未连接。其文件夹仍会列出，照片保留编辑；连接后即可处理原始文件。",
+      "volumeSpaceTitle": "{{name}}（{{mount}}）· 可用 / 总计：{{space}}",
+      "volumeTitle": "{{name}}（{{mount}}）"
+    },
+    "menu": {
+      "locate": "查找照片…",
+      "locateFolder": "查找文件夹…",
+      "showMissing": "显示缺失的照片"
+    },
+    "missingView": "缺失的照片",
+    "missingViewTitle": "文件缺失或位于未连接驱动器上的照片。它们保留编辑；查找它们以重新链接。",
+    "sessionCount_other": "{{count}} 张离线",
+    "sessionCountTitle": "文件缺失或位于未连接驱动器上的照片：图库 › 相册 › 缺失的照片",
+    "toasts": {
+      "failed": "重新链接失败：{{err}}",
+      "mismatched_other": "{{count}} 个同名文件是其他照片",
+      "notFound_other": "{{count}} 个未找到",
+      "relinked_other": "已重新链接 {{count}} 张照片",
+      "taken_other": "{{count}} 个文件已是此图库中的其他照片"
+    }
+  },
+  "previews": {
+    "menu": {
+      "buildFull": "生成 1:1 预览",
+      "buildStandard": "生成标准预览",
+      "discardAll": "丢弃标准和 1:1 预览",
+      "discardFull": "丢弃 1:1 预览",
+      "title": "预览",
+      "withCount": "{{label}}（{{n}}）"
+    },
+    "offline": {
+      "full": "离线 · 1:1 预览",
+      "fullTitle": "无法读取 RAW 文件。您正在以全分辨率查看和编辑其 1:1 预览；导出需要 RAW 文件。",
+      "standard": "离线 · 标准预览",
+      "standardTitle": "无法读取 RAW 文件。您正在查看和编辑其标准预览；放大时会被拉伸，导出需要 RAW 文件。生成 1:1 预览即可将离线照片放大到 100 %。修饰和镜头模糊按其尺寸显示；AI 蒙版、移除和 自动校正 需要 RAW 文件或 1:1 预览。"
+    },
+    "settings": {
+      "after30Days": "30 天后",
+      "afterDay": "一天后",
+      "afterWeek": "一周后",
+      "auto": "自动",
+      "discardAllButton": "全部丢弃",
+      "discardFull": "丢弃 1:1 预览",
+      "discardFullButton": "丢弃 1:1",
+      "discardFullDesc": "1:1 预览可将离线照片放大到 100 %。它们很大，因此在此期限内未使用的会被丢弃。",
+      "never": "从不",
+      "noLimit": "无限制",
+      "outsideUsage": "会话以外照片的预览",
+      "sessionUsage": "此会话的预览",
+      "standardLimit": "标准预览大小上限",
+      "standardLimitDesc": "按预览文件夹计（一个会话，或会话外的照片）。超出时，最久未使用的标准预览会被丢弃，并在打开照片时重新生成。离线照片的预览会保留。",
+      "standardSize": "标准预览尺寸",
+      "standardSizeDesc": "解码 RAW 文件时“冲印”打开所用、离线照片显示的预览的长边。自动会跟随“冲印”视图的大小。",
+      "title": "预览",
+      "usage": "标准：{{standardFiles}} 个文件，{{standardSize}} · 1:1：{{fullFiles}} 个文件，{{fullSize}}"
+    },
+    "status": {
+      "building": "正在生成预览 {{done}} / {{total}}",
+      "dismiss": "关闭",
+      "notBuilt": "未生成的预览：{{failed}}",
+      "short": "预览 {{done}}/{{total}}",
+      "stop": "停止",
+      "stopped": "预览在 {{done}} 张后停止"
+    },
+    "toasts": {
+      "discarded": "已丢弃的预览文件：{{files}}",
+      "failed": "预览：{{err}}"
+    }
+  },
+  "session": {
+    "bar": {
+      "hotFolder": "监视文件夹",
+      "hotFolderCount": "监视文件夹 · {{imported}}",
+      "hotFolderTitle": "监视一个文件夹，并将新照片复制到此会话",
+      "hotFolderWatching_other": "正在监视 {{folder}} · 已导入 {{count}} 张",
+      "identityTitle": "打开或创建会话",
+      "ingest": "导入",
+      "ingestTitle": "将存储卡或文件夹中的照片复制到此会话",
+      "markTitle": "Rawtonic · 开发版本",
+      "noSession": "无会话",
+      "photos_other": "{{formatted}} 张照片",
+      "picked_other": "{{count}} 张留用",
+      "xmpPending_other": "{{count}} 个 XMP 待处理",
+      "xmpPendingTitle": "调整已保存在图库中。部分 XMP 附属文件需要同步或解决冲突。"
+    },
+    "create": {
+      "catalog": "目录",
+      "catalogHint": "容纳众多项目的图库",
+      "catalogName": "目录名称",
+      "catalogPlaceholder": "照片图库",
+      "chooseParent": "选择上级文件夹…",
+      "createCatalog": "创建目录",
+      "createSession": "创建会话",
+      "importSubtitle": "为您的 Lightroom 或 Capture One 图库新建目录，随后导入。",
+      "importTitle": "为您的图库新建目录",
+      "location": "位置",
+      "name": "会话名称",
+      "namePlaceholder": "2026-10-01_客户_项目",
+      "namePreview": "你的项目",
+      "originalsUntouched": "原始照片保持不变。",
+      "session": "会话",
+      "sessionHint": "每个项目一个可携带的文件夹",
+      "subtitle": "会话就是一个可以随身携带的文件夹。",
+      "title": "开始新项目"
+    },
+    "dialogs": {
+      "close": "关闭",
+      "openTitle": "打开 Rawtonic 会话或目录"
+    },
+    "fields": {
+      "filenameTemplate": "文件名模板"
+    },
+    "hotFolder": {
+      "chooseFolder": "选择被监视的文件夹",
+      "copyFromLast": "从上一次拍摄复制",
+      "copyNote": "完整的文件会复制到 <strong>{{target}}</strong> 并经过校验。被监视的文件夹保持原样。",
+      "defaults": "默认",
+      "folder": "被监视的文件夹",
+      "folderPlaceholder": "/联机拍摄/保存/路径",
+      "nextCapture": "下一次拍摄的调整",
+      "preset": "预设：{{name}}",
+      "start": "开始监视",
+      "stop": "停止监视",
+      "stopsOnQuit": "退出应用后监视即停止。",
+      "subtitle": "文件夹中的新照片一到达就会被复制进来。",
+      "switch": "改为监视此文件夹",
+      "title": "监视文件夹"
+    },
+    "import": {
+      "albums_other": "{{count}} 个相册",
+      "check": "检查",
+      "chooseSource": "选择要导入的图库",
+      "copiesNotImported_other": "{{count}} 个虚拟副本（不导入）",
+      "edited_other": "{{count}} 张有调整",
+      "filterName": "目录和会话",
+      "photos_other": "{{count}} 张照片",
+      "preview": "：{{items}}。",
+      "relinkAria": "{{folder}} 的新位置",
+      "relinkPlaceholder": "已移动？新文件夹…",
+      "rootFound_other": "{{folder}} · 找到 {{found}} / {{count}}",
+      "separator": "，",
+      "smartAlbumsNotImported_other": "{{count}} 个智能相册（不导入）",
+      "source": "Lightroom 目录或 Capture One 会话",
+      "sourceAria": "要导入的图库",
+      "sourcePlaceholder": "/路径/Catalog.lrcat 或 Session.cosessiondb",
+      "submit": "导入到 {{name}}",
+      "subtitle": "星级、标签、关键字、调整和相册。另一个图库只会被读取。",
+      "title": "从 Lightroom 或 Capture One 导入"
+    },
+    "ingest": {
+      "choose": "选择照片…",
+      "chooseBackup": "选择备份文件夹…",
+      "chooseTitle": "选择要导入的照片",
+      "copyNote": "复制到 <strong>{{target}}</strong>。已有文件会保留；经校验的重复项会被跳过。",
+      "keepEditing": "导入期间可以继续编辑。",
+      "optional": "（可选）",
+      "photographs": "照片",
+      "removeBackup": "移除备份文件夹",
+      "secondCopy": "第二份副本",
+      "selected_other": "已选择 {{count}} 张照片",
+      "submit_other": "复制 {{count}} 张照片",
+      "submitNone": "复制照片",
+      "subtitle": "每份副本都会用 SHA-256 与源文件核对。",
+      "templateHint": "使用 {{orig}} 保留原始文件名，或使用 {{pattern}}。",
+      "title": "导入你的照片"
+    },
+    "menu": {
+      "importFrom": "从 Lightroom 或 Capture One 导入…",
+      "new": "新建会话…",
+      "open": "打开会话…"
+    },
+    "progress": {
+      "cancel": "取消",
+      "verifying_other": "正在校验第 {{current}} / {{count}} 个文件"
+    },
+    "restore": {
+      "failed": "无法打开上次的图库：{{error}}",
+      "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
+    },
+    "toasts": {
+      "duplicatesSkipped_other": "已跳过 {{count}} 个重复项",
+      "flagsFailed": "无法保存旗标：{{error}}",
+      "flagsSavedRefreshFailed": "旗标已保存；无法刷新会话摘要：{{error}}",
+      "hotFolderFailed": "监视文件夹：{{file}}：{{error}}",
+      "importCopiesSkipped_other": "{{count}} 个虚拟副本未导入",
+      "imported_other": "已导入 {{count}} 张照片（{{withSettings}} 张有调整，{{albums}} 个相册）",
+      "importNotFound_other": "{{count}} 张未找到",
+      "ingestCancelled": "导入已取消",
+      "ingested_other": "已复制并校验 {{count}} 张照片",
+      "ingestFailed_other": "已复制 {{copied}} 个；{{count}} 个失败。{{error}}",
+      "watching": "正在监视 {{folder}} 中的新照片。"
+    },
+    "welcome": {
+      "body": "为下一次拍摄创建一个可携带的会话。从第一张到最终精选，拍摄素材、调整和交付成果都放在一起。",
+      "create": "创建会话",
+      "importFrom": "从 Lightroom 或 Capture One 开始",
+      "open": "打开会话",
+      "tagline": "本地文件。无损编辑。你的照片。",
+      "title": "每个项目，都有归处。"
+    }
+  },
+  "settings": {
+    "categories": {
+      "general": "通用",
+      "processing": "处理",
+      "shortcuts": "控制"
+    },
+    "controls": {
+      "keyboardTitle": "键盘控制",
+      "modes": {
+        "mouse": "鼠标",
+        "trackpad": "触控板"
+      },
+      "notAssigned": "未分配",
+      "optimization": "输入设备优化",
+      "optimizationDesc": "选择您用于平移和缩放画布的主要输入设备。",
+      "pressKey": "按下按键...（Esc 清除）",
+      "resetDefaults": "全部重置为默认值",
+      "speed": "速度",
+      "title": "鼠标控制",
+      "zoom": "缩放速度倍率",
+      "zoomClick": "缩放照片至 100%",
+      "zoomClickDesc": "点击时将编辑器中的照片缩放至 100%",
+      "zoomClickInfo": "点击照片可立即缩放至 100%（1:1 像素），以评估清晰度和噪点。禁用时，点击会逐步放大。",
+      "zoomDesc": "调整使用滚轮或捏合手势时画布缩放的速度。"
+    },
+    "data": {
+      "clearSidecars": "清除所有附属文件",
+      "clearSidecarsButton": "清除",
+      "clearSidecarsDesc": "这将删除根文件夹中的 .rrdata 文件（编辑数据）和 .rrexif 文件（EXIF 缓存）。会话或目录中的照片不受影响：其编辑数据保存在该数据库中。根文件夹：",
+      "clearThumbnail": "清除缩略图缓存",
+      "clearThumbnailButton": "清除",
+      "clearThumbnailDesc": "这将删除所有缓存的缩略图。在您浏览图库时，它们会自动重新生成。",
+      "loading": "加载中...",
+      "logs": "查看应用日志",
+      "logsButton": "打开",
+      "logsDesc": "查看应用程序的日志文件以进行故障排除。日志文件位于：",
+      "modals": {
+        "aiMessage": "您确定要从所有活动根文件夹中的所有图像中移除所有 AI 生成的标签吗？\n\n这不会影响用户添加的标签。此操作无法撤销。",
+        "allMessage": "您确定要从所有活动根文件夹中的所有图像中移除所有 AI 生成和用户添加的标签吗？\n\n此操作无法撤销。",
+        "cacheMessage": "您确定要清除缩略图缓存吗？\n\n所有缩略图将需要重新生成，对于大型文件夹可能会很慢。",
+        "confirmAiTitle": "确认删除 AI 标签",
+        "confirmAllTitle": "确认删除所有标签",
+        "confirmCacheTitle": "确认删除缓存",
+        "confirmClear": "清除",
+        "confirmClearAi": "清除 AI 标签",
+        "confirmClearAll": "清除所有标签",
+        "confirmClearCache": "清除缓存",
+        "confirmDeleteAllEdits": "删除所有编辑",
+        "confirmResetLayout": "重置布局",
+        "confirmResetLayoutTitle": "重置工作区布局",
+        "confirmTitle": "确认删除",
+        "resetLayoutMessage": "是否确定要重置工作区布局？所有停靠的面板、宽度和切换器位置都将恢复为默认值。",
+        "sidecarMessage": "您确定要删除所有附属文件吗？\n\n这将永久删除所有活动根文件夹及其子文件夹中所有图像保存在 .rrdata 文件中的编辑数据。会话或目录中的照片不受影响：其编辑数据保存在该数据库中。"
+      },
+      "noFolders": "未选择文件夹",
+      "resetLayoutButton": "重置布局",
+      "resetLayoutDesc": "将面板停靠区、侧边分割条、高度和面板切换器恢复为默认布局。",
+      "resetLayoutTitle": "重置工作区布局",
+      "statuses": {
+        "aiSuccess": "{{count}} 个文件已更新。AI 标签已移除。",
+        "aiSuccess_one": "{{count}} 个文件已更新。AI 标签已移除。",
+        "aiSuccess_other": "{{count}} 个文件已更新。AI 标签已移除。",
+        "allSuccess": "{{count}} 个文件已更新。所有非颜色标签已移除。",
+        "allSuccess_one": "{{count}} 个文件已更新。所有非颜色标签已移除。",
+        "allSuccess_other": "{{count}} 个文件已更新。所有非颜色标签已移除。",
+        "cacheSuccess": "缩略图缓存已成功清除。",
+        "clearingAi": "正在从所有附属文件中清除 AI 标签...",
+        "clearingAll": "正在从附属文件中清除所有标签...",
+        "clearingCache": "正在清除缩略图缓存...",
+        "deleting": "正在删除附属文件，请稍候...",
+        "failedToGetPath": "无法获取日志文件路径。",
+        "layoutResetSuccess": "工作区布局已重置为默认值。",
+        "processing": "处理中...",
+        "resettingLayout": "正在重置工作区...",
+        "sidecarSuccess": "{{count}} 个附属文件已成功删除。",
+        "sidecarSuccess_one": "{{count}} 个附属文件已成功删除。",
+        "sidecarSuccess_other": "{{count}} 个附属文件已成功删除。"
+      },
+      "title": "数据管理"
+    },
+    "general": {
+      "createXmp": "创建缺失的 XMP 文件",
+      "createXmpDesc": "如果图像没有对应的 XMP 附属文件，则自动创建一个。",
+      "createXmpMissing": "缺失时创建 XMP",
+      "enableNeutralGreyCanvas": "启用中性灰背景",
+      "enableOsTitlebar": "启用系统标题栏",
+      "enableXmpSync": "启用 XMP 同步",
+      "nativeTitlebar": "原生标题栏",
+      "nativeTitlebarDesc": "使用系统默认的窗口标题栏，而非 Rawtonic 的自定义标题栏。",
+      "neutralGreyCanvas": "中性灰画布",
+      "neutralGreyCanvasDesc": "使用中性灰画布，以便在不更改应用主题的情况下进行更准确的色彩和曝光分级。",
+      "title": "通用设置",
+      "uiScale": "界面大小",
+      "uiScaleDesc": "为长时间工作放大工具面板和查看器栏。照片区域保持自己的缩放。",
+      "xmpSync": "XMP 元数据同步",
+      "xmpSyncDesc": "将评分、颜色标签和标签同步到标准 XMP 附属文件，以便与其他照片编辑器兼容。"
+    },
+    "keybinds": {
+      "actions": {
+        "auto_adjust": "自动调整",
+        "brush_size_down": "减小画笔大小",
+        "brush_size_up": "增大画笔大小",
+        "color_label_blue": "颜色标签：蓝色",
+        "color_label_green": "颜色标签：绿色",
+        "color_label_none": "颜色标签：无",
+        "color_label_purple": "颜色标签：紫色",
+        "color_label_red": "颜色标签：红色",
+        "color_label_yellow": "颜色标签：黄色",
+        "copy_adjustments": "复制选中的调整",
+        "copy_files": "复制选中的文件",
+        "copy_image_path": "复制所选图片的路径",
+        "cycle_zoom": "循环缩放（适应、2倍适应、100%）",
+        "delete_selected": "删除选中的文件",
+        "focus_search": "聚焦搜索框",
+        "mask_background": "新建图层：背景",
+        "mask_subject": "新建图层：主体",
+        "move_to_selects": "移至 Selects 文件夹",
+        "open_image": "打开选中的图像",
+        "open_settings": "打开设置",
+        "paste_adjustments": "粘贴复制的调整",
+        "paste_files": "将文件粘贴到当前文件夹",
+        "preview_next": "下一张",
+        "preview_prev": "上一张",
+        "rate_0": "星级评分：0",
+        "rate_1": "星级评分：1",
+        "rate_2": "星级评分：2",
+        "rate_3": "星级评分：3",
+        "rate_4": "星级评分：4",
+        "rate_5": "星级评分：5",
+        "redo": "重做调整",
+        "remove_objects": "移除对象",
+        "rotate_left": "逆时针旋转 90°",
+        "rotate_right": "顺时针旋转 90°",
+        "select_all": "选择所有图像",
+        "show_original": "显示原始图像（前后对比）",
+        "toggle_adjustments": "切换调整面板",
+        "toggle_all_panels": "隐藏/显示所有面板和栏",
+        "toggle_analytics": "切换分析显示",
+        "toggle_bottom_panel": "切换胶片条",
+        "toggle_clipping": "显示剪切警告",
+        "toggle_crop": "切换裁剪/拉直",
+        "toggle_crop_panel": "切换裁剪面板",
+        "toggle_export": "切换导出面板",
+        "toggle_folder_tree": "切换文件夹树面板",
+        "toggle_fullscreen": "切换全屏",
+        "toggle_left_panel": "切换左侧面板",
+        "toggle_library_exif": "切换 EXIF 叠加",
+        "toggle_mask_grayscale": "以灰度显示蒙版",
+        "toggle_mask_overlay": "显示或隐藏蒙版",
+        "toggle_masks": "切换蒙版面板",
+        "toggle_metadata": "切换元数据面板",
+        "toggle_right_panel": "切换右侧面板",
+        "toggle_side_panels": "隐藏/显示侧边面板",
+        "toggle_soft_proof": "切换软打样",
+        "tool_brush": "画笔（绘制蒙版）",
+        "tool_crop": "裁剪",
+        "tool_erase": "橡皮擦（擦除蒙版）",
+        "tool_linear": "线性渐变",
+        "tool_radial": "径向渐变",
+        "tool_select": "选择",
+        "tool_spot": "污点去除",
+        "tool_straighten": "拉直",
+        "tool_wb": "白平衡吸管",
+        "undo": "撤销调整",
+        "zoom_100": "缩放到 100%",
+        "zoom_fit": "缩放以适应",
+        "zoom_in": "放大",
+        "zoom_in_step": "放大（步进）",
+        "zoom_out": "缩小",
+        "zoom_out_step": "缩小（步进）"
+      },
+      "sections": {
+        "editing": "编辑",
+        "library": "图库",
+        "panels": "面板",
+        "rating": "评分与标签",
+        "tools": "光标工具",
+        "view": "视图"
+      }
+    },
+    "language": "语言",
+    "languageDesc": "更改应用程序语言。",
+    "lenses": {
+      "addButton": "添加到我的镜头",
+      "addNew": "添加新镜头",
+      "description": "创建您常用的镜头列表，以便在镜头校正面板中快速访问。",
+      "manufacturerPlaceholder": "选择制造商",
+      "modelPlaceholder": "选择镜头型号",
+      "noLenses": "尚未添加镜头。",
+      "removeTooltip": "移除镜头",
+      "saved": "已保存的镜头",
+      "title": "我的镜头"
+    },
+    "processing": {
+      "aiGpu": "在显卡上运行 AI",
+      "aiGpuDesc": "在可能时于显卡上运行 AI 蒙版、标签、对象移除和 AI 降噪（WebGPU；已安装时使用 CUDA），否则在处理器上运行。如果某个 AI 工具工作异常，请关闭此项。",
+      "aiGpuLabel": "使用 GPU 运行 AI",
+      "alwaysDecodeRaw": "始终解码 RAW",
+      "alwaysDecodeRawDesc": "强制对缩略图进行完整的 RAW 解码，而不是使用内置的 JPEG 预览。如果您的缩略图在颜色或对比度上与打开的图像不同，请启用此选项。",
+      "alwaysDecodeRawLabel": "始终为缩略图解码 RAW",
+      "backend": "处理后端",
+      "backendDesc": "选择图形 API。推荐使用「自动」。在某些系统上可能解决崩溃问题。",
+      "backends": {
+        "auto": "自动",
+        "dx12": "DirectX 12",
+        "gl": "OpenGL",
+        "metal": "Metal",
+        "vulkan": "Vulkan"
+      },
+      "dynamicDesc": "编辑器根据显示器实际像素密度渲染预览。这确保每个细节都以 1:1 像素精度呈现，在缩放和检查焦点时提供最大清晰度。",
+      "enableLivePreviews": "启用实时预览",
+      "highDpi": "高 DPI 渲染",
+      "highDpiDesc": "以屏幕原生 {{dpr}}x 物理像素分辨率渲染预览。产生最清晰的预览，但会显著增加内存使用。",
+      "highDpiDescStandard": "此设置仅影响高 DPI 显示器。您当前的显示器为标准分辨率。",
+      "imageCache": "已解码图像缓存",
+      "imageCacheDesc": "保存在内存中的全分辨率图像最大数量。较高的值可使最近编辑的图像之间切换即时完成，但会显著增加内存使用。",
+      "images": "张图像",
+      "linuxCompat": "Linux 兼容模式",
+      "linuxCompatDesc": "启用针对常见 GPU 驱动和显示服务器问题的兼容方案。禁用此选项以启用完整的 GPU 加速。",
+      "linuxCompatLabel": "启用兼容模式",
+      "livePreviewQuality": "实时预览质量",
+      "livePreviewQualityDesc": "控制拖动滑块时图像的分辨率和压缩。较低的质量可显著提高响应速度。",
+      "livePreviews": "实时交互式预览",
+      "livePreviewsDesc": "拖动滑块时立即更新预览。如果界面在调整时感觉卡顿，请禁用此选项。",
+      "mediumThumbnailRes": "编辑器缩略图分辨率",
+      "mediumThumbnailResDesc": "在编辑器中加载完整图像时显示的预览分辨率。",
+      "modes": {
+        "dynamic": "动态",
+        "static": "固定分辨率"
+      },
+      "nativeDpi": "以原生 DPI 渲染",
+      "preprocessing": {
+        "appleRaw9": "Apple RAW 9 引擎",
+        "appleRaw9Desc": "使用 Apple 的 Core Image RAW 9 解码器冲洗 RAW 文件。它在神经网络引擎 (Neural Engine) 上一步完成去马赛克和降噪。需要 macOS 27 或更高版本以及支持的相机；不支持的文件将自动使用内置解码器。比默认解码器慢。缩略图不受影响。",
+        "applyPreprocessing": "对非 RAW 图像应用预处理",
+        "applyPreprocessingDesc": "如果启用，上述基础颜色降噪和预锐化也将应用于标准格式。",
+        "colorNr": "基础颜色降噪",
+        "colorNrDesc": "在管线早期应用交叉双边滤波器以去除彩色噪点。值越高 = 降噪越强。",
+        "defaultNonRawTonemapper": "默认非 RAW 色调映射",
+        "defaultNonRawTonemapperDesc": "应用于非 RAW 图像（如 JPEG、PNG）的色调映射器。",
+        "defaultRawTonemapper": "默认 RAW 色调映射",
+        "defaultRawTonemapperDesc": "应用于 RAW 图像的色调映射器。",
+        "enableAppleRaw9": "对 RAW 文件使用 Apple RAW 9",
+        "enablePreprocessingNonRaws": "对非 RAW 图像启用",
+        "enableTonemapperOverride": "启用色调映射覆盖",
+        "highlightRecovery": "RAW 高光恢复",
+        "highlightRecoveryDesc": "控制从 RAW 文件的裁剪高光中恢复细节的程度。较高的值可恢复更多细节，但可能引入紫色伪影。",
+        "linearOptions": {
+          "auto": "自动",
+          "gamma": "应用 Gamma",
+          "gamma_skip_calib": "应用 Gamma 并跳过校准",
+          "skip_calib": "跳过校准"
+        },
+        "linearRaw": "线性 RAW 处理",
+        "linearRawDesc": "修复某些 DNG 文件中的色偏或粉色色调。控制如何处理已处理的 LinearRAW 数据。",
+        "sharpening": "基础预锐化",
+        "sharpeningDesc": "在管线早期应用柔和的细节增强。值越高 = 锐化越强。",
+        "title": "图像预处理",
+        "tonemapperOptions": {
+          "agx": "AgX",
+          "basic": "经典",
+          "standard": "标准"
+        },
+        "tonemapperOverride": "全局色调映射覆盖",
+        "tonemapperOverrideDesc": "为所有图像全局强制使用特定的色调映射器，从调整面板中隐藏色调映射器开关。"
+      },
+      "previewRes": "预览分辨率",
+      "previewResDesc": "确定预览的最大分辨率。较低的值可显著提高性能。",
+      "previewStrategy": "预览渲染策略",
+      "qualities": {
+        "full": "全分辨率",
+        "high": "高质量",
+        "performance": "性能优先"
+      },
+      "renderScale": "渲染分辨率缩放",
+      "renderScaleDesc": "相对于显示器缩放渲染分辨率。较低的值可在高分辨率屏幕上提高性能，但会牺牲一些清晰度。",
+      "restartRequired": "处理引擎的更改需要重启应用程序才能生效。",
+      "saveRelaunch": "保存并重新启动",
+      "smallThumbnailRes": "网格缩略图分辨率",
+      "smallThumbnailResDesc": "图库网格中显示的缩略图分辨率。",
+      "staticDesc": "编辑器以固定分辨率渲染图像。此模式最快且最一致，非常适合低端硬件，优先考虑流畅性能而非像素完美的缩放。",
+      "staticPreviewRes": "静态预览分辨率",
+      "staticPreviewResDesc": "设置静态预览的分辨率，如裁剪模式、镜头校正和透视工具。不影响主编辑器预览。",
+      "threads": "线程数",
+      "thumbnailRes": "缩略图分辨率",
+      "thumbnailResDesc": "确定生成的图库缩略图的分辨率。较高的值可在加载时产生更清晰的图像。",
+      "title": "处理引擎",
+      "wgpu": "WGPU 直接渲染",
+      "wgpuDescLinux": "绕过浏览器编码，实现即时响应的实时预览。（在 Linux 上已禁用：Tauri 使用 GTK 作为 Webview，与同一 X11 表面上的 WGPU 冲突并导致闪烁。）",
+      "wgpuDescRecommended": "绕过浏览器编码，实现即时响应的实时预览。强烈推荐以获得最佳性能。",
+      "wgpuLabel": "启用直接 WGPU 渲染",
+      "workerThreads": "缩略图工作线程数",
+      "workerThreadsDesc": "用于生成缩略图的并行线程数。较高的值可加快图库加载速度，但会占用更多 CPU 和内存。"
+    },
+    "tagging": {
+      "addCustomPlaceholder": "添加自定义 AI 标签（逗号分隔）...",
+      "addCustomTooltip": "添加 AI 标签",
+      "addShortcutsPlaceholder": "添加快捷方式（逗号分隔）...",
+      "addShortcutTooltip": "添加快捷方式",
+      "aiTagging": "AI 标签",
+      "aiTaggingDesc": "使用 AI（SigLIP 2）模型启用自动图像标签。这将下载额外的模型，并在浏览文件夹时影响性能。标签用于搜索文件夹。",
+      "amount": "数量",
+      "automaticAiTagging": "自动 AI 标签",
+      "clearAiTagsButton": "清除",
+      "clearAiTagsDesc": "这将从所有活动根文件夹中的 .rrdata 文件中移除所有 AI 生成的标签。用户添加的标签将被保留。",
+      "clearAiTagsTitle": "清除 AI 标签",
+      "clearAllTagsDesc": "这将从所有活动根文件夹中的 .rrdata 文件中移除所有 AI 生成和用户添加的标签。颜色标签将被保留。",
+      "clearAllTagsTitle": "清除所有标签",
+      "clearCustomTooltip": "清除 AI 标签列表",
+      "clearShortcutsTooltip": "清除快捷方式标签列表",
+      "customList": "自定义 AI 标签列表",
+      "customListDesc": "如果提供，AI 将仅使用此列表中的标签，覆盖 Rawtonic 内置的标签列表。标签功能仅支持英文。",
+      "maxAiTags": "最大 AI 标签数",
+      "maxAiTagsDesc": "每张图像生成的最大标签数量。",
+      "noCustomTags": "无自定义 AI 标签（使用内置列表）",
+      "noShortcuts": "未添加快捷方式",
+      "removeCustomTooltip": "移除标签 \"{{tag}}\"",
+      "removeShortcutTooltip": "移除快捷方式 \"{{shortcut}}\"",
+      "shortcuts": "标签快捷方式",
+      "shortcutsDesc": "将出现在标签上下文菜单中作为快捷方式的标签列表。",
+      "title": "标签"
+    },
+    "title": "设置",
+    "tooltips": {
+      "goHome": "返回首页"
+    }
+  },
+  "spotRemoval": {
+    "detectObjects": "检测对象",
+    "detectObjectsBoxHint": "围绕对象拖出矩形或单击对象即可移除。",
+    "detectObjectsHint": "用画笔大致涂抹对象或单击对象即可移除。",
+    "detectObjectsRefineHint": "Shift 添加到所选移除，Alt (⌥) 从中减去。",
+    "feather": "羽化",
+    "featherAria": "污点羽化",
+    "mode": "污点模式",
+    "modes": {
+      "clone": "仿制",
+      "heal": "修复",
+      "remove": "移除"
+    },
+    "objectSelect": "选择",
+    "objectSelectModes": {
+      "box": "矩形",
+      "brush": "画笔"
+    },
+    "opacity": "不透明度",
+    "opacityAria": "污点不透明度",
+    "sensitivity": "灵敏度",
+    "sensitivityAria": "显示污点的灵敏度",
+    "size": "大小",
+    "sizeAria": "污点大小",
+    "visualize": "显示污点"
+  },
+  "studio": {
+    "adjustment": {
+      "scrubHint": "拖动以调整 · 双击重置",
+      "value": "{{name}}值",
+      "valueWithUnit": "{{name}}值（{{unit}}）"
+    },
+    "color": {
+      "bw": {
+        "auto": "自动",
+        "autoAria": "自动黑白混合",
+        "autoFailed": "自动黑白失败：{{error}}",
+        "autoTitle": "自动黑白混合",
+        "channels": {
+          "aqua": "浅绿色",
+          "blue": "蓝色",
+          "green": "绿色",
+          "magenta": "洋红色",
+          "orange": "橙色",
+          "purple": "紫色",
+          "red": "红色",
+          "yellow": "黄色"
+        },
+        "convert": "转换为黑白",
+        "title": "黑白"
+      },
+      "calibration": {
+        "hueAria": {
+          "blue": "蓝原色色相",
+          "green": "绿原色色相",
+          "red": "红原色色相"
+        },
+        "primaries": {
+          "blue": "蓝原色",
+          "green": "绿原色",
+          "red": "红原色"
+        },
+        "saturationAria": {
+          "blue": "蓝原色饱和度",
+          "green": "绿原色饱和度",
+          "red": "红原色饱和度"
+        },
+        "shadowsTintAria": "阴影色调",
+        "title": "校准"
+      },
+      "editor": {
+        "aria": {
+          "chromaRange": "颜色范围饱和度范围",
+          "hueRange": "颜色范围色相范围",
+          "hueShift": "颜色范围色相",
+          "hueUniformity": "颜色范围色相均匀度",
+          "lightnessRange": "颜色范围明度范围",
+          "lightnessShift": "颜色范围明度",
+          "lightnessUniformity": "颜色范围明度均匀度",
+          "saturation": "颜色范围饱和度",
+          "saturationUniformity": "颜色范围饱和度均匀度",
+          "smoothness": "颜色范围平滑度"
+        },
+        "hintEmpty": "在照片中吸取颜色以调整该颜色范围。",
+        "hintPicking": "点击照片中的颜色。",
+        "lightness": "明度",
+        "pickAgainAria": "重新吸取范围颜色",
+        "pickAgainTitle": "重新吸取此范围的颜色",
+        "pickAria": "吸取颜色范围",
+        "pickTitle": "在照片中吸取颜色",
+        "range": "范围",
+        "rangeAria": "颜色范围 {{hue}}°",
+        "removeAria": "移除颜色范围",
+        "removeTitle": "移除此范围",
+        "selectRange": "选择此颜色范围",
+        "showAria": "显示范围",
+        "showTitle": "显示所选范围（其余为灰色）",
+        "smoothness": "平滑度",
+        "title": "颜色编辑器",
+        "uniformity": "均匀度"
+      },
+      "grading": {
+        "hueAria": "{{range}}色相",
+        "luminanceAria": "{{range}}亮度",
+        "ranges": "范围",
+        "saturationAria": "{{range}}饱和度",
+        "title": "颜色分级",
+        "tonalRange": "色调范围"
+      },
+      "wheel": {
+        "aria": "{{range}}色相和饱和度",
+        "title": "拖动调整色相和饱和度 · Shift 微调 · Alt 保持色相 · 双击重置",
+        "valueText": "色相 {{hue}}°，饱和度 {{saturation}}"
+      }
+    },
+    "crop": {
+      "add": "添加",
+      "addRatioTitle": "添加自定义比例",
+      "aria": {
+        "addRatio": "添加裁剪比例",
+        "grid": "裁剪网格",
+        "outside": "裁剪外部变暗",
+        "overlay": "裁剪叠加",
+        "ratio": "裁剪宽高比",
+        "ratioHeight": "比例高度",
+        "ratioWidth": "比例宽度",
+        "size": "裁剪尺寸",
+        "straightenTool": "拉直工具"
+      },
+      "flipHorizontal": "水平翻转",
+      "flipVertical": "垂直翻转",
+      "grid": {
+        "always": "始终",
+        "drag": "拖动时",
+        "label": "网格"
+      },
+      "landscape": "横向",
+      "levelByLine": "按直线校平",
+      "off": "关",
+      "outside": "外部",
+      "overlay": "叠加",
+      "overlays": {
+        "armature": "结构线",
+        "center": "中心",
+        "diagonal": "对角线",
+        "goldenSpiral": "黄金螺旋",
+        "goldenTriangle": "黄金三角",
+        "phiGrid": "黄金分割",
+        "thirds": "三分法"
+      },
+      "portrait": "纵向",
+      "ratio": "比例",
+      "ratios": {
+        "aPaper": "A 系列纸张（√2 × 1）",
+        "current": "当前（{{ratio}}:1）",
+        "original": "原始",
+        "unconstrained": "不受约束"
+      },
+      "reset": "重置",
+      "resetTitle": "重置裁剪和拉直",
+      "rotateLeft": "向左旋转",
+      "rotateRight": "向右旋转",
+      "size": "尺寸",
+      "straighten": "拉直",
+      "straightenToolTitle": "沿应水平或垂直的边缘画一条线",
+      "swapOrientation": "切换纵向和横向",
+      "turnOverlay": "旋转叠加"
+    },
+    "develop": {
+      "auto": {
+        "label": "自动",
+        "title": "自动调整（{{shortcut}}）"
+      },
+      "baseCurve": {
+        "curve": "曲线",
+        "extraShadow": "加强阴影",
+        "highContrast": "高对比度",
+        "linear": "线性响应",
+        "profile": "配置文件",
+        "standard": "标准"
+      },
+      "bypass": {
+        "bypassed": "已绕过{{section}}",
+        "enable": "启用",
+        "enableSection": "启用{{section}}"
+      },
+      "colorMixer": {
+        "select": {
+          "aquas": "选择浅绿色",
+          "blues": "选择蓝色",
+          "greens": "选择绿色",
+          "magentas": "选择洋红",
+          "oranges": "选择橙色",
+          "purples": "选择紫色",
+          "reds": "选择红色",
+          "yellows": "选择黄色"
+        }
+      },
+      "curve": {
+        "aria": "{{channel}}点曲线。单击添加点，拖动调整，双击点将其删除。",
+        "ariaChannels": {
+          "blue": "蓝色",
+          "green": "绿色",
+          "luma": "亮度",
+          "red": "红色"
+        },
+        "channel": "曲线通道",
+        "input": "输入",
+        "maxPoints": "每个通道最多 {{max}} 个点。移动或删除点以细调曲线。",
+        "output": "输出"
+      },
+      "effects": {
+        "light": "光线",
+        "style": "样式",
+        "styles": {
+          "colorPriority": "颜色优先",
+          "highlightPriority": "高光优先",
+          "paintOverlay": "绘画叠加"
+        },
+        "vignetteStyle": "暗角样式"
+      },
+      "geometry": {
+        "transform": "变换"
+      },
+      "groups": {
+        "baseCharacteristics": "基本特性",
+        "colorMixer": "颜色混合器",
+        "crop": "裁剪",
+        "defringe": "去边",
+        "effects": "效果",
+        "exposure": "曝光",
+        "faceRetouch": "面部修饰",
+        "geometry": "几何",
+        "layersMasks": "图层与蒙版",
+        "moire": "摩尔纹",
+        "noiseReduction": "降噪",
+        "presence": "质感",
+        "toneCurve": "色调曲线",
+        "whiteBalance": "白平衡"
+      },
+      "history": {
+        "current": "当前",
+        "empty": "显影历史记录将显示在此处。",
+        "layerAdded": "新图层 {{name}}",
+        "layerDeleted": "已删除图层 {{name}}",
+        "layerOrder": "图层顺序",
+        "layerRenamed": "已重命名",
+        "many": "{{first}} +{{more}}",
+        "mask": "蒙版",
+        "opened": "打开图像",
+        "other": "调整",
+        "spots": "污点去除",
+        "title": "历史记录"
+      },
+      "layers": {
+        "background": "背景",
+        "copyName": "{{name}} 副本",
+        "defaultName": "图层 {{number}}",
+        "delete": "删除{{name}}",
+        "dragOrder": "拖动以更改图层顺序",
+        "drawMaskInside": "在内部绘制蒙版",
+        "fromSelection": "从选区新建图层",
+        "groups": {
+          "draw": "绘制",
+          "range": "范围",
+          "select": "选择"
+        },
+        "image": "图像",
+        "kindButtons": {
+          "background": "背景",
+          "brush": "画笔",
+          "color": "颜色",
+          "depth": "深度",
+          "linear": "线性",
+          "luminance": "亮度",
+          "object": "对象",
+          "people": "人物",
+          "radial": "径向",
+          "sky": "天空",
+          "subject": "主体"
+        },
+        "listAria": "图层",
+        "menu": {
+          "drawMask": "绘制蒙版",
+          "duplicate": "复制图层",
+          "duplicateInvert": "复制并反相",
+          "eraseMask": "擦除蒙版",
+          "moveDown": "下移图层",
+          "moveUp": "上移图层",
+          "rename": "重命名图层…"
+        },
+        "nameOf": "{{name}}的名称",
+        "new": "新建图层",
+        "newKind": {
+          "background": "新建图层：背景",
+          "brush": "新建画笔图层",
+          "color": "新建图层：颜色范围",
+          "depth": "新建图层：深度范围",
+          "linear": "新建线性渐变图层",
+          "luminance": "新建图层：亮度范围",
+          "object": "新建图层：对象",
+          "people": "新建图层：人物",
+          "radial": "新建径向渐变图层",
+          "sky": "新建图层：天空",
+          "subject": "新建图层：主体"
+        },
+        "newLayerTitle": "新建图层：{{kind}}",
+        "newRadialInside": "新建径向图层（内部）· 右键单击查看选项",
+        "newRadialOutside": "新建径向图层（外部）· 右键单击查看选项",
+        "newTitle": "新建图层：绘制、选择或范围",
+        "noneYet": "尚无图层。用 + 或在“图层”标签中添加。",
+        "select": "选择{{name}}",
+        "toggle": "显示/隐藏{{name}}"
+      },
+      "layout": {
+        "collapseAll": "折叠所有工具",
+        "expandAll": "展开所有工具",
+        "moveDown": "下移",
+        "moveUp": "上移",
+        "restoreOrder": "恢复默认顺序",
+        "restoreOrderMenu": "恢复默认工具顺序",
+        "restoreOrderTitle": "将工具恢复为原始顺序"
+      },
+      "maskOverlay": {
+        "button": "蒙版叠加",
+        "color": "蒙版颜色",
+        "colorMask": "{{color}}蒙版",
+        "colors": {
+          "black": "黑色",
+          "green": "绿色",
+          "red": "红色",
+          "white": "白色"
+        },
+        "custom": "自定义蒙版颜色",
+        "display": "蒙版显示",
+        "modes": {
+          "always": "始终",
+          "drawing": "绘制时",
+          "grayscale": "灰度",
+          "never": "从不"
+        },
+        "opacity": "蒙版不透明度",
+        "showMask": "显示蒙版",
+        "showMaskTitle": "M 显示或隐藏蒙版，{{key}} 显示或隐藏灰度蒙版",
+        "title": "蒙版叠加：何时以及如何显示蒙版"
+      },
+      "noise": {
+        "colorDetailAria": "颜色噪点细节",
+        "colorSmoothnessAria": "颜色噪点平滑度",
+        "denoising": "正在对 RAW 降噪… 首次约需半分钟。",
+        "lumaContrastAria": "亮度噪点对比度",
+        "lumaDetailAria": "亮度噪点细节"
+      },
+      "noPhoto": "在显影中打开照片以进行调整。",
+      "params": {
+        "blackAndWhite": "黑白",
+        "bwMix": "黑白混合",
+        "calibration": "校准",
+        "colorDetail": "颜色细节",
+        "colorGrading": "颜色分级",
+        "colorRanges": "颜色范围",
+        "colorSmoothness": "颜色平滑度",
+        "curves": "曲线",
+        "grainSize": "颗粒大小",
+        "greenAmount": "绿色数量",
+        "greenHueFrom": "绿色色相起点",
+        "greenHueTo": "绿色色相终点",
+        "hsl": "色相、饱和度、亮度",
+        "levels": "色阶",
+        "lumaContrast": "亮度对比度",
+        "lumaDetail": "亮度细节",
+        "lutAmount": "LUT 强度",
+        "purpleAmount": "紫色数量",
+        "purpleHueFrom": "紫色色相起点",
+        "purpleHueTo": "紫色色相终点",
+        "regionCurve": "区域曲线"
+      },
+      "sliders": {
+        "aiDenoise": "AI 降噪",
+        "aspect": "长宽比",
+        "blacks": "黑色色阶",
+        "brightness": "亮度",
+        "contrast": "对比度",
+        "detail": "细节",
+        "distortion": "扭曲",
+        "exposure": "曝光",
+        "falloff": "衰减",
+        "highlights": "高光",
+        "horizontal": "水平",
+        "lightFlare": "光线耀斑",
+        "masking": "蒙版",
+        "offsetX": "X 偏移",
+        "offsetY": "Y 偏移",
+        "pattern": "图案",
+        "radius": "半径",
+        "rotation": "旋转",
+        "scale": "缩放",
+        "shadows": "阴影",
+        "smoothness": "平滑度",
+        "vertical": "垂直",
+        "whites": "白色色阶"
+      },
+      "tabs": {
+        "adjust": "调整",
+        "adjustTitle": "调整",
+        "aria": "调整工具",
+        "color": "颜色",
+        "crop": "裁剪",
+        "cropTitle": "裁剪、几何与镜头",
+        "detail": "细节",
+        "layers": "图层",
+        "layersTitle": "图层与蒙版",
+        "retouch": "修饰"
+      },
+      "target": {
+        "background": "编辑背景",
+        "layer": "正在编辑：{{name}}",
+        "photoOnly": "面部修饰作用于整张照片。请选择背景后使用。"
+      },
+      "targeted": {
+        "bwMix": "目标黑白混合",
+        "hint": "{{tool}}：在照片上向上或向下拖动（Shift：更精细，Esc：关闭）",
+        "hue": "目标色相",
+        "label": "目标",
+        "luminance": "目标亮度",
+        "saturation": "目标饱和度",
+        "toneCurve": "目标色调曲线"
+      },
+      "toolGroup": {
+        "isOn": "{{tool}} 开启",
+        "reset": "重置{{tool}}",
+        "turnOff": "关闭{{tool}}",
+        "turnOn": "开启{{tool}}"
+      },
+      "whiteBalance": {
+        "camera": "相机白平衡",
+        "picker": "白平衡吸管",
+        "pickerOnBackground": "白平衡吸管仅在背景上可用",
+        "pickNeutral": "选取中性区域",
+        "relative": "相对校正",
+        "relativeTemperature": "相对色温",
+        "relativeTint": "相对色调",
+        "temp": "色温"
+      }
+    },
+    "export": {
+      "actions": {
+        "addToQueue": "加入队列",
+        "cancel": "取消导出",
+        "chooseAndExport": "选择位置并导出",
+        "choosing": "选择目标位置…",
+        "export": "导出",
+        "exportWithRecipes_other": "用 {{count}} 个配方导出"
+      },
+      "border": {
+        "add": "添加边框",
+        "color": "边框颜色",
+        "eachEdge": "每条边",
+        "leftRight": "左右 (%)",
+        "legend": "边框",
+        "longEdge": "长边",
+        "measuredOn": "测量基准",
+        "measuredOnAria": "边框测量基准",
+        "shortEdge": "短边",
+        "topBottom": "上下 (%)"
+      },
+      "canvas": {
+        "color": "画布颜色",
+        "legend": "画布",
+        "pad": "填充至宽高比",
+        "ratio": "宽高比",
+        "ratioHeight": "比例高度",
+        "ratioWidth": "比例宽度"
+      },
+      "destination": {
+        "aria": "导出目标位置",
+        "choose": "选择文件夹…",
+        "errors": {
+          "fullPath": "请使用文件夹名称，而不是驱动器或完整路径。",
+          "outside": "子文件夹必须位于目标文件夹内。"
+        },
+        "exportTo": "导出到",
+        "keepStructure": "保留文件夹结构",
+        "legend": "目标位置",
+        "original": "原始文件旁",
+        "output": "会话的 Output 文件夹",
+        "subfolder": "放入子文件夹",
+        "subfolderAria": "子文件夹"
+      },
+      "dialogs": {
+        "customName": "自定义",
+        "exportFile": "导出照片（{{name}}）",
+        "exportFolder_other": "导出 {{count}} 张照片（{{name}}）",
+        "imageFilter": "图像",
+        "watermarkTitle": "选择水印图像"
+      },
+      "estimate": "预计大小：约 {{size}}",
+      "estimatePerFile": "预计大小：约 {{size}}（每个文件 {{perFile}}）",
+      "file": {
+        "bitDepth": "位深度",
+        "bits": "{{bits}} 位",
+        "colorSpace": "色彩空间",
+        "cubeLut": "CUBE LUT（色调风格）",
+        "format": "格式",
+        "jxlLossless": "质量 100 为无损。",
+        "legend": "文件设置",
+        "proPhotoWarning": "ProPhoto RGB 需要 16 位 TIFF；每通道 8 位可能出现色带。",
+        "quality": "质量",
+        "qualityAria": "{{format}} 质量",
+        "template": "文件名模板",
+        "templateHelp": "可使用 {{original}}、{{sequence}} 和拍摄日期 {{date}}。"
+      },
+      "help": "绝不覆盖现有文件。您的原始照片保持不变。",
+      "masks": {
+        "exportEach": "同时导出每个蒙版",
+        "hint": "每个蒙版以图像和 Alpha PNG 形式保存在照片旁。",
+        "legend": "蒙版"
+      },
+      "metadata": {
+        "include": "包含元数据",
+        "legend": "元数据",
+        "stripGps": "移除位置信息",
+        "timestamps": "文件日期设为拍摄时间"
+      },
+      "more": "更多",
+      "none": "无",
+      "plan": {
+        "fullSize": "原始尺寸",
+        "legend": "本次导出",
+        "quality": "质量 {{quality}}"
+      },
+      "progress": {
+        "cancelling": "正在取消…",
+        "complete": "导出完成。",
+        "exporting": "正在导出 {{current}}/{{total}}"
+      },
+      "queue": {
+        "cancelled": "已取消（已导出 {{done}}/{{total}}）",
+        "done": "完成",
+        "failed": "{{failed}}/{{total}} 失败",
+        "interrupted": "已中断（已导出 {{done}}/{{total}}）",
+        "remove": "移除",
+        "resume": "继续",
+        "retry": "重试",
+        "running": "正在导出（已导出 {{done}}/{{total}}）",
+        "start": "开始",
+        "title": "导出队列",
+        "waiting": "等待中",
+        "waitingProgress": "等待中（已导出 {{done}}/{{total}}）"
+      },
+      "recipes": {
+        "current": "当前设置",
+        "currentUnused": "当前设置。已勾选的配方按各自的设置导出。",
+        "delete": "删除配方 {{name}}",
+        "edit": "查看并编辑此配方",
+        "editingCurrent": "当前设置，未保存为配方。",
+        "editingRecipe": "正在编辑配方 {{name}}，更改会保存到其中。",
+        "empty": "将这些设置存为配方即可重复使用。",
+        "exportWith": "用 {{name}} 导出",
+        "legend": "配方",
+        "newName": "新配方名称",
+        "save": "存为配方"
+      },
+      "selected_other": "已选择 {{count}} 张照片",
+      "sharpening": {
+        "amount": "数量 (%)",
+        "amountAria": "锐化数量",
+        "distance": "观看距离 (cm)",
+        "hints": {
+          "off": "在调整尺寸后应用，使缩小的照片保持清晰。",
+          "print": "半径 {{radius}} px：在该距离下可见的最细细节。",
+          "screen": "在调整尺寸后应用；边框和水印不锐化。"
+        },
+        "legend": "输出锐化",
+        "off": "关",
+        "ppi": "打印分辨率 (ppi)",
+        "print": "打印",
+        "radius": "半径 (px)",
+        "radiusAria": "锐化半径",
+        "screen": "屏幕",
+        "sharpenFor": "锐化用途",
+        "threshold": "阈值",
+        "thresholdAria": "锐化阈值"
+      },
+      "sizing": {
+        "dontEnlarge": "不放大",
+        "fit": "适配方式",
+        "hints": {
+          "box": "按每张照片的方向旋转后，适合放入框内。",
+          "enlarge": "较小的照片会放大以适合。",
+          "fullResolution": "以全分辨率导出。",
+          "noEnlarge": "较小的照片不会被放大。"
+        },
+        "legend": "图像尺寸",
+        "modeAria": "调整尺寸方式",
+        "modes": {
+          "dimensions": "尺寸",
+          "height": "高度",
+          "longEdge": "长边",
+          "megapixels": "百万像素",
+          "percentage": "百分比",
+          "shortEdge": "短边",
+          "width": "宽度"
+        },
+        "otherSideAria": "尺寸，另一边 (px)",
+        "resize": "调整尺寸以适合",
+        "valueLabel": "{{name}} ({{unit}})"
+      },
+      "toasts": {
+        "queuedMany_other": "已将 {{count}} 个导出加入队列。",
+        "queuedOne": "已加入导出队列。"
+      },
+      "watermark": {
+        "add": "添加水印",
+        "anchors": {
+          "bottomCenter": "下中",
+          "bottomLeft": "左下",
+          "bottomRight": "右下",
+          "center": "居中",
+          "centerLeft": "左中",
+          "centerRight": "右中",
+          "topCenter": "上中",
+          "topLeft": "左上",
+          "topRight": "右上"
+        },
+        "choose": "选择…",
+        "chooseAria": "选择水印图像",
+        "color": "颜色",
+        "colorAria": "水印颜色",
+        "font": "字体",
+        "fontAria": "水印字体",
+        "image": "图像",
+        "inset": "边距（短边的 %）",
+        "kind": "类型",
+        "kindAria": "水印类型",
+        "legend": "水印",
+        "missingImage": "请选择水印图像，或关闭水印。",
+        "missingText": "请输入水印文本，或关闭水印。",
+        "opacity": "不透明度 (%)",
+        "positionAria": "水印位置",
+        "shadow": "阴影",
+        "systemFont": "系统无衬线字体",
+        "text": "文本",
+        "textAria": "水印文本",
+        "width": "宽度（短边的 %）"
+      }
+    },
+    "faceRetouch": {
+      "allFaces": "所有人脸",
+      "applied": "已应用到 {{done}}/{{total}} 张",
+      "applying_other": "正在应用到 {{count}} 张照片…",
+      "applyTo_other": "应用到 {{count}} 张所选照片",
+      "aria": {
+        "blemishes": "人脸瑕疵",
+        "contouring": "人脸轮廓",
+        "darkCircles": "人脸黑眼圈",
+        "evenSkin": "人脸均匀肤色",
+        "impact": "人脸强度",
+        "shine": "人脸油光",
+        "texture": "人脸纹理"
+      },
+      "downloadModels": "下载面部模型",
+      "face": "人脸 {{n}}",
+      "faceOwn": "人脸 {{n}}（单独设置）",
+      "facesAria": "人脸",
+      "finding": "正在查找人脸…",
+      "healed_other": "已修复 {{count}} 处瑕疵",
+      "includeNeck": "包括颈部",
+      "modelsMissing": "面部修饰需要面部模型。模型只会从 GitHub 上的 Rawtonic 模型包下载一次，并在这台电脑上运行。",
+      "noFaces": "此照片中未找到人脸。",
+      "showBlemishes": "显示瑕疵（点击可保留或修复）",
+      "sliders": {
+        "blemishes": "瑕疵",
+        "contouring": "轮廓",
+        "darkCircles": "黑眼圈",
+        "evenSkin": "均匀肤色",
+        "impact": "强度",
+        "shine": "油光",
+        "texture": "纹理"
+      },
+      "useAll": "使用所有人脸的值"
+    },
+    "histogram": {
+      "aria": "图像直方图",
+      "clipping": "剪切",
+      "clippingTitle": "剪切警告：剪切的高光显示为红色，剪切的阴影显示为蓝色（{{shortcut}}）",
+      "gamut": "色域警告",
+      "gamutTitle": "色域警告：超出校样色彩空间的颜色显示为红色",
+      "graphAria": "所选照片的 RGB 亮度分布",
+      "graphEmpty": "打开照片后可查看直方图",
+      "proof": "校样",
+      "proofSpace": "校样色彩空间",
+      "proofTitle": "软校样：按所选色彩空间导出后的效果显示照片（{{shortcut}}）",
+      "selectPhoto": "选择一张照片",
+      "title": "直方图"
+    },
+    "layers": {
+      "brush": {
+        "autoMask": "自动蒙版",
+        "brushFlow": "画笔流量",
+        "brushOpacity": "画笔不透明度",
+        "brushSize": "画笔大小",
+        "hardness": "硬度",
+        "size": "大小"
+      },
+      "draw": "绘制",
+      "drawInside": "在内部绘制蒙版",
+      "drawTitle": "在此图层的蒙版上绘制（渐变仍可编辑）",
+      "erase": "擦除",
+      "eraseTitle": "从此图层的蒙版中擦除（渐变仍可编辑）",
+      "invert": "反转",
+      "invertTitle": "反转此图层的蒙版",
+      "lumaRange": {
+        "falloff": "过渡",
+        "highlights": "高光",
+        "limit": "限制到亮度范围…",
+        "limitTitle": "将此图层限制在一个色调范围内",
+        "removeAria": "移除亮度范围",
+        "removeTitle": "移除亮度范围",
+        "sample": "从照片取样色调",
+        "sampleHint": "单击照片中的色调，或拖过一个区域。按住 Shift 可扩展范围。",
+        "shadows": "阴影",
+        "title": "亮度范围"
+      },
+      "paintAria": "在蒙版上绘制",
+      "select": {
+        "aria": "图层",
+        "background": "背景",
+        "title": "调整所作用的图层"
+      }
+    },
+    "lens": {
+      "aria": {
+        "make": "镜头品牌",
+        "model": "镜头型号"
+      },
+      "cameraData": "相机数据",
+      "cameraDataOf": "相机数据（{{maker}}）",
+      "chooseLens": "选择镜头",
+      "chromaticShort": "色差",
+      "diffraction": "衍射校正",
+      "diffractionTitle": "根据光圈值和像素尺寸锐化小光圈造成的模糊",
+      "distortion": "畸变",
+      "enable": "启用配置文件校正",
+      "lookingUp": "正在查找镜头…",
+      "make": "品牌",
+      "model": "型号",
+      "noFocalData": "该配置文件没有此焦距的数据。",
+      "none": "无",
+      "notFound": "未找到 {{lens}} 的配置文件；请在下方选择镜头。",
+      "notFoundPhoto": "未找到此照片的配置文件；请在下方选择镜头。",
+      "profile": "配置文件",
+      "removeCa": "移除色差",
+      "removeCaTitle": "测量此照片边缘的红色和蓝色色边并对齐颜色；替代配置文件中的色差校正",
+      "title": "镜头校正",
+      "useCameraData": "使用相机数据（{{maker}}）",
+      "useDatabase": "使用镜头数据库…",
+      "useDatabaseTitle": "改为从镜头数据库中选择配置文件",
+      "vignetting": "暗角"
+    },
+    "library": {
+      "albumMenu": {
+        "added_other": "已将 {{n}} 张照片添加到 {{album}}",
+        "addFailed": "无法添加到 {{album}}：{{error}}",
+        "empty": "还没有相册。请在图库的“相册”工具中创建。",
+        "label": "添加到相册",
+        "reading": "正在读取相册…"
+      },
+      "albums": {
+        "albumHint": "将照片拖放到此处以添加",
+        "confirm": {
+          "cancel": "取消",
+          "delete": "删除",
+          "deleteAlbum": "删除“{{name}}”？照片会保留。",
+          "deleteGroup": "删除“{{name}}”及其中的相册？照片会保留。",
+          "label": "删除相册"
+        },
+        "empty": "选择照片并按 + 将它们放入一个相册。",
+        "groupHint": "将相册拖入此组",
+        "menu": {
+          "addSelected": "添加所选照片",
+          "addSelectedCount_other": "添加 {{count}} 张所选照片",
+          "deleteAlbum": "删除相册…",
+          "deleteGroup": "删除组…",
+          "newAlbum": "新建相册",
+          "newAlbumFromSelected_other": "用 {{count}} 张所选照片新建相册",
+          "newAlbumInGroup": "在此组中新建相册",
+          "newGroup": "新建组",
+          "newGroupInGroup": "在此组中新建组",
+          "removeSelected": "移除所选照片",
+          "rename": "重命名"
+        },
+        "newAlbumName": "新相册名称",
+        "newGroupName": "新组名称",
+        "newTitle": "新建相册或组",
+        "renameLabel": "重命名 {{name}}",
+        "title": "相册",
+        "toasts": {
+          "addFailed": "无法添加照片：{{error}}",
+          "createAlbumFailed": "无法创建相册：{{error}}",
+          "createGroupFailed": "无法创建组：{{error}}",
+          "deleteFailed": "无法删除相册：{{error}}",
+          "moveFailed": "无法移动相册：{{error}}",
+          "openFailed": "无法打开相册：{{error}}",
+          "readFailed": "无法读取相册：{{error}}",
+          "removeFailed": "无法移除照片：{{error}}",
+          "renameFailed": "无法重命名相册：{{error}}"
+        }
+      },
+      "browser": {
+        "emptyHint": "请选择文件夹、导入照片或清除筛选。",
+        "emptyTitle": "没有可显示的照片",
+        "filmstrip": "胶片条",
+        "photographs": "照片",
+        "picked": "留用",
+        "rate_other": "将 {{name}} 评为 {{count}} 星",
+        "rating": "星级",
+        "rejected": "排除",
+        "stars_other": "{{count}} 星",
+        "virtualCopy": "虚拟副本",
+        "virtualCopyName": "{{name}}（虚拟副本）"
+      },
+      "colorLabels": {
+        "blue": "蓝色标签",
+        "green": "绿色标签",
+        "purple": "紫色标签",
+        "red": "红色标签",
+        "yellow": "黄色标签"
+      },
+      "colors": {
+        "blue": "蓝色",
+        "green": "绿色",
+        "purple": "紫色",
+        "red": "红色",
+        "yellow": "黄色"
+      },
+      "drag": {
+        "photographs_other": "{{n}} 张照片"
+      },
+      "filters": {
+        "allLabels": "全部标签",
+        "byColor": "按颜色标签筛选",
+        "byFlag": "按旗标筛选",
+        "clear": "清除",
+        "clearFilters": "清除筛选",
+        "label": "图库筛选",
+        "matching_other": "{{label}}：{{n}} 张匹配的照片",
+        "multipleLabels": "多个标签",
+        "noLabel": "无标签"
+      },
+      "flags": {
+        "all": "全部",
+        "picked": "留用",
+        "rejected": "排除",
+        "unflagged": "无旗标"
+      },
+      "folders": {
+        "addFolder": "添加文件夹",
+        "addFolderButton": "添加文件夹…",
+        "addFolderTitle": "将文件夹添加到图库",
+        "collapse": "折叠 {{name}}",
+        "empty": "添加文件夹以查看其中的照片。",
+        "expand": "展开 {{name}}",
+        "favorites": "收藏",
+        "find": "查找文件夹",
+        "library": "图库",
+        "menu": {
+          "addToFavorites": "添加到收藏",
+          "moveCopiedHere_other": "将 {{count}} 张已复制的照片移到此处",
+          "moveSelectedHere_other": "将 {{count}} 张所选照片移到此处",
+          "newFolder": "新建文件夹…",
+          "pasteCopiesHere_other": "在此处粘贴 {{count}} 张照片的副本",
+          "refresh": "刷新文件夹",
+          "removeFromFavorites": "从收藏中移除",
+          "removeFromLibrary": "从图库中移除",
+          "renameFolder": "重命名文件夹…",
+          "showInFileManager": "在文件管理器中显示",
+          "showInFinder": "在访达中显示",
+          "trashFolder": "将文件夹移到回收站"
+        },
+        "noMatch": "没有文件夹名称包含“{{filter}}”。",
+        "reading": "正在读取文件夹…",
+        "session": "会话",
+        "sort": {
+          "ascending": "升序",
+          "created": "创建日期",
+          "descending": "降序",
+          "imageCount": "照片数量",
+          "modified": "修改日期",
+          "name": "名称"
+        },
+        "sortFolders": "文件夹排序",
+        "title": "文件夹",
+        "toasts": {
+          "showFailed": "无法显示文件夹：{{error}}"
+        }
+      },
+      "navigator": {
+        "empty": "请选择一张照片",
+        "title": "导航器"
+      }
+    },
+    "lut": {
+      "amount": "数量",
+      "aria": {
+        "amount": "LUT 数量"
+      },
+      "builtIn": "内置",
+      "import": "导入…",
+      "imported": "已导入",
+      "importTitle": "导入 .cube、.3dl 或 HALD 图像 LUT",
+      "none": "无",
+      "remove": "移除",
+      "removeTitle": "从 Rawtonic 中移除此导入的 LUT",
+      "toasts": {
+        "importFailed": "无法导入 LUT。",
+        "removeFailed": "无法移除 LUT。"
+      }
+    },
+    "masks": {
+      "addTitle": "添加到此图层的蒙版",
+      "aria": {
+        "combine": "与蒙版组合",
+        "components": "蒙版组件",
+        "delete": "删除{{name}}",
+        "invert": "反转{{name}}",
+        "mode": "{{name}}的模式",
+        "modeValue": "{{name}}的模式：{{mode}}",
+        "select": "选择{{name}}",
+        "toggle": "显示/隐藏{{name}}"
+      },
+      "colorSampleHint": "点击吸取颜色，拖动吸取区域；按住 Shift 最多可添加五个样本。",
+      "computing": "计算中…",
+      "depth": {
+        "falloff": "过渡",
+        "farLimit": "远端界限",
+        "nearLimit": "近端界限"
+      },
+      "erase": "擦除",
+      "hints": {
+        "color": "点击要选择的颜色。",
+        "object": "围绕对象拖出一个框。"
+      },
+      "intersectTitle": "仅保留此组件与蒙版重叠的部分",
+      "invertTitle": "反转此组件",
+      "kinds": {
+        "all": "整张照片",
+        "background": "背景",
+        "brush": "画笔",
+        "color": "颜色范围",
+        "depth": "深度范围",
+        "linear": "线性",
+        "luminance": "亮度范围",
+        "object": "对象",
+        "people": "人物",
+        "radial": "径向",
+        "sky": "天空",
+        "subject": "主体"
+      },
+      "modes": {
+        "additive": "添加",
+        "intersect": "相交",
+        "subtractive": "减去"
+      },
+      "modeTitle": "模式：{{mode}} · 点击更改",
+      "refine": "细化",
+      "refineAria": "细化颜色范围",
+      "subtractTitle": "从此图层的蒙版中减去"
+    },
+    "metadata": {
+      "appliesTo_other": "更改将应用于 {{count}} 张照片。",
+      "colorLabel": {
+        "colorAria": "{{color}}标签",
+        "group": "颜色标签",
+        "label": "标签",
+        "none": "无标签"
+      },
+      "details": {
+        "camera": "相机",
+        "captured": "拍摄时间",
+        "exposure": "曝光",
+        "file": "文件",
+        "fileSize": "文件大小",
+        "format": "格式",
+        "lens": "镜头",
+        "size": "尺寸",
+        "virtualCopy": "虚拟副本"
+      },
+      "exif": {
+        "copy": "复制",
+        "copyPosition": "复制位置",
+        "findAria": "查找 EXIF 字段",
+        "findPlaceholder": "查找字段",
+        "mapFrame": "照片位置地图",
+        "mapHint": "从 openstreetmap.org 加载地图",
+        "noData": "未加载此照片的 EXIF 数据。",
+        "openInBrowser": "在浏览器中打开",
+        "selectPhoto": "请选择一张照片。",
+        "showOnMap": "在地图上显示"
+      },
+      "fields": {
+        "comment": "注释",
+        "copyright": "版权",
+        "creator": "创作者",
+        "description": "描述",
+        "title": "标题"
+      },
+      "iptc": {
+        "fields": {
+          "city": "城市",
+          "country": "国家",
+          "countryCode": "ISO 国家代码",
+          "creatorAddress": "地址",
+          "creatorCity": "城市（联系方式）",
+          "creatorCountry": "国家（联系方式）",
+          "creatorEmail": "电子邮件",
+          "creatorJobTitle": "职位",
+          "creatorPhone": "电话",
+          "creatorPostalCode": "邮政编码",
+          "creatorRegion": "省/州（联系方式）",
+          "creatorUrl": "网站",
+          "credit": "署名行",
+          "headline": "大标题",
+          "instructions": "说明",
+          "jobId": "作业标识符",
+          "location": "子位置",
+          "source": "来源",
+          "state": "省/州",
+          "usageTerms": "使用条款"
+        },
+        "sections": {
+          "content": "内容",
+          "creatorContact": "创作者联系方式",
+          "location": "位置",
+          "status": "状态"
+        }
+      },
+      "keywords": {
+        "add": "添加关键字",
+        "addTo_other": "添加到 {{count}} 张照片",
+        "none": "无关键字",
+        "ofSelection": "所选内容的关键字",
+        "partial_other": "{{count}} 张照片中的 {{on}} 张",
+        "removeAria": "移除关键字 {{keyword}}",
+        "removeTitle": "移除 {{keyword}}",
+        "selectToAdd": "选择照片以添加关键字。",
+        "title": "关键字"
+      },
+      "mixed": "多个值",
+      "notInSession": "部分所选照片不属于此会话。",
+      "outsideSessions": "在会话之外，描述、创作者、版权和注释随每张照片的编辑一起保存；标题和 IPTC 字段保存在会话中。",
+      "selectToSee": "选择照片以查看其元数据。",
+      "title": "元数据",
+      "toasts": {
+        "keywordsRemoveFailed": "无法移除关键字：{{error}}",
+        "keywordsSaveFailed": "无法保存关键字：{{error}}",
+        "readFailed": "无法读取元数据：{{error}}",
+        "saveFailed": "无法保存元数据：{{error}}"
+      }
+    },
+    "people": {
+      "aria": "人物蒙版",
+      "everyone": "所有人",
+      "finding": "正在查找人物…",
+      "noFaces": "未找到人脸。身体部位和整个人物仍对所有人有效。",
+      "parts": {
+        "bodySkin": "身体皮肤",
+        "clothes": "衣服",
+        "entirePerson": "整个人物",
+        "eyebrows": "眉毛",
+        "faceSkin": "面部皮肤",
+        "hair": "头发",
+        "iris": "虹膜和瞳孔",
+        "lips": "嘴唇",
+        "sclera": "眼白",
+        "teeth": "牙齿"
+      },
+      "partsAria": "部位",
+      "person": "人物 {{n}}",
+      "personAria": "人物",
+      "personProfile": "人物 {{n}}（侧脸：无眼睛、眉毛、嘴唇或牙齿）"
+    },
+    "presets": {
+      "amount": "预设强度",
+      "appliesAll": "应用存储时的全部设置",
+      "appliesSaved": "应用存储时包含的设置",
+      "appliesToSelection_other": "单击将应用到 {{count}} 张所选照片。",
+      "cancel": "取消",
+      "delete": "删除",
+      "deleteConfirm": "删除“{{name}}”？",
+      "deleteFolder": "删除文件夹",
+      "deleteFolderWithPresets_other": "删除“{{name}}”及其中的 {{count}} 个预设？",
+      "deletePreset": "删除预设",
+      "empty": "尚无预设。调整照片后按 + 存储其设置。",
+      "exportTitle": "导出 {{name}}",
+      "fileType": "Rawtonic 预设",
+      "find": "查找预设",
+      "folderName": "文件夹名称",
+      "form": {
+        "crop": "裁剪与几何",
+        "folderAria": "预设文件夹",
+        "masks": "图层与蒙版",
+        "nameAria": "预设名称",
+        "namePlaceholder": "名称",
+        "onlyChanged": "仅已更改的设置",
+        "save": "存储"
+      },
+      "importButton": "导入预设",
+      "importButtonTitle": "导入 Lightroom 预设或 Capture One 样式",
+      "importFilter": "预设和样式",
+      "importTitle": "导入预设和样式",
+      "menu": {
+        "delete": "删除…",
+        "duplicate": "复制",
+        "export": "导出…",
+        "moveTo": "移动到",
+        "rename": "重命名",
+        "update": "用当前设置更新"
+      },
+      "newFolder": "新建预设文件夹",
+      "newFolderTitle": "新建文件夹",
+      "newPreset": "新建预设",
+      "newPresetTitle": "将当前设置存储为预设",
+      "noFolder": "无文件夹",
+      "renameAria": "重命名 {{name}}",
+      "sort": "排序预设",
+      "sortTitle": "按 A–Z 排序文件夹和预设",
+      "style": "样式",
+      "title": "样式和预设",
+      "toasts": {
+        "exported": "已导出 {{name}}",
+        "exportFailed": "导出失败：{{error}}",
+        "imported_other": "已导入 {{count}} 个",
+        "importedWithFailures": "已导入 {{imported}} 个，{{failed}} 个失败：{{files}}",
+        "importFailed": "导入失败：{{error}}"
+      }
+    },
+    "profile": {
+      "aria": "相机配置文件",
+      "dcpFilter": "DCP 相机配置文件",
+      "forCamera": "适用于 {{camera}}",
+      "importDcp": "导入 DCP…",
+      "label": "配置文件"
+    },
+    "spot": {
+      "withShortcut": "{{text}}（{{key}}）"
+    },
+    "tone": {
+      "defringe": {
+        "green": "绿色",
+        "greenFrom": "绿色起点",
+        "greenTo": "绿色终点",
+        "purple": "紫色",
+        "purpleFrom": "紫色起点",
+        "purpleTo": "紫色终点",
+        "title": "去边"
+      },
+      "levels": {
+        "auto": "自动",
+        "autoAria": "自动色阶",
+        "autoTitle": "根据直方图设置黑场和白场",
+        "black": "黑",
+        "channelAria": "色阶通道",
+        "highlight": "高光",
+        "midtone": "中间调",
+        "output": "输出",
+        "shadow": "阴影",
+        "title": "色阶",
+        "white": "白"
+      },
+      "regionCurve": {
+        "aria": {
+          "darks": "区域曲线暗部",
+          "highlights": "区域曲线高光",
+          "highlightSplit": "区域曲线高光分界",
+          "lights": "区域曲线亮部",
+          "midtoneSplit": "区域曲线中间调分界",
+          "shadows": "区域曲线阴影",
+          "shadowSplit": "区域曲线阴影分界"
+        },
+        "labels": {
+          "darks": "暗部",
+          "highlights": "高光",
+          "highlightSplit": "高光",
+          "lights": "亮部",
+          "midtoneSplit": "中间调",
+          "shadows": "阴影",
+          "shadowSplit": "阴影"
+        },
+        "region": "区域",
+        "splits": "分界"
+      }
+    },
+    "tools": {
+      "bar": {
+        "aria": "光标工具",
+        "brush": {
+          "label": "画笔",
+          "title": "在所选图层上绘制，或新建画笔图层"
+        },
+        "crop": {
+          "label": "裁剪",
+          "title": "裁剪与几何"
+        },
+        "erase": {
+          "label": "橡皮擦",
+          "title": "从所选图层的蒙版中擦除"
+        },
+        "linear": {
+          "label": "线性渐变",
+          "title": "新建线性渐变图层"
+        },
+        "radial": {
+          "label": "径向渐变",
+          "title": "新建径向渐变图层"
+        },
+        "rightClickHint": "{{hint}} · 右键单击照片查看设置",
+        "select": {
+          "label": "选择",
+          "title": "选择和编辑（无绘制工具）"
+        },
+        "spot": {
+          "label": "污点去除",
+          "title": "移除、修复或仿制：单击污点或沿其拖动；“移除”使用本地 AI 模型填充，启用“检测对象”时单击或框选可选择要移除的对象"
+        },
+        "straighten": {
+          "label": "拉直",
+          "title": "沿应水平或垂直的边缘画一条线"
+        },
+        "wb": {
+          "label": "白平衡吸管",
+          "title": "为白平衡选取中性区域"
+        }
+      },
+      "copy": {
+        "apply": "应用",
+        "applyCount": "应用（{{n}}）",
+        "applyHere": "应用到此处",
+        "applyTo_other": "应用到其他 {{count}} 张所选照片",
+        "aria": "复制并应用{{tool}}",
+        "buttonTitle": "复制或应用{{tool}}（Option 单击复制，Shift 单击复制并应用）",
+        "cancel": "取消",
+        "copiedFrom": "复制自 {{source}}",
+        "copy": "复制",
+        "from": "来自 {{source}}",
+        "noOthers": "在胶片条中选择其他照片以应用到它们"
+      },
+      "popover": {
+        "resetBrush": "重置画笔",
+        "resetCrop": "重置裁剪和拉直",
+        "resetOpacity": "重置不透明度",
+        "resetOpacityFeather": "重置不透明度和羽化",
+        "resetSpot": "重置污点设置",
+        "settings": "{{tool}}设置",
+        "titles": {
+          "brush": "画笔",
+          "crop": "裁剪",
+          "eraser": "橡皮擦",
+          "layer": "图层",
+          "linear": "线性渐变",
+          "radial": "径向渐变",
+          "spot": "污点去除"
+        }
+      }
+    },
+    "upright": {
+      "autoDone": {
+        "full": "自动：已校正垂直和水平透视。",
+        "level": "自动：已按照片中的直线校平。",
+        "vertical": "自动：已使汇聚的竖线平行。"
+      },
+      "clear": "清除",
+      "constrainCrop": "限制裁剪",
+      "constrainTitle": "放大以免留下空白角落",
+      "corrected": "已按你的参考线校正。",
+      "done": {
+        "full": "已校正垂直和水平透视。",
+        "level": "已按照片中的直线校平。",
+        "vertical": "已使汇聚的竖线平行。"
+      },
+      "doneButton": "完成",
+      "doneTitle": "完成（Esc）",
+      "drawHelp": "沿应为<v>垂直</v>或<h>水平</h>的边缘绘制；从第二条参考线开始校正。拖动端点可调整；单击参考线并按 Delete 键可将其删除。",
+      "drawTwo": "至少绘制两条参考线以校正透视。",
+      "editGuides": "编辑参考线",
+      "failed": "自动校正失败：{{error}}",
+      "finding": "正在查找照片中的直线…",
+      "guideCount": "垂直 {{vertical}} · 水平 {{horizontal}}",
+      "modes": {
+        "auto": {
+          "label": "自动",
+          "title": "照片有汇聚的竖线时为垂直，否则为水平"
+        },
+        "full": {
+          "label": "完全",
+          "title": "垂直和水平透视"
+        },
+        "guided": {
+          "label": "引导式",
+          "title": "在照片上绘制最多两条垂直和两条水平参考线"
+        },
+        "level": {
+          "label": "水平",
+          "title": "仅旋转"
+        },
+        "off": {
+          "label": "关",
+          "title": "不校正"
+        },
+        "vertical": {
+          "label": "垂直",
+          "title": "使汇聚的竖线平行"
+        }
+      },
+      "noLines": "未找到可用于校平的直线。",
+      "notEnoughLines": "未找到足够的汇聚线；请尝试“水平”或“引导式”。",
+      "title": "自动校正"
+    },
+    "whiteBalance": {
+      "aria": {
+        "mode": "白平衡模式",
+        "temperature": "白平衡色温",
+        "tint": "白平衡色调"
+      },
+      "modes": {
+        "asShot": "原照设置",
+        "auto": "自动",
+        "cloudy": "阴天",
+        "custom": "自定义",
+        "daylight": "日光",
+        "flash": "闪光灯",
+        "fluorescent": "荧光灯",
+        "shade": "阴影",
+        "tungsten": "钨丝灯"
+      },
+      "short": "白平衡",
+      "temp": "色温",
+      "tint": "色调",
+      "toasts": {
+        "autoFailed": "自动白平衡失败：{{error}}",
+        "needsPreview": "自动白平衡需要照片的预览"
+      }
+    },
+    "workspace": {
+      "edges": {
+        "showBars": "显示栏",
+        "showBarsAndFilmstrip": "显示栏和胶片条",
+        "showLeft": "显示左侧面板",
+        "showRight": "显示右侧面板"
+      },
+      "errors": {
+        "developTools": "显影工具",
+        "libraryTools": "图库工具"
+      },
+      "export": {
+        "button": "导出",
+        "buttonCount": "导出 {{n}}",
+        "close": "关闭工具",
+        "progress": "正在导出 {{current}} / {{total}}",
+        "title": "导出照片"
+      },
+      "flags": {
+        "clearSelected": "清除所选照片的旗标",
+        "group": "旗标",
+        "pickSelected": "留用所选照片",
+        "pickThis": "留用此照片",
+        "rejectSelected": "排除所选照片",
+        "rejectThis": "排除此照片"
+      },
+      "footer": {
+        "copy": "复制",
+        "copyAdjustments": "复制调整",
+        "filmstrip": "胶片条",
+        "hideFilmstrip": "隐藏胶片条",
+        "next": "下一张照片",
+        "noPhotograph": "无照片",
+        "paste": "粘贴",
+        "pasteAdjustments": "粘贴调整",
+        "photographs_other": "{{n}} 张照片",
+        "previous": "上一张照片",
+        "rate_other": "评为 {{count}} 星",
+        "selected_other": "已选 {{n}} 张",
+        "showFilmstrip": "显示胶片条",
+        "stars_other": "{{count}} 星"
+      },
+      "grid": {
+        "anyRating": "任意星级",
+        "filterByRating": "按星级筛选",
+        "reverseSort": "反转排序顺序",
+        "search": "搜索",
+        "searchLabel": "搜索照片",
+        "sort": "照片排序",
+        "sortBy": {
+          "date": "修改日期",
+          "name": "文件名",
+          "rating": "星级"
+        },
+        "starsAndUp_other": "{{count}} 星及以上",
+        "thumbnailSize": "缩略图大小",
+        "unrated": "无星级"
+      },
+      "layout": {
+        "moveToolsLeft": "将工具移到左侧",
+        "moveToolsRight": "将工具移到右侧",
+        "toolsLeft": "工具在左侧",
+        "toolsRight": "工具在右侧"
+      },
+      "modules": {
+        "develop": "显影",
+        "library": "图库",
+        "workspace": "工作区"
+      },
+      "noKey": "无快捷键",
+      "panelWidth": "工具面板宽度",
+      "preferences": "偏好设置",
+      "viewer": {
+        "actualPixels": "实际像素",
+        "before": "之前",
+        "empty": "从浏览器中选择一张照片。",
+        "fit": "适合",
+        "fitTitle": "适合窗口",
+        "hidePanels": "隐藏面板",
+        "imageViewer": "图像查看器",
+        "redo": "重做",
+        "reset": "重置",
+        "resetAll": "重置所有调整",
+        "resetAllTitle": "重置此照片的所有调整（按 ⌘Z 撤销）",
+        "showOriginal": "显示未编辑的照片",
+        "showPanels": "显示面板",
+        "togglePanels": "显示/隐藏面板",
+        "undo": "撤销",
+        "zoom": "缩放"
+      },
+      "withShortcut": "{{label}} ({{shortcut}})"
+    }
+  },
+  "tethering": {
+    "expMode": "曝光模式"
+  },
+  "ui": {
+    "bottomBar": {
+      "tooltips": {
+        "export": "导出"
+      }
+    },
+    "errorBoundary": {
+      "editsSafe": "已保存的编辑不受影响。",
+      "reload": "重新加载",
+      "stopped": "{{name}} 已停止工作",
+      "tryAgain": "重试"
+    },
+    "filmstrip": {
+      "tooltips": {
+        "color": "颜色：{{color}}"
+      }
+    },
+    "slider": {
+      "clickToEdit": "点击编辑",
+      "reset": "重置"
+    }
+  }
+}

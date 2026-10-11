@@ -1,0 +1,32 @@
+Rawtonic
+Copyright 2026 Rawtonic contributors
+
+Rawtonic is free software under the GNU Affero General Public License,
+version 3 or (at your option) any later version (LICENSE). It comes with
+ABSOLUTELY NO WARRANTY. Source code: https://github.com/rawtonic-app/rawtonic
+
+Rawtonic's editor derives from RapidRAW by Timon Käch and contributors
+(https://github.com/CyberTimon/RapidRAW, commit
+a82251f699333daf3648292c756485272be86187), GNU AGPL v3. Upstream
+copyright and license notices are kept in the inherited files. Rawtonic is
+an independent project, not an official RapidRAW release.
+
+This product includes DNG technology under license by Adobe.
+
+This software is based in part on the work of the Independent JPEG Group.
+
+Bundled components with their own licenses:
+- rawler (third_party/rawler), GNU LGPL v2.1, with Rawtonic's patches
+  (third_party/rawler/RAWTONIC_PATCHES.md); Sony ARW 6 decoding ported
+  from LibRaw (LGPL v2.1).
+- Lensfun lens database (src-tauri/lensfun_db), CC BY-SA 3.0.
+- spektrafilm LUTs by Andrea Volpato (src-tauri/resources/film_luts),
+  CC BY-SA 4.0.
+- Rust and npm dependencies: see THIRD_PARTY_NOTICES.md; their full
+  license texts ship with the app (THIRD_PARTY_LICENSES.txt, About).
+
+AI models are not part of this distribution. They are downloaded on first
+use, each under its own license (docs/MODELS.md, licenses/models/).
+
+Rawtonic is not affiliated with, endorsed or sponsored by Adobe, Capture
+One, Fujifilm or any other camera or software maker. See TRADEMARKS.md.

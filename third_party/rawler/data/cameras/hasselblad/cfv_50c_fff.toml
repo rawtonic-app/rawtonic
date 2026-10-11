@@ -1,0 +1,17 @@
+# Rawtonic patch: FFF files (Phocus exports) of the CFV-50c back name the body
+# differently from the 3FR files and are lossless-compressed. Matrix as the
+# X1D II 50C (Adobe DNG Converter writes the same). The X1D II FFF uses a
+# compression rawler cannot decode yet and stays refused.
+make = "Hasselblad"
+model = "Hasselblad CFV-50c"
+clean_make = "Hasselblad"
+clean_model = "CFV-50c"
+color_pattern = "RGGB"
+# 3FR files of the back on a V body name the shutter mode.
+model_aliases = [
+  [" CFV-50c/Flash Sync", "CFV-50c"],
+  ["CFV-50c/Flash Sync", "CFV-50c"],
+]
+
+[cameras.color_matrix]
+D65 = [0.5002, -0.0878, 0.0111, -0.4856, 1.1929, 0.3338, -0.1183, 0.2041, 0.7022]

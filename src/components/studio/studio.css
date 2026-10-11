@@ -1,0 +1,3734 @@
+/* Original Rawtonic workspace. Neutral chrome keeps color judgment on the image. */
+.studio-app {
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+  --studio-bg: #292a2c;
+  --studio-raised: #323335;
+  --studio-line: #17181a;
+  --studio-text: #e0e1e3;
+  --studio-muted: #a5a7aa;
+  --studio-accent: #9cb8d0;
+  color: var(--studio-text);
+}
+.studio-app .session-bar {
+  height: 44px;
+  padding: 0 10px 0 14px;
+  gap: 12px;
+  background: #242527;
+  border-color: #17181a;
+  color: var(--studio-text);
+}
+.studio-app .session-action {
+  padding: 5px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  background: transparent;
+  border-color: #46484c;
+  color: #e6e7e9;
+}
+.studio-app .session-action:hover:not(:disabled) {
+  background: #ffffff10;
+}
+.studio-app .session-primary {
+  background: #a9bdcc;
+  color: #18232a;
+  border-color: transparent;
+}
+.studio-app .session-primary:hover:not(:disabled) {
+  background: #bfd0dc;
+}
+.studio-app .session-count {
+  font-size: 11px;
+  color: #9a9ca0;
+}
+.studio-app .session-identity {
+  font-size: 12px;
+}
+.studio-app.macos-windowed .session-bar {
+  /* Native AppKit controls occupy the first 78px, including their hit areas. */
+  padding-left: 88px;
+}
+/* Room for the rounded window corner below the last row. */
+.studio-app.macos-windowed .studio-tools-scroll,
+.studio-app.macos-windowed .studio-navigation,
+.studio-app.macos-windowed .studio-secondary-panel {
+  padding-bottom: 16px;
+}
+.studio-app.macos-native-chrome .session-welcome {
+  top: 44px;
+}
+.studio-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 1.4;
+  isolation: isolate;
+  position: relative;
+  color: var(--studio-text);
+  --tools-width: 300px;
+}
+.studio-workspace button,
+.studio-workspace input,
+.studio-workspace select {
+  font: inherit;
+}
+/* In the base layer so that Tailwind colour classes (layered utilities) of the
+   inherited panels still apply: unlayered, this turned their dark text on the
+   white accent (text-button-text) light. */
+@layer base {
+  .studio-workspace button,
+  .studio-workspace input,
+  .studio-workspace select {
+    color: inherit;
+  }
+}
+.studio-workspace button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  min-height: 26px;
+  padding: 3px 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.studio-workspace button:hover:not(:disabled),
+.studio-workspace button[role="option"][data-active] {
+  background: #ffffff0c;
+  color: #fff;
+}
+.studio-workspace button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.studio-workspace button:focus-visible,
+.studio-workspace input:focus-visible,
+.studio-workspace select:focus-visible,
+.studio-workspace summary:focus-visible,
+.studio-panel-resizer:focus-visible {
+  outline: 2px solid #a9c9e1;
+  outline-offset: -2px;
+}
+.studio-workspace button[aria-pressed="true"] {
+  color: #d1e5f7;
+  background: #7893aa24;
+}
+.studio-workspace select {
+  background: #242527;
+  border: 1px solid #4b4c50;
+  border-radius: 3px;
+  padding: 3px 6px;
+  font-size: 11px;
+  max-width: 100%;
+}
+.studio-module-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 10px;
+  height: 40px;
+  flex-shrink: 0;
+  background: #242527;
+  border-bottom: 1px solid var(--studio-line);
+}
+.studio-header-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+/* Library / Develop, centred in the top bar (portalled out of the
+   workspace, so they carry their own button styles). */
+.studio-modules {
+  display: flex;
+  align-self: stretch;
+  gap: 2px;
+  padding: 3px;
+  margin: 7px 0;
+  border-radius: 5px;
+  background: #1b1c1e;
+}
+.studio-modules button,
+.studio-app .session-bar .studio-bar-icon,
+.studio-app .session-bar .studio-export-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #9c9fa4;
+  font: inherit;
+  cursor: pointer;
+}
+.studio-modules button {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 0 14px;
+  border-radius: 3px;
+}
+.studio-modules button:hover:not(:disabled) {
+  color: #f0f1f2;
+}
+.studio-modules button[aria-pressed="true"] {
+  background: #3a3c40;
+  color: #f2f3f4;
+}
+.studio-modules button:disabled,
+.studio-app .session-bar .studio-bar-icon:disabled,
+.studio-app .session-bar .studio-export-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.studio-app .session-bar .studio-bar-icon {
+  padding: 6px;
+  border-radius: 4px;
+  color: #b6b9be;
+}
+.studio-app .session-bar .studio-bar-icon:hover:not(:disabled) {
+  background: #ffffff10;
+  color: #fff;
+}
+.studio-app .session-bar .studio-export-button,
+.studio-export-button {
+  padding: 5px 11px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #a9bdcc;
+  color: #18232a;
+  font-variant-numeric: tabular-nums;
+}
+.studio-app .session-bar .studio-export-button:hover:not(:disabled) {
+  background: #bfd0dc;
+}
+.studio-modules button:focus-visible,
+.studio-app .session-bar button:focus-visible {
+  outline: 2px solid #a9c9e1;
+  outline-offset: -2px;
+}
+/* Interface size (Preferences): the tool panels and the viewer's bars are
+   zoomed; the viewer is not (the native display under it keeps its place).
+   The top bar stays, as macOS places the window buttons in it. */
+.studio-primary-panel,
+.studio-secondary-panel,
+.studio-viewer-toolbar,
+.studio-viewer-footer,
+.studio-library-toolbar,
+.studio-library-footer {
+  zoom: var(--ui-scale, 1);
+}
+.studio-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.studio-primary-panel {
+  width: var(--tools-width);
+  min-width: 270px;
+  max-width: 390px;
+  background: var(--studio-bg);
+  border-right: 1px solid var(--studio-line);
+  position: relative;
+  flex-shrink: 0;
+  z-index: 2;
+}
+.studio-primary-panel.is-library {
+  width: var(--tools-width);
+}
+.studio-center {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  order: 2;
+}
+.studio-secondary-panel {
+  width: 220px;
+  background: var(--studio-bg);
+  border-right: 1px solid var(--studio-line);
+  overflow: auto;
+  order: 0;
+}
+.split-tools .studio-primary-panel.is-develop {
+  order: 3;
+  border-left: 1px solid var(--studio-line);
+  border-right: 0;
+}
+.studio-panel-resizer {
+  position: absolute;
+  right: -3px;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+  touch-action: none;
+}
+.split-tools .is-develop .studio-panel-resizer {
+  left: -3px;
+  right: auto;
+}
+.studio-panel-resizer:hover,
+.studio-panel-resizer:focus-visible {
+  background: #9cb8d04a;
+}
+.studio-develop {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.studio-histogram {
+  padding: 10px 13px 7px;
+  border-bottom: 1px solid var(--studio-line);
+  flex-shrink: 0;
+}
+.studio-section-caption {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #c8c9cc;
+  margin-bottom: 6px;
+}
+.studio-section-caption span:last-child {
+  color: #8e9296;
+}
+.studio-histogram svg {
+  width: 100%;
+  height: 82px;
+  background: #202123;
+  display: block;
+}
+.histogram-red {
+  fill: #c9676780;
+  stroke: #c67d7d;
+  stroke-width: 0.4;
+}
+.histogram-green {
+  fill: #6aa76e77;
+  stroke: #7eb982;
+  stroke-width: 0.4;
+}
+.histogram-blue {
+  fill: #648db377;
+  stroke: #789fc7;
+  stroke-width: 0.4;
+}
+.studio-exif-line {
+  display: flex;
+  justify-content: space-between;
+  color: #a8aaae;
+  gap: 8px;
+  font-size: 10px;
+  margin-top: 6px;
+  min-height: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.studio-tool-tabs {
+  height: 44px;
+  display: flex;
+  justify-content: space-around;
+  align-items: stretch;
+  background: #252628;
+  border-bottom: 1px solid var(--studio-line);
+  flex-shrink: 0;
+}
+.studio-tool-tabs button {
+  /* As wide as its name plus an equal share of the rest: a short name
+     ("Farbe") leaves room for a long one ("Zuschnitt") in the narrowest
+     panel, where equal tabs cut translated names off. */
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px !important;
+  border-radius: 0;
+  border-bottom: 2px solid transparent;
+  color: #a8aaae;
+  min-width: 0;
+  padding-inline: 2px;
+}
+.studio-tool-tabs button > span {
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  /* Translated tab names stay inside their tab (full name in the tooltip). */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-tool-tabs button[aria-pressed="true"] {
+  border-bottom-color: var(--studio-accent);
+  color: #d8e8f4;
+  background: #3a424b55;
+}
+.studio-panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 35px;
+  padding: 0 11px;
+  border-bottom: 1px solid #1d1e20;
+  flex-shrink: 0;
+}
+.studio-panel-title strong {
+  font-size: 11px;
+  font-weight: 600;
+}
+.studio-panel-title button {
+  font-size: 10px;
+  color: #c0c4ca;
+  min-height: 22px;
+}
+.studio-tools-scroll,
+.studio-navigation {
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #55575b transparent;
+  min-height: 0;
+  flex: 1;
+}
+.studio-navigation {
+  height: 100%;
+  padding-bottom: 10px;
+}
+/* The layer the tools act on, in tabs without the layer list. */
+.studio-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #d8e8f4;
+  background: #48556433;
+  border-bottom: 1px solid #191a1b;
+}
+.studio-target > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-target > button {
+  flex: none;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: #c9d6e2;
+}
+.studio-tool-group {
+  border-bottom: 1px solid #191a1b;
+}
+.studio-tool-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  min-height: 31px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #ffffff02;
+  cursor: pointer;
+}
+.studio-tool-group > summary::-webkit-details-marker {
+  display: none;
+}
+.studio-tool-group > summary > svg {
+  transform: rotate(-90deg);
+  color: #979ba0;
+}
+.studio-tool-group[open] > summary > svg {
+  transform: none;
+}
+.studio-tool-group > summary > span {
+  flex: 1;
+}
+.studio-tool-group > summary > button {
+  color: #9ca0a5;
+  min-height: 24px;
+  padding: 4px;
+}
+/* Header actions recede until the header is pointed at (Capture One shows
+   them always, which reads as noise in a long column), but stay legible as
+   available actions; disabled ones fade further. */
+.studio-tool-group > summary > button:not(.studio-tool-eye):not(.studio-tool-auto):not([aria-pressed="true"]) {
+  opacity: 0.75;
+}
+.studio-tool-group > summary:hover > button:not(:disabled),
+.studio-tool-group > summary > button:focus-visible {
+  opacity: 1 !important;
+}
+.studio-tool-group > summary > button:disabled {
+  opacity: 0.35 !important;
+}
+.studio-tool-group > summary > .studio-tool-auto {
+  font-size: 10px;
+  font-weight: 500;
+  gap: 4px;
+  padding: 2px 7px;
+  border: 1px solid #45474b;
+  border-radius: 3px;
+  color: #d3d6da;
+}
+.studio-mask-options {
+  margin: 0 -12px 8px;
+  padding: 6px 12px 4px;
+  background: #ffffff05;
+  border-top: 1px solid #1d1e20;
+  border-bottom: 1px solid #1d1e20;
+}
+.studio-tool-body {
+  padding: 3px 12px 10px;
+}
+.studio-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #a9adb3;
+  font-size: 10px;
+  margin-bottom: 5px;
+  min-height: 24px;
+}
+.studio-inline label {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+/* A row of buttons or labelled selects wraps in a narrow panel (and in
+   longer translations) instead of running out of it. */
+.studio-inline-wrap {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  row-gap: 4px;
+}
+.studio-inline-wrap > label {
+  width: auto;
+  flex: 1 1 120px;
+}
+.adjustment-control {
+  display: grid;
+  grid-template-columns: 86px minmax(36px, 1fr) 43px;
+  align-items: center;
+  gap: 8px;
+  min-height: 29px;
+  font-size: 11px;
+}
+.adjustment-control > label {
+  cursor: ew-resize;
+  touch-action: none;
+  color: #c1c4c8;
+  /* A translated name longer than the column wraps, hyphenated in the
+     interface language (html lang), instead of running under the slider. */
+  min-width: 0;
+  line-height: 1.2;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.adjustment-control.is-disabled {
+  opacity: 0.4;
+}
+.adjustment-control input.adjustment-value {
+  width: 43px;
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  text-align: right;
+  padding: 3px 4px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: #e1e3e5;
+  outline-offset: 0;
+}
+.adjustment-control input.adjustment-value:hover {
+  border-color: #55575b;
+  background: #202123;
+}
+.adjustment-control input.adjustment-value:focus {
+  border-color: #829daf;
+  background: #202123;
+}
+.adjustment-track {
+  width: 100%;
+  min-width: 0;
+  height: 20px;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.adjustment-track::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #18191b, #73767a);
+  border-bottom: 1px solid #55575a;
+}
+.adjustment-track::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 9px;
+  height: 9px;
+  background: #b8bdc4;
+  border: 1px solid #17181a;
+  border-radius: 50%;
+  margin-top: -3px;
+  box-shadow: 0 1px 2px #0009;
+}
+.adjustment-track:focus-visible::-webkit-slider-thumb,
+.adjustment-track:hover::-webkit-slider-thumb {
+  background: #e2e9ef;
+}
+.adjustment-track.temperature::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, #6b99c7, #d0b263);
+}
+.adjustment-track.tint::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, #82a77d, #bb7aa8);
+}
+.adjustment-track.hue::-webkit-slider-runnable-track {
+  background: linear-gradient(
+    90deg,
+    hsl(0 55% 55%),
+    hsl(60 55% 55%),
+    hsl(120 55% 55%),
+    hsl(180 55% 55%),
+    hsl(240 55% 55%),
+    hsl(300 55% 55%),
+    hsl(359 55% 55%)
+  );
+}
+.adjustment-track::-moz-range-track {
+  height: 3px;
+  background: #696c70;
+}
+.adjustment-track::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border: 1px solid #17181a;
+  background: #b8bdc4;
+  border-radius: 50%;
+}
+.studio-help {
+  font-size: 11px;
+  color: #a9adb3;
+  padding: 8px 12px;
+  line-height: 1.6;
+}
+.studio-text-button {
+  font-size: 10px !important;
+  padding: 6px 0 !important;
+  color: #b2c5d5 !important;
+  justify-content: flex-start !important;
+}
+.studio-tools-footer {
+  padding: 12px;
+  display: flex;
+  gap: 3px;
+  align-items: flex-start;
+  flex-direction: column;
+}
+.studio-tools-footer button {
+  font-size: 10px;
+  color: #a9b8c6;
+  padding: 3px 0;
+}
+.studio-segments {
+  display: flex;
+  margin: 4px 0 9px;
+  border: 1px solid #515359;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.studio-segments button {
+  flex: 1;
+  border-right: 1px solid #515359;
+  font-size: 10px;
+  min-height: 23px;
+}
+.studio-segments button:last-child {
+  border: 0;
+}
+.studio-curve svg {
+  display: block;
+  width: 100%;
+  max-height: 210px;
+  background: #202123;
+  border: 1px solid #4b4d52;
+  touch-action: none;
+}
+.curve-grid {
+  stroke: #44464b;
+  stroke-width: 0.6;
+}
+.curve-reference {
+  stroke: #73757a;
+  stroke-width: 0.7;
+  stroke-dasharray: 3 3;
+}
+.curve-line {
+  stroke: #d8dadc;
+  stroke-width: 1.5;
+}
+.curve-region {
+  stroke: #b2c5d5;
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+.curve-red {
+  stroke: #d08282;
+}
+.curve-green {
+  stroke: #83b68c;
+}
+.curve-blue {
+  stroke: #87a9d0;
+}
+.curve-point {
+  fill: #d9e2e9;
+  stroke: #333;
+  stroke-width: 1;
+  cursor: move;
+}
+.curve-coordinate {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 7px;
+  color: #aeb1b6;
+  font-size: 10px;
+}
+.curve-coordinate input {
+  width: 45px;
+  background: #202123;
+  border: 1px solid #555;
+  text-align: right;
+  margin-left: 5px;
+}
+.studio-color-channels {
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin: 5px 0 8px;
+}
+.studio-color-channels button {
+  padding: 0;
+  min-height: 17px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--swatch) !important;
+  border: 2px solid #292a2c;
+}
+.studio-color-channels button[aria-pressed="true"] {
+  outline: 1px solid #eef0f3;
+  outline-offset: 1px;
+}
+.studio-mask-colors {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.studio-workspace .studio-mask-swatch {
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid #5b5d61;
+  border-radius: 2px;
+}
+.studio-workspace .studio-mask-swatch[aria-pressed="true"] {
+  outline: 1px solid #d1e5f7;
+  outline-offset: 1px;
+}
+.studio-mask-picker {
+  width: 22px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #5b5d61;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+}
+.studio-mask-picker::-webkit-color-swatch-wrapper {
+  padding: 1px;
+}
+.studio-mask-picker::-webkit-color-swatch {
+  border: 0;
+  border-radius: 1px;
+}
+.studio-tool-popover {
+  position: fixed;
+  z-index: 60;
+  width: 286px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  padding: 0 12px 4px;
+  background: var(--studio-bg);
+  border: 1px solid #45474b;
+  border-radius: 4px;
+  box-shadow: 0 10px 36px #0009;
+}
+.studio-tool-popover-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0 5px;
+  margin-bottom: 3px;
+  border-bottom: 1px solid #404247;
+  font-size: 11px;
+  font-weight: 600;
+}
+.studio-tool-popover-title > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--studio-muted);
+  font-weight: 400;
+}
+/* Layers & masks: Capture One's layer list with Lightroom's components nested
+   under the selected layer; the "+" in the header opens the grouped kind menu
+   and stays visible (the header's other actions recede until pointed at). */
+.studio-tool-group > summary > button.studio-layer-new:not(:disabled) {
+  opacity: 1 !important;
+  color: #c9d6e2;
+}
+.studio-tool-popover .studio-layer-paint {
+  margin-top: 4px;
+}
+.studio-layer-list {
+  margin-top: 2px;
+  border: 1px solid #1d1e20;
+  border-radius: 3px;
+  background: #00000012;
+  overflow: hidden;
+}
+.studio-layer {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 1px;
+  min-height: 26px;
+  padding: 0 3px 0 0;
+  border-bottom: 1px solid #ffffff0a;
+  font-size: 11px;
+  color: #d3d6da;
+}
+.studio-layer svg {
+  flex-shrink: 0;
+  color: #9ca0a5;
+}
+.studio-layer > .studio-layer-name {
+  flex: 1;
+  min-width: 0;
+  min-height: 26px;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 2px 6px 2px 7px;
+  border-radius: 0;
+  text-align: left;
+}
+.studio-layer > input {
+  flex: 1;
+  min-width: 0;
+  margin-right: 4px;
+  font-size: 11px;
+}
+.studio-layer-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-layer.is-selected {
+  background: #43525f;
+  box-shadow: inset 2px 0 0 var(--studio-accent);
+  color: #f1f5f8;
+}
+.studio-layer.is-selected svg {
+  color: #d8e8f4;
+}
+.studio-layer.is-hidden .studio-layer-label {
+  color: #868a90;
+}
+/* Mask thumbnails (Lightroom's Masks panel): white mask on black in the
+   photo's frame; the kind's icon until one is made. Sizes match
+   MASK_THUMB_SIZE in useMaskThumbnails.ts. */
+.studio-mask-thumb {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid #45484d;
+  border-radius: 2px;
+  background: #0b0b0c;
+  color: #8a8f95;
+}
+.studio-mask-thumb.is-layer {
+  width: 42px;
+  height: 28px;
+}
+.studio-mask-thumb.is-component {
+  width: 24px;
+  height: 16px;
+}
+.studio-mask-thumb > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.studio-mask-thumb.is-plain {
+  height: 20px;
+  border-color: transparent;
+  background: transparent;
+}
+.studio-layer.is-selected .studio-mask-thumb.has-image,
+.studio-mask-component.is-selected .studio-mask-thumb.has-image {
+  border-color: #dfe8ef;
+}
+.studio-layer.is-hidden .studio-mask-thumb > img,
+.studio-mask-component.is-hidden .studio-mask-thumb > img {
+  opacity: 0.45;
+}
+.studio-mask-thumb.is-busy {
+  animation: studio-mask-thumb-busy 1.2s ease-in-out infinite;
+}
+@keyframes studio-mask-thumb-busy {
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-mask-thumb.is-busy {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+/* Background: the photograph itself, always the bottom row. */
+.studio-workspace .studio-layer.studio-layer-background {
+  justify-content: flex-start;
+  font-size: 11px;
+  gap: 7px;
+  padding: 3px 8px 3px 7px;
+  border-radius: 0;
+  border-bottom: 0;
+}
+.studio-layer-note {
+  margin-left: auto;
+  padding-left: 6px;
+  flex-shrink: 0;
+  color: #8e9298;
+  font-size: 10px;
+}
+/* Eye, invert and delete on layer and component rows. */
+.studio-workspace .studio-row-icon {
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 3px;
+  color: #9ca0a5;
+}
+.studio-workspace .studio-row-icon[aria-pressed="true"] {
+  color: var(--studio-accent);
+  background: transparent;
+}
+/* Delete shows on the selected row and on hover or keyboard focus. */
+.studio-row-delete {
+  opacity: 0;
+}
+.studio-layer:hover .studio-row-delete,
+.studio-layer:focus-within .studio-row-delete,
+.studio-layer.is-selected .studio-row-delete,
+.studio-mask-component:hover .studio-row-delete,
+.studio-mask-component:focus-within .studio-row-delete,
+.studio-mask-component.is-selected .studio-row-delete {
+  opacity: 1;
+}
+/* Rows reorder by dragging (top row = applied last, as in Photoshop). */
+.studio-layer[data-layer-row]:not([data-layer-row="background"]) {
+  cursor: grab;
+}
+.studio-layer.is-dragged {
+  opacity: 0.45;
+}
+.studio-layer.is-drop-before {
+  box-shadow: inset 0 2px 0 #8fb0cc;
+}
+.studio-layer.is-drop-after {
+  box-shadow: inset 0 -2px 0 #8fb0cc;
+}
+/* The selected layer's components: indented under it on a guide line, in
+   smaller type, so they read as parts of that layer. */
+.studio-mask-components {
+  padding: 2px 3px 5px 15px;
+  background: #00000024;
+  border-bottom: 1px solid #ffffff0a;
+}
+.studio-mask-component-list {
+  border-left: 1px solid #55585d;
+}
+.studio-mask-component {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  min-height: 22px;
+  padding-left: 5px;
+  font-size: 10px;
+  color: #c3c6cb;
+}
+/* The selected component: lighter row, its stretch of the guide in accent. */
+.studio-mask-component.is-selected {
+  background: #ffffff10;
+  box-shadow: -1px 0 0 var(--studio-accent);
+  color: #f1f5f8;
+}
+.studio-mask-component.is-hidden .studio-mask-component-label {
+  color: #868a90;
+}
+/* How the component combines with the ones above it: +, −, ∩. */
+.studio-mask-component .studio-mask-mode {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  border-radius: 3px;
+  color: #c9ced4;
+}
+.studio-mask-component button.studio-mask-mode {
+  border: 1px solid #55585d;
+}
+.studio-mask-component button.studio-mask-mode:hover {
+  border-color: #7b8590;
+}
+.studio-mask-component > .studio-mask-component-name {
+  flex: 1;
+  min-width: 0;
+  min-height: 22px;
+  justify-content: flex-start;
+  gap: 5px;
+  padding: 2px 4px;
+  font-size: 10px;
+  text-align: left;
+}
+.studio-mask-component-name svg {
+  flex-shrink: 0;
+  color: #9ca0a5;
+}
+/* The name keeps its place; "computing…" gives way first. */
+.studio-mask-component-label {
+  flex: 0 0 auto;
+  max-width: calc(100% - 16px);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-mask-busy {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9ea3aa;
+  font-style: italic;
+}
+.studio-mask-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1px;
+  padding: 3px 0 0;
+  margin-left: -4px;
+}
+.studio-mask-add > button {
+  min-height: 20px;
+  gap: 2px;
+  padding: 1px 3px;
+  font-size: 10px;
+  color: #b2c5d5;
+}
+/* The selection's settings: the component's, then the layer's. */
+.studio-layer-settings {
+  margin-top: 8px;
+  border-top: 1px solid #1d1e20;
+}
+.studio-layer-settings-caption {
+  margin: 7px 0 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8f949a;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.studio-layer-paint {
+  margin: 6px 0 8px;
+}
+.studio-layer-paint button {
+  min-width: 0;
+  gap: 4px;
+}
+.studio-layer-paint button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* No layers yet: every kind as a tile in three captioned groups. */
+.studio-layer-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 2px 0 4px;
+}
+.studio-layer-grid-caption {
+  margin: 0 0 3px;
+  color: #8f949a;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.studio-layer-grid-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+.studio-layer-grid-tiles > .studio-layer-tile {
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 6px 3px 5px;
+  border: 1px solid #45474b;
+  border-radius: 3px;
+  background: #ffffff05;
+  color: #d3d6da;
+  font-size: 10px;
+  line-height: 1.15;
+}
+.studio-layer-grid-tiles > .studio-layer-tile:hover:not(:disabled) {
+  border-color: #6b7884;
+  background: #ffffff10;
+}
+.studio-layer-tile svg {
+  flex-shrink: 0;
+  color: #b9c9d8;
+}
+.studio-layer-tile > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  max-width: 100%;
+  overflow: hidden;
+  overflow-wrap: break-word;
+  text-align: center;
+}
+.studio-viewer {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.studio-viewer-toolbar,
+.studio-viewer-footer {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  flex-shrink: 0;
+  min-width: 0;
+  background: #2d2e30;
+  z-index: 2;
+}
+.studio-viewer-toolbar {
+  /* One row of 36 px; in a narrow viewer (the smallest window) the end
+     group wraps to a second row instead of being cut off. */
+  flex-wrap: wrap;
+  min-height: 36px;
+  padding-block: 3px;
+  row-gap: 2px;
+  border-bottom: 1px solid var(--studio-line);
+}
+/* Side groups share the free width, so the cursor tools (top) and the
+   rating (bottom) stay in the middle of the viewer. */
+.studio-viewer-side {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.studio-viewer-side.is-end {
+  justify-content: flex-end;
+}
+.studio-viewer-toolbar .studio-viewer-side {
+  min-width: max-content;
+}
+/* Narrow viewers keep the cursor tools and drop words, then the zoom menu. */
+@media (max-width: 1280px) {
+  .studio-viewer-toolbar .optional-label {
+    display: none;
+  }
+}
+@media (max-width: 1080px) {
+  .studio-viewer-toolbar .studio-zoom-select {
+    display: none;
+  }
+}
+.studio-counter {
+  font-variant-numeric: tabular-nums;
+  min-width: 44px;
+  text-align: center;
+}
+.studio-flags {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+.studio-flags button[aria-pressed="true"] {
+  background: transparent;
+  color: #e3e9ef;
+}
+.studio-viewer-footer .studio-flags {
+  margin-right: 8px;
+}
+.studio-viewer-toolbar button {
+  font-size: 11px;
+  min-height: 25px;
+}
+.studio-viewer-toolbar select {
+  font-size: 10px;
+  max-width: 70px;
+}
+/* Shown only in a wide viewer: room for the longer translations of "Zoom". */
+.studio-viewer-toolbar .studio-zoom-select {
+  max-width: 90px;
+}
+.studio-toolbar-divider {
+  height: 16px;
+  width: 1px;
+  background: #17181a;
+  margin: 0 3px;
+}
+/* The filename and the spacer share the free width, so the cursor tools sit
+   about in the middle of the bar (the side groups are of similar width). */
+.studio-viewer-filename {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  padding: 0 10px;
+  color: #c4c7cc;
+  font-size: 11px;
+}
+/* The open photograph's RAW is offline: it is shown on a preview. */
+.studio-offline-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: #e0b45a24;
+  color: #e6c47e;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+/* A preview build in the top bar: progress and Stop, then its report. */
+.studio-preview-build {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: 6px;
+  color: #b6b9be;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.studio-preview-build progress {
+  width: 72px;
+  height: 4px;
+  accent-color: #a9bdcc;
+}
+.studio-preview-build button {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: #d5d8dc;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-preview-build .animate-spin {
+    animation: none;
+  }
+}
+.studio-viewer-tools {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 0 3px;
+  border-left: 1px solid #17181a;
+  border-right: 1px solid #17181a;
+}
+.studio-viewer-tools button {
+  width: 28px;
+  justify-content: center;
+}
+.studio-viewer-tools button[aria-pressed="true"] {
+  color: var(--studio-accent);
+}
+.studio-viewer-footer {
+  height: 33px;
+  border-top: 1px solid var(--studio-line);
+  font-size: 10px;
+  color: #aeb2b7;
+}
+.studio-viewer-footer button {
+  font-size: 10px;
+  padding: 3px 5px;
+  min-height: 23px;
+}
+.studio-rating {
+  display: flex;
+  margin-left: 12px;
+  gap: 0;
+}
+.studio-rating button {
+  padding: 3px !important;
+  min-height: 22px !important;
+}
+.studio-rating button[aria-pressed="true"],
+.studio-photo-rating button[aria-pressed="true"] {
+  background: transparent;
+  color: #d3dce5;
+}
+.studio-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.studio-filmstrip {
+  height: 96px;
+  flex-shrink: 0;
+  background: #232426;
+  border-top: 1px solid #17181a;
+  z-index: 2;
+}
+.studio-browser {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  background: #222325;
+  scrollbar-width: thin;
+  scrollbar-color: #55575b #252628;
+  overscroll-behavior: contain;
+}
+.studio-browser.is-grid {
+  flex: 1;
+}
+.studio-browser.is-filmstrip {
+  height: 100%;
+  overflow-y: hidden;
+}
+.studio-photo {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  border: 1px solid transparent;
+  background: #2d2e30;
+  padding: 7px;
+  border-radius: 1px;
+}
+.studio-photo.is-selected {
+  background: #464c53;
+  border-color: #798794;
+}
+.studio-photo.is-current {
+  border-color: #bdcddd;
+}
+.studio-photo-open {
+  display: flex !important;
+  flex: 1;
+  min-height: 0 !important;
+  flex-direction: column;
+  padding: 0 !important;
+  gap: 7px !important;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: transparent !important;
+}
+.studio-photo-image {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  color: #74787e;
+}
+.studio-photo-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 1px 5px #0005;
+}
+.studio-photo-type {
+  position: absolute;
+  bottom: 3px;
+  left: 3px;
+  font-size: 8px;
+  line-height: 14px;
+  padding: 0 4px;
+  background: #191a1cbf;
+  color: #c7cbd0;
+}
+/* The photograph's file is missing or on a disconnected drive (same amber as
+   the Develop view's Offline badge). Top right: the flag holds top left. */
+.studio-photo-offline {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 4px;
+  min-height: 16px;
+  border-radius: 2px;
+  background: #2a2419e6;
+  color: #e6c47e;
+  font-size: 9px;
+  line-height: 14px;
+}
+/* The filmstrip's top right shows the rating. */
+.is-filmstrip .studio-photo-offline {
+  top: auto;
+  bottom: 20px;
+}
+.studio-photo.is-offline .studio-photo-image img {
+  opacity: 0.72;
+}
+.studio-photo-edited {
+  position: absolute;
+  right: 3px;
+  bottom: 4px;
+  color: #fff;
+  filter: drop-shadow(0 1px 2px #000);
+}
+.studio-photo-flag {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--studio-bar, #242527);
+  color: var(--studio-text, #e0e1e3);
+  border-radius: 2px;
+}
+.studio-photo.is-rejected .studio-photo-image img {
+  opacity: 0.45;
+}
+.studio-photo-color {
+  width: 8px;
+  height: 8px;
+  margin-left: auto;
+  border-radius: 1px;
+  flex-shrink: 0;
+}
+.studio-photo-color.is-red { background: #f08080; }
+.studio-photo-color.is-yellow { background: #e6c76c; }
+.studio-photo-color.is-green { background: #8ac995; }
+.studio-photo-color.is-blue { background: #8db6e2; }
+.studio-photo-color.is-purple { background: #bb9fdd; }
+.studio-photo-name {
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: #c4c7cc;
+  flex-shrink: 0;
+}
+.studio-photo-copy {
+  color: #8b9097;
+}
+.studio-photo-rating {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-top: 3px;
+  gap: 1px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.studio-photo-rating button {
+  padding: 0 2px;
+  min-height: 16px;
+  color: #868a90;
+}
+.is-filmstrip .studio-photo {
+  padding: 4px;
+}
+.studio-photo-stars {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  padding: 0 3px;
+  font-size: 8px;
+  line-height: 13px;
+  letter-spacing: -0.5px;
+  background: #191a1cbf;
+  color: #e3e6ea;
+}
+.is-filmstrip .studio-photo-color {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+}
+/* Unrated stars stay quiet until the pointer is over the tile. */
+.studio-photo:not(:hover) .studio-photo-rating button[aria-pressed="false"] {
+  opacity: 0.35;
+}
+.studio-empty {
+  height: 100%;
+  width: 100%;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  color: #989da4;
+  background: #222325;
+  text-align: center;
+  padding: 24px;
+}
+.studio-empty strong {
+  font-weight: 500;
+  color: #d0d3d7;
+}
+.studio-empty span {
+  font-size: 11px;
+}
+.studio-library-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  /* One row of 39 px; in a narrow grid (the smallest window) filters and
+     sorting wrap to further rows instead of being cut off. */
+  flex-wrap: wrap;
+  row-gap: 4px;
+  min-height: 39px;
+  padding: 4px 12px;
+  container: library-toolbar / inline-size;
+  background: #2d2e30;
+  border-bottom: 1px solid var(--studio-line);
+  flex-shrink: 0;
+}
+.studio-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 220px;
+  min-width: 70px;
+  margin-right: auto;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: #222325;
+  border: 1px solid #3c3e42;
+  color: #a6abb2;
+}
+.studio-search input {
+  background: transparent;
+  outline: 0;
+  border: 0;
+  min-width: 0;
+  width: 100%;
+  font-size: 11px;
+  padding: 5px;
+}
+.studio-filter {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #a9adb3;
+}
+.studio-library-footer {
+  display: flex;
+  align-items: center;
+  height: 35px;
+  padding: 0 14px;
+  gap: 12px;
+  background: #2d2e30;
+  border-top: 1px solid var(--studio-line);
+  font-size: 10px;
+  color: #aeb2b8;
+  flex-shrink: 0;
+}
+.studio-library-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.studio-flag-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 3px;
+}
+.studio-library-toolbar {
+  overflow: hidden;
+}
+.studio-library-filters > *,
+.studio-library-toolbar > .studio-filter {
+  flex-shrink: 0;
+}
+.studio-library-toolbar select {
+  max-width: none;
+}
+/* Translated filter names are longer than the English ones ("Toutes les
+   étiquettes"): the selects shorten with an ellipsis and, in the narrowest
+   grid, the filters wrap instead of being cut off at the right edge. */
+.studio-library-filters {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  max-width: 100%;
+}
+.studio-library-filters select {
+  /* Up to the longest translation where there is room; in the narrowest
+     grid they share the row (and shorten) rather than adding a row. */
+  flex: 1 1 100px;
+  min-width: 0;
+  max-width: 140px;
+  text-overflow: ellipsis;
+}
+@media (max-width: 1240px) {
+  .studio-flag-label {
+    display: none;
+  }
+}
+/* Too narrow for one row (about 770 px without the flag names): search and
+   sorting stay on the first row and the filters take the second. */
+@container library-toolbar (max-width: 770px) {
+  .studio-library-filters {
+    order: 1;
+  }
+}
+.studio-flag-filters button[aria-pressed="true"] {
+  background: #464c53;
+  color: #e0e1e3;
+}
+.studio-filter-count {
+  color: #a5a7aa;
+  font-variant-numeric: tabular-nums;
+}
+.studio-flag-filters button[aria-pressed="true"] .studio-filter-count {
+  color: inherit;
+}
+.studio-clear-filters {
+  color: var(--studio-accent);
+}
+.studio-clear-filters[hidden] {
+  display: none !important;
+}
+.studio-library-footer label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.studio-library-footer input {
+  width: 100px;
+  height: 16px;
+  accent-color: #afc0d0;
+}
+.studio-navigator {
+  height: 125px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #202123;
+  font-size: 10px;
+  color: #9a9fa6;
+}
+.studio-navigator img {
+  max-height: 100%;
+  max-width: 100%;
+  object-fit: contain;
+}
+.studio-nav-caption {
+  font-size: 10px;
+  color: #aeb2b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-top: 7px;
+}
+.studio-folder-tree {
+  margin: 0 -12px;
+  overflow: hidden;
+}
+.studio-folder {
+  display: flex;
+  align-items: center;
+  min-height: 27px;
+  gap: 2px;
+  color: #c1c5cb;
+}
+.studio-folder.is-selected,
+.studio-history.is-selected {
+  background: #48556466;
+  color: #e2e8ef;
+}
+.studio-folder > button {
+  padding: 2px;
+  min-height: 23px;
+}
+.studio-folder > button:first-child {
+  width: 13px;
+}
+.studio-folder > .is-expanded svg {
+  transform: rotate(90deg);
+}
+.studio-folder > button:last-child {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+  gap: 7px;
+  padding-right: 8px;
+}
+.studio-folder span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.studio-folder small {
+  font-size: 9px;
+  color: #9da4ad;
+  margin-left: auto;
+}
+/* Offline photographs in (or below) a folder; a folder gone from disk. */
+.studio-folder small.studio-folder-offline {
+  color: #e6c47e;
+}
+.studio-folder small + small.studio-folder-offline {
+  margin-left: 6px;
+}
+.studio-folder.is-offline span {
+  color: #e6c47e;
+}
+/* A drive in a catalog's folder list: name, state light, free space. */
+.studio-folder.studio-volume {
+  margin-top: 4px;
+  color: #d4d8de;
+  border-top: 1px solid #ffffff10;
+}
+.studio-folder.studio-volume:first-child {
+  margin-top: 0;
+  border-top: 0;
+}
+.studio-folder.studio-volume span {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.studio-folder.studio-volume.is-offline span {
+  color: #9da4ad;
+}
+.studio-volume-state {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6b7078;
+}
+.studio-volume-state.is-online {
+  background: #6fbf73;
+}
+.studio-volume-state.is-low {
+  background: #e6c47e;
+}
+.studio-folder.studio-volume small {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.studio-history {
+  width: 100%;
+  justify-content: flex-start !important;
+  font-size: 11px !important;
+  gap: 8px !important;
+}
+.studio-history svg {
+  flex: none;
+}
+.studio-history .studio-history-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-history span:last-child {
+  flex: none;
+  margin-left: auto;
+  font-size: 10px;
+  color: #a9bacb;
+}
+.studio-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 7px;
+}
+.studio-keywords-empty {
+  font-size: 10px;
+  color: #8f949a;
+}
+.studio-keyword {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 0 0 0 7px;
+  border-radius: 2px;
+  background: #34363a;
+  color: #d6dadf;
+  font-size: 10px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+.studio-keyword.is-partial {
+  background: #2a2b2e;
+  color: #a9adb3;
+}
+.studio-workspace .studio-keyword button {
+  min-height: 20px;
+  padding: 0 5px;
+  color: #9ca0a5;
+}
+.studio-metadata-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #44484e;
+  background: #1f2022;
+  border-radius: 2px;
+  padding: 4px 6px;
+  font-size: 11px;
+  resize: vertical;
+}
+.studio-metadata-input:focus {
+  border-color: #7d8d9c;
+  outline: none;
+}
+.studio-metadata-input::placeholder {
+  color: #7d8288;
+  font-style: italic;
+}
+.studio-metadata-input:disabled {
+  opacity: 0.5;
+}
+.studio-metadata-field {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  margin-bottom: 5px;
+  font-size: 10px;
+  color: #a9adb3;
+}
+.studio-metadata-field > span {
+  padding-top: 5px;
+  /* Long field names (IPTC, translated) wrap and hyphenate in their column. */
+  min-width: 0;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.studio-metadata .studio-help {
+  padding: 0 0 8px;
+  font-size: 10px;
+}
+.studio-metadata-note {
+  margin: 2px 0 6px 80px;
+  font-size: 9px;
+  color: #8f949a;
+}
+.studio-metadata-details {
+  margin: 8px 0 2px;
+  padding-top: 7px;
+  border-top: 1px solid #2c2d30;
+}
+.studio-metadata-details > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 10px;
+  line-height: 18px;
+}
+.studio-metadata-details dt {
+  color: #8f949a;
+}
+.studio-metadata-details dd {
+  margin: 0;
+  color: #c9cdd2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-muted {
+  color: #848a92;
+}
+.studio-tool-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  max-height: calc(100vh - 60px);
+  height: 750px;
+  width: 420px;
+  max-width: calc(100vw - 50px);
+  border: 1px solid #656a70;
+  border-radius: 4px;
+  padding: 0;
+  color: var(--studio-text);
+  background: #292a2c;
+  box-shadow: 0 18px 80px #0008;
+  overflow: hidden;
+}
+.studio-tool-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.studio-tool-dialog::backdrop {
+  background: #10111488;
+}
+.studio-tool-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid #17181a;
+  flex-shrink: 0;
+}
+.studio-tool-dialog > header strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.studio-tool-dialog-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+}
+/* Inherited panels in the tools dialog use the studio's type scale instead
+   of their display headings. */
+.studio-app .studio-tool-dialog-content :is(.text-5xl, .text-3xl, .text-2xl, .text-xl) {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  font-weight: 600 !important;
+  text-shadow: none !important;
+}
+.studio-app .studio-tool-dialog-content :is(.text-base, .text-lg) {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+.studio-settings {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #10111488;
+}
+/* The dialog itself only takes the focus when it has no control to focus. */
+.studio-settings:focus {
+  outline: none;
+}
+/* Preferences: categories at the side, one row per preference with its
+   explanation left and its control right. */
+.pref-window {
+  display: flex;
+  width: min(860px, 100%);
+  height: min(680px, 100%);
+  background: #292a2c;
+  border: 1px solid #45484c;
+  border-radius: 6px;
+  box-shadow: 0 18px 80px #0008;
+  overflow: hidden;
+  font-size: 12px;
+}
+.pref-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 190px;
+  flex-shrink: 0;
+  padding: 14px 10px;
+  background: #242527;
+  border-right: 1px solid var(--studio-line);
+}
+.pref-nav-title {
+  padding: 2px 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f0f1f2;
+}
+.pref-nav button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start !important;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  color: #c3c6cb;
+  text-align: left;
+}
+.pref-nav button:hover {
+  background: #ffffff0c;
+  color: #fff;
+}
+.pref-nav button[aria-pressed="true"] {
+  background: #3a3c40;
+  color: #f2f3f4;
+}
+.pref-nav-spacer {
+  flex: 1;
+}
+.pref-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 6px 22px 22px;
+}
+.pref-page {
+  display: flex;
+  flex-direction: column;
+}
+.pref-section {
+  padding: 14px 0 6px;
+  border-bottom: 1px solid #1d1e20;
+}
+.pref-section:last-child {
+  border-bottom: 0;
+}
+.studio-app .pref-section-title {
+  margin: 0 0 4px;
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-shadow: none !important;
+  color: #9a9ea4 !important;
+}
+.pref-section > div:not(.pref-row) {
+  display: flex;
+  flex-direction: column;
+}
+.studio-app .pref-section [class*="space-y-"] > * {
+  margin-block: 0 !important;
+}
+/* Inherited controls inside preferences follow the panel's type scale. */
+.studio-app .pref-content :is(.text-5xl, .text-3xl, .text-2xl, .text-xl) {
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  font-weight: 600 !important;
+}
+.studio-app .pref-content :is(.text-base, .text-sm) {
+  font-size: 12px !important;
+  line-height: 1.45 !important;
+}
+.studio-app .pref-content .text-xs {
+  font-size: 11px !important;
+}
+.studio-app .pref-content :is(.rounded-xl, .rounded-lg) {
+  border-radius: 4px !important;
+}
+.studio-app .pref-content :is(.p-6, .p-4) {
+  padding: 12px !important;
+}
+.pref-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 0;
+  border-top: 1px solid #ffffff08;
+}
+.pref-section-title + * > .pref-row:first-child,
+.pref-section-title + .pref-row {
+  border-top: 0;
+}
+.pref-text {
+  min-width: 0;
+  flex: 1;
+}
+.pref-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #e6e7e9;
+}
+.pref-description {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #9a9ea4;
+}
+.pref-message {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--studio-accent);
+}
+.pref-control {
+  flex-shrink: 0;
+  max-width: 50%;
+  display: flex;
+  justify-content: flex-end;
+  font-size: 12px;
+}
+.studio-app .pref-control button,
+.studio-app .pref-control input,
+.studio-app .pref-control select {
+  font-size: 12px;
+}
+/* The row's label names the switch; its own caption would repeat it. */
+.pref-control .switch-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+@media (max-width: 1200px) {
+  .studio-secondary-panel {
+    display: none;
+  }
+  .studio-header-actions {
+    gap: 8px;
+  }
+  .studio-current-folder {
+    max-width: 180px;
+  }
+}
+/* Down to the smallest window (780 px, tauri.conf.json) the top bar keeps
+   the modules readable: Ingest and Hot folder become icons (their names stay
+   for assistive technology and in the tooltips) and a preview build shows
+   its bar, with the count in its tooltip and status text. */
+@media (max-width: 900px) {
+  .studio-app .session-bar-end > .session-action {
+    padding: 5px 8px;
+  }
+  .studio-app .session-bar-end > .session-action > span,
+  .studio-app .session-bar .studio-preview-build > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+@media (max-width: 950px) {
+  .studio-app .session-count {
+    display: none;
+  }
+  .studio-module-bar {
+    gap: 14px;
+  }
+  .studio-current-folder {
+    display: none;
+  }
+  .studio-header-actions {
+    margin-left: auto;
+  }
+  .studio-viewer-filename {
+    padding: 0 4px;
+    font-size: 10px;
+  }
+  .studio-viewer-footer .optional-label {
+    display: none;
+  }
+  .studio-library-toolbar {
+    gap: 4px 5px;
+    padding: 4px 7px;
+  }
+  .studio-library-footer label {
+    font-size: 0;
+    gap: 0;
+  }
+  .studio-library-footer input {
+    width: 80px;
+  }
+  .studio-viewer-toolbar {
+    gap: 2px 1px;
+    padding: 3px 4px;
+  }
+  .studio-viewer-toolbar button {
+    padding: 3px 5px;
+  }
+  .studio-viewer-toolbar select {
+    max-width: 61px;
+  }
+}
+@media (max-height: 700px) {
+  .studio-histogram svg {
+    height: 58px;
+  }
+  .studio-histogram {
+    padding-top: 6px;
+    padding-bottom: 5px;
+  }
+  .studio-filmstrip {
+    height: 84px;
+  }
+  .studio-tool-tabs {
+    height: 38px;
+  }
+  .studio-tool-group > summary {
+    min-height: 29px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-app * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+.studio-export-form {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+.studio-export-form > p {
+  color: #b8bec6;
+  margin-bottom: 16px;
+}
+.studio-export-form fieldset {
+  border: 0;
+  border-top: 1px solid #4b4e53;
+  margin: 15px 0;
+  padding: 10px 0;
+}
+.studio-export-form legend {
+  font-size: 11px;
+  font-weight: 600;
+  padding-right: 10px;
+}
+.studio-export-form label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  font-size: 11px;
+}
+.studio-export-form input:not([type="checkbox"]) {
+  border: 1px solid #555a61;
+  background: #202123;
+  border-radius: 3px;
+  padding: 5px 7px;
+  max-width: 115px;
+  min-width: 0;
+}
+.studio-export-form .studio-export-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  font-size: 11px;
+}
+.studio-export-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.studio-export-file > span {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #b8bec6;
+}
+.studio-export-form .studio-export-ratio {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.studio-export-ratio input {
+  width: 56px;
+}
+.studio-export-form input[type="color"] {
+  width: 34px;
+  height: 22px;
+  padding: 1px;
+}
+/* Watermark position: the 3×3 anchor grid Lightroom and Capture One use. */
+.studio-export-anchor {
+  display: grid;
+  grid-template-columns: repeat(3, 18px);
+  gap: 6px;
+  margin: 6px 0 4px;
+}
+.studio-export-anchor input {
+  accent-color: #adc6db;
+  margin: 0;
+}
+.studio-export-more summary {
+  cursor: default;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 8px 0;
+  border-top: 1px solid #4b4e53;
+}
+.studio-export-more fieldset:first-of-type {
+  border-top: 0;
+  margin-top: 0;
+}
+.studio-export-form .studio-export-estimate {
+  font-size: 10px;
+  margin: 10px 0 0;
+}
+.studio-export-form .studio-export-template {
+  display: block;
+  margin-top: 9px;
+}
+.studio-export-template input {
+  display: block;
+  margin: 6px 0;
+  width: 100%;
+  max-width: 100% !important;
+}
+.studio-export-form .studio-check {
+  justify-content: flex-start;
+  gap: 9px;
+}
+.studio-export-form input[type="checkbox"] {
+  accent-color: #adc6db;
+  width: 13px;
+  height: 13px;
+}
+.studio-export-form small {
+  font-size: 10px;
+  color: #a8b0ba;
+  line-height: 1.6;
+}
+.studio-export-form footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.studio-export-form footer button {
+  font-size: 10px;
+}
+.studio-export-form .studio-export-submit {
+  background: #b6c9d9;
+  color: #17232e;
+  padding: 6px 10px;
+}
+.studio-export-form progress {
+  width: 100%;
+  accent-color: #b6c9d9;
+}
+.studio-export-form .studio-help {
+  font-size: 10px;
+  padding: 15px 0;
+  margin: 0;
+}
+.studio-export-form .studio-export-error {
+  color: #f1abab;
+  overflow-wrap: anywhere;
+}
+.studio-export-queue {
+  margin-top: 14px;
+}
+.studio-export-queue h4 {
+  font-size: 10px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.studio-export-queue ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.studio-export-queue li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid #2c3036;
+  font-size: 10px;
+}
+.studio-export-queue li > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.studio-export-queue li small {
+  display: block;
+}
+.studio-export-queue button {
+  font-size: 10px;
+}
+.studio-workspace.is-image-fullscreen .studio-primary-panel,
+.studio-workspace.is-image-fullscreen .studio-secondary-panel,
+.studio-workspace.is-image-fullscreen .studio-module-bar,
+.studio-workspace.is-image-fullscreen .studio-filmstrip,
+.studio-workspace.is-image-fullscreen .studio-viewer-toolbar,
+.studio-workspace.is-image-fullscreen .studio-viewer-footer {
+  display: none;
+}
+/* Capture One-style readout beside the brush rings during a Control+Option
+   drag (size/hardness; with Shift opacity/flow). */
+.brush-gesture-readout {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  min-width: 104px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  background: #1c1d1fd9;
+  color: #e6e7e9;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.brush-gesture-readout > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  line-height: 1.45;
+}
+.brush-gesture-readout > div > span:first-child {
+  color: #b2b5ba;
+}
+/* Side handles also with a fixed aspect ratio (ImageCanvas resizes from them,
+   see cropEdges.ts); react-image-crop hides them in that mode. */
+.ReactCrop--fixed-aspect .ReactCrop__drag-handle.ord-n,
+.ReactCrop--fixed-aspect .ReactCrop__drag-handle.ord-e,
+.ReactCrop--fixed-aspect .ReactCrop__drag-handle.ord-s,
+.ReactCrop--fixed-aspect .ReactCrop__drag-handle.ord-w {
+  display: block;
+}
+.studio-viewer-toolbar .studio-layer-select {
+  max-width: 150px;
+  min-width: 96px;
+  margin-left: 6px;
+  font-size: 11px;
+}
+/* Crop view: Lightroom's adjustable darkening outside the frame and Capture
+   One's size label while the frame is dragged. */
+.ReactCrop__crop-mask > rect {
+  fill-opacity: var(--crop-shade, 0.5);
+}
+.crop-size-label {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: #000a;
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.studio-check {
+  gap: 6px;
+  justify-content: flex-start !important;
+}
+/* Lightroom's eye at the left of a tool header; a tool that is off is dimmed. */
+.studio-tool-group > summary > .studio-tool-eye {
+  margin-left: -6px;
+  padding: 3px;
+}
+.studio-tool-group > summary > .studio-tool-eye[aria-pressed="false"] {
+  color: var(--studio-accent);
+}
+.studio-tool-group.is-off > .studio-tool-body {
+  opacity: 0.45;
+}
+/* Capture One's Quick Adjust info box. */
+.studio-quick-adjust {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #1d1e20ee;
+  border: 1px solid #ffffff1a;
+  color: #c9ccd0;
+  font-size: 11px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.studio-quick-adjust strong {
+  color: #fff;
+  font-weight: 600;
+}
+
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 12px;
+  font-size: 11px;
+  color: #c4c8cd;
+}
+.error-boundary.is-full-screen {
+  height: 100vh;
+  justify-content: center;
+  align-items: center;
+  background: #222325;
+  font-size: 13px;
+}
+.error-boundary span {
+  color: #e2a3a3;
+  overflow-wrap: anywhere;
+}
+.error-boundary small {
+  color: #8f949a;
+}
+.error-boundary button {
+  margin-top: 4px;
+  padding: 4px 10px;
+  border: 1px solid #555a61;
+  border-radius: 2px;
+  background: #2d2e30;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Styles & presets */
+.studio-presets {
+  display: flex;
+  flex-direction: column;
+}
+.studio-workspace .studio-preset,
+.studio-workspace .studio-preset-folder {
+  justify-content: flex-start;
+  min-height: 22px;
+  padding: 2px 6px;
+  font-size: 11px;
+  text-align: left;
+  width: 100%;
+}
+.studio-workspace .studio-preset.is-nested {
+  padding-left: 22px;
+}
+.studio-workspace .studio-preset span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-workspace .studio-preset > svg {
+  color: #9aa9b7;
+  flex-shrink: 0;
+}
+.studio-workspace .studio-preset.is-applied {
+  background: #ffffff10;
+  color: #fff;
+}
+.studio-workspace .studio-preset-folder {
+  color: #b9bec4;
+  font-weight: 600;
+}
+.studio-preset-folder > svg {
+  transition: transform 0.1s;
+}
+.studio-preset-folder.is-open > svg {
+  transform: rotate(90deg);
+}
+.studio-preset-folder small {
+  margin-left: auto;
+  font-weight: 400;
+  color: #8f949a;
+}
+.studio-preset-search {
+  margin-bottom: 6px;
+}
+.studio-preset-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #2c2d30;
+  font-size: 10px;
+}
+.studio-preset-form .studio-check {
+  display: flex;
+  align-items: center;
+  color: #b9bec4;
+}
+.studio-preset-form select {
+  border: 1px solid #44484e;
+  background: #1f2022;
+  border-radius: 2px;
+  padding: 3px 4px;
+}
+.studio-preset-form-actions,
+.studio-preset-confirm > span:last-child {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.studio-workspace .studio-preset-form-actions button[type="submit"],
+.studio-workspace .studio-preset-confirm button:last-child {
+  background: #3b4249;
+  color: #fff;
+}
+.studio-workspace .studio-album small {
+  margin-left: auto;
+  font-size: 9px;
+  color: #8f949a;
+}
+.studio-metadata-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #44484e;
+  background: #1f2022;
+  border-radius: 2px;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+.studio-lens-enable {
+  display: flex;
+  align-items: center;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+.studio-exif-gps {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 10px;
+  color: #c9cdd2;
+  font-variant-numeric: tabular-nums;
+}
+.studio-exif-gps span {
+  flex: 1;
+}
+.studio-workspace .studio-exif-gps button {
+  min-height: 20px;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: #b2c5d5;
+}
+.studio-exif {
+  max-height: 360px;
+  overflow: auto;
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.studio-exif > div {
+  grid-template-columns: 110px minmax(0, 1fr);
+}
+.studio-workspace .studio-album.is-drop-target {
+  background: #3b4a58;
+  color: #fff;
+  outline: 1px solid #8fb0cc;
+}
+.studio-drag-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  background: #2f3236ee;
+  border: 1px solid #5d646c;
+  box-shadow: 0 4px 14px #0008;
+  color: #e6e8ea;
+  font-size: 11px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+/* Dragged photographs: the pressed tile's thumbnail, a stack edge and the
+   count, as Lightroom shows them. */
+.studio-drag-ghost.is-photos {
+  padding: 4px;
+}
+.studio-drag-ghost > img {
+  display: block;
+  max-width: 96px;
+  max-height: 72px;
+  object-fit: contain;
+  opacity: 0.92;
+}
+.studio-drag-ghost.is-stack > img {
+  box-shadow: 3px 3px 0 #2f3236, 4px 4px 0 #6d747c;
+}
+.studio-drag-ghost.is-photos > span {
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.studio-drag-ghost > b {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: #4f8fce;
+  color: #fff;
+  font-size: 10px;
+  text-align: center;
+}
+.studio-photo.is-drag-source {
+  opacity: 0.5;
+}
+.studio-luma-range {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #2c2d30;
+}
+.studio-luma-scale {
+  position: relative;
+  height: 10px;
+  margin: 0 0 6px;
+  border-radius: 2px;
+  background: linear-gradient(to right, #000, #fff);
+}
+.studio-luma-scale span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 3px;
+  border-radius: 2px;
+}
+.studio-lens-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  color: #d6dadf;
+  font-size: 11px;
+  padding-top: 5px;
+}
+.studio-workspace .studio-album.is-group {
+  color: #c9cdd2;
+}
+.studio-album > svg.is-open {
+  transform: rotate(90deg);
+}
+.studio-album > svg {
+  flex-shrink: 0;
+  transition: transform 0.1s;
+}
+.studio-workspace .studio-album.is-dragged {
+  opacity: 0.45;
+}
+.studio-workspace .studio-album.is-drop-before {
+  box-shadow: inset 0 2px 0 #8fb0cc;
+}
+.studio-workspace .studio-album.is-drop-after {
+  box-shadow: inset 0 -2px 0 #8fb0cc;
+}
+.studio-workspace .studio-album.is-drop-into {
+  background: #3b4a58;
+  outline: 1px solid #8fb0cc;
+}
+.studio-albums.is-drop-end {
+  box-shadow: inset 0 -2px 0 #8fb0cc;
+}
+.studio-album-name {
+  width: auto;
+  margin-bottom: 2px;
+}
+.studio-upright {
+  margin-bottom: 8px;
+}
+.studio-upright .studio-segments {
+  display: flex;
+  flex-wrap: wrap;
+}
+.studio-upright .studio-segments button {
+  flex: 1 1 auto;
+  padding: 3px 5px;
+  font-size: 10px;
+}
+.studio-upright .studio-segments button[aria-checked="true"] {
+  background: #ffffff1a;
+  color: #fff;
+}
+/* Tool columns: tools reorder by dragging their header; the column shows
+   the new order while dragging, the dragged tool outlined. */
+.studio-tool-column.is-sorting .studio-tool-slot:not(.is-dragged) {
+  opacity: 0.7;
+}
+.studio-tool-slot.is-dragged {
+  position: relative;
+  z-index: 1;
+  background: #3b4a5866;
+  outline: 1px solid #8fb0cc;
+  outline-offset: -1px;
+  box-shadow: 0 4px 14px #0007;
+}
+.studio-tool-slot.is-dragged > .studio-tool-group > summary {
+  cursor: grabbing;
+}
+.studio-drag-ghost.is-tool {
+  padding: 6px 12px;
+  font-weight: 600;
+  border-color: #8fb0cc;
+}
+.studio-tool-order-reset {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 8px 10px 12px;
+  color: #9ca0a5;
+  font-size: 10px;
+}
+body.is-dragging,
+body.is-dragging * {
+  cursor: grabbing !important;
+}
+.studio-subheading {
+  margin: 10px 0 2px;
+  color: #9ca0a5;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.studio-upright-guided .studio-inline {
+  gap: 8px;
+}
+.studio-upright-guided .studio-inline > span {
+  flex: 1;
+  color: #c0c4ca;
+}
+.studio-upright .studio-check {
+  margin-top: 6px;
+}
+.studio-tool-popover-title > span {
+  flex: 1;
+  text-align: right;
+}
+.studio-tool-popover-title > .studio-tool-popover-reset {
+  margin-left: auto;
+  padding: 2px;
+  min-height: 0;
+  color: #9ca0a5;
+}
+/* Just outside the crop frame a drag rotates the photo (Lightroom). */
+.crop-rotate-cursor,
+.crop-rotate-cursor * {
+  cursor:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke-linecap='round' stroke-linejoin='round'><g stroke='black' stroke-width='4'><path d='M5 15a8 8 0 0 1 14 0'/><path d='M3 11l2 4 4-2'/><path d='M21 11l-2 4-4-2'/></g><g stroke='white' stroke-width='2'><path d='M5 15a8 8 0 0 1 14 0'/><path d='M3 11l2 4 4-2'/><path d='M21 11l-2 4-4-2'/></g></svg>")
+      12 12,
+    alias;
+}
+.studio-tool-group > summary {
+  position: relative;
+}
+.studio-tool-group > summary > .studio-tool-grip {
+  position: absolute;
+  left: 0;
+  transform: none;
+  opacity: 0;
+  cursor: grab;
+}
+.studio-tool-group > summary:hover > .studio-tool-grip {
+  opacity: 0.6;
+}
+/* Context menus: compact rows like the platform's menus. */
+.rawtonic-menu {
+  background: #2b2c2f;
+  border: 1px solid #4a4c51;
+  border-radius: 6px;
+  box-shadow: 0 10px 34px #000a;
+  color: #e3e5e8;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+.rawtonic-menu-list {
+  padding: 4px;
+}
+/* Menus grow with their longest entry (translations are longer than the
+   English names) up to a limit; beyond it an entry ends in an ellipsis
+   and shows its full name as a tooltip. */
+.rawtonic-menu.rawtonic-menu-list {
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 20px));
+}
+.rawtonic-menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: #ffffff17;
+}
+.rawtonic-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  text-align: left;
+  color: inherit;
+}
+.rawtonic-menu-item:hover:not(.is-disabled),
+.rawtonic-menu-item:focus-visible {
+  background: #4a6378;
+  color: #fff;
+  outline: none;
+}
+.rawtonic-menu-item.is-destructive {
+  color: #f1abab;
+}
+.rawtonic-menu-item.is-destructive:hover:not(.is-disabled) {
+  background: #8a3b3b;
+  color: #fff;
+}
+.rawtonic-menu-item.is-disabled {
+  color: #7c8086;
+  cursor: default;
+}
+.rawtonic-menu-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  padding: 3px 8px;
+  color: #9a9ea4;
+  font-size: 11px;
+}
+/* A group caption in a menu (OPTION_HEADER), e.g. Draw / Select / Range. */
+.rawtonic-menu-heading.rawtonic-menu-group {
+  min-height: 20px;
+  padding: 4px 8px 1px;
+  color: #8f949a;
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.rawtonic-menu-count {
+  color: #9a9ea4;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+/* Session dialogs (new session, ingest) share the tool dialogs' scale. */
+.studio-app .session-dialog {
+  border-radius: 6px;
+  font-size: 12px;
+}
+.studio-app .session-dialog-header {
+  padding: 18px 20px 14px;
+}
+.studio-app .session-dialog h2 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.studio-app .session-dialog-header p {
+  margin-top: 3px;
+  font-size: 11px;
+}
+.studio-app .session-dialog form {
+  padding: 16px 20px 18px;
+}
+.studio-app .session-field {
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 11px;
+}
+.studio-app .session-field > input,
+.studio-app .session-path {
+  padding: 7px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.studio-app .session-dialog-footer {
+  margin-top: 20px;
+}
+
+/* Colour grading: region switch with each range's tint, one wheel. */
+.studio-grading-regions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.studio-grading-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1px solid #6c6f74;
+  background: transparent;
+  flex: none;
+}
+.studio-wheel-row {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 8px;
+}
+.studio-wheel-disc {
+  position: relative;
+  border-radius: 50%;
+  /* Hue 0 at the right, increasing counter-clockwise (Lightroom). */
+  background:
+    radial-gradient(closest-side, #5d5f63 0%, #5d5f6300 100%),
+    conic-gradient(
+      from 90deg,
+      hsl(0 50% 50%),
+      hsl(300 50% 50%),
+      hsl(240 50% 50%),
+      hsl(180 50% 50%),
+      hsl(120 50% 50%),
+      hsl(60 50% 50%),
+      hsl(0 50% 50%)
+    );
+  box-shadow:
+    inset 0 0 0 1px #0007,
+    0 0 0 1px #3d3f43;
+  cursor: crosshair;
+  touch-action: none;
+}
+.studio-wheel-disc::after {
+  /* centre mark */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  border: 1px solid #c6cacf88;
+  pointer-events: none;
+}
+.studio-wheel-disc:focus-visible {
+  outline: 1px solid #829daf;
+  outline-offset: 2px;
+}
+.studio-wheel-disc.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.studio-wheel-point {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  margin: -5.5px 0 0 -5.5px;
+  border-radius: 50%;
+  border: 2px solid #eef0f3;
+  background: #5d5f63;
+  box-shadow: 0 1px 3px #000a;
+  pointer-events: none;
+  z-index: 1;
+}
+/* B&W mix: each slider's label carries its colour range. */
+.studio-mixer-row .adjustment-control > label::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--swatch);
+  vertical-align: 0;
+}
+
+/* Colour editor: one swatch per range (sample | result), + picks a new one. */
+.studio-color-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+.studio-workspace .studio-color-range,
+.studio-workspace .studio-color-range-add {
+  width: 26px;
+  min-height: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid #5b5d61;
+}
+.studio-workspace .studio-color-range[aria-pressed="true"] {
+  outline: 1px solid #eef0f3;
+  outline-offset: 1px;
+}
+.studio-workspace .studio-color-range-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #b2c5d5;
+  background: #26272a;
+}
+.studio-workspace .studio-color-range-add[aria-pressed="true"] {
+  background: #39566e;
+  color: #eef0f3;
+}
+.studio-color-range-actions {
+  justify-content: flex-end;
+  gap: 4px;
+}
+.studio-hint {
+  font-size: 10px;
+  color: #9ea3aa;
+  margin: 0 0 6px;
+}
+
+.studio-workspace .studio-clipping-toggle {
+  font-size: 9px;
+  min-height: 14px;
+  padding: 0 4px;
+  color: #8e939a;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+}
+.studio-workspace .studio-clipping-toggle[aria-pressed="true"] {
+  color: #eef0f3;
+  border-color: #b65454;
+}
+.studio-histogram-toggles {
+  display: inline-flex;
+  gap: 2px;
+}
+.studio-workspace .studio-proof-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 10px;
+}
+.studio-workspace .studio-proof-line select {
+  font-size: 10px;
+  min-height: 16px;
+  padding: 0 2px;
+}
+
+.studio-segments button[aria-pressed="true"],
+.studio-spot-controls .studio-segments button[aria-checked="true"] {
+  background: #3a3c40;
+  color: #eef0f3;
+}
+
+/* Refinements under an amount (Lightroom's noise Detail, Contrast,
+   Smoothness): indented, smaller labels. */
+.studio-subcontrols {
+  padding-left: 12px;
+}
+.studio-subcontrols .adjustment-control label {
+  font-size: 0.92em;
+  color: var(--studio-muted, inherit);
+}
+
+/* Targeted Adjustment Tool targets in the colour mixer (H / S / L). */
+.studio-tat-row > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.studio-tat-group {
+  display: inline-flex;
+  gap: 2px;
+}
+.studio-tat-button {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.studio-export-recipes ul {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+}
+.studio-export-recipes li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+}
+.studio-export-recipes li > button:first-of-type {
+  flex: 1;
+  justify-content: flex-start;
+  text-align: left;
+}
+.studio-export-recipes li.is-editing > button:first-of-type {
+  color: #d4e2ea;
+  font-weight: 600;
+}
+/* Current settings: no tick box, aligned with the recipe names. */
+.studio-export-recipes .studio-export-current {
+  margin-left: 21px;
+}
+/* What the settings on the right are (the unsaved ones or a recipe). */
+.studio-export-form .studio-export-editing {
+  margin: 0 0 8px;
+  font-size: 11px;
+  color: #c9d6e2;
+}
+/* In the footer, beside the button that starts it. */
+.studio-export-form footer {
+  align-items: center;
+}
+.studio-export-plan {
+  flex: 1;
+  min-width: 0;
+  max-height: 72px;
+  overflow-y: auto;
+}
+.studio-export-plan h4 {
+  font-size: 10px;
+  font-weight: 600;
+  margin: 0 0 2px;
+  color: #a8b0ba;
+}
+.studio-export-plan ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.studio-export-plan li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+}
+.studio-export-plan li > strong {
+  flex: none;
+  font-weight: 600;
+}
+.studio-export-plan li > span {
+  min-width: 0;
+  color: #a8b0ba;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.studio-export-recipe-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.studio-export-recipe-actions input {
+  flex: 1;
+  min-width: 120px;
+}
+
+.studio-metadata-iptc > summary {
+  cursor: default;
+  font-size: 10px;
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+.studio-metadata-iptc fieldset {
+  border: 0;
+  margin: 0 0 6px;
+  padding: 0;
+}
+.studio-metadata-iptc legend {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #8e96a0;
+  margin: 6px 0 2px;
+}
+
+.studio-preset-amount {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 34px;
+  gap: 6px;
+  align-items: center;
+  font-size: 10px;
+  margin: 2px 0 6px;
+}
+.studio-preset-amount span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-preset-amount output {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Lightroom's People mask: everyone or one person by face, then parts. */
+.studio-people-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 6px;
+}
+.studio-people-list button {
+  padding: 0;
+  border: 1px solid #505257;
+  border-radius: 3px;
+  overflow: hidden;
+  font-size: 10px;
+}
+.studio-people-list .studio-people-everyone {
+  padding: 0 8px;
+  min-height: 34px;
+}
+.studio-people-list img {
+  display: block;
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+}
+.studio-people-list button[aria-checked="true"] {
+  border-color: var(--studio-accent, #9cc2e0);
+  box-shadow: 0 0 0 1px var(--studio-accent, #9cc2e0);
+}
+.studio-people-list button.has-own {
+  border-style: dashed;
+}
+.studio-face-retouch .studio-text-button {
+  margin-top: 4px;
+}
+/* One option per line (Include neck, Show blemishes). */
+.studio-face-retouch .studio-check {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+.studio-people-parts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+  margin-bottom: 6px;
+  font-size: 10px;
+}
+.studio-folder-section {
+  padding: 7px 12px 3px;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8f949a;
+}
+.studio-color-labels > span:last-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 3px;
+}
+.studio-workspace .studio-color-label {
+  width: 15px;
+  height: 15px;
+  min-height: 15px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #17181a;
+  color: #17181a;
+  justify-content: center;
+}
+.studio-workspace .studio-color-label.is-none {
+  background: #2a2b2e;
+  color: #9da4ad;
+}
+.studio-workspace .studio-color-label.is-current {
+  outline: 1px solid #e6e7e9;
+  outline-offset: 1px;
+}
+.studio-exif-map {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.studio-exif-map iframe {
+  width: 100%;
+  height: 180px;
+  border: 0;
+  border-radius: 2px;
+  background: #1f2022;
+}
+.studio-workspace .studio-exif-map button {
+  min-height: 20px;
+  padding: 1px 0;
+  font-size: 10px;
+  color: #b2c5d5;
+}
+/* Window-edge strips that bring a hidden panel or bar back (Lightroom). */
+.studio-edge {
+  display: flex;
+  flex-shrink: 0;
+  background: #1f2022;
+  z-index: 3;
+}
+.studio-edge.is-left,
+.studio-edge.is-right {
+  width: 12px;
+}
+.studio-edge.is-left {
+  border-right: 1px solid var(--studio-line);
+}
+.studio-edge.is-right {
+  order: 4;
+  border-left: 1px solid var(--studio-line);
+}
+.studio-edge.is-top,
+.studio-edge.is-bottom {
+  height: 12px;
+  justify-content: center;
+}
+.studio-edge.is-top {
+  border-bottom: 1px solid var(--studio-line);
+}
+.studio-edge.is-bottom {
+  border-top: 1px solid var(--studio-line);
+}
+.studio-workspace .studio-edge > button {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0;
+  color: #8b8e93;
+}
+.studio-workspace .studio-edge > button:hover:not(:disabled) {
+  background: #ffffff10;
+  color: #e6e7e9;
+}
+/* With the top bar hidden on a windowed Mac, the strip is the title bar:
+   tall enough for the window buttons, draggable, with a small button. */
+.studio-app.macos-windowed .studio-edge.is-top {
+  height: 38px;
+  align-items: center;
+}
+.studio-app.macos-windowed .studio-workspace .studio-edge.is-top > button {
+  flex: none;
+  width: 48px;
+  height: 18px;
+  border-radius: 3px;
+}
+.studio-app.bars-hidden .session-bar,
+.studio-workspace.bars-hidden .studio-module-bar {
+  display: none;
+}
+.studio-workspace.is-image-fullscreen .studio-edge {
+  display: none;
+}
+@media (max-width: 1200px) {
+  /* The Library tools beside Develop's right-hand tools are not shown here. */
+  .studio-workspace.module-develop.split-tools .studio-edge.is-left {
+    display: none;
+  }
+}
+
+/* Merge dialog (HDR, panorama, focus stack): preview left, options right. */
+.merge-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0008;
+}
+.merge-dialog {
+  display: flex;
+  width: min(1180px, 94vw);
+  height: min(720px, 88vh);
+  background: var(--studio-bg, #292a2c);
+  border: 1px solid var(--studio-line, #17181a);
+  border-radius: 6px;
+  box-shadow: 0 18px 60px #0009;
+  overflow: hidden;
+  color: var(--studio-text, #e0e1e3);
+  font-size: 11px;
+}
+.merge-preview {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #1c1d1f;
+  padding: 16px;
+}
+.merge-preview-frame {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+}
+.merge-preview-frame img {
+  max-width: 100%;
+  max-height: calc(min(720px, 88vh) - 32px);
+  object-fit: contain;
+}
+.merge-preview-frame .merge-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.merge-preview-frame .merge-overlay-depth {
+  opacity: 0.85;
+}
+.merge-preview-state {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  padding: 4px 10px;
+  border-radius: 3px;
+  background: #000a;
+  color: #e6e7e9;
+  white-space: nowrap;
+}
+.merge-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  text-align: center;
+  color: var(--studio-muted, #a5a7aa);
+}
+.merge-message[role="alert"] {
+  color: #e7a3a3;
+}
+.merge-source {
+  max-width: 260px;
+  max-height: 180px;
+  opacity: 0.55;
+  border-radius: 2px;
+}
+.merge-side {
+  width: 270px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px 14px 14px;
+  background: var(--studio-raised, #323335);
+  border-left: 1px solid var(--studio-line, #17181a);
+  overflow-y: auto;
+}
+.merge-side h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0;
+}
+.merge-count,
+.merge-size {
+  color: var(--studio-muted, #a5a7aa);
+  margin: 0 0 8px;
+}
+.merge-label {
+  margin-top: 8px;
+  color: var(--studio-muted, #a5a7aa);
+}
+.merge-segments {
+  margin: 4px 0 2px;
+}
+.merge-projections .merge-segments + .merge-segments {
+  margin-top: 0;
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.merge-projections .merge-segments:first-child {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.merge-check {
+  display: flex;
+  align-items: center;
+  margin: 6px 0 2px;
+}
+.merge-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+}
+.merge-slider span {
+  display: flex;
+  justify-content: space-between;
+  color: var(--studio-muted, #a5a7aa);
+}
+.merge-slider output {
+  color: var(--studio-text, #e0e1e3);
+  font-variant-numeric: tabular-nums;
+}
+.merge-summary {
+  list-style: none;
+  margin: 12px 0 4px;
+  padding: 8px 0 0;
+  border-top: 1px solid #46484c;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.merge-summary li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--studio-muted, #a5a7aa);
+  font-variant-numeric: tabular-nums;
+}
+.merge-summary li span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--studio-text, #e0e1e3);
+}
+.merge-actions {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.merge-actions button {
+  padding: 5px 10px;
+  border: 1px solid #46484c;
+  border-radius: 3px;
+  background: transparent;
+  color: #e6e7e9;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.merge-actions button:hover:not(:disabled) {
+  background: #ffffff10;
+}
+.merge-actions button:disabled {
+  opacity: 0.45;
+}
+.merge-actions .merge-primary {
+  background: #a9bdcc;
+  border-color: transparent;
+  color: #18232a;
+}
+.merge-actions .merge-primary:hover:not(:disabled) {
+  background: #bfd0dc;
+}
+.merge-saved {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 4px;
+  color: #a9cfa9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.merge-error {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  color: #e7a3a3;
+}
+.merge-side .merge-segments button[aria-pressed="true"] {
+  background: #4b4e54;
+  color: #f2f3f5;
+}
+/* A hidden side panel shown for a moment while the pointer rests on its edge
+   strip: it lies over the photograph, which keeps its size and place. */
+.studio-body > .is-peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 20;
+  box-shadow: 0 0 24px #000a;
+  /* Short and mostly opaque from the first frame: the panel is there as
+     soon as the pointer reaches the edge (Lightroom fades it in at once). */
+  animation: studio-peek-in 80ms ease-out;
+}
+.studio-body > .is-peek[data-peek="left"] {
+  left: 12px;
+}
+.studio-body > .is-peek[data-peek="right"] {
+  right: 12px;
+  --peek-from: 8px;
+}
+@keyframes studio-peek-in {
+  from {
+    opacity: 0.5;
+    translate: var(--peek-from, -8px) 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-body > .is-peek {
+    animation: none;
+  }
+}
+
+/* Export: recipe library beside the settings, with a persistent action bar. */
+.studio-tool-dialog { width: 860px; height: 790px; border-radius: 8px; }
+.studio-tool-dialog > header { padding: 16px 20px; }
+.studio-tool-dialog > header strong { font-size: 15px; font-weight: 600; }
+.studio-tool-dialog-content { padding: 0; overflow: hidden; }
+.studio-export-form { display: flex; flex-direction: column; height: 100%; padding: 0; }
+.studio-export-form > .studio-export-selection { margin: 0; padding: 12px 20px; border-bottom: 1px solid #45484d; }
+.studio-export-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); min-height: 0; flex: 1; }
+.studio-export-sidebar { padding: 16px; overflow-y: auto; border-right: 1px solid #45484d; background: #242527; }
+.studio-export-settings { padding: 8px 24px 24px; overflow-y: auto; min-width: 0; }
+.studio-export-sidebar .studio-export-recipes { margin-top: 0; border-top: 0; }
+.studio-export-form legend { font-size: 12px; font-weight: 600; }
+.studio-export-form label { font-size: 12px; min-height: 36px; }
+.studio-export-form fieldset { margin: 12px 0 20px; padding-top: 12px; }
+.studio-export-form .studio-export-recipe-actions { flex-wrap: wrap; }
+.studio-export-form .studio-export-recipe-actions input { max-width: none; width: 100%; flex-basis: 100%; }
+.studio-export-form footer { flex-shrink: 0; padding: 14px 20px; margin: 0; border-top: 1px solid #45484d; background: #292a2c; }
+.studio-export-form footer button { min-height: 34px; }
+.studio-export-form .studio-export-naming { padding-bottom: 8px; }
+@media (max-width: 650px) {
+  .studio-export-layout { display: block; overflow-y: auto; }
+  .studio-export-sidebar { border-right: 0; border-bottom: 1px solid #45484d; overflow: visible; }
+  .studio-export-settings { overflow: visible; padding: 12px 16px; }
+}
+.studio-export-section { border-top: 1px solid #4b4e53; margin: 12px 0; }
+.studio-export-section > summary { cursor: pointer; padding: 12px 0; font-size: 12px; font-weight: 600; }
+.studio-export-section > fieldset { border-top: 0; margin-top: 0; padding-top: 0; }
+.studio-export-section > fieldset > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.studio-export-recipe-hint { font-size: 11px; line-height: 1.6; color: #b8bec6; margin-bottom: 14px; }

@@ -1,0 +1,56 @@
+[workspace]
+resolver = "3"
+members = ["src-tauri", "crates/*", "third_party/rawler"]
+exclude = ["vendor/little_exif"]
+default-members = [
+    "crates/catalog",
+    "crates/naming",
+    "crates/metadata",
+    "crates/ingest",
+    "crates/fileops",
+    "crates/interop",
+    "crates/runtime",
+    "crates/rawdecode",
+    "crates/engine",
+    "crates/gpu",
+    "crates/export",
+    "crates/merge",
+    "crates/cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "AGPL-3.0-or-later"
+
+[workspace.dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+tempfile = "3"
+sha2 = "0.11"
+
+[profile.dev]
+opt-level = 1
+debug = 1
+
+# The AV1 decoder for AVIF sources (crates/engine/src/avif.rs) took 16-19 s
+# for a 45 MP file at the dev profile's settings, 0.35 s like this.
+[profile.dev.package.rav1d]
+opt-level = 3
+debug-assertions = false
+overflow-checks = false
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = true
+
+[patch.crates-io]
+little_exif = { path = "vendor/little_exif" }
+
+[patch."https://github.com/CyberTimon/RapidRAW-DngLab.git"]
+rawler = { path = "third_party/rawler" }

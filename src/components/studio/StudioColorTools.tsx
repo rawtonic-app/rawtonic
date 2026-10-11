@@ -1,0 +1,373 @@
+import { invoke } from "@tauri-apps/api/core";
+import { Sparkles } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "react-toastify";
+import { useEditorStore } from "../../store/useEditorStore";
+import { Invokes } from "../ui/AppProperties";
+import {
+  GRAY_MIXER_CHANNELS,
+  INITIAL_ADJUSTMENTS,
+  INITIAL_GRAY_MIXER,
+  type Adjustments,
+  type GrayMixer,
+  type HueSatLum,
+} from "../../utils/adjustments";
+import AdjustmentControl from "./AdjustmentControl";
+import StudioColorWheel from "./StudioColorWheel";
+import { ToolGroup } from "./StudioDevelop";
+import type { ToolParams } from "./StudioToolCopy";
+
+type Values = Pick<Adjustments, "colorGrading" | "sectionVisibility"> &
+  Partial<Pick<Adjustments, "blackAndWhite" | "grayMixer">>;
+
+interface ToolProps {
+  values: Values;
+  disabled: boolean;
+  change(patch: Partial<Adjustments>): void;
+  onInteraction(active: boolean): void;
+  toggle?: { enabled: boolean; onToggle(): void };
+  copy?: ToolParams;
+}
+
+const REGIONS = [
+  ["shadows", "adjustments.color.grading.shadows"],
+  ["midtones", "adjustments.color.grading.midtones"],
+  ["highlights", "adjustments.color.grading.highlights"],
+  ["global", "adjustments.color.grading.global"],
+] as const;
+type Region = (typeof REGIONS)[number][0];
+
+export const tintColor = ({ hue, saturation }: HueSatLum) =>
+  saturation > 0
+    ? `hsl(${hue} ${Math.round(35 + saturation * 0.65)}% 55%)`
+    : undefined;
+
+/**
+ * Lightroom's Color Grading / Capture One's Color Balance: one wheel per
+ * tonal range (hue and saturation) with its luminance, plus Blending (how
+ * far the ranges overlap) and Balance (where shadows end and highlights
+ * begin). The renderer follows Camera Raw's response
+ * (notes: reference/color-grading.md).
+ */
+export function StudioColorGrading({
+  values,
+  disabled,
+  change,
+  onInteraction,
+  toggle,
+  copy,
+}: ToolProps) {
+  const { t } = useTranslation();
+  const [region, setRegion] = useState<Region>("midtones");
+  const grading = {
+    ...INITIAL_ADJUSTMENTS.colorGrading,
+    ...values.colorGrading,
+  };
+  const wheel: HueSatLum = {
+    ...(INITIAL_ADJUSTMENTS.colorGrading[region] as HueSatLum),
+    ...(grading[region] as HueSatLum),
+  };
+  const setWheel = (next: HueSatLum) =>
+    change({ colorGrading: { ...grading, [region]: next } });
+  const label = t(REGIONS.find(([key]) => key === region)![1]);
+  return (
+    <ToolGroup
+      title="Color grading"
+      label={t("studio.color.grading.title")}
+      toggle={toggle}
+      copy={copy}
+      open={false}
+      onReset={() =>
+        change({
+          colorGrading: structuredClone(INITIAL_ADJUSTMENTS.colorGrading),
+        })
+      }
+    >
+      <div
+        className="studio-segments studio-grading-regions"
+        aria-label={t("studio.color.grading.tonalRange")}
+      >
+        {REGIONS.map(([key, nameKey]) => {
+          const tint = tintColor(grading[key] as HueSatLum);
+          const name = t(nameKey);
+          return (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={region === key}
+              onClick={() => setRegion(key)}
+              title={name}
+            >
+              <span
+                className="studio-grading-dot"
+                style={{ background: tint }}
+                aria-hidden
+              />
+              {name}
+            </button>
+          );
+        })}
+      </div>
+      <div className="studio-wheel-row">
+        <StudioColorWheel
+          label={label}
+          value={wheel}
+          disabled={disabled}
+          onChange={setWheel}
+          onInteraction={onInteraction}
+        />
+      </div>
+      <AdjustmentControl
+        label={t("adjustments.color.hue")}
+        ariaLabel={t("studio.color.grading.hueAria", { range: label })}
+        value={wheel.hue}
+        min={0}
+        max={359}
+        track="hue"
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(hue) => setWheel({ ...wheel, hue })}
+      />
+      <AdjustmentControl
+        label={t("adjustments.color.saturation")}
+        ariaLabel={t("studio.color.grading.saturationAria", { range: label })}
+        value={wheel.saturation}
+        min={0}
+        max={100}
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(saturation) => setWheel({ ...wheel, saturation })}
+      />
+      <AdjustmentControl
+        label={t("adjustments.color.luminance")}
+        ariaLabel={t("studio.color.grading.luminanceAria", { range: label })}
+        value={wheel.luminance}
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(luminance) => setWheel({ ...wheel, luminance })}
+      />
+      <div className="studio-subheading">{t("studio.color.grading.ranges")}</div>
+      <AdjustmentControl
+        label={t("adjustments.color.grading.blending")}
+        value={grading.blending}
+        min={0}
+        max={100}
+        defaultValue={50}
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(blending) =>
+          change({ colorGrading: { ...grading, blending } })
+        }
+      />
+      <AdjustmentControl
+        label={t("adjustments.color.grading.balance")}
+        value={grading.balance}
+        disabled={disabled}
+        onInteraction={onInteraction}
+        onChange={(balance) =>
+          change({ colorGrading: { ...grading, balance } })
+        }
+      />
+    </ToolGroup>
+  );
+}
+
+const MIXER_SWATCH: Record<(typeof GRAY_MIXER_CHANNELS)[number], string> = {
+  red: "#dd6767",
+  orange: "#e6a461",
+  yellow: "#dac878",
+  green: "#86bb77",
+  aqua: "#72b9b9",
+  blue: "#6d9cc9",
+  purple: "#a18ac5",
+  magenta: "#ca83b0",
+};
+
+/**
+ * Black & white conversion with Lightroom's eight-channel B&W mix: each
+ * slider lightens or darkens the grey of one colour range. The tool's eye
+ * switches the conversion; Color grading tones the result.
+ */
+export function StudioBlackAndWhite({
+  values,
+  disabled,
+  change,
+  onInteraction,
+  copy,
+  targeted,
+}: ToolProps & { targeted?: React.ReactNode }) {
+  const { t } = useTranslation();
+  const enabled = !!values.blackAndWhite;
+  const mixer: GrayMixer = { ...INITIAL_GRAY_MIXER, ...values.grayMixer };
+  const [busy, setBusy] = useState(false);
+  // Lightroom's Auto: the mix that widens the tonal range of this photo as
+  // it is developed (bw_auto.rs).
+  const auto = async () => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.isReady) return;
+    setBusy(true);
+    try {
+      const mix = await invoke<number[] | null>(Invokes.AutoGrayMix, {
+        path: selectedImage.path,
+        jsAdjustments: adjustments,
+      });
+      if (
+        !Array.isArray(mix) ||
+        useEditorStore.getState().selectedImage?.path !== selectedImage.path
+      )
+        return;
+      change({
+        blackAndWhite: true,
+        grayMixer: Object.fromEntries(
+          GRAY_MIXER_CHANNELS.map((channel, i) => [channel, mix[i] ?? 0]),
+        ) as unknown as GrayMixer,
+      });
+    } catch (error) {
+      toast.error(t("studio.color.bw.autoFailed", { error: String(error) }));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <ToolGroup
+      title="Black & white"
+      label={t("studio.color.bw.title")}
+      open={enabled}
+      copy={copy}
+      toggle={{
+        enabled,
+        onToggle: () => change({ blackAndWhite: !enabled }),
+      }}
+      actions={
+        <>
+          {targeted}
+          <button
+            type="button"
+            className="studio-tool-auto"
+            disabled={disabled || busy}
+            aria-label={t("studio.color.bw.autoAria")}
+            title={t("studio.color.bw.autoTitle")}
+            onClick={(e) => {
+              e.preventDefault();
+              void auto();
+            }}
+          >
+            <Sparkles size={12} />
+            {t("studio.color.bw.auto")}
+          </button>
+        </>
+      }
+      onReset={() => change({ grayMixer: { ...INITIAL_GRAY_MIXER } })}
+    >
+      {!enabled && (
+        <button
+          type="button"
+          className="studio-text-button"
+          disabled={disabled}
+          onClick={() => change({ blackAndWhite: true })}
+        >
+          {t("studio.color.bw.convert")}
+        </button>
+      )}
+      {GRAY_MIXER_CHANNELS.map((channel) => (
+        <div
+          key={channel}
+          className="studio-mixer-row"
+          style={{ "--swatch": MIXER_SWATCH[channel] } as React.CSSProperties}
+        >
+          <AdjustmentControl
+            label={t(`studio.color.bw.channels.${channel}`)}
+            value={mixer[channel]}
+            disabled={disabled || !enabled}
+            onInteraction={onInteraction}
+            onChange={(v) => change({ grayMixer: { ...mixer, [channel]: v } })}
+          />
+        </div>
+      ))}
+    </ToolGroup>
+  );
+}
+
+const PRIMARIES = [
+  ["red", "#dd6767"],
+  ["green", "#86bb77"],
+  ["blue", "#6d9cc9"],
+] as const;
+
+/**
+ * Lightroom's Calibration: hue and saturation of the red, green and blue
+ * primaries (every colour that contains them shifts too) and the shadows
+ * tint, rendered as Camera Raw does (notes: reference/calibration.md).
+ */
+export function StudioCalibration({
+  values,
+  disabled,
+  change,
+  onInteraction,
+  toggle,
+  copy,
+}: ToolProps & { values: Pick<Adjustments, "colorCalibration"> }) {
+  const { t } = useTranslation();
+  const calibration = {
+    ...INITIAL_ADJUSTMENTS.colorCalibration,
+    ...values.colorCalibration,
+  };
+  const set = (key: string, value: number) =>
+    change({ colorCalibration: { ...calibration, [key]: value } });
+  const slider = (label: string, key: string, ariaLabel: string) => (
+    <AdjustmentControl
+      key={key}
+      label={label}
+      ariaLabel={ariaLabel}
+      value={(calibration as unknown as Record<string, number>)[key] ?? 0}
+      disabled={disabled}
+      onInteraction={onInteraction}
+      onChange={(v) => set(key, v)}
+    />
+  );
+  return (
+    <ToolGroup
+      title="Calibration"
+      label={t("studio.color.calibration.title")}
+      toggle={toggle}
+      copy={copy}
+      open={false}
+      onReset={() =>
+        change({
+          colorCalibration: structuredClone(
+            INITIAL_ADJUSTMENTS.colorCalibration,
+          ),
+        })
+      }
+    >
+      {slider(
+        t("adjustments.color.calibration.shadows"),
+        "shadowsTint",
+        t("studio.color.calibration.shadowsTintAria"),
+      )}
+      {PRIMARIES.map(([key, swatch]) => (
+        <div
+          key={key}
+          className="studio-mixer-row"
+          style={{ "--swatch": swatch } as React.CSSProperties}
+        >
+          <div className="studio-subheading">
+            {t(`studio.color.calibration.primaries.${key}`)}
+          </div>
+          {slider(
+            t("adjustments.color.hue"),
+            `${key}Hue`,
+            t(`studio.color.calibration.hueAria.${key}`),
+          )}
+          {slider(
+            t("adjustments.color.saturation"),
+            `${key}Saturation`,
+            t(`studio.color.calibration.saturationAria.${key}`),
+          )}
+        </div>
+      ))}
+
+    </ToolGroup>
+  );
+}

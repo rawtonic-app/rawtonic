@@ -1,0 +1,694 @@
+import type { ReactNode } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import { ExportPreset } from './ExportImportProperties';
+import { Adjustments, CopyPasteSettings } from '../../utils/adjustments';
+import { ToolType } from '../panel/right/Masks';
+import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
+
+export const GLOBAL_KEYS = [
+  ' ',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'f',
+  'b',
+  'a',
+  's',
+  'd',
+  'r',
+  'm',
+  'k',
+  'p',
+  'i',
+  'e',
+  '0',
+  '1',
+  '2',
+  '3',
+  '4',
+  '5',
+  'Enter',
+];
+export const OPTION_SEPARATOR = 'separator';
+/** A small group caption in a menu (`label`), not selectable. */
+export const OPTION_HEADER = 'header';
+
+export enum Invokes {
+  AddTagForPaths = 'add_tag_for_paths',
+  ApplyAdjustments = 'apply_adjustments',
+  ApplyAdjustmentsToPaths = 'apply_adjustments_to_paths',
+  ApplyAutoAdjustmentsToPaths = 'apply_auto_adjustments_to_paths',
+  ApplyAiDenoise = 'apply_ai_denoise',
+  ThirdPartyLicenses = 'third_party_licenses',
+  CalculateAutoAdjustments = 'calculate_auto_adjustments',
+  CalculateManualTransform = 'calculate_manual_transform',
+  ListFontFamilies = 'list_font_families',
+  CancelAiTask = 'cancel_ai_task',
+  CancelExport = 'cancel_export',
+  ClearAllSidecars = 'clear_all_sidecars',
+  ClearAiTags = 'clear_ai_tags',
+  ClearAllTags = 'clear_all_tags',
+  ClearThumbnailCache = 'clear_thumbnail_cache',
+  CopyFiles = 'copy_files',
+  CreateFolder = 'create_folder',
+  CreateVirtualCopy = 'create_virtual_copy',
+  CullImages = 'cull_images',
+  DeleteFolder = 'delete_folder',
+  DuplicateFile = 'duplicate_file',
+  EstimateExportSizes = 'estimate_export_sizes',
+  ExportImages = 'export_images',
+  ExportQueueJobs = 'export_queue_jobs',
+  ExportQueueResume = 'export_queue_resume',
+  ExportQueueRemove = 'export_queue_remove',
+  FrontendLog = 'frontend_log',
+  GenerateAiForegroundMask = 'generate_ai_foreground_mask',
+  GenerateAiSkyMask = 'generate_ai_sky_mask',
+  GenerateAiPeopleMask = 'generate_ai_people_mask',
+  DetectPeople = 'detect_people',
+  AnalyzeFaceRetouch = 'analyze_face_retouch',
+  ApplyFaceRetouchToPaths = 'apply_face_retouch_to_paths',
+  GenerateAiSubjectMask = 'generate_ai_subject_mask',
+  PrecomputeAiSubjectMask = 'precompute_ai_subject_mask',
+  PrecomputeAiForegroundMask = 'precompute_ai_foreground_mask',
+  PrecomputeAiSkyMask = 'precompute_ai_sky_mask',
+  PreloadAiMaskModels = 'preload_ai_mask_models',
+  UnloadAiModels = 'unload_ai_models',
+  NoteAiMaskUse = 'note_ai_mask_use',
+  GeneratePreviewForPath = 'generate_preview_for_path',
+  GenerateMaskOverlay = 'generate_mask_overlay',
+  GenerateMaskThumbnails = 'generate_mask_thumbnails',
+  GenerateUncroppedPreview = 'generate_uncropped_preview',
+  GetFolderTree = 'get_folder_tree',
+  GetFolderChildren = 'get_folder_children',
+  GetLogFilePath = 'get_log_file_path',
+  GetPinnedFolderTrees = 'get_pinned_folder_trees',
+  GetSupportedFileTypes = 'get_supported_file_types',
+  HandleExportPresetsToFile = 'handle_export_presets_to_file',
+  HandleImportPresetsFromFile = 'handle_import_presets_from_file',
+  HandleImportPresetsFromFiles = 'handle_import_presets_from_files',
+  HandleImportLegacyPresetsFromFile = 'handle_import_legacy_presets_from_file',
+  ImportFiles = 'import_files',
+  InvokeGenerativeReplaseWithMaskDef = 'invoke_generative_replace_with_mask_def',
+  IsTetheringSupported = 'is_tethering_supported',
+  AutodetectLens = 'autodetect_lens',
+  CalculateUpright = 'calculate_upright',
+  GetCameraLensProfile = 'get_camera_lens_profile',
+  GetLensDistortionParams = 'get_lens_distortion_params',
+  GetLensfunLensesForMaker = 'get_lensfun_lenses_for_maker',
+  GetLensfunMakers = 'get_lensfun_makers',
+  ImportCameraProfile = 'import_camera_profile',
+  ListCameraProfiles = 'list_camera_profiles',
+  WhiteBalanceInfo = 'white_balance_info',
+  WhiteBalanceFromSample = 'white_balance_from_sample',
+  AutoGrayMix = 'auto_gray_mix',
+  AutoWhiteBalance = 'auto_white_balance_for',
+  PlaceLightroomMasks = 'place_lightroom_masks',
+  FindSpotSource = 'find_spot_source',
+  VisualizeSpots = 'visualize_spots',
+  LoadImage = 'load_image',
+  LoadImageProxy = 'load_image_proxy',
+  ActivatePhoto = 'activate_photo',
+  PreparePreviewProxies = 'prepare_preview_proxies',
+  BuildPreviews = 'build_previews',
+  StopPreviewBuild = 'stop_preview_build',
+  PreviewBuildProgress = 'preview_build_progress',
+  DiscardPreviews = 'discard_previews',
+  PreviewCacheUsage = 'preview_cache_usage',
+  ClearPreviewCache = 'clear_preview_cache',
+  ApplyPreviewLimits = 'apply_preview_limits',
+  LoadEmbeddedPreview = 'load_embedded_preview',
+  LoadMetadata = 'load_metadata',
+  LoadPresets = 'load_presets',
+  LoadSettings = 'load_settings',
+  MoveFiles = 'move_files',
+  ReadExifForPaths = 'read_exif_for_paths',
+  RemoveTagForPaths = 'remove_tag_for_paths',
+  RenameFiles = 'rename_files',
+  RenameFolder = 'rename_folder',
+  UndoFileOperation = 'undo_file_operation',
+  LastFileOperation = 'last_file_operation',
+  ResetAdjustmentsForPaths = 'reset_adjustments_for_paths',
+  SaveMetadataAndUpdateThumbnail = 'save_metadata_and_update_thumbnail',
+  SaveCollage = 'save_collage',
+  SessionAlbumAdd = 'session_album_add',
+  SessionAllTextMetadata = 'session_all_text_metadata',
+  SessionAlbumPaths = 'session_album_paths',
+  SessionAlbumRemove = 'session_album_remove',
+  SessionAlbums = 'session_albums',
+  SessionCreateAlbum = 'session_create_album',
+  SessionDeleteAlbum = 'session_delete_album',
+  SessionMoveAlbum = 'session_move_album',
+  SessionOffline = 'session_offline',
+  SessionRelink = 'session_relink',
+  SessionRelinkFolder = 'session_relink_folder',
+  CatalogFolders = 'catalog_folders',
+  SessionRenameAlbum = 'session_rename_album',
+  SessionSetTextMetadata = 'session_set_text_metadata',
+  SessionTextMetadata = 'session_text_metadata',
+  SavePresets = 'save_presets',
+  SaveSettings = 'save_settings',
+  SampleLumaRange = 'sample_luma_range',
+  SamplePreviewColor = 'sample_preview_color',
+  SamplePreviewWhiteBalance = 'sample_preview_white_balance',
+  SetColorLabelForPaths = 'set_color_label_for_paths',
+  SetRatingForPaths = 'set_rating_for_paths',
+  ShowInFinder = 'show_in_finder',
+  StartBackgroundIndexing = 'start_background_indexing',
+  MergePhotos = 'merge_photos',
+  SaveMerge = 'save_merge',
+  RefinishMerge = 'refinish_merge',
+  DiscardMerge = 'discard_merge',
+  QuitSaving = 'quit_saving',
+  FinishQuit = 'finish_quit',
+  CancelQuit = 'cancel_quit',
+  UpdateWgpuTransform = 'update_wgpu_transform',
+  UpdateExifFields = 'update_exif_fields',
+  FileSize = 'file_size',
+  GetAlbums = 'get_albums',
+  SaveAlbums = 'save_albums',
+  AddToAlbum = 'add_to_album',
+  GetAlbumImages = 'get_album_images',
+  TetherListCameras = 'tether_list_cameras',
+  TetherConnect = 'tether_connect',
+  TetherGetSettings = 'tether_get_settings',
+  TetherSetSetting = 'tether_set_setting',
+  TetherCapture = 'tether_capture',
+  TetherGetPreview = 'tether_get_preview',
+}
+
+export enum ExifOverlay {
+  Off = 'off',
+  Hover = 'hover',
+  Always = 'always',
+}
+
+export enum Panel {
+  Adjustments = 'adjustments',
+  Crop = 'crop',
+  Export = 'export',
+  Masks = 'masks',
+  Metadata = 'metadata',
+  Presets = 'presets',
+  FolderTree = 'folderTree',
+  Tethering = 'tethering',
+}
+
+export type PanelRegion = 'leftTop' | 'leftBottom' | 'rightTop' | 'rightBottom';
+
+export enum RawStatus {
+  All = 'all',
+  NonRawOnly = 'nonRawOnly',
+  RawOnly = 'rawOnly',
+}
+
+export enum SortDirection {
+  Ascending = 'asc',
+  Descending = 'desc',
+}
+
+type FolderSortKey = 'name' | 'modified' | 'created' | 'imageCount';
+
+export interface FolderTreeSort {
+  key: FolderSortKey;
+  order: SortDirection;
+}
+
+export enum ThumbnailAspectRatio {
+  Cover = 'cover',
+  Contain = 'contain',
+  Justified = 'justified',
+}
+
+export interface WorkspaceState {
+  leftPanelWidth: number;
+  rightPanelWidth: number;
+  leftTopHeight: number;
+  rightTopHeight: number;
+  panelLayout: Record<PanelRegion, Panel[]>;
+  activePanels: Record<PanelRegion, Panel | null>;
+  panelSwitcherPlacement: Record<PanelRegion, 'left' | 'right' | 'top' | 'bottom'>;
+}
+
+export interface CustomAspectRatio {
+  width: number;
+  height: number;
+}
+
+export type GroupPreference = 'jpeg' | 'raw';
+export type GroupingMode = 'off' | GroupPreference;
+
+/** Capture One-style mask visibility in the editor viewer. */
+export type MaskDisplay = 'always' | 'drawing' | 'grayscale' | 'never';
+
+/** Library location restored at startup (`LastFolderState` in app_settings.rs). */
+export interface LastFolderState {
+  currentFolderPath: string | null;
+  expandedFolders: string[];
+  activeAlbumId: string | null;
+  expandedAlbumGroups: string[];
+}
+
+/** A lens saved in the settings for manual lens correction (`MyLens` in app_settings.rs). */
+export interface MyLens {
+  maker: string;
+  model: string;
+}
+
+/** Crop grid: always, only while the frame is dragged (Capture One), or off. */
+export type CropGrid = 'always' | 'drag' | 'off';
+
+export interface AppSettings {
+  aiConnectorAddress?: string;
+  aiProvider?: string;
+  decorations?: boolean;
+  editorPreviewResolution?: number;
+  smallThumbnailResolution?: number;
+  mediumThumbnailResolution?: number;
+  enableZoomHifi?: boolean;
+  useFullDpiRendering?: boolean;
+  highResZoomMultiplier?: number;
+  enableLivePreviews?: boolean;
+  livePreviewQuality?: string;
+  maskDisplay?: MaskDisplay;
+  maskDisplayRestore?: MaskDisplay;
+  maskColor?: string;
+  /** Size of the interface's panels and bars (1, 1.12 or 1.25). */
+  uiScale?: number;
+  maskOpacity?: number;
+  radialDrawInside?: boolean;
+  cropGrid?: CropGrid;
+  cropShade?: number;
+  /** Open tools ("<column>/<tool>") and the tool order per column. */
+  toolLayout?: ToolLayout;
+  /** The brush's last size, hardness, opacity and flow. */
+  brushDefaults?: Partial<Pick<BrushSettings, "size" | "hardness" | "opacity" | "flow">>;
+  enableAiTagging?: boolean;
+  aiTagCount?: number;
+  customAiTags?: string[];
+  filterCriteria?: FilterCriteria;
+  lastFolderState?: LastFolderState | null;
+  pinnedFolders?: string[];
+  lastRootPath: string | null;
+  rootFolders?: string[];
+  libraryViewMode?: LibraryViewMode;
+  sortCriteria?: SortCriteria;
+  /** Legacy: there is no theme choice any more; old values are kept but ignored. */
+  theme?: string;
+  thumbnailSize?: ThumbnailSize;
+  thumbnailAspectRatio?: ThumbnailAspectRatio;
+  uiVisibility?: UiVisibility;
+  rawHighlightCompression?: number;
+  processingBackend?: string;
+  aiGpu?: boolean;
+  linuxGpuOptimization?: boolean;
+  exportPresets?: ExportPreset[];
+  myLenses?: MyLens[];
+  customAspectRatios?: CustomAspectRatio[];
+  adjustmentLayout?: AdjustmentLayout;
+  enableFolderImageCounts?: boolean;
+  displayEditIcon?: boolean;
+  linearRawMode?: string;
+  thumbnailWorkerThreads?: number;
+  imageCacheSize?: number;
+  rawPreprocessingColorNr?: number;
+  rawPreprocessingSharpening?: number;
+  applyPreprocessingToNonRaws?: boolean;
+  useAppleRaw9?: boolean;
+  enableXmpSync?: boolean;
+  createXmpIfMissing?: boolean;
+  isWaveformVisible?: boolean;
+  waveformHeight?: number;
+  activeWaveformChannel?: string;
+  useWgpuRenderer?: boolean;
+  editorNeutralGreyBg?: boolean;
+  canvasInputMode?: 'mouse' | 'trackpad';
+  zoomSpeedMultiplier?: number;
+  zoomPhotoToPixelClick?: boolean;
+  keybinds?: { [action: string]: string[] };
+  tonemapperOverrideEnabled?: boolean;
+  defaultRawTonemapper?: string;
+  defaultNonRawTonemapper?: string;
+  copyPasteSettings?: CopyPasteSettings;
+  enableFocusMode?: boolean;
+  enableToolFocusMode?: boolean;
+  openTreeSections?: string[];
+  folderIcons?: Record<string, string>;
+  exifOverlay?: ExifOverlay;
+  language?: string;
+  fontFamily?: string;
+  folderTreeSort?: FolderTreeSort;
+  taggingShortcuts?: string[];
+  libraryDisplayMode?: LibraryDisplayMode;
+  grouping?: GroupingMode;
+  requireMatchingExif?: boolean;
+  groupEditedFiles?: boolean;
+  groupPreferredType?: GroupPreference; // legacy
+  alwaysDecodeRawThumbnails?: boolean;
+  /** Long edge of Standard previews at least (px); unset or 0: sized to the Develop view. */
+  standardPreviewSize?: number;
+  /** Days after their last use when 1:1 previews are discarded; unset: 30, 0: never. */
+  discardFullPreviewsDays?: number;
+  /** Most the Standard previews of one previews folder may take (GB); unset: 10, 0: no limit. */
+  standardPreviewsLimitGb?: number;
+  workspace?: WorkspaceState;
+}
+
+export interface BrushSettings {
+  feather: number;
+  /** Capture One's brush opacity and flow in percent (default 100). */
+  flow?: number;
+  /** Capture One's brush hardness in percent; replaces feather when set. */
+  hardness?: number;
+  opacity?: number;
+  size: number;
+  tool: ToolType;
+  /** Lightroom's and Capture One's Auto Mask: strokes keep to colours like
+   * the one under the brush centre. */
+  autoMask?: boolean;
+}
+
+export enum LibraryViewMode {
+  Flat = 'flat',
+  Recursive = 'recursive',
+}
+
+export const EditedStatus = {
+  All: 'all',
+  EditedOnly: 'editedOnly',
+  UneditedOnly: 'uneditedOnly',
+} as const;
+
+export type EditedStatus = (typeof EditedStatus)[keyof typeof EditedStatus];
+
+export interface FilterCriteria {
+  colors: Array<string>;
+  rating: number;
+  rawStatus: RawStatus;
+  editedStatus?: EditedStatus;
+  flag?: 'all' | 'picked' | 'unflagged' | 'rejected';
+}
+
+export interface Folder {
+  children: Preset[];
+  id?: string | undefined;
+  name?: string | undefined;
+  imageCount?: number;
+}
+
+export interface ImageFile {
+  is_edited: boolean;
+  modified: number;
+  path: string;
+  rating: number;
+  tags: Array<string> | null;
+  exif: { [key: string]: string } | null;
+  is_virtual_copy: boolean;
+  is_cloud_placeholder: boolean;
+  is_raw: boolean;
+  group_id: string | null;
+  /** The file is missing or on a disconnected drive; the library still holds
+   * the photograph (it opens on its previews). */
+  is_offline?: boolean;
+  /** The disconnected drive the file is on. */
+  offline_volume?: string | null;
+}
+
+/** A photograph whose file is offline, as the session lists it. */
+export interface OfflineEntry {
+  path: string;
+  volume: string | null;
+  mtime: number;
+  /** Its folder is gone too (renamed, moved, or its drive disconnected). */
+  folder_missing: boolean;
+  /** Its virtual copies the library keeps (copy ids), offline with it. */
+  copies?: string[];
+}
+
+/** What a relink found and did (`session_relink`, `session_relink_folder`). */
+export interface RelinkReport {
+  relinked: Array<[string, string]>;
+  mismatched: string[];
+  taken: string[];
+  not_found: number;
+}
+
+/** Props the context menu passes to an option's `customComponent`, next to the option's `customProps`. */
+export interface ContextMenuCustomProps {
+  hideContextMenu(): void;
+}
+
+export interface ToolLayout {
+  open?: Record<string, boolean>;
+  order?: Record<string, string[]>;
+}
+
+export interface Option {
+  color?: string;
+  /**
+   * Replaces a submenu's rows when it is that submenu's only entry, rendered as
+   * `<customComponent {...customProps} hideContextMenu={…} />`. A method signature,
+   * so components taking no props or extending ContextMenuCustomProps both fit.
+   */
+  customComponent?(props: ContextMenuCustomProps): ReactNode;
+  customProps?: object;
+  disabled?: boolean;
+  icon?: LucideIcon;
+  isDestructive?: boolean;
+  label?: string;
+  onClick?(): void;
+  onRightClick?(): void;
+  submenu?: Option[];
+  type?: string;
+}
+
+export enum Orientation {
+  Horizontal = 'horizontal',
+  Vertical = 'vertical',
+}
+
+export interface Preset {
+  adjustments: Partial<Adjustments>;
+  folder?: Folder;
+  id: string;
+  name: string;
+  includeMasks?: boolean;
+  includeCropTransform?: boolean;
+  presetType?: 'tool' | 'style';
+}
+
+export interface Progress {
+  stage?: string;
+  completed?: number;
+  current?: number;
+  total: number;
+}
+
+/** Sidecar metadata from `load_metadata` / `load_image` (`ImageMetadata` in image_processing.rs). */
+export interface ImageMetadata {
+  version: number;
+  rating: number;
+  /** The stored recipe as saved; `null` when the image has never been edited. */
+  adjustments: Adjustments | null;
+  tags: string[] | null;
+  exif?: { [key: string]: string };
+}
+
+/** Result of `load_image` (`LoadImageResult` in image_loader.rs). */
+export interface LoadImageResult {
+  width: number;
+  height: number;
+  metadata: ImageMetadata;
+  exif: { [key: string]: string };
+  is_raw: boolean;
+  /** AI Denoise amount the source was developed with (0 … 100). */
+  ai_denoise?: number;
+  /** Why the recipe's AI Denoise could not be applied. */
+  ai_denoise_error?: string | null;
+  /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */
+  offline?: OfflinePreview | null;
+}
+
+/** Which preview an offline photograph shows: its 1:1 preview (full
+ * resolution) or its Standard preview (about screen size). */
+export type OfflinePreview = 'full' | 'standard';
+
+/** A preview build (`BuildProgress` in proxy_worker.rs). */
+export interface PreviewBuildProgress {
+  done: number;
+  total: number;
+  running: boolean;
+  stopped: boolean;
+  skipped: number;
+  failedCount: number;
+  failed: Array<{ path: string; reason: string }>;
+}
+
+/** Disk use of a previews folder (`PreviewUsage` in preview_proxy.rs). */
+export interface PreviewUsage {
+  standardCount: number;
+  standardBytes: number;
+  fullCount: number;
+  fullBytes: number;
+}
+
+/** `PreviewCacheInfo` in proxy_worker.rs. */
+export interface PreviewCacheInfo {
+  session: { dir: string; usage: PreviewUsage } | null;
+  outside: { dir: string; usage: PreviewUsage } | null;
+}
+
+export interface SelectedImage {
+  exif: { [key: string]: string } | null;
+  group_id?: string | null;
+  height: number;
+  isRaw: boolean;
+  /** Source and recipe are in: the photograph is shown and can be edited
+   * (from its preview proxy before the full decode, as in Capture One). */
+  isReady: boolean;
+  /** A preview proxy is the native source until the full decode. */
+  isPreviewReady?: boolean;
+  /** The full RAW decode is in (full-resolution rendering; commands that
+   * need it wait for it natively). */
+  isDecoded?: boolean;
+  /** AI Denoise amount the decoded source carries (0 … 100). */
+  aiDenoise?: number;
+  /** An AI Denoise amount that failed for this source (not retried). */
+  aiDenoiseFailed?: number;
+  /** The RAW is offline: the photograph shows (and is edited on) this preview. */
+  offline?: OfflinePreview | null;
+  metadata?: ImageMetadata | null;
+  original_base64?: string;
+  path: string;
+  thumbnailUrl: string;
+  thumbnailSource?: 'embedded';
+  width: number;
+}
+
+/** Whether the viewer can render the photograph (proxy or full decode). */
+export const canRenderSource = (image: SelectedImage | null | undefined): image is SelectedImage =>
+  Boolean(image?.isReady || image?.isPreviewReady);
+
+export interface SortCriteria {
+  key: string;
+  label?: string;
+  order: string;
+}
+
+export interface SupportedTypes {
+  nonRaw: Array<string>;
+  raw: Array<string>;
+}
+
+export enum LibraryDisplayMode {
+  Grid = 'grid',
+  Cull = 'cull',
+  List = 'list',
+}
+
+export enum ThumbnailSize {
+  Large = 'large',
+  Medium = 'medium',
+  Small = 'small',
+}
+
+export interface TransformState {
+  positionX: number;
+  positionY: number;
+  scale: number;
+}
+
+export interface UiVisibility {
+  filmstrip: boolean;
+  leftPanel: boolean;
+  rightPanel: boolean;
+  quickFilter?: boolean;
+  /** The Studio workspace's layout per module (`src/utils/panelLayout.ts`). */
+  modules?: Partial<Record<WorkspaceModule, Partial<ModuleLayout>>>;
+}
+
+export interface CollapsibleSectionsState {
+  basic: boolean;
+  color: boolean;
+  curves: boolean;
+  details: boolean;
+  effects: boolean;
+}
+
+export interface AdjustmentLayout {
+  collapsedTools?: string[];
+  hiddenSections?: string[];
+  hiddenTools?: string[];
+  openSections?: Partial<CollapsibleSectionsState>;
+  sectionOrder?: string[];
+  toolOrder?: Record<string, string[]>;
+}
+
+/** Scope images from `analytics-update` (`WaveformData` in image_processing.rs). */
+export interface WaveformData {
+  height: number;
+  luma: string;
+  rgb: string;
+  parade: string;
+  vectorscope: string;
+  width: number;
+}
+
+/** Per-channel 256-bin histogram of the rendered preview (`HistogramData` in image_processing.rs). */
+export interface HistogramData {
+  blue: Array<number>;
+  green: Array<number>;
+  luma: Array<number>;
+  red: Array<number>;
+}
+
+export interface CullingSettings {
+  similarityThreshold: number;
+  blurThreshold: number;
+  groupSimilar: boolean;
+  filterBlurry: boolean;
+}
+
+interface ImageAnalysisResult {
+  path: string;
+  qualityScore: number;
+  sharpnessMetric: number;
+  centerFocusMetric: number;
+  exposureMetric: number;
+  width: number;
+  height: number;
+}
+
+interface CullGroup {
+  representative: ImageAnalysisResult;
+  duplicates: ImageAnalysisResult[];
+}
+
+export interface CullingSuggestions {
+  similarGroups: CullGroup[];
+  blurryImages: ImageAnalysisResult[];
+  failedPaths: string[];
+}
+
+interface KeybindHandler {
+  shouldFire?: () => boolean;
+  execute: (event: KeyboardEvent) => void;
+}
+
+export type AlbumItem = Album | AlbumGroup;
+
+export interface Album {
+  type: 'album';
+  id: string;
+  name: string;
+  icon?: string;
+  images: string[];
+}
+
+export interface AlbumGroup {
+  type: 'group';
+  id: string;
+  name: string;
+  icon?: string;
+  children: AlbumItem[];
+}

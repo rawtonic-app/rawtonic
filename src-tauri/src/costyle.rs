@@ -1,0 +1,658 @@
+//! Capture One styles (`.costyle`, also `.cos` settings files) as Rawtonic
+//! presets. By Rawtonic's law there is one tool per job, so a style's
+//! settings are translated into Rawtonic's tools as closely as they were
+//! measured (notes: reference/capture-one-tools.md, "Style import"):
+//!
+//! - Color Balance: Capture One stores each wheel as RGB multipliers,
+//!   `(1 − 0.3·s·(1 − c(h)))·f` with c(h) the hue at full saturation and
+//!   f the lightness factor (1 + L/3 raising, 1 + L/4 lowering). Decoded to
+//!   hue, saturation and lightness, then mapped per region and hue to the
+//!   Rawtonic grading wheel whose Oklab shift by lightness fits Capture
+//!   One's measured shift best.
+//! - Levels: `R;G;B;RGB` in 0–1; the midtone (−1…1) as the gamma Capture
+//!   One's renders showed.
+//! - Tone sliders by the values that reproduce Capture One's measured
+//!   change; the unmeasured ones are marked below.
+//!
+//! Not translated: ICC profiles and film curves (Capture One's own
+//! rendering, files Rawtonic cannot read), the Color Editor, white
+//! balance multipliers (camera specific), noise reduction (different
+//! baselines), lens and keystone settings, retouching.
+
+use serde_json::{Map, Value, json};
+use std::collections::HashMap;
+use uuid::Uuid;
+
+use crate::file_management::Preset;
+
+/// Rawtonic grading hue and strength (saturation for Capture One's
+/// saturation 1) for Capture One hues 0, 15 … 345, and Capture One's
+/// saturation exponent, per region: master, shadow, midtone, highlight.
+/// Hue and the shape over hue come from a model of Capture One's response
+/// matched to Rawtonic's grading; the strength is scaled to Capture One's
+/// measured shifts (three photos, saturation 0.5 at six hues and 1.0 at
+/// three: the model was ×1.8–2.2 too weak, by a constant per region).
+struct WheelMap {
+    hue: [f32; 24],
+    strength: [f32; 24],
+    exponent: f32,
+}
+
+const MASTER: WheelMap = WheelMap {
+    hue: [
+        25.0, 30.0, 35.0, 45.0, 90.0, 105.0, 120.0, 120.0, 120.0, 120.0, 140.0, 195.0, 200.0,
+        210.0, 215.0, 230.0, 270.0, 285.0, 295.0, 300.0, 300.0, 300.0, 315.0, 15.0,
+    ],
+    strength: [
+        72.7, 80.6, 75.2, 58.0, 46.7, 48.2, 48.8, 56.6, 63.4, 57.7, 54.7, 68.0, 68.4, 81.1, 76.5,
+        56.1, 52.7, 53.1, 55.4, 60.2, 67.3, 61.2, 56.9, 68.0,
+    ],
+    exponent: 1.1,
+};
+const SHADOW: WheelMap = WheelMap {
+    hue: [
+        15.0, 35.0, 45.0, 55.0, 70.0, 80.0, 90.0, 100.0, 125.0, 145.0, 160.0, 180.0, 190.0, 210.0,
+        220.0, 230.0, 240.0, 250.0, 260.0, 275.0, 295.0, 315.0, 335.0, 355.0,
+    ],
+    strength: [
+        82.7, 108.9, 110.7, 97.7, 82.1, 92.7, 97.6, 99.6, 90.0, 88.2, 83.0, 75.5, 79.5, 111.0,
+        123.6, 124.4, 114.0, 120.8, 118.8, 104.5, 84.2, 77.9, 75.9, 71.1,
+    ],
+    exponent: 0.93,
+};
+const MIDTONE: WheelMap = WheelMap {
+    hue: [
+        15.0, 25.0, 35.0, 50.0, 85.0, 90.0, 105.0, 115.0, 120.0, 145.0, 165.0, 190.0, 200.0, 205.0,
+        215.0, 230.0, 260.0, 270.0, 275.0, 285.0, 300.0, 310.0, 330.0, 350.0,
+    ],
+    strength: [
+        84.1, 90.3, 83.4, 62.6, 54.1, 64.8, 68.3, 72.2, 77.8, 78.2, 74.8, 83.5, 91.6, 97.9, 98.1,
+        81.0, 79.5, 84.3, 89.9, 89.5, 81.6, 78.7, 76.5, 71.4,
+    ],
+    exponent: 1.18,
+};
+const HIGHLIGHT: WheelMap = WheelMap {
+    hue: [
+        10.0, 30.0, 45.0, 55.0, 65.0, 75.0, 80.0, 95.0, 115.0, 140.0, 160.0, 175.0, 190.0, 210.0,
+        225.0, 235.0, 250.0, 260.0, 265.0, 280.0, 295.0, 315.0, 335.0, 355.0,
+    ],
+    strength: [
+        78.8, 106.2, 117.2, 105.3, 92.6, 98.0, 104.3, 95.0, 80.4, 75.2, 72.7, 67.2, 71.8, 99.6,
+        110.7, 105.5, 100.9, 102.7, 105.6, 93.9, 82.7, 77.4, 76.3, 72.5,
+    ],
+    exponent: 1.08,
+};
+
+/// Rawtonic luminance for Capture One lightness ±1 and its exponent,
+/// raising then lowering, for shadow, midtone and highlight (Capture One
+/// reaches beyond Rawtonic's ±100 from about ±0.6).
+const LIGHTNESS: [[(f32, f32); 2]; 3] = [
+    [(167.1, 0.854), (153.0, 0.728)],
+    [(197.9, 0.96), (138.1, 1.04)],
+    [(160.7, 0.82), (127.4, 1.175)],
+];
+
+/// Capture One's Color Balance multipliers `r;g;b` as hue (degrees),
+/// saturation (0–1) and lightness (−1…1).
+fn decode_color_balance(value: &str) -> Option<(f32, f32, f32)> {
+    let m: Vec<f32> = value
+        .split(';')
+        .map(|v| v.trim().parse().ok())
+        .collect::<Option<_>>()?;
+    let [r, g, b] = <[f32; 3]>::try_from(m).ok()?;
+    let f = r.max(g).max(b);
+    if !(f.is_finite() && f > 0.0) {
+        return None;
+    }
+    let lightness = if f >= 1.0 {
+        (f - 1.0) * 3.0
+    } else {
+        (f - 1.0) * 4.0
+    };
+    let n = [r / f, g / f, b / f];
+    let saturation = (1.0 - n[0].min(n[1]).min(n[2])) / 0.3;
+    if saturation < 1e-3 {
+        return Some((0.0, 0.0, lightness.clamp(-1.0, 1.0)));
+    }
+    // The pure hue colour: one channel 1, one 0.
+    let c = n.map(|x| 1.0 - (1.0 - x) / (0.3 * saturation));
+    let (max, min) = (c[0].max(c[1]).max(c[2]), c[0].min(c[1]).min(c[2]));
+    let d = (max - min).max(1e-6);
+    let hue = if max == c[0] {
+        ((c[1] - c[2]) / d).rem_euclid(6.0)
+    } else if max == c[1] {
+        (c[2] - c[0]) / d + 2.0
+    } else {
+        (c[0] - c[1]) / d + 4.0
+    } * 60.0;
+    Some((
+        hue.rem_euclid(360.0),
+        saturation.clamp(0.0, 1.0),
+        lightness.clamp(-1.0, 1.0),
+    ))
+}
+
+/// A Rawtonic grading wheel for one decoded Capture One wheel.
+fn wheel(map: &WheelMap, region: Option<usize>, (hue, sat, light): (f32, f32, f32)) -> Value {
+    let position = hue.rem_euclid(360.0) / 15.0;
+    let i = position as usize % 24;
+    let j = (i + 1) % 24;
+    let t = position.fract();
+    let turn = ((map.hue[j] - map.hue[i] + 540.0) % 360.0) - 180.0;
+    let rt_hue = (map.hue[i] + t * turn).rem_euclid(360.0);
+    let strength = map.strength[i] + t * (map.strength[j] - map.strength[i]);
+    let saturation = (strength * sat.powf(map.exponent)).clamp(0.0, 100.0);
+    let luminance = region.map_or(0.0, |r| {
+        let (k, p) = LIGHTNESS[r][usize::from(light < 0.0)];
+        (light.signum() * k * light.abs().powf(p)).clamp(-100.0, 100.0)
+    });
+    json!({
+        "hue": rt_hue.round(),
+        "saturation": saturation.round(),
+        "luminance": luminance.round(),
+    })
+}
+
+/// Sets a non-zero value, clamped and rounded to two decimals.
+fn put(adjustments: &mut Map<String, Value>, key: &str, value: f64, min: f64, max: f64) {
+    if value != 0.0 {
+        let rounded = (value.clamp(min, max) * 100.0).round() / 100.0;
+        adjustments.insert(key.to_string(), json!(rounded));
+    }
+}
+
+fn numbers(value: &str, separator: char) -> Option<Vec<f64>> {
+    value
+        .split(separator)
+        .map(|v| v.trim().parse().ok())
+        .collect()
+}
+
+/// Capture One's level midtone (−1…1) as a Photoshop gamma, fitted to its
+/// renders: +1 ≈ 2.04, +0.5 ≈ 1.72, −0.5 ≈ 0.59, −1 ≈ 0.48.
+fn midtone_gamma(m: f64) -> f64 {
+    (m.signum() * 0.72 * m.abs().powf(0.42)).exp()
+}
+
+fn levels(settings: &HashMap<String, String>) -> Option<Value> {
+    let get = |key: &str| settings.get(key).and_then(|v| numbers(v, ';'));
+    let (shadow, highlight, midtone, target_shadow, target_highlight) = (
+        get("Shadow"),
+        get("Highlight"),
+        get("Midtone"),
+        get("TargetShadow"),
+        get("TargetHighlight"),
+    );
+    if [
+        &shadow,
+        &highlight,
+        &midtone,
+        &target_shadow,
+        &target_highlight,
+    ]
+    .iter()
+    .all(|v| v.is_none())
+    {
+        return None;
+    }
+    let at = |values: &Option<Vec<f64>>, i: usize, default: f64| {
+        values
+            .as_ref()
+            .and_then(|v| v.get(i).copied())
+            .unwrap_or(default)
+    };
+    let mut out = Map::new();
+    // Stored as R;G;B;RGB.
+    for (name, i) in [("red", 0), ("green", 1), ("blue", 2), ("rgb", 3)] {
+        let level = json!({
+            "inBlack": (at(&shadow, i, 0.0) * 255.0).round(),
+            "inWhite": (at(&highlight, i, 1.0) * 255.0).round(),
+            "gamma": (midtone_gamma(at(&midtone, i, 0.0)) * 1000.0).round() / 1000.0,
+            "outBlack": (at(&target_shadow, i, 0.0) * 255.0).round(),
+            "outWhite": (at(&target_highlight, i, 1.0) * 255.0).round(),
+        });
+        out.insert(name.to_string(), level);
+    }
+    let identity = out.values().all(|l| {
+        l["inBlack"] == json!(0.0)
+            && l["inWhite"] == json!(255.0)
+            && l["gamma"] == json!(1.0)
+            && l["outBlack"] == json!(0.0)
+            && l["outWhite"] == json!(255.0)
+    });
+    (!identity).then_some(Value::Object(out))
+}
+
+/// `x,y;x,y…` in 0–1 as Rawtonic curve points in 0–255.
+fn curve(value: &str) -> Option<Value> {
+    let points: Vec<Value> = value
+        .split(';')
+        .map(|p| {
+            let xy = numbers(p, ',')?;
+            (xy.len() == 2).then(|| {
+                json!({
+                    "x": (xy[0].clamp(0.0, 1.0) * 255.0).round(),
+                    "y": (xy[1].clamp(0.0, 1.0) * 255.0).round(),
+                })
+            })
+        })
+        .collect::<Option<_>>()?;
+    let identity = points.len() == 2
+        && points[0] == json!({"x": 0.0, "y": 0.0})
+        && points[1] == json!({"x": 255.0, "y": 255.0});
+    (points.len() >= 2 && !identity).then_some(Value::Array(points))
+}
+
+/// Reads the `<E K="…" V="…"/>` entries; later entries win (a `.cos` file
+/// lists defaults before the variant's values).
+fn entries(content: &str) -> HashMap<String, String> {
+    let re = regex::regex!(r#"<E\s+K="([^"]+)"\s+V="([^"]*)""#);
+    re.captures_iter(content)
+        .map(|c| (c[1].to_string(), c[2].replace("&amp;", "&")))
+        .collect()
+}
+
+pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<Preset, String> {
+    if !content.contains("<SL") && !content.contains("<DL") {
+        return Err("Not a Capture One style".to_string());
+    }
+    let s = entries(content);
+    let num = |key: &str| s.get(key).and_then(|v| v.trim().parse::<f64>().ok());
+    let mut adjustments = Map::new();
+
+    // Tone and presence, as Rawtonic values that reproduce Capture One's
+    // measured change by lightness (three photos, notes: reference/
+    // capture-one-tools.md): Highlight ×0.5 raising / ×0.56 lowering (the
+    // older HighlightRecovery recovers, i.e. lowers), Shadow ×2.5,
+    // White ×0.69 / ×0.44, Black ×0.65 / ×0.79, Contrast ×2.25 / ×0.9,
+    // Brightness ÷43.5, Saturation ×0.73, Dehaze ×0.78; Exposure 1:1.
+    let signed = |v: f64, up: f64, down: f64| v * if v > 0.0 { up } else { down };
+    if let Some(v) = num("Exposure") {
+        put(&mut adjustments, "exposure", v, -5.0, 5.0);
+    }
+    if let Some(v) = num("Contrast") {
+        put(
+            &mut adjustments,
+            "contrast",
+            signed(v, 2.25, 0.9),
+            -100.0,
+            100.0,
+        );
+    }
+    if let Some(v) = num("Brightness") {
+        put(&mut adjustments, "brightness", v / 43.5, -5.0, 5.0);
+    }
+    if let Some(v) = num("Saturation") {
+        put(&mut adjustments, "saturation", 0.73 * v, -100.0, 100.0);
+    }
+    let highlights = num("HighlightRecoveryEx").map_or(0.0, |v| signed(v, 0.5, 0.56))
+        - 0.56 * num("HighlightRecovery").unwrap_or(0.0);
+    put(&mut adjustments, "highlights", highlights, -100.0, 100.0);
+    if let Some(v) = num("ShadowRecovery") {
+        put(&mut adjustments, "shadows", 2.5 * v, -100.0, 100.0);
+    }
+    if let Some(v) = num("WhiteRecovery") {
+        put(
+            &mut adjustments,
+            "whites",
+            signed(v, 0.69, 0.44),
+            -100.0,
+            100.0,
+        );
+    }
+    if let Some(v) = num("BlackRecovery") {
+        put(
+            &mut adjustments,
+            "blacks",
+            signed(v, 0.65, 0.79),
+            -100.0,
+            100.0,
+        );
+    }
+    if let Some(v) = num("DehazeAmount") {
+        put(&mut adjustments, "dehaze", 0.78 * v, -100.0, 100.0);
+    }
+    // Clarity and Structure change local contrast, which these lightness
+    // shifts do not see; their ratios come from the band contrast measured
+    // in notes: reference/tone-controls.md: Clarity ±50 moved medium contrast
+    // ×0.98/×1.09 in Capture One and ×0.95/×1.21 at Rawtonic ±50,
+    // Structure ×0.71/×1.84 against ×0.74/×1.49.
+    if let Some(v) = num("Clarity") {
+        put(
+            &mut adjustments,
+            "clarity",
+            signed(v, 0.5, 0.4),
+            -100.0,
+            100.0,
+        );
+    }
+    if let Some(v) = num("ClarityStructure") {
+        put(
+            &mut adjustments,
+            "structure",
+            signed(v, 1.5, 1.0),
+            -100.0,
+            100.0,
+        );
+    }
+    // Unmeasured scales: vignetting in EV, grain, sharpening (Capture One's
+    // default 160 / 0.8 px ≈ Lightroom's 40 / 1.0), moiré pattern 1–20 and
+    // purple fringing 0–100.
+    if let Some(v) = s
+        .get("Vignetting")
+        .and_then(|v| v.split('|').next()?.trim().parse::<f64>().ok())
+    {
+        put(&mut adjustments, "vignetteAmount", 25.0 * v, -100.0, 100.0);
+    }
+    if let Some(v) = num("FilmGrainAmount") {
+        put(&mut adjustments, "grainAmount", v, 0.0, 100.0);
+        if v > 0.0 {
+            let size = num("FilmGrainGranularity").unwrap_or(50.0);
+            put(&mut adjustments, "grainSize", size, 0.0, 100.0);
+        }
+    }
+    if let Some(v) = num("UsmAmount") {
+        adjustments.insert(
+            "sharpness".into(),
+            json!((v / 4.0).clamp(0.0, 150.0).round()),
+        );
+        if let Some(r) = num("UsmRadius") {
+            put(&mut adjustments, "sharpenRadius", r, 0.5, 3.0);
+        }
+    }
+    if let Some(m) = s.get("Moire").and_then(|v| numbers(v, ';'))
+        && m.len() == 2
+        && m[0] > 0.0
+    {
+        put(&mut adjustments, "moireAmount", m[0], 0.0, 100.0);
+        put(
+            &mut adjustments,
+            "moirePattern",
+            (m[1] - 1.0) / 19.0 * 100.0,
+            0.0,
+            100.0,
+        );
+    }
+    if let Some(v) = num("PurpleFringingAmount") {
+        put(&mut adjustments, "defringePurpleAmount", v / 5.0, 0.0, 20.0);
+    }
+    // Color Balance → one colour grading.
+    let mut grading = Map::new();
+    for (key, region, map, index) in [
+        ("ColorBalance", "global", &MASTER, None),
+        ("ColorBalanceShadow", "shadows", &SHADOW, Some(0)),
+        ("ColorBalanceMidtone", "midtones", &MIDTONE, Some(1)),
+        ("ColorBalanceHighlight", "highlights", &HIGHLIGHT, Some(2)),
+    ] {
+        if let Some(decoded) = s.get(key).and_then(|v| decode_color_balance(v)) {
+            let w = wheel(map, index, decoded);
+            if w["saturation"] != json!(0.0) || w["luminance"] != json!(0.0) {
+                grading.insert(region.to_string(), w);
+            }
+        }
+    }
+
+    // Black & White: six sensitivities onto the eight-channel mix (orange
+    // and purple between their neighbours); split toning onto the grading's
+    // shadow and highlight wheels (hue 1:1, saturation 1:1, unmeasured).
+    if num("BwEnabled").is_some_and(|v| v != 0.0) {
+        adjustments.insert("blackAndWhite".into(), json!(true));
+        let bw = |key: &str| num(key).unwrap_or(0.0).clamp(-100.0, 100.0);
+        let (r, y, g, c, b, m) = (
+            bw("BwRed"),
+            bw("BwYellow"),
+            bw("BwGreen"),
+            bw("BwCyan"),
+            bw("BwBlue"),
+            bw("BwMagenta"),
+        );
+        let mix = [
+            ("red", r),
+            ("orange", (r + y) / 2.0),
+            ("yellow", y),
+            ("green", g),
+            ("aqua", c),
+            ("blue", b),
+            ("purple", (b + m) / 2.0),
+            ("magenta", m),
+        ];
+        if mix.iter().any(|(_, v)| *v != 0.0) {
+            let mix: Map<String, Value> = mix
+                .iter()
+                .map(|(k, v)| (k.to_string(), json!(v.round())))
+                .collect();
+            adjustments.insert("grayMixer".into(), Value::Object(mix));
+        }
+        for (hue, sat, region) in [
+            ("BwDarkHue", "BwDarkSaturation", "shadows"),
+            ("BwLightHue", "BwLightSaturation", "highlights"),
+        ] {
+            let saturation = num(sat).unwrap_or(0.0);
+            if saturation > 0.0 {
+                let luminance = grading
+                    .get(region)
+                    .and_then(|w| w["luminance"].as_f64())
+                    .unwrap_or(0.0);
+                grading.insert(
+                    region.to_string(),
+                    json!({
+                        "hue": num(hue).unwrap_or(0.0).rem_euclid(360.0).round(),
+                        "saturation": saturation.clamp(0.0, 100.0).round(),
+                        "luminance": luminance,
+                    }),
+                );
+            }
+        }
+    }
+    if !grading.is_empty() {
+        adjustments.insert("colorGrading".into(), Value::Object(grading));
+    }
+
+    if let Some(levels) = levels(&s) {
+        adjustments.insert("levels".into(), levels);
+    }
+    // Capture One's RGB curve is Rawtonic's main (Lightroom-style composite)
+    // curve; its Luma curve, which keeps saturation, is used only when the
+    // RGB curve is unchanged.
+    let mut curves = Map::new();
+    if let Some(points) = s
+        .get("GradationCurve")
+        .and_then(|v| curve(v))
+        .or_else(|| s.get("GradationCurveY").and_then(|v| curve(v)))
+    {
+        curves.insert("luma".into(), points);
+    }
+    for (key, channel) in [
+        ("GradationCurveRed", "red"),
+        ("GradationCurveGreen", "green"),
+        ("GradationCurveBlue", "blue"),
+    ] {
+        if let Some(points) = s.get(key).and_then(|v| curve(v)) {
+            curves.insert(channel.into(), points);
+        }
+    }
+    if !curves.is_empty() {
+        let mut full = serde_json::to_value(default_curves()).unwrap_or(json!({}));
+        for (k, v) in curves {
+            full[k] = v;
+        }
+        adjustments.insert("curves".into(), full);
+        adjustments.insert("curveMode".into(), json!("point"));
+    }
+
+    let skipped: Vec<&str> = [
+        "ICCProfile",
+        "FilmCurve",
+        "ColorCorrections",
+        "WhiteBalance",
+    ]
+    .into_iter()
+    .filter(|k| s.get(*k).is_some_and(|v| !v.is_empty()))
+    .collect();
+    if !skipped.is_empty() {
+        log::info!("Capture One style import: not translated {skipped:?}");
+    }
+    if adjustments.is_empty() && !skipped.is_empty() {
+        return Err(format!(
+            "Its look lives in {} — Capture One's own rendering, which Rawtonic does not read",
+            skipped.join(", ")
+        ));
+    }
+
+    let mut name = s
+        .get("Name")
+        .filter(|n| !n.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| fallback_name.to_string());
+    // Part of such a style's look stays behind; say so where it is chosen.
+    if skipped
+        .iter()
+        .any(|k| *k == "ICCProfile" || *k == "FilmCurve")
+    {
+        name.push_str(" (without its ICC look)");
+    }
+    Ok(Preset {
+        id: Uuid::new_v4().to_string(),
+        name,
+        adjustments: Value::Object(adjustments),
+        include_masks: Some(false),
+        include_crop_transform: Some(false),
+        preset_type: Some("style".to_string()),
+    })
+}
+
+fn default_curves() -> Value {
+    let identity = json!([{"x": 0, "y": 0}, {"x": 255, "y": 255}]);
+    json!({
+        "luma": identity,
+        "red": identity,
+        "green": identity,
+        "blue": identity,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writes each style in `$COSTYLE_FILES` (`;`-separated) as a Rawtonic
+    /// recipe next to it (`<file>.json`).
+    #[test]
+    #[ignore = "tool: needs COSTYLE_FILES"]
+    fn write_converted_styles() {
+        for path in std::env::var("COSTYLE_FILES").unwrap().split(';') {
+            let content = std::fs::read_to_string(path).unwrap();
+            let preset = convert_costyle_to_preset(&content, "style").unwrap();
+            std::fs::write(format!("{path}.json"), preset.adjustments.to_string()).unwrap();
+        }
+    }
+
+    #[test]
+    fn color_balance_multipliers_decode_as_capture_one_wrote_them() {
+        // Written by Capture One 16 for known settings (test session).
+        let cases = [
+            ("1;0.970000028610229;0.939999997615814", (30.0, 0.2, 0.0)),
+            (
+                "0.909333288669586;1.03333330154419;0.909333288669586",
+                (120.0, 0.4, 0.1),
+            ),
+            (
+                "0.864499986171722;0.921500027179718;0.949999988079071",
+                (200.0, 0.3, -0.2),
+            ),
+            (
+                "1.10000002384186;1.10000002384186;0.935000061988831",
+                (60.0, 0.5, 0.3),
+            ),
+            ("1;0.85;0.85", (0.0, 0.5, 0.0)),
+        ];
+        for (stored, (h, s, l)) in cases {
+            let (hue, sat, light) = decode_color_balance(stored).unwrap();
+            assert!((hue - h).abs() < 0.5, "{stored}: hue {hue}");
+            assert!((sat - s).abs() < 0.005, "{stored}: sat {sat}");
+            assert!((light - l).abs() < 0.005, "{stored}: lightness {light}");
+        }
+        assert_eq!(decode_color_balance("1;1;1"), Some((0.0, 0.0, 0.0)));
+        assert_eq!(decode_color_balance("1;1"), None);
+    }
+
+    #[test]
+    fn a_style_becomes_one_rawtonic_preset() {
+        let style = r#"<?xml version="1.0" encoding="utf-8"?>
+<SL Engine="1300">
+ <E K="Name" V="Warm matte"/>
+ <E K="Exposure" V="0.37"/>
+ <E K="Contrast" V="17"/>
+ <E K="HighlightRecoveryEx" V="23"/>
+ <E K="ShadowRecovery" V="29"/>
+ <E K="Clarity" V="40"/>
+ <E K="ColorBalanceShadow" V="0.909333288669586;1.03333330154419;0.909333288669586"/>
+ <E K="Highlight" V="0.901960790157318;1;1;0.941176474094391"/>
+ <E K="Midtone" V="0;0;0;0.25"/>
+ <E K="TargetShadow" V="0;0;0;0.0196078438311815"/>
+ <E K="GradationCurve" V="0,0.05;0.5,0.55;1,1"/>
+ <E K="ICCProfile" V="Film.icc"/>
+</SL>"#;
+        let preset = convert_costyle_to_preset(style, "file").unwrap();
+        let a = &preset.adjustments;
+        assert_eq!(preset.name, "Warm matte (without its ICC look)");
+        assert_eq!(a["exposure"], json!(0.37));
+        assert_eq!(a["contrast"], json!(38.25));
+        assert_eq!(a["highlights"], json!(11.5));
+        assert_eq!(a["shadows"], json!(72.5));
+        assert_eq!(a["clarity"], json!(20.0));
+        // Shadow wheel: green, lifted.
+        let shadows = &a["colorGrading"]["shadows"];
+        assert!((100.0..=150.0).contains(&shadows["hue"].as_f64().unwrap()));
+        assert!(shadows["saturation"].as_f64().unwrap() > 10.0);
+        assert!(shadows["luminance"].as_f64().unwrap() > 0.0);
+        // Levels: RGB composite is the fourth value.
+        assert_eq!(a["levels"]["rgb"]["inWhite"], json!(240.0));
+        assert_eq!(a["levels"]["red"]["inWhite"], json!(230.0));
+        assert_eq!(a["levels"]["rgb"]["outBlack"], json!(5.0));
+        assert!(a["levels"]["rgb"]["gamma"].as_f64().unwrap() > 1.3);
+        assert_eq!(a["curves"]["luma"][1], json!({"x": 128.0, "y": 140.0}));
+        assert_eq!(a["curves"]["red"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn black_and_white_maps_six_sensitivities_onto_eight_channels() {
+        let style = r#"<SL><E K="BwEnabled" V="1"/><E K="BwRed" V="-40"/>
+            <E K="BwYellow" V="20"/><E K="BwBlue" V="30"/><E K="BwMagenta" V="-10"/>
+            <E K="BwLightHue" V="40"/><E K="BwLightSaturation" V="25"/></SL>"#;
+        let a = convert_costyle_to_preset(style, "bw").unwrap().adjustments;
+        assert_eq!(a["blackAndWhite"], json!(true));
+        assert_eq!(a["grayMixer"]["orange"], json!(-10.0));
+        assert_eq!(a["grayMixer"]["purple"], json!(10.0));
+        assert_eq!(a["colorGrading"]["highlights"]["hue"], json!(40.0));
+        assert_eq!(convert_costyle_to_preset(style, "bw").unwrap().name, "bw");
+    }
+
+    #[test]
+    fn grain_sharpening_and_vignetting_come_along() {
+        let style = r#"<SL><E K="FilmGrainAmount" V="50"/><E K="FilmGrainGranularity" V="70"/>
+            <E K="UsmAmount" V="0"/><E K="Vignetting" V="-1|1|0|1"/><E K="Moire" V="20;8"/></SL>"#;
+        let a = convert_costyle_to_preset(style, "g").unwrap().adjustments;
+        assert_eq!(a["grainAmount"], json!(50.0));
+        assert_eq!(a["grainSize"], json!(70.0));
+        assert_eq!(a["sharpness"], json!(0.0));
+        assert_eq!(a["vignetteAmount"], json!(-25.0));
+        assert_eq!(a["moireAmount"], json!(20.0));
+    }
+
+    #[test]
+    fn a_look_that_lives_only_in_an_icc_profile_is_refused_with_the_reason() {
+        let style = r#"<SL><E K="ICCProfile" V="film.icc"/><E K="Name" V="Film"/></SL>"#;
+        let error = convert_costyle_to_preset(style, "f").unwrap_err();
+        assert!(error.contains("ICCProfile"), "{error}");
+    }
+
+    #[test]
+    fn untouched_settings_add_nothing() {
+        let style = r#"<SL><E K="Name" V="n"/><E K="ColorBalance" V="1;1;1"/>
+            <E K="Highlight" V="1;1;1;1"/><E K="GradationCurve" V="0,0;1,1"/></SL>"#;
+        let a = convert_costyle_to_preset(style, "x").unwrap().adjustments;
+        assert_eq!(a, json!({}));
+        assert!(convert_costyle_to_preset("{}", "x").is_err());
+    }
+}

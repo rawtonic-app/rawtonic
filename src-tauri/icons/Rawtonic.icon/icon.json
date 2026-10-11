@@ -1,0 +1,100 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "solid": "srgb:0.16863,0.18431,0.20000,1.00000"
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "solid": "srgb:0.10980,0.12157,0.13333,1.00000"
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Leg",
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.61176,0.72157,0.81569,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.66275,0.78824,0.88235,1.00000"
+              }
+            }
+          ],
+          "glass": true,
+          "image-name": "leg.svg",
+          "name": "leg",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    },
+    {
+      "name": "Photosites",
+      "layers": [
+        {
+          "fill-specializations": [
+            {
+              "value": {
+                "solid": "srgb:0.86667,0.89412,0.91373,1.00000"
+              }
+            },
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:0.78824,0.82745,0.85490,1.00000"
+              }
+            }
+          ],
+          "glass": false,
+          "image-name": "photosites.svg",
+          "name": "photosites",
+          "position": {
+            "scale": 1,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}
