@@ -62,6 +62,7 @@ import { useEdgePeek } from "./useEdgePeek";
 import { useQuickAdjust } from "./useQuickAdjust";
 import { storedStudioLayout } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
+import { splitViewAvailable } from "../../utils/beforeAfter";
 import {
   moduleOf,
   presentGroups,
@@ -166,13 +167,17 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t } = useTranslation();
-  const { selectedImage, historyIndex, history, showOriginal } = useEditorStore(
+  const { selectedImage, historyIndex, history, showOriginal, splitView } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
       history: s.history,
       showOriginal: s.showOriginal,
+      splitView: s.splitView,
     })),
+  );
+  const splitAvailable = useSettingsStore((s) =>
+    splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
   );
   const tools = useStudioTools();
   const [toolPopover, setToolPopover] = useState<{
@@ -243,7 +248,7 @@ export default function StudioWorkspace(props: Props) {
       imageRatings: s.imageRatings,
     })),
   );
-  const { toggleShowOriginal } = useEditorActions();
+  const { toggleShowOriginal, toggleSplitView } = useEditorActions();
   const exportState = useProcessStore((s) => s.exportState);
   const develop = activeView === "editor";
   useEffect(() => {
@@ -743,6 +748,26 @@ export default function StudioWorkspace(props: Props) {
                   >
                     <SquareSplitHorizontal size={14} />
                     <span className="optional-label">{t("studio.workspace.viewer.before")}</span>
+                  </button>
+                  <button
+                    aria-pressed={splitView}
+                    title={
+                      splitAvailable
+                        ? withShortcut(
+                            t("studio.workspace.viewer.splitView"),
+                            shortcutHint(
+                              "toggle_split_view",
+                              useSettingsStore.getState().appSettings?.keybinds,
+                              useSettingsStore.getState().osPlatform,
+                            ),
+                          )
+                        : t("studio.workspace.viewer.splitUnavailable")
+                    }
+                    onClick={toggleSplitView}
+                    disabled={!selectedImage?.isReady || !splitAvailable}
+                  >
+                    <Columns2 size={14} />
+                    <span className="optional-label">{t("studio.workspace.viewer.split")}</span>
                   </button>
                 </div>
                 <StudioToolBar />

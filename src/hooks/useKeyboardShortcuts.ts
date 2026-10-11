@@ -51,8 +51,14 @@ export const useKeyboardShortcuts = ({
   handlePasteFiles,
   handleZoomChange,
 }: KeyboardShortcutsProps) => {
-  const { handleRotate, handleCopyAdjustments, handlePasteAdjustments, toggleShowOriginal, handleAutoAdjustments } =
-    useEditorActions();
+  const {
+    handleRotate,
+    handleCopyAdjustments,
+    handlePasteAdjustments,
+    toggleShowOriginal,
+    toggleSplitView,
+    handleAutoAdjustments,
+  } = useEditorActions();
   const { handleRate, handleSetColorLabel } = useLibraryActions();
 
   // The crop as it was when the crop tool opened: Escape restores it and
@@ -364,6 +370,13 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           toggleShowOriginal();
+        },
+      },
+      toggle_split_view: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+        execute: (e) => {
+          e.preventDefault();
+          toggleSplitView();
         },
       },
       toggle_clipping: {
@@ -807,6 +820,7 @@ export const useKeyboardShortcuts = ({
     handleRate,
     handleSetColorLabel,
     toggleShowOriginal,
+    toggleSplitView,
     handleAutoAdjustments,
   ]);
 };

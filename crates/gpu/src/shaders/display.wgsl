@@ -14,6 +14,9 @@ struct Transform {
     overlay_mode: vec4<f32>,
     // Screen area that may show the image; zero width means rect only.
     box_rect: vec4<f32>,
+    // Before/after split: x 1 while the split shows, y the divider's screen x.
+    // Left of it the unedited render (`before_tex`), right the edited frame.
+    split: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> transform: Transform;
@@ -21,6 +24,9 @@ struct Transform {
 @group(0) @binding(2) var samp: sampler;
 // The active mask layer at the image's size (1×1 and unused without an overlay).
 @group(0) @binding(3) var overlay_tex: texture_2d<f32>;
+// The split view's unedited render at its own resolution, covering the same
+// photograph rect as `tex` (1×1 and unused without a split).
+@group(1) @binding(0) var before_tex: texture_2d<f32>;
 
 struct VertexOutput {
     @builtin(position) pos: vec4<f32>,
@@ -98,6 +104,17 @@ fn crop_edit_uv(screen: vec2<f32>) -> vec2<f32> {
     return (local + half_size) / transform.rect.zw;
 }
 
+// The unedited render; it fills its texture, so uv maps onto it directly.
+fn sample_before(uv: vec2<f32>) -> vec4<f32> {
+    let size = vec2<f32>(textureDimensions(before_tex));
+    var before_uv = clamp(uv, vec2<f32>(0.5) / size, vec2<f32>(1.0) - vec2<f32>(0.5) / size);
+    if (transform.pixelated > 0.5) {
+        before_uv = (floor(clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0)) * size) + vec2<f32>(0.5)) / size;
+        before_uv = min(before_uv, vec2<f32>(1.0) - vec2<f32>(0.5) / size);
+    }
+    return textureSampleLevel(before_tex, samp, before_uv, 0.0);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var uv = in.uv;
@@ -106,6 +123,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
         return transform.bg_secondary;
+    }
+    if (transform.split.x > 0.5 && in.screen.x < transform.split.y) {
+        return sample_before(uv);
     }
 
     let adjusted_uv = uv * (transform.image_size / transform.texture_size);

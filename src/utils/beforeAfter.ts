@@ -1,0 +1,98 @@
+import { Adjustments, INITIAL_ADJUSTMENTS } from './adjustments';
+
+/**
+ * Recipe keys that place the photograph in the frame: crop, orientation,
+ * transform and lens geometry. The unedited view ("before") keeps them from
+ * the edit so it shows the same framing. Must include SPLIT_FRAMING_KEYS
+ * (src-tauri/src/editor_preview.rs) and GEOMETRY_KEYS
+ * (crates/engine/src/cache_utils.rs): the native split draws the before only
+ * beside frames whose keys match (checked by beforeAfter.test.ts).
+ */
+export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
+  'crop',
+  'rotation',
+  'flipHorizontal',
+  'flipVertical',
+  'orientationSteps',
+  'aspectRatio',
+  'transformDistortion',
+  'transformVertical',
+  'transformHorizontal',
+  'transformRotate',
+  'transformAspect',
+  'transformScale',
+  'transformXOffset',
+  'transformYOffset',
+  'lensDistortionAmount',
+  'lensVignetteAmount',
+  'lensTcaAmount',
+  'lensDistortionParams',
+  'lensCorrectionMode',
+  'lensMaker',
+  'lensModel',
+  'lensDistortionEnabled',
+  'lensTcaEnabled',
+  'autoChromaticAberration',
+  'lensVignetteEnabled',
+  'guidedPerspective',
+];
+
+/** The unedited recipe shown as "before": the defaults with the edit's framing. */
+export function originalPreviewAdjustments(adjustments: Adjustments): Adjustments {
+  const original: Adjustments = { ...INITIAL_ADJUSTMENTS };
+  const target = original as unknown as Record<string, unknown>;
+  for (const key of BEFORE_FRAMING_KEYS) target[key] = adjustments[key];
+  return original;
+}
+
+/** Where the split divider starts: the middle, as in Capture One and Lightroom. */
+export const DEFAULT_SPLIT_POSITION = 0.5;
+
+/** A divider position as a share (0–1) of the viewer's width. */
+export function clampSplitPosition(position: number): number {
+  if (!Number.isFinite(position)) return DEFAULT_SPLIT_POSITION;
+  return Math.min(1, Math.max(0, position));
+}
+
+/** The divider position for a pointer at `clientX` over a viewer at `rect`. */
+export function splitPositionAt(clientX: number, rect: { left: number; width: number }): number {
+  if (!(rect.width > 0)) return DEFAULT_SPLIT_POSITION;
+  return clampSplitPosition((clientX - rect.left) / rect.width);
+}
+
+/**
+ * The divider's screen x in device pixels for the native display (the unit
+ * of its image rect). The divider belongs to the viewer, not the photograph:
+ * it stays where it was put while the photograph is panned or zoomed.
+ */
+export function splitScreenX(rect: { left: number; width: number }, position: number, dpr: number): number {
+  return (rect.left + clampSplitPosition(position) * rect.width) * dpr;
+}
+
+/**
+ * Whether the split view can show: both sides are composed by the native GPU
+ * display, which Linux builds and the webview renderer setting do not have.
+ */
+export function splitViewAvailable(
+  useWgpuRenderer: boolean | undefined | null,
+  osPlatform: string | null | undefined,
+): boolean {
+  return useWgpuRenderer !== false && osPlatform !== 'linux';
+}
+
+/** Arrow keys move a focused divider by a small step, Shift by a larger one. */
+export function nudgeSplitPosition(position: number, key: string, shift: boolean): number | null {
+  const step = shift ? 0.1 : 0.01;
+  switch (key) {
+    case 'ArrowLeft':
+      return clampSplitPosition(position - step);
+    case 'ArrowRight':
+      return clampSplitPosition(position + step);
+    case 'Home':
+      return 0;
+    case 'End':
+      return 1;
+    default:
+      return null;
+  }
+}

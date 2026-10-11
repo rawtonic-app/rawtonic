@@ -684,6 +684,7 @@ pub fn run() {
             startup::frontend_ready,
             editor_preview::cancel_thumbnail_generation,
             editor_preview::update_wgpu_transform,
+            editor_preview::render_split_before,
             cache_utils::clear_image_caches,
             app_settings::load_settings,
             app_settings::save_settings,

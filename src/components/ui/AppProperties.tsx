@@ -163,6 +163,7 @@ export enum Invokes {
   FinishQuit = 'finish_quit',
   CancelQuit = 'cancel_quit',
   UpdateWgpuTransform = 'update_wgpu_transform',
+  RenderSplitBefore = 'render_split_before',
   UpdateExifFields = 'update_exif_fields',
   FileSize = 'file_size',
   GetAlbums = 'get_albums',

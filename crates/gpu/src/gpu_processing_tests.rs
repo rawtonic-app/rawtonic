@@ -5612,3 +5612,195 @@ fn camera_raw_shadow_gains_stay_smooth_down_to_black() {
         }
     }
 }
+
+/// A `width` × `height` texture of one opaque colour for the display pipeline.
+fn solid_display_texture(
+    context: &GpuContext,
+    width: u32,
+    height: u32,
+    rgba: [u8; 4],
+) -> wgpu::TextureView {
+    context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Split test frame"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            TextureDataOrder::LayerMajor,
+            &rgba.repeat((width * height) as usize),
+        )
+        .create_view(&Default::default())
+}
+
+#[test]
+#[ignore = "requires a native GPU; the display pipeline composes the before/after split"]
+fn display_split_shows_the_before_left_of_the_divider() {
+    let context = context();
+    let device = &context.device;
+    let queue = &context.queue;
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let (pipeline, layout, split_layout) = create_display_pipeline(device, format).unwrap();
+    let (window_w, window_h) = (96u32, 48u32);
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Split test target"),
+        size: wgpu::Extent3d {
+            width: window_w,
+            height: window_h,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&Default::default());
+    // The after frame sits in a padded texture (as display targets may); the
+    // before has its own, smaller resolution and still covers the same rect.
+    let after_rgba = [200, 40, 30, 255];
+    let before_rgba = [20, 60, 210, 255];
+    let after = solid_display_texture(&context, 80, 40, after_rgba);
+    let before = solid_display_texture(&context, 31, 13, before_rgba);
+    let overlay = solid_display_texture(&context, 1, 1, [0, 0, 0, 0]);
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+    let split_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &split_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&before),
+        }],
+    });
+    let bg = [0.1, 0.1, 0.1, 1.0];
+    let render = |split: [f32; 4]| -> Vec<u8> {
+        let transform = DisplayTransform {
+            // The photograph fills x 16..80, y 8..40 of the window.
+            rect: [16.0, 8.0, 64.0, 32.0],
+            clip: [0.0, 0.0, window_w as f32, window_h as f32],
+            window: [window_w as f32, window_h as f32],
+            image_size: [64.0, 32.0],
+            texture_size: [80.0, 40.0],
+            pixelated: 0.0,
+            rotation: 0.0,
+            bg_primary: bg,
+            bg_secondary: bg,
+            overlay_color: [0.0; 4],
+            overlay_mode: [0.0; 4],
+            box_rect: [0.0; 4],
+            split,
+        };
+        let uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::bytes_of(&transform),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let frame_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&after),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&overlay),
+                },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &frame_group, &[]);
+            pass.set_bind_group(1, &split_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+        queue.submit(Some(encoder.finish()));
+        read_texture_data_roi(
+            device,
+            queue,
+            &target,
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width: window_w,
+                height: window_h,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let pixel = |pixels: &[u8], x: u32, y: u32| -> [u8; 4] {
+        let i = ((y * window_w + x) * 4) as usize;
+        pixels[i..i + 4].try_into().unwrap()
+    };
+    let background = [26, 26, 26, 255];
+
+    // Divider at screen x 40: before on 16..40, after on 40..80.
+    let split = render([1.0, 40.0, 0.0, 0.0]);
+    for y in [9, 24, 38] {
+        assert_eq!(pixel(&split, 17, y), before_rgba, "left edge, row {y}");
+        assert_eq!(
+            pixel(&split, 38, y),
+            before_rgba,
+            "left of the divider, row {y}"
+        );
+        assert_eq!(
+            pixel(&split, 41, y),
+            after_rgba,
+            "right of the divider, row {y}"
+        );
+        assert_eq!(pixel(&split, 78, y), after_rgba, "right edge, row {y}");
+    }
+    // Outside the photograph the background stays.
+    assert_eq!(pixel(&split, 5, 24), background);
+    assert_eq!(pixel(&split, 40, 2), background);
+
+    // Turned off, or a divider left of the photograph: the edited frame alone.
+    for frame_only in [[0.0, 40.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0]] {
+        let frame = render(frame_only);
+        assert_eq!(pixel(&frame, 17, 24), after_rgba);
+        assert_eq!(pixel(&frame, 78, 24), after_rgba);
+    }
+    // A divider past the right edge shows only the before.
+    let all_before = render([1.0, 500.0, 0.0, 0.0]);
+    assert_eq!(pixel(&all_before, 17, 24), before_rgba);
+    assert_eq!(pixel(&all_before, 78, 24), before_rgba);
+}

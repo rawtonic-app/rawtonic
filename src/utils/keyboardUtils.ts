@@ -139,6 +139,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Before/after split with a movable divider (Capture One's split;
+    // Lightroom's split is Shift+Y, Y here is the quick original toggle).
+    action: 'toggle_split_view',
+    description: 'settings.keybinds.actions.toggle_split_view',
+    defaultCombo: ['shift', 'KeyY'],
+    section: 'view',
+  },
+  {
     // Lightroom's J: highlight and shadow clipping warnings in the viewer.
     action: 'toggle_clipping',
     description: 'settings.keybinds.actions.toggle_clipping',

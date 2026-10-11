@@ -19,6 +19,7 @@ import {
   sameAdjustmentValue,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
+import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -239,41 +240,26 @@ export function useEditorActions() {
       const isShowing = !state.showOriginal;
 
       if (isShowing) {
-        const override = { ...INITIAL_ADJUSTMENTS };
-        const geometryKeys: Array<keyof Adjustments> = [
-          'crop',
-          'rotation',
-          'flipHorizontal',
-          'flipVertical',
-          'orientationSteps',
-          'aspectRatio',
-          'transformDistortion',
-          'transformVertical',
-          'transformHorizontal',
-          'transformRotate',
-          'transformAspect',
-          'transformScale',
-          'transformXOffset',
-          'transformYOffset',
-          'lensDistortionAmount',
-          'lensVignetteAmount',
-          'lensTcaAmount',
-          'lensDistortionParams',
-          'lensMaker',
-          'lensModel',
-          'lensDistortionEnabled',
-          'lensTcaEnabled',
-          'lensVignetteEnabled',
-        ];
-
-        geometryKeys.forEach((key) => {
-          override[key] = state.adjustments[key];
-        });
+        const override = originalPreviewAdjustments(state.adjustments);
 
         return { showOriginal: true, previewOverride: override };
       } else {
         return { showOriginal: false, previewOverride: null };
       }
+    });
+  }, [setEditor]);
+
+  // The before/after split (Capture One's movable divider): an extra view
+  // beside the quick "show original" toggle, which it turns off.
+  const toggleSplitView = useCallback(() => {
+    setEditor((state) => {
+      if (state.splitView) return { splitView: false };
+      const { appSettings, osPlatform } = useSettingsStore.getState();
+      if (!state.selectedImage?.isReady || !splitViewAvailable(appSettings?.useWgpuRenderer, osPlatform)) return state;
+      return {
+        splitView: true,
+        ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
+      };
     });
   }, [setEditor]);
 
@@ -608,5 +594,6 @@ export function useEditorActions() {
     applyAdjustmentsToPaths,
     handleZoomChange,
     toggleShowOriginal,
+    toggleSplitView,
   };
 }

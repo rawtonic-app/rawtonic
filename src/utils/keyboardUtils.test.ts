@@ -9,6 +9,8 @@ describe('keybinds', () => {
     expect(map.get('KeyR')).toEqual(['tool_straighten']);
     expect(map.get('KeyY')).toEqual(['show_original']);
     expect(map.get('Backslash')).toEqual(['show_original']);
+    // Lightroom's split before/after key; Y stays the quick original.
+    expect(map.get('shift+KeyY')).toEqual(['toggle_split_view']);
     expect(map.get('ctrl+shift+KeyC')).toEqual(['copy_adjustments']);
     expect(map.get('ctrl+shift+KeyE')).toEqual(['toggle_export']);
     expect(map.get('ctrl+KeyL')).toEqual(['auto_adjust']);

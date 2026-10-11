@@ -1,5 +1,5 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
   debouncedSave,
@@ -239,4 +239,58 @@ it('retries a failed recipe save before quitting and reports it if it fails agai
   expect(await retried).toEqual([]);
   expect(waitForPendingMetadataSave('/unsaved.dng')).toBeUndefined();
   errorLog.mockRestore();
+});
+
+describe('before/after split', () => {
+  beforeEach(() => {
+    useEditorStore.setState({ splitView: false, splitPosition: 0.5, showOriginal: false, previewOverride: null });
+    useSettingsStore.setState({ osPlatform: 'macos' });
+  });
+
+  it('turns the split on as an extra view and the quick original off', () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleShowOriginal());
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    act(() => result.current.toggleSplitView());
+    const state = useEditorStore.getState();
+    expect(state.splitView).toBe(true);
+    expect(state.showOriginal).toBe(false);
+    expect(state.previewOverride).toBeNull();
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+  });
+
+  it('keeps the split and its divider from photograph to photograph', () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleSplitView());
+    useEditorStore.setState({ splitPosition: 0.3 });
+    select('/second.dng');
+    expect(useEditorStore.getState().splitView).toBe(true);
+    expect(useEditorStore.getState().splitPosition).toBe(0.3);
+  });
+
+  it('shows the quick original framed like the edit', () => {
+    useEditorStore.setState({
+      adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2, rotation: 3 },
+    });
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleShowOriginal());
+    const override = useEditorStore.getState().previewOverride!;
+    expect(override.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
+    expect(override.rotation).toBe(3);
+  });
+
+  it('does not turn on without the native display or a ready photograph, but always turns off', () => {
+    const { result } = renderHook(useEditorActions);
+    useSettingsStore.setState({ osPlatform: 'linux' });
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    select('/loading.dng', false);
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+    useEditorStore.setState({ splitView: true });
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+  });
 });
