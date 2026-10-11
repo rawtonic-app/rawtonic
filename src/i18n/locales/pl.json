@@ -1095,6 +1095,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Automatyczna korekta",
+        "auto_white_balance": "Automatyczny balans bieli",
         "brush_size_down": "Zmniejsz rozmiar pędzla",
         "brush_size_up": "Zwiększ rozmiar pędzla",
         "color_label_blue": "Etykieta koloru: Niebieski",
@@ -1757,6 +1758,8 @@
         "turnOn": "Włącz: {{tool}}"
       },
       "whiteBalance": {
+        "auto": "Automatyczny balans bieli",
+        "autoTitle": "Automatyczny balans bieli ({{shortcut}})",
         "camera": "Balans bieli aparatu",
         "picker": "Próbnik balansu bieli",
         "pickerOnBackground": "Próbnik balansu bieli jest dostępny na tle",

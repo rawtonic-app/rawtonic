@@ -51,7 +51,7 @@ export const useKeyboardShortcuts = ({
   handlePasteFiles,
   handleZoomChange,
 }: KeyboardShortcutsProps) => {
-  const { handleRotate, handleCopyAdjustments, handlePasteAdjustments, toggleShowOriginal, handleAutoAdjustments } =
+  const { handleRotate, handleCopyAdjustments, handlePasteAdjustments, toggleShowOriginal, handleAutoAdjustments, handleAutoWhiteBalance } =
     useEditorActions();
   const { handleRate, handleSetColorLabel } = useLibraryActions();
 
@@ -350,6 +350,17 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           handleAutoAdjustments();
+        },
+      },
+      auto_white_balance: {
+        // Background only, like the Auto button.
+        shouldFire: (s) =>
+          s.ui.activeView === 'editor' &&
+          !!s.editor.selectedImage?.isReady &&
+          !(s.ui.activePanel === Panel.Masks && s.editor.activeMaskContainerId),
+        execute: (e) => {
+          e.preventDefault();
+          void handleAutoWhiteBalance();
         },
       },
       toggle_fullscreen: {
@@ -808,5 +819,6 @@ export const useKeyboardShortcuts = ({
     handleSetColorLabel,
     toggleShowOriginal,
     handleAutoAdjustments,
+    handleAutoWhiteBalance,
   ]);
 };

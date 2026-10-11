@@ -41,6 +41,13 @@ export function boundedValue(
   return Number(Math.max(min, Math.min(max, value)).toFixed(digits));
 }
 
+/** The value as the field shows it: at most the fine (Alt) step's
+ * precision, so a stored 1.6009 reads 1.6 and fits the field. */
+export function shownValue(value: number, step: number) {
+  const digits = Math.min(6, Math.max(0, -Math.floor(Math.log10(step / 10))));
+  return String(Number(value.toFixed(digits)));
+}
+
 /** Independent desktop control: local feedback, at most one engine update per frame. */
 export default memo(function AdjustmentControl({
   label,
@@ -60,7 +67,7 @@ export default memo(function AdjustmentControl({
   const { t } = useTranslation();
   const id = useId();
   const [local, setLocal] = useState(value);
-  const [text, setText] = useState(String(value));
+  const [text, setText] = useState(shownValue(value, step));
   const active = useRef(false);
   const frame = useRef<number | null>(null);
   const pending = useRef(value);
@@ -80,11 +87,11 @@ export default memo(function AdjustmentControl({
   useEffect(() => {
     if (!active.current) {
       setLocal(value);
-      setText(String(value));
+      setText(shownValue(value, step));
       pending.current = value;
       lastSent.current = value;
     }
-  }, [value]);
+  }, [value, step]);
   useEffect(
     () => () => {
       if (frame.current !== null) cancelAnimationFrame(frame.current);

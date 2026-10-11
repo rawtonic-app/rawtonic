@@ -1047,6 +1047,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Regolazione automatica",
+        "auto_white_balance": "Bilanciamento del bianco automatico",
         "brush_size_down": "Riduci dimensione pennello",
         "brush_size_up": "Aumenta dimensione pennello",
         "color_label_blue": "Etichetta colore: Blu",
@@ -1709,6 +1710,8 @@
         "turnOn": "Attiva {{tool}}"
       },
       "whiteBalance": {
+        "auto": "Bilanciamento del bianco automatico",
+        "autoTitle": "Bilanciamento del bianco automatico ({{shortcut}})",
         "camera": "Bilanciamento del bianco della fotocamera",
         "picker": "Contagocce bilanciamento del bianco",
         "pickerOnBackground": "Il contagocce del bilanciamento del bianco è disponibile sullo sfondo",

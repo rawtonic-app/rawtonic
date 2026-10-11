@@ -972,6 +972,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "自动调整",
+        "auto_white_balance": "自动白平衡",
         "brush_size_down": "减小画笔大小",
         "brush_size_up": "增大画笔大小",
         "color_label_blue": "颜色标签：蓝色",
@@ -1634,6 +1635,8 @@
         "turnOn": "开启{{tool}}"
       },
       "whiteBalance": {
+        "auto": "自动白平衡",
+        "autoTitle": "自动白平衡（{{shortcut}}）",
         "camera": "相机白平衡",
         "picker": "白平衡吸管",
         "pickerOnBackground": "白平衡吸管仅在背景上可用",

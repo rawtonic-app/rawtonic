@@ -1047,6 +1047,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Réglage automatique",
+        "auto_white_balance": "Balance des blancs automatique",
         "brush_size_down": "Diminuer la taille du pinceau",
         "brush_size_up": "Augmenter la taille du pinceau",
         "color_label_blue": "Étiquette de couleur : Bleu",
@@ -1709,6 +1710,8 @@
         "turnOn": "Activer {{tool}}"
       },
       "whiteBalance": {
+        "auto": "Balance des blancs automatique",
+        "autoTitle": "Balance des blancs automatique ({{shortcut}})",
         "camera": "Balance des blancs de l'appareil",
         "picker": "Pipette de balance des blancs",
         "pickerOnBackground": "La pipette de balance des blancs est disponible sur l'arrière-plan",

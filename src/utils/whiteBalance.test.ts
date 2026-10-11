@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { neutralWhiteBalance, whiteBalanceForCurrentPreview } from './whiteBalance';
+import { autoWhiteBalance, neutralSliders, neutralWhiteBalance, whiteBalanceForCurrentPreview } from './whiteBalance';
 import { INITIAL_ADJUSTMENTS } from './adjustments';
 import { useEditorStore } from '../store/useEditorStore';
 import { Invokes, type SelectedImage } from '../components/ui/AppProperties';
@@ -51,7 +51,7 @@ it('sets a RAW to the Kelvin and tint that neutralise the sample and clears the 
 it('keeps relative sliders for images without a camera calibration', async () => {
   native([0.18, 0.2, 0.25]);
   useEditorStore.setState({ selectedImage: { ...photo(), isRaw: false } });
-  expect(await whiteBalanceForCurrentPreview(request())).toEqual(neutralWhiteBalance([0.18, 0.2, 0.25]));
+  expect(await whiteBalanceForCurrentPreview(request())).toEqual(neutralSliders([0.18, 0.2, 0.25]));
   expect(invoke).not.toHaveBeenCalledWith(Invokes.WhiteBalanceFromSample, expect.anything());
 });
 
@@ -75,7 +75,7 @@ it.each([
 
 it('is absolute: the current white balance and tone do not change the result', async () => {
   native([0.18, 0.2, 0.25]);
-  const expected = neutralWhiteBalance([0.18, 0.2, 0.25]);
+  const expected = neutralSliders([0.18, 0.2, 0.25]);
   useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, temperature: 40, tint: -20, contrast: 66 } });
   expect(await whiteBalanceForCurrentPreview(request())).toEqual(expected);
 });
@@ -131,4 +131,38 @@ it('uses the finished CPU image and intersects its sample window with the image 
 it('keeps an unavailable or stale native frame from changing white balance', async () => {
   vi.mocked(invoke).mockResolvedValue(null);
   expect(await whiteBalanceForCurrentPreview(request())).toBeNull();
+});
+
+it('rounds a picked balance to the sliders\' whole steps', () => {
+  const exact = neutralWhiteBalance([0.18, 0.2, 0.25])!;
+  expect(Number.isInteger(exact.temperature)).toBe(false);
+  expect(neutralSliders([0.18, 0.2, 0.25])).toEqual({
+    temperature: Math.round(exact.temperature),
+    tint: Math.round(exact.tint),
+  });
+});
+
+describe('Auto white balance', () => {
+  it('gives a RAW the Auto Kelvin and tint and clears the relative sliders', async () => {
+    vi.mocked(invoke).mockImplementation(async (command: string) =>
+      command === Invokes.AutoWhiteBalance ? { temperature: 5400, tint: 12 } : null);
+    expect(await autoWhiteBalance({ ...photo(), isRaw: true })).toEqual({
+      whiteBalance: 'auto', wbTemperature: 5400, wbTint: 12, temperature: 0, tint: 0,
+    });
+    expect(invoke).not.toHaveBeenCalledWith(Invokes.SamplePreviewGreyWorld, expect.anything());
+  });
+
+  it('neutralises the grey world with the relative sliders for files without a calibration', async () => {
+    vi.mocked(invoke).mockImplementation(async (command: string) =>
+      command === Invokes.SamplePreviewGreyWorld ? [0.18, 0.2, 0.25] : null);
+    expect(await autoWhiteBalance({ ...photo(), isRaw: false })).toEqual(neutralSliders([0.18, 0.2, 0.25]));
+    expect(invoke).not.toHaveBeenCalledWith(Invokes.AutoWhiteBalance, expect.anything());
+    // A RAW without a camera calibration falls back the same way.
+    expect(await autoWhiteBalance({ ...photo(), isRaw: true })).toEqual(neutralSliders([0.18, 0.2, 0.25]));
+  });
+
+  it('is null while the preview is not ready', async () => {
+    vi.mocked(invoke).mockResolvedValue(null);
+    expect(await autoWhiteBalance({ ...photo(), isRaw: false })).toBeNull();
+  });
 });

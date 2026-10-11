@@ -1047,6 +1047,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Ajuste automático",
+        "auto_white_balance": "Balance de blancos automático",
         "brush_size_down": "Reducir tamaño del pincel",
         "brush_size_up": "Aumentar tamaño del pincel",
         "color_label_blue": "Etiqueta de color: Azul",
@@ -1709,6 +1710,8 @@
         "turnOn": "Activar {{tool}}"
       },
       "whiteBalance": {
+        "auto": "Balance de blancos automático",
+        "autoTitle": "Balance de blancos automático ({{shortcut}})",
         "camera": "Balance de blancos de la cámara",
         "picker": "Cuentagotas de balance de blancos",
         "pickerOnBackground": "El cuentagotas de balance de blancos está disponible en el fondo",

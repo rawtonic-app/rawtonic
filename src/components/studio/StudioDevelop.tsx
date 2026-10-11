@@ -447,7 +447,7 @@ export default function StudioDevelop() {
       setEditor: s.setEditor,
     })),
   );
-  const { setAdjustments, handleAutoAdjustments } = useEditorActions();
+  const { setAdjustments, handleAutoAdjustments, handleAutoWhiteBalance } = useEditorActions();
   const activePanel = useUIStore((s) => s.activePanel);
   const [tab, setTab] = useState("all");
   useEffect(() => {
@@ -919,6 +919,24 @@ export default function StudioDevelop() {
                 ["tint", t("studio.develop.whiteBalance.relativeTint")],
               ])}
               toggle={toolSwitch("whiteBalance")}
+              actions={
+                !layer && (
+                  <button
+                    type="button"
+                    className="studio-tool-auto"
+                    disabled={!selectedImage?.isReady}
+                    aria-label={t("studio.develop.whiteBalance.auto")}
+                    title={t("studio.develop.whiteBalance.autoTitle", { shortcut: "⌘⇧U" })}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void handleAutoWhiteBalance();
+                    }}
+                  >
+                    <Sparkles size={12} />
+                    {t("studio.develop.auto.label")}
+                  </button>
+                )
+              }
             >
               <div className="studio-inline">
                 <span>
@@ -948,6 +966,7 @@ export default function StudioDevelop() {
                   imagePath={selectedImage.path}
                   disabled={!selectedImage.isReady}
                   onChange={change}
+                  onAuto={() => void handleAutoWhiteBalance()}
                   onInteraction={onInteraction}
                   fallback={relativeWhiteBalance}
                 />
