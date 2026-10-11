@@ -221,6 +221,46 @@ describe("Dropping photographs onto the window", () => {
     expect(ingestCall()![1]).toMatchObject({ sources: ["/Volumes/CARD/DCIM/C.ARW", "/Volumes/CARD2/D.ARW"] });
   });
 
+  it("in a catalog, a folder of its list on another drive is a destination, shown with its full path and drive", async () => {
+    const user = userEvent.setup();
+    lastSession = { ...summary, directory: "/Users/me/Main.catalog", manifest: { ...summary.manifest, name: "Main", mode: "catalog" } };
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_last" || command === "session_summary") return lastSession;
+      if (command === "session_flags") return {};
+      if (command === "session_ingest_scan") return { files: scanned, truncated: false };
+      if (command === "session_ingest") return [];
+      return { path: "/Users/me/Main.catalog", children: [] };
+    });
+    render(
+      <ContextMenuProvider>
+        <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+      </ContextMenuProvider>,
+    );
+    await waitFor(() => expect(useLibraryStore.getState().sessionDirectory).toBe("/Users/me/Main.catalog"));
+    await waitFor(() => expect(drag.handler).not.toBeNull());
+    const row = document.createElement("div");
+    row.dataset.folderDrop = "/Volumes/Shoots/2026/Day 2";
+    document.body.append(row);
+    drop(["/Volumes/CARD/DCIM"], row);
+    await screen.findByText("/Volumes/Shoots/2026/Day 2");
+    expect(screen.getByText("On the drive “Shoots”")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    await waitFor(() => expect(ingestCall()).toBeTruthy());
+    expect(ingestCall()![1]).toMatchObject({ folder: "/Volumes/Shoots/2026/Day 2" });
+  });
+
+  it("“Import into this folder…” opens the dialog with that destination and no photographs yet", async () => {
+    await open();
+    act(() => {
+      window.dispatchEvent(new CustomEvent("rawtonic-open-ingest", { detail: { folder: "/jobs/Acme/Selects" } }));
+    });
+    await screen.findByText("/jobs/Acme/Selects");
+    expect(screen.getAllByText("Acme / Selects").length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
+    expect(screen.getByText(/Drop photographs or folders here/)).toBeTruthy();
+  });
+
   it("without an open library nothing opens and nothing is copied", async () => {
     lastSession = null;
     await open();

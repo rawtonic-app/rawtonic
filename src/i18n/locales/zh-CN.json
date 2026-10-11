@@ -841,6 +841,7 @@
       "inLibraryTitle": "已在此图库中（大小和内容相同）。未勾选；若导入，经校验的重复项会被跳过。",
       "keepEditing": "导入期间可以继续编辑。",
       "noPhotos": "所添加的内容中未找到照片。",
+      "onVolume": "位于磁盘“{{name}}”",
       "optional": "（可选）",
       "photographs": "照片",
       "removeBackup": "移除备份文件夹",
@@ -2090,6 +2091,7 @@
         "library": "图库",
         "menu": {
           "addToFavorites": "添加到收藏",
+          "importHere": "导入到此文件夹…",
           "moveCopiedHere_other": "将 {{count}} 张已复制的照片移到此处",
           "moveSelectedHere_other": "将 {{count}} 张所选照片移到此处",
           "newFolder": "新建文件夹…",

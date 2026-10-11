@@ -7,6 +7,7 @@ import {
   folderAcceptsDrop,
   toCssPoint,
   useWindowFileDrop,
+  volumeOf,
 } from "./fileDrop";
 
 type DragDropPayload =
@@ -52,6 +53,27 @@ describe("drop targets", () => {
     expect(dropTargetOf(folder)?.target).toEqual({ kind: "folder", path: "/jobs/Acme/Capture/Day 2" });
     expect(dropTargetOf(elsewhere)).toBeNull();
     expect(dropTargetOf(null)).toBeNull();
+  });
+
+  it("in a catalog also accepts folders of its folder list outside it, never hidden ones", () => {
+    const library = "/Users/me/Main.catalog";
+    expect(folderAcceptsDrop("/Volumes/Shoots/2026/Day 2", library, true)).toBe(true);
+    expect(folderAcceptsDrop("/Users/me/Pictures/Clients", library, true)).toBe(true);
+    expect(folderAcceptsDrop("/Volumes/Shoots/.thumbs", library, true)).toBe(false);
+    expect(folderAcceptsDrop("/Users/me/Main.catalog/Trash", library, true)).toBe(false);
+    expect(folderAcceptsDrop("/Users/me/Main.catalog/.cache", library, true)).toBe(false);
+    expect(folderAcceptsDrop("/Users/me/Main.catalog", library, true)).toBe(false);
+    // A session keeps photographs inside itself.
+    expect(folderAcceptsDrop("/Volumes/Shoots/2026", "/jobs/Acme", false)).toBe(false);
+  });
+
+  it("names the drive a destination is on, unless it is the system drive", () => {
+    expect(volumeOf("/Volumes/Shoots 4TB/2026/Day 2")).toBe("Shoots 4TB");
+    expect(volumeOf("/media/me/CARD/DCIM")).toBe("CARD");
+    expect(volumeOf("/run/media/me/T7/x")).toBe("T7");
+    expect(volumeOf("D:\\Photos")).toBe("D:");
+    expect(volumeOf("C:\\Users\\me")).toBeNull();
+    expect(volumeOf("/Users/me/Pictures")).toBeNull();
   });
 
   it("converts the webview's physical drag position to CSS pixels", () => {

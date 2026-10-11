@@ -127,8 +127,12 @@ pub struct BatchOptions<'a> {
     pub sequence_start: u64,
     /// A second, verified copy of each file here.
     pub backup: Option<&'a Path>,
-    /// The library folder to copy into (`None`: the capture folder).
+    /// The folder to copy into (`None`: the capture folder); see
+    /// `destination_folder`.
     pub folder: Option<&'a Path>,
+    /// The library's top-level folders as the app's folder list shows them
+    /// (for a catalog, folders below them are destinations too).
+    pub roots: &'a [PathBuf],
 }
 
 /// One file of a batch finished: in the library (or skipped as a duplicate,
@@ -156,7 +160,7 @@ pub fn import_batch(
     cancel: &AtomicBool,
     mut on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
-    destination_folder(library, options.folder)?;
+    let destination = destination_folder(library, options.folder, options.roots)?;
     let total = sources.len();
     let mut results = Vec::with_capacity(total);
     let mut bytes = 0u64;
@@ -167,7 +171,7 @@ pub fn import_batch(
         let result = import_one_into(
             library,
             source,
-            options.folder,
+            &destination,
             options.template,
             options.sequence_start + index as u64,
             options.sequence_start,
@@ -224,6 +228,7 @@ mod tests {
             sequence_start: 1,
             backup: None,
             folder: None,
+            roots: &[],
         }
     }
     fn names(folder: &Path) -> Vec<String> {
@@ -359,6 +364,104 @@ mod tests {
             assert!(import_batch(&lib, &sources, &opts, &AtomicBool::new(false), |_| {}).is_err());
             assert!(!names(folder).contains(&"DSC_0000.ARW".to_string()));
         }
+    }
+
+    /// A catalog's folder list also shows folders outside its directory (on
+    /// another drive): those, and folders below them, are destinations too
+    /// (as Lightroom's "Import into this folder…"); a folder the list does
+    /// not show, a hidden one or the app's own folders are not. An existing
+    /// file there is never replaced.
+    #[test]
+    fn a_catalog_copies_into_the_folders_its_list_shows() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+        // A folder the catalog holds photographs of, elsewhere.
+        let shoot = d.path().join("Drive/Shoots/2026");
+        fs::create_dir_all(shoot.join("Day 2")).unwrap();
+        fs::create_dir_all(shoot.join(".thumbs")).unwrap();
+        fs::write(shoot.join("KEEP.ARW"), b"registered").unwrap();
+        lib.add_asset(&shoot.join("KEEP.ARW")).unwrap();
+        // A top-level folder of the app's folder list, without photographs yet.
+        let root = d.path().join("Drive/Clients");
+        fs::create_dir_all(root.join("Acme")).unwrap();
+        let unlisted = d.path().join("Drive/Private");
+        fs::create_dir_all(&unlisted).unwrap();
+        let sources = photos(d.path(), 4);
+        // A file of that name already there is kept as it is.
+        fs::write(shoot.join("Day 2/DSC_0001.ARW"), b"someone else's").unwrap();
+
+        let roots = [root.clone()];
+        let mut opts = options("{orig}");
+        opts.roots = &roots;
+        for (i, (folder, expected)) in [
+            (shoot.clone(), shoot.join("DSC_0000.ARW")),
+            (shoot.join("Day 2"), shoot.join("Day 2/DSC_0001_1.ARW")),
+            (root.join("Acme"), root.join("Acme/DSC_0002.ARW")),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let opts = BatchOptions {
+                folder: Some(&folder),
+                ..opts
+            };
+            let results = import_batch(
+                &lib,
+                &sources[i..=i],
+                &opts,
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+            let result = &results[0];
+            assert!(result.error.is_none() && !result.skipped, "{result:?}");
+            assert_eq!(result.destination.as_deref(), Some(expected.as_path()));
+            assert_eq!(fs::read(&expected).unwrap(), fs::read(&sources[i]).unwrap());
+            assert!(lib.asset_at(&expected).unwrap().is_some(), "registered");
+        }
+        assert_eq!(
+            fs::read(shoot.join("Day 2/DSC_0001.ARW")).unwrap(),
+            b"someone else's"
+        );
+        let copy = sources[3].clone();
+        for folder in [
+            unlisted.clone(),
+            shoot.join(".thumbs"),
+            lib.directory.join("Trash"),
+            lib.directory.join(".cache"),
+        ] {
+            fs::create_dir_all(&folder).unwrap();
+            let opts = BatchOptions {
+                folder: Some(&folder),
+                ..opts
+            };
+            assert!(
+                import_batch(
+                    &lib,
+                    std::slice::from_ref(&copy),
+                    &opts,
+                    &AtomicBool::new(false),
+                    |_| {}
+                )
+                .is_err(),
+                "{}",
+                folder.display()
+            );
+            assert!(!names(&folder).contains(&"DSC_0003.ARW".to_string()));
+        }
+        // A session copies into its own folders only.
+        let session = library(&d.path().join("s"));
+        opts.folder = Some(&root);
+        assert!(
+            import_batch(
+                &session,
+                &sources[1..],
+                &opts,
+                &AtomicBool::new(false),
+                |_| {}
+            )
+            .is_err()
+        );
     }
 
     #[test]

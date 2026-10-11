@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowDownAZ,
+  ArrowDownToLine,
   Check,
   ChevronRight,
   ClipboardPaste,
@@ -56,7 +57,7 @@ import {
   type FolderTree,
 } from "../../utils/folderTree";
 import { isInternalSessionFolder } from "../../utils/sessionFolders";
-import { folderAcceptsDrop } from "../session/fileDrop";
+import { folderAcceptsDrop, requestIngestInto } from "../session/fileDrop";
 import {
   catalogTreePaths,
   formatSpace,
@@ -112,6 +113,8 @@ interface RowContext {
   offline: OfflineFolder[];
   /** The tooltip of a folder gone from disk. */
   missingTitle(path: string): string;
+  /** The open library is a catalog (its folder list reaches outside it). */
+  catalog: boolean;
 }
 
 function FolderRow({
@@ -125,7 +128,11 @@ function FolderRow({
   parent?: string;
   context: RowContext;
 }) {
-  const { current, onNavigate, sessionRoot, actions, allOpen, showCounts, offline, missingTitle } = context;
+  const { current, onNavigate, sessionRoot, actions, allOpen, showCounts, offline, missingTitle, catalog } =
+    context;
+  // Photographs can be imported into it (dropped from Finder, or its menu's
+  // "Import into this folder…", as Lightroom's).
+  const importable = !node.missing && folderAcceptsDrop(node.path, sessionRoot, catalog);
   const { t } = useTranslation();
   const missingHere = offlineBelow(offline, node.path);
   // Gone from disk: known from the library, listed at its place.
@@ -219,6 +226,16 @@ function FolderRow({
         ]
       : [];
     showContextMenu(e.clientX, e.clientY, [
+      ...(importable
+        ? [
+            {
+              label: t("studio.library.folders.menu.importHere"),
+              icon: ArrowDownToLine,
+              onClick: () => requestIngestInto(path),
+            },
+            { type: OPTION_SEPARATOR },
+          ]
+        : []),
       ...fileItems,
       {
         label: pinned
@@ -261,7 +278,7 @@ function FolderRow({
         className={`studio-folder ${current === path ? "is-selected" : ""} ${missing ? "is-offline" : ""}`}
         style={{ paddingLeft: 10 + depth * 12 }}
         // Photographs dragged from Finder onto the folder are imported into it.
-        data-folder-drop={!missing && folderAcceptsDrop(path, sessionRoot) ? path : undefined}
+        data-folder-drop={importable ? path : undefined}
         onContextMenu={menu}
       >
         <button
@@ -519,6 +536,7 @@ export function StudioFolders({
     showCounts: countsWanted || !!sessionRoot,
     offline,
     missingTitle,
+    catalog,
   };
   const rows = (list: FolderTree[], section: string) =>
     list.map((tree) => <FolderRow key={`${section}-${tree.path}`} node={tree} context={context} />);

@@ -897,6 +897,7 @@
       "inLibraryTitle": "Ja és en aquesta biblioteca (mateixa mida i contingut). No seleccionada; si s’importa, un duplicat verificat s’omet.",
       "keepEditing": "Pots continuar editant durant la importació.",
       "noPhotos": "No s’ha trobat cap fotografia en el que s’ha afegit.",
+      "onVolume": "A la unitat «{{name}}»",
       "optional": "(opcional)",
       "photographs": "Fotos",
       "removeBackup": "Treu la carpeta de còpia de seguretat",
@@ -2197,6 +2198,7 @@
         "library": "Biblioteca",
         "menu": {
           "addToFavorites": "Afegeix a preferits",
+          "importHere": "Importa en aquesta carpeta…",
           "moveCopiedHere_one": "Mou aquí {{count}} foto copiada",
           "moveCopiedHere_many": "Mou aquí {{count}} fotos copiades",
           "moveCopiedHere_other": "Mou aquí {{count}} fotos copiades",

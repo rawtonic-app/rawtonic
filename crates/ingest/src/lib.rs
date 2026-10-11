@@ -212,10 +212,11 @@ pub fn import_one_with_start(
     backup: Option<&Path>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult> {
+    let destination = destination_folder(library, None, &[])?;
     import_one_into(
         library,
         source,
-        None,
+        &destination,
         template,
         sequence,
         sequence_start,
@@ -228,11 +229,34 @@ pub fn import_one_with_start(
 /// its Trash and the app's mask bitmaps and previews.
 const RESERVED_FOLDERS: &[&str] = &["Trash", "masks", "previews", "smart-previews"];
 
+/// A folder an import may copy into, as `destination_folder` checked it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Destination(PathBuf);
+
+impl Destination {
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+fn hidden(component: std::path::Component<'_>) -> bool {
+    component.as_os_str().to_string_lossy().starts_with('.')
+}
+
 /// The folder an import copies into: the library's capture folder, or
-/// `folder` (a photo dropped onto a folder of the library). It must be a
-/// folder inside the library directory, never one reached through a
-/// symlink, the session's Trash or a hidden folder (`.cache`).
-pub fn destination_folder(library: &Library, folder: Option<&Path>) -> Result<PathBuf> {
+/// `folder`, a folder the user picked in the folder list (a drop onto it,
+/// "Import into this folder…"). Allowed are folders inside the library
+/// directory (not the directory itself, its Trash, the app's own folders or
+/// hidden ones) and, for a catalog, folders its folder list shows outside
+/// it: at or below one of its folders (`Library::folders`) or one of `roots`
+/// (the library's top-level folders of the app's folder list), never in a
+/// hidden folder. Symlinks are resolved before the check. Copies into such
+/// a folder are verified and never replace a file there (`verified_copy`).
+pub fn destination_folder(
+    library: &Library,
+    folder: Option<&Path>,
+    roots: &[PathBuf],
+) -> Result<Destination> {
     let folder = match folder {
         None => {
             let capture = library.directory.join(&library.manifest.capture);
@@ -249,30 +273,53 @@ pub fn destination_folder(library: &Library, folder: Option<&Path>) -> Result<Pa
         }
     };
     let canonical = folder.canonicalize()?;
-    let relative = canonical.strip_prefix(&library.directory).map_err(|_| {
-        anyhow::anyhow!("Photographs can only be copied into a folder of this library")
-    })?;
-    let first = relative
-        .components()
-        .next()
-        .map(|c| c.as_os_str().to_string_lossy());
+    if let Ok(relative) = canonical.strip_prefix(&library.directory) {
+        let first = relative
+            .components()
+            .next()
+            .map(|c| c.as_os_str().to_string_lossy());
+        ensure!(
+            first.is_some_and(|first| !RESERVED_FOLDERS.contains(&first.as_ref()))
+                && !relative.components().any(hidden),
+            "Photographs cannot be copied into {}",
+            folder.display()
+        );
+        return Ok(Destination(folder));
+    }
     ensure!(
-        first.is_some_and(|first| {
-            !RESERVED_FOLDERS.contains(&first.as_ref()) && !first.starts_with('.')
-        }),
-        "Photographs cannot be copied into {}",
+        library.manifest.mode == rawtonic_catalog::Mode::Catalog,
+        "Photographs can only be copied into a folder of this session"
+    );
+    let shown = library
+        .folders()?
+        .into_iter()
+        .map(|record| record.path)
+        .chain(roots.iter().cloned())
+        .filter_map(|root| root.canonicalize().ok())
+        .filter(|root| canonical.starts_with(root))
+        .max_by_key(|root| root.components().count());
+    let root = shown
+        .with_context(|| format!("{} is not in this catalog's folder list", folder.display()))?;
+    ensure!(
+        !canonical
+            .strip_prefix(&root)
+            .map(|below| below.components().any(hidden))
+            .unwrap_or(true)
+            && !root
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with('.')),
+        "Photographs cannot be copied into the hidden folder {}",
         folder.display()
     );
-    Ok(folder)
+    Ok(Destination(folder))
 }
 
-/// `import_one_with_start` into `folder` (see `destination_folder`; `None`
-/// is the capture folder).
+/// `import_one_with_start` into `destination` (`destination_folder`).
 #[allow(clippy::too_many_arguments)]
 pub fn import_one_into(
     library: &Library,
     source: &Path,
-    folder: Option<&Path>,
+    destination: &Destination,
     template: &str,
     sequence: u64,
     sequence_start: u64,
@@ -298,7 +345,12 @@ pub fn import_one_into(
         context.captured = chrono_from_system(modified);
     }
     let name = render(template, &context)?;
-    let folder = destination_folder(library, folder)?;
+    let folder = destination.path().to_path_buf();
+    ensure!(
+        folder.is_dir(),
+        "The destination folder is gone: {}",
+        folder.display()
+    );
     // Detect duplicates by sampled fingerprint then full SHA, never by sampled hash alone.
     let fp = rawtonic_catalog::fingerprint(source)?;
     for asset in library

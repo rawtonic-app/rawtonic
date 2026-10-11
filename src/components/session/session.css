@@ -472,3 +472,5 @@
   .session-ingest-form { display: flex; flex-direction: column; }
   .session-ingest-naming { padding: 20px 0 0; border-left: 0; border-top: 1px solid var(--app-border-color); }
 }
+.session-ingest-path { display: block; padding: 6px 8px; border-radius: 5px; background: var(--app-bg-primary, #1b1d1f); color: var(--app-text-secondary); font-size: 11px; line-height: 1.4; overflow-wrap: anywhere; user-select: text; }
+.session-ingest-volume { display: flex; align-items: center; gap: 6px; color: var(--app-text-secondary); }

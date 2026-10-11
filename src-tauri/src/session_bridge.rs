@@ -556,11 +556,17 @@ pub async fn session_ingest(
     let result = tauri::async_runtime::spawn_blocking(move || {
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
         let sources: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
+        // The folder list's top-level folders: below them a catalog's
+        // photographs may be copied too (`ingest::destination_folder`).
+        let roots: Vec<PathBuf> = crate::app_settings::load_settings(app.clone())
+            .map(|settings| settings.root_folders.iter().map(PathBuf::from).collect())
+            .unwrap_or_default();
         let options = rawtonic_ingest::batch::BatchOptions {
             template: &template,
             sequence_start: u64::from(sequence_start.unwrap_or(1)),
             backup: backup.as_deref().map(Path::new),
             folder: folder.as_deref().map(Path::new),
+            roots: &roots,
         };
         let started = std::time::Instant::now();
         rawtonic_ingest::batch::import_batch(&lib, &sources, &options, &CANCEL_IMPORT, |done| {

@@ -57,19 +57,44 @@ export function toCssPoint(
 const separator = /[\\/]/;
 /** Library folders that hold no photographs of their own (as `ingest::RESERVED_FOLDERS`). */
 const RESERVED = new Set(["Trash", "masks", "previews", "smart-previews"]);
-/** Whether photographs dropped onto `folder` may be copied into it: a folder
- * inside the open library (not the library folder itself, its Trash, the
- * app's own folders or a hidden folder); the backend checks the same (`ingest::destination_folder`). */
+/** Whether photographs dropped onto `folder` (a row of the folder list) may
+ * be copied into it: a folder inside the open library (not the library
+ * folder itself, its Trash, the app's own folders or a hidden folder), and
+ * for a catalog also a folder outside it that its folder list shows (never
+ * a hidden one). The backend checks the same (`ingest::destination_folder`). */
 export function folderAcceptsDrop(
   folder: string,
   library: string | null | undefined,
+  catalog = false,
 ): boolean {
   if (!library) return false;
   const root = library.replace(/[\\/]+$/, "");
-  if (!folder.startsWith(root) || !separator.test(folder.charAt(root.length)))
-    return false;
-  const first = folder.slice(root.length + 1).split(separator)[0];
-  return Boolean(first) && !RESERVED.has(first) && !first.startsWith(".");
+  if (folder.startsWith(root) && separator.test(folder.charAt(root.length))) {
+    const parts = folder.slice(root.length + 1).split(separator).filter(Boolean);
+    return parts.length > 0 && !RESERVED.has(parts[0]) && !parts.some((part) => part.startsWith("."));
+  }
+  if (!catalog || folder === root) return false;
+  return !folder.split(separator).some((part) => part.startsWith("."));
+}
+
+/** The drive `path` is on when that is not the system drive, by its mount
+ * point (`/Volumes/<name>`, `/media/<user>/<name>`, `D:\`), else null. */
+export function volumeOf(path: string): string | null {
+  const mac = /^\/Volumes\/([^/]+)/.exec(path);
+  if (mac) return mac[1];
+  const linux = /^\/(?:run\/)?media\/[^/]+\/([^/]+)/.exec(path);
+  if (linux) return linux[1];
+  const windows = /^([A-Za-z]):[\\/]/.exec(path);
+  if (windows && windows[1].toUpperCase() !== "C") return `${windows[1].toUpperCase()}:`;
+  return null;
+}
+
+/** Window event that opens the ingest dialog with a destination folder and
+ * no sources yet (the folder list's "Import into this folder…"). */
+export const OPEN_INGEST_EVENT = "rawtonic-open-ingest";
+export type OpenIngestDetail = { folder: string };
+export function requestIngestInto(folder: string) {
+  window.dispatchEvent(new CustomEvent<OpenIngestDetail>(OPEN_INGEST_EVENT, { detail: { folder } }));
 }
 
 /** Follows files dragged over the window (Tauri's webview drag-and-drop

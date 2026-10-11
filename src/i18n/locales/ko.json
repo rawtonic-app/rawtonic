@@ -841,6 +841,7 @@
       "inLibraryTitle": "이미 이 라이브러리에 있습니다(크기와 내용이 같음). 선택 해제됨. 가져오더라도 확인된 중복은 건너뜁니다.",
       "keepEditing": "가져오는 동안에도 계속 편집할 수 있습니다.",
       "noPhotos": "추가한 항목에서 사진을 찾지 못했습니다.",
+      "onVolume": "드라이브 “{{name}}”",
       "optional": "(선택 사항)",
       "photographs": "사진",
       "removeBackup": "백업 폴더 제거",
@@ -2090,6 +2091,7 @@
         "library": "라이브러리",
         "menu": {
           "addToFavorites": "즐겨찾기에 추가",
+          "importHere": "이 폴더로 가져오기…",
           "moveCopiedHere_other": "복사한 사진 {{count}}장을 여기로 이동",
           "moveSelectedHere_other": "선택한 사진 {{count}}장을 여기로 이동",
           "newFolder": "새 폴더…",

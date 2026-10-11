@@ -897,6 +897,7 @@
       "inLibraryTitle": "Déjà dans cette bibliothèque (même taille et même contenu). Non cochée ; si elle est importée, un doublon vérifié est ignoré.",
       "keepEditing": "Vous pouvez continuer à retoucher pendant l’importation.",
       "noPhotos": "Aucune photo trouvée dans ce qui a été ajouté.",
+      "onVolume": "Sur le disque « {{name}} »",
       "optional": "(facultatif)",
       "photographs": "Photos",
       "removeBackup": "Retirer le dossier de sauvegarde",
@@ -2197,6 +2198,7 @@
         "library": "Bibliothèque",
         "menu": {
           "addToFavorites": "Ajouter aux favoris",
+          "importHere": "Importer dans ce dossier…",
           "moveCopiedHere_one": "Déplacer ici {{count}} photo copiée",
           "moveCopiedHere_many": "Déplacer ici {{count}} photos copiées",
           "moveCopiedHere_other": "Déplacer ici {{count}} photos copiées",

@@ -841,6 +841,7 @@
       "inLibraryTitle": "このライブラリに登録済み（サイズと内容が同じ）。選択されていません。読み込んでも、確認済みの重複はスキップされます。",
       "keepEditing": "取り込み中も編集を続けられます。",
       "noPhotos": "追加した項目に写真が見つかりません。",
+      "onVolume": "ドライブ「{{name}}」",
       "optional": "（任意）",
       "photographs": "写真",
       "removeBackup": "バックアップフォルダを解除",
@@ -2090,6 +2091,7 @@
         "library": "ライブラリ",
         "menu": {
           "addToFavorites": "お気に入りに追加",
+          "importHere": "このフォルダに読み込む…",
           "moveCopiedHere_other": "コピーした写真 {{count}} 枚をここに移動",
           "moveSelectedHere_other": "選択した写真 {{count}} 枚をここに移動",
           "newFolder": "新規フォルダ…",

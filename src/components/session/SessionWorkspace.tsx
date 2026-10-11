@@ -20,6 +20,7 @@ import {
   FolderPlus,
   FolderSync,
   FolderPlus as FolderAdd,
+  HardDrive,
   Import,
   LoaderCircle,
   X,
@@ -37,7 +38,14 @@ import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
-import { folderAcceptsDrop, useWindowFileDrop, type FileDrop } from "./fileDrop";
+import {
+  OPEN_INGEST_EVENT,
+  folderAcceptsDrop,
+  useWindowFileDrop,
+  volumeOf,
+  type FileDrop,
+  type OpenIngestDetail,
+} from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
@@ -698,7 +706,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
     }
     if (form && form !== "ingest") return;
     const next: IngestTarget = {
-      folder: onto?.kind === "folder" && folderAcceptsDrop(onto.path, session.directory) ? onto.path : null,
+      folder:
+        onto?.kind === "folder" &&
+        folderAcceptsDrop(onto.path, session.directory, session.manifest.mode === "catalog")
+          ? onto.path
+          : null,
       album: onto?.kind === "album" ? { id: onto.id, name: onto.name } : null,
     };
     if (form === "ingest") {
@@ -708,6 +720,19 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
     } else openIngest(paths, next);
   };
   useWindowFileDrop(onFileDrop, setFileDrag);
+  // The folder list's "Import into this folder…": the dialog with that
+  // destination and no photographs yet.
+  const importInto = useRef<(folder: string) => void>(() => {});
+  importInto.current = (folder: string) => {
+    if (!session || importing) return;
+    if (form === "ingest") setTarget((current) => ({ ...current, folder }));
+    else if (!form) openIngest([], { folder, album: null });
+  };
+  useEffect(() => {
+    const open = (e: Event) => importInto.current((e as CustomEvent<OpenIngestDetail>).detail.folder);
+    window.addEventListener(OPEN_INGEST_EVENT, open);
+    return () => window.removeEventListener(OPEN_INGEST_EVENT, open);
+  }, []);
 
   const ingest = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -777,6 +802,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
       setImporting(false);
     }
   };
+
+  // Where the ingest copies to: the full path, so a folder on another drive
+  // is plain to see, and that drive's name.
+  const libraryRoot = session?.directory.replace(/[\\/]+$/, "") ?? "";
+  const destinationPath = target.folder ?? `${libraryRoot}/${session?.manifest.capture ?? "Capture"}`;
+  const insideLibrary = Boolean(libraryRoot) && destinationPath.startsWith(`${libraryRoot}`) &&
+    /[\\/]/.test(destinationPath.charAt(libraryRoot.length));
+  const destinationLabel = insideLibrary
+    ? [session?.manifest.name, ...destinationPath.slice(libraryRoot.length + 1).split(/[\\/]/)].join(" / ")
+    : fileName(destinationPath);
+  const destinationVolume = volumeOf(destinationPath);
 
   return (
     <>
@@ -1310,11 +1346,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
             <section className="session-ingest-backup">
               <h3>{t("naming.destination")}</h3>
             <div className="session-ingest-target">
-              <strong title={target.folder ?? undefined}>
-                {target.folder
-                  ? `${session?.manifest.name} / ${target.folder.slice((session?.directory.replace(/[\\/]+$/, "") ?? "").length + 1).split(/[\\/]/).join(" / ")}`
-                  : `${session?.manifest.name} / ${session?.manifest.capture ?? "Capture"}`}
-              </strong>
+              <strong>{destinationLabel}</strong>
+              <code className="session-ingest-path" title={destinationPath}>
+                {destinationPath}
+              </code>
+              {destinationVolume && (
+                <small className="session-ingest-volume">
+                  <HardDrive size={12} />
+                  {t("session.ingest.onVolume", { name: destinationVolume })}
+                </small>
+              )}
               {target.folder && (
                 <button type="button" className="session-link-button" onClick={() => setTarget({ ...target, folder: null })}>
                   {t("session.ingest.useCapture", { folder: session?.manifest.capture ?? "Capture" })}
@@ -1366,9 +1407,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
                 <Trans
                   i18nKey="session.ingest.copyNote"
                   values={{
-                    target: target.folder
-                      ? `${session?.manifest.name ?? ""} / ${fileName(target.folder)}`
-                      : `${session?.manifest.name ?? ""} / ${session?.manifest.capture ?? "Capture"}`,
+                    target: destinationLabel,
                   }}
                   components={{ strong: <strong /> }}
                 />

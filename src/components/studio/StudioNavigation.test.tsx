@@ -70,6 +70,20 @@ const shownFolders = () =>
 describe("folder menu", () => {
   beforeEach(renderNavigation);
 
+  it("imports into a folder of the session: its menu opens the ingest dialog there, and files dropped on it go there", () => {
+    // The session folder itself is no destination.
+    expect(row("/job").dataset.folderDrop).toBeUndefined();
+    openMenu("/job");
+    expect(screen.queryAllByRole("menuitem", { name: /Import into this folder/ })).toHaveLength(0);
+    const opened = vi.fn();
+    window.addEventListener("rawtonic-open-ingest", opened);
+    openMenu("/job/Selects/Day 1");
+    fireEvent.click(item(/Import into this folder/));
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ folder: "/job/Selects/Day 1" });
+    window.removeEventListener("rawtonic-open-ingest", opened);
+    expect(row("/job/Selects/Day 1").dataset.folderDrop).toBe("/job/Selects/Day 1");
+  });
+
   it("keeps the session's own folders from being renamed or trashed", () => {
     openMenu("/job/Selects");
     expect(item(/Rename Folder/)).toHaveProperty("disabled", true);

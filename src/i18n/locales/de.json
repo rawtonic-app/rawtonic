@@ -860,6 +860,7 @@
       "inLibraryTitle": "Schon in dieser Bibliothek (gleiche Größe und gleicher Inhalt). Nicht ausgewählt; beim Import wird ein geprüftes Duplikat übersprungen.",
       "keepEditing": "Sie können während des Imports weiterarbeiten.",
       "noPhotos": "Darin wurden keine Fotos gefunden.",
+      "onVolume": "Auf dem Laufwerk „{{name}}“",
       "optional": "(optional)",
       "photographs": "Fotos",
       "removeBackup": "Sicherungsordner entfernen",
@@ -2133,6 +2134,7 @@
         "library": "Bibliothek",
         "menu": {
           "addToFavorites": "Zu Favoriten hinzufügen",
+          "importHere": "In diesen Ordner importieren …",
           "moveCopiedHere_one": "{{count}} kopiertes Foto hierher verschieben",
           "moveCopiedHere_other": "{{count}} kopierte Fotos hierher verschieben",
           "moveSelectedHere_one": "Ausgewähltes Foto hierher verschieben",
