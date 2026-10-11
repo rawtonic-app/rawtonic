@@ -16,8 +16,12 @@ use crate::lut::Lut;
 #[path = "gpu_processing_tests.rs"]
 mod preview_tests;
 
+#[path = "multi_view.rs"]
+pub mod multi_view;
 #[path = "preview_layers.rs"]
 mod preview_layers;
+use multi_view::{DisplayBindings, PrimaryDraw, encode_display_pass};
+pub use multi_view::{MultiView, MultiViewCell};
 use preview_layers::{CURVE_LUT_SAMPLES, PreparedLayer, curve_lut, prepare_layers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,6 +216,100 @@ struct OverlayTexture {
     mask: Arc<GrayImage>,
 }
 
+/// The display's render pipeline (display.wgsl) for a `format` target and
+/// its bind group layout: transform, image, sampler, mask overlay.
+fn display_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> Result<(wgpu::RenderPipeline, wgpu::BindGroupLayout), String> {
+    let shader = create_shader(
+        device,
+        "Display Shader",
+        include_str!("shaders/display.wgsl"),
+    )?;
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Display BGL"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            },
+        ],
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Display Pipeline Layout"),
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        immediate_size: 0,
+    });
+
+    let pipeline = validated(device, "pipeline 'Display Pipeline'", || {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Display Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: NonZero::new(0),
+            cache: None,
+        })
+    })?;
+
+    Ok((pipeline, bind_group_layout))
+}
+
 pub struct WgpuDisplay {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
@@ -243,6 +341,13 @@ pub struct WgpuDisplay {
     /// Counts frames bound for presentation (profiling joins a preview job's
     /// frame to the present that shows it).
     frame_serial: u64,
+    /// The photograph of the bound frame and its texture (multi view: the
+    /// live frame is drawn only in its own cell, and stays as that cell's
+    /// frame when another photograph becomes the primary).
+    frame_path: Option<String>,
+    frame_texture: Option<(wgpu::Texture, u32, u32)>,
+    /// Other photographs shown beside the live one (multi_view.rs).
+    multi: MultiView,
 }
 
 impl WgpuDisplay {
@@ -252,90 +357,7 @@ impl WgpuDisplay {
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
     ) -> Result<Self, String> {
-        let shader = create_shader(
-            device,
-            "Display Shader",
-            include_str!("shaders/display.wgsl"),
-        )?;
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Display BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Display Pipeline Layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let pipeline = validated(device, "pipeline 'Display Pipeline'", || {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Display Pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format,
-                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: NonZero::new(0),
-                cache: None,
-            })
-        })?;
+        let (pipeline, bind_group_layout) = display_pipeline(device, config.format)?;
 
         let transform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Transform Buffer"),
@@ -383,6 +405,9 @@ impl WgpuDisplay {
             next_frame_uncropped: false,
             frame_uncropped: false,
             frame_serial: 0,
+            frame_path: None,
+            frame_texture: None,
+            multi: MultiView::default(),
             sampler,
             current_bind_group: None,
             overlay: None,
@@ -515,101 +540,173 @@ impl WgpuDisplay {
         self.overlay_texture.as_ref().unwrap().view.clone()
     }
 
+    /// Whether the bound frame is drawn: always in the single view; in the
+    /// multi view only when it shows the primary photograph where the
+    /// webview placed it (not the previous primary held while the next one's
+    /// first frame is on its way, nor a frame the webview has hidden).
+    fn live_frame_shown(&self) -> bool {
+        if !self.multi.is_active() {
+            return true;
+        }
+        self.frame_path
+            .as_deref()
+            .is_some_and(|path| Some(path) == self.multi.primary())
+            && self.latest_transform.rect[0] > -1.0e5
+    }
+
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        if let Some(bind_group) = &self.current_bind_group {
-            #[cfg(feature = "performance-profiling")]
-            let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
-            let output = match self.surface.get_current_texture() {
-                wgpu::CurrentSurfaceTexture::Success(tex)
-                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
-                wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                    self.surface.configure(device, &self.config);
-                    match self.surface.get_current_texture() {
-                        wgpu::CurrentSurfaceTexture::Success(tex)
-                        | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
-                        _ => panic!("Failed to acquire surface texture"),
-                    }
-                }
-                _ => return,
-            };
-            #[cfg(feature = "performance-profiling")]
-            drop(acquire_stage);
-            #[cfg(feature = "performance-profiling")]
-            let _present_stage =
-                crate::performance::PerformanceStage::new("display_submit_present");
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: self.latest_transform.bg_primary[0] as f64,
-                                g: self.latest_transform.bg_primary[1] as f64,
-                                b: self.latest_transform.bg_primary[2] as f64,
-                                a: self.latest_transform.bg_primary[3] as f64,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: NonZero::new(0),
-                });
-                let clip_x1 = self.latest_transform.clip[0].max(0.0);
-                let clip_y1 = self.latest_transform.clip[1].max(0.0);
-                let clip_x2 =
-                    (self.latest_transform.clip[0] + self.latest_transform.clip[2]).max(0.0);
-                let clip_y2 =
-                    (self.latest_transform.clip[1] + self.latest_transform.clip[3]).max(0.0);
-
-                let final_clip_x = clip_x1.floor() as u32;
-                let final_clip_y = clip_y1.floor() as u32;
-                let final_clip_w = (clip_x2.ceil() as u32).saturating_sub(final_clip_x);
-                let final_clip_h = (clip_y2.ceil() as u32).saturating_sub(final_clip_y);
-
-                let max_x = self.config.width;
-                let max_y = self.config.height;
-
-                if final_clip_x < max_x && final_clip_y < max_y {
-                    let clamped_width = final_clip_w.min(max_x - final_clip_x);
-                    let clamped_height = final_clip_h.min(max_y - final_clip_y);
-
-                    if clamped_width > 0 && clamped_height > 0 {
-                        rpass.set_scissor_rect(
-                            final_clip_x,
-                            final_clip_y,
-                            clamped_width,
-                            clamped_height,
-                        );
-
-                        rpass.set_pipeline(&self.pipeline);
-                        rpass.set_bind_group(0, bind_group, &[]);
-                        rpass.draw(0..4, 0..1);
-                    }
+        let multi = self.multi.is_active();
+        if self.current_bind_group.is_none() && !multi {
+            return;
+        }
+        #[cfg(feature = "performance-profiling")]
+        let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
+        let output = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(tex)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface.configure(device, &self.config);
+                match self.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(tex)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+                    _ => panic!("Failed to acquire surface texture"),
                 }
             }
-            queue.submit(Some(encoder.finish()));
-            output.present();
-            // Handed to the window server, not yet on screen. Pointer
-            // sessions in the webview log join these by wall-clock time.
-            #[cfg(feature = "performance-profiling")]
-            log::info!(
-                "[PERF] {}",
-                serde_json::json!({
-                    "stage": "display_present", "epoch_ms": crate::performance::epoch_ms(),
-                    "frame": self.frame_serial
-                })
+            _ => return,
+        };
+        #[cfg(feature = "performance-profiling")]
+        drop(acquire_stage);
+        #[cfg(feature = "performance-profiling")]
+        let _present_stage = crate::performance::PerformanceStage::new("display_submit_present");
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        // The multi view's gaps take the viewer's background, as the area
+        // around a single photograph does.
+        let clear = if multi {
+            self.multi.prepare(
+                queue,
+                [self.config.width as f32, self.config.height as f32],
+                self.latest_transform.bg_secondary,
+            );
+            self.latest_transform.bg_secondary
+        } else {
+            self.latest_transform.bg_primary
+        };
+        // In the multi view the live frame covers exactly the primary's cell,
+        // whatever clip the webview last sent (it follows the editor's
+        // container a moment later when the primary changes).
+        let mut transform = self.latest_transform;
+        if let Some(cell) = self.multi.primary().and_then(|path| self.multi.cell(path)) {
+            transform.clip = cell.area;
+        }
+        queue.write_buffer(&self.transform_buffer, 0, bytemuck::bytes_of(&transform));
+        let primary = self
+            .current_bind_group
+            .as_ref()
+            .filter(|_| self.live_frame_shown())
+            .map(|bind_group| PrimaryDraw {
+                bind_group,
+                clip: transform.clip,
+            });
+        encode_display_pass(
+            &mut encoder,
+            &view,
+            [self.config.width, self.config.height],
+            &self.pipeline,
+            clear,
+            multi.then_some(&self.multi),
+            primary,
+        );
+        queue.submit(Some(encoder.finish()));
+        output.present();
+        // Handed to the window server, not yet on screen. Pointer
+        // sessions in the webview log join these by wall-clock time.
+        #[cfg(feature = "performance-profiling")]
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({
+                "stage": "display_present", "epoch_ms": crate::performance::epoch_ms(),
+                "frame": self.frame_serial, "multi_view_cells": self.multi.cells().len()
+            })
+        );
+    }
+
+    fn bindings(&self) -> DisplayBindings<'_> {
+        DisplayBindings {
+            layout: &self.bind_group_layout,
+            sampler: &self.sampler,
+            empty_overlay: &self.empty_overlay_view,
+        }
+    }
+
+    /// The multi view shown now (empty: the single view).
+    pub fn multi_view(&self) -> &MultiView {
+        &self.multi
+    }
+
+    /// Shows `cells` beside each other with `primary` as the live photograph
+    /// (no cells: back to the single view, releasing every cell texture).
+    /// When the primary changes, the old primary's live frame stays as its
+    /// cell's frame until that cell is rendered.
+    pub fn set_multi_view(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        primary: Option<String>,
+        cells: Vec<MultiViewCell>,
+    ) {
+        if cells.is_empty() {
+            self.multi.clear();
+            return;
+        }
+        let old_primary = self.multi.primary().map(str::to_string);
+        let mut multi = std::mem::take(&mut self.multi);
+        multi.set_layout(primary.clone(), cells);
+        if let (Some(old), Some(frame)) = (old_primary, self.frame_path.as_deref())
+            && primary.as_deref() != Some(old.as_str())
+            && frame == old
+            && let Some((texture, width, height)) = &self.frame_texture
+        {
+            multi.adopt_live_frame(
+                device,
+                queue,
+                &self.bindings(),
+                &old,
+                texture,
+                *width,
+                *height,
             );
         }
+        self.multi = multi;
+    }
+
+    /// Keeps a secondary cell's developed frame (display-encoded RGBA8).
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_cell(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        key: u64,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) {
+        let mut multi = std::mem::take(&mut self.multi);
+        multi.upload(
+            device,
+            queue,
+            &self.bindings(),
+            path,
+            key,
+            width,
+            height,
+            rgba,
+        );
+        self.multi = multi;
     }
 }
 
@@ -4336,6 +4433,10 @@ pub fn process_and_get_dynamic_image_inner(
             label: None,
         });
         display.current_bind_group = Some(bind_group);
+        display.frame_path = display_identity
+            .as_ref()
+            .map(|identity| identity.path.clone());
+        display.frame_texture = Some((targets.output_texture.clone(), width, height));
         display.frame_serial += 1;
         #[cfg(feature = "performance-profiling")]
         log::info!(

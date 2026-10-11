@@ -460,7 +460,7 @@ export function useEditorActions() {
   }, []);
 
   /** Apply some adjustments to `paths` (default: the selection, else the open
-   * photo), saving each recipe after its pending save. */
+   * photo), saving each recipe after its pending save; resolves once saved. */
   const applyAdjustmentsToPaths = useCallback(
     (adjustmentsToApply: Partial<Adjustments>, paths?: string[]) => {
       const { selectedImage, adjustments } = useEditorStore.getState();
@@ -476,7 +476,7 @@ export function useEditorActions() {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
 
-      afterRecipeSaves(pathsToUpdate, () =>
+      return afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
           pathsToUpdate,

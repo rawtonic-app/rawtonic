@@ -14,6 +14,8 @@ import { useProcessStore } from '../store/useProcessStore';
 import { updateAdjustments, useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
+import { inSingleView, useMultiViewStore } from '../store/useMultiViewStore';
+import { orderedSelection, stepPrimary } from '../utils/multiView';
 
 interface KeyboardShortcutsProps {
   sortedImageList: Array<ImageFile>;
@@ -123,6 +125,31 @@ export const useKeyboardShortcuts = ({
       return libraryActivePath ? [libraryActivePath] : [];
     };
 
+    // Multi view: the arrows step the primary through the selection (wrapping)
+    // instead of through the folder, and rating keys rate the primary only.
+    const multiViewActive = (s: ShortcutState) =>
+      s.ui.activeView === 'editor' && !!s.editor.selectedImage && useMultiViewStore.getState().active;
+    const stepMultiView = (s: ShortcutState, step: number) => {
+      const selection = orderedSelection(
+        sortedListRef.current.map((image) => image.path),
+        s.library.multiSelectedPaths,
+      );
+      const next = stepPrimary(selection, s.editor.selectedImage?.path ?? null, step);
+      if (next && next !== s.editor.selectedImage?.path) handleImageSelect(next, true);
+    };
+    const ratedPaths = (s: ShortcutState) =>
+      multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
+    // The multi view shows every photograph to fit: zooming in first returns
+    // to the single view of the primary; zooming out does nothing there.
+    const zoomAction = (outward: boolean, zoom: (s: ShortcutState) => void): ShortcutAction => ({
+      shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+      execute: (e) => {
+        e.preventDefault();
+        if (outward && useMultiViewStore.getState().active) return;
+        inSingleView(() => zoom(getStoreState()));
+      },
+    });
+
     const actions: Record<string, ShortcutAction> = {
       open_image: {
         shouldFire: (s) => s.ui.activeView === 'library' && s.library.libraryActivePath !== null,
@@ -196,6 +223,10 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
+          if (multiViewActive(s)) {
+            stepMultiView(s, -1);
+            return;
+          }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
           if (currentIndex === -1) return;
           const nextIndex = currentIndex - 1 < 0 ? sortedListRef.current.length - 1 : currentIndex - 1;
@@ -206,103 +237,92 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {
           e.preventDefault();
+          if (multiViewActive(s)) {
+            stepMultiView(s, 1);
+            return;
+          }
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === s.editor.selectedImage!.path);
           if (currentIndex === -1) return;
           const nextIndex = currentIndex + 1 >= sortedListRef.current.length ? 0 : currentIndex + 1;
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         },
       },
-      zoom_in_step: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-        execute: (e, s) => {
-          e.preventDefault();
-          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-          const currentPercent =
-            s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-              ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-              : 1.0;
-          handleZoomChange(Math.min(currentPercent + 0.1, 2.0));
-        },
-      },
-      zoom_out_step: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-        execute: (e, s) => {
-          e.preventDefault();
-          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-          const currentPercent =
-            s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-              ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-              : 1.0;
-          handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
-        },
-      },
-      cycle_zoom: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-        execute: (e, s) => {
-          e.preventDefault();
-          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-          const { originalSize, displaySize, baseRenderSize } = s.editor;
-          const currentPercent =
-            originalSize?.width > 0 && displaySize?.width > 0
-              ? Math.round(((displaySize.width * dpr) / originalSize.width) * 100)
-              : 100;
-          let fitPercent = 100;
+      zoom_in_step: zoomAction(false, (s) => {
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const currentPercent =
+          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
+            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
+            : 1.0;
+        handleZoomChange(Math.min(currentPercent + 0.1, 2.0));
+      }),
+      zoom_out_step: zoomAction(true, (s) => {
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const currentPercent =
+          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
+            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
+            : 1.0;
+        handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
+      }),
+      cycle_zoom: zoomAction(false, (s) => {
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const { originalSize, displaySize, baseRenderSize } = s.editor;
+        const currentPercent =
+          originalSize?.width > 0 && displaySize?.width > 0
+            ? Math.round(((displaySize.width * dpr) / originalSize.width) * 100)
+            : 100;
+        let fitPercent = 100;
 
-          if (originalSize?.width > 0 && baseRenderSize?.width > 0) {
-            const originalAspect = originalSize.width / originalSize.height;
-            const baseAspect = baseRenderSize.width / baseRenderSize.height;
-            fitPercent =
-              originalAspect > baseAspect
-                ? Math.round(((baseRenderSize.width * dpr) / originalSize.width) * 100)
-                : Math.round(((baseRenderSize.height * dpr) / originalSize.height) * 100);
-          }
+        if (originalSize?.width > 0 && baseRenderSize?.width > 0) {
+          const originalAspect = originalSize.width / originalSize.height;
+          const baseAspect = baseRenderSize.width / baseRenderSize.height;
+          fitPercent =
+            originalAspect > baseAspect
+              ? Math.round(((baseRenderSize.width * dpr) / originalSize.width) * 100)
+              : Math.round(((baseRenderSize.height * dpr) / originalSize.height) * 100);
+        }
 
-          const doubleFitPercent = fitPercent * 2;
-          if (Math.abs(currentPercent - fitPercent) < 5) {
-            handleZoomChange(doubleFitPercent < 100 ? doubleFitPercent / 100 : 1.0);
-          } else if (Math.abs(currentPercent - doubleFitPercent) < 5 && doubleFitPercent < 100) {
-            handleZoomChange(1.0);
-          } else {
-            handleZoomChange(0, true);
-          }
-        },
-      },
-      zoom_in: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-        execute: (e, s) => {
-          e.preventDefault();
-          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-          const currentPercent =
-            s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-              ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-              : 1.0;
-          handleZoomChange(Math.min(currentPercent * 1.2, 2.0));
-        },
-      },
-      zoom_out: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-        execute: (e, s) => {
-          e.preventDefault();
-          const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-          const currentPercent =
-            s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
-              ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
-              : 1.0;
-          handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
-        },
-      },
+        const doubleFitPercent = fitPercent * 2;
+        if (Math.abs(currentPercent - fitPercent) < 5) {
+          handleZoomChange(doubleFitPercent < 100 ? doubleFitPercent / 100 : 1.0);
+        } else if (Math.abs(currentPercent - doubleFitPercent) < 5 && doubleFitPercent < 100) {
+          handleZoomChange(1.0);
+        } else {
+          handleZoomChange(0, true);
+        }
+      }),
+      zoom_in: zoomAction(false, (s) => {
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const currentPercent =
+          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
+            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
+            : 1.0;
+        handleZoomChange(Math.min(currentPercent * 1.2, 2.0));
+      }),
+      zoom_out: zoomAction(true, (s) => {
+        const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+        const currentPercent =
+          s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
+            ? (s.editor.displaySize.width * dpr) / s.editor.originalSize.width
+            : 1.0;
+        handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
+      }),
       zoom_fit: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e) => {
           e.preventDefault();
-          handleZoomChange(0, true);
+          // The multi view already shows every photograph to fit.
+          if (!useMultiViewStore.getState().active) handleZoomChange(0, true);
         },
       },
-      zoom_100: {
+      zoom_100: zoomAction(false, () => handleZoomChange(1.0)),
+      toggle_multi_view: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleZoomChange(1.0);
+          const { osPlatform, appSettings } = s.settings;
+          const multi = useMultiViewStore.getState();
+          if (osPlatform === 'linux' || appSettings?.useWgpuRenderer === false || multi.unavailable) return;
+          multi.toggle();
         },
       },
       rotate_left: {
@@ -541,44 +561,44 @@ export const useKeyboardShortcuts = ({
       },
       rate_0: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleRate(0);
+          handleRate(0, ratedPaths(s));
         },
       },
       rate_1: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleRate(1);
+          handleRate(1, ratedPaths(s));
         },
       },
       rate_2: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleRate(2);
+          handleRate(2, ratedPaths(s));
         },
       },
       rate_3: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleRate(3);
+          handleRate(3, ratedPaths(s));
         },
       },
       rate_4: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleRate(4);
+          handleRate(4, ratedPaths(s));
         },
       },
       rate_5: {
         shouldFire: () => true,
-        execute: (e) => {
+        execute: (e, s) => {
           e.preventDefault();
-          handleRate(5);
+          handleRate(5, ratedPaths(s));
         },
       },
       color_label_none: {
@@ -656,6 +676,19 @@ export const useKeyboardShortcuts = ({
     };
 
     const builtinShortcuts = [
+      {
+        // Capture One's Cmd+Left / Cmd+Right step the primary in its multi view too.
+        match: (e: KeyboardEvent, s: ShortcutState) =>
+          (e.code === 'ArrowLeft' || e.code === 'ArrowRight') &&
+          (s.settings.osPlatform === 'macos' ? e.metaKey : e.ctrlKey) &&
+          !e.altKey &&
+          !e.shiftKey &&
+          multiViewActive(s),
+        execute: (e: KeyboardEvent, s: ShortcutState) => {
+          e.preventDefault();
+          stepMultiView(s, e.code === 'ArrowRight' ? 1 : -1);
+        },
+      },
       {
         match: (e: KeyboardEvent) => e.code === 'Escape',
         execute: (e: KeyboardEvent, s: ShortcutState) => {

@@ -1146,6 +1146,7 @@
         "toggle_mask_overlay": "Pokaż lub ukryj maskę",
         "toggle_masks": "Przełącz panel Maski",
         "toggle_metadata": "Przełącz panel Metadane",
+        "toggle_multi_view": "Widok wielu zdjęć: zaznaczone zdjęcia obok siebie",
         "toggle_right_panel": "Przełącz prawy panel",
         "toggle_side_panels": "Ukryj lub pokaż panele boczne",
         "toggle_soft_proof": "Przełącz próbę kolorów na ekranie",
@@ -2441,6 +2442,30 @@
         "readFailed": "Nie udało się odczytać metadanych: {{error}}",
         "saveFailed": "Nie udało się zapisać metadanych: {{error}}"
       }
+    },
+    "multiView": {
+      "controls": "Oznacz, oceń lub usuń {{name}}",
+      "editAll": "Edytuj wszystkie zaznaczone",
+      "editAllTitle": "Edytuj wszystkie zaznaczone: zmiany zdjęcia głównego trafiają też do każdego innego pokazanego zdjęcia (pomarańczowe ramki)",
+      "makePrimary": "Edytuj {{name}} (ustaw jako zdjęcie główne)",
+      "more_one": "i {{n}} więcej",
+      "more_few": "i {{n}} więcej",
+      "more_many": "i {{n}} więcej",
+      "more_other": "i {{n}} więcej",
+      "pick": "Wybierz {{name}}",
+      "rate_one": "Oceń {{name}} na {{count}} gwiazdkę",
+      "rate_few": "Oceń {{name}} na {{count}} gwiazdki",
+      "rate_many": "Oceń {{name}} na {{count}} gwiazdek",
+      "rate_other": "Oceń {{name}} na {{count}} gwiazdki",
+      "rating_one": "{{count}} gwiazdka",
+      "rating_few": "{{count}} gwiazdki",
+      "rating_many": "{{count}} gwiazdek",
+      "rating_other": "{{count}} gwiazdki",
+      "reject": "Odrzuć {{name}}",
+      "remove": "Usuń {{name}} z zaznaczenia",
+      "selectSeveral": "zaznacz kilka zdjęć, aby je porównać",
+      "toggle": "Widok wielu zdjęć",
+      "unsupported": "Widok wielu zdjęć wymaga natywnego wyświetlania zdjęć, niedostępnego w tym systemie"
     },
     "people": {
       "aria": "Maska osób",

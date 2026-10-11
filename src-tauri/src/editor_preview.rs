@@ -1178,11 +1178,13 @@ pub(crate) async fn activate_photo(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|c| {
-            c.display
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .as_ref()?
-                .viewport
+            let display = c.display.lock().unwrap_or_else(|e| e.into_inner());
+            let display = display.as_ref()?;
+            // Multi view: the next primary is shown in its own cell.
+            match display.multi_view().cell(&path) {
+                Some(cell) => Some(cell.area),
+                None => display.viewport,
+            }
         })
     else {
         #[cfg(feature = "performance-profiling")]

@@ -6,8 +6,9 @@ import { create } from "zustand";
 interface SessionBarState {
   center: HTMLElement | null;
   end: HTMLElement | null;
-  /** Pick (1), reject (-1) or clear (0) the targeted photographs. */
-  mark: ((flag: number) => Promise<void> | undefined) | null;
+  /** Pick (1), reject (-1) or clear (0) the targeted photographs, or
+   * `paths` (a multi view cell's hover flag). */
+  mark: ((flag: number, paths?: string[]) => Promise<void> | undefined) | null;
   set(patch: Partial<Omit<SessionBarState, "set">>): void;
 }
 

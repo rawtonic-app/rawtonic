@@ -1098,6 +1098,7 @@
         "toggle_mask_overlay": "Mostra o nascondi la maschera",
         "toggle_masks": "Attiva/Disattiva pannello Maschere",
         "toggle_metadata": "Attiva/Disattiva pannello Metadati",
+        "toggle_multi_view": "Vista multipla: foto selezionate affiancate",
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
         "toggle_side_panels": "Nascondi o mostra i pannelli laterali",
         "toggle_soft_proof": "Attiva o disattiva la prova colore a schermo",
@@ -2373,6 +2374,27 @@
         "readFailed": "Impossibile leggere i metadati: {{error}}",
         "saveFailed": "Impossibile salvare i metadati: {{error}}"
       }
+    },
+    "multiView": {
+      "controls": "Contrassegna, valuta o rimuovi {{name}}",
+      "editAll": "Modifica tutte le selezionate",
+      "editAllTitle": "Modifica tutte le selezionate: le modifiche alla foto principale vanno anche a ogni altra foto mostrata (cornici arancioni)",
+      "makePrimary": "Modifica {{name}} (rendila la foto principale)",
+      "more_one": "e {{n}} altra",
+      "more_many": "e altre {{n}}",
+      "more_other": "e altre {{n}}",
+      "pick": "Scegli {{name}}",
+      "rate_one": "Valuta {{name}} {{count}} stella",
+      "rate_many": "Valuta {{name}} {{count}} stelle",
+      "rate_other": "Valuta {{name}} {{count}} stelle",
+      "rating_one": "{{count}} stella",
+      "rating_many": "{{count}} stelle",
+      "rating_other": "{{count}} stelle",
+      "reject": "Scarta {{name}}",
+      "remove": "Rimuovi {{name}} dalla selezione",
+      "selectSeveral": "seleziona più foto per confrontarle",
+      "toggle": "Vista multipla",
+      "unsupported": "La vista multipla richiede la visualizzazione nativa delle foto, non disponibile su questo sistema"
     },
     "people": {
       "aria": "Maschera persone",

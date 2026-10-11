@@ -49,6 +49,7 @@ mod lut_processing;
 mod mask_generation;
 mod memory_pressure;
 mod merges;
+mod multi_view;
 mod negative_conversion;
 #[cfg(feature = "performance-profiling")]
 mod performance;
@@ -780,6 +781,7 @@ pub fn run() {
             upright::calculate_upright,
             image_loader::load_image_proxy,
             editor_preview::activate_photo,
+            multi_view::set_multi_view,
             proxy_worker::prepare_preview_proxies,
             proxy_worker::build_previews,
             proxy_worker::stop_preview_build,

@@ -1,0 +1,164 @@
+/* Develop's multi view (MultiViewStage.tsx). The photographs themselves are
+   drawn natively below the transparent webview; these are only the frames,
+   captions and hover controls aligned to the native cells. */
+.studio-multiview {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.studio-mv-primary {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.studio-multiview.is-active .studio-mv-primary {
+  position: absolute;
+  z-index: 0;
+}
+.studio-mv-cell {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+/* The frame: light grey around the primary (Capture One), orange around
+   every cell while "Edit all selected" is on. */
+.studio-mv-cell::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.studio-mv-cell.is-primary::after {
+  border-color: #d4d6d9cc;
+}
+.studio-mv-cell.is-edit-all::after {
+  border-color: #e8890c;
+}
+.studio-mv-cell.is-edit-all.is-primary::after {
+  border-width: 2px;
+}
+.studio-mv-select {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.studio-mv-select:focus-visible {
+  outline: 1px solid var(--studio-accent);
+  outline-offset: -1px;
+}
+.studio-mv-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding-top: 3px;
+  color: var(--studio-muted);
+  font-size: 11px;
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: auto;
+}
+.studio-mv-cell.is-primary .studio-mv-caption {
+  color: var(--studio-text);
+}
+.studio-mv-caption-row {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+}
+.studio-mv-name,
+.studio-mv-capture {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.studio-mv-caption-row .studio-mv-capture {
+  flex-shrink: 0;
+}
+.studio-mv-stars {
+  flex-shrink: 0;
+  color: #d7b34a;
+  letter-spacing: 1px;
+}
+/* Lightroom's Survey: flag, rating and remove appear on hover. */
+.studio-mv-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 4px;
+  background: #1d1e20e6;
+  border: 1px solid #ffffff1a;
+  opacity: 0;
+  pointer-events: auto;
+  transition: opacity 0.12s;
+}
+.studio-mv-cell:hover .studio-mv-controls,
+.studio-mv-controls:focus-within {
+  opacity: 1;
+}
+.studio-mv-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--studio-muted);
+}
+.studio-mv-controls button:hover,
+.studio-mv-controls button[aria-pressed="true"] {
+  color: var(--studio-text);
+  background: #ffffff14;
+}
+.studio-mv-controls .is-reject {
+  transform: scaleX(-1);
+  color: #d06a5c;
+}
+.studio-mv-dots {
+  display: inline-flex;
+}
+.studio-mv-dots button {
+  min-width: 14px;
+}
+.studio-mv-dots button[aria-pressed="true"] {
+  color: #d7b34a;
+  background: transparent;
+}
+.studio-mv-cell.is-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #ffffff26;
+  border-radius: 3px;
+  color: var(--studio-muted);
+  font-size: 12px;
+}
+.studio-workspace .studio-edit-all.is-on {
+  color: #1d1e20;
+  background: #e8890c;
+}

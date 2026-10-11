@@ -1023,6 +1023,7 @@
         "toggle_mask_overlay": "マスクの表示/非表示",
         "toggle_masks": "マスクパネルの表示/非表示",
         "toggle_metadata": "メタデータパネルの表示/非表示",
+        "toggle_multi_view": "マルチビュー：選択した写真を並べて表示",
         "toggle_right_panel": "右パネルの表示/非表示",
         "toggle_side_panels": "サイドパネルの表示/非表示",
         "toggle_soft_proof": "ソフト校正の切り替え",
@@ -2258,6 +2259,21 @@
         "readFailed": "メタデータを読み込めませんでした: {{error}}",
         "saveFailed": "メタデータを保存できませんでした: {{error}}"
       }
+    },
+    "multiView": {
+      "controls": "{{name}} の採用・評価・除外",
+      "editAll": "選択した写真をすべて編集",
+      "editAllTitle": "選択した写真をすべて編集：メイン写真への変更を、表示中の他のすべての写真にも適用します（オレンジの枠）",
+      "makePrimary": "{{name}} を編集（メイン写真にする）",
+      "more_other": "ほか {{n}} 枚",
+      "pick": "{{name}} を採用",
+      "rate_other": "{{name}} に星 {{count}} つを付ける",
+      "rating_other": "星 {{count}} つ",
+      "reject": "{{name}} を不採用",
+      "remove": "{{name}} を選択から外す",
+      "selectSeveral": "比較する写真を複数選択してください",
+      "toggle": "マルチビュー",
+      "unsupported": "マルチビューにはネイティブの写真表示が必要ですが、このシステムでは利用できません"
     },
     "people": {
       "aria": "人物マスク",

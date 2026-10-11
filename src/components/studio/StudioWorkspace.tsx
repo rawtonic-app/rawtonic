@@ -54,6 +54,9 @@ import StudioNavigation, { type FolderActions } from "./StudioNavigation";
 import StudioBrowser from "./StudioBrowser";
 import StudioFilters from "./StudioFilters";
 import StudioToolBar from "./StudioToolBar";
+import MultiViewStage from "./MultiViewStage";
+import MultiViewButtons from "./MultiViewButtons";
+import { inSingleView } from "../../store/useMultiViewStore";
 import StudioLayerSelect from "./StudioLayerSelect";
 import StudioToolPopover, { toolPopoverApplies } from "./StudioToolPopover";
 import { stepBrushSize, toggleRemoveObjects, useStudioTools, type StudioTool } from "./useStudioTools";
@@ -744,6 +747,7 @@ export default function StudioWorkspace(props: Props) {
                     <SquareSplitHorizontal size={14} />
                     <span className="optional-label">{t("studio.workspace.viewer.before")}</span>
                   </button>
+                  <MultiViewButtons />
                 </div>
                 <StudioToolBar />
                 <StudioLayerSelect />
@@ -756,7 +760,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <button
                     title={withShortcut(t("studio.workspace.viewer.actualPixels"), ".")}
-                    onClick={() => onZoom(1)}
+                    onClick={() => inSingleView(() => onZoom(1))}
                   >
                     100%
                   </button>
@@ -766,7 +770,7 @@ export default function StudioWorkspace(props: Props) {
                     title={t("studio.workspace.viewer.zoom")}
                     value=""
                     onChange={(e) => {
-                      if (e.target.value) onZoom(Number(e.target.value));
+                      if (e.target.value) { const zoom = Number(e.target.value); inSingleView(() => onZoom(zoom)); }
                     }}
                   >
                     <option value="" disabled>
@@ -807,13 +811,15 @@ export default function StudioWorkspace(props: Props) {
               >
                 {selectedImage ? (
                   <>
-                    <Editor
-                      studioMode
-                      transformWrapperRef={transformWrapperRef}
-                      onBackToLibrary={onBack}
-                      onContextMenu={onViewerContextMenu}
-                      onImageSelect={onOpen}
-                    />
+                    <MultiViewStage files={files} onOpen={onOpen} onRate={onRate}>
+                      <Editor
+                        studioMode
+                        transformWrapperRef={transformWrapperRef}
+                        onBackToLibrary={onBack}
+                        onContextMenu={onViewerContextMenu}
+                        onImageSelect={onOpen}
+                      />
+                    </MultiViewStage>
                     {toolPopover && (
                       <StudioToolPopover
                         x={toolPopover.x}

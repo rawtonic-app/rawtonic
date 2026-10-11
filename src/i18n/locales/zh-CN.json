@@ -1023,6 +1023,7 @@
         "toggle_mask_overlay": "显示或隐藏蒙版",
         "toggle_masks": "切换蒙版面板",
         "toggle_metadata": "切换元数据面板",
+        "toggle_multi_view": "多图视图：选中的照片并排显示",
         "toggle_right_panel": "切换右侧面板",
         "toggle_side_panels": "隐藏/显示侧边面板",
         "toggle_soft_proof": "切换软打样",
@@ -2258,6 +2259,21 @@
         "readFailed": "无法读取元数据：{{error}}",
         "saveFailed": "无法保存元数据：{{error}}"
       }
+    },
+    "multiView": {
+      "controls": "标记、评级或移除 {{name}}",
+      "editAll": "编辑所有选中照片",
+      "editAllTitle": "编辑所有选中照片：对主照片的修改也会应用到显示的每张其他照片（橙色边框）",
+      "makePrimary": "编辑 {{name}}（设为主照片）",
+      "more_other": "还有 {{n}} 张",
+      "pick": "留用 {{name}}",
+      "rate_other": "将 {{name}} 评为 {{count}} 星",
+      "rating_other": "{{count}} 星",
+      "reject": "排除 {{name}}",
+      "remove": "从选择中移除 {{name}}",
+      "selectSeveral": "选择多张照片进行比较",
+      "toggle": "多图视图",
+      "unsupported": "多图视图需要原生照片显示，本系统不可用"
     },
     "people": {
       "aria": "人物蒙版",

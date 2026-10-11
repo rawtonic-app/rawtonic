@@ -1098,6 +1098,7 @@
         "toggle_mask_overlay": "Mostra o amaga la màscara",
         "toggle_masks": "Alternar tauler de Màscares",
         "toggle_metadata": "Alternar tauler de Metadades",
+        "toggle_multi_view": "Vista múltiple: fotos seleccionades una al costat de l’altra",
         "toggle_right_panel": "Commutar el panell dret",
         "toggle_side_panels": "Amaga o mostra els panells laterals",
         "toggle_soft_proof": "Commuta la prova en pantalla",
@@ -2373,6 +2374,27 @@
         "readFailed": "No s'han pogut llegir les metadades: {{error}}",
         "saveFailed": "No s'han pogut desar les metadades: {{error}}"
       }
+    },
+    "multiView": {
+      "controls": "Marca, valora o treu {{name}}",
+      "editAll": "Edita totes les seleccionades",
+      "editAllTitle": "Edita totes les seleccionades: els canvis a la foto principal també van a cada altra foto mostrada (marcs taronja)",
+      "makePrimary": "Edita {{name}} (fes-la la foto principal)",
+      "more_one": "i {{n}} més",
+      "more_many": "i {{n}} més",
+      "more_other": "i {{n}} més",
+      "pick": "Tria {{name}}",
+      "rate_one": "Valora {{name}} amb {{count}} estrella",
+      "rate_many": "Valora {{name}} amb {{count}} estrelles",
+      "rate_other": "Valora {{name}} amb {{count}} estrelles",
+      "rating_one": "{{count}} estrella",
+      "rating_many": "{{count}} estrelles",
+      "rating_other": "{{count}} estrelles",
+      "reject": "Rebutja {{name}}",
+      "remove": "Treu {{name}} de la selecció",
+      "selectSeveral": "selecciona diverses fotos per comparar-les",
+      "toggle": "Vista múltiple",
+      "unsupported": "La vista múltiple necessita la visualització nativa de fotos, que no està disponible en aquest sistema"
     },
     "people": {
       "aria": "Màscara de persones",

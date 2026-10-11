@@ -1023,6 +1023,7 @@
         "toggle_mask_overlay": "顯示或隱藏遮色片",
         "toggle_masks": "切換遮色片面板",
         "toggle_metadata": "切換後設資料面板",
+        "toggle_multi_view": "多圖檢視：選取的照片並排顯示",
         "toggle_right_panel": "切換右側面板",
         "toggle_side_panels": "隱藏/顯示側邊面板",
         "toggle_soft_proof": "切換軟打樣",
@@ -2258,6 +2259,21 @@
         "readFailed": "無法讀取後設資料：{{error}}",
         "saveFailed": "無法儲存後設資料：{{error}}"
       }
+    },
+    "multiView": {
+      "controls": "標記、評等或移除 {{name}}",
+      "editAll": "編輯所有選取的照片",
+      "editAllTitle": "編輯所有選取的照片：對主照片的修改也會套用到顯示的每張其他照片（橘色邊框）",
+      "makePrimary": "編輯 {{name}}（設為主照片）",
+      "more_other": "還有 {{n}} 張",
+      "pick": "留用 {{name}}",
+      "rate_other": "將 {{name}} 評為 {{count}} 星",
+      "rating_other": "{{count}} 星",
+      "reject": "排除 {{name}}",
+      "remove": "從選取中移除 {{name}}",
+      "selectSeveral": "選擇多張照片進行比較",
+      "toggle": "多圖檢視",
+      "unsupported": "多圖檢視需要原生照片顯示，本系統無法使用"
     },
     "people": {
       "aria": "人物遮色片",
