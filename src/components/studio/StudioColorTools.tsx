@@ -52,6 +52,88 @@ export const tintColor = ({ hue, saturation }: HueSatLum) =>
     : undefined;
 
 /**
+ * The range switcher's icons (16 px, stroke 1.5, like the app's lucide
+ * icons): the 3-way view as three circles laid out like the view, each
+ * filled with its range's tint; Shadows dark, Midtones half, Highlights
+ * light, Global a ring around a dot. A range with saturation shows its tint
+ * as a dot at the icon's corner.
+ */
+function GradingRangeIcon({
+  view,
+  tints,
+}: {
+  view: View;
+  tints: (string | undefined)[];
+}) {
+  const outline = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+  } as const;
+  if (view === "threeWay")
+    return (
+      <svg
+        className="studio-grading-icon"
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        aria-hidden
+      >
+        {THREE_WAY_ICON.map(([cx, cy], i) => (
+          <circle
+            key={i}
+            cx={cx}
+            cy={cy}
+            r={2.9}
+            {...outline}
+            fill={tints[i] ?? "none"}
+          />
+        ))}
+      </svg>
+    );
+  const tint = tints[0];
+  return (
+    <span className="studio-grading-icon-wrap" aria-hidden>
+      <svg
+        className="studio-grading-icon"
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+      >
+        {view === "midtones" && (
+          <path d="M8 2.25a5.75 5.75 0 0 0 0 11.5z" fill="currentColor" />
+        )}
+        {view === "global" && (
+          <circle cx={8} cy={8} r={2.25} fill="currentColor" />
+        )}
+        <circle
+          cx={8}
+          cy={8}
+          r={5.75}
+          {...outline}
+          fill={
+            view === "highlights"
+              ? "currentColor"
+              : view === "shadows"
+                ? "#141516"
+                : "none"
+          }
+        />
+      </svg>
+      {tint && (
+        <span className="studio-grading-tint" style={{ background: tint }} />
+      )}
+    </span>
+  );
+}
+/** The 3-way icon's circles, laid out like the view (midtones on top). */
+const THREE_WAY_ICON = [
+  [8, 4.25],
+  [4.25, 11.5],
+  [11.75, 11.5],
+] as const;
+
+/**
  * Lightroom's Color Grading / Capture One's Color Balance: one wheel per
  * tonal range (hue and saturation) with its luminance, plus Blending (how
  * far the ranges overlap) and Balance (where shadows end and highlights
@@ -103,47 +185,35 @@ export function StudioColorGrading({
     >
       <div
         className="studio-segments studio-grading-regions"
+        role="group"
         aria-label={t("studio.color.grading.tonalRange")}
       >
         {REGIONS.map(([key, nameKey]) => {
           const name = t(nameKey);
-          if (key === "threeWay")
-            // Icon only: five segments must fit the narrowest panel.
-            return (
-              <button
-                key={key}
-                type="button"
-                className="is-three-way"
-                aria-pressed={view === key}
-                aria-label={name}
-                title={t("studio.color.grading.threeWayTitle")}
-                onClick={() => setView(key)}
-              >
-                <span className="studio-grading-3way-icon" aria-hidden>
-                  {THREE_WAY.map((r) => (
-                    <span
-                      key={r}
-                      className="studio-grading-dot"
-                      style={{ background: tintColor(wheelOf(r)) }}
-                    />
-                  ))}
-                </span>
-              </button>
-            );
           return (
+            // Icon only (Lightroom's view switcher): five equal segments fit
+            // the narrowest panel in every language; the name is the
+            // tooltip, the accessible name and the caption under the wheel.
             <button
               key={key}
               type="button"
               aria-pressed={view === key}
+              aria-label={name}
+              title={
+                key === "threeWay"
+                  ? t("studio.color.grading.threeWayTitle")
+                  : name
+              }
               onClick={() => setView(key)}
-              title={name}
             >
-              <span
-                className="studio-grading-dot"
-                style={{ background: tintColor(grading[key] as HueSatLum) }}
-                aria-hidden
+              <GradingRangeIcon
+                view={key}
+                tints={
+                  key === "threeWay"
+                    ? THREE_WAY.map((r) => tintColor(wheelOf(r)))
+                    : [tintColor(wheelOf(key))]
+                }
               />
-              {name}
             </button>
           );
         })}
@@ -191,7 +261,7 @@ export function StudioColorGrading({
         </div>
       ) : (
         <>
-          <div className="studio-wheel-row">
+          <div className="studio-wheel-row is-named">
             <StudioColorWheel
               label={label}
               value={wheel}
@@ -199,6 +269,7 @@ export function StudioColorGrading({
               onChange={setWheel}
               onInteraction={onInteraction}
             />
+            <span className="studio-grading-3way-name">{label}</span>
           </div>
           <AdjustmentControl
             label={t("adjustments.color.hue")}

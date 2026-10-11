@@ -61,6 +61,39 @@ describe("colour grading", () => {
   });
 });
 
+describe("colour grading range switch", () => {
+  it("is five icon-only segments named by tooltip and label", () => {
+    renderGrading({
+      ...INITIAL_ADJUSTMENTS.colorGrading,
+      shadows: { hue: 200, saturation: 30, luminance: 0 },
+    });
+    const group = screen.getByRole("group", { name: "Tonal range" });
+    const buttons = Array.from(group.querySelectorAll("button"));
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "3-way",
+      "Shadows",
+      "Midtones",
+      "Highlights",
+      "Global",
+    ]);
+    // No visible text that could be clipped in a narrow panel or a long
+    // language; the selected range is named under its wheel instead.
+    for (const b of buttons) expect(b.textContent).toBe("");
+    // Only the graded range shows its tint.
+    expect(group.querySelectorAll(".studio-grading-tint")).toHaveLength(1);
+    expect(
+      screen
+        .getByRole("button", { name: "Shadows" })
+        .querySelector(".studio-grading-tint"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Global" }));
+    expect(
+      document.querySelector(".studio-wheel-row .studio-grading-3way-name")
+        ?.textContent,
+    ).toBe("Global");
+  });
+});
+
 describe("colour grading 3-way view", () => {
   it("opens with three wheels and luminance arcs above Blending and Balance", () => {
     renderGrading();
