@@ -1079,6 +1079,10 @@
       "createXmp": "Twórz brakujące pliki XMP",
       "createXmpDesc": "Automatycznie utwórz nowy plik poboczny XMP, jeśli nie istnieje dla obrazu.",
       "createXmpMissing": "Utwórz XMP, jeśli brakuje",
+      "developTools": "Narzędzia Wywoływania",
+      "developToolsDesc": "Strona zdjęcia, po której są narzędzia Wywoływania. Gdy narzędzia są po prawej, lewy panel pokazuje Nawigator, Foldery i Albumy do przełączania zdjęć.",
+      "developToolsLeft": "Lewo",
+      "developToolsRight": "Prawo",
       "enableNeutralGreyCanvas": "Włącz neutralne szare tło",
       "enableOsTitlebar": "Włącz systemowy pasek tytułu",
       "enableXmpSync": "Włącz synchronizację XMP",
@@ -1502,6 +1506,9 @@
         "linear": "Odpowiedź liniowa",
         "profile": "Profil",
         "standard": "Standardowa"
+      },
+      "browse": {
+        "title": "Przeglądaj"
       },
       "bypass": {
         "bypassed": "{{section}} pominięte",
@@ -2811,10 +2818,8 @@
         "unrated": "Bez oceny"
       },
       "layout": {
-        "moveToolsLeft": "Przenieś narzędzia na lewo",
-        "moveToolsRight": "Przenieś narzędzia na prawo",
-        "toolsLeft": "Narzędzia po lewej",
-        "toolsRight": "Narzędzia po prawej"
+        "moveToolsLeft": "Przenieś narzędzia Wywoływania na lewo",
+        "moveToolsRight": "Przenieś narzędzia Wywoływania na prawo"
       },
       "modules": {
         "develop": "Wywoływanie",

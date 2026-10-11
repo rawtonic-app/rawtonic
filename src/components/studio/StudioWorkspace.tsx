@@ -23,7 +23,8 @@ import {
   Copy,
   ClipboardPaste,
   RotateCcw,
-  Columns2,
+  PanelLeft,
+  PanelRight,
   Settings,
   Upload,
   X,
@@ -459,6 +460,8 @@ export default function StudioWorkspace(props: Props) {
       onNavigate={onNavigate}
       onSelectAlbum={props.onSelectAlbum}
       folderActions={props.folderActions}
+      // Beside Develop (tools on the right) it only switches photographs.
+      develop={develop}
     />
   );
   const sessionBar = useSessionBar(
@@ -511,12 +514,14 @@ export default function StudioWorkspace(props: Props) {
             ? t("studio.workspace.export.buttonCount", { n: multiSelectedPaths.length })
             : t("studio.workspace.export.button")}
       </button>
+      {/* The icon shows the side the Develop tools move to; also in the
+          Preferences (General). */}
       <button
         className="studio-bar-icon"
         title={
           layout === "split-tools"
-            ? t("studio.workspace.layout.toolsLeft")
-            : t("studio.workspace.layout.toolsRight")
+            ? t("studio.workspace.layout.moveToolsLeft")
+            : t("studio.workspace.layout.moveToolsRight")
         }
         aria-label={
           layout === "split-tools"
@@ -527,7 +532,7 @@ export default function StudioWorkspace(props: Props) {
           setLayout(layout === "split-tools" ? "tools-left" : "split-tools")
         }
       >
-        <Columns2 size={15} />
+        {layout === "split-tools" ? <PanelLeft size={15} /> : <PanelRight size={15} />}
       </button>
       <button
         className="studio-bar-icon"

@@ -956,6 +956,10 @@
       "createXmp": "見つからないXMPファイルを作成",
       "createXmpDesc": "画像にXMPサイドカーファイルが存在しない場合、自動的に新規作成します。",
       "createXmpMissing": "見つからない場合はXMPを作成",
+      "developTools": "現像ツール",
+      "developToolsDesc": "現像ツールを写真のどちら側に表示するか。右側にすると、左パネルに写真を切り替えるためのナビゲーター、フォルダ、アルバムが表示されます。",
+      "developToolsLeft": "左",
+      "developToolsRight": "右",
       "enableNeutralGreyCanvas": "ニュートラルグレーの背景を有効にする",
       "enableOsTitlebar": "OSのタイトルバーを有効にする",
       "enableXmpSync": "XMP同期を有効にする",
@@ -1379,6 +1383,9 @@
         "linear": "リニア応答",
         "profile": "プロファイル",
         "standard": "標準"
+      },
+      "browse": {
+        "title": "ブラウズ"
       },
       "bypass": {
         "bypassed": "{{section}}をバイパス中",
@@ -2601,10 +2608,8 @@
         "unrated": "レーティングなし"
       },
       "layout": {
-        "moveToolsLeft": "ツールを左へ移動",
-        "moveToolsRight": "ツールを右へ移動",
-        "toolsLeft": "ツールを左に表示",
-        "toolsRight": "ツールを右に表示"
+        "moveToolsLeft": "現像ツールを左へ移動",
+        "moveToolsRight": "現像ツールを右へ移動"
       },
       "modules": {
         "develop": "現像",

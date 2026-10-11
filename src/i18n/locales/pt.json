@@ -1031,6 +1031,10 @@
       "createXmp": "Criar Arquivos XMP Ausentes",
       "createXmpDesc": "Cria automaticamente um novo arquivo sidecar XMP se não existir um para uma imagem.",
       "createXmpMissing": "Criar XMP se ausente",
+      "developTools": "Ferramentas de Revelação",
+      "developToolsDesc": "O lado da foto em que ficam as ferramentas de Revelação. Com as ferramentas à direita, o painel esquerdo mostra o Navegador, as Pastas e os Álbuns para trocar de foto.",
+      "developToolsLeft": "Esquerda",
+      "developToolsRight": "Direita",
       "enableNeutralGreyCanvas": "Ativar fundo cinza neutro",
       "enableOsTitlebar": "Ativar Barra de Título do SO",
       "enableXmpSync": "Ativar Sincronização XMP",
@@ -1454,6 +1458,9 @@
         "linear": "Resposta linear",
         "profile": "Perfil",
         "standard": "Padrão"
+      },
+      "browse": {
+        "title": "Navegar"
       },
       "bypass": {
         "bypassed": "{{section}} ignorado",
@@ -2734,10 +2741,8 @@
         "unrated": "Sem classificação"
       },
       "layout": {
-        "moveToolsLeft": "Mover as ferramentas para a esquerda",
-        "moveToolsRight": "Mover as ferramentas para a direita",
-        "toolsLeft": "Ferramentas à esquerda",
-        "toolsRight": "Ferramentas à direita"
+        "moveToolsLeft": "Mover as ferramentas de Revelação para a esquerda",
+        "moveToolsRight": "Mover as ferramentas de Revelação para a direita"
       },
       "modules": {
         "develop": "Revelação",

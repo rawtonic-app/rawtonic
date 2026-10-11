@@ -983,6 +983,10 @@
       "createXmp": "Create Missing XMP Files",
       "createXmpDesc": "Automatically create a new XMP sidecar file if one does not exist for an image.",
       "createXmpMissing": "Create XMP if missing",
+      "developTools": "Develop tools",
+      "developToolsDesc": "The side of the photo the Develop tools are on. With the tools on the right, the left panel shows the Navigator, Folders and Albums to switch photos.",
+      "developToolsLeft": "Left",
+      "developToolsRight": "Right",
       "enableNeutralGreyCanvas": "Enable Neutral Grey Background",
       "enableOsTitlebar": "Enable OS Titlebar",
       "enableXmpSync": "Enable XMP Sync",
@@ -1406,6 +1410,9 @@
         "linear": "Linear response",
         "profile": "Profile",
         "standard": "Standard"
+      },
+      "browse": {
+        "title": "Browse"
       },
       "bypass": {
         "bypassed": "{{section}} bypassed",
@@ -2657,10 +2664,8 @@
         "unrated": "Unrated"
       },
       "layout": {
-        "moveToolsLeft": "Move tools to the left",
-        "moveToolsRight": "Move tools to the right",
-        "toolsLeft": "Tools on the left",
-        "toolsRight": "Tools on the right"
+        "moveToolsLeft": "Move the Develop tools to the left",
+        "moveToolsRight": "Move the Develop tools to the right"
       },
       "modules": {
         "develop": "Develop",

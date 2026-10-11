@@ -1031,6 +1031,10 @@
       "createXmp": "Crear archivos XMP faltantes",
       "createXmpDesc": "Crear automáticamente un nuevo archivo sidecar XMP si no existe uno para una imagen.",
       "createXmpMissing": "Crear XMP si falta",
+      "developTools": "Herramientas de Revelado",
+      "developToolsDesc": "El lado de la foto en el que están las herramientas de Revelado. Con las herramientas a la derecha, el panel izquierdo muestra el Navegador, las Carpetas y los Álbumes para cambiar de foto.",
+      "developToolsLeft": "Izquierda",
+      "developToolsRight": "Derecha",
       "enableNeutralGreyCanvas": "Activar fondo gris neutro",
       "enableOsTitlebar": "Activar barra de título del SO",
       "enableXmpSync": "Activar sincronización XMP",
@@ -1454,6 +1458,9 @@
         "linear": "Respuesta lineal",
         "profile": "Perfil",
         "standard": "Estándar"
+      },
+      "browse": {
+        "title": "Explorar"
       },
       "bypass": {
         "bypassed": "{{section}} omitido",
@@ -2734,10 +2741,8 @@
         "unrated": "Sin valorar"
       },
       "layout": {
-        "moveToolsLeft": "Mover las herramientas a la izquierda",
-        "moveToolsRight": "Mover las herramientas a la derecha",
-        "toolsLeft": "Herramientas a la izquierda",
-        "toolsRight": "Herramientas a la derecha"
+        "moveToolsLeft": "Mover las herramientas de Revelado a la izquierda",
+        "moveToolsRight": "Mover las herramientas de Revelado a la derecha"
       },
       "modules": {
         "develop": "Revelado",

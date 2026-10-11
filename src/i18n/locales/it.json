@@ -1031,6 +1031,10 @@
       "createXmp": "Crea File XMP Mancanti",
       "createXmpDesc": "Crea automaticamente un nuovo file sidecar XMP se non ne esiste uno per un'immagine.",
       "createXmpMissing": "Crea XMP se mancante",
+      "developTools": "Strumenti di Sviluppo",
+      "developToolsDesc": "Il lato della foto in cui si trovano gli strumenti di Sviluppo. Con gli strumenti a destra, il pannello sinistro mostra Navigatore, Cartelle e Album per cambiare foto.",
+      "developToolsLeft": "Sinistra",
+      "developToolsRight": "Destra",
       "enableNeutralGreyCanvas": "Abilita sfondo grigio neutro",
       "enableOsTitlebar": "Abilita Barra del Titolo di Sistema",
       "enableXmpSync": "Abilita Sincronizzazione XMP",
@@ -1454,6 +1458,9 @@
         "linear": "Risposta lineare",
         "profile": "Profilo",
         "standard": "Standard"
+      },
+      "browse": {
+        "title": "Sfoglia"
       },
       "bypass": {
         "bypassed": "{{section}} escluso",
@@ -2734,10 +2741,8 @@
         "unrated": "Senza valutazione"
       },
       "layout": {
-        "moveToolsLeft": "Sposta gli strumenti a sinistra",
-        "moveToolsRight": "Sposta gli strumenti a destra",
-        "toolsLeft": "Strumenti a sinistra",
-        "toolsRight": "Strumenti a destra"
+        "moveToolsLeft": "Sposta gli strumenti di Sviluppo a sinistra",
+        "moveToolsRight": "Sposta gli strumenti di Sviluppo a destra"
       },
       "modules": {
         "develop": "Sviluppo",

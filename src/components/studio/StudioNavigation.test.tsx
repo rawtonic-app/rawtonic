@@ -376,3 +376,37 @@ describe("a catalog's folders by drive", () => {
     expect(screen.getByText("2026")).toBeTruthy();
   });
 });
+
+describe("the panel beside Develop's tools", () => {
+  const tools = () =>
+    [...document.querySelectorAll("[data-tool-title]")].map((el) => el.getAttribute("data-tool-title"));
+  const renderAs = (develop: boolean) =>
+    render(
+      <ContextMenuProvider>
+        <StudioNavigation onNavigate={vi.fn()} onSelectAlbum={vi.fn()} folderActions={actions} develop={develop} />
+      </ContextMenuProvider>,
+    );
+
+  it("keeps what switches photographs and leaves keywords and metadata to the Library", () => {
+    renderAs(true);
+    expect(tools()).toEqual(["Navigator", "Folders", "Albums"]);
+    expect(screen.getByRole("heading", { name: "Browse" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Browse" })).toBeTruthy();
+  });
+
+  it("shows the Library its full column", () => {
+    renderAs(false);
+    expect(tools()).toEqual(["Navigator", "Folders", "Albums", "Keywords", "Metadata", "EXIF"]);
+    expect(screen.queryByRole("heading", { name: "Browse" })).toBeNull();
+  });
+
+  it("remembers its tools' open states apart from the Library's", () => {
+    renderAs(true);
+    const folders = document.querySelector("[data-tool-title='Folders']") as HTMLDetailsElement;
+    folders.open = false;
+    fireEvent(folders, new Event("toggle"));
+    const open = useSettingsStore.getState().appSettings?.toolLayout?.open ?? {};
+    expect(open["develop:browse/Folders"]).toBe(false);
+    expect(open["library/Folders"]).toBeUndefined();
+  });
+});

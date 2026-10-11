@@ -40,6 +40,7 @@ import {
 import Text from '../ui/Text';
 import AboutSettings from './AboutSettings';
 import PreviewSettings from './PreviewSettings';
+import DevelopToolsSide from '../studio/DevelopToolsSide';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
 import { open } from '@tauri-apps/plugin-shell';
@@ -918,6 +919,13 @@ export default function SettingsPanel({
                           value={String(appSettings?.uiScale ?? 1)}
                           triggerClassName="bg-bg-primary"
                         />
+                      </SettingItem>
+
+                      <SettingItem
+                        label={t('settings.general.developTools')}
+                        description={t('settings.general.developToolsDesc')}
+                      >
+                        <DevelopToolsSide />
                       </SettingItem>
 
                       <div className="space-y-4">

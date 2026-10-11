@@ -1031,6 +1031,10 @@
       "createXmp": "Créer les fichiers XMP manquants",
       "createXmpDesc": "Créer automatiquement un nouveau fichier annexe XMP s'il n'en existe pas pour une image.",
       "createXmpMissing": "Créer XMP si manquant",
+      "developTools": "Outils de Développement",
+      "developToolsDesc": "Le côté de la photo où se trouvent les outils de Développement. Avec les outils à droite, le panneau de gauche affiche la Navigation, les Dossiers et les Albums pour changer de photo.",
+      "developToolsLeft": "Gauche",
+      "developToolsRight": "Droite",
       "enableNeutralGreyCanvas": "Activer le fond gris neutre",
       "enableOsTitlebar": "Activer la barre de titre de l'OS",
       "enableXmpSync": "Activer la synchronisation XMP",
@@ -1454,6 +1458,9 @@
         "linear": "Réponse linéaire",
         "profile": "Profil",
         "standard": "Standard"
+      },
+      "browse": {
+        "title": "Parcourir"
       },
       "bypass": {
         "bypassed": "{{section}} désactivé",
@@ -2734,10 +2741,8 @@
         "unrated": "Sans note"
       },
       "layout": {
-        "moveToolsLeft": "Placer les outils à gauche",
-        "moveToolsRight": "Placer les outils à droite",
-        "toolsLeft": "Outils à gauche",
-        "toolsRight": "Outils à droite"
+        "moveToolsLeft": "Placer les outils de Développement à gauche",
+        "moveToolsRight": "Placer les outils de Développement à droite"
       },
       "modules": {
         "develop": "Développement",
