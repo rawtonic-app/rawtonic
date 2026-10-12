@@ -25,6 +25,7 @@ import {
 import { useMultiViewZoom } from "./useMultiViewZoom";
 import { useEditAllSelected } from "../../hooks/useEditAllSelected";
 import { proofMarginPx } from "../../utils/viewerDisplay";
+import BrowserViewCell from "./BrowserViewCell";
 import "./multiView.css";
 
 interface Props {
@@ -198,9 +199,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const active =
     develop &&
     enabled &&
-    useWgpu &&
-    osPlatform !== "linux" &&
-    !unavailable &&
+    (osPlatform === "linux" || (useWgpu && !unavailable)) &&
     primary !== null &&
     count > 1 &&
     selection.includes(primary);
@@ -259,6 +258,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
   const revision = `${recipeRevision}|${thumbnails}`;
   const wasActive = useRef(false);
   useEffect(() => {
+    if (osPlatform === "linux") return;
     if (!active) {
       if (wasActive.current) {
         wasActive.current = false;
@@ -286,7 +286,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
         if (shownNatively === false) setUnavailable(true);
       })
       .catch((err) => console.warn("Multi view:", err));
-  }, [active, box, grid, shown, primary, revision, setUnavailable]);
+  }, [active, box, grid, shown, primary, revision, setUnavailable, osPlatform]);
   useEffect(
     () => () => {
       if (wasActive.current) void invoke(Invokes.SetMultiView, { primary: null, cells: [] }).catch(() => {});
@@ -473,6 +473,8 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
                 </span>
               )}
               {!isPrimary && (
+                <>
+                {osPlatform === "linux" && <BrowserViewCell path={path} width={g.photo.width} height={g.photo.height} revision={revision} zoom={zoom} />}
                 <CellSelect
                   path={path}
                   height={g.photo.height}
@@ -480,6 +482,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
                   handlers={cellHandlers(path)}
                   onOpen={isReference ? undefined : onOpen}
                 />
+                </>
               )}
               {zoom && (
                 <span

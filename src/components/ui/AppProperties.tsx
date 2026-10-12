@@ -111,6 +111,7 @@ export enum Invokes {
   ActivatePhoto = 'activate_photo',
   PreparePreviewProxies = 'prepare_preview_proxies',
   SetMultiView = 'set_multi_view',
+  RenderBrowserView = 'render_browser_view',
   SetMultiViewZoom = 'set_multi_view_zoom',
   SetMultiViewLive = 'set_multi_view_live',
   BuildPreviews = 'build_previews',

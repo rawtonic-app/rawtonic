@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import { useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { frameDrawnMasks } from '../utils/maskGeometry';
@@ -71,6 +72,8 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       void invoke(Invokes.SetMultiViewLive, { patch })?.catch(() => {});
     };
     const sendLive = () => {
+      // Linux browser cells refresh after the settled recipe write.
+      if (useSettingsStore.getState().osPlatform === 'linux') return;
       if (liveTimer !== null) return;
       const wait = EDIT_ALL_LIVE_MS - (performance.now() - lastSentAt);
       if (wait <= 0) sendLiveNow();

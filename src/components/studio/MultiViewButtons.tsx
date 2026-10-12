@@ -33,7 +33,7 @@ export default function MultiViewButtons() {
     })),
   );
   const several = useLibraryStore((s) => s.multiSelectedPaths.length > 1);
-  const supported = osPlatform !== "linux" && useWgpu && !unavailable;
+  const supported = osPlatform === "linux" || (useWgpu && !unavailable);
   const label = t("studio.multiView.toggle");
   const shortcut = shortcutHint("toggle_multi_view", keybinds, osPlatform);
   const title = !supported

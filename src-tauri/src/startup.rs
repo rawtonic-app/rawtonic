@@ -244,10 +244,8 @@ pub(crate) fn frontend_ready(
             log::error!("Failed to focus window: {}", e);
         }
         #[cfg(any(windows, target_os = "linux"))]
-        if is_first_run {
-            if should_maximize {
-                let _ = window.maximize();
-            }
+        if is_first_run && should_maximize {
+            let _ = window.maximize();
         }
     }
 

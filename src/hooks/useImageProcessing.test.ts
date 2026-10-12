@@ -70,10 +70,42 @@ beforeEach(() => {
     originalSize: { width: 4000, height: 3000 },
     interactivePatch: null,
     patchesSentToBackend: new Set(),
+    clippingWarnings: false,
+    softProof: false,
+    softProofSpace: "srgb",
+    softProofWarning: false,
+    colorRangeShow: null,
+    nativeMaskOverlay: null,
   });
   useUIStore.setState({ activeView: "editor" });
   useSettingsStore.setState({ appSettings: null });
   useLibraryStore.setState({ multiSelectedPaths: [] });
+});
+
+it("rerenders browser previews when clipping and soft proof change without saving the recipe", async () => {
+  mount();
+  await finish(); // Browser response, not WGPU_RENDER.
+  const recipe = useEditorStore.getState().adjustments;
+  act(() => useEditorStore.setState({ clippingWarnings: true }));
+  expect(calls()).toHaveLength(2);
+  expect(calls()[1][1]).toMatchObject({ jsAdjustments: { showClipping: true }, isInteractive: false });
+  await finish();
+  act(() => useEditorStore.setState({ softProof: true, softProofSpace: "adobeRgb", softProofWarning: true }));
+  expect(calls()).toHaveLength(3);
+  expect(calls()[2][1]).toMatchObject({ jsAdjustments: { softProof: "adobeRgb", softProofWarning: true } });
+  await finish();
+  act(() => useEditorStore.setState({ softProof: false, clippingWarnings: false, colorRangeShow: "red" }));
+  expect(calls()).toHaveLength(4);
+  expect(calls()[3][1]).toMatchObject({ jsAdjustments: { showClipping: false, colorRangeShow: "red" } });
+  expect(useEditorStore.getState().adjustments).toBe(recipe);
+  expect(debouncedSave).not.toHaveBeenCalled();
+});
+
+it("does not reencode a browser preview for native-only mask overlay changes", async () => {
+  mount();
+  await finish();
+  act(() => useEditorStore.setState({ nativeMaskOverlay: { maskId: "layer", opacity: 100, color: [1, 0, 0], grayscale: false } }));
+  expect(calls()).toHaveLength(1);
 });
 afterEach(() => {
   cleanup();

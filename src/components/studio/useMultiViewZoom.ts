@@ -95,7 +95,7 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
 
   // The secondaries' shown sizes come from the native side as it develops them.
   useEffect(() => {
-    if (!active) return;
+    if (!active || useSettingsStore.getState().osPlatform === 'linux') return;
     let stop: (() => void) | undefined;
     let cancelled = false;
     listen<{ path: string; width: number; height: number }[]>("multi-view-cell-sizes", (event) =>
@@ -196,7 +196,9 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
           };
       if (!samePayload(sent, payload)) {
         sent = payload;
-        void invoke(Invokes.SetMultiViewZoom, { zoom: payload.zoom, cells: payload.cells })?.catch(() => {});
+        if (useSettingsStore.getState().osPlatform !== 'linux') {
+          void invoke(Invokes.SetMultiViewZoom, { zoom: payload.zoom, cells: payload.cells })?.catch(() => {});
+        }
       }
     };
     frame = requestAnimationFrame(tick);

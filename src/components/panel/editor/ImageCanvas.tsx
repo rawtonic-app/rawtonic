@@ -20,6 +20,7 @@ import { sampleLumaRange } from '../../../utils/lumaSample';
 import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
 import SpotOverlay from './SpotOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';
+import BrowserSplitImage from './BrowserSplitImage';
 import { toast } from 'react-toastify';
 import { reportImagePlaceholderLoad, reportMaskOverlayLoad } from '../../../hooks/usePerformanceDiagnostics';
 import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
@@ -3102,6 +3103,8 @@ const ImageCanvas = memo(
                     style={{ imageRendering: isMaxZoom ? 'pixelated' : 'auto' }}
                   />
                 )}
+                <BrowserSplitImage path={selectedImage.path} adjustments={adjustments} size={imageRenderSize}
+                  transform={transformState} enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)} decoded={selectedImage.isDecoded} />
               </svg>
 
               {displayedMaskUrl && (

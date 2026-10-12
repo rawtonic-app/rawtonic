@@ -1139,8 +1139,10 @@ fn browser_interactive_divisor(preview_dim: u32, quality: &str, divisor: f32) ->
     divisor.max(preview_dim as f32 / limit)
 }
 
-#[cfg(any(target_os = "linux", test))]
-fn encode_browser_preview(image: &image::RgbaImage, quality: u8) -> Result<Vec<u8>, String> {
+pub(crate) fn encode_browser_preview(
+    image: &image::RgbaImage,
+    quality: u8,
+) -> Result<Vec<u8>, String> {
     let mut compressor = turbojpeg::Compressor::new().map_err(|e| e.to_string())?;
     compressor
         .set_quality(i32::from(quality.clamp(1, 100)))
