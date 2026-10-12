@@ -34,6 +34,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { Invokes } from "../ui/AppProperties";
 import RawtonicMark from "../ui/RawtonicMark";
 import type { FolderTree } from "../../utils/folderTree";
+import { withGrainStructure } from "../../utils/adjustments";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
@@ -376,7 +377,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!session) return;
     const preset = presets.find((p) => `preset:${p.id}` === nextCapture);
     const next: NextCapture = preset
-      ? { mode: "preset", name: preset.name, adjustments: preset.adjustments }
+      ? { mode: "preset", name: preset.name, adjustments: withGrainStructure(preset.adjustments) }
       : nextCapture === "copyFromLast"
         ? { mode: "copyFromLast" }
         : { mode: "defaults" };

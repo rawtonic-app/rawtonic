@@ -1554,6 +1554,14 @@
         "output": "Saída"
       },
       "effects": {
+        "grainStructure": "Estrutura da granulação",
+        "grainStructures": {
+          "clumped": "Agrupada",
+          "even": "Uniforme",
+          "gritty": "Áspera",
+          "soft": "Suave",
+          "speckled": "Salpicada"
+        },
         "light": "Luz",
         "style": "Estilo",
         "styles": {

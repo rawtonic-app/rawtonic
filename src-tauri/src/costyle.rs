@@ -335,7 +335,7 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
             100.0,
         );
     }
-    // Unmeasured scales: vignetting in EV, grain, sharpening (Capture One's
+    // Unmeasured scales: vignetting in EV, grain size, sharpening (Capture One's
     // default 160 / 0.8 px ≈ Lightroom's 40 / 1.0), moiré pattern 1–20 and
     // purple fringing 0–100.
     if let Some(v) = s
@@ -344,11 +344,37 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     {
         put(&mut adjustments, "vignetteAmount", 25.0 * v, -100.0, 100.0);
     }
-    if let Some(v) = num("FilmGrainAmount") {
+    if let Some(impact) = num("FilmGrainAmount") {
+        let kind = num("FilmGrainType").map_or(0, |t| t.round() as i64);
+        // Impact onto Amount by the grain's measured strength in the
+        // midtones (8-bit deviation on a grey chart at Impact 50 against
+        // the mapped structure at Amount 50, notes: reference/grain.md).
+        let strength = match kind {
+            1 => 0.81,
+            2 => 1.24,
+            3 => 1.02,
+            4 => 1.03,
+            5 => 1.08,
+            _ => 0.52,
+        };
+        let v = impact * strength;
         put(&mut adjustments, "grainAmount", v, 0.0, 100.0);
         if v > 0.0 {
             let size = num("FilmGrainGranularity").unwrap_or(50.0);
             put(&mut adjustments, "grainSize", size, 0.0, 100.0);
+            // Capture One's grain types onto the nearest grain structure by
+            // the measured character (notes: reference/grain.md): Fine is
+            // even across the tones; Silver Rich, Soft and Cubic are
+            // midtone-weighted rounded grain; Tabular has bright specks;
+            // Harsh is coarse and hard-edged. FilmGrainType 0-5 in that
+            // order (0 Fine is also Capture One's default).
+            let structure = match kind {
+                1..=3 => "soft",
+                4 => "speckled",
+                5 => "gritty",
+                _ => "even",
+            };
+            adjustments.insert("grainStructure".into(), json!(structure));
         }
     }
     if let Some(v) = num("UsmAmount") {
@@ -633,11 +659,30 @@ mod tests {
         let style = r#"<SL><E K="FilmGrainAmount" V="50"/><E K="FilmGrainGranularity" V="70"/>
             <E K="UsmAmount" V="0"/><E K="Vignetting" V="-1|1|0|1"/><E K="Moire" V="20;8"/></SL>"#;
         let a = convert_costyle_to_preset(style, "g").unwrap().adjustments;
-        assert_eq!(a["grainAmount"], json!(50.0));
+        assert_eq!(a["grainAmount"], json!(26.0));
         assert_eq!(a["grainSize"], json!(70.0));
         assert_eq!(a["sharpness"], json!(0.0));
         assert_eq!(a["vignetteAmount"], json!(-25.0));
         assert_eq!(a["moireAmount"], json!(20.0));
+        assert_eq!(a["grainStructure"], json!("even"));
+    }
+
+    #[test]
+    fn grain_types_map_onto_the_nearest_grain_structure() {
+        for (kind, expected) in [
+            (0, Some("even")),
+            (1, Some("soft")),
+            (2, Some("soft")),
+            (3, Some("soft")),
+            (4, Some("speckled")),
+            (5, Some("gritty")),
+        ] {
+            let style = format!(
+                r#"<SL><E K="FilmGrainAmount" V="40"/><E K="FilmGrainType" V="{kind}"/></SL>"#
+            );
+            let a = convert_costyle_to_preset(&style, "g").unwrap().adjustments;
+            assert_eq!(a["grainStructure"].as_str(), expected, "type {kind}");
+        }
     }
 
     #[test]

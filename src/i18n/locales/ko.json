@@ -1469,6 +1469,14 @@
         "output": "출력"
       },
       "effects": {
+        "grainStructure": "그레인 구조",
+        "grainStructures": {
+          "clumped": "뭉침",
+          "even": "균일",
+          "gritty": "거침",
+          "soft": "부드러움",
+          "speckled": "반점"
+        },
         "light": "빛",
         "style": "스타일",
         "styles": {

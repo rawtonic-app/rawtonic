@@ -14,7 +14,7 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useProcessStore } from "../../store/useProcessStore";
 import { debouncedSetHistory, useEditorActions } from "../../hooks/useEditorActions";
-import { INITIAL_ADJUSTMENTS } from "../../utils/adjustments";
+import { INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
 import { Panel, type AppSettings, type SelectedImage } from "../ui/AppProperties";
 import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -229,6 +229,12 @@ describe("Develop tool contracts", () => {
     edit("Size", 70);
     edit("Grain", 40);
     edit("Vignette", -25);
+    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
+    // Grain turned on in a new edit starts as Clumped.
+    expect(structure.value).toBe("clumped");
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
+    fireEvent.change(structure, { target: { value: "gritty" } });
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
     fireEvent.click(screen.getByRole("button", { name: "Reset Effects" }));
     const a = useEditorStore.getState().adjustments;
     expect([
@@ -237,7 +243,27 @@ describe("Develop tool contracts", () => {
       a.vignetteFeather,
       a.grainAmount,
       a.grainSize,
-    ]).toEqual([0, 50, 50, 0, 25]);
+      a.grainStructure,
+    ]).toEqual([0, 50, 50, 0, 25, undefined]);
+    // After a reset, grain turned on again starts as a new edit's.
+    edit("Grain", 30);
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("clumped");
+  });
+
+  it("keeps the Even grain of recipes from before the structure choice", () => {
+    useEditorStore.setState({
+      adjustments: normalizeLoadedAdjustments(
+        { ...structuredClone(INITIAL_ADJUSTMENTS), grainAmount: 40, grainStructure: undefined },
+        true,
+      ),
+    });
+    mount();
+    openGroups();
+    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
+    expect(structure.value).toBe("even");
+    edit("Grain", 0);
+    edit("Grain", 25);
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("even");
   });
 
   it("marks mixer and opacity drags interactive and flushes release", () => {

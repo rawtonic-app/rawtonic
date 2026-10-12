@@ -1607,6 +1607,14 @@
         "output": "Выход"
       },
       "effects": {
+        "grainStructure": "Структура зерна",
+        "grainStructures": {
+          "clumped": "Комковатая",
+          "even": "Равномерная",
+          "gritty": "Грубая",
+          "soft": "Мягкая",
+          "speckled": "Крапчатая"
+        },
         "light": "Свет",
         "style": "Стиль",
         "styles": {

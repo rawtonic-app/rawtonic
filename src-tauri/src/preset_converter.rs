@@ -365,6 +365,17 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         }
     }
 
+    // Lightroom's grain gathers into clumps as Roughness rises; Clumped is
+    // the structure that does the same (notes: reference/grain.md), and the
+    // one new edits start with (user decision 2026-10-12).
+    if adjustments
+        .get("grainAmount")
+        .and_then(Value::as_f64)
+        .is_some_and(|amount| amount > 0.0)
+    {
+        adjustments.insert("grainStructure".to_string(), json!("clumped"));
+    }
+
     // Shadows is calibrated to Lightroom's response (notes: reference), so the
     // former x1.5 compensation for a weak lift would now overshoot.
     if let Some(shadows_val) = get_attr_as_f64(&attrs, "Shadows2012") {
@@ -1499,6 +1510,20 @@ mod tests {
         assert_eq!(adjustments["clarity"], 25);
         // Lightroom's Texture is fine-detail contrast, Rawtonic's Structure.
         assert_eq!(adjustments["structure"], 40);
+    }
+
+    #[test]
+    fn lightroom_grain_becomes_clumped_grain() {
+        let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="35"
+            crs:GrainSize="30" crs:GrainFrequency="60"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
+        assert_eq!(adjustments["grainAmount"], 35);
+        assert_eq!(adjustments["grainRoughness"], 60);
+        assert_eq!(adjustments["grainStructure"], "clumped");
+        let none =
+            r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="0"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
+        assert!(adjustments.get("grainStructure").is_none());
     }
 
     #[test]
