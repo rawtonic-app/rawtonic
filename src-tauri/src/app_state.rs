@@ -100,6 +100,10 @@ pub struct WindowState {
     pub x: i32,
     pub y: i32,
     pub maximized: bool,
+    /// Scale when these physical pixel dimensions were saved. Older files
+    /// omitted it; Linux uses its configured size once to migrate those.
+    #[serde(default)]
+    pub scale_factor: Option<f64>,
     /// Always written false and not restored (full screen is the photo-only
     /// view); kept so older files still read.
     #[serde(default)]

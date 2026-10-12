@@ -50,6 +50,7 @@ mod tests {
             x,
             y: 40,
             maximized: false,
+            scale_factor: Some(2.0),
             fullscreen: false,
         };
         note(path.clone(), state(10));
@@ -58,6 +59,7 @@ mod tests {
         let saved: WindowState =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!((saved.x, saved.width), (20, 1400));
+        assert_eq!(saved.scale_factor, Some(2.0));
         std::fs::remove_file(&path).unwrap();
         flush();
         assert!(!path.exists(), "nothing new to write");

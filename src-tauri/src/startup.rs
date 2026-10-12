@@ -180,6 +180,22 @@ pub(crate) fn available_monitor_bounds(window: &tauri::WebviewWindow) -> Vec<Mon
         .unwrap_or_default()
 }
 
+/// Saved sizes are physical pixels. A hidden GTK window and its monitor have
+/// not yet adopted Wayland's scale, so use the scale stored with those pixels.
+/// Older files migrate to the configured logical size once.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn linux_restored_window_size(
+    width: u32,
+    height: u32,
+    scale: Option<f64>,
+) -> Option<tauri::Size> {
+    let scale = scale.filter(|scale| scale.is_finite() && *scale > 0.0)?;
+    Some(tauri::Size::Logical(tauri::LogicalSize::new(
+        width as f64 / scale,
+        height as f64 / scale,
+    )))
+}
+
 #[tauri::command]
 pub(crate) fn frontend_ready(
     app_handle: tauri::AppHandle,
@@ -309,6 +325,34 @@ pub(crate) fn process_alive(pid: u32) -> bool {
         let pid = sysinfo::Pid::from_u32(pid);
         system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
         system.process(pid).is_some()
+    }
+}
+
+#[cfg(test)]
+mod window_scale_tests {
+    use super::linux_restored_window_size;
+
+    #[test]
+    fn hidpi_physical_sizes_restore_without_growing_on_restart() {
+        for scale in [1.0, 1.25, 2.0] {
+            let size = linux_restored_window_size(2400, 1600, Some(scale)).unwrap();
+            assert_eq!(
+                size.to_physical::<u32>(scale),
+                tauri::PhysicalSize::new(2400, 1600)
+            );
+        }
+        assert_eq!(
+            linux_restored_window_size(2400, 1600, Some(2.0)),
+            Some(tauri::Size::Logical(tauri::LogicalSize::new(1200.0, 800.0)))
+        );
+    }
+
+    #[test]
+    fn legacy_or_invalid_scales_request_the_configured_size() {
+        assert_eq!(linux_restored_window_size(1200, 800, None), None);
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            assert_eq!(linux_restored_window_size(1200, 800, Some(scale)), None);
+        }
     }
 }
 

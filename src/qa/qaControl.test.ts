@@ -84,6 +84,19 @@ describe("QA control bridge", () => {
     ).rejects.toThrow(/no element/);
   });
 
+  it('runs a timed range sequence and restores the value before releasing', async () => {
+    const field = document.getElementById('search') as HTMLInputElement;
+    field.type = 'range'; field.min = '-5'; field.max = '5'; field.step = '.1'; field.value = '.5';
+    const inputs: string[] = [];
+    field.addEventListener('input', () => inputs.push(field.value));
+    const released = vi.fn(() => expect(Number(field.value)).toBe(0.5));
+    field.addEventListener('mouseup', released);
+    const result = await handleQaRequest('ui.range_sequence', { selector: '#search', values: [1, 2, -1], interval_ms: 4 });
+    expect(inputs).toEqual(['1', '2', '-1', '.5']);
+    expect(released).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({ restored: true });
+  });
+
   it("dispatches keys to the focused element", async () => {
     const pressed = vi.fn(
       (event: KeyboardEvent) =>

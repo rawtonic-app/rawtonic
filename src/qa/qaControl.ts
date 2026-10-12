@@ -330,6 +330,47 @@ function typeText(params: Params) {
   return { target: target.tagName.toLowerCase(), value: target.value };
 }
 
+/** Timed range inputs in the webview, without one control-channel roundtrip
+ * per value. A bounded QA-only synthetic drag, not physical mouse input. */
+async function rangeSequence(params: Params) {
+  const target = findOne(params).element;
+  const values = params.values;
+  const interval = typeof params.interval_ms === 'number' ? params.interval_ms : 1000 / 60;
+  if (!(target instanceof HTMLInputElement) || target.type !== 'range' || target.disabled)
+    throw new Error('an enabled range input is required');
+  if (!Array.isArray(values) || values.length < 1 || values.length > 600 ||
+    values.some((v) => typeof v !== 'number' || !Number.isFinite(v)) || !Number.isFinite(interval) || interval < 4 || interval > 100)
+    throw new Error('1–600 finite values and an interval of 4–100 ms are required');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  const rect = target.getBoundingClientRect();
+  const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+  const original = target.value;
+  target.focus();
+  firePointer(target, 'down', x, y, 1, modifiers(params));
+  // Let the range's dragging state reach the renderer before its first input.
+  await sleep(interval);
+  const started = performance.now();
+  const startEpoch = Date.now();
+  const inputTimes: number[] = [];
+  try {
+    for (let i = 0; i < values.length; i++) {
+      const remaining = started + i * interval - performance.now();
+      if (remaining > 0) await sleep(remaining);
+      if (!target.isConnected) throw new Error('range was removed during the sequence');
+      firePointer(target, 'move', x, y, 1, modifiers(params));
+      setter?.call(target, String(values[i]));
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+      inputTimes.push(performance.now() - started);
+    }
+  } finally {
+    // Restore before releasing, including when a sequence is interrupted.
+    setter?.call(target, original);
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+    firePointer(target, 'up', x, y, 0, modifiers(params));
+  }
+  return { start_epoch_ms: startEpoch, end_epoch_ms: Date.now(), input_times_ms: inputTimes, restored: target.value === original };
+}
+
 /** Value at `store.path.to.value` ("editor.selectedImage.path"). */
 export function stateAt(path: string): unknown {
   const [storeName, ...keys] = path.split(".").filter(Boolean);
@@ -449,6 +490,8 @@ export async function handleQaRequest(
       return key(params);
     case "ui.type":
       return typeText(params);
+    case "ui.range_sequence":
+      return rangeSequence(params);
     case "ui.text": {
       const root =
         params.name || params.selector

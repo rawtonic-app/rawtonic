@@ -21,8 +21,9 @@ import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
 import SpotOverlay from './SpotOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
+import { useDecodedPreview } from '../../../hooks/useDecodedPreview';
 import { toast } from 'react-toastify';
-import { reportImagePlaceholderLoad, reportMaskOverlayLoad } from '../../../hooks/usePerformanceDiagnostics';
+import { reportImagePlaceholderLoad, reportMaskOverlayLoad, reportBrowserPreviewLoad } from '../../../hooks/usePerformanceDiagnostics';
 import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
 import { useBrushGesture } from './brushGesture';
 import { isCropEdge, resizeCropFromEdge, type CropRect } from './cropEdges';
@@ -1366,12 +1367,11 @@ const ImageCanvas = memo(
     const [straightenLine, setStraightenLine] = useState<{ start: Coord; end: Coord } | null>(null);
     const isStraightening = useRef(false);
 
-    const [displayState, setDisplayState] = useState({
-      base: finalPreviewUrl || selectedImage.thumbnailUrl,
-      fade: null as string | null,
-    });
-    const [isFadingIn, setIsFadingIn] = useState(false);
-    const prevImageIdentityRef = useRef(selectedImage.thumbnailUrl);
+    const decodedBase = useDecodedPreview(
+      finalPreviewUrl || selectedImage.thumbnailUrl ? { url: (finalPreviewUrl || selectedImage.thumbnailUrl)! } : null,
+      selectedImage.path,
+    );
+    const displayBase = decodedBase?.url;
 
     const [baseTool, setBaseTool] = useState<ToolType>(brushSettings?.tool ?? ToolType.Brush);
     const [isAltPressed, setIsAltPressed] = useState(false);
@@ -1425,51 +1425,6 @@ const ImageCanvas = memo(
         retainedPatchRef.current = interactivePatch;
       }
     }, [interactivePatch]);
-
-    useEffect(() => {
-      const newSrc = finalPreviewUrl || selectedImage.thumbnailUrl;
-      const isNewImage = prevImageIdentityRef.current !== selectedImage.thumbnailUrl;
-
-      if (isNewImage) {
-        prevImageIdentityRef.current = selectedImage.thumbnailUrl;
-        setDisplayState({ base: newSrc, fade: null });
-        setIsFadingIn(false);
-        return;
-      }
-
-      if (isSliderDragging) {
-        setDisplayState({ base: newSrc, fade: null });
-        setIsFadingIn(false);
-      } else {
-        if (displayState.base !== newSrc && displayState.base) {
-          setDisplayState((prev) => ({ base: prev.base, fade: newSrc }));
-          setIsFadingIn(false);
-
-          let frame2: number;
-
-          const frame1 = requestAnimationFrame(() => {
-            frame2 = requestAnimationFrame(() => {
-              setIsFadingIn(true);
-            });
-          });
-
-          const timer = setTimeout(() => {
-            setDisplayState({ base: newSrc, fade: null });
-            setIsFadingIn(false);
-          }, 150);
-
-          return () => {
-            cancelAnimationFrame(frame1);
-            cancelAnimationFrame(frame2);
-            clearTimeout(timer);
-          };
-        } else {
-          setDisplayState({ base: newSrc, fade: null });
-          setIsFadingIn(false);
-        }
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps -- displayState.base is the frame being faded from, which this effect itself replaces; listing it would re-run the effect after every swap and add a render per preview update
-    }, [finalPreviewUrl, selectedImage.thumbnailUrl, isSliderDragging]);
 
     useEffect(() => {
       setBaseTool(brushSettings?.tool ?? ToolType.Brush);
@@ -2898,7 +2853,7 @@ const ImageCanvas = memo(
     const isShowingOriginal = showOriginal;
 
     const currentTarget = finalPreviewUrl || selectedImage.thumbnailUrl;
-    const baseIsReady = displayState.base === currentTarget && !displayState.fade;
+    const baseIsReady = displayBase === currentTarget;
 
     const visiblePatch = interactivePatch ?? (baseIsReady ? null : retainedPatchRef.current);
 
@@ -3065,10 +3020,13 @@ const ImageCanvas = memo(
                       }
                 }
               >
-                {displayState.base && !isWgpuActive && !holdingNativeFrame && !hasRenderedFirstFrame && (
+                {displayBase && !isWgpuActive && !holdingNativeFrame && !hasRenderedFirstFrame && (
                   <image
-                    href={displayState.base}
-                    onLoad={() => reportImagePlaceholderLoad(selectedImage.path, displayState.base!)}
+                    href={displayBase}
+                    onLoad={() => {
+                      reportImagePlaceholderLoad(selectedImage.path, displayBase);
+                      reportBrowserPreviewLoad(displayBase, true);
+                    }}
                     x="0"
                     y="0"
                     width="100%"
@@ -3077,24 +3035,10 @@ const ImageCanvas = memo(
                   />
                 )}
 
-                {displayState.fade && !isWgpuActive && (
-                  <image
-                    href={displayState.fade}
-                    x="0"
-                    y="0"
-                    width="100%"
-                    height="100%"
-                    style={{
-                      imageRendering: isMaxZoom ? 'pixelated' : 'auto',
-                      opacity: isFadingIn ? 1 : 0,
-                      transition: 'opacity 150ms ease-in-out',
-                    }}
-                  />
-                )}
-
                 {visiblePatch && !isWgpuActive && (
                   <image
                     href={visiblePatch.url}
+                    onLoad={() => reportBrowserPreviewLoad(visiblePatch.url, true)}
                     x={`${visiblePatch.normX * 100}%`}
                     y={`${visiblePatch.normY * 100}%`}
                     width={`${visiblePatch.normW * 100}%`}
