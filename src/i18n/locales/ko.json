@@ -996,6 +996,10 @@
       "createXmp": "누락된 XMP 파일 생성",
       "createXmpDesc": "이미지에 XMP 사이드카 파일이 없으면 자동으로 새로 생성합니다.",
       "createXmpMissing": "없는 경우 XMP 생성",
+      "developTools": "현상 도구",
+      "developToolsDesc": "현상 도구를 사진의 어느 쪽에 표시할지 정합니다. 오른쪽에 두면 왼쪽 패널에 사진을 전환하는 탐색기, 폴더, 앨범이 표시됩니다.",
+      "developToolsLeft": "왼쪽",
+      "developToolsRight": "오른쪽",
       "enableOsTitlebar": "OS 제목 표시줄 활성화",
       "enableXmpSync": "XMP 동기화 활성화",
       "nativeTitlebar": "네이티브 제목 표시줄",
@@ -1426,6 +1430,9 @@
         "linear": "선형 응답",
         "profile": "프로필",
         "standard": "표준"
+      },
+      "browse": {
+        "title": "탐색"
       },
       "bypass": {
         "bypassed": "{{section}} 우회됨",
@@ -2652,10 +2659,8 @@
         "unrated": "별점 없음"
       },
       "layout": {
-        "moveToolsLeft": "도구를 왼쪽으로 이동",
-        "moveToolsRight": "도구를 오른쪽으로 이동",
-        "toolsLeft": "도구를 왼쪽에 표시",
-        "toolsRight": "도구를 오른쪽에 표시"
+        "moveToolsLeft": "현상 도구를 왼쪽으로 이동",
+        "moveToolsRight": "현상 도구를 오른쪽으로 이동"
       },
       "modules": {
         "develop": "현상",

@@ -1081,6 +1081,10 @@
       "createXmp": "Crear fitxers XMP que falten",
       "createXmpDesc": "Crear automàticament un nou fitxer sidecar XMP si no n'existeix cap per a una imatge.",
       "createXmpMissing": "Crear XMP si falta",
+      "developTools": "Eines de Revelatge",
+      "developToolsDesc": "El costat de la foto on hi ha les eines de Revelatge. Amb les eines a la dreta, el tauler esquerre mostra el Navegador, les Carpetes i els Àlbums per canviar de foto.",
+      "developToolsLeft": "Esquerra",
+      "developToolsRight": "Dreta",
       "enableOsTitlebar": "Activar barra de títol del SO",
       "enableXmpSync": "Activar sincronització XMP",
       "nativeTitlebar": "Barra de títol nativa",
@@ -1511,6 +1515,9 @@
         "linear": "Resposta lineal",
         "profile": "Perfil",
         "standard": "Estàndard"
+      },
+      "browse": {
+        "title": "Navega"
       },
       "bypass": {
         "bypassed": "{{section}} omès",
@@ -2795,10 +2802,8 @@
         "unrated": "Sense valorar"
       },
       "layout": {
-        "moveToolsLeft": "Mou les eines a l'esquerra",
-        "moveToolsRight": "Mou les eines a la dreta",
-        "toolsLeft": "Eines a l'esquerra",
-        "toolsRight": "Eines a la dreta"
+        "moveToolsLeft": "Mou les eines de Revelatge a l'esquerra",
+        "moveToolsRight": "Mou les eines de Revelatge a la dreta"
       },
       "modules": {
         "develop": "Revelatge",

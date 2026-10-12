@@ -1028,6 +1028,10 @@
       "createXmp": "Fehlende XMP-Dateien erstellen",
       "createXmpDesc": "Erstellt automatisch eine neue XMP-Filialdatei, falls noch keine für ein Bild existiert.",
       "createXmpMissing": "XMP erstellen, falls fehlend",
+      "developTools": "Entwickeln-Werkzeuge",
+      "developToolsDesc": "Auf welcher Seite des Fotos die Entwickeln-Werkzeuge stehen. Mit den Werkzeugen rechts zeigt das linke Bedienfeld Navigator, Ordner und Alben zum Wechseln der Fotos.",
+      "developToolsLeft": "Links",
+      "developToolsRight": "Rechts",
       "enableOsTitlebar": "OS-Titelleiste aktivieren",
       "enableXmpSync": "XMP-Sync aktivieren",
       "nativeTitlebar": "Native Titelleiste",
@@ -1458,6 +1462,9 @@
         "linear": "Lineare Wiedergabe",
         "profile": "Profil",
         "standard": "Standard"
+      },
+      "browse": {
+        "title": "Durchsuchen"
       },
       "bypass": {
         "bypassed": "{{section}} umgangen",
@@ -2713,10 +2720,8 @@
         "unrated": "Ohne Bewertung"
       },
       "layout": {
-        "moveToolsLeft": "Werkzeuge nach links verschieben",
-        "moveToolsRight": "Werkzeuge nach rechts verschieben",
-        "toolsLeft": "Werkzeuge links",
-        "toolsRight": "Werkzeuge rechts"
+        "moveToolsLeft": "Entwickeln-Werkzeuge nach links verschieben",
+        "moveToolsRight": "Entwickeln-Werkzeuge nach rechts verschieben"
       },
       "modules": {
         "develop": "Entwickeln",

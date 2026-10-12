@@ -682,18 +682,24 @@ export default function StudioNavigation({
   onNavigate,
   onSelectAlbum,
   folderActions,
+  develop = false,
 }: {
   onNavigate(path: string): void;
   onSelectAlbum?: SelectAlbum;
   folderActions?: FolderActions;
+  /** Beside Develop's tools on the right: only what switches photographs
+   * (Navigator, Folders, Albums), as Lightroom's Develop keeps its
+   * Collections; keywords and metadata stay Library tasks. Tool order and
+   * open states are its own, apart from the Library's. */
+  develop?: boolean;
 }) {
   const { t } = useTranslation();
   const image = useEditorStore((s) => s.selectedImage);
   const preview = useProcessStore((s) =>
     image ? s.thumbnails[image.path] : undefined,
   );
-  return (
-    <ToolColumn scope="library" className="studio-navigation">
+  const column = (
+    <ToolColumn scope={develop ? "develop:browse" : "library"} className="studio-navigation">
       <ToolGroup key="navigator" title="Navigator" label={t("studio.library.navigator.title")}>
         <div className="studio-navigator">
           {preview ? (
@@ -710,9 +716,18 @@ export default function StudioNavigation({
       </ToolGroup>
       <StudioFolders key="folders" onNavigate={onNavigate} actions={folderActions} />
       {onSelectAlbum && <StudioAlbums key="albums" onSelectAlbum={onSelectAlbum} />}
-      <StudioKeywords key="keywords" />
-      <StudioMetadataTool key="metadata" />
-      <StudioExif key="exif" />
+      {!develop && <StudioKeywords key="keywords" />}
+      {!develop && <StudioMetadataTool key="metadata" />}
+      {!develop && <StudioExif key="exif" />}
     </ToolColumn>
+  );
+  if (!develop) return column;
+  return (
+    <section className="studio-browse" aria-labelledby="studio-browse-title">
+      <h2 id="studio-browse-title" className="studio-panel-heading">
+        {t("studio.develop.browse.title")}
+      </h2>
+      {column}
+    </section>
   );
 }

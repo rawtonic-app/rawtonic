@@ -14,7 +14,11 @@ vi.mock("./StudioDevelop", () => ({
   default: () => null,
   ToolGroup: () => null,
 }));
-vi.mock("./StudioNavigation", () => ({ default: () => null }));
+vi.mock("./StudioNavigation", () => ({
+  default: ({ develop }: { develop?: boolean }) => (
+    <div data-testid="navigation" data-develop={String(Boolean(develop))} />
+  ),
+}));
 
 beforeEach(() => {
   HTMLDialogElement.prototype.close = vi.fn();
@@ -145,6 +149,39 @@ it("keeps the Library's layout apart from Develop's", () => {
   expect(screen.queryByRole("button", { name: "Show the right panel" })).toBeNull();
   act(() => useUIStore.setState({ activeView: "editor" }));
   expect(container.querySelector(".studio-workspace.bars-hidden")).not.toBeNull();
+});
+
+describe("Develop with its tools on the right", () => {
+  const navigation = (container: HTMLElement, panel: string) =>
+    container.querySelector(`${panel} [data-testid='navigation']`)?.getAttribute("data-develop");
+
+  it("shows the Develop browse panel on the left, the Library its full one", () => {
+    const { container } = workspace();
+    expect(navigation(container, ".studio-secondary-panel")).toBe("true");
+    act(() => useUIStore.setState({ activeView: "library" }));
+    expect(navigation(container, ".studio-primary-panel.is-library")).toBe("false");
+    expect(container.querySelector(".studio-secondary-panel")).toBeNull();
+  });
+
+  it("hides and shows the browse panel with F7 (left panel) only", () => {
+    const { container } = workspace();
+    act(() => useUIStore.getState().togglePanels("left"));
+    expect(container.querySelector(".studio-secondary-panel")).toBeNull();
+    expect(container.querySelector(".studio-primary-panel.is-develop")).not.toBeNull();
+    act(() => useUIStore.getState().togglePanels("left"));
+    expect(navigation(container, ".studio-secondary-panel")).toBe("true");
+  });
+
+  it("names the side in the top bar button and moves the tools there", () => {
+    const { container } = workspace();
+    const button = screen.getByRole("button", { name: "Move the Develop tools to the left" });
+    expect(button.title).toBe("Move the Develop tools to the left");
+    fireEvent.click(button);
+    expect(useUIStore.getState().studioToolLayout).toBe("tools-left");
+    expect(container.querySelector(".studio-secondary-panel")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Move the Develop tools to the right" }));
+    expect(useUIStore.getState().studioToolLayout).toBe("split-tools");
+  });
 });
 
 describe("hidden side panels on the window edge (Auto Hide & Show)", () => {

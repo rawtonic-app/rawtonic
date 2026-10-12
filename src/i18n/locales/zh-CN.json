@@ -996,6 +996,10 @@
       "createXmp": "创建缺失的 XMP 文件",
       "createXmpDesc": "如果图像没有对应的 XMP 附属文件，则自动创建一个。",
       "createXmpMissing": "缺失时创建 XMP",
+      "developTools": "显影工具",
+      "developToolsDesc": "显影工具位于照片的哪一侧。工具在右侧时，左侧面板显示用于切换照片的导航器、文件夹和相册。",
+      "developToolsLeft": "左侧",
+      "developToolsRight": "右侧",
       "enableOsTitlebar": "启用系统标题栏",
       "enableXmpSync": "启用 XMP 同步",
       "nativeTitlebar": "原生标题栏",
@@ -1426,6 +1430,9 @@
         "linear": "线性响应",
         "profile": "配置文件",
         "standard": "标准"
+      },
+      "browse": {
+        "title": "浏览"
       },
       "bypass": {
         "bypassed": "已绕过{{section}}",
@@ -2652,10 +2659,8 @@
         "unrated": "无星级"
       },
       "layout": {
-        "moveToolsLeft": "将工具移到左侧",
-        "moveToolsRight": "将工具移到右侧",
-        "toolsLeft": "工具在左侧",
-        "toolsRight": "工具在右侧"
+        "moveToolsLeft": "将显影工具移到左侧",
+        "moveToolsRight": "将显影工具移到右侧"
       },
       "modules": {
         "develop": "显影",
