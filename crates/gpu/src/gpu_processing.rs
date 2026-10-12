@@ -934,6 +934,20 @@ fn to_rgba_f16(img: &DynamicImage) -> Vec<f16> {
 /// Rows per input upload band; 256 rows of a 50 MP frame are 16 MB as f16.
 const INPUT_UPLOAD_BAND_ROWS: u32 = 256;
 
+/// Threads converting input textures for callers outside rayon (the
+/// preview, export and multi view workers), apart from the global pool.
+fn upload_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|i| format!("gpu-upload-{i}"))
+            .build()
+            .expect("GPU upload thread pool")
+    })
+}
+
 /// Creates the Rgba16Float input texture of `image` band by band.
 ///
 /// Uploading in one call needs a full f16 copy and an equally large staging
@@ -976,10 +990,25 @@ fn create_input_texture(
     for y in (0..height).step_by(band_rows as usize) {
         let rows = band_rows.min(height - y);
         let texels = &mut band[..row_texels * rows as usize];
-        texels
-            .par_chunks_mut(row_texels)
-            .enumerate()
-            .for_each(|(row, texels)| rgba_f16_row(image, y + row as u32, texels));
+        let convert = |texels: &mut [f16]| {
+            texels
+                .par_chunks_mut(row_texels)
+                .enumerate()
+                .for_each(|(row, texels)| rgba_f16_row(image, y + row as u32, texels));
+        };
+        if rayon::current_thread_index().is_some() {
+            // A rayon worker (thumbnails, batch work) may hold the GPU
+            // processor lock here: waiting for rayon jobs could run another
+            // task of the pool on this thread that waits for the same lock.
+            for (row, texels) in texels.chunks_mut(row_texels).enumerate() {
+                rgba_f16_row(image, y + row as u32, texels);
+            }
+        } else {
+            // Not the global pool: its threads may all be waiting for the
+            // processor lock this caller holds (thumbnail batches), and the
+            // conversion would never run.
+            upload_pool().install(|| convert(texels));
+        }
         // Copied into a staging buffer at once, so the band is reusable.
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {

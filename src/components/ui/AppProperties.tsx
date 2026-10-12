@@ -112,6 +112,7 @@ export enum Invokes {
   PreparePreviewProxies = 'prepare_preview_proxies',
   SetMultiView = 'set_multi_view',
   SetMultiViewZoom = 'set_multi_view_zoom',
+  SetMultiViewLive = 'set_multi_view_live',
   BuildPreviews = 'build_previews',
   StopPreviewBuild = 'stop_preview_build',
   PreviewBuildProgress = 'preview_build_progress',
