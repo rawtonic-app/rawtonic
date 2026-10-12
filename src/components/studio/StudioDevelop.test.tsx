@@ -229,6 +229,10 @@ describe("Develop tool contracts", () => {
     edit("Size", 70);
     edit("Grain", 40);
     edit("Vignette", -25);
+    const structure = screen.getByRole("combobox", { name: "Grain structure" }) as HTMLSelectElement;
+    expect(structure.value).toBe("even");
+    fireEvent.change(structure, { target: { value: "gritty" } });
+    expect(useEditorStore.getState().adjustments.grainStructure).toBe("gritty");
     fireEvent.click(screen.getByRole("button", { name: "Reset Effects" }));
     const a = useEditorStore.getState().adjustments;
     expect([
@@ -237,7 +241,8 @@ describe("Develop tool contracts", () => {
       a.vignetteFeather,
       a.grainAmount,
       a.grainSize,
-    ]).toEqual([0, 50, 50, 0, 25]);
+      a.grainStructure,
+    ]).toEqual([0, 50, 50, 0, 25, "even"]);
   });
 
   it("marks mixer and opacity drags interactive and flushes release", () => {

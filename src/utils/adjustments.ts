@@ -380,6 +380,9 @@ export interface FaceRetouch {
   enabled?: boolean;
 }
 
+/** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */
+export type GrainStructure = 'even' | 'soft' | 'clumped' | 'speckled' | 'gritty';
+
 export interface Adjustments {
   [index: string]: unknown;
   aiPatches: Array<AiPatch>;
@@ -542,6 +545,8 @@ export interface Adjustments {
   vignetteRoundness: number;
   /** Lightroom's post-crop vignette style and Highlights (0–100). */
   vignetteStyle?: 'highlightPriority' | 'colorPriority' | 'paintOverlay';
+  /** Grain structure; missing = 'even', the original grain (docs/RECIPE_SCHEMA.md). */
+  grainStructure?: GrainStructure;
   vignetteHighlights?: number;
   whites: number;
 }
@@ -961,6 +966,7 @@ export const INITIAL_ADJUSTMENTS: Adjustments = {
   vignetteRoundness: 0,
   vignetteStyle: 'highlightPriority',
   vignetteHighlights: 0,
+  grainStructure: 'even',
   whites: 0,
 };
 
@@ -1276,7 +1282,10 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'vignetteHighlights',
       ],
     },
-    { label: 'modals.copyPaste.groups.grain', keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize] },
+    {
+      label: 'modals.copyPaste.groups.grain',
+      keys: [Effect.GrainAmount, Effect.GrainRoughness, Effect.GrainSize, 'grainStructure'],
+    },
     {
       label: 'modals.copyPaste.groups.halationGlow',
       keys: [CreativeAdjustment.GlowAmount, CreativeAdjustment.HalationAmount, CreativeAdjustment.FlareAmount],
@@ -1419,6 +1428,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     Effect.GrainAmount,
     Effect.GrainRoughness,
     Effect.GrainSize,
+    'grainStructure',
     Effect.LutIntensity,
     Effect.LutName,
     Effect.LutPath,

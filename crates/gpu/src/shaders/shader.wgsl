@@ -101,7 +101,7 @@ struct GlobalAdjustments {
     chromatic_aberration_blue_yellow: f32,
     show_clipping: u32,
     is_raw_image: u32,
-    _pad_ca1: f32,
+    grain_structure: u32,
 
     has_lut: u32,
     lut_intensity: f32,
@@ -526,6 +526,93 @@ fn gradient_noise(p: vec2<f32>) -> f32 {
     let top_interp = mix(dot_01, dot_11, u.x);
 
     return mix(bottom_interp, top_interp, u.y);
+}
+
+// Grain structures (recipe `grainStructure`, notes: reference/grain.md).
+// Even is the original grain: evenly spread, the same in every tone. The
+// others are Rawtonic's own procedural grains, measured against the grain
+// characters other editors offer: Soft has rounded grains with irregular
+// clusters, Clumped gathers fine grain into clumps (Roughness sets how
+// strongly, from even to strongly mottled), Speckled scatters bright specks
+// over a fine grain, Gritty is a coarse, hard-edged grain. Soft, Speckled
+// and Gritty are strongest in the midtones and fade towards black and
+// white as film grain does; Even and Clumped stay even across the tones.
+// Each is scaled to Even's strength at Roughness 50 (Gritty 1.4x), so
+// Amount means the same across structures.
+const GRAIN_EVEN: u32 = 0u;
+const GRAIN_SOFT: u32 = 1u;
+const GRAIN_CLUMPED: u32 = 2u;
+const GRAIN_SPECKLED: u32 = 3u;
+const GRAIN_GRITTY: u32 = 4u;
+
+// Gradient noise for the grain structures: the same as gradient_noise, kept
+// separate so the Even grain compiles exactly as before (byte-identical
+// exports of recipes without a structure).
+fn grain_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let ga = vec2<f32>(hash(i), hash(i + vec2(11.0, 37.0))) * 2.0 - 1.0;
+    let gb = vec2<f32>(hash(i + vec2(1.0, 0.0)), hash(i + vec2(12.0, 37.0))) * 2.0 - 1.0;
+    let gc = vec2<f32>(hash(i + vec2(0.0, 1.0)), hash(i + vec2(11.0, 38.0))) * 2.0 - 1.0;
+    let gd = vec2<f32>(hash(i + vec2(1.0, 1.0)), hash(i + vec2(12.0, 38.0))) * 2.0 - 1.0;
+    let bottom = mix(dot(ga, f), dot(gb, f - vec2(1.0, 0.0)), u.x);
+    let top = mix(dot(gc, f - vec2(0.0, 1.0)), dot(gd, f - vec2(1.0, 1.0)), u.x);
+    return mix(bottom, top, u.y);
+}
+
+fn grain_structure_noise(structure: u32, p: vec2<f32>, roughness: f32) -> f32 {
+    if (structure == GRAIN_SOFT) {
+        let n = grain_noise(p * 0.8 + vec2<f32>(3.1, 7.7));
+        let c = grain_noise(p * 0.3 + vec2<f32>(17.0, 9.0));
+        let w = 0.35 + 0.65 * roughness;
+        return 0.71 * (n + w * c) / sqrt(1.0 + w * w);
+    }
+    if (structure == GRAIN_CLUMPED) {
+        let fine = grain_noise(p);
+        let c = 0.6 * grain_noise(p * 0.4 + vec2<f32>(41.0, 3.0))
+            + 0.4 * grain_noise(p * 0.13 + vec2<f32>(13.0, 29.0));
+        let k = 1.6 * roughness;
+        return 0.71 * (fine * (1.0 + 0.8 * k * c) + 0.9 * k * c) / sqrt(1.0 + 0.43 * k * k);
+    }
+    if (structure == GRAIN_SPECKLED) {
+        let base = grain_noise(p * 0.9 + vec2<f32>(1.7, 4.4));
+        let s = grain_noise(p * 0.7 + vec2<f32>(23.0, 31.0));
+        let c = grain_noise(p * 0.25 + vec2<f32>(7.0, 2.0));
+        let speck = max(s - 0.12, 0.0) * (1.6 + 6.0 * roughness * max(c + 0.1, 0.0));
+        // The specks' mean is taken off so the grain does not brighten.
+        return 0.575 * (base + speck - (0.0418 + 0.0206 * roughness));
+    }
+    // Gritty
+    let n = grain_noise(p * 0.55 + vec2<f32>(2.3, 8.1))
+        + 0.45 * grain_noise(p + vec2<f32>(6.6, 1.9))
+        + (0.5 + 0.8 * roughness) * grain_noise(p * 0.2 + vec2<f32>(19.0, 5.0));
+    return 0.524 * tanh(1.5 * n);
+}
+
+// The grain with a structure other than Even (same strength and tone mask
+// as Even, see the grain block in main).
+fn apply_grain_structure(rgb: vec3<f32>, coord: vec2<f32>, scale: f32) -> vec3<f32> {
+    let structure = adjustments.global.grain_structure;
+    var amount = adjustments.global.grain_amount * 0.5;
+    let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
+    let luma = max(0.0, get_luma(rgb));
+    var luma_mask = smoothstep(0.0, 0.15, luma) * (1.0 - smoothstep(0.6, 1.0, luma));
+    if (adjustments.global.tonemapper_mode >= 2u) {
+        amount *= GRAIN_GAIN * (1.0 + GRAIN_FINE_BOOST * max(0.0, 1.0 - adjustments.global.grain_size * 2.0));
+        luma_mask = smoothstep(0.0, 0.03, luma) * (1.0 - smoothstep(0.97, 1.0, luma));
+    }
+    let noise = grain_structure_noise(structure, coord * grain_frequency, adjustments.global.grain_roughness);
+    return rgb + vec3<f32>(noise) * amount * luma_mask * grain_tone_weight(structure, luma);
+}
+
+// Film-like tone response: full strength around display level 0.45,
+// falling off towards black and white (Even and Clumped: 1 everywhere).
+fn grain_tone_weight(structure: u32, luma: f32) -> f32 {
+    if (structure == GRAIN_CLUMPED) { return 1.0; }
+    let d = luma - 0.45;
+    if (structure == GRAIN_SOFT) { return max(1.0 - 3.0 * d * d, 0.35); }
+    return max(1.0 - 4.0 * d * d, 0.3);
 }
 
 fn dither(coords: vec2<u32>) -> f32 {
@@ -4561,7 +4648,7 @@ fn main(
         final_rgb = mix(final_rgb, lut_color, adjustments.global.lut_intensity);
     }
 
-    if (adjustments.global.grain_amount > 0.0) {
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_structure == GRAIN_EVEN) {
         let coord = vec2<f32>(absolute_coord_i);
         var amount = adjustments.global.grain_amount * 0.5;
         let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
@@ -4581,6 +4668,9 @@ fn main(
         let noise_rough = gradient_noise(rough_coord + vec2<f32>(5.2, 1.3));
         let noise_val = mix(noise_base, noise_rough, roughness);
         final_rgb += vec3<f32>(noise_val) * amount * luma_mask;
+    }
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_structure != GRAIN_EVEN) {
+        final_rgb = apply_grain_structure(final_rgb, vec2<f32>(absolute_coord_i), scale);
     }
 
     if (adjustments.global.show_clipping == 1u) {

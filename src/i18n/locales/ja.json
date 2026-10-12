@@ -1469,6 +1469,14 @@
         "output": "出力"
       },
       "effects": {
+        "grainStructure": "粒子の構造",
+        "grainStructures": {
+          "clumped": "凝集",
+          "even": "均一",
+          "gritty": "粗い",
+          "soft": "ソフト",
+          "speckled": "斑点"
+        },
         "light": "ライト",
         "style": "スタイル",
         "styles": {

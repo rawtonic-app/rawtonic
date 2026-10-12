@@ -1554,6 +1554,14 @@
         "output": "Sortie"
       },
       "effects": {
+        "grainStructure": "Structure du grain",
+        "grainStructures": {
+          "clumped": "Aggloméré",
+          "even": "Uniforme",
+          "gritty": "Rugueux",
+          "soft": "Doux",
+          "speckled": "Moucheté"
+        },
         "light": "Lumière",
         "style": "Style",
         "styles": {

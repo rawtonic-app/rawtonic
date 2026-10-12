@@ -932,6 +932,14 @@ fn develop_controls_change_pixels_and_reset_exactly() {
             profiles.push((format!("grading.{key}={value}"), changed, reset, base));
         }
     }
+    for structure in ["soft", "clumped", "speckled", "gritty"] {
+        profiles.push((
+            format!("grainStructure={structure}"),
+            json!({"grainAmount": 60, "grainStructure": structure}),
+            json!({"grainAmount": 60, "grainStructure": "even"}),
+            json!({"grainAmount": 60}),
+        ));
+    }
     for style in ["colorPriority", "paintOverlay"] {
         for amount in [-60, 60] {
             profiles.push((
@@ -1160,6 +1168,10 @@ fn cached_preview_pixels_match_full_preparation() {
         json!({"highlights":30,"sharpness":45}),
         json!({"curves":{"luma":[{"x":0,"y":0},{"x":120,"y":140},{"x":255,"y":255}]}}),
         json!({"lumaNoiseReduction":20,"colorNoiseReduction":15}),
+        json!({"grainAmount":60,"grainStructure":"soft"}),
+        json!({"grainAmount":45,"grainSize":60,"grainRoughness":80,"grainStructure":"clumped"}),
+        json!({"grainAmount":70,"grainRoughness":100,"grainStructure":"speckled","curves":custom_curve()}),
+        json!({"grainAmount":50,"grainSize":10,"grainStructure":"gritty","shadows":40}),
         json!({"masks":[{"id":"local","name":"Local","visible":true,"invert":false,"opacity":100,"subMasks": [all_sub_mask()],"adjustments":{"sharpness":25,"shadows":35,"clarity":20,"structure":30,"dehaze":15}}]}),
         json!({}),
         local_profile(json!({"exposure":0.75,"brightness":0.1})),
