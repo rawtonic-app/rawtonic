@@ -433,31 +433,29 @@ export function useImageProcessing(
     [previewQueue, currentResRef],
   );
 
-  // Showing, hiding or restyling the mask overlay changes no adjustment, so
-  // render the current state again. The native display then redraws no image
-  // pixels (nothing changed) and only blends the new overlay. Sent as a live
-  // frame: no histogram, and a newer pointer state still wins.
+  // View options change the rendered pixels without changing the recipe,
+  // including in the browser renderer. A native mask overlay alone only
+  // needs a native redraw; the browser already displays its overlay separately.
   useEffect(
     () =>
       useEditorStore.subscribe((state, previous) => {
-        if (
-          state.nativeMaskOverlay === previous.nativeMaskOverlay &&
-          state.clippingWarnings === previous.clippingWarnings &&
-          state.softProof === previous.softProof &&
-          state.softProofSpace === previous.softProofSpace &&
-          state.softProofWarning === previous.softProofWarning &&
-          state.colorRangeShow === previous.colorRangeShow
-        )
-          return;
+        const viewChanged =
+          state.clippingWarnings !== previous.clippingWarnings ||
+          state.softProof !== previous.softProof ||
+          state.softProofSpace !== previous.softProofSpace ||
+          state.softProofWarning !== previous.softProofWarning ||
+          state.colorRangeShow !== previous.colorRangeShow;
+        const native = nativeDisplayRef.current;
+        if (!viewChanged && (!native || state.nativeMaskOverlay === previous.nativeMaskOverlay)) return;
         const image = state.selectedImage;
         const targetRes = currentResRef.current;
-        if (!canRenderSource(image) || !nativeDisplayRef.current || !targetRes || state.isSliderDragging) return;
+        if (!canRenderSource(image) || !targetRes || state.isSliderDragging) return;
         previewQueue.submit({
           path: image.path,
           adjustments: state.previewOverride ?? state.adjustments,
           dragging: false,
           targetRes,
-          live: true,
+          live: native,
         });
       }),
     [previewQueue, currentResRef],

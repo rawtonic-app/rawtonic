@@ -6126,7 +6126,15 @@ fn display_split_shows_the_before_left_of_the_divider() {
         let i = ((y * window_w + x) * 4) as usize;
         pixels[i..i + 4].try_into().unwrap()
     };
-    let background = [26, 26, 26, 255];
+    // UNORM conversion of 0.1 (25.5/255) rounds differently on Metal and
+    // Vulkan. Compare the split against the same device's unsplit background.
+    let background = pixel(&render([0.0; 4]), 5, 24);
+    assert!(
+        background[..3]
+            .iter()
+            .all(|&channel| (25..=26).contains(&channel))
+    );
+    assert_eq!(background[3], 255);
 
     // Divider at screen x 40: before on 16..40, after on 40..80.
     let split = render([1.0, 40.0, 0.0, 0.0]);
