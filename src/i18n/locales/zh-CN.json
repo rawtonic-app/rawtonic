@@ -1029,6 +1029,7 @@
         "toggle_right_panel": "切换右侧面板",
         "toggle_side_panels": "隐藏/显示侧边面板",
         "toggle_soft_proof": "切换软打样",
+        "toggle_zoom_lock": "多视图：锁定缩放",
         "tool_brush": "画笔（绘制蒙版）",
         "tool_crop": "裁剪",
         "tool_erase": "橡皮擦（擦除蒙版）",
@@ -2279,8 +2280,9 @@
       "toggle": "多图视图",
       "unpin": "取消固定参考照片 {{name}}",
       "unsupported": "多图视图需要原生照片显示，本系统不可用",
+      "zoomBadge": "已缩放至 {{percent}}",
       "zoomLock": "锁定缩放",
-      "zoomLockTitle": "锁定缩放：缩放主照片时，所有照片缩放并平移到同一位置；关闭时只缩放主照片"
+      "zoomLockTitle": "锁定缩放：缩放主照片时，所有照片都会缩放并移动到同一位置。关闭后，每张照片单独缩放（在照片上使用滚轮、捏合、双击或空格键）"
     },
     "people": {
       "aria": "人物蒙版",

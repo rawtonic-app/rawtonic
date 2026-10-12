@@ -1104,6 +1104,7 @@
         "toggle_right_panel": "Commutar el panell dret",
         "toggle_side_panels": "Amaga o mostra els panells laterals",
         "toggle_soft_proof": "Commuta la prova en pantalla",
+        "toggle_zoom_lock": "Vista múltiple: bloca el zoom",
         "tool_brush": "Pinzell (dibuixa la màscara)",
         "tool_crop": "Retalla",
         "tool_erase": "Goma (esborra la màscara)",
@@ -2400,8 +2401,9 @@
       "toggle": "Vista múltiple",
       "unpin": "Desfixa la referència {{name}}",
       "unsupported": "La vista múltiple necessita la visualització nativa de fotos, que no està disponible en aquest sistema",
+      "zoomBadge": "Zoom al {{percent}}",
       "zoomLock": "Bloqueja el zoom",
-      "zoomLockTitle": "Bloqueja el zoom: el zoom de la foto principal amplia i desplaça totes les fotos al mateix punt; desactivat, només s’amplia la principal"
+      "zoomLockTitle": "Bloca el zoom: fer zoom a la foto principal amplia i desplaça totes les fotos al mateix punt. Desactivat, cada foto fa zoom per separat (roda, pessic, doble clic o Espai a sobre)"
     },
     "people": {
       "aria": "Màscara de persones",

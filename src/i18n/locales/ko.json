@@ -1029,6 +1029,7 @@
         "toggle_right_panel": "오른쪽 패널 토글",
         "toggle_side_panels": "사이드 패널 숨기기/표시",
         "toggle_soft_proof": "소프트 교정 전환",
+        "toggle_zoom_lock": "멀티 뷰: 확대/축소 연동",
         "tool_brush": "브러시(마스크 그리기)",
         "tool_crop": "자르기",
         "tool_erase": "지우개(마스크 지우기)",
@@ -2279,8 +2280,9 @@
       "toggle": "다중 보기",
       "unpin": "기준 사진 {{name}} 고정 해제",
       "unsupported": "다중 보기는 기본 사진 디스플레이가 필요하지만 이 시스템에서는 사용할 수 없습니다",
+      "zoomBadge": "{{percent}}로 확대",
       "zoomLock": "확대/축소 연동",
-      "zoomLockTitle": "확대/축소 연동: 기본 사진을 확대하면 모든 사진이 같은 위치로 확대·이동합니다. 끄면 기본 사진만 확대됩니다"
+      "zoomLockTitle": "확대/축소 연동: 기본 사진을 확대하면 모든 사진이 같은 지점으로 확대·이동합니다. 끄면 각 사진이 따로 확대됩니다(사진 위에서 휠, 핀치, 더블클릭 또는 Space)"
     },
     "people": {
       "aria": "인물 마스크",

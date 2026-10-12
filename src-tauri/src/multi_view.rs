@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 use image::{DynamicImage, GenericImageView};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use crate::app_settings::load_settings;
 use crate::app_state::AppState;
@@ -158,7 +158,7 @@ fn show_cells(
     };
     let worker = worker(app_handle);
     let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
-    let zoom = {
+    let zoomed = {
         let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
         let Some(display) = display.as_mut() else {
             return false;
@@ -176,7 +176,7 @@ fn show_cells(
                 .collect(),
         );
         display.render(&context.device, &context.queue);
-        display.multi_view().zoom()
+        display.multi_view().is_zoomed()
     };
     if cells.is_empty() {
         *worker.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
@@ -184,10 +184,10 @@ fn show_cells(
         return true;
     }
     // Zoomed in: regions of new cells, or of recipes that changed.
-    if let Some(zoom) = zoom {
+    if zoomed {
         let regions = region_worker(app_handle);
         let generation = regions.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        regions.sender.send(RegionJob { generation, zoom });
+        regions.sender.send(RegionJob { generation });
     }
     {
         let mut memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
@@ -639,6 +639,31 @@ fn develop(
     Ok(start.elapsed().as_secs_f64() * 1e3)
 }
 
+/// A secondary photograph's shown size (cropped and turned, full-resolution
+/// px), for the webview's per-cell zoom (fit and 100 % of each cell).
+#[derive(Clone, serde::Serialize)]
+struct CellSize {
+    path: String,
+    width: f32,
+    height: f32,
+}
+
+impl CellSize {
+    fn new(path: &str, (width, height): (f32, f32)) -> Self {
+        Self {
+            path: path.to_string(),
+            width,
+            height,
+        }
+    }
+}
+
+fn emit_sizes(app_handle: &tauri::AppHandle, sizes: Vec<CellSize>) {
+    if !sizes.is_empty() {
+        let _ = app_handle.emit("multi-view-cell-sizes", sizes);
+    }
+}
+
 fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
     let start = Instant::now();
     let state = app_handle.state::<AppState>();
@@ -651,6 +676,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
     }
     // Plan: the recipe of every secondary, and what is already on screen.
     let mut todos = Vec::new();
+    let mut sizes = Vec::new();
     for cell in &job.cells {
         if job.primary.as_deref() == Some(cell.path.as_str()) {
             continue;
@@ -664,7 +690,9 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
             .get(&cell.path)
             .copied();
         let planned = known.map(|facts| {
-            let dim = cell_dim(cell.area, shown_size(&recipe, facts));
+            let shown = shown_size(&recipe, facts);
+            sizes.push(CellSize::new(&cell.path, shown));
+            let dim = cell_dim(cell.area, shown);
             (render_key(&recipe, dim, &context), dim)
         });
         if planned.is_some_and(|(key, _)| current_key(&context, &cell.path) == Some(key)) {
@@ -678,6 +706,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         });
     }
     if todos.is_empty() {
+        emit_sizes(app_handle, sizes);
         return;
     }
     let count = todos.len();
@@ -712,6 +741,9 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
             match result {
                 Ok(Some(prepared)) => {
                     let (kind, prepare_ms) = (prepared.source_kind, prepared.prepare_ms);
+                    let size = CellSize::new(&path, shown_size(&prepared.recipe, prepared.facts));
+                    sizes.retain(|known: &CellSize| known.path != size.path);
+                    sizes.push(size);
                     match develop(app_handle, &context, prepared) {
                         Ok(gpu_ms) => {
                             developed += 1;
@@ -739,6 +771,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         bytes as f64 / 1e6,
         base_bytes(worker) as f64 / 1e6
     );
+    emit_sizes(app_handle, sizes);
 }
 
 /// Zoomed in, each cell's region is developed with this much of the visible
@@ -770,7 +803,6 @@ pub struct ZoomPayload {
 
 struct RegionJob {
     generation: usize,
-    zoom: CellZoom,
 }
 
 struct RegionWorker {
@@ -817,12 +849,25 @@ fn forget_regions(app_handle: &tauri::AppHandle) {
         .clear();
 }
 
-/// Zooms every cell of the multi view to the primary's zoom (Lightroom's
-/// zoom lock; None: fit). The cells' photographs are enlarged at once; the
-/// visible regions are then developed at that magnification.
+/// A zoom from the webview as the display keeps it: `scale` quantized so a
+/// pan is not a new magnification (regions and their bases are kept per
+/// magnification); None when not usable.
+fn cell_zoom(z: ZoomPayload) -> Option<CellZoom> {
+    (z.scale.is_finite() && z.scale > 0.0).then(|| CellZoom {
+        scale: quantized_scale(z.scale),
+        center: [z.center[0].clamp(0.0, 1.0), z.center[1].clamp(0.0, 1.0)],
+    })
+}
+
+/// Zooms the other cells of the multi view: all to the primary's zoom
+/// (`zoom`, Lightroom's zoom lock; None: fit), or, without the lock, each in
+/// `cells` to its own zoom and pan (the others to fit). The cells'
+/// photographs are enlarged at once; the visible regions are then developed
+/// at their magnification.
 #[tauri::command]
 pub(crate) async fn set_multi_view_zoom(
     zoom: Option<ZoomPayload>,
+    cells: Option<HashMap<String, ZoomPayload>>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -830,38 +875,43 @@ pub(crate) async fn set_multi_view_zoom(
         let Some(context) = context_of(&state) else {
             return;
         };
-        let zoom = zoom
-            .filter(|z| z.scale.is_finite() && z.scale > 0.0)
-            .map(|z| CellZoom {
-                // A pan must not count as a new magnification (regions and
-                // their bases are kept per magnification).
-                scale: quantized_scale(z.scale),
-                center: [z.center[0].clamp(0.0, 1.0), z.center[1].clamp(0.0, 1.0)],
-            });
-        {
+        let shared = zoom.and_then(cell_zoom);
+        let individual: HashMap<String, CellZoom> = cells
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|(path, z)| Some((path, cell_zoom(z)?)))
+            .collect();
+        let zooms: HashMap<String, CellZoom> = {
             let mut display = context.display.lock().unwrap_or_else(|e| e.into_inner());
             let Some(display) = display.as_mut() else {
                 return;
             };
-            if !display.multi_view().is_active() || display.multi_view().zoom() == zoom {
+            let multi = display.multi_view();
+            if !multi.is_active() || (multi.zoom() == shared && multi.cell_zooms() == &individual) {
                 return;
             }
-            display.set_multi_view_zoom(zoom);
+            display.set_multi_view_zooms(shared, individual);
             display.render(&context.device, &context.queue);
-        }
-        let Some(zoom) = zoom else {
+            let multi = display.multi_view();
+            multi
+                .cells()
+                .iter()
+                .filter_map(|cell| Some((cell.path.clone(), multi.zoom_of(&cell.path)?)))
+                .collect()
+        };
+        if zooms.is_empty() {
             forget_regions(&app_handle);
             return;
-        };
+        }
         let worker = region_worker(&app_handle);
-        // Bases at another magnification are of no use any more.
+        // Bases at another magnification of their cell are of no use any more.
         worker
             .bases
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .retain(|_, base| base.zoom_scale == zoom.scale);
+            .retain(|path, base| zooms.get(path).is_some_and(|z| z.scale == base.zoom_scale));
         let generation = worker.generation.fetch_add(1, Ordering::SeqCst) + 1;
-        worker.sender.send(RegionJob { generation, zoom });
+        worker.sender.send(RegionJob { generation });
     })
     .await
     .map_err(|e| format!("Multi view zoom task failed: {e}"))
@@ -1146,8 +1196,8 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             .facts
             .clone()
     });
-    // The secondaries whose shown region is not developed at this zoom yet.
-    let todo: Vec<(String, [f32; 4], serde_json::Value, u64)> = {
+    // The secondaries whose shown region is not developed at their zoom yet.
+    let todo: Vec<(String, [f32; 4], CellZoom, serde_json::Value, u64)> = {
         let display = context.display.lock().unwrap_or_else(|e| e.into_inner());
         let Some(display) = display.as_ref() else {
             return;
@@ -1158,8 +1208,9 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
             .iter()
             .filter(|cell| multi.primary() != Some(cell.path.as_str()))
             .filter_map(|cell| {
-                let recipe = recipe_of(&cell.path);
-                let key = region_key(&recipe, job.zoom, &context);
+                let zoom = multi.zoom_of(&cell.path)?;
+                let recipe = with_live_patch(recipe_of(&cell.path));
+                let key = region_key(&recipe, zoom, &context);
                 let shown = facts
                     .as_ref()
                     .and_then(|f| f.get(&cell.path))
@@ -1172,12 +1223,12 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                                     region,
                                     cell.area,
                                     [w, h],
-                                    job.zoom,
+                                    zoom,
                                 )
                             })
                         })
                 });
-                (!covered).then(|| (cell.path.clone(), cell.area, recipe, key))
+                (!covered).then(|| (cell.path.clone(), cell.area, zoom, recipe, key))
             })
             .collect()
     };
@@ -1197,14 +1248,14 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                     if worker.generation.load(Ordering::SeqCst) != job.generation {
                         return;
                     }
-                    let Some((path, area, recipe, key)) =
+                    let Some((path, area, zoom, recipe, key)) =
                         queue.lock().unwrap_or_else(|e| e.into_inner()).next()
                     else {
                         return;
                     };
-                    let result = develop_region(
-                        app_handle, context, worker, &path, area, job.zoom, recipe, key,
-                    );
+                    let result =
+                        develop_region(app_handle, context, worker, &path, area, zoom, recipe, key)
+                            .map(|region| (region, zoom.scale));
                     if sender.send((path, result)).is_err() {
                         return;
                     }
@@ -1217,7 +1268,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                 continue;
             }
             match result {
-                Ok(region) => {
+                Ok((region, scale)) => {
                     show_frame(
                         &context,
                         &region.path,
@@ -1231,7 +1282,7 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                         "[multi_view] {path}: region {}x{} at {:.4}x from {} in {:.1} ms",
                         region.rgba.width(),
                         region.rgba.height(),
-                        job.zoom.scale,
+                        scale,
                         region.source_kind,
                         region.ms
                     );
@@ -1333,6 +1384,40 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
             (path, live.patch.is_some())
         };
         let recipe = with_live_patch(recipe_of(&path));
+        // A zoomed cell shows its sharp region over the enlarged photograph:
+        // that region follows the change (from its kept region base).
+        let zoomed = context
+            .display
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|display| {
+                let multi = display.multi_view();
+                Some((multi.zoom_of(&path)?, multi.cell(&path)?.area))
+            });
+        if let Some((zoom, area)) = zoomed {
+            match live_region(app_handle, &context, &path, area, zoom, &recipe) {
+                LiveRegion::Developed(ms) => {
+                    LIVE.lock().unwrap_or_else(|e| e.into_inner()).settled = 0;
+                    #[cfg(feature = "performance-profiling")]
+                    log::info!(
+                        "[PERF] {}",
+                        serde_json::json!({
+                            "stage": "multi_view_live_cell", "ms": start.elapsed().as_secs_f64() * 1e3,
+                            "develop_ms": ms, "end_epoch_ms": crate::performance::epoch_ms(),
+                            "patch": patch_active, "region": true
+                        })
+                    );
+                    #[cfg(not(feature = "performance-profiling"))]
+                    let _ = ms;
+                    return true;
+                }
+                // The region shows it already; the hidden whole photograph
+                // follows from the written recipe.
+                LiveRegion::Current => continue,
+                LiveRegion::Unavailable => {}
+            }
+        }
         let base = {
             let memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
             memory
@@ -1396,6 +1481,86 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
         LIVE_PENDING.store(false, Ordering::Release);
     }
     false
+}
+
+/// What [`live_step`] could do for a zoomed cell's region.
+enum LiveRegion {
+    /// Developed with the live recipe and shown (ms).
+    Developed(f64),
+    /// It shows the live recipe already.
+    Current,
+    /// No kept region base at this magnification covers it (or the change
+    /// needs another base): left to the region worker once written.
+    Unavailable,
+}
+
+/// The region of a zoomed cell developed with the live recipe from its kept
+/// region base; never decodes (that would hold the preview worker).
+fn live_region(
+    app_handle: &tauri::AppHandle,
+    context: &GpuContext,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> LiveRegion {
+    let Some(regions) = REGIONS.get() else {
+        return LiveRegion::Unavailable;
+    };
+    let key = region_key(recipe, zoom, context);
+    let shown_key = context
+        .display
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .and_then(|display| display.multi_view().region_of(path).map(|(key, _)| key));
+    if shown_key == Some(key) {
+        return LiveRegion::Current;
+    }
+    let preparation_key = crate::preview_cache::preparation_key(recipe);
+    let kept = regions
+        .bases
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path)
+        .is_some_and(|base| {
+            let (w, h) = shown_size(recipe, base.facts);
+            base.preparation_key == preparation_key
+                && base.zoom_scale == zoom.scale
+                && contains(
+                    base.region,
+                    gpu_processing::multi_view::zoomed_region(area, [w, h], zoom, REGION_MARGIN),
+                )
+        });
+    if !kept {
+        return LiveRegion::Unavailable;
+    }
+    match develop_region(
+        app_handle,
+        context,
+        regions,
+        path,
+        area,
+        zoom,
+        recipe.clone(),
+        key,
+    ) {
+        Ok(region) => {
+            show_frame(
+                context,
+                &region.path,
+                region.key,
+                region.extent,
+                CellLayer::Region,
+                &region.rgba,
+            );
+            LiveRegion::Developed(region.ms)
+        }
+        Err(e) => {
+            log::warn!("[multi_view] live region of {path} not developed: {e}");
+            LiveRegion::Unavailable
+        }
+    }
 }
 
 #[cfg(test)]

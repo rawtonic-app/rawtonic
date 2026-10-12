@@ -1056,6 +1056,7 @@
         "toggle_right_panel": "Toggle Right Panel",
         "toggle_side_panels": "Hide or show the side panels",
         "toggle_soft_proof": "Toggle soft proofing",
+        "toggle_zoom_lock": "Multi view: lock zoom",
         "tool_brush": "Brush (draw mask)",
         "tool_crop": "Crop",
         "tool_erase": "Eraser (erase mask)",
@@ -2329,8 +2330,9 @@
       "toggle": "Multi view",
       "unpin": "Unpin the reference {{name}}",
       "unsupported": "Multi view needs the native photo display, which is not available on this system",
+      "zoomBadge": "Zoomed to {{percent}}",
       "zoomLock": "Lock zoom",
-      "zoomLockTitle": "Lock zoom: zooming the primary zooms and pans every photograph to the same point; off, only the primary zooms"
+      "zoomLockTitle": "Lock zoom: zooming the primary zooms and pans every photograph to the same point. Off, each photograph zooms on its own (wheel, pinch, double-click or Space over it)"
     },
     "people": {
       "aria": "People mask",

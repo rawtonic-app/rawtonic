@@ -1104,6 +1104,7 @@
         "toggle_right_panel": "Mostra/Nascondi pannello destro",
         "toggle_side_panels": "Nascondi o mostra i pannelli laterali",
         "toggle_soft_proof": "Attiva o disattiva la prova colore a schermo",
+        "toggle_zoom_lock": "Vista multipla: blocca zoom",
         "tool_brush": "Pennello (disegna maschera)",
         "tool_crop": "Ritaglia",
         "tool_erase": "Gomma (cancella maschera)",
@@ -2400,8 +2401,9 @@
       "toggle": "Vista multipla",
       "unpin": "Sblocca il riferimento {{name}}",
       "unsupported": "La vista multipla richiede la visualizzazione nativa delle foto, non disponibile su questo sistema",
+      "zoomBadge": "Zoom al {{percent}}",
       "zoomLock": "Blocca zoom",
-      "zoomLockTitle": "Blocca zoom: lo zoom della foto principale ingrandisce e sposta ogni foto nello stesso punto; disattivato, si ingrandisce solo la principale"
+      "zoomLockTitle": "Blocca zoom: lo zoom sulla foto principale ingrandisce e sposta tutte le foto nello stesso punto. Disattivato, ogni foto zooma da sola (rotella, pizzico, doppio clic o Spazio sopra di essa)"
     },
     "people": {
       "aria": "Maschera persone",

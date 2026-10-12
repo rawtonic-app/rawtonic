@@ -1104,6 +1104,7 @@
         "toggle_right_panel": "Afficher/Masquer le panneau droit",
         "toggle_side_panels": "Masquer ou afficher les panneaux latéraux",
         "toggle_soft_proof": "Activer ou désactiver l'épreuvage écran",
+        "toggle_zoom_lock": "Vue multiple : verrouiller le zoom",
         "tool_brush": "Pinceau (dessiner le masque)",
         "tool_crop": "Recadrage",
         "tool_erase": "Gomme (effacer le masque)",
@@ -2400,8 +2401,9 @@
       "toggle": "Vue multiple",
       "unpin": "Détacher la référence {{name}}",
       "unsupported": "La vue multiple nécessite l'affichage natif des photos, indisponible sur ce système",
+      "zoomBadge": "Zoom à {{percent}}",
       "zoomLock": "Verrouiller le zoom",
-      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit ; désactivé, seule la principale zoome"
+      "zoomLockTitle": "Verrouiller le zoom : zoomer sur la photo principale zoome et déplace chaque photo au même endroit. Désactivé, chaque photo zoome seule (molette, pincement, double-clic ou Espace au-dessus)"
     },
     "people": {
       "aria": "Masque de personnes",

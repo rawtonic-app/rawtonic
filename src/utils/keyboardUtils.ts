@@ -132,6 +132,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Next to N (the multi view): the zoom lock of its photographs.
+    action: 'toggle_zoom_lock',
+    description: 'settings.keybinds.actions.toggle_zoom_lock',
+    defaultCombo: ['shift', 'KeyN'],
+    section: 'view',
+  },
+  {
     // Capture One's keys for its compare variant: ⇧Return pins, ⌘Return clears.
     action: 'pin_reference',
     description: 'settings.keybinds.actions.pin_reference',

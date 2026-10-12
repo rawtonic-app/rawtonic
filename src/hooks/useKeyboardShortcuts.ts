@@ -14,7 +14,7 @@ import { useProcessStore } from '../store/useProcessStore';
 import { updateAdjustments, useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
-import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 
 interface KeyboardShortcutsProps {
@@ -140,11 +140,13 @@ export const useKeyboardShortcuts = ({
     const ratedPaths = (s: ShortcutState) =>
       multiViewActive(s) && s.editor.selectedImage ? [s.editor.selectedImage.path] : undefined;
     // In the multi view the zoom keys zoom the primary in its cell; with the
-    // zoom lock every other cell follows (MultiViewStage).
-    const zoomAction = (zoom: (s: ShortcutState) => void): ShortcutAction => ({
+    // zoom lock every other cell follows (MultiViewStage). Without the lock
+    // they zoom the cell under the pointer.
+    const zoomAction = (kind: CellZoomKey, zoom: (s: ShortcutState) => void): ShortcutAction => ({
       shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
       execute: (e, s) => {
         e.preventDefault();
+        if (useMultiViewStore.getState().active && useMultiViewStore.getState().zoomHoveredCell?.(kind)) return;
         zoom(s);
       },
     });
@@ -246,7 +248,7 @@ export const useKeyboardShortcuts = ({
           handleImageSelect(sortedListRef.current[nextIndex].path, true);
         },
       },
-      zoom_in_step: zoomAction((s) => {
+      zoom_in_step: zoomAction('stepIn', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -254,7 +256,7 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.min(currentPercent + 0.1, 2.0));
       }),
-      zoom_out_step: zoomAction((s) => {
+      zoom_out_step: zoomAction('stepOut', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -262,7 +264,7 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.max(currentPercent - 0.1, 0.1));
       }),
-      cycle_zoom: zoomAction((s) => {
+      cycle_zoom: zoomAction('cycle', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const { originalSize, displaySize, baseRenderSize } = s.editor;
         const currentPercent =
@@ -289,7 +291,7 @@ export const useKeyboardShortcuts = ({
           handleZoomChange(0, true);
         }
       }),
-      zoom_in: zoomAction((s) => {
+      zoom_in: zoomAction('in', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -297,7 +299,7 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.min(currentPercent * 1.2, 2.0));
       }),
-      zoom_out: zoomAction((s) => {
+      zoom_out: zoomAction('out', (s) => {
         const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
         const currentPercent =
           s.editor.originalSize?.width > 0 && s.editor.displaySize?.width > 0
@@ -305,14 +307,16 @@ export const useKeyboardShortcuts = ({
             : 1.0;
         handleZoomChange(Math.max(currentPercent / 1.2, 0.1));
       }),
-      zoom_fit: {
-        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
+      zoom_fit: zoomAction('fit', () => handleZoomChange(0, true)),
+      zoom_100: zoomAction('actual', () => handleZoomChange(1.0)),
+      toggle_zoom_lock: {
+        shouldFire: () => useMultiViewStore.getState().active,
         execute: (e) => {
           e.preventDefault();
-          handleZoomChange(0, true);
+          const multi = useMultiViewStore.getState();
+          multi.setZoomLock(!multi.zoomLock);
         },
       },
-      zoom_100: zoomAction(() => handleZoomChange(1.0)),
       toggle_multi_view: {
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e, s) => {

@@ -1104,6 +1104,7 @@
         "toggle_right_panel": "Alternar painel direito",
         "toggle_side_panels": "Ocultar ou mostrar os painéis laterais",
         "toggle_soft_proof": "Alternar prova de cores na tela",
+        "toggle_zoom_lock": "Vista múltipla: bloquear zoom",
         "tool_brush": "Pincel (desenhar máscara)",
         "tool_crop": "Recortar",
         "tool_erase": "Borracha (apagar máscara)",
@@ -2400,8 +2401,9 @@
       "toggle": "Vista múltipla",
       "unpin": "Desafixar a referência {{name}}",
       "unsupported": "A vista múltipla precisa da exibição nativa de fotos, que não está disponível neste sistema",
+      "zoomBadge": "Zoom a {{percent}}",
       "zoomLock": "Bloquear zoom",
-      "zoomLockTitle": "Bloquear zoom: o zoom da foto principal amplia e move todas as fotos para o mesmo ponto; desligado, só a principal amplia"
+      "zoomLockTitle": "Bloquear zoom: aplicar zoom à foto principal amplia e desloca todas as fotos para o mesmo ponto. Desativado, cada foto faz zoom sozinha (roda, pinça, duplo clique ou Espaço sobre ela)"
     },
     "people": {
       "aria": "Máscara de pessoas",

@@ -718,6 +718,16 @@ impl WgpuDisplay {
     pub fn set_multi_view_zoom(&mut self, zoom: Option<CellZoom>) {
         self.multi.set_zoom(zoom);
     }
+
+    /// Without the zoom lock: each secondary in `cells` at its own zoom, the
+    /// others to fit; `shared` zooms all of them alike (the lock).
+    pub fn set_multi_view_zooms(
+        &mut self,
+        shared: Option<CellZoom>,
+        cells: std::collections::HashMap<String, CellZoom>,
+    ) {
+        self.multi.set_zooms(shared, cells);
+    }
 }
 
 pub fn read_texture_data_roi(

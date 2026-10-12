@@ -15,6 +15,12 @@ import {
   sameZoom,
   sharedZoomOf,
   stepPrimary,
+  transformOfZoom,
+  zoomCell,
+  panCell,
+  cycleCellZoom,
+  fitScaleOf,
+  MAX_CELL_ZOOM,
 } from './multiView';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from './adjustments';
 
@@ -195,5 +201,61 @@ describe('sharedZoomOf', () => {
     expect(sameZoom(a, { scale: 1.1, center: [0.5, 0.5] })).toBe(false);
     expect(sameZoom(null, null)).toBe(true);
     expect(sameZoom(a, null)).toBe(false);
+  });
+});
+
+describe('per-cell zoom (zoom lock off)', () => {
+  // A 6000 × 4000 photograph in a 600 × 400 CSS px cell at 2× device px:
+  // fit is 0.2 device px per photograph px.
+  const area = { width: 600, height: 400 };
+  const shown = { width: 6000, height: 4000 };
+
+  it('knows the fit of a cell', () => {
+    expect(fitScaleOf(area, shown, 2)).toBeCloseTo(0.2);
+    expect(fitScaleOf({ width: 600, height: 200 }, shown, 2)).toBeCloseTo(0.1);
+  });
+
+  it('zooms around the pointer, keeping the photograph point under it', () => {
+    // 100 CSS px right of the centre at fit: photograph x 3000 + 100 × 2 / 0.2 = 4000.
+    const zoom = zoomCell(null, 5, [100, 0], area, shown, 2)!;
+    expect(zoom.scale).toBeCloseTo(1);
+    const under = zoom.center[0] * 6000 + (100 * 2) / zoom.scale;
+    expect(under).toBeCloseTo(4000);
+    expect(zoom.center[1]).toBeCloseTo(0.5);
+  });
+
+  it('returns to fit at or below fit and stops at 200 %', () => {
+    const zoom = zoomCell(null, 5, [0, 0], area, shown, 2)!;
+    expect(zoomCell(zoom, 1 / 5, [0, 0], area, shown, 2)).toBeNull();
+    expect(zoomCell(zoom, 1 / 10, [0, 0], area, shown, 2)).toBeNull();
+    expect(zoomCell(zoom, 100, [0, 0], area, shown, 2)!.scale).toBe(MAX_CELL_ZOOM);
+  });
+
+  it('keeps the view on the photograph near its edges', () => {
+    // Zoomed at the far left: the cell shows photograph x 0 … 1200 (600 CSS px × 2 / 1).
+    const zoom = zoomCell(null, 5, [-300, 0], area, shown, 2)!;
+    expect(zoom.center[0] * 6000).toBeCloseTo(600);
+    const panned = panCell(zoom, 500, 0, area, shown, 2);
+    expect(panned.center[0] * 6000).toBeCloseTo(600);
+    const back = panCell(zoom, -100, -50, area, shown, 2);
+    expect(back.center[0] * 6000).toBeCloseTo(800);
+    expect(back.center[1] * 4000).toBeCloseTo(2100);
+  });
+
+  it('cycles fit → 100 % → fit with Space', () => {
+    const zoom = cycleCellZoom(null, [0, 0], area, shown, 2)!;
+    expect(zoom.scale).toBeCloseTo(1);
+    expect(cycleCellZoom(zoom, [0, 0], area, shown, 2)).toBeNull();
+  });
+
+  it("gives the editor the transform that shows a cell's zoom", () => {
+    const fit = { width: 600, height: 400, offsetX: 0, offsetY: 50, containerWidth: 600, containerHeight: 500 };
+    const zoom = { scale: 1, center: [0.25, 0.75] as [number, number] };
+    const transform = transformOfZoom(zoom, fit, shown, 2)!;
+    expect(transform.scale).toBeCloseTo(5);
+    const back = sharedZoomOf(transform, fit, shown, 2)!;
+    expect(back.scale).toBeCloseTo(1);
+    expect(back.center[0]).toBeCloseTo(0.25);
+    expect(back.center[1]).toBeCloseTo(0.75);
   });
 });

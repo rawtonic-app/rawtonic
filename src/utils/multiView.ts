@@ -241,3 +241,140 @@ export function sameZoom(a: SharedZoom | null, b: SharedZoom | null): boolean {
     Math.abs(a.center[1] - b.center[1]) < 1e-4
   );
 }
+
+/** The photograph's fit placement in its container, as the editor reports it
+ * (`baseRenderSize`), in CSS px. */
+export interface FitBox {
+  width: number;
+  height: number;
+  offsetX: number;
+  offsetY: number;
+  containerWidth: number;
+  containerHeight: number;
+}
+
+/**
+ * The editor's pan/zoom that shows `zoom` (inverse of {@link sharedZoomOf}):
+ * the primary takes a cell's own zoom over when it becomes the primary
+ * without the zoom lock.
+ */
+export function transformOfZoom(
+  zoom: SharedZoom,
+  fit: FitBox,
+  shown: { width: number; height: number },
+  dpr: number,
+): { scale: number; positionX: number; positionY: number } | null {
+  if (fit.width <= 0 || fit.height <= 0 || shown.width <= 0 || shown.height <= 0) return null;
+  const scale = (zoom.scale * shown.width) / (fit.width * dpr);
+  const visibleX = zoom.center[0] * fit.width + fit.offsetX;
+  const visibleY = zoom.center[1] * fit.height + fit.offsetY;
+  return {
+    scale,
+    positionX: fit.containerWidth / 2 - visibleX * scale,
+    positionY: fit.containerHeight / 2 - visibleY * scale,
+  };
+}
+
+/** Device px per photograph px of a photograph of `shown` size contained in a
+ * cell `area` (CSS px): its fit. */
+export function fitScaleOf(
+  area: { width: number; height: number },
+  shown: { width: number; height: number },
+  dpr: number,
+): number {
+  if (shown.width <= 0 || shown.height <= 0) return 0;
+  return Math.min(area.width / shown.width, area.height / shown.height) * dpr;
+}
+
+/** Most a cell zooms in: 200 % (two device px per photograph px), as the
+ * editor's own zoom. */
+export const MAX_CELL_ZOOM = 2;
+
+/** `zoom` with its centre kept where the cell shows only photograph (no
+ * empty margin beside a photograph larger than the cell). */
+export function clampCellZoom(
+  zoom: SharedZoom,
+  area: { width: number; height: number },
+  shown: { width: number; height: number },
+  dpr: number,
+): SharedZoom {
+  const half = (cell: number, photo: number) => (cell * dpr) / (2 * zoom.scale * photo);
+  const clamp = (center: number, h: number) => (h >= 0.5 ? 0.5 : Math.min(1 - h, Math.max(h, center)));
+  return {
+    scale: zoom.scale,
+    center: [
+      clamp(zoom.center[0], half(area.width, shown.width)),
+      clamp(zoom.center[1], half(area.height, shown.height)),
+    ],
+  };
+}
+
+/**
+ * A cell zoomed by `factor` around `pointer` (CSS px from the cell area's
+ * centre; the photograph point under it stays there). `current` null is the
+ * fit. Returns null at fit or below (the cell shows the whole photograph).
+ */
+export function zoomCell(
+  current: SharedZoom | null,
+  factor: number,
+  pointer: [number, number],
+  area: { width: number; height: number },
+  shown: { width: number; height: number },
+  dpr: number,
+): SharedZoom | null {
+  const fit = fitScaleOf(area, shown, dpr);
+  if (fit <= 0) return current;
+  const from = current ?? { scale: fit, center: [0.5, 0.5] as [number, number] };
+  const scale = Math.min(Math.max(MAX_CELL_ZOOM, fit), from.scale * factor);
+  if (scale <= fit * 1.01) return null;
+  // The photograph point under the pointer, in photograph px.
+  const px = from.center[0] * shown.width + (pointer[0] * dpr) / from.scale;
+  const py = from.center[1] * shown.height + (pointer[1] * dpr) / from.scale;
+  return clampCellZoom(
+    {
+      scale,
+      center: [(px - (pointer[0] * dpr) / scale) / shown.width, (py - (pointer[1] * dpr) / scale) / shown.height],
+    },
+    area,
+    shown,
+    dpr,
+  );
+}
+
+/** A zoomed cell panned by (`dx`, `dy`) CSS px (the photograph moves with
+ * the pointer). */
+export function panCell(
+  zoom: SharedZoom,
+  dx: number,
+  dy: number,
+  area: { width: number; height: number },
+  shown: { width: number; height: number },
+  dpr: number,
+): SharedZoom {
+  return clampCellZoom(
+    {
+      scale: zoom.scale,
+      center: [
+        zoom.center[0] - (dx * dpr) / (zoom.scale * shown.width),
+        zoom.center[1] - (dy * dpr) / (zoom.scale * shown.height),
+      ],
+    },
+    area,
+    shown,
+    dpr,
+  );
+}
+
+/** Space over a cell (as the editor's zoom cycle): fit → 100 % at the
+ * pointer → fit. */
+export function cycleCellZoom(
+  current: SharedZoom | null,
+  pointer: [number, number],
+  area: { width: number; height: number },
+  shown: { width: number; height: number },
+  dpr: number,
+): SharedZoom | null {
+  if (current) return null;
+  const fit = fitScaleOf(area, shown, dpr);
+  return fit > 0 && fit < 1 ? zoomCell(null, 1 / fit, pointer, area, shown, dpr) : null;
+}

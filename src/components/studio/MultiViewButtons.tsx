@@ -68,7 +68,10 @@ export default function MultiViewButtons() {
         <button
           aria-pressed={zoomLock}
           aria-label={t("studio.multiView.zoomLock")}
-          title={t("studio.multiView.zoomLockTitle")}
+          title={t("studio.workspace.withShortcut", {
+            label: t("studio.multiView.zoomLockTitle"),
+            shortcut: shortcutHint("toggle_zoom_lock", keybinds, osPlatform) ?? t("studio.workspace.noKey"),
+          })}
           onClick={() => setZoomLock(!zoomLock)}
         >
           {zoomLock ? <Lock size={13} /> : <LockOpen size={13} />}

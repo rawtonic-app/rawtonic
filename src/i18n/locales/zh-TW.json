@@ -1029,6 +1029,7 @@
         "toggle_right_panel": "切換右側面板",
         "toggle_side_panels": "隱藏/顯示側邊面板",
         "toggle_soft_proof": "切換軟打樣",
+        "toggle_zoom_lock": "多重檢視：鎖定縮放",
         "tool_brush": "筆刷（繪製遮色片）",
         "tool_crop": "裁切",
         "tool_erase": "橡皮擦（擦除遮色片）",
@@ -2279,8 +2280,9 @@
       "toggle": "多圖檢視",
       "unpin": "取消固定參考照片 {{name}}",
       "unsupported": "多圖檢視需要原生照片顯示，本系統無法使用",
+      "zoomBadge": "已縮放至 {{percent}}",
       "zoomLock": "鎖定縮放",
-      "zoomLockTitle": "鎖定縮放：縮放主照片時，所有照片縮放並平移到同一位置；關閉時只縮放主照片"
+      "zoomLockTitle": "鎖定縮放：縮放主要照片時，所有照片都會縮放並移到同一位置。關閉後，每張照片各自縮放（在照片上使用滾輪、雙指縮放、按兩下或空白鍵）"
     },
     "people": {
       "aria": "人物遮色片",

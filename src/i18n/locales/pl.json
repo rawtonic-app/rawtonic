@@ -1152,6 +1152,7 @@
         "toggle_right_panel": "Przełącz prawy panel",
         "toggle_side_panels": "Ukryj lub pokaż panele boczne",
         "toggle_soft_proof": "Przełącz próbę kolorów na ekranie",
+        "toggle_zoom_lock": "Widok wielu zdjęć: zablokuj powiększenie",
         "tool_brush": "Pędzel (rysuj maskę)",
         "tool_crop": "Kadrowanie",
         "tool_erase": "Gumka (usuń maskę)",
@@ -2471,8 +2472,9 @@
       "toggle": "Widok wielu zdjęć",
       "unpin": "Odepnij zdjęcie wzorcowe {{name}}",
       "unsupported": "Widok wielu zdjęć wymaga natywnego wyświetlania zdjęć, niedostępnego w tym systemie",
+      "zoomBadge": "Powiększenie {{percent}}",
       "zoomLock": "Zablokuj powiększenie",
-      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa każde zdjęcie do tego samego miejsca; wyłączone — powiększa się tylko zdjęcie główne"
+      "zoomLockTitle": "Zablokuj powiększenie: powiększenie zdjęcia głównego powiększa i przesuwa wszystkie zdjęcia do tego samego miejsca. Wyłączone, każde zdjęcie powiększa się osobno (kółko, gest szczypania, dwuklik lub Spacja nad nim)"
     },
     "people": {
       "aria": "Maska osób",

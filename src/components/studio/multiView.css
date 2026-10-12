@@ -182,3 +182,17 @@
   color: #1d1e20;
   pointer-events: auto;
 }
+/* A zoomed cell says how far (Lightroom's Compare shows it per photograph). */
+.studio-mv-zoom {
+  position: absolute;
+  left: 6px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #1d1e20d9;
+  border: 1px solid #ffffff1a;
+  color: var(--studio-text);
+  font-size: 11px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}

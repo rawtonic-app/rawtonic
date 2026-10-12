@@ -277,7 +277,7 @@ describe("reference and locked zoom", () => {
 
   it("leaves the other cells at fit with the lock off", () => {
     const calls = zoomed(false);
-    expect(calls.at(-1)![1]).toEqual({ zoom: null });
+    expect(calls.at(-1)![1]).toEqual({ zoom: null, cells: {} });
     useMultiViewStore.setState({ zoomLock: true });
   });
 });
