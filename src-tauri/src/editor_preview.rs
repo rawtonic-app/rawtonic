@@ -1087,7 +1087,27 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
 
     std::thread::spawn(move || {
         let mut newest_sequence = None;
-        while let Ok(mut job) = rx.recv() {
+        let mut waiting: Option<PreviewJob> = None;
+        loop {
+            let mut job = match waiting.take() {
+                Some(job) => job,
+                None if crate::multi_view::live_pending() => {
+                    // Edit all selected: while no frame of the primary is
+                    // asked for, the other cells catch up one at a time.
+                    match rx.recv_timeout(LIVE_IDLE) {
+                        Ok(job) => job,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            crate::multi_view::live_step(&app_handle);
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    }
+                }
+                None => match rx.recv() {
+                    Ok(job) => job,
+                    Err(_) => break,
+                },
+            };
             while let Ok(latest_job) = rx.try_recv() {
                 if latest_job.supersedes(&job) {
                     job = latest_job;
@@ -1135,9 +1155,24 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 log::error!("Preview worker error: {}", e);
             }
             let _ = responder.send(result);
+            // Edit all selected: one other cell after each frame of the
+            // primary, unless its next frame is already asked for.
+            if crate::multi_view::live_pending() {
+                match rx.try_recv() {
+                    Ok(next) => waiting = Some(next),
+                    Err(mpsc::TryRecvError::Empty) => {
+                        crate::multi_view::live_step(&app_handle);
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => break,
+                }
+            }
         }
     });
 }
+
+/// How long the preview worker waits for the primary's next frame before
+/// developing another multi view cell live.
+const LIVE_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// Where a photograph of `width` × `height` (as shown: cropped and turned)
 /// sits in the viewer's `viewport` at fit: contained and centred, as the

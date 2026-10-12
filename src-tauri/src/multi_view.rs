@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
@@ -82,6 +82,29 @@ struct Worker {
     sender: LatestJobSender<Job>,
     memory: Mutex<Memory>,
 }
+
+/// Edit all selected while the primary is edited (a slider drag): the
+/// changes not yet written to the other photographs. The preview worker
+/// develops the other cells with them between the primary's frames
+/// ([`live_step`]), one cell at a time, so the primary's next frame waits at
+/// most for one small cell.
+#[derive(Default)]
+struct Live {
+    /// Copyable recipe keys with the primary's values (absolute, as paste).
+    patch: Option<serde_json::Map<String, serde_json::Value>>,
+    /// Round-robin position in the display's cells.
+    cursor: usize,
+    /// Cells checked since the patch last changed and found current (or not
+    /// developable live): when all are, nothing is pending.
+    settled: usize,
+}
+
+static LIVE: Mutex<Live> = Mutex::new(Live {
+    patch: None,
+    cursor: 0,
+    settled: 0,
+});
+static LIVE_PENDING: AtomicBool = AtomicBool::new(false);
 
 static WORKER: OnceLock<Arc<Worker>> = OnceLock::new();
 
@@ -564,7 +587,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         if job.primary.as_deref() == Some(cell.path.as_str()) {
             continue;
         }
-        let recipe = recipe_of(&cell.path);
+        let recipe = with_live_patch(recipe_of(&cell.path));
         let known = worker
             .memory
             .lock()
@@ -650,6 +673,158 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
     );
 }
 
+/// The recipe a secondary is shown with during Edit all selected: its stored
+/// recipe with the changes not yet written to it.
+fn with_live_patch(mut recipe: serde_json::Value) -> serde_json::Value {
+    let live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+    if let (Some(patch), Some(object)) = (live.patch.as_ref(), recipe.as_object_mut()) {
+        for (key, value) in patch {
+            object.insert(key.clone(), value.clone());
+        }
+    }
+    recipe
+}
+
+/// Edit all selected: the primary's changes that are not yet written to the
+/// other photographs (`None` once they are, or when it ends). The other cells
+/// follow them live, between the primary's frames.
+#[tauri::command]
+pub(crate) fn set_multi_view_live(patch: Option<serde_json::Value>) {
+    let patch = patch.and_then(|patch| match patch {
+        serde_json::Value::Object(map) if !map.is_empty() => Some(map),
+        _ => None,
+    });
+    let mut live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+    // Cleared once the changes are written: the written recipes re-develop
+    // the cells through `set_multi_view`.
+    let pending = patch.is_some();
+    live.patch = patch;
+    live.settled = 0;
+    LIVE_PENDING.store(pending, Ordering::Release);
+}
+
+/// Whether [`live_step`] has a cell to develop (cheap; the preview worker
+/// asks after each frame).
+pub(crate) fn live_pending() -> bool {
+    LIVE_PENDING.load(Ordering::Acquire)
+}
+
+/// Develops the next cell that does not show the live recipe yet, if its
+/// prepared base fits (a change of geometry waits for the written recipe).
+/// Called by the preview worker between the primary's frames; returns
+/// whether a cell was developed.
+pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
+    if !live_pending() {
+        return false;
+    }
+    let Some(worker) = WORKER.get().cloned() else {
+        LIVE_PENDING.store(false, Ordering::Release);
+        return false;
+    };
+    let state = app_handle.state::<AppState>();
+    let Some(context) = context_of(&state) else {
+        return false;
+    };
+    let (cells, primary) = {
+        let display = context.display.lock().unwrap_or_else(|e| e.into_inner());
+        match display.as_ref() {
+            Some(display) if display.multi_view().is_active() => (
+                display
+                    .multi_view()
+                    .cells()
+                    .iter()
+                    .map(|cell| cell.path.clone())
+                    .collect::<Vec<_>>(),
+                display.multi_view().primary().map(str::to_string),
+            ),
+            _ => (Vec::new(), None),
+        }
+    };
+    let secondaries: Vec<String> = cells
+        .into_iter()
+        .filter(|path| primary.as_deref() != Some(path.as_str()))
+        .collect();
+    let count = secondaries.len();
+    let start = Instant::now();
+    for _ in 0..count {
+        let (path, patch_active) = {
+            let mut live = LIVE.lock().unwrap_or_else(|e| e.into_inner());
+            if live.patch.is_none() || live.settled >= count {
+                // Every cell shows the live recipe (or cannot follow it live).
+                LIVE_PENDING.store(false, Ordering::Release);
+                return false;
+            }
+            let path = secondaries[live.cursor % count].clone();
+            live.cursor = (live.cursor + 1) % count;
+            live.settled += 1;
+            (path, live.patch.is_some())
+        };
+        let recipe = with_live_patch(recipe_of(&path));
+        let base = {
+            let memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
+            memory
+                .facts
+                .get(&path)
+                .copied()
+                .zip(memory.bases.get(&path).map(|b| {
+                    (
+                        b.preparation_key,
+                        b.dim,
+                        b.base.clone(),
+                        b.mask_source.clone(),
+                    )
+                }))
+        };
+        // Not prepared yet (the cell worker brings it), or the change needs
+        // another base (geometry): shown once the recipe is written.
+        let Some((facts, (preparation_key, dim, base, mask_source))) = base else {
+            continue;
+        };
+        if preparation_key != crate::preview_cache::preparation_key(&recipe) {
+            continue;
+        }
+        let key = render_key(&recipe, dim, &context);
+        if current_key(&context, &path) == Some(key) {
+            continue;
+        }
+        let prepared = Prepared {
+            path: path.clone(),
+            recipe,
+            key,
+            facts,
+            base,
+            mask_source,
+            source_kind: "live",
+            prepare_ms: 0.0,
+        };
+        match develop(app_handle, &context, prepared) {
+            Ok(gpu_ms) => {
+                // Developed: the others may still be behind.
+                LIVE.lock().unwrap_or_else(|e| e.into_inner()).settled = 0;
+                #[cfg(feature = "performance-profiling")]
+                log::info!(
+                    "[PERF] {}",
+                    serde_json::json!({
+                        "stage": "multi_view_live_cell", "ms": start.elapsed().as_secs_f64() * 1e3,
+                        "develop_ms": gpu_ms, "end_epoch_ms": crate::performance::epoch_ms(),
+                        "patch": patch_active
+                    })
+                );
+                #[cfg(not(feature = "performance-profiling"))]
+                let _ = (gpu_ms, patch_active, start);
+                return true;
+            }
+            Err(e) => {
+                log::warn!("[multi_view] live {path} not developed: {e}");
+            }
+        }
+    }
+    if LIVE.lock().unwrap_or_else(|e| e.into_inner()).settled >= count {
+        LIVE_PENDING.store(false, Ordering::Release);
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -679,5 +854,22 @@ mod tests {
             cell_dim([0.0, 0.0, 900.0, 301.0], shown_size(&square, facts)),
             304
         );
+    }
+
+    #[test]
+    fn live_changes_show_over_the_stored_recipe_until_cleared() {
+        let stored = serde_json::json!({"exposure": 0.0, "contrast": 10, "crop": null});
+        set_multi_view_live(Some(serde_json::json!({"exposure": 1.25})));
+        assert!(live_pending());
+        let shown = with_live_patch(stored.clone());
+        assert_eq!(shown["exposure"], 1.25);
+        assert_eq!(shown["contrast"], 10);
+        // Written: the stored recipe alone again, nothing left to develop.
+        set_multi_view_live(None);
+        assert!(!live_pending());
+        assert_eq!(with_live_patch(stored.clone()), stored);
+        // An empty patch is no patch.
+        set_multi_view_live(Some(serde_json::json!({})));
+        assert!(!live_pending());
     }
 }
