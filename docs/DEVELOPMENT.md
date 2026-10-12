@@ -10,6 +10,14 @@ Prerequisites: Node.js 24+, Rust 1.98.1 (`rustup` honors `rust-toolchain.toml`),
 sudo apt-get install build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev patchelf libxdo-dev cmake nasm
 ```
 
+On Arch Linux / CachyOS (`xdotool` provides libxdo):
+
+```sh
+sudo pacman -S --needed base-devel pkgconf webkit2gtk-4.1 gtk3 openssl librsvg xdotool cmake nasm patchelf
+```
+
+Linux x86_64 builds require NASM for libjpeg-turbo's SIMD code. If dependencies were built before installing NASM, run `cargo clean -p turbojpeg-sys` once before rebuilding; installing NASM alone does not invalidate the cached CMake build.
+
 ```sh
 source "$HOME/.cargo/env"  # if cargo is not already on PATH
 npm ci

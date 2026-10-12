@@ -807,7 +807,11 @@ mod native {
         Err("native input is macOS-only; use ui.click/ui.drag".into())
     }
 
-    pub(super) fn capture(_window: &WebviewWindow, _best: bool) -> Result<Value, String> {
+    pub(super) fn capture(
+        _window: &WebviewWindow,
+        _best: bool,
+        _p3: bool,
+    ) -> Result<Value, String> {
         Err("window capture is macOS-only".into())
     }
 

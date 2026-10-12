@@ -2299,6 +2299,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           className="w-full h-full flex items-center justify-center origin-top-left"
           style={{
             transform: `translate(${transformState.positionX}px, ${transformState.positionY}px) scale(${transformState.scale})`,
+            // WebKit's JPEG fallback should move a composited layer while
+            // zooming/panning, rather than repainting the SVG photo each move.
+            willChange: isWgpuActive ? undefined : 'transform',
           }}
         >
           <ImageCanvas

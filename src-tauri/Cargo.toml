@@ -142,6 +142,10 @@ gtk = "0.18.2"
 webkit2gtk = "=2.0.2"
 tauri-plugin-wayland-nvidia-quirk = "0.1.0"
 
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+# Fail the build if NASM is missing instead of shipping slow JPEG previews.
+turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }
+
 [dev-dependencies]
 moxcms = "0.8"
 rawtonic-engine = { path = "../crates/engine", version = "0.1.0", features = ["test-support"] }

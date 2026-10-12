@@ -324,6 +324,11 @@ pub fn process_and_get_dynamic_image_with_analytics(
     analytics_config: Option<crate::app_state::AnalyticsConfig>,
     display_identity: Option<DisplayFrameIdentity>,
 ) -> Result<DynamicImage, String> {
+    let readback_shader = if cfg!(target_os = "linux") && caller_id == "apply_adjustments" {
+        ReadbackShader::Preview
+    } else {
+        ReadbackShader::Export
+    };
     process_and_get_dynamic_image_inner(
         context,
         &state.gpu_processor,
@@ -338,7 +343,7 @@ pub fn process_and_get_dynamic_image_with_analytics(
         output_to_display,
         analytics_config,
         display_identity,
-        ReadbackShader::Export,
+        readback_shader,
     )
 }
 

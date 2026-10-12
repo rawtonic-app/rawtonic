@@ -17,6 +17,7 @@ import { ToastContainer, toast, Slide } from 'react-toastify';
 import clsx from 'clsx';
 
 import TitleBar from './window/TitleBar';
+import WindowControls from './window/WindowControls';
 import SessionWorkspace from './components/session/SessionWorkspace';
 import type { FolderTree as FolderTreeNode } from './utils/folderTree';
 import SettingsPanel from './components/panel/SettingsPanel';
@@ -433,6 +434,8 @@ function App() {
     // (hasRenderedFirstFrame is only set by a frame of the selected photo.)
     (hasRenderedFirstFrame || holdingNativeFrame);
   const hasNativeMacTitlebar = osPlatform === 'macos';
+  const hasUnifiedTitlebar = hasNativeMacTitlebar || osPlatform === 'linux';
+  const showLinuxWindowControls = osPlatform === 'linux' && !appSettings?.decorations && !isWindowFullScreen;
 
   // Profiling builds: when App's own mount effects (the last to run) are done.
   useEffect(() => reportPerformance('mount_effects_end', { epoch_ms: Math.round(epochOf(performance.now())) }), []);
@@ -451,12 +454,13 @@ function App() {
         className={clsx(
           'studio-app flex flex-col h-screen font-sans text-text-primary overflow-hidden select-none',
           hasNativeMacTitlebar && 'macos-native-chrome',
+          osPlatform === 'linux' && 'linux-unified-chrome',
           hasNativeMacTitlebar && !isWindowFullScreen && 'macos-windowed',
           barsHidden && 'bars-hidden',
           isWgpuActive ? 'bg-transparent' : 'bg-bg-primary',
         )}
       >
-        {!hasNativeMacTitlebar && (
+        {!hasUnifiedTitlebar && (
           <div
             className={clsx(
               'shrink-0 overflow-hidden z-50',
@@ -469,7 +473,11 @@ function App() {
         )}
         {!isFullScreen && (
           <PerfProfiler id="session">
-            <SessionWorkspace onNavigate={handleSelectSubfolder} nativeTitlebar={hasNativeMacTitlebar} />
+            <SessionWorkspace
+              onNavigate={handleSelectSubfolder}
+              nativeTitlebar={hasNativeMacTitlebar || showLinuxWindowControls}
+              windowControls={showLinuxWindowControls ? <WindowControls /> : undefined}
+            />
           </PerfProfiler>
         )}
         <PerfProfiler id="workspace">

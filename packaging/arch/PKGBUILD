@@ -5,8 +5,8 @@ pkgrel=1
 pkgdesc='Non-destructive RAW editor with portable sessions (development build)'
 arch=('x86_64')
 license=('AGPL-3.0-or-later')
-depends=('webkit2gtk-4.1' 'gtk3' 'libxdo')
-makedepends=('rust' 'npm' 'cmake' 'pkgconf' 'python')
+depends=('webkit2gtk-4.1' 'gtk3' 'xdotool')
+makedepends=('rust' 'npm' 'cmake' 'nasm' 'pkgconf' 'python')
 build() {
   cd "$startdir/../.."
   npm ci

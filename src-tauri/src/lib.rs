@@ -849,18 +849,20 @@ pub fn run() {
                     let exit_code = code.unwrap_or(0);
                     window_state::flush();
 
-                    #[cfg(target_os = "macos")]
+                    // libc exit handlers can tear down the GPU driver while
+                    // its resources are still being dropped on worker threads.
+                    #[cfg(any(target_os = "macos", target_os = "linux"))]
                     unsafe { libc::_exit(exit_code); }
 
-                    #[cfg(not(target_os = "macos"))]
+                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                     std::process::exit(exit_code);
                 }
                 tauri::RunEvent::Exit => {
                     window_state::flush();
-                    #[cfg(target_os = "macos")]
+                    #[cfg(any(target_os = "macos", target_os = "linux"))]
                     unsafe { libc::_exit(0); }
 
-                    #[cfg(not(target_os = "macos"))]
+                    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
                     std::process::exit(0);
                 }
                 _ => {}

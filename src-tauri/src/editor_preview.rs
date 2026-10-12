@@ -42,11 +42,14 @@ use base64::Engine as _;
 use base64::engine::general_purpose;
 use image::DynamicImage;
 use image::GenericImageView;
+#[cfg(not(target_os = "linux"))]
 use imgref::ImgRef;
 use mozjpeg_rs::Encoder;
 use mozjpeg_rs::Preset;
 use rawtonic_engine::formats;
+#[cfg(not(target_os = "linux"))]
 use rgb::FromSlice;
+#[cfg(not(target_os = "linux"))]
 use rgb::RGBA8;
 use serde_json::Value;
 use std::borrow::Cow;
@@ -640,6 +643,9 @@ pub(crate) fn process_preview_job(
         "performance" => (if has_roi { 1.8_f32 } else { 1.5_f32 }, 65_u8),
         _ => (if has_roi { 1.4_f32 } else { 1.0_f32 }, 75_u8),
     };
+    #[cfg(target_os = "linux")]
+    let interactive_divisor =
+        browser_interactive_divisor(preview_dim, live_quality, interactive_divisor);
 
     let mut cached_preview_lock = state
         .cached_preview
@@ -989,21 +995,30 @@ pub(crate) fn process_preview_job(
         _ => return Err("Expected Rgba8 image from GPU for encoding".to_string()),
     };
 
-    let raw_bytes: &[u8] = final_rgba_image.as_raw();
-    let rgba8_pixels: &[RGBA8] = raw_bytes.as_rgba();
-
-    let img_ref = ImgRef::new(
-        rgba8_pixels,
-        final_rgba_image.width() as usize,
-        final_rgba_image.height() as usize,
-    );
-
     let step_start = std::time::Instant::now();
 
-    let encode_result = Encoder::new(Preset::BaselineFastest)
-        .quality(jpeg_quality)
-        .fast_color(true)
-        .encode_imgref(img_ref);
+    // Linux presents previews through WebKit rather than a native surface.
+    // Read RGBA directly with libjpeg-turbo, avoiding a full RGB copy and the
+    // Rust encoder's extra latency on every slider/zoom frame.
+    #[cfg(target_os = "linux")]
+    let encode_result = encode_browser_preview(final_rgba_image, jpeg_quality);
+
+    #[cfg(not(target_os = "linux"))]
+    let encode_result = {
+        let raw_bytes: &[u8] = final_rgba_image.as_raw();
+        let rgba8_pixels: &[RGBA8] = raw_bytes.as_rgba();
+
+        let img_ref = ImgRef::new(
+            rgba8_pixels,
+            final_rgba_image.width() as usize,
+            final_rgba_image.height() as usize,
+        );
+
+        Encoder::new(Preset::BaselineFastest)
+            .quality(jpeg_quality)
+            .fast_color(true)
+            .encode_imgref(img_ref)
+    };
 
     match encode_result {
         Ok(jpeg_bytes) => {
@@ -1047,6 +1062,40 @@ pub(crate) fn process_preview_job(
         }
         Err(e) => Err(format!("Failed to encode preview: {}", e)),
     }
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn browser_interactive_divisor(preview_dim: u32, quality: &str, divisor: f32) -> f32 {
+    // A zoomed or HiDPI frame can otherwise encode millions of pixels on
+    // every pointer move. Refine at the requested resolution on release;
+    // the explicit Full quality mode still renders every pixel while dragging.
+    let limit = match quality {
+        "full" => return divisor,
+        "performance" => 1024.0,
+        _ => 1536.0,
+    };
+    divisor.max(preview_dim as f32 / limit)
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn encode_browser_preview(image: &image::RgbaImage, quality: u8) -> Result<Vec<u8>, String> {
+    let mut compressor = turbojpeg::Compressor::new().map_err(|e| e.to_string())?;
+    compressor
+        .set_quality(i32::from(quality.clamp(1, 100)))
+        .map_err(|e| e.to_string())?;
+    // Keep colour detail in the final frame and in small interactive patches.
+    compressor
+        .set_subsamp(turbojpeg::Subsamp::None)
+        .map_err(|e| e.to_string())?;
+    compressor
+        .compress_to_vec(turbojpeg::Image {
+            pixels: image.as_raw().as_slice(),
+            width: image.width() as usize,
+            pitch: image.width() as usize * 4,
+            height: image.height() as usize,
+            format: turbojpeg::PixelFormat::RGBX,
+        })
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
@@ -1651,6 +1700,46 @@ pub(crate) async fn generate_preview_for_path(
 #[cfg(test)]
 mod preview_memory_tests {
     use super::*;
+
+    #[test]
+    fn browser_drag_limits_work_without_reducing_explicit_full_quality() {
+        assert_eq!(browser_interactive_divisor(6000, "full", 1.0), 1.0);
+        assert_eq!(
+            browser_interactive_divisor(6000, "high", 1.4),
+            6000.0 / 1536.0
+        );
+        assert_eq!(browser_interactive_divisor(4096, "performance", 1.8), 4.0);
+        assert_eq!(browser_interactive_divisor(1024, "high", 1.0), 1.0);
+        assert_eq!(browser_interactive_divisor(1024, "high", 1.4), 1.4);
+    }
+
+    #[test]
+    fn browser_preview_keeps_odd_dimensions_rgb_order_and_ignores_alpha() {
+        let image = image::RgbaImage::from_fn(17, 9, |x, _| {
+            image::Rgba(if x < 8 {
+                [220, 30, 60, 0]
+            } else {
+                [25, 70, 210, 255]
+            })
+        });
+        for quality in [65, 75, 85, 94] {
+            let bytes = encode_browser_preview(&image, quality).unwrap();
+            assert_eq!(
+                turbojpeg::read_header(&bytes).unwrap().subsamp,
+                turbojpeg::Subsamp::None
+            );
+            let decoded = image::load_from_memory(&bytes).unwrap().to_rgb8();
+            assert_eq!(decoded.dimensions(), (17, 9));
+            for (x, expected) in [(2, [220u8, 30, 60]), (14, [25, 70, 210])] {
+                for (actual, expected) in decoded.get_pixel(x, 4).0.into_iter().zip(expected) {
+                    assert!(
+                        actual.abs_diff(expected) <= 8,
+                        "RGB channel changed: {actual} vs {expected}"
+                    );
+                }
+            }
+        }
+    }
 
     /// The full-resolution path: warp and transform the source, then
     /// downscale (what fit-size previews did before the reduced path).

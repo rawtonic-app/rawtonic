@@ -47,6 +47,9 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs", "memmap"] }
 ab_glyph = "0.2.32"
 
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
+turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }
+
 [dev-dependencies]
 tempfile = "3.27.0"
 jxl-oxide = { version = "0.12.6", features = ["image"] }

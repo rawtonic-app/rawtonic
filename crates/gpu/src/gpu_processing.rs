@@ -143,6 +143,9 @@ pub enum ReadbackShader {
     /// level of exports in the tested cases, but much faster for many layers.
     /// For previews such as thumbnails, never for exports; 8-bit only.
     Display,
+    /// Foreground browser previews: display arithmetic with retained mask,
+    /// blur and detail intermediates. Background jobs must not evict these.
+    Preview,
 }
 
 pub struct RenderRequest<'a> {
@@ -3026,7 +3029,12 @@ impl GpuProcessor {
         readback_shader: ReadbackShader,
     ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
         let display_shader = output_to_display
-            || (readback_shader == ReadbackShader::Display
+            || (matches!(
+                readback_shader,
+                ReadbackShader::Display | ReadbackShader::Preview
+            ) && output_precision == RenderOutputPrecision::EightBit);
+        let retain_intermediates = output_to_display
+            || (readback_shader == ReadbackShader::Preview
                 && output_precision == RenderOutputPrecision::EightBit);
         let device = &self.context.device;
         let queue = &self.context.queue;
@@ -3036,7 +3044,7 @@ impl GpuProcessor {
         // Thumbnail/export work must not evict the source-dependent preview
         // intermediates immediately after the editor saves a released slider.
         let background_blur_cache = Mutex::new(BlurCache::default());
-        let blur_cache = if output_to_display {
+        let blur_cache = if retain_intermediates {
             &self.blur_cache
         } else {
             &background_blur_cache
@@ -3123,7 +3131,7 @@ impl GpuProcessor {
             width,
             height,
             request.mask_bitmaps,
-            output_to_display,
+            retain_intermediates,
             force_full_preparation,
         )?;
         // Test oracles switch shaders, curves or uploads without changing the
@@ -3579,7 +3587,7 @@ impl GpuProcessor {
                     .load(std::sync::atomic::Ordering::Relaxed);
                 #[cfg(not(test))]
                 let force_inline_detail = false;
-                let detail_pipeline = (output_to_display
+                let detail_pipeline = (retain_intermediates
                     && !force_full_preparation
                     && !force_inline_detail
                     && detail_fits
@@ -3631,7 +3639,7 @@ impl GpuProcessor {
                     };
                     cache.bytes -= oldest.bytes;
                 }
-                if output_to_display && tile.bytes > 0 && tile.bytes <= BLUR_CACHE_BYTES {
+                if retain_intermediates && tile.bytes > 0 && tile.bytes <= BLUR_CACHE_BYTES {
                     cache.bytes += tile.bytes;
                     cache.tiles.push_front(tile);
                 }

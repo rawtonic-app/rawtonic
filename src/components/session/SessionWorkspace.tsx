@@ -6,6 +6,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -120,6 +121,7 @@ interface ImportReport {
 interface Props {
   onNavigate: (path: string | null, newRoot?: boolean) => Promise<void>;
   nativeTitlebar?: boolean;
+  windowControls?: ReactNode;
 }
 
 /** How long a session may take to open before the app says what it waits for. */
@@ -159,7 +161,7 @@ export function restoreLastSession(
     });
 }
 
-export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }: Props) {
+export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [form, setForm] = useState<"create" | "ingest" | "hotfolder" | "import" | null>(null);
@@ -721,6 +723,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false }:
             className="session-bar-slot"
             ref={setEndSlot}
           />
+          {windowControls}
         </div>
       </div>
       {!session && imageList.length === 0 && roots.length === 0 && (

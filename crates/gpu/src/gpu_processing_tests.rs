@@ -3670,6 +3670,124 @@ fn sharpened_curve_stack(count: usize) -> serde_json::Value {
 }
 
 #[test]
+#[ignore = "requires a native GPU; browser preview cache correctness and background isolation"]
+fn browser_preview_readback_retains_intermediates_and_matches_uncached_pixels() {
+    let context = context();
+    let (width, height) = (257, 193);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let oracle = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 5);
+    let other = input(&context, width, height, 7);
+    let mut masks = upload_test_masks(width, height, 2);
+    let features = preview_features(&get_all_adjustments_from_json(
+        &sharpened_curve_stack(2),
+        true,
+        Some(1),
+    ));
+    prepare_preview_pipeline(&processor, features);
+    prepare_preview_pipeline(&oracle, features);
+    let started = Instant::now();
+    while processor.detail_pipeline().is_none() || oracle.detail_pipeline().is_none() {
+        assert!(
+            started.elapsed().as_secs() < 60,
+            "detail pipeline did not compile"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    for frame in 0..6 {
+        let mut profile = sharpened_curve_stack(2);
+        profile["exposure"] = json!(frame as f32 * 0.25);
+        if frame >= 3 {
+            profile["sharpness"] = json!(70);
+        }
+        if frame == 4 {
+            masks.swap(0, 1);
+        }
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        // A fresh preparation using the same floating-point passes is the
+        // exact cache oracle. Separate versus inline detail arithmetic can
+        // differ by one 8-bit level on Vulkan even without stale data.
+        *oracle.blur_cache.lock().unwrap() = BlurCache::default();
+        oracle.force_mask_upload.store(true, Ordering::Relaxed);
+        let expected = readback_pixels(
+            &oracle,
+            &view,
+            (width, height),
+            adjustments,
+            &masks,
+            RenderOutputPrecision::EightBit,
+            ReadbackShader::Preview,
+        );
+        for _ in 0..2 {
+            let actual = readback_pixels(
+                &processor,
+                &view,
+                (width, height),
+                adjustments,
+                &masks,
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            );
+            let (RenderedPixels::U8(actual), RenderedPixels::U8(expected)) = (&actual, &expected)
+            else {
+                panic!("expected 8-bit preview pixels");
+            };
+            assert_eq!(
+                actual, expected,
+                "frame {frame}: cached browser preview pixels"
+            );
+        }
+        let retained = processor.blur_cache.lock().unwrap();
+        assert_eq!(retained.input.as_ref(), Some(&view));
+        assert!(retained.bytes > 0 && retained.bytes <= BLUR_CACHE_BYTES);
+        assert!(retained.tiles.iter().any(|tile| tile.detail.is_some()));
+        drop(retained);
+        assert!(processor.mask_cache_retained_bytes() > 0);
+        // Saving a thumbnail/export must leave the foreground intermediates intact.
+        let _ = readback_pixels(
+            &processor,
+            &other,
+            (width, height),
+            adjustments,
+            &[],
+            RenderOutputPrecision::EightBit,
+            ReadbackShader::Export,
+        );
+        assert_eq!(
+            processor.blur_cache.lock().unwrap().input.as_ref(),
+            Some(&view)
+        );
+    }
+    let adjustments = get_all_adjustments_from_json(&sharpened_curve_stack(2), true, Some(1));
+    *oracle.blur_cache.lock().unwrap() = BlurCache::default();
+    let actual = readback_pixels(
+        &processor,
+        &other,
+        (width, height),
+        adjustments,
+        &masks,
+        RenderOutputPrecision::EightBit,
+        ReadbackShader::Preview,
+    );
+    let expected = readback_pixels(
+        &oracle,
+        &other,
+        (width, height),
+        adjustments,
+        &masks,
+        RenderOutputPrecision::EightBit,
+        ReadbackShader::Preview,
+    );
+    let (RenderedPixels::U8(actual), RenderedPixels::U8(expected)) = (actual, expected) else {
+        panic!("expected 8-bit preview pixels");
+    };
+    assert_eq!(
+        actual, expected,
+        "source switch must invalidate cached intermediates"
+    );
+}
+
+#[test]
 #[ignore = "requires a native GPU; display-shader readback against display and export pixels"]
 fn display_shader_readback_matches_display_frames() {
     let context = context();

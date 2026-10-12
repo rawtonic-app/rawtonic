@@ -54,8 +54,56 @@
 .studio-app.macos-windowed .studio-secondary-panel {
   padding-bottom: 16px;
 }
-.studio-app.macos-native-chrome .session-welcome {
+.studio-app.macos-native-chrome .session-welcome,
+.studio-app.linux-unified-chrome .session-welcome {
   top: 44px;
+}
+/* WebKitGTK otherwise paints the system's light select face over our dark
+   control colours. Keep the closed control and its native options coherent. */
+.studio-app.linux-unified-chrome select {
+  color-scheme: dark;
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--studio-text);
+  background-color: #242527;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='m1 1 4 4 4-4' fill='none' stroke='%23a5a7aa' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 24px;
+}
+.studio-app.linux-unified-chrome select option,
+.studio-app.linux-unified-chrome select optgroup {
+  color: var(--studio-text);
+  background-color: #242527;
+}
+.studio-window-controls {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid var(--studio-line);
+}
+.studio-window-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--studio-muted);
+}
+.studio-window-controls button:hover {
+  background: #ffffff10;
+  color: var(--studio-text);
+}
+.studio-window-controls .studio-window-close:hover {
+  background: #c42b35;
+  color: #fff;
 }
 .studio-workspace {
   display: flex;
