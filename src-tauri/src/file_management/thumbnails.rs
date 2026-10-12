@@ -88,6 +88,30 @@ fn source_mtime(source: &Path) -> Option<u64> {
     }
 }
 
+/// Whether the recipe or one of its mask layers sets Contrast, Shadows,
+/// Whites or Blacks.
+fn uses_tone_sliders(adjustments: &serde_json::Value) -> bool {
+    let sets = |values: &serde_json::Value| {
+        ["contrast", "shadows", "whites", "blacks"]
+            .iter()
+            .any(|key| {
+                values
+                    .get(key)
+                    .and_then(serde_json::Value::as_f64)
+                    .is_some_and(|v| v != 0.0)
+            })
+    };
+    sets(adjustments)
+        || adjustments
+            .get("masks")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|masks| {
+                masks
+                    .iter()
+                    .any(|mask| mask.get("adjustments").is_some_and(&sets))
+            })
+}
+
 pub(crate) fn compute_thumbnail_cache_hash(
     path_str: &str,
     adjustments_bytes: &[u8],
@@ -111,6 +135,16 @@ pub(crate) fn compute_thumbnail_cache_hash(
         // camera JPEG), so a new proxy makes a new thumbnail.
         if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
             hasher.update(b"\0developed-from-proxy-v1");
+        }
+        // Contrast, Shadows, Whites and Blacks keep tones in order since
+        // 2026-10-12 (the RAW look's slider gains reversed near black and
+        // white). Only thumbnails that use them are rendered again; the
+        // decode (preview proxies, ENGINE_VERSION) is unchanged.
+        if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
+            .ok()
+            .is_some_and(|adjustments| uses_tone_sliders(&adjustments))
+        {
+            hasher.update(b"\0tone-order-v1");
         }
     }
     if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
@@ -1426,6 +1460,61 @@ mod thumbnail_queue_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn raw_thumbnail_cache_renders_tone_slider_recipes_again() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("source.ARW");
+        fs::write(&path, b"thumbnail-cache-fixture").unwrap();
+        let path_str = path.to_str().unwrap();
+        let modified = fs::metadata(&path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let previous_hash = |adjustments: &[u8]| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(path_str.as_bytes());
+            hasher.update(&modified.to_le_bytes());
+            hasher.update(adjustments);
+            hasher.update(b"\0embedded-raw-orientation-v1");
+            hasher.update(
+                format!("\0raw-engine-{}", crate::preview_proxy::ENGINE_VERSION).as_bytes(),
+            );
+            hasher.finalize().to_hex().to_string()
+        };
+        for adjustments in [
+            b"null".as_slice(),
+            br#"{"exposure":1}"#,
+            br#"{"contrast":0,"shadows":0,"whites":0,"blacks":0,"highlights":-40}"#,
+        ] {
+            assert_eq!(
+                compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
+                previous_hash(adjustments),
+                "thumbnails without the tone sliders stay cached"
+            );
+        }
+        for adjustments in [
+            br#"{"contrast":20}"#.as_slice(),
+            br#"{"shadows":-30}"#,
+            br#"{"whites":-100}"#,
+            br#"{"blacks":5}"#,
+        ] {
+            assert_ne!(
+                compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
+                previous_hash(adjustments),
+                "tone-slider thumbnails are rendered again"
+            );
+        }
+        assert!(uses_tone_sliders(&serde_json::json!({
+            "masks": [{ "adjustments": { "exposure": 1 } }, { "adjustments": { "whites": -20 } }]
+        })));
+        assert!(!uses_tone_sliders(&serde_json::json!({
+            "masks": [{ "adjustments": { "exposure": 1, "contrast": 0 } }]
+        })));
     }
 
     #[test]

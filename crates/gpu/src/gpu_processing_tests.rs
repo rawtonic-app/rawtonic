@@ -2791,8 +2791,11 @@ fn export_specialization_preserves_general_pixels() {
         json!({}),
         json!({"exposure":0.75,"brightness":0.1,"contrast":20}),
         json!({"sharpness":45,"shadows":35}),
-        // Lowering Shadows/Blacks: the tone-order guard's second gain.
+        // The tone-order guards' extra gains: Shadows/Blacks lowering and
+        // raising together, Whites lowering, Contrast both ways.
         json!({"shadows":-60,"blacks":-40}),
+        json!({"shadows":80,"blacks":80,"whites":-80,"contrast":70}),
+        json!({"contrast":-70}),
         json!({"highlights":-40}),
         json!({"lumaNoiseReduction":20,"colorNoiseReduction":15}),
         json!({"curves":custom_curve()}),
@@ -5802,6 +5805,167 @@ fn camera_raw_shadow_gains_stay_smooth_down_to_black() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires a native GPU; Camera Raw look tone sliders on a ramp from black to past white"]
+fn camera_raw_tone_sliders_keep_tones_in_order() {
+    let context = context();
+    let (width, height) = (4096u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-14 to 2^3, evenly in EV across the columns.
+    let (low_ev, span_ev) = (-14.0f32, 17.0f32);
+    let level = |x: u32| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32);
+    let data: Vec<f16> = (0..height)
+        .flat_map(|_| 0..width)
+        .flat_map(|x| {
+            let v = f16::from_f32(level(x));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Grey ramp"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default());
+    // 16-bit codes (R, G, B) of the middle row.
+    // Camera Raw look (mode 3) with neutral colour as RAW files render (flag
+    // 2), and through the own-curve path: with neutral colour (3) and as a
+    // file's own curve without the highlight roll-off (1), both given the
+    // default curve's points (`DEFAULT_TONE_CURVE`).
+    let default_curve: Vec<f32> = include_str!("shaders/shader.wgsl")
+        .split("const DEFAULT_TONE_CURVE = array<f32, 49>(")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .unwrap()
+        .split(',')
+        .map(|v| v.trim().parse().unwrap())
+        .collect();
+    assert_eq!(default_curve.len(), 49);
+    let render = |recipe: &serde_json::Value, flag: f32| -> Vec<[u16; 3]> {
+        let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(2));
+        adjustments.global.tonemapper_mode = 3;
+        if flag < 1.5 || flag > 2.5 {
+            for (i, v) in default_curve.iter().enumerate() {
+                adjustments.global.profile_curve[i / 4][i % 4] = *v;
+            }
+        }
+        adjustments.global.profile_curve[15][3] = flag;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(pixels) = pixels else {
+            unreachable!()
+        };
+        let row = (height / 2 * width * 4) as usize;
+        pixels[row..row + (width * 4) as usize]
+            .chunks(4)
+            .map(|p| [p[0], p[1], p[2]])
+            .collect()
+    };
+    let linear = |v: u16| {
+        let e = v as f64 / 65535.0;
+        if e <= 0.04045 {
+            e / 12.92
+        } else {
+            ((e + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    // Every tone slider alone at ±50 and ±100, every pair at ±100, and
+    // Exposure ±2 alone and with each slider at ±100.
+    let sliders = ["contrast", "highlights", "shadows", "whites", "blacks"];
+    let mut recipes = Vec::new();
+    for slider in sliders {
+        for amount in [-100, -50, 50, 100] {
+            recipes.push(json!({ slider: amount }));
+        }
+    }
+    for (i, a) in sliders.iter().enumerate() {
+        for b in &sliders[i + 1..] {
+            for (x, y) in [(-100, -100), (-100, 100), (100, -100), (100, 100)] {
+                recipes.push(json!({ *a: x, *b: y }));
+            }
+        }
+    }
+    for exposure in [-2.0, 2.0] {
+        recipes.push(json!({ "exposure": exposure }));
+        for slider in sliders {
+            for amount in [-100, 100] {
+                recipes.push(json!({ "exposure": exposure, slider: amount }));
+            }
+        }
+    }
+    recipes.push(json!({ "shadows": 100, "blacks": 100, "exposure": 1.5 }));
+    // Away from the image borders (the blur clamps there). Over up to 24
+    // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
+    // 16-bit codes, whichever is more: Shadows and Blacks read the f16
+    // blurred luminance, which wobbles a result by up to a code either way
+    // where it rises slowly near black (a code is 0.01 EV at 1.4e-4).
+    let columns = 64..(width - 64) as usize;
+    let mut failures = Vec::new();
+    for (flag, recipe) in [2.0f32, 3.0, 1.0]
+        .into_iter()
+        .flat_map(|flag| recipes.iter().map(move |recipe| (flag, recipe)))
+    {
+        let toned = render(recipe, flag);
+        let mut worst: Option<(f64, usize, usize, usize)> = None;
+        for x in columns.clone().skip(24) {
+            for k in 1..=24 {
+                for (c, (&before, &after)) in toned[x - k].iter().zip(&toned[x]).enumerate() {
+                    if after >= before {
+                        continue;
+                    }
+                    let (lb, la) = (linear(before), linear(after));
+                    let excess =
+                        ((lb / la.max(1e-12)).log2() / 0.01).min((before - after) as f64 / 2.0);
+                    if excess > 1.0 && worst.is_none_or(|w| excess > w.0) {
+                        worst = Some((excess, x, k, c));
+                    }
+                }
+            }
+        }
+        if let Some((excess, x, k, c)) = worst {
+            let scene = low_ev + span_ev * x as f32 / (width - 1) as f32;
+            failures.push(format!(
+                "flag {flag} {recipe}: channel {c} falls from {} to {} over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
+                toned[x - k][c], toned[x][c]
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "tones out of order:\n{}",
+        failures.join("\n")
+    );
 }
 
 /// A `width` × `height` texture of one opaque colour for the display pipeline.
