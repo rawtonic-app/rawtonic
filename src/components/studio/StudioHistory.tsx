@@ -1,6 +1,6 @@
 import { History } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { ToolGroup } from "./StudioDevelop";
 import { describeHistoryStep } from "./historyLabels";
 
@@ -12,6 +12,7 @@ export default function StudioHistory() {
   const image = useEditorStore((s) => s.selectedImage);
   const history = useEditorStore((s) => s.history);
   const historyIndex = useEditorStore((s) => s.historyIndex);
+  const panelsReady = useEditorStore(panelsShowReady);
   return (
     <ToolGroup
       title="History"
@@ -29,8 +30,11 @@ export default function StudioHistory() {
             key={i}
             title={label}
             className={`studio-history ${i === historyIndex ? "is-selected" : ""}`}
-            disabled={!image.isReady}
-            onClick={() => useEditorStore.getState().goToHistoryIndex(i)}
+            disabled={!panelsReady}
+            onClick={() => {
+              const editor = useEditorStore.getState();
+              if (editor.selectedImage?.isReady) editor.goToHistoryIndex(i);
+            }}
           >
             <History size={12} />
             <span className="studio-history-label">{label}</span>

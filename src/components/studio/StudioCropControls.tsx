@@ -11,7 +11,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { OverlayMode } from "../panel/editor/overlays/CompositionOverlays";
 import { useShallow } from "zustand/react/shallow";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import {
@@ -108,7 +108,11 @@ export default function StudioCropControls({
   const straightenKey = useSettingsStore((s) =>
     shortcutHint("tool_straighten", s.appSettings?.keybinds, s.osPlatform),
   );
-  const ready = Boolean(selectedImage?.isReady);
+  // In the tools panel it keeps its look while the next photograph loads
+  // (the panel is inert meanwhile); the viewer's popover is not inert.
+  const ready = useEditorStore((s) =>
+    inPopover ? Boolean(s.selectedImage?.isReady) : panelsShowReady(s),
+  );
   const ratio = adjustments.aspectRatio || null;
   const steps = adjustments.orientationSteps || 0;
   const [orientedW, orientedH] =

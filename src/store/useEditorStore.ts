@@ -130,6 +130,11 @@ interface EditorState {
   /** While the next photograph opens, its predecessor's native frame stays
    * on screen (no placeholder) until the first new frame or a timeout. */
   holdingNativeFrame: boolean;
+  /** Stepping from one ready photograph to the next: the tool panels keep
+   * their look (not dimmed, histogram kept) until the next photograph's
+   * values arrive and replace them in place; they stay inert meanwhile.
+   * See `panelsShowReady`. */
+  panelsHeld: boolean;
   /** The native display shows the uncropped crop-editing frame. */
   nativeCropFrame: boolean;
   /** One tool's copied values (Capture One's per-tool copy/apply). */
@@ -159,6 +164,13 @@ interface EditorState {
   resetHistory: (initialState: Adjustments) => void;
   goToHistoryIndex: (index: number) => void;
 }
+
+/** Whether the tool panels look ready (controls not dimmed): the open
+ * photograph is ready, or the next one is still loading after a ready one
+ * (`panelsHeld`; the panels are inert then). Actions still check
+ * `selectedImage.isReady`. */
+export const panelsShowReady = (state: Pick<EditorState, 'selectedImage' | 'panelsHeld'>) =>
+  Boolean(state.selectedImage && (state.selectedImage.isReady || state.panelsHeld));
 
 export const useEditorStore = create<EditorState>((set) => ({
   selectedImage: null,
@@ -223,6 +235,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   isMaskRangeDragging: false,
   hasRenderedFirstFrame: false,
   holdingNativeFrame: false,
+  panelsHeld: false,
   nativeCropFrame: false,
   toolClipboard: null,
   nativeMaskOverlay: null,

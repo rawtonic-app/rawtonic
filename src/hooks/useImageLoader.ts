@@ -199,6 +199,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
                 adjustments: initialAdjusts,
                 history: [initialAdjusts],
                 historyIndex: 0,
+                panelsHeld: false,
                 originalSize: { width, height },
                 previewSize: {
                   width: Math.round(width * previewScale),
@@ -324,7 +325,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             if (!offline || useUIStore.getState().activeView === 'editor') {
               toast.error(`Failed to load image: ${err}`);
             }
-            setEditor({ selectedImage: null });
+            setEditor({ selectedImage: null, panelsHeld: false });
           }
         } finally {
           if (stillCurrent()) {

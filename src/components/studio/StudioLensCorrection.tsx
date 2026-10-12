@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import { Invokes } from "../ui/AppProperties";
@@ -54,7 +54,8 @@ export default function StudioLensCorrection() {
   const enabled = cameraMode
     ? Boolean(adjustments.lensDistortionParams)
     : Boolean(adjustments.lensMaker && adjustments.lensModel);
-  const ready = Boolean(selectedImage?.isReady);
+  // Keeps its look while the next photograph loads (the tools are inert).
+  const ready = useEditorStore(panelsShowReady);
   const exif = selectedImage?.exif ?? {};
 
   useEffect(() => {

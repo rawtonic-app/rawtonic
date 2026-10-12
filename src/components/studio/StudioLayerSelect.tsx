@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { Panel } from "../ui/AppProperties";
 
@@ -15,7 +15,7 @@ export default function StudioLayerSelect() {
     useShallow((s) => ({
       masks: s.adjustments.masks,
       activeMaskContainerId: s.activeMaskContainerId,
-      ready: Boolean(s.selectedImage?.isReady),
+      ready: panelsShowReady(s),
       setEditor: s.setEditor,
     })),
   );
@@ -33,6 +33,7 @@ export default function StudioLayerSelect() {
       value={current}
       disabled={!ready}
       onChange={(e) => {
+        if (!useEditorStore.getState().selectedImage?.isReady) return;
         const id = e.target.value;
         setEditor({
           activeMaskContainerId: id || null,
