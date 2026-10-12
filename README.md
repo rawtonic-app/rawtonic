@@ -135,12 +135,15 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **P** / **⇧X** / **U**      | pick / reject / clear the flag |
 | **Y**                       | before / after split           |
 | hold **\\**                 | whole photograph before        |
+| **N**                       | multi view of the selection    |
 | **C** / **R** / **B**       | crop / straighten / brush      |
 | **M**                       | show or hide the mask overlay  |
 | **J**                       | clipping warnings              |
 | **X**                       | proof margin                   |
 | **Tab** (on the photograph) | hide or show the panels        |
 | ⌘Z / ⇧⌘Z                    | undo / redo                    |
+
+The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 
 The keys follow what photographers already know from the big editors, and every shortcut can be changed in Settings.
 

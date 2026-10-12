@@ -489,11 +489,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => (libraryOpen ? watchVolumes() : undefined), [libraryOpen]);
 
   const mark = useCallback(
-    (flag: number) => {
+    (flag: number, only?: string[]) => {
       const selectedImage = useEditorStore.getState().selectedImage;
-      const paths = useUIStore.getState().activeView === "editor" && selectedImage
-        ? [selectedImage.path]
-        : [...useLibraryStore.getState().multiSelectedPaths];
+      const paths = only
+        ? [...only]
+        : useUIStore.getState().activeView === "editor" && selectedImage
+          ? [selectedImage.path]
+          : [...useLibraryStore.getState().multiSelectedPaths];
       if (!session || paths.length === 0) return;
       // Rapid P/X/U commands must reach SQLite in keyboard order. Apply only
       // acknowledged changes, and never paint a previous session's response.

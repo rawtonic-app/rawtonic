@@ -132,6 +132,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Lightroom's Survey key: the selected photographs side by side.
+    action: 'toggle_multi_view',
+    description: 'settings.keybinds.actions.toggle_multi_view',
+    defaultCombo: ['KeyN'],
+    section: 'view',
+  },
+  {
     action: 'toggle_fullscreen',
     description: 'settings.keybinds.actions.toggle_fullscreen',
     defaultCombo: ['KeyF'],

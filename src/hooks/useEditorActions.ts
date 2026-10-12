@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
+import { useMultiViewStore } from '../store/useMultiViewStore';
 import {
   Adjustments,
   AdjustmentsUpdate,
@@ -278,11 +279,17 @@ export function useEditorActions() {
 
   // Before/After (Y): the split with Capture One's movable divider. A
   // held \ shows the whole photograph before on top of it (startBeforePeek).
+  // The split is single-view only: asking for it in the multi view turns the
+  // multi view off (N brings it back and turns the split off, see
+  // MultiViewStage). The held peek works in the multi view too: it shows
+  // the primary cell (the live editor) before.
   const toggleSplitView = useCallback(() => {
     setEditor((state) => {
       if (state.splitView) return { splitView: false };
       const { appSettings, osPlatform } = useSettingsStore.getState();
       if (!state.selectedImage?.isReady || !splitViewAvailable(appSettings?.useWgpuRenderer, osPlatform)) return state;
+      const multiView = useMultiViewStore.getState();
+      if (multiView.active) multiView.setEnabled(false);
       return {
         splitView: true,
         ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
@@ -473,7 +480,7 @@ export function useEditorActions() {
   }, []);
 
   /** Apply some adjustments to `paths` (default: the selection, else the open
-   * photo), saving each recipe after its pending save. */
+   * photo), saving each recipe after its pending save; resolves once saved. */
   const applyAdjustmentsToPaths = useCallback(
     (adjustmentsToApply: Partial<Adjustments>, paths?: string[]) => {
       const { selectedImage, adjustments } = useEditorStore.getState();
@@ -489,7 +496,7 @@ export function useEditorActions() {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
 
-      afterRecipeSaves(pathsToUpdate, () =>
+      return afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
           pathsToUpdate,

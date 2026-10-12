@@ -109,6 +109,58 @@ fn banded_input_upload_matches_the_full_conversion() {
     println!("{checked} banded input uploads match the full conversion");
 }
 
+/// Thumbnail batches run on rayon's global pool and wait there for the GPU
+/// processor lock; a caller holding that lock must not need the pool for its
+/// input upload (an Edit-all write in the multi view froze every render).
+#[test]
+fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+    let context = context();
+    let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(64, 600, |x, y| {
+        image::Rgb([x as f32 / 64.0, y as f32 / 600.0, 0.5])
+    }));
+    let lock = Arc::new(Mutex::new(()));
+    let guard = lock.lock().unwrap();
+    // Every global pool thread waits for the lock.
+    let threads = rayon::current_num_threads();
+    let (started_tx, started_rx) = mpsc::channel();
+    for _ in 0..threads {
+        let (lock, started) = (lock.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started.send(()).unwrap();
+            drop(lock.lock().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    // The lock holder uploads (outside rayon, as the preview worker does).
+    let (done_tx, done_rx) = mpsc::channel();
+    let uploader = context.clone();
+    let source = image.clone();
+    std::thread::spawn(move || {
+        let texture = create_input_texture(&uploader.device, &uploader.queue, &source, 16);
+        done_tx.send(texture.is_ok()).unwrap();
+    });
+    let outside = done_rx.recv_timeout(Duration::from_secs(20));
+    // On a pool thread that holds the lock while the others wait for it.
+    let (done_tx, done_rx) = mpsc::channel();
+    let uploader = context.clone();
+    rayon::spawn(move || {
+        let texture = create_input_texture(&uploader.device, &uploader.queue, &image, 16);
+        done_tx.send(texture.is_ok()).unwrap();
+    });
+    let inside = done_rx.recv_timeout(Duration::from_secs(20));
+    drop(guard);
+    assert_eq!(outside, Ok(true), "upload outside rayon");
+    // The pool is busy until the lock is released; then it uploads too.
+    assert!(
+        inside == Ok(true) || done_rx.recv_timeout(Duration::from_secs(20)) == Ok(true),
+        "upload on a pool thread"
+    );
+}
+
 fn all_sub_mask() -> serde_json::Value {
     json!({"id":"all","type":"all","visible":true,"mode":"additive","parameters":{}})
 }
@@ -5769,7 +5821,7 @@ fn display_split_shows_the_before_left_of_the_divider() {
     let device = &context.device;
     let queue = &context.queue;
     let format = wgpu::TextureFormat::Rgba8Unorm;
-    let (pipeline, layout, split_layout) = create_display_pipeline(device, format).unwrap();
+    let (pipeline, layout, split_layout) = display_pipeline(device, format).unwrap();
     let (window_w, window_h) = (96u32, 48u32);
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Split test target"),

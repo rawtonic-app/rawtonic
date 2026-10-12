@@ -393,6 +393,15 @@ describe("panel keys (Lightroom's Tab, Shift+Tab, F6–F8)", () => {
   });
 });
 
+it("toggles the proof margin with X in Develop and saves it", () => {
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ selectedImage: { path: "/a.dng" } as never });
+  press("KeyX", "x");
+  expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(true);
+  press("KeyX", "x");
+  expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(false);
+});
+
 describe("Before/After keys", () => {
   const key = (type: "keydown" | "keyup", code: string, init: KeyboardEventInit = {}) =>
     window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...init }));
@@ -459,13 +468,4 @@ describe("Before/After keys", () => {
     key("keyup", "Backslash", { key: "\\" });
     expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: false });
   });
-});
-
-it("toggles the proof margin with X in Develop and saves it", () => {
-  useUIStore.setState({ activeView: "editor" });
-  useEditorStore.setState({ selectedImage: { path: "/a.dng" } as never });
-  press("KeyX", "x");
-  expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(true);
-  press("KeyX", "x");
-  expect(useSettingsStore.getState().appSettings?.viewerProofMargin).toBe(false);
 });

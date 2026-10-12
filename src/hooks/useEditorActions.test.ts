@@ -14,6 +14,7 @@ import {
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
+import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { toast } from 'react-toastify';
@@ -317,6 +318,15 @@ describe('before/after split', () => {
     useEditorStore.setState({ splitView: true });
     act(() => result.current.toggleSplitView());
     expect(useEditorStore.getState().splitView).toBe(false);
+  });
+
+  it('is single-view only: asking for it in the multi view turns the multi view off', () => {
+    useMultiViewStore.setState({ enabled: true, active: true });
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(true);
+    expect(useMultiViewStore.getState().enabled).toBe(false);
+    useMultiViewStore.setState({ enabled: true, active: false });
   });
 });
 

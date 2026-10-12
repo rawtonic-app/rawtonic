@@ -16,8 +16,12 @@ use crate::lut::Lut;
 #[path = "gpu_processing_tests.rs"]
 mod preview_tests;
 
+#[path = "multi_view.rs"]
+pub mod multi_view;
 #[path = "preview_layers.rs"]
 mod preview_layers;
+use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
+pub use multi_view::{MultiView, MultiViewCell};
 use preview_layers::{CURVE_LUT_SAMPLES, PreparedLayer, curve_lut, prepare_layers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -241,52 +245,10 @@ pub fn split_shows(
     split_x.is_some() && !frame_uncropped && before_frame_key == Some(frame_key)
 }
 
-pub struct WgpuDisplay {
-    pub surface: wgpu::Surface<'static>,
-    pub config: wgpu::SurfaceConfiguration,
-    pub pipeline: wgpu::RenderPipeline,
-    pub bind_group_layout: wgpu::BindGroupLayout,
-    pub sampler: wgpu::Sampler,
-    pub transform_buffer: wgpu::Buffer,
-    pub latest_transform: DisplayTransform,
-    pub current_bind_group: Option<wgpu::BindGroup>,
-    /// Set by each preview job before it presents; `None` hides the overlay.
-    pub overlay: Option<DisplayMaskOverlay>,
-    overlay_texture: Option<OverlayTexture>,
-    /// Bound while there is no overlay (the layout always has a mask texture).
-    empty_overlay_view: wgpu::TextureView,
-    pub geometry: DisplayGeometry,
-    /// While the next photograph opens, the old frame stays on screen with
-    /// its placement; the new photograph's placement waits here and is taken
-    /// with its first frame, so the viewer never shows a gap or a stretched
-    /// frame between them.
-    pub pending_geometry: Option<DisplayGeometry>,
-    /// The viewer's area (device pixels) while it shows the photograph to
-    /// fit, so a native activation can place the next one exactly as the
-    /// webview does (contain, centred); None while zoomed or cropping.
-    pub viewport: Option<[f32; 4]>,
-    /// Set by each preview job before it renders: whether its frame is the
-    /// uncropped crop-editing frame. Applied when that frame is presented.
-    pub next_frame_uncropped: bool,
-    frame_uncropped: bool,
-    /// Counts frames bound for presentation (profiling joins a preview job's
-    /// frame to the present that shows it).
-    frame_serial: u64,
-    /// The before/after divider's screen x (device pixels); `None` = no split.
-    pub split_x: Option<f32>,
-    /// Set by each preview job before it renders: the photograph and framing
-    /// of its frame (see `SplitBefore::frame_key`). Applied when presented.
-    pub next_frame_split_key: u64,
-    frame_split_key: u64,
-    split_before: Option<SplitBefore>,
-    split_bind_group_layout: wgpu::BindGroupLayout,
-    /// Bound while there is no before (the layout always has a texture).
-    empty_split_bind_group: wgpu::BindGroup,
-}
-
-/// The display pipeline for a target of `format`, with its two bind group
-/// layouts (frame and uniforms; the split's before).
-fn create_display_pipeline(
+/// The display's render pipeline (display.wgsl) for a `format` target and
+/// its two bind group layouts: frame (transform, image, sampler, mask
+/// overlay) and the split view's before.
+fn display_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
 ) -> Result<
@@ -399,6 +361,56 @@ fn create_display_pipeline(
     Ok((pipeline, bind_group_layout, split_bind_group_layout))
 }
 
+pub struct WgpuDisplay {
+    pub surface: wgpu::Surface<'static>,
+    pub config: wgpu::SurfaceConfiguration,
+    pub pipeline: wgpu::RenderPipeline,
+    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub sampler: wgpu::Sampler,
+    pub transform_buffer: wgpu::Buffer,
+    pub latest_transform: DisplayTransform,
+    pub current_bind_group: Option<wgpu::BindGroup>,
+    /// Set by each preview job before it presents; `None` hides the overlay.
+    pub overlay: Option<DisplayMaskOverlay>,
+    overlay_texture: Option<OverlayTexture>,
+    /// Bound while there is no overlay (the layout always has a mask texture).
+    empty_overlay_view: wgpu::TextureView,
+    pub geometry: DisplayGeometry,
+    /// While the next photograph opens, the old frame stays on screen with
+    /// its placement; the new photograph's placement waits here and is taken
+    /// with its first frame, so the viewer never shows a gap or a stretched
+    /// frame between them.
+    pub pending_geometry: Option<DisplayGeometry>,
+    /// The viewer's area (device pixels) while it shows the photograph to
+    /// fit, so a native activation can place the next one exactly as the
+    /// webview does (contain, centred); None while zoomed or cropping.
+    pub viewport: Option<[f32; 4]>,
+    /// Set by each preview job before it renders: whether its frame is the
+    /// uncropped crop-editing frame. Applied when that frame is presented.
+    pub next_frame_uncropped: bool,
+    frame_uncropped: bool,
+    /// Counts frames bound for presentation (profiling joins a preview job's
+    /// frame to the present that shows it).
+    frame_serial: u64,
+    /// The before/after divider's screen x (device pixels); `None` = no split.
+    pub split_x: Option<f32>,
+    /// Set by each preview job before it renders: the photograph and framing
+    /// of its frame (see `SplitBefore::frame_key`). Applied when presented.
+    pub next_frame_split_key: u64,
+    frame_split_key: u64,
+    split_before: Option<SplitBefore>,
+    split_bind_group_layout: wgpu::BindGroupLayout,
+    /// Bound while there is no before (the layout always has a texture).
+    empty_split_bind_group: wgpu::BindGroup,
+    /// The photograph of the bound frame and its texture (multi view: the
+    /// live frame is drawn only in its own cell, and stays as that cell's
+    /// frame when another photograph becomes the primary).
+    frame_path: Option<String>,
+    frame_texture: Option<(wgpu::Texture, u32, u32)>,
+    /// Other photographs shown beside the live one (multi_view.rs).
+    multi: MultiView,
+}
+
 impl WgpuDisplay {
     /// Builds the display pipeline for a configured window surface.
     pub fn new(
@@ -407,7 +419,7 @@ impl WgpuDisplay {
         config: wgpu::SurfaceConfiguration,
     ) -> Result<Self, String> {
         let (pipeline, bind_group_layout, split_bind_group_layout) =
-            create_display_pipeline(device, config.format)?;
+            display_pipeline(device, config.format)?;
 
         let transform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Transform Buffer"),
@@ -487,6 +499,9 @@ impl WgpuDisplay {
             split_before: None,
             split_bind_group_layout,
             empty_split_bind_group,
+            frame_path: None,
+            frame_texture: None,
+            multi: MultiView::default(),
             sampler,
             current_bind_group: None,
             overlay: None,
@@ -597,13 +612,15 @@ impl WgpuDisplay {
         self.split_before = None;
     }
 
+    /// The split is single-view only: the multi view never shows it.
     fn split_active(&self) -> bool {
-        split_shows(
-            self.split_x,
-            self.frame_uncropped,
-            self.split_before.as_ref().map(|before| before.frame_key),
-            self.frame_split_key,
-        )
+        !self.multi.is_active()
+            && split_shows(
+                self.split_x,
+                self.frame_uncropped,
+                self.split_before.as_ref().map(|before| before.frame_key),
+                self.frame_split_key,
+            )
     }
 
     /// Upload the overlay mask for a frame of `width` × `height` and set its
@@ -700,118 +717,189 @@ impl WgpuDisplay {
         self.overlay_texture.as_ref().unwrap().view.clone()
     }
 
+    /// Whether the bound frame is drawn: always in the single view; in the
+    /// multi view only when it shows the primary photograph where the
+    /// webview placed it (not the previous primary held while the next one's
+    /// first frame is on its way, nor a frame the webview has hidden).
+    fn live_frame_shown(&self) -> bool {
+        if !self.multi.is_active() {
+            return true;
+        }
+        self.frame_path
+            .as_deref()
+            .is_some_and(|path| Some(path) == self.multi.primary())
+            && self.latest_transform.rect[0] > -1.0e5
+    }
+
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        if let Some(bind_group) = &self.current_bind_group {
-            #[cfg(feature = "performance-profiling")]
-            let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
-            let output = match self.surface.get_current_texture() {
-                wgpu::CurrentSurfaceTexture::Success(tex)
-                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
-                wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
-                    self.surface.configure(device, &self.config);
-                    match self.surface.get_current_texture() {
-                        wgpu::CurrentSurfaceTexture::Success(tex)
-                        | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
-                        _ => panic!("Failed to acquire surface texture"),
-                    }
-                }
-                _ => return,
-            };
-            #[cfg(feature = "performance-profiling")]
-            drop(acquire_stage);
-            #[cfg(feature = "performance-profiling")]
-            let _present_stage =
-                crate::performance::PerformanceStage::new("display_submit_present");
-            let view = output
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let split_active = self.split_active();
-            self.latest_transform.split = [
-                if split_active { 1.0 } else { 0.0 },
-                self.split_x.unwrap_or(0.0),
-                0.0,
-                0.0,
-            ];
-            queue.write_buffer(
-                &self.transform_buffer,
-                0,
-                bytemuck::bytes_of(&self.latest_transform),
-            );
-            let split_bind_group = match (&self.split_before, split_active) {
-                (Some(before), true) => &before.bind_group,
-                _ => &self.empty_split_bind_group,
-            };
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: self.latest_transform.bg_primary[0] as f64,
-                                g: self.latest_transform.bg_primary[1] as f64,
-                                b: self.latest_transform.bg_primary[2] as f64,
-                                a: self.latest_transform.bg_primary[3] as f64,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: NonZero::new(0),
-                });
-                let clip_x1 = self.latest_transform.clip[0].max(0.0);
-                let clip_y1 = self.latest_transform.clip[1].max(0.0);
-                let clip_x2 =
-                    (self.latest_transform.clip[0] + self.latest_transform.clip[2]).max(0.0);
-                let clip_y2 =
-                    (self.latest_transform.clip[1] + self.latest_transform.clip[3]).max(0.0);
-
-                let final_clip_x = clip_x1.floor() as u32;
-                let final_clip_y = clip_y1.floor() as u32;
-                let final_clip_w = (clip_x2.ceil() as u32).saturating_sub(final_clip_x);
-                let final_clip_h = (clip_y2.ceil() as u32).saturating_sub(final_clip_y);
-
-                let max_x = self.config.width;
-                let max_y = self.config.height;
-
-                if final_clip_x < max_x && final_clip_y < max_y {
-                    let clamped_width = final_clip_w.min(max_x - final_clip_x);
-                    let clamped_height = final_clip_h.min(max_y - final_clip_y);
-
-                    if clamped_width > 0 && clamped_height > 0 {
-                        rpass.set_scissor_rect(
-                            final_clip_x,
-                            final_clip_y,
-                            clamped_width,
-                            clamped_height,
-                        );
-
-                        rpass.set_pipeline(&self.pipeline);
-                        rpass.set_bind_group(0, bind_group, &[]);
-                        rpass.set_bind_group(1, split_bind_group, &[]);
-                        rpass.draw(0..4, 0..1);
-                    }
+        let multi = self.multi.is_active();
+        if self.current_bind_group.is_none() && !multi {
+            return;
+        }
+        #[cfg(feature = "performance-profiling")]
+        let acquire_stage = crate::performance::PerformanceStage::new("display_acquire");
+        let output = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(tex)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                self.surface.configure(device, &self.config);
+                match self.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(tex)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => tex,
+                    _ => panic!("Failed to acquire surface texture"),
                 }
             }
-            queue.submit(Some(encoder.finish()));
-            output.present();
-            // Handed to the window server, not yet on screen. Pointer
-            // sessions in the webview log join these by wall-clock time.
-            #[cfg(feature = "performance-profiling")]
-            log::info!(
-                "[PERF] {}",
-                serde_json::json!({
-                    "stage": "display_present", "epoch_ms": crate::performance::epoch_ms(),
-                    "frame": self.frame_serial
-                })
+            _ => return,
+        };
+        #[cfg(feature = "performance-profiling")]
+        drop(acquire_stage);
+        #[cfg(feature = "performance-profiling")]
+        let _present_stage = crate::performance::PerformanceStage::new("display_submit_present");
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        // The multi view's gaps take the viewer's background, as the area
+        // around a single photograph does.
+        let clear = if multi {
+            self.multi.prepare(
+                queue,
+                [self.config.width as f32, self.config.height as f32],
+                self.latest_transform.bg_secondary,
+            );
+            self.latest_transform.bg_secondary
+        } else {
+            self.latest_transform.bg_primary
+        };
+        // In the multi view the live frame covers exactly the primary's cell,
+        // whatever clip the webview last sent (it follows the editor's
+        // container a moment later when the primary changes).
+        let mut transform = self.latest_transform;
+        if let Some(cell) = self.multi.primary().and_then(|path| self.multi.cell(path)) {
+            transform.clip = cell.area;
+        }
+        let split_active = self.split_active();
+        transform.split = [
+            if split_active { 1.0 } else { 0.0 },
+            self.split_x.unwrap_or(0.0),
+            0.0,
+            0.0,
+        ];
+        self.latest_transform.split = transform.split;
+        queue.write_buffer(&self.transform_buffer, 0, bytemuck::bytes_of(&transform));
+        let before = match (&self.split_before, split_active) {
+            (Some(before), true) => &before.bind_group,
+            _ => &self.empty_split_bind_group,
+        };
+        let primary = self
+            .current_bind_group
+            .as_ref()
+            .filter(|_| self.live_frame_shown())
+            .map(|bind_group| PrimaryDraw {
+                bind_group,
+                before,
+                clip: transform.clip,
+            });
+        encode_display_pass(
+            &mut encoder,
+            &view,
+            [self.config.width, self.config.height],
+            DisplayPass {
+                pipeline: &self.pipeline,
+                empty_before: &self.empty_split_bind_group,
+            },
+            clear,
+            multi.then_some(&self.multi),
+            primary,
+        );
+        queue.submit(Some(encoder.finish()));
+        output.present();
+        // Handed to the window server, not yet on screen. Pointer
+        // sessions in the webview log join these by wall-clock time.
+        #[cfg(feature = "performance-profiling")]
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({
+                "stage": "display_present", "epoch_ms": crate::performance::epoch_ms(),
+                "frame": self.frame_serial, "multi_view_cells": self.multi.cells().len()
+            })
+        );
+    }
+
+    fn bindings(&self) -> DisplayBindings<'_> {
+        DisplayBindings {
+            layout: &self.bind_group_layout,
+            sampler: &self.sampler,
+            empty_overlay: &self.empty_overlay_view,
+        }
+    }
+
+    /// The multi view shown now (empty: the single view).
+    pub fn multi_view(&self) -> &MultiView {
+        &self.multi
+    }
+
+    /// Shows `cells` beside each other with `primary` as the live photograph
+    /// (no cells: back to the single view, releasing every cell texture).
+    /// When the primary changes, the old primary's live frame stays as its
+    /// cell's frame until that cell is rendered.
+    pub fn set_multi_view(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        primary: Option<String>,
+        cells: Vec<MultiViewCell>,
+    ) {
+        if cells.is_empty() {
+            self.multi.clear();
+            return;
+        }
+        let old_primary = self.multi.primary().map(str::to_string);
+        let mut multi = std::mem::take(&mut self.multi);
+        multi.set_layout(primary.clone(), cells);
+        if let (Some(old), Some(frame)) = (old_primary, self.frame_path.as_deref())
+            && primary.as_deref() != Some(old.as_str())
+            && frame == old
+            && let Some((texture, width, height)) = &self.frame_texture
+        {
+            multi.adopt_live_frame(
+                device,
+                queue,
+                &self.bindings(),
+                &old,
+                texture,
+                *width,
+                *height,
             );
         }
+        self.multi = multi;
+    }
+
+    /// Keeps a secondary cell's developed frame (display-encoded RGBA8).
+    #[allow(clippy::too_many_arguments)]
+    pub fn upload_cell(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        path: &str,
+        key: u64,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) {
+        let mut multi = std::mem::take(&mut self.multi);
+        multi.upload(
+            device,
+            queue,
+            &self.bindings(),
+            path,
+            key,
+            width,
+            height,
+            rgba,
+        );
+        self.multi = multi;
     }
 }
 
@@ -1029,6 +1117,20 @@ fn to_rgba_f16(img: &DynamicImage) -> Vec<f16> {
 /// Rows per input upload band; 256 rows of a 50 MP frame are 16 MB as f16.
 const INPUT_UPLOAD_BAND_ROWS: u32 = 256;
 
+/// Threads converting input textures for callers outside rayon (the
+/// preview, export and multi view workers), apart from the global pool.
+fn upload_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(8));
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .thread_name(|i| format!("gpu-upload-{i}"))
+            .build()
+            .expect("GPU upload thread pool")
+    })
+}
+
 /// Creates the Rgba16Float input texture of `image` band by band.
 ///
 /// Uploading in one call needs a full f16 copy and an equally large staging
@@ -1071,10 +1173,25 @@ fn create_input_texture(
     for y in (0..height).step_by(band_rows as usize) {
         let rows = band_rows.min(height - y);
         let texels = &mut band[..row_texels * rows as usize];
-        texels
-            .par_chunks_mut(row_texels)
-            .enumerate()
-            .for_each(|(row, texels)| rgba_f16_row(image, y + row as u32, texels));
+        let convert = |texels: &mut [f16]| {
+            texels
+                .par_chunks_mut(row_texels)
+                .enumerate()
+                .for_each(|(row, texels)| rgba_f16_row(image, y + row as u32, texels));
+        };
+        if rayon::current_thread_index().is_some() {
+            // A rayon worker (thumbnails, batch work) may hold the GPU
+            // processor lock here: waiting for rayon jobs could run another
+            // task of the pool on this thread that waits for the same lock.
+            for (row, texels) in texels.chunks_mut(row_texels).enumerate() {
+                rgba_f16_row(image, y + row as u32, texels);
+            }
+        } else {
+            // Not the global pool: its threads may all be waiting for the
+            // processor lock this caller holds (thumbnail batches), and the
+            // conversion would never run.
+            upload_pool().install(|| convert(texels));
+        }
         // Copied into a staging buffer at once, so the band is reusable.
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -4543,6 +4660,10 @@ pub fn process_and_get_dynamic_image_inner(
             label: None,
         });
         display.current_bind_group = Some(bind_group);
+        display.frame_path = display_identity
+            .as_ref()
+            .map(|identity| identity.path.clone());
+        display.frame_texture = Some((targets.output_texture.clone(), width, height));
         display.frame_serial += 1;
         #[cfg(feature = "performance-profiling")]
         log::info!(

@@ -38,7 +38,7 @@ import {
   Flag,
   FlagOff,
 } from "lucide-react";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useProcessStore } from "../../store/useProcessStore";
@@ -56,6 +56,9 @@ import StudioNavigation, { type FolderActions } from "./StudioNavigation";
 import StudioBrowser from "./StudioBrowser";
 import StudioFilters from "./StudioFilters";
 import StudioToolBar from "./StudioToolBar";
+import MultiViewStage from "./MultiViewStage";
+import MultiViewButtons from "./MultiViewButtons";
+import { inSingleView } from "../../store/useMultiViewStore";
 import StudioLayerSelect from "./StudioLayerSelect";
 import StudioToolPopover, { toolPopoverApplies } from "./StudioToolPopover";
 import { stepBrushSize, toggleRemoveObjects, useStudioTools, type StudioTool } from "./useStudioTools";
@@ -81,7 +84,7 @@ import type { FlagCounts } from "../../utils/culling";
 import { useSessionBar } from "../session/sessionBar";
 import { openMaskingTools, useAiModelLifecycle } from "../../hooks/useAiMasking";
 import "./studio.css";
-import { focusWorkspaceControl } from "./workspaceInteractions";
+import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 
 interface Props {
   files: ImageFile[];
@@ -151,6 +154,8 @@ function EdgeStrip({
   );
 }
 
+const readyNow = () => Boolean(useEditorStore.getState().selectedImage?.isReady);
+
 export default function StudioWorkspace(props: Props) {
   const {
     files,
@@ -180,6 +185,9 @@ export default function StudioWorkspace(props: Props) {
   const splitAvailable = useSettingsStore((s) =>
     splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
   );
+  // While the next photograph loads the controls keep their look; clicks
+  // wait until it is ready.
+  const panelsReady = useEditorStore(panelsShowReady);
   // One before/after tool: the split on Y and, held, the whole photograph
   // before on \ (the peek works without the split too).
   const beforeAfterTitle = useSettingsStore((s) => {
@@ -350,8 +358,10 @@ export default function StudioWorkspace(props: Props) {
     } else dialog.current?.close();
   }, [drawer]);
   const showDevelop = () => {
-    if (selectedImage) useUIStore.getState().setUI({ activeView: "editor" });
-    else if (files[0]) onOpen(files[0].path);
+    if (selectedImage) {
+      reselectForDevelop(selectedImage.path);
+      useUIStore.getState().setUI({ activeView: "editor" });
+    } else if (files[0]) onOpen(files[0].path);
   };
   // A press on the photograph while a context menu is open only closes the
   // menu (on its mouse down); the viewer must not also zoom or pan.
@@ -732,8 +742,8 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={withShortcut(t("studio.workspace.viewer.undo"), "⌘Z")}
                     aria-label={t("studio.workspace.viewer.undo")}
-                    disabled={!selectedImage?.isReady || historyIndex <= 0}
-                    onClick={() => useEditorStore.getState().undo()}
+                    disabled={!panelsReady || historyIndex <= 0}
+                    onClick={() => readyNow() && useEditorStore.getState().undo()}
                   >
                     <Undo2 size={15} />
                   </button>
@@ -741,10 +751,10 @@ export default function StudioWorkspace(props: Props) {
                     title={withShortcut(t("studio.workspace.viewer.redo"), "⇧⌘Z")}
                     aria-label={t("studio.workspace.viewer.redo")}
                     disabled={
-                      !selectedImage?.isReady ||
+                      !panelsReady ||
                       historyIndex >= history.length - 1
                     }
-                    onClick={() => useEditorStore.getState().redo()}
+                    onClick={() => readyNow() && useEditorStore.getState().redo()}
                   >
                     <Redo2 size={15} />
                   </button>
@@ -752,12 +762,13 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     aria-pressed={splitView}
                     title={beforeAfterTitle}
-                    onClick={toggleSplitView}
-                    disabled={!selectedImage?.isReady || !splitAvailable}
+                    onClick={() => readyNow() && toggleSplitView()}
+                    disabled={!panelsReady || !splitAvailable}
                   >
                     <Columns2 size={14} />
                     <span className="optional-label">{t("studio.workspace.viewer.beforeAfter")}</span>
                   </button>
+                  <MultiViewButtons />
                 </div>
                 <StudioToolBar />
                 <StudioLayerSelect />
@@ -771,7 +782,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <button
                     title={withShortcut(t("studio.workspace.viewer.actualPixels"), ".")}
-                    onClick={() => onZoom(1)}
+                    onClick={() => inSingleView(() => onZoom(1))}
                   >
                     100%
                   </button>
@@ -781,7 +792,7 @@ export default function StudioWorkspace(props: Props) {
                     title={t("studio.workspace.viewer.zoom")}
                     value=""
                     onChange={(e) => {
-                      if (e.target.value) onZoom(Number(e.target.value));
+                      if (e.target.value) { const zoom = Number(e.target.value); inSingleView(() => onZoom(zoom)); }
                     }}
                   >
                     <option value="" disabled>
@@ -794,8 +805,8 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={t("studio.workspace.viewer.resetAllTitle")}
                     aria-label={t("studio.workspace.viewer.resetAll")}
-                    disabled={!selectedImage?.isReady}
-                    onClick={() => onReset(selectedImage ? [selectedImage.path] : [])}
+                    disabled={!panelsReady}
+                    onClick={() => readyNow() && onReset(selectedImage ? [selectedImage.path] : [])}
                   >
                     <RotateCcw size={13} />
                     <span className="optional-label">{t("studio.workspace.viewer.reset")}</span>
@@ -818,13 +829,15 @@ export default function StudioWorkspace(props: Props) {
               >
                 {selectedImage ? (
                   <>
-                    <Editor
-                      studioMode
-                      transformWrapperRef={transformWrapperRef}
-                      onBackToLibrary={onBack}
-                      onContextMenu={onViewerContextMenu}
-                      onImageSelect={onOpen}
-                    />
+                    <MultiViewStage files={files} onOpen={onOpen} onRate={onRate}>
+                      <Editor
+                        studioMode
+                        transformWrapperRef={transformWrapperRef}
+                        onBackToLibrary={onBack}
+                        onContextMenu={onViewerContextMenu}
+                        onImageSelect={onOpen}
+                      />
+                    </MultiViewStage>
                     {toolPopover && (
                       <StudioToolPopover
                         x={toolPopover.x}
@@ -920,8 +933,8 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={withShortcut(t("studio.workspace.footer.copyAdjustments"), "⇧⌘C")}
                     aria-label={t("studio.workspace.footer.copyAdjustments")}
-                    onClick={() => onCopy()}
-                    disabled={!selectedImage?.isReady}
+                    onClick={() => readyNow() && onCopy()}
+                    disabled={!panelsReady}
                   >
                     <Copy size={13} />
                     <span className="optional-label">{t("studio.workspace.footer.copy")}</span>
@@ -929,9 +942,9 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={withShortcut(t("studio.workspace.footer.pasteAdjustments"), "⇧⌘V")}
                     aria-label={t("studio.workspace.footer.pasteAdjustments")}
-                    disabled={!selectedImage?.isReady}
+                    disabled={!panelsReady}
                     onClick={() =>
-                      onPaste(selectedImage ? [selectedImage.path] : [])
+                      readyNow() && onPaste(selectedImage ? [selectedImage.path] : [])
                     }
                   >
                     <ClipboardPaste size={13} />
@@ -1052,7 +1065,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                 </label>
               </div>
-              <StudioBrowser {...browserProps} size={size} />
+              <StudioBrowser {...browserProps} size={size} onClearSelection={clearLibrarySelection} />
               {panels.bars && (
               <div className="studio-library-footer">
                 <span>

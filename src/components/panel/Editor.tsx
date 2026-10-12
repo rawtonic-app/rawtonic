@@ -24,6 +24,7 @@ import { useEditorStore } from '../../store/useEditorStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
+import { useMultiViewStore } from '../../store/useMultiViewStore';
 import { useAiMasking } from '../../hooks/useAiMasking';
 import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskOverlay';
 import { requestLiveMaskRender, withLiveMaskContainer } from '../../utils/liveMaskRender';
@@ -416,7 +417,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     return null;
   }, [selectedImage, adjustments.crop, adjustments.orientationSteps]);
 
-  const proofMarginEnabled = appSettings?.viewerProofMargin ?? false;
+  // In the multi view the proof margin goes around the whole grid
+  // (MultiViewStage), not around the primary inside its cell.
+  const multiViewActive = useMultiViewStore((s) => s.active);
+  const proofMarginEnabled = (appSettings?.viewerProofMargin ?? false) && !multiViewActive;
   const proofMarginPercent = appSettings?.viewerProofMarginPercent ?? undefined;
   const proofMargin = useMemo(
     () => ({ enabled: proofMarginEnabled, percent: proofMarginPercent }),

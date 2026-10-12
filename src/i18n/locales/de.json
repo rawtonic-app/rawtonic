@@ -1101,6 +1101,7 @@
         "toggle_mask_overlay": "Maske ein-/ausblenden",
         "toggle_masks": "Maskieren-Panel ein-/ausblenden",
         "toggle_metadata": "Metadaten-Werkzeug zeigen",
+        "toggle_multi_view": "Mehrfachansicht: ausgewählte Fotos nebeneinander",
         "toggle_proof_margin": "Prüfrand ein/aus",
         "toggle_right_panel": "Rechtes Panel ein-/ausblenden",
         "toggle_side_panels": "Seitenpanels aus-/einblenden",
@@ -2368,6 +2369,24 @@
         "readFailed": "Metadaten konnten nicht gelesen werden: {{error}}",
         "saveFailed": "Metadaten konnten nicht gespeichert werden: {{error}}"
       }
+    },
+    "multiView": {
+      "controls": "{{name}} markieren, bewerten oder entfernen",
+      "editAll": "Alle ausgewählten bearbeiten",
+      "editAllTitle": "Alle ausgewählten bearbeiten: Änderungen am Hauptfoto gehen auch an jedes andere gezeigte Foto (orange Rahmen)",
+      "makePrimary": "{{name}} bearbeiten (zum Hauptfoto machen)",
+      "more_one": "und {{n}} weiteres",
+      "more_other": "und {{n}} weitere",
+      "pick": "{{name}} auswählen",
+      "rate_one": "{{name}} mit {{count}} Stern bewerten",
+      "rate_other": "{{name}} mit {{count}} Sternen bewerten",
+      "rating_one": "{{count}} Stern",
+      "rating_other": "{{count}} Sterne",
+      "reject": "{{name}} ablehnen",
+      "remove": "{{name}} aus der Auswahl entfernen",
+      "selectSeveral": "mehrere Fotos auswählen, um sie zu vergleichen",
+      "toggle": "Mehrfachansicht",
+      "unsupported": "Die Mehrfachansicht braucht die native Fotoanzeige, die auf diesem System nicht verfügbar ist"
     },
     "people": {
       "aria": "Personenmaske",

@@ -1154,6 +1154,7 @@
         "toggle_mask_overlay": "Mostrar u ocultar la máscara",
         "toggle_masks": "Alternar panel de Máscaras",
         "toggle_metadata": "Alternar panel de Metadatos",
+        "toggle_multi_view": "Vista múltiple: fotos seleccionadas una junto a otra",
         "toggle_proof_margin": "Activar/desactivar margen de prueba",
         "toggle_right_panel": "Alternar panel derecho",
         "toggle_side_panels": "Ocultar o mostrar los paneles laterales",
@@ -2441,6 +2442,27 @@
         "readFailed": "No se pudieron leer los metadatos: {{error}}",
         "saveFailed": "No se pudieron guardar los metadatos: {{error}}"
       }
+    },
+    "multiView": {
+      "controls": "Marcar, valorar o quitar {{name}}",
+      "editAll": "Editar todas las seleccionadas",
+      "editAllTitle": "Editar todas las seleccionadas: los cambios en la foto principal se aplican también a cada otra foto mostrada (marcos naranjas)",
+      "makePrimary": "Editar {{name}} (convertirla en la foto principal)",
+      "more_one": "y {{n}} más",
+      "more_many": "y {{n}} más",
+      "more_other": "y {{n}} más",
+      "pick": "Elegir {{name}}",
+      "rate_one": "Valorar {{name}} con {{count}} estrella",
+      "rate_many": "Valorar {{name}} con {{count}} estrellas",
+      "rate_other": "Valorar {{name}} con {{count}} estrellas",
+      "rating_one": "{{count}} estrella",
+      "rating_many": "{{count}} estrellas",
+      "rating_other": "{{count}} estrellas",
+      "reject": "Rechazar {{name}}",
+      "remove": "Quitar {{name}} de la selección",
+      "selectSeveral": "selecciona varias fotos para compararlas",
+      "toggle": "Vista múltiple",
+      "unsupported": "La vista múltiple necesita la visualización nativa de fotos, que no está disponible en este sistema"
     },
     "people": {
       "aria": "Máscara de personas",

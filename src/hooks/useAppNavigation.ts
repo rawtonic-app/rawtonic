@@ -21,6 +21,9 @@ import type { PreloadedLibraryData } from './useAppInitialization';
 
 /** Longest time the previous photograph's frame stands in for the next one. */
 const HOLD_FRAME_MS = 700;
+/** Longest time the panels keep the previous photograph's look while the
+ * next one loads (after that they show it is not ready yet). */
+export const HOLD_PANELS_MS = 2000;
 
 type ImageCacheEntry = Parameters<typeof globalImageCache.set>[1];
 
@@ -161,7 +164,18 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         wasInEditor &&
         editorState.hasRenderedFirstFrame &&
         useSettingsStore.getState().appSettings?.useWgpuRenderer !== false;
-      setEditor({ hasRenderedFirstFrame: false, nativeCropFrame: false, holdingNativeFrame });
+      // Stepping from a ready photograph (arrows, filmstrip, multi view):
+      // the panels keep showing its values until the next one's arrive.
+      const panelsHeld = wasInEditor && Boolean(selectedImage?.isReady);
+      setEditor({ hasRenderedFirstFrame: false, nativeCropFrame: false, holdingNativeFrame, panelsHeld });
+      if (panelsHeld) {
+        setTimeout(() => {
+          const now = useEditorStore.getState();
+          if (now.selectedImage?.path === path && now.panelsHeld && !now.selectedImage.isReady) {
+            useEditorStore.getState().setEditor({ panelsHeld: false });
+          }
+        }, HOLD_PANELS_MS);
+      }
       if (holdingNativeFrame) {
         setTimeout(() => {
           const now = useEditorStore.getState();
@@ -231,7 +245,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       const imageFile = useLibraryStore.getState().imageList.find((img) => img.path === path);
       setEditor({
         selectedImage: {
-          exif: null,
+          exif: imageFile?.exif ?? null,
           group_id: imageFile?.group_id ?? null,
           height: 0,
           isRaw: false,
@@ -244,8 +258,8 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         },
         originalSize: { width: 0, height: 0 },
         previewSize: { width: 0, height: 0 },
-        histogram: null,
-        waveform: null,
+        // Held panels keep the last histogram until the next one arrives.
+        ...(panelsHeld ? {} : { histogram: null, waveform: null }),
         uncroppedAdjustedPreviewUrl: null,
       });
 

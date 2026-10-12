@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeftRight } from "lucide-react";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import type { Adjustments } from "../../utils/adjustments";
@@ -37,6 +37,7 @@ export default function StudioToolCopy({
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const clipboard = useEditorStore((s) => s.toolClipboard);
+  const panelsReady = useEditorStore(panelsShowReady);
   const { applyAdjustmentsToPaths } = useEditorActions();
   const keys = params.map(([key]) => key);
 
@@ -65,9 +66,10 @@ export default function StudioToolCopy({
         type="button"
         title={t("studio.tools.copy.buttonTitle", { tool: label })}
         aria-label={t("studio.tools.copy.aria", { tool: label })}
-        disabled={!selectedImage?.isReady}
+        disabled={!panelsReady}
         onClick={(e) => {
           e.preventDefault();
+          if (!useEditorStore.getState().selectedImage?.isReady) return;
           if (e.altKey) {
             copy(keys);
           } else if (e.shiftKey) {
