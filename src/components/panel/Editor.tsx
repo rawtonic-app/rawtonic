@@ -1399,6 +1399,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   useEffect(() => {
     const rootStyle = getComputedStyle(document.documentElement);
     const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(24, 24, 24)';
+    // The photo alone (F) uses the chosen viewer background over the whole
+    // screen too (one background setting, as Capture One keeps its viewer
+    // background in full screen); otherwise the app's chrome colour lies
+    // outside the viewer.
+    const viewerRgba = viewerBackgroundRgba(viewerBackground);
 
     wgpuStateRef.current = {
       useWgpuRenderer: appSettings?.useWgpuRenderer,
@@ -1410,13 +1415,14 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       showOriginal,
       cropBox,
       cropRotation,
-      bgPrimary: parseRgb(bgPrimaryStr),
+      bgPrimary: isFullScreen ? viewerRgba : parseRgb(bgPrimaryStr),
       // Around the photograph (proof margin and empty viewer) natively.
-      bgSecondary: viewerBackgroundRgba(viewerBackground),
+      bgSecondary: viewerRgba,
     };
   }, [
     appSettings?.useWgpuRenderer,
     viewerBackground,
+    isFullScreen,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
     hasRenderedFirstFrame,
@@ -1434,6 +1440,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }, [
     appSettings?.useWgpuRenderer,
     viewerBackground,
+    isFullScreen,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
     hasRenderedFirstFrame,

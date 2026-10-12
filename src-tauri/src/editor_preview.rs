@@ -1285,19 +1285,6 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
 /// developing another multi view cell live.
 const LIVE_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 
-/// Where a photograph of `width` × `height` (as shown: cropped and turned)
-/// sits in the viewer's `viewport` at fit: contained and centred, as the
-/// webview's `useImageRenderSize` places it.
-pub(crate) fn fit_placement(viewport: [f32; 4], width: f32, height: f32) -> [f32; 4] {
-    let [x, y, w, h] = viewport;
-    let (fit_w, fit_h) = if width / height > w / h {
-        (w, w * height / width)
-    } else {
-        (h * width / height, h)
-    };
-    [x + (w - fit_w) / 2.0, y + (h - fit_h) / 2.0, fit_w, fit_h]
-}
-
 /// Shows the photograph at `path` at once, natively (Capture One swaps its
 /// preview files the same way): its preview proxy (in memory or on disk) is
 /// developed with its recipe (`adjustments` from the editor's cache, else
@@ -1398,7 +1385,7 @@ pub(crate) async fn activate_photo(
         _ if steps % 2 == 1 => (proxy.full_height as f32, proxy.full_width as f32),
         _ => (proxy.full_width as f32, proxy.full_height as f32),
     };
-    let rect = fit_placement(viewport, shown_w, shown_h);
+    let rect = gpu_processing::fit_placement(viewport, shown_w, shown_h);
     // The preview job renders the proxy, not the previous photograph's decode.
     {
         let mut original = state

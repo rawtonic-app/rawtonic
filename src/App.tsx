@@ -13,6 +13,7 @@ import i18n from 'i18next';
 import { epochOf, PerfProfiler, reportForcedLayout, reportPerformance, usePerformanceDiagnostics } from './hooks/usePerformanceDiagnostics';
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { refocusWebview } from './utils/photoFullScreen';
 import { ToastContainer, toast, Slide } from 'react-toastify';
 import clsx from 'clsx';
 
@@ -415,8 +416,14 @@ function App() {
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
+    let known: boolean | null = null;
     const checkFullscreen = async () => {
-      setUI({ isWindowFullScreen: await appWindow.isFullscreen() });
+      const isWindowFullScreen = await appWindow.isFullscreen();
+      setUI({ isWindowFullScreen });
+      // Entering or leaving full screen by any means (F, the green button,
+      // ⌃⌘F) leaves the web view without keyboard focus on macOS.
+      if (known !== null && known !== isWindowFullScreen) void refocusWebview();
+      known = isWindowFullScreen;
     };
     checkFullscreen();
     const unlistenPromise = appWindow.onResized(checkFullscreen);
