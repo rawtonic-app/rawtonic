@@ -67,6 +67,31 @@ export function neutralWhiteBalance([r, g, b]: Rgb) {
   return { temperature: clamp100(25 * t), tint: clamp100(100 * tint) };
 }
 
+/** [`neutralWhiteBalance`] in the sliders' whole steps (a picked 1.6009 is
+ * noise, and does not fit the value field). */
+export function neutralSliders(rgb: Rgb) {
+  const exact = neutralWhiteBalance(rgb);
+  return exact && { temperature: Math.round(exact.temperature), tint: Math.round(exact.tint) };
+}
+
+/** Auto white balance for `image`, as recipe values. RAWs: the Kelvin and
+ * tint of the backend's Auto (fitted to Camera Raw's), relative sliders
+ * cleared. Files without a camera calibration (JPEG, TIFF, some 4-colour
+ * sensors): the relative sliders that neutralise the preview's grey world.
+ * `null` while the photo's preview is not ready. */
+export async function autoWhiteBalance(image: SelectedImage): Promise<Partial<Adjustments> | null> {
+  if (image.isRaw) {
+    const kelvin = await invoke<{ temperature: number; tint: number } | null>(Invokes.AutoWhiteBalance, {
+      path: image.path,
+    });
+    if (kelvin) {
+      return { whiteBalance: 'auto', wbTemperature: kelvin.temperature, wbTint: kelvin.tint, temperature: 0, tint: 0 };
+    }
+  }
+  const grey = await invoke<Rgb | null>(Invokes.SamplePreviewGreyWorld, { path: image.path });
+  return grey && neutralSliders(grey);
+}
+
 export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   const stillCurrent = () => {
     const current = useEditorStore.getState();
@@ -101,7 +126,7 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
         };
       }
     }
-    return neutralWhiteBalance(linear);
+    return neutralSliders(linear);
   }
   // The CPU-rendered fallback only has the developed image: correct the
   // remaining cast there on top of the current values. A camera JPEG is only a
@@ -113,8 +138,8 @@ export async function whiteBalanceForCurrentPreview(request: PreviewSample) {
   const correction = neutralWhiteBalance(rgb.map((channel) => Math.pow(channel / 255, 2.2)) as Rgb);
   if (!correction) return null;
   return {
-    temperature: clamp100((request.adjustments.temperature ?? 0) + correction.temperature),
-    tint: clamp100((request.adjustments.tint ?? 0) + correction.tint),
+    temperature: Math.round(clamp100((request.adjustments.temperature ?? 0) + correction.temperature)),
+    tint: Math.round(clamp100((request.adjustments.tint ?? 0) + correction.tint)),
   };
 }
 

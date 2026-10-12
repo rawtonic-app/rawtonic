@@ -1047,6 +1047,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Ajust automàtic",
+        "auto_white_balance": "Balanç de blancs automàtic",
         "brush_size_down": "Reduir mida del pinzell",
         "brush_size_up": "Augmentar mida del pinzell",
         "color_label_blue": "Etiqueta de color: Blau",
@@ -1710,6 +1711,8 @@
         "turnOn": "Activa {{tool}}"
       },
       "whiteBalance": {
+        "auto": "Balanç de blancs automàtic",
+        "autoTitle": "Balanç de blancs automàtic ({{shortcut}})",
         "camera": "Balanç de blancs de la càmera",
         "picker": "Comptagotes de balanç de blancs",
         "pickerOnBackground": "El comptagotes de balanç de blancs està disponible al fons",

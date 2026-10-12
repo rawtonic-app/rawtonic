@@ -151,6 +151,7 @@ export enum Invokes {
   SampleLumaRange = 'sample_luma_range',
   SamplePreviewColor = 'sample_preview_color',
   SamplePreviewWhiteBalance = 'sample_preview_white_balance',
+  SamplePreviewGreyWorld = 'sample_preview_grey_world',
   SetColorLabelForPaths = 'set_color_label_for_paths',
   SetRatingForPaths = 'set_rating_for_paths',
   ShowInFinder = 'show_in_finder',

@@ -352,9 +352,17 @@ pub fn process_and_get_dynamic_image_with_analytics(
 /// multiplies. Values are scene-linear for RAW and linearised sRGB otherwise.
 fn mean_linear_rgb(image: &DynamicImage, is_raw: bool, x: f64, y: f64) -> Option<[f64; 3]> {
     let roi = preview_sample_roi(image.width(), image.height(), x, y)?;
-    let patch = image
-        .crop_imm(roi.x, roi.y, roi.width, roi.height)
-        .to_rgb32f();
+    linear_mean(&image.crop_imm(roi.x, roi.y, roi.width, roi.height), is_raw)
+}
+
+/// Mean linear RGB of the whole preview input (grey world): what Auto white
+/// balance neutralises for files without a camera calibration.
+fn grey_world_rgb(image: &DynamicImage, is_raw: bool) -> Option<[f64; 3]> {
+    linear_mean(&image.thumbnail(512, 512), is_raw)
+}
+
+fn linear_mean(image: &DynamicImage, is_raw: bool) -> Option<[f64; 3]> {
+    let patch = image.to_rgb32f();
     let count = patch.pixels().len();
     if count == 0 {
         return None;
@@ -378,6 +386,26 @@ fn mean_linear_rgb(image: &DynamicImage, is_raw: bool, x: f64, y: f64) -> Option
     Some(sums.map(|sum| sum / count as f64))
 }
 
+/// The cached preview base of `path` (and whether it is a RAW), or `None`
+/// when no current preview exists.
+fn current_preview_base(state: &AppState, path: &str) -> Option<(Arc<DynamicImage>, bool)> {
+    let (source, is_raw) = {
+        let original = state
+            .original_image
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let image = original.as_ref().filter(|image| image.path == path)?;
+        (Arc::clone(&image.image), image.is_raw)
+    };
+    state
+        .cached_preview
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        .filter(|preview| preview.source.ptr_eq(&Arc::downgrade(&source)))
+        .map(|preview| (Arc::clone(&preview.image), is_raw))
+}
+
 /// The white balance picker's sample: [`mean_linear_rgb`] of the cached
 /// preview base of `path`, or `None` when no current preview exists.
 #[tauri::command]
@@ -389,27 +417,30 @@ pub async fn sample_preview_white_balance(
 ) -> Result<Option<[f64; 3]>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
-        let (source, is_raw) = {
-            let original = state
-                .original_image
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            match original.as_ref().filter(|image| image.path == path) {
-                Some(image) => (Arc::clone(&image.image), image.is_raw),
-                None => return Ok(None),
-            }
-        };
-        let base = state
-            .cached_preview
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .as_ref()
-            .filter(|preview| preview.source.ptr_eq(&Arc::downgrade(&source)))
-            .map(|preview| Arc::clone(&preview.image));
-        Ok(base.and_then(|image| mean_linear_rgb(&image, is_raw, normalized_x, normalized_y)))
+        Ok(
+            current_preview_base(&state, &path).and_then(|(image, is_raw)| {
+                mean_linear_rgb(&image, is_raw, normalized_x, normalized_y)
+            }),
+        )
     })
     .await
     .map_err(|error| format!("White balance sampling task failed: {error}"))?
+}
+
+/// Auto white balance's sample for files without a camera calibration:
+/// [`grey_world_rgb`] of the cached preview base of `path`.
+#[tauri::command]
+pub async fn sample_preview_grey_world(
+    path: String,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<[f64; 3]>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        Ok(current_preview_base(&state, &path)
+            .and_then(|(image, is_raw)| grey_world_rgb(&image, is_raw)))
+    })
+    .await
+    .map_err(|error| format!("Auto white balance sampling task failed: {error}"))?
 }
 
 #[tauri::command]

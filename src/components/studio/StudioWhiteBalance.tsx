@@ -29,6 +29,7 @@ export default function StudioWhiteBalance({
   imagePath,
   disabled,
   onChange,
+  onAuto,
   onInteraction,
   fallback,
 }: {
@@ -36,6 +37,7 @@ export default function StudioWhiteBalance({
   imagePath: string | undefined;
   disabled: boolean;
   onChange(patch: WhiteBalanceValues): void;
+  onAuto(): void;
   onInteraction?(active: boolean): void;
   fallback?: ReactNode;
 }) {
@@ -80,22 +82,7 @@ export default function StudioWhiteBalance({
             const next = e.target.value as WhiteBalanceMode;
             if (next === "auto") {
               // Lightroom's Auto: the balance found for this photo, kept.
-              invoke<Balance | null>(Invokes.AutoWhiteBalance, {
-                path: imagePath,
-              })
-                .then((auto) => {
-                  if (auto)
-                    onChange({
-                      whiteBalance: "auto",
-                      wbTemperature: auto.temperature,
-                      wbTint: auto.tint,
-                    });
-                  else
-                    toast.warn(t("studio.whiteBalance.toasts.needsPreview"));
-                })
-                .catch((error) =>
-                  toast.error(t("studio.whiteBalance.toasts.autoFailed", { error: String(error) })),
-                );
+              onAuto();
               return;
             }
             onChange(

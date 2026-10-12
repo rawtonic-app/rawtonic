@@ -1,6 +1,7 @@
 import { useCallback, type SyntheticEvent } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
+import i18next from 'i18next';
 import { toast } from 'react-toastify';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -19,6 +20,7 @@ import {
   sameAdjustmentValue,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
+import { autoWhiteBalance } from '../utils/whiteBalance';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -230,6 +232,23 @@ export function useEditorActions() {
       }));
     } catch (err) {
       toast.error(`Failed to apply auto adjustments: ${err}`);
+    }
+  }, [setAdjustments]);
+
+  // Background only: a layer's white balance is a relative local correction.
+  const handleAutoWhiteBalance = useCallback(async () => {
+    const selectedImage = useEditorStore.getState().selectedImage;
+    if (!selectedImage?.isReady) return;
+    try {
+      const balance = await autoWhiteBalance(selectedImage);
+      if (!isCurrentEditorImage(selectedImage.path)) return;
+      if (!balance) {
+        toast.warn(i18next.t('studio.whiteBalance.toasts.needsPreview'));
+        return;
+      }
+      setAdjustments((prev: Adjustments) => ({ ...prev, ...balance }));
+    } catch (error) {
+      toast.error(i18next.t('studio.whiteBalance.toasts.autoFailed', { error: String(error) }));
     }
   }, [setAdjustments]);
 
@@ -599,6 +618,7 @@ export function useEditorActions() {
     setAdjustments,
     handleRotate,
     handleAutoAdjustments,
+    handleAutoWhiteBalance,
     handleLutSelect,
     setLutPreviewOverride,
     handleResetAdjustments,

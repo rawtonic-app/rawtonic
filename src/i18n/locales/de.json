@@ -999,6 +999,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Automatisch anpassen",
+        "auto_white_balance": "Automatischer Weißabgleich",
         "brush_size_down": "Pinselgröße verringern",
         "brush_size_up": "Pinselgröße erhöhen",
         "color_label_blue": "Farbmarkierung: Blau",
@@ -1662,6 +1663,8 @@
         "turnOn": "{{tool}} einschalten"
       },
       "whiteBalance": {
+        "auto": "Automatischer Weißabgleich",
+        "autoTitle": "Automatischer Weißabgleich ({{shortcut}})",
         "camera": "Kamera-Weißabgleich",
         "picker": "Weißabgleich-Pipette",
         "pickerOnBackground": "Die Weißabgleich-Pipette ist auf dem Hintergrund verfügbar",

@@ -406,6 +406,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'editing',
   },
   {
+    action: 'auto_white_balance',
+    description: 'settings.keybinds.actions.auto_white_balance',
+    // Lightroom's.
+    defaultCombo: ['ctrl', 'shift', 'KeyU'],
+    section: 'editing',
+  },
+  {
     action: 'rotate_left',
     description: 'settings.keybinds.actions.rotate_left',
     defaultCombo: ['BracketLeft'],

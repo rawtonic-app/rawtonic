@@ -564,7 +564,8 @@
 }
 .adjustment-control {
   display: grid;
-  grid-template-columns: 86px minmax(36px, 1fr) 43px;
+  /* Value column: six characters ("-100.0", "12450") at 11 px. */
+  grid-template-columns: 86px minmax(36px, 1fr) 48px;
   align-items: center;
   gap: 8px;
   min-height: 29px;
@@ -585,7 +586,7 @@
   opacity: 0.4;
 }
 .adjustment-control input.adjustment-value {
-  width: 43px;
+  width: 48px;
   min-width: 0;
   border: 1px solid transparent;
   border-radius: 2px;

@@ -30,6 +30,7 @@ describe("white balance", () => {
         values={{}}
         imagePath="/s/a.NEF"
         disabled={false}
+        onAuto={vi.fn()}
         onChange={vi.fn()}
       />,
     );
@@ -57,6 +58,7 @@ describe("white balance", () => {
         values={{}}
         imagePath="/s/a.NEF"
         disabled={false}
+        onAuto={vi.fn()}
         onChange={onChange}
       />,
     );
@@ -72,6 +74,7 @@ describe("white balance", () => {
         values={{ whiteBalance: "tungsten" }}
         imagePath="/s/a.NEF"
         disabled={false}
+        onAuto={vi.fn()}
         onChange={onChange}
       />,
     );
@@ -100,33 +103,23 @@ describe("white balance", () => {
     });
   });
 
-  it("Auto keeps the balance found for the photo", async () => {
-    invoke.mockImplementation(async (command: string) =>
-      command === "white_balance_info"
-        ? { temperature: 6150, tint: 7 }
-        : { temperature: 5400, tint: 12 },
-    );
+  it("Auto in the menu asks for the photo's Auto balance", async () => {
+    invoke.mockResolvedValue({ temperature: 6150, tint: 7 });
+    const onAuto = vi.fn();
     const onChange = vi.fn();
     render(
       <StudioWhiteBalance
         values={{}}
         imagePath="/s/a.NEF"
         disabled={false}
+        onAuto={onAuto}
         onChange={onChange}
       />,
     );
     const mode = await screen.findByLabelText("White balance mode");
     fireEvent.change(mode, { target: { value: "auto" } });
-    await vi.waitFor(() =>
-      expect(onChange).toHaveBeenCalledWith({
-        whiteBalance: "auto",
-        wbTemperature: 5400,
-        wbTint: 12,
-      }),
-    );
-    expect(invoke).toHaveBeenCalledWith("auto_white_balance_for", {
-      path: "/s/a.NEF",
-    });
+    expect(onAuto).toHaveBeenCalledTimes(1);
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("falls back to the relative sliders without a camera calibration", async () => {
@@ -136,6 +129,7 @@ describe("white balance", () => {
         values={{}}
         imagePath="/s/a.jpg"
         disabled={false}
+        onAuto={vi.fn()}
         onChange={vi.fn()}
         fallback={<span>relative sliders</span>}
       />,

@@ -972,6 +972,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "자동 보정",
+        "auto_white_balance": "자동 화이트 밸런스",
         "brush_size_down": "브러시 크기 줄이기",
         "brush_size_up": "브러시 크기 늘리기",
         "color_label_blue": "색상 레이블: 파랑",
@@ -1635,6 +1636,8 @@
         "turnOn": "{{tool}} 켜기"
       },
       "whiteBalance": {
+        "auto": "자동 화이트 밸런스",
+        "autoTitle": "자동 화이트 밸런스 ({{shortcut}})",
         "camera": "카메라 화이트 밸런스",
         "picker": "화이트 밸런스 선택 도구",
         "pickerOnBackground": "화이트 밸런스 선택 도구는 배경에서 사용할 수 있습니다",
