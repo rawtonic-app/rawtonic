@@ -14,6 +14,8 @@
     "process:default",
     "os:allow-os-type",
     "core:window:allow-set-fullscreen",
+    "core:webview:allow-set-webview-focus",
+    "core:window:allow-set-focus",
     "core:window:allow-set-decorations",
     "shell:default"
   ]

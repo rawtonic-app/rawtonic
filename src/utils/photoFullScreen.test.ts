@@ -3,17 +3,20 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { toggleWindowFullScreen } from './photoFullScreen';
 
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: vi.fn() }));
+const webviewFocus = vi.fn(async () => {});
+vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({ setFocus: webviewFocus }) }));
 
 let native = false;
 const setFullscreen = vi.fn(async (value: boolean) => {
   native = value;
 });
 const isFullscreen = vi.fn(async () => native);
+const windowFocus = vi.fn(async () => {});
 
 beforeEach(() => {
   native = false;
   vi.clearAllMocks();
-  vi.mocked(getCurrentWindow).mockReturnValue({ isFullscreen, setFullscreen } as never);
+  vi.mocked(getCurrentWindow).mockReturnValue({ isFullscreen, setFullscreen, setFocus: windowFocus } as never);
 });
 
 it('puts the window into full screen and back', async () => {
@@ -43,4 +46,11 @@ it('survives a failing window call', async () => {
   await toggleWindowFullScreen();
   expect(native).toBe(true);
   warn.mockRestore();
+});
+
+it('takes the keyboard focus back after each change, so the next F works without a click', async () => {
+  await toggleWindowFullScreen();
+  await toggleWindowFullScreen();
+  expect(windowFocus).toHaveBeenCalledTimes(2);
+  expect(webviewFocus).toHaveBeenCalledTimes(2);
 });
