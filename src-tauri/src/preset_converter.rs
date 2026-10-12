@@ -1520,7 +1520,8 @@ mod tests {
         assert_eq!(adjustments["grainAmount"], 35);
         assert_eq!(adjustments["grainRoughness"], 60);
         assert_eq!(adjustments["grainStructure"], "clumped");
-        let none = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="0"/></rdf:RDF></x:xmpmeta>"#;
+        let none =
+            r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:GrainAmount="0"/></rdf:RDF></x:xmpmeta>"#;
         let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
         assert!(adjustments.get("grainStructure").is_none());
     }
