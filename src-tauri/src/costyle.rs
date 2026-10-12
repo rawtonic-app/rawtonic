@@ -369,14 +369,12 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
             // Harsh is coarse and hard-edged. FilmGrainType 0-5 in that
             // order (0 Fine is also Capture One's default).
             let structure = match kind {
-                1..=3 => Some("soft"),
-                4 => Some("speckled"),
-                5 => Some("gritty"),
-                _ => None,
+                1..=3 => "soft",
+                4 => "speckled",
+                5 => "gritty",
+                _ => "even",
             };
-            if let Some(structure) = structure {
-                adjustments.insert("grainStructure".into(), json!(structure));
-            }
+            adjustments.insert("grainStructure".into(), json!(structure));
         }
     }
     if let Some(v) = num("UsmAmount") {
@@ -666,13 +664,13 @@ mod tests {
         assert_eq!(a["sharpness"], json!(0.0));
         assert_eq!(a["vignetteAmount"], json!(-25.0));
         assert_eq!(a["moireAmount"], json!(20.0));
-        assert!(a.get("grainStructure").is_none());
+        assert_eq!(a["grainStructure"], json!("even"));
     }
 
     #[test]
     fn grain_types_map_onto_the_nearest_grain_structure() {
         for (kind, expected) in [
-            (0, None),
+            (0, Some("even")),
             (1, Some("soft")),
             (2, Some("soft")),
             (3, Some("soft")),

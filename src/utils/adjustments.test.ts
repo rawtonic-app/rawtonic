@@ -8,6 +8,9 @@ import {
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
+  effectiveGrainStructure,
+  withGrainStructure,
+  withNewGrainStructure,
   type Adjustments,
 } from './adjustments';
 import settings from '../../src-tauri/src/app_settings.rs?raw';
@@ -71,5 +74,33 @@ describe('copy and paste', () => {
     );
     const offByDefault = [...ADJUSTMENT_GROUPS.geometry, ...ADJUSTMENT_GROUPS.masks].flatMap((group) => group.keys);
     expect(rustList(settings, /let off_by_default = /)).toEqual([...offByDefault].sort());
+  });
+});
+
+describe('Grain structure defaults', () => {
+  const old = { ...INITIAL_ADJUSTMENTS, grainAmount: 40 } as Adjustments;
+
+  it('keeps recipes and presets from before the choice Even and starts new grain as Clumped', () => {
+    expect(INITIAL_ADJUSTMENTS.grainStructure).toBeUndefined();
+    expect(effectiveGrainStructure(old)).toBe('even');
+    expect(effectiveGrainStructure(INITIAL_ADJUSTMENTS)).toBe('clumped');
+    expect(normalizeLoadedAdjustments(old).grainStructure).toBe('even');
+    expect(normalizeLoadedAdjustments({ ...INITIAL_ADJUSTMENTS } as Adjustments).grainStructure).toBeUndefined();
+    // Old presets and copied grain carry the structure they render with.
+    expect(withGrainStructure({ grainAmount: 30 })).toEqual({ grainAmount: 30, grainStructure: 'even' });
+    expect(withGrainStructure({ grainAmount: 30, grainStructure: 'soft' }).grainStructure).toBe('soft');
+    expect(withGrainStructure({ exposure: 1 })).toEqual({ exposure: 1 });
+  });
+
+  it('gives grain turned on in a recipe without a structure the new default only', () => {
+    expect(withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20 }).grainStructure).toBe(
+      'clumped',
+    );
+    // Changing grain that is already on keeps what it renders with.
+    expect(withNewGrainStructure(old, { ...old, grainAmount: 60 }).grainStructure).toBeUndefined();
+    expect(
+      withNewGrainStructure(INITIAL_ADJUSTMENTS, { ...INITIAL_ADJUSTMENTS, grainAmount: 20, grainStructure: 'gritty' })
+        .grainStructure,
+    ).toBe('gritty');
   });
 });

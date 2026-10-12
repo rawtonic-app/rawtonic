@@ -383,6 +383,30 @@ export interface FaceRetouch {
 /** Grain structures (shader `grain_structure_noise`, notes: reference/grain.md). */
 export type GrainStructure = 'even' | 'soft' | 'clumped' | 'speckled' | 'gritty';
 
+/** The structure grain gets when it is turned on in a recipe without one (user decision 2026-10-12). */
+export const NEW_GRAIN_STRUCTURE: GrainStructure = 'clumped';
+
+/** The structure a recipe's grain renders with: recipes without the key
+ * render Even (the original grain); grain not yet turned on will start as
+ * Clumped. */
+export const effectiveGrainStructure = (adjustments: Partial<Adjustments>): GrainStructure =>
+  adjustments.grainStructure ?? ((adjustments.grainAmount ?? 0) > 0 ? 'even' : NEW_GRAIN_STRUCTURE);
+
+/** Writes Even into grain that has none (recipes and presets from before the
+ * structure choice), so it keeps rendering Even when copied, pasted, saved as
+ * a preset or turned off and on again. */
+export const withGrainStructure = <T extends Partial<Adjustments>>(adjustments: T): T =>
+  adjustments.grainStructure === undefined && (adjustments.grainAmount ?? 0) > 0
+    ? { ...adjustments, grainStructure: 'even' }
+    : adjustments;
+
+/** `next` after an edit of `previous`: grain turned on in a recipe without a
+ * structure starts as Clumped. */
+export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>
+  next.grainStructure === undefined && (previous.grainAmount ?? 0) <= 0 && (next.grainAmount ?? 0) > 0
+    ? { ...next, grainStructure: NEW_GRAIN_STRUCTURE }
+    : next;
+
 export interface Adjustments {
   [index: string]: unknown;
   aiPatches: Array<AiPatch>;
@@ -966,7 +990,6 @@ export const INITIAL_ADJUSTMENTS: Adjustments = {
   vignetteRoundness: 0,
   vignetteStyle: 'highlightPriority',
   vignetteHighlights: 0,
-  grainStructure: 'even',
   whites: 0,
 };
 
@@ -1095,7 +1118,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     subMasks: normalizeSubMasks(patch.subMasks),
   }));
 
-  return {
+  return withGrainStructure({
     ...initialAdjustmentsFor(isRaw),
     ...loadedAdjustments,
     guidedPerspective: {
@@ -1176,7 +1199,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     sharpenRadius: loadedAdjustments.sharpenRadius ?? INITIAL_ADJUSTMENTS.sharpenRadius,
     sharpenDetail: loadedAdjustments.sharpenDetail ?? INITIAL_ADJUSTMENTS.sharpenDetail,
     sharpenMasking: loadedAdjustments.sharpenMasking ?? INITIAL_ADJUSTMENTS.sharpenMasking,
-  };
+  });
 };
 
 export interface AdjustmentGroup {

@@ -30,6 +30,8 @@ import {
   type Adjustments,
   type Curves,
   type GrainStructure,
+  effectiveGrainStructure,
+  withNewGrainStructure,
   type RegionCurve,
 } from "../../utils/adjustments";
 import {
@@ -515,7 +517,7 @@ export default function StudioDevelop() {
                 : m,
             ),
           }
-        : { ...prev, ...patch },
+        : withNewGrainStructure(prev, { ...prev, ...patch }),
     );
   // Layers start neutral; the photo itself starts from the RAW defaults.
   const defaults = layer
@@ -1658,7 +1660,7 @@ export default function StudioDevelop() {
                 <span>{t("studio.develop.effects.grainStructure")}</span>
                 <select
                   aria-label={t("studio.develop.effects.grainStructure")}
-                  value={(values.grainStructure as string) ?? "even"}
+                  value={effectiveGrainStructure(values as Partial<Adjustments>)}
                   disabled={!panelsReady}
                   onChange={(e) =>
                     change({
