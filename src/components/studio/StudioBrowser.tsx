@@ -6,6 +6,7 @@ import {
   useState,
   useMemo,
   type MouseEvent,
+  type PointerEvent,
 } from "react";
 import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -34,6 +35,18 @@ export function visibleRange(
     ),
   };
 }
+/** Pointer travel (px) up to which a press and release is a click. */
+const CLICK_SLOP = 4;
+
+/** Whether a press at (x, y) on `target` inside the browser `el` is on its
+ * empty space: not on a photograph and not on a scroll bar. */
+export function isEmptySpace(el: HTMLElement, target: Element | null, x: number, y: number) {
+  if (!target || !el.contains(target) || target.closest(".studio-photo")) return false;
+  const rect = el.getBoundingClientRect();
+  // Scroll bars lie outside the client area (classic, always-shown ones).
+  return x - rect.left < el.clientLeft + el.clientWidth && y - rect.top < el.clientTop + el.clientHeight;
+}
+
 const Tile = memo(function Tile({
   file,
   selected,
@@ -173,6 +186,7 @@ export default function StudioBrowser({
   onRate,
   onContextMenu,
   requestThumbnails,
+  onClearSelection,
   size = 190,
 }: {
   files: ImageFile[];
@@ -183,6 +197,9 @@ export default function StudioBrowser({
   onRate(rating: number, paths: string[]): void;
   onContextMenu(event: MouseEvent, path: string): void;
   requestThumbnails(paths: string[]): void;
+  /** A plain click on empty space (not a photograph, not a scroll bar)
+   * clears the selection (Lightroom, Capture One). */
+  onClearSelection?(): void;
   size?: number;
 }) {
   const { t } = useTranslation();
@@ -191,6 +208,26 @@ export default function StudioBrowser({
   const [offset, setOffset] = useState(0);
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+  // Where a press on empty space started; a click (press and release
+  // there, no drag) clears the selection.
+  const emptyPress = useRef<{ x: number; y: number } | null>(null);
+  const onBackgroundDown = (e: PointerEvent<HTMLDivElement>) => {
+    emptyPress.current = null;
+    const el = ref.current;
+    if (!onClearSelection || !el || e.button !== 0) return;
+    if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (isEmptySpace(el, e.target as Element, e.clientX, e.clientY))
+      emptyPress.current = { x: e.clientX, y: e.clientY };
+  };
+  const onBackgroundUp = (e: PointerEvent<HTMLDivElement>) => {
+    const press = emptyPress.current;
+    emptyPress.current = null;
+    const el = ref.current;
+    if (!press || !el || !onClearSelection) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > CLICK_SLOP) return;
+    if (!isEmptySpace(el, e.target as Element, e.clientX, e.clientY)) return;
+    onClearSelection();
+  };
   useEffect(() => {
     if (!performanceDiagnosticsEnabled || film) return;
     const source = useLibraryStore.getState().imageList;
@@ -253,6 +290,8 @@ export default function StudioBrowser({
       role="listbox"
       aria-label={film ? t("studio.library.browser.filmstrip") : t("studio.library.browser.photographs")}
       aria-multiselectable="true"
+      onPointerDown={onBackgroundDown}
+      onPointerUp={onBackgroundUp}
       onScroll={(e) =>
         setOffset(film ? e.currentTarget.scrollLeft : e.currentTarget.scrollTop)
       }
@@ -289,7 +328,9 @@ export default function StudioBrowser({
               >
                 <Tile
                   file={file}
-                  current={file.path === currentPath}
+                  // In the grid the open photograph is outlined only while
+                  // selected: an emptied selection shows no photograph marked.
+                  current={file.path === currentPath && (film || selectedSet.has(file.path))}
                   selected={selectedSet.has(file.path)}
                   onSelect={onSelect}
                   onOpen={onOpen}

@@ -50,16 +50,54 @@ export function removeFromSelection(
   useLibraryStore.getState().setLibrary({ multiSelectedPaths: rest });
 }
 
-/** The primary photograph's shown aspect (width / height), for packing. */
-function useShownAspect(): number {
+/** The primary photograph's shown aspect (width / height), or null while
+ * it is not ready (its size and recipe are not in yet). */
+function usePrimaryAspect(): number | null {
   return useEditorStore((s) => {
+    if (!s.selectedImage?.isReady) return null;
     const crop = s.adjustments.crop;
     if (crop && crop.width > 0 && crop.height > 0) return crop.width / crop.height;
-    const w = s.selectedImage?.width ?? 0;
-    const h = s.selectedImage?.height ?? 0;
-    if (!w || !h) return 1.5;
+    const w = s.selectedImage.width;
+    const h = s.selectedImage.height;
+    if (!w || !h) return null;
     return (s.adjustments.orientationSteps ?? 0) % 2 === 1 ? h / w : w / h;
   });
+}
+
+interface LayoutAspect {
+  aspect: number;
+  selection: string;
+  primary: string | null;
+  /** The primary's shape when it was last seen ready. */
+  seen: number;
+}
+
+/** A reshaped photograph, not a size rounded differently by its decode. */
+const reshaped = (a: number, b: number) => Math.abs(a - b) > 0.01 * Math.max(a, b);
+
+/**
+ * The aspect the cells are packed for: the primary's shape when the multi
+ * view starts or the selection changes, and when the primary itself is
+ * reshaped (crop, rotation). Stepping to another primary keeps the layout:
+ * the cells must not jump while the next photograph loads (its size is not
+ * known yet, the previous recipe is still in the store) nor when it arrives.
+ */
+export function useLayoutAspect(selection: string, primary: string | null): number {
+  const shown = usePrimaryAspect();
+  const [layout, setLayout] = useState<LayoutAspect | null>(null);
+  let next = layout;
+  if (shown !== null) {
+    if (!layout || layout.selection !== selection) {
+      next = { aspect: shown, selection, primary, seen: shown };
+    } else if (layout.primary !== primary) {
+      // A new primary: keep the layout, follow its own reshaping from now.
+      next = { ...layout, primary, seen: shown };
+    } else if (reshaped(layout.seen, shown)) {
+      next = { ...layout, aspect: shown, seen: shown };
+    }
+  }
+  if (next !== layout) setLayout(next);
+  return next?.aspect ?? 1.5;
 }
 
 /**
@@ -95,11 +133,11 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     })),
   );
   const mark = useSessionBar((s) => s.mark);
-  const aspect = useShownAspect();
   const selection = useMemo(
     () => orderedSelection(files.map((file) => file.path), multiSelectedPaths),
     [files, multiSelectedPaths],
   );
+  const aspect = useLayoutAspect(selection.join("\n"), primary);
   const active =
     develop &&
     enabled &&

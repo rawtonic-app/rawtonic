@@ -17,7 +17,7 @@ import {
   Crosshair,
   ScanFace,
 } from "lucide-react";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
@@ -447,6 +447,9 @@ export default function StudioDevelop() {
       setEditor: s.setEditor,
     })),
   );
+  // The next photograph loading after a ready one: the controls keep their
+  // look (the tools are inert meanwhile) and take its values in place.
+  const panelsReady = useEditorStore(panelsShowReady);
   const { setAdjustments, handleAutoAdjustments } = useEditorActions();
   const activePanel = useUIStore((s) => s.activePanel);
   const [tab, setTab] = useState("all");
@@ -477,7 +480,7 @@ export default function StudioDevelop() {
       aria-label={label}
       aria-pressed={tatTarget === target}
       title={t("studio.develop.targeted.hint", { tool: label })}
-      disabled={!selectedImage?.isReady}
+      disabled={!panelsReady}
       onClick={(e) => {
         e.preventDefault();
         setEditor({
@@ -539,7 +542,7 @@ export default function StudioDevelop() {
       max={max}
       step={step}
       defaultValue={(defaults[key] ?? 0) as number}
-      disabled={!selectedImage?.isReady}
+      disabled={!panelsReady}
       track={track}
       onChange={(v) => change({ [key]: v })}
       onInteraction={onInteraction}
@@ -578,7 +581,7 @@ export default function StudioDevelop() {
       max={100}
       step={1}
       defaultValue={fallback}
-      disabled={!selectedImage?.isReady || idle}
+      disabled={!panelsReady || idle}
       onChange={(v) => change({ [key]: v })}
       onInteraction={onInteraction}
     />
@@ -859,7 +862,7 @@ export default function StudioDevelop() {
               <StudioCameraProfile
                 value={adjustments.cameraProfile}
                 imagePath={selectedImage?.path}
-                disabled={!selectedImage?.isReady}
+                disabled={!panelsReady}
                 onChange={(cameraProfile) => change({ cameraProfile })}
               />
               <label className="studio-inline">
@@ -867,7 +870,7 @@ export default function StudioDevelop() {
                 <select
                   aria-label={t("studio.develop.baseCurve.curve")}
                   value={adjustments.baseCurve ?? "standard"}
-                  disabled={!selectedImage?.isReady}
+                  disabled={!panelsReady}
                   onChange={(e) =>
                     change({
                       baseCurve: e.target.value as Adjustments["baseCurve"],
@@ -929,7 +932,7 @@ export default function StudioDevelop() {
                 <button
                   aria-label={t("studio.develop.whiteBalance.picker")}
                   aria-pressed={isWbPickerActive}
-                  disabled={!selectedImage?.isReady || !!layer}
+                  disabled={!panelsReady || !!layer}
                   title={
                     layer
                       ? t("studio.develop.whiteBalance.pickerOnBackground")
@@ -946,7 +949,7 @@ export default function StudioDevelop() {
                 <StudioWhiteBalance
                   values={adjustments}
                   imagePath={selectedImage.path}
-                  disabled={!selectedImage.isReady}
+                  disabled={!panelsReady}
                   onChange={change}
                   onInteraction={onInteraction}
                   fallback={relativeWhiteBalance}
@@ -971,7 +974,7 @@ export default function StudioDevelop() {
                   <button
                     type="button"
                     className="studio-tool-auto"
-                    disabled={!selectedImage?.isReady}
+                    disabled={!panelsReady}
                     title={t("studio.develop.auto.title", { shortcut: "⌘L" })}
                     onClick={(e) => {
                       e.preventDefault();
@@ -1097,7 +1100,7 @@ export default function StudioDevelop() {
                         ...(values.regionCurve as RegionCurve | undefined),
                       }
                 }
-                disabled={!selectedImage?.isReady}
+                disabled={!panelsReady}
                 onInteraction={onInteraction}
                 onChange={(curves) =>
                   change({ curves, pointCurves: curves, curveMode: "point" })
@@ -1109,7 +1112,7 @@ export default function StudioDevelop() {
                     ...INITIAL_REGION_CURVE,
                     ...(values.regionCurve as RegionCurve | undefined),
                   }}
-                  disabled={!selectedImage?.isReady}
+                  disabled={!panelsReady}
                   onInteraction={onInteraction}
                   onChange={(regionCurve) => change({ regionCurve })}
                 />
@@ -1120,7 +1123,7 @@ export default function StudioDevelop() {
             <StudioLevels
               key="levels"
               values={values}
-              disabled={!selectedImage?.isReady}
+              disabled={!panelsReady}
               change={change}
               onInteraction={onInteraction}
               toggle={toolSwitch("levels")}
@@ -1184,7 +1187,7 @@ export default function StudioDevelop() {
                   key={key}
                   label={t(`adjustments.color.${key}`)}
                   value={values.hsl[hsl][key]}
-                  disabled={!selectedImage?.isReady}
+                  disabled={!panelsReady}
                   onInteraction={onInteraction}
                   onChange={(v) =>
                     change({
@@ -1203,7 +1206,7 @@ export default function StudioDevelop() {
               key="colorEditor"
               values={values}
               layerId={layer?.id}
-              disabled={!selectedImage?.isReady}
+              disabled={!panelsReady}
               change={change}
               onInteraction={onInteraction}
               toggle={toolSwitch("colorEditor")}
@@ -1216,7 +1219,7 @@ export default function StudioDevelop() {
             <StudioColorGrading
               key="colorGrading"
               values={values}
-              disabled={!selectedImage?.isReady}
+              disabled={!panelsReady}
               change={change}
               onInteraction={onInteraction}
               toggle={toolSwitch("colorGrading")}
@@ -1233,7 +1236,7 @@ export default function StudioDevelop() {
                 t("studio.develop.targeted.bwMix"),
               )}
               values={values}
-              disabled={!selectedImage?.isReady}
+              disabled={!panelsReady}
               change={change}
               onInteraction={onInteraction}
               copy={photoOnly([
@@ -1246,7 +1249,7 @@ export default function StudioDevelop() {
             <StudioCalibration
               key="calibration"
               values={adjustments}
-              disabled={!selectedImage?.isReady}
+              disabled={!panelsReady}
               change={change}
               onInteraction={onInteraction}
               toggle={toolSwitch("calibration")}
@@ -1434,7 +1437,7 @@ export default function StudioDevelop() {
             <StudioDefringe
               key="defringe"
               values={values}
-              disabled={!selectedImage?.isReady}
+              disabled={!panelsReady}
               change={change}
               onInteraction={onInteraction}
               copy={photoOnly([
@@ -1598,7 +1601,7 @@ export default function StudioDevelop() {
                 <select
                   aria-label={t("studio.develop.effects.vignetteStyle")}
                   value={(values.vignetteStyle as string) ?? "highlightPriority"}
-                  disabled={!selectedImage?.isReady}
+                  disabled={!panelsReady}
                   onChange={(e) =>
                     change({
                       vignetteStyle: e.target
@@ -1635,7 +1638,7 @@ export default function StudioDevelop() {
               {control(t("adjustments.effects.halation"), "halationAmount", 0)}
               {control(t("studio.develop.sliders.lightFlare"), "flareAmount", 0)}
               <div className="studio-subheading">LUT</div>
-              <StudioLut disabled={!selectedImage?.isReady} onInteraction={onInteraction} />
+              <StudioLut disabled={!panelsReady} onInteraction={onInteraction} />
             </ToolGroup>
           )}
           <StudioHistory key="history" />

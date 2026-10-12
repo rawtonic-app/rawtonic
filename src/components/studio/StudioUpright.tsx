@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Trans, useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import type { GuideLine, UprightMode } from "../../utils/adjustments";
@@ -48,7 +48,8 @@ export default function StudioUpright() {
   const guided = adjustments.guidedPerspective;
   const lines = guided?.lines ?? [];
   const mode: UprightMode = guided?.upright ?? (guided?.enabled && lines.length >= 2 ? "guided" : "off");
-  const ready = Boolean(selectedImage?.isReady);
+  // Keeps its look while the next photograph loads (the tools are inert).
+  const ready = useEditorStore(panelsShowReady);
   const drawingNow = drawing && activePanel === Panel.Crop;
 
   // The Crop & geometry tab is the crop panel itself: only drawing stops.

@@ -3,7 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { ArrowDownAZ, ChevronRight, FolderInput, FolderPlus, Plus, Sparkles } from "lucide-react";
 import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
-import { useEditorStore } from "../../store/useEditorStore";
+import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { usePresets, type UserPreset } from "../../hooks/usePresets";
@@ -174,6 +174,8 @@ export default function StudioPresets() {
   const folders = groups.flatMap((group) => (group.folder ? [group.folder] : []));
   const count = presets.reduce((n, item) => n + (item.preset ? 1 : item.folder?.children.length ?? 0), 0);
   const ready = Boolean(selectedImage?.isReady);
+  // Controls keep their look while the next photograph loads.
+  const panelsReady = useEditorStore(panelsShowReady);
 
   const apply = (preset: Preset) => {
     endPreview();
@@ -347,7 +349,7 @@ export default function StudioPresets() {
             type="button"
             title={t("studio.presets.newPresetTitle")}
             aria-label={t("studio.presets.newPreset")}
-            disabled={!ready}
+            disabled={!panelsReady}
             onClick={(e) => {
               e.preventDefault();
               const details = e.currentTarget.closest("details");
@@ -525,7 +527,7 @@ export default function StudioPresets() {
                     <button
                       key={preset.id}
                       className={`studio-preset ${group.folder ? "is-nested" : ""} ${applied === preset.id ? "is-applied" : ""}`}
-                      disabled={!ready}
+                      disabled={!panelsReady}
                       title={
                         preset.presetType === "tool"
                           ? t("studio.presets.appliesSaved")

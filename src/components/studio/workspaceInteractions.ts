@@ -1,3 +1,6 @@
+import { useLibraryStore } from "../../store/useLibraryStore";
+
+
 /** Whether Tab belongs to the panel shortcut rather than to focus traversal:
  * with nothing focused, or on the photograph viewer and the browser tiles
  * (`data-panel-shortcut`), never on a field, button, disclosure or separator. */
@@ -37,4 +40,19 @@ export function focusWorkspaceControl(target: EventTarget | null) {
   if (control instanceof HTMLElement && !control.matches(":disabled")) {
     control.focus({ preventScroll: true });
   }
+}
+
+/** A click on the Library grid's empty space: nothing selected (Lightroom,
+ * Capture One). The photograph open in Develop stays open and the keyboard
+ * focus stays where it was, so Develop (D) shows the last primary again. */
+export function clearLibrarySelection() {
+  useLibraryStore.getState().setLibrary({ multiSelectedPaths: [], selectionAnchorPath: null });
+}
+
+/** Develop opens on `path` (the photograph open last); an emptied selection
+ * selects it again so Develop's tools and the filmstrip agree. */
+export function reselectForDevelop(path: string) {
+  const library = useLibraryStore.getState();
+  if (library.multiSelectedPaths.length > 0) return;
+  library.setLibrary({ multiSelectedPaths: [path], libraryActivePath: path, selectionAnchorPath: path });
 }

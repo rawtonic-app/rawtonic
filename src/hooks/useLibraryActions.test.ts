@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
+import { useUIStore } from '../store/useUIStore';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
@@ -38,4 +39,18 @@ it('a rating that was not saved shows the previous one again', async () => {
   await waitFor(() => expect(toast.error).toHaveBeenCalled());
   expect(useLibraryStore.getState().imageRatings).toEqual({ '/a.jpg': 3, '/b.jpg': 4 });
   expect(vi.mocked(toast.error).mock.calls[0][0]).toContain('/b.jpg: database is locked');
+});
+
+it('rates nothing in the Library once the selection was emptied, the open photograph in Develop', () => {
+  vi.mocked(invoke).mockClear();
+  useEditorStore.setState({ selectedImage: { path: '/open.jpg' } as never });
+  useLibraryStore.setState({ imageList: [], multiSelectedPaths: [], imageRatings: {} });
+  useUIStore.setState({ activeView: 'library' });
+  const { result } = renderHook(() => useLibraryActions());
+  result.current.handleRate(2);
+  expect(useLibraryStore.getState().imageRatings).toEqual({});
+  expect(invoke).not.toHaveBeenCalled();
+  useUIStore.setState({ activeView: 'editor' });
+  result.current.handleRate(2);
+  expect(useLibraryStore.getState().imageRatings).toEqual({ '/open.jpg': 2 });
 });

@@ -29,8 +29,11 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const { multiSelectedPaths, imageList, imageRatings, setLibrary } = useLibraryStore.getState();
     const { selectedImage } = useEditorStore.getState();
 
+    // The open photograph is the target only in Develop: in the Library an
+    // emptied selection (a click on the grid's empty space) rates nothing.
+    const openInDevelop = useUIStore.getState().activeView === 'editor' ? selectedImage : null;
     const selectedPaths =
-      paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
+      paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : openInDevelop ? [openInDevelop.path] : []);
     if (selectedPaths.length === 0) return;
 
     const groupingMode = useSettingsStore.getState().appSettings?.grouping ?? 'off';
