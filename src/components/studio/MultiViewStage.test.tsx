@@ -274,16 +274,30 @@ describe("reference and locked zoom", () => {
       baseRenderSize: { width: 600, height: 400, offsetX: 0, offsetY: 50, containerWidth: 600, containerHeight: 500 },
       adjustments: { ...useEditorStore.getState().adjustments, crop: null, orientationSteps: 0 },
     });
-    const ref = {
-      current: {
-        instance: { transformState: { scale: 5, positionX: 300 - 300 * 5, positionY: 250 - 250 * 5 } },
-      },
-    } as never;
-    render(
+    const transformState = { scale: 1, positionX: 0, positionY: 0 };
+    const ref = { current: { instance: { transformState } } } as never;
+    const { container } = render(
       <MultiViewStage files={files} onOpen={onOpen} onRate={onRate} transformWrapperRef={ref}>
         <div />
       </MultiViewStage>,
     );
+    // The editor measured in the primary's cell, zoomed to 1:1 (2 device
+    // px per CSS px), centred.
+    const primary = container.querySelector<HTMLElement>(".studio-mv-primary")!;
+    const [w, h] = [parseFloat(primary.style.width), parseFloat(primary.style.height)];
+    const fit = Math.min(w / 6000, h / 4000);
+    useEditorStore.setState({
+      baseRenderSize: {
+        width: 6000 * fit,
+        height: 4000 * fit,
+        offsetX: (w - 6000 * fit) / 2,
+        offsetY: (h - 4000 * fit) / 2,
+        containerWidth: w,
+        containerHeight: h,
+      },
+    });
+    const scale = 6000 / (6000 * fit * 2);
+    Object.assign(transformState, { scale, positionX: w / 2 - (w / 2) * scale, positionY: h / 2 - (h / 2) * scale });
     act(() => frames.shift()?.(0));
     return vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.SetMultiViewZoom);
   }
@@ -291,7 +305,8 @@ describe("reference and locked zoom", () => {
   it("sends the primary's zoom to every cell with the lock on", () => {
     const calls = zoomed(true);
     const { zoom } = calls.at(-1)![1] as { zoom: { scale: number; center: number[] } };
-    // 600 CSS px × 5 × 2 device px over the 6000 px photograph: 1:1.
+    // The fit width × the editor's scale × 2 device px over the 6000 px
+    // photograph: 1:1.
     expect(zoom.scale).toBeCloseTo(1);
     expect(zoom.center[0]).toBeCloseTo(0.5);
     expect(zoom.center[1]).toBeCloseTo(0.5);

@@ -515,7 +515,16 @@ fn encode_with_sample(
     source: Option<String>,
     data: SourceData,
 ) -> Vec<u8> {
-    let rgb = image.to_rgb32f();
+    // Decodes are float RGB already: no copy of the whole frame (half a
+    // gigabyte at 45 MP) for a 1:1 preview.
+    let converted;
+    let rgb = match image.as_rgb32f() {
+        Some(rgb) => rgb,
+        None => {
+            converted = image.to_rgb32f();
+            &converted
+        }
+    };
     let (width, height) = rgb.dimensions();
     let encoding = Encoding::Jxl;
     let rows_per_band = JXL_ROWS_PER_BAND;
@@ -646,6 +655,128 @@ pub fn read_kind(source: &Path, kind: ProxyKind, settings: &AppSettings) -> Opti
     })?;
     mark_used(&path);
     Some(proxy)
+}
+
+/// The size of the current 1:1 proxy of `source` (its full decode's), read
+/// from its header.
+pub fn full_size(source: &Path, settings: &AppSettings) -> Option<(u32, u32)> {
+    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
+    (header.width == header.full_width
+        && header.height == header.full_height
+        && header_is_current(&header, source, settings))
+    .then_some((header.width, header.height))
+}
+
+/// Part of a 1:1 proxy: columns `col0..col0 + cols` of RGB rows `row0..`
+/// of the full-resolution frame `width` × `height`.
+pub struct ProxyRows {
+    pub pixels: Vec<f32>,
+    pub width: u32,
+    pub height: u32,
+    pub row0: u32,
+    pub col0: u32,
+    pub cols: u32,
+}
+
+/// Columns `cols` of rows `rows` (start, end exclusive each) of the 1:1
+/// proxy of `source` when it is current, decoding only that part of the
+/// bands that hold them (a zoomed multi view cell needs a few hundred rows
+/// and columns, not the whole photograph). The rows returned may reach
+/// beyond `rows` to the bands' edges. Reading counts as a use, as
+/// `read_kind`.
+pub fn read_full_rows(
+    source: &Path,
+    settings: &AppSettings,
+    rows: (u32, u32),
+    cols: (u32, u32),
+) -> Option<ProxyRows> {
+    let path = proxy_path_of(source, ProxyKind::Full)?;
+    let bytes = fs::read(&path).ok()?;
+    let proxy = decode_rows(&bytes, rows, cols, |header| {
+        let current = header_is_current(header, source, settings);
+        if current && !source_available(source) {
+            register_facts(source, header);
+        }
+        current
+    })?;
+    mark_used(&path);
+    Some(proxy)
+}
+
+/// Columns `cols` of the bands of the full-resolution proxy in `bytes`
+/// that hold `rows`.
+fn decode_rows(
+    bytes: &[u8],
+    (start, end): (u32, u32),
+    (left, right): (u32, u32),
+    accept: impl FnOnce(&Header) -> bool,
+) -> Option<ProxyRows> {
+    let (header, mut at) = parse_header(bytes)?;
+    // Only a whole-resolution proxy has the frame's rows.
+    if !accept(&header)
+        || header.width == 0
+        || header.height == 0
+        || header.width != header.full_width
+        || header.height != header.full_height
+        || start >= end
+        || end > header.height
+        || left >= right
+        || right > header.width
+    {
+        return None;
+    }
+    let mut wanted = Vec::new();
+    let mut row = 0u32;
+    let mut row0 = None;
+    while row < header.height {
+        let rows = read_u32(bytes, &mut at)?;
+        let len = read_u32(bytes, &mut at)? as usize;
+        let data = bytes.get(at..at + len)?;
+        at += len;
+        if rows == 0 {
+            return None;
+        }
+        if row + rows > start && row < end {
+            row0.get_or_insert(row);
+            wanted.push((rows, data));
+        }
+        row += rows;
+        if row >= end {
+            break;
+        }
+    }
+    let width = header.width as usize;
+    let columns = (left as usize, (right - left) as usize);
+    let decoded: Option<Vec<Vec<f32>>> = wanted
+        .par_iter()
+        .map(|&(rows, data)| match header.encoding {
+            Encoding::Jxl => proxy_codec::decode_columns(
+                data,
+                width,
+                rows as usize,
+                header.transfer.unwrap_or(Transfer::Linear),
+                columns,
+            )
+            .ok(),
+            Encoding::F16 => {
+                let band = decode_f16_band(data, width, rows as usize)?;
+                Some(
+                    band.chunks_exact(width * 3)
+                        .flat_map(|row| &row[columns.0 * 3..(columns.0 + columns.1) * 3])
+                        .copied()
+                        .collect(),
+                )
+            }
+        })
+        .collect();
+    Some(ProxyRows {
+        pixels: decoded?.concat(),
+        width: header.width,
+        height: header.height,
+        row0: row0?,
+        col0: left,
+        cols: right - left,
+    })
 }
 
 /// Lets the rendering of the offline `source` use the facts its preview
@@ -1299,6 +1430,48 @@ mod tests {
             read(&photo, &settings).unwrap().image.dimensions(),
             (200, 150)
         );
+    }
+
+    #[test]
+    fn rows_of_a_full_proxy_decode_only_their_bands() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        // Three bands of 256 rows and a short fourth.
+        let full = gradient(64, 900);
+        write_full(&photo, &full, &settings).unwrap();
+        let whole = read_kind(&photo, ProxyKind::Full, &settings)
+            .unwrap()
+            .image
+            .to_rgb32f();
+        let rows = read_full_rows(&photo, &settings, (300, 520), (0, 64)).unwrap();
+        // The second and third bands only, bit-identical to the whole decode.
+        assert_eq!((rows.width, rows.height, rows.row0), (64, 900, 256));
+        assert_eq!((rows.col0, rows.cols), (0, 64));
+        assert_eq!(rows.pixels.len(), 64 * 512 * 3);
+        let stride = 64 * 3;
+        assert_eq!(
+            rows.pixels.as_slice(),
+            &whole.as_raw()[256 * stride..768 * stride]
+        );
+        // Columns 10..30 of them.
+        let part = read_full_rows(&photo, &settings, (300, 520), (10, 30)).unwrap();
+        assert_eq!((part.row0, part.col0, part.cols), (256, 10, 20));
+        let expected: Vec<f32> = (256..768)
+            .flat_map(|y| whole.as_raw()[y * stride + 30..y * stride + 90].to_vec())
+            .collect();
+        assert_eq!(part.pixels, expected);
+        assert_eq!(full_size(&photo, &settings), Some((64, 900)));
+        let last = read_full_rows(&photo, &settings, (899, 900), (0, 64)).unwrap();
+        assert_eq!((last.row0, last.pixels.len()), (768, 132 * stride));
+        assert!(read_full_rows(&photo, &settings, (10, 901), (0, 64)).is_none());
+        assert!(read_full_rows(&photo, &settings, (10, 10), (0, 64)).is_none());
+        assert!(read_full_rows(&photo, &settings, (10, 20), (5, 65)).is_none());
+        // A Standard proxy has no full-resolution rows.
+        write(&photo, &full, 300, &settings).unwrap();
+        discard_source(&photo, &[ProxyKind::Full]);
+        assert!(read_full_rows(&photo, &settings, (0, 10), (0, 64)).is_none());
+        assert_eq!(full_size(&photo, &settings), None);
     }
 
     #[test]

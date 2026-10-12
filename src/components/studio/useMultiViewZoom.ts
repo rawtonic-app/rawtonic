@@ -58,6 +58,19 @@ function samePayload(a: ZoomPayload | undefined, b: ZoomPayload): boolean {
   );
 }
 
+/** Whether the editor has measured itself in the primary's cell: its
+ * container is the cell's photograph area. Entering the multi view, the
+ * editor still holds the single view's size for a frame or more; a zoom
+ * read from it was the single view's fit, which zoomed every other cell in
+ * and developed its regions from full-resolution decodes. */
+export function editorInCell(
+  fit: { containerWidth: number; containerHeight: number },
+  area: CellArea | undefined,
+): boolean {
+  if (!area) return true;
+  return Math.abs(fit.containerWidth - area.width) <= 2 && Math.abs(fit.containerHeight - area.height) <= 2;
+}
+
 /** Whether the editor's fit box belongs to a photograph of `shown` size (it
  * is measured a frame after the photograph changes). */
 function fitMatches(fit: { width: number; height: number }, shown: { width: number; height: number }) {
@@ -161,7 +174,7 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
     let frame = 0;
     const tick = () => {
       frame = requestAnimationFrame(tick);
-      const { primary, shown, shownSize, zoomLock } = live.current;
+      const { primary, shown, shownSize, zoomLock, areas } = live.current;
       const editor = useEditorStore.getState();
       const transform = transformWrapperRef?.current?.instance.transformState;
       const known =
@@ -169,7 +182,8 @@ export function useMultiViewZoom({ active, primary, shown, areas, shownSize, tra
         !!primary &&
         editor.selectedImage?.path === primary &&
         !!editor.selectedImage.isReady &&
-        fitMatches(editor.baseRenderSize, shownSize);
+        fitMatches(editor.baseRenderSize, shownSize) &&
+        editorInCell(editor.baseRenderSize, areas.get(primary));
       const store = useMultiViewStore.getState();
       if (known && !zoomLock && adopted.current !== primary) {
         // The new primary's own zoom, now that its fit is measured.
