@@ -30,6 +30,7 @@ One JSON object per line: `{"id":1,"method":"…","params":{…}}` → `{"id":1,
 | `ui.click` / `ui.drag` | webview | Synthetic DOM pointer/mouse events (untrusted). For Linux until native injection exists there. |
 | `ui.key` | webview | `keydown`/`keyup` on the focused element (`key`, `code`, `modifiers`; `phase` `down` or `up` sends one half, to hold a key). |
 | `ui.type` | webview | Text into a field (`name`/`selector`, a matched label stands for its control; else the focused element): focus, value via the native setter, `input` event; `append` adds to the current value. Follow with `ui.key` Enter or a blur to commit. A `<select>` takes the option's value or text and fires `change`. |
+| `ui.range_sequence` | webview | Bounded synthetic slider drag: `values` (1–600 finite numbers), `interval_ms` (4–100, default 60 Hz), range `name`/`selector`. Schedules inputs inside the webview, restores the original value before release, returns actual input times and epoch bounds. Avoids a separate QA roundtrip per input; still not physical pointer-to-display latency. |
 | `ui.text` | webview | Visible text of the page or a named element. |
 | `ui.viewport` | webview | Webview size, device pixel ratio, focus. |
 | `state.get` | webview | Store value by path, e.g. `editor.selectedImage.path` (stores: editor, library, process, settings, ui); functions dropped, arrays cut at `max_array`. |

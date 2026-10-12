@@ -101,7 +101,7 @@ struct GlobalAdjustments {
     chromatic_aberration_blue_yellow: f32,
     show_clipping: u32,
     is_raw_image: u32,
-    _pad_ca1: f32,
+    grain_structure: u32,
 
     has_lut: u32,
     lut_intensity: f32,
@@ -528,6 +528,93 @@ fn gradient_noise(p: vec2<f32>) -> f32 {
     return mix(bottom_interp, top_interp, u.y);
 }
 
+// Grain structures (recipe `grainStructure`, notes: reference/grain.md).
+// Even is the original grain: evenly spread, the same in every tone. The
+// others are Rawtonic's own procedural grains, measured against the grain
+// characters other editors offer: Soft has rounded grains with irregular
+// clusters, Clumped gathers fine grain into clumps (Roughness sets how
+// strongly, from even to strongly mottled), Speckled scatters bright specks
+// over a fine grain, Gritty is a coarse, hard-edged grain. Soft, Speckled
+// and Gritty are strongest in the midtones and fade towards black and
+// white as film grain does; Even and Clumped stay even across the tones.
+// Each is scaled to Even's strength at Roughness 50 (Gritty 1.4x), so
+// Amount means the same across structures.
+const GRAIN_EVEN: u32 = 0u;
+const GRAIN_SOFT: u32 = 1u;
+const GRAIN_CLUMPED: u32 = 2u;
+const GRAIN_SPECKLED: u32 = 3u;
+const GRAIN_GRITTY: u32 = 4u;
+
+// Gradient noise for the grain structures: the same as gradient_noise, kept
+// separate so the Even grain compiles exactly as before (byte-identical
+// exports of recipes without a structure).
+fn grain_noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let ga = vec2<f32>(hash(i), hash(i + vec2(11.0, 37.0))) * 2.0 - 1.0;
+    let gb = vec2<f32>(hash(i + vec2(1.0, 0.0)), hash(i + vec2(12.0, 37.0))) * 2.0 - 1.0;
+    let gc = vec2<f32>(hash(i + vec2(0.0, 1.0)), hash(i + vec2(11.0, 38.0))) * 2.0 - 1.0;
+    let gd = vec2<f32>(hash(i + vec2(1.0, 1.0)), hash(i + vec2(12.0, 38.0))) * 2.0 - 1.0;
+    let bottom = mix(dot(ga, f), dot(gb, f - vec2(1.0, 0.0)), u.x);
+    let top = mix(dot(gc, f - vec2(0.0, 1.0)), dot(gd, f - vec2(1.0, 1.0)), u.x);
+    return mix(bottom, top, u.y);
+}
+
+fn grain_structure_noise(structure: u32, p: vec2<f32>, roughness: f32) -> f32 {
+    if (structure == GRAIN_SOFT) {
+        let n = grain_noise(p * 0.8 + vec2<f32>(3.1, 7.7));
+        let c = grain_noise(p * 0.3 + vec2<f32>(17.0, 9.0));
+        let w = 0.35 + 0.65 * roughness;
+        return 0.71 * (n + w * c) / sqrt(1.0 + w * w);
+    }
+    if (structure == GRAIN_CLUMPED) {
+        let fine = grain_noise(p);
+        let c = 0.6 * grain_noise(p * 0.4 + vec2<f32>(41.0, 3.0))
+            + 0.4 * grain_noise(p * 0.13 + vec2<f32>(13.0, 29.0));
+        let k = 1.6 * roughness;
+        return 0.71 * (fine * (1.0 + 0.8 * k * c) + 0.9 * k * c) / sqrt(1.0 + 0.43 * k * k);
+    }
+    if (structure == GRAIN_SPECKLED) {
+        let base = grain_noise(p * 0.9 + vec2<f32>(1.7, 4.4));
+        let s = grain_noise(p * 0.7 + vec2<f32>(23.0, 31.0));
+        let c = grain_noise(p * 0.25 + vec2<f32>(7.0, 2.0));
+        let speck = max(s - 0.12, 0.0) * (1.6 + 6.0 * roughness * max(c + 0.1, 0.0));
+        // The specks' mean is taken off so the grain does not brighten.
+        return 0.575 * (base + speck - (0.0418 + 0.0206 * roughness));
+    }
+    // Gritty
+    let n = grain_noise(p * 0.55 + vec2<f32>(2.3, 8.1))
+        + 0.45 * grain_noise(p + vec2<f32>(6.6, 1.9))
+        + (0.5 + 0.8 * roughness) * grain_noise(p * 0.2 + vec2<f32>(19.0, 5.0));
+    return 0.524 * tanh(1.5 * n);
+}
+
+// The grain with a structure other than Even (same strength and tone mask
+// as Even, see the grain block in main).
+fn apply_grain_structure(rgb: vec3<f32>, coord: vec2<f32>, scale: f32) -> vec3<f32> {
+    let structure = adjustments.global.grain_structure;
+    var amount = adjustments.global.grain_amount * 0.5;
+    let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
+    let luma = max(0.0, get_luma(rgb));
+    var luma_mask = smoothstep(0.0, 0.15, luma) * (1.0 - smoothstep(0.6, 1.0, luma));
+    if (adjustments.global.tonemapper_mode >= 2u) {
+        amount *= GRAIN_GAIN * (1.0 + GRAIN_FINE_BOOST * max(0.0, 1.0 - adjustments.global.grain_size * 2.0));
+        luma_mask = smoothstep(0.0, 0.03, luma) * (1.0 - smoothstep(0.97, 1.0, luma));
+    }
+    let noise = grain_structure_noise(structure, coord * grain_frequency, adjustments.global.grain_roughness);
+    return rgb + vec3<f32>(noise) * amount * luma_mask * grain_tone_weight(structure, luma);
+}
+
+// Film-like tone response: full strength around display level 0.45,
+// falling off towards black and white (Even and Clumped: 1 everywhere).
+fn grain_tone_weight(structure: u32, luma: f32) -> f32 {
+    if (structure == GRAIN_CLUMPED) { return 1.0; }
+    let d = luma - 0.45;
+    if (structure == GRAIN_SOFT) { return max(1.0 - 3.0 * d * d, 0.35); }
+    return max(1.0 - 4.0 * d * d, 0.3);
+}
+
 fn dither(coords: vec2<u32>) -> f32 {
     let p = vec2<f32>(coords);
     return fract(sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453) - 0.5;
@@ -707,6 +794,11 @@ fn camera_raw_level_slope(luma: f32) -> vec2<f32> {
     let radius = min(0.5 * black, 0.0625 / ramp_slope);
     var x: f32;
     var dx: f32;
+    // The toe's EV slope x_in · dx / x is 2 · x_in / y; taken directly where
+    // x falls below the 1e-9 floor of the level, which made the slope
+    // collapse right above the toe's bottom (Contrast −100 lifted such a
+    // pixel ×80).
+    var toe_ev_slope = 0.0;
     if (x_in <= black - radius) {
         return vec2<f32>(-20.0, CR_SLOPE_CRUSHED);
     } else if (x_in >= black + radius) {
@@ -716,6 +808,9 @@ fn camera_raw_level_slope(luma: f32) -> vec2<f32> {
         let y = x_in - (black - radius);
         x = ramp_slope / (4.0 * radius) * y * y;
         dx = ramp_slope / (2.0 * radius) * y;
+        if (x < 1e-9) {
+            toe_ev_slope = 2.0 * x_in / y;
+        }
     }
     if (adjustments.global.profile_curve[15].w > 1.5 && x > CR_ROLLOFF_KNEE) {
         let span = CR_ROLLOFF_LIMIT - CR_ROLLOFF_KNEE;
@@ -723,15 +818,19 @@ fn camera_raw_level_slope(luma: f32) -> vec2<f32> {
         dx *= falloff;
         x = CR_ROLLOFF_KNEE + span * (1.0 - falloff);
     }
-    if (x >= 1.0) {
-        return vec2<f32>(0.0, 0.0);
-    }
-    let ev = log2(max(x, 1e-9));
-    let position = (ev - DEFAULT_TONE_CURVE_START_EV) * 4.0;
     let flag = adjustments.global.profile_curve[15].w;
     // 1: the file's own curve; 3: an own curve with neutral colour.
     // 4: a camera profile's curve (5: the profile uses the default curve).
     let own_curve = (flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5);
+    if (x >= 1.0) {
+        // White: the curve's last segment, so the slope (and with it the
+        // tone gains) stays continuous where a look without the roll-off
+        // clips. A slope of 0 here stepped Whites −100 down by 0.24 EV at
+        // white under the file's own curve.
+        return vec2<f32>(0.0, camera_raw_curve_segment_slope(47, own_curve) * x_in * dx / x);
+    }
+    let ev = log2(max(x, 1e-9));
+    let position = (ev - DEFAULT_TONE_CURVE_START_EV) * 4.0;
     var level: f32;
     var curve_slope = 1.0;
     if (position <= 0.0) {
@@ -755,6 +854,9 @@ fn camera_raw_level_slope(luma: f32) -> vec2<f32> {
         let segment = (b - a) * 4.0;
         let after = camera_raw_curve_segment_slope(s + 1, own_curve);
         curve_slope = mix(0.5 * (before + segment), 0.5 * (segment + after), t);
+    }
+    if (toe_ev_slope > 0.0) {
+        return vec2<f32>(level, curve_slope * toe_ev_slope);
     }
     return vec2<f32>(level, curve_slope * x_in * dx / max(x, 1e-9));
 }
@@ -950,32 +1052,179 @@ fn cr_contrast_delta(amount: f32, g: vec2<f32>) -> f32 {
         mix(CR_CONTRAST_LOWER_100[i], CR_CONTRAST_LOWER_100[i + 1u], g.y), amount);
 }
 
+// Tone order. The Camera Raw-look sliders turn a display-EV change into a
+// scene gain by dividing it by the slope of the display response; where
+// that slope (or a lift table) changes fast, the gain changed faster than
+// the level rose and a brighter tone came out darker. On a grey ramp (GPU
+// test `camera_raw_tone_sliders_keep_tones_in_order`) this starts at fixed
+// levels:
+// - lowering, from the black ramp's toe top, where its slope
+//   (∝ x / (x − black)) falls fastest (Blacks −50 fell 0.07 EV, Contrast
+//   +100 likewise near black), and inside the toe from its bottom (Blacks
+//   −100 reversed below black, which Contrast −100 then lifted into view);
+// - lowering, from the highlight roll-off's knee, where the slope falls to
+//   the 0.3 floor (Whites −100 fell 0.22 EV from scene −0.85 to −0.35 EV);
+// - Shadows + and Blacks + together, from the toe tables' last segment,
+//   where both lifts end at once (−1.28 EV per EV), and from the Shadows
+//   table's peak at display −7 EV, where both lifts fall together.
+// From each such level a floor keeps the result rising at least `rise` EV
+// per EV from that level's own result. Where the response was in order the
+// floor stays below it and the measured response is unchanged. The levels
+// are fixed: a tone curve of another shape can reverse elsewhere (a
+// straight log-log curve still does above the knee).
+const CR_ORDER_RISE_TOE: f32 = 0.1;
+// Lowered highlights keep a quarter of their scene gradient. Whites −100
+// then changes display −0.3 / −0.2 / −0.1 EV by −0.42 / −0.47 / −0.50 EV
+// (it was −0.48 / −0.70 / −0.69), continuing Lightroom's measured −0.38 /
+// −0.44 at −1 / −0.5 EV (notes: reference/tone-controls.md).
+const CR_ORDER_RISE_SHOULDER: f32 = 0.25;
+// The toe tables' last segment starts at 2^4.5 × the black point.
+const CR_TOE_LAST_SEGMENT: f32 = 22.627417;
+
+// The gain that keeps `level` rising at least `rise` EV per EV from
+// `anchor`'s result (`gain_anchor` there); 0 at and below the anchor.
+fn cr_order_gain(level: f32, anchor: f32, gain_anchor: f32, rise: f32) -> f32 {
+    if (anchor <= 0.0 || level <= anchor) {
+        return 0.0;
+    }
+    return gain_anchor * pow(anchor / level, 1.0 - rise);
+}
+
+// Levels (inputs of `camera_raw_level_slope`) of the black ramp's toe
+// bottom and top (0 without a black point) and of the roll-off knee (the
+// same ramped level where a look has no roll-off).
+fn cr_toe_bottom_level() -> f32 {
+    let black = camera_raw_black();
+    let radius = min(0.5 * black, 0.0625 * (1.0 - black));
+    return max(black - radius, 0.0) / exp2(adjustments.global.baseline_exposure);
+}
+
+fn cr_toe_top_level() -> f32 {
+    let black = camera_raw_black();
+    if (black <= 0.0) {
+        return 0.0;
+    }
+    let radius = min(0.5 * black, 0.0625 * (1.0 - black));
+    return (black + radius) / exp2(adjustments.global.baseline_exposure);
+}
+
+fn cr_knee_level() -> f32 {
+    let black = camera_raw_black();
+    return (black + CR_ROLLOFF_KNEE * (1.0 - black)) / exp2(adjustments.global.baseline_exposure);
+}
+
+fn cr_whites_gain_unordered(x: f32, amount: f32) -> f32 {
+    let ls = camera_raw_level_slope(x);
+    return cr_gain(cr_whites_delta(amount, cr_grid(ls.x)), ls.y);
+}
+
+fn cr_whites_gain(x: f32, amount: f32) -> f32 {
+    let gain = cr_whites_gain_unordered(x, amount);
+    let knee = cr_knee_level();
+    if (amount >= 0.0 || knee <= 0.0 || x <= knee) {
+        return gain;
+    }
+    return max(gain, cr_order_gain(x, knee, cr_whites_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
+}
+
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        let ls = camera_raw_level_slope(rgb[c]);
-        out[c] = rgb[c] * cr_gain(cr_whites_delta(amount, cr_grid(ls.x)), ls.y);
+        out[c] = rgb[c] * cr_whites_gain(rgb[c], amount);
     }
     return out;
+}
+
+fn cr_contrast_gain_unordered(x: f32, amount: f32) -> f32 {
+    let ls = camera_raw_level_slope(x);
+    if (amount < 0.0) {
+        // Lowering contrast lifts the toe like Camera Raw's.
+        let log_gain = cr_contrast_delta(amount, cr_grid(ls.x)) / max(ls.y, 0.3);
+        let toe = cr_toe_contrast(cr_toe_position(x), amount);
+        return exp2(cr_with_toe(log_gain, toe));
+    }
+    return cr_gain(cr_contrast_delta(amount, cr_grid(ls.x)), ls.y);
+}
+
+// Raising darkens the deep tones (toe), lowering the highlights (shoulder).
+fn cr_contrast_gain(x: f32, amount: f32) -> f32 {
+    var gain = cr_contrast_gain_unordered(x, amount);
+    if (amount > 0.0) {
+        let bottom = cr_toe_bottom_level();
+        if (bottom > 0.0 && x > bottom) {
+            gain = max(gain, cr_order_gain(x, bottom, cr_contrast_gain_unordered(bottom, amount), 0.0));
+            let top = cr_toe_top_level();
+            gain = max(gain, cr_order_gain(x, top, cr_contrast_gain_unordered(top, amount), CR_ORDER_RISE_TOE));
+        }
+    } else {
+        let knee = cr_knee_level();
+        if (knee > 0.0 && x > knee) {
+            gain = max(gain, cr_order_gain(x, knee, cr_contrast_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
+        }
+    }
+    return gain;
 }
 
 fn cr_contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        let ls = camera_raw_level_slope(rgb[c]);
-        if (amount < 0.0) {
-            // Lowering contrast lifts the toe like Camera Raw's.
-            let log_gain = cr_contrast_delta(amount, cr_grid(ls.x)) / max(ls.y, 0.3);
-            let toe = cr_toe_contrast(cr_toe_position(rgb[c]), amount);
-            out[c] = rgb[c] * exp2(cr_with_toe(log_gain, toe));
-        } else {
-            out[c] = rgb[c] * cr_gain(cr_contrast_delta(amount, cr_grid(ls.x)), ls.y);
-        }
+        out[c] = rgb[c] * cr_contrast_gain(rgb[c], amount);
     }
     return out;
 }
 
 fn camera_raw_shadows_blacks_gain(level_luma: f32, sh: f32, bl: f32) -> f32 {
+    var gain = camera_raw_shadows_blacks_gain_unordered(level_luma, sh, bl);
+    let bottom = cr_toe_bottom_level();
+    if (bottom <= 0.0 || level_luma <= bottom) {
+        return gain;
+    }
+    if (sh < 0.0 || bl < 0.0) {
+        gain = max(gain, cr_order_gain(level_luma, bottom,
+            camera_raw_shadows_blacks_gain_unordered(bottom, sh, bl), 0.0));
+        let top = cr_toe_top_level();
+        gain = max(gain, cr_order_gain(level_luma, top,
+            camera_raw_shadows_blacks_gain_unordered(top, sh, bl), CR_ORDER_RISE_TOE));
+    }
+    if (sh > 0.0 && bl > 0.0) {
+        let last = camera_raw_black() * CR_TOE_LAST_SEGMENT / exp2(adjustments.global.baseline_exposure);
+        gain = max(gain, cr_order_gain(level_luma, last,
+            camera_raw_shadows_blacks_gain_unordered(last, sh, bl), CR_ORDER_RISE_TOE));
+        let peak = cr_curve_level(CR_RAISE_PEAK_DISPLAY);
+        gain = max(gain, cr_order_gain(level_luma, peak,
+            camera_raw_shadows_blacks_gain_unordered(peak, sh, bl), CR_ORDER_RISE_TOE));
+    }
+    return gain;
+}
+
+// Display level of the Shadows + table's peak (`CR_SHADOWS_RAISE`, grid 3):
+// above it the lift falls 0.56 EV per EV, with Blacks + 0.7.
+const CR_RAISE_PEAK_DISPLAY: f32 = -7.0;
+
+// The level (input of `camera_raw_level_slope`) that the look's tone curve
+// (default or own) shows at `display` EV, for levels above the black ramp's
+// toe and below the roll-off.
+fn cr_curve_level(display: f32) -> f32 {
+    let flag = adjustments.global.profile_curve[15].w;
+    let own_curve = (flag > 0.5 && flag < 1.5) || (flag > 2.5 && flag < 4.5);
+    var ev = default_tone_curve_inverse(display);
+    if (own_curve) {
+        var i = 0u;
+        for (var k = 0u; k < 48u; k = k + 1u) {
+            if (profile_curve_value(k + 1u) <= display) {
+                i = k + 1u;
+            }
+        }
+        i = min(i, 47u);
+        let a = profile_curve_value(i);
+        let b = profile_curve_value(i + 1u);
+        ev = DEFAULT_TONE_CURVE_START_EV + (f32(i) + clamp((display - a) / max(b - a, 1e-6), 0.0, 1.0)) * 0.25;
+    }
+    let black = camera_raw_black();
+    return (exp2(ev) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
+}
+
+fn camera_raw_shadows_blacks_gain_unordered(level_luma: f32, sh: f32, bl: f32) -> f32 {
     // Renderer values are slider / 120 (Shadows) and slider / 40 (Blacks).
     let shadows = clamp(sh * 1.2, -1.0, 1.0);
     let blacks = clamp(bl * 0.4, -1.0, 1.0);
@@ -4561,7 +4810,7 @@ fn main(
         final_rgb = mix(final_rgb, lut_color, adjustments.global.lut_intensity);
     }
 
-    if (adjustments.global.grain_amount > 0.0) {
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_structure == GRAIN_EVEN) {
         let coord = vec2<f32>(absolute_coord_i);
         var amount = adjustments.global.grain_amount * 0.5;
         let grain_frequency = (1.0 / max(adjustments.global.grain_size, 0.1)) / scale;
@@ -4581,6 +4830,9 @@ fn main(
         let noise_rough = gradient_noise(rough_coord + vec2<f32>(5.2, 1.3));
         let noise_val = mix(noise_base, noise_rough, roughness);
         final_rgb += vec3<f32>(noise_val) * amount * luma_mask;
+    }
+    if (adjustments.global.grain_amount > 0.0 && adjustments.global.grain_structure != GRAIN_EVEN) {
+        final_rgb = apply_grain_structure(final_rgb, vec2<f32>(absolute_coord_i), scale);
     }
 
     if (adjustments.global.show_clipping == 1u) {

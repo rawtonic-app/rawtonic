@@ -1554,6 +1554,14 @@
         "output": "Output"
       },
       "effects": {
+        "grainStructure": "Struttura della grana",
+        "grainStructures": {
+          "clumped": "Aggregata",
+          "even": "Uniforme",
+          "gritty": "Ruvida",
+          "soft": "Morbida",
+          "speckled": "Puntinata"
+        },
         "light": "Luce",
         "style": "Stile",
         "styles": {

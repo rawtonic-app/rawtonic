@@ -19,6 +19,7 @@ import {
   LensAdjustment,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
+  withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
 import { autoWhiteBalance } from '../utils/whiteBalance';
@@ -482,7 +483,10 @@ export function useEditorActions() {
   /** Apply some adjustments to `paths` (default: the selection, else the open
    * photo), saving each recipe after its pending save; resolves once saved. */
   const applyAdjustmentsToPaths = useCallback(
-    (adjustmentsToApply: Partial<Adjustments>, paths?: string[]) => {
+    (partial: Partial<Adjustments>, paths?: string[]) => {
+      // Grain from before the structure choice (old presets, other photos)
+      // keeps rendering Even on the photos it is applied to.
+      const adjustmentsToApply = withGrainStructure(partial);
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =

@@ -979,7 +979,9 @@ fn main() {
             1
         }
     };
-    if ONNX_RUNTIME_USED.load(std::sync::atomic::Ordering::Relaxed) {
+    // Linux GPU driver exit handlers can also race background resources.
+    // Command-owned state has already been dropped when run() returns.
+    if cfg!(target_os = "linux") || ONNX_RUNTIME_USED.load(std::sync::atomic::Ordering::Relaxed) {
         use std::io::Write;
         let _ = std::io::stdout().flush();
         let _ = std::io::stderr().flush();

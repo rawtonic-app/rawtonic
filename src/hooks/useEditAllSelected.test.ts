@@ -5,6 +5,7 @@ import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } f
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
 
@@ -33,6 +34,7 @@ function edit(change: Partial<Adjustments>) {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  useSettingsStore.setState({ osPlatform: 'macos' });
   useLibraryStore.setState({ multiSelectedPaths: selection });
   useEditorStore.setState({
     selectedImage: { path: '/s/b.CR3', isReady: true, width: 6000, height: 4000 } as never,
@@ -45,6 +47,17 @@ afterEach(() => {
 });
 
 describe('Edit all selected', () => {
+  it('saves Linux browser cells and refreshes them without native live-display IPC', async () => {
+    useSettingsStore.setState({ osPlatform: 'linux' });
+    const before = useMultiViewStore.getState().recipeRevision;
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ exposure: 0.5 });
+    expect(live()).toEqual([]);
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
+    expect(useMultiViewStore.getState().recipeRevision).toBe(before + 1);
+    expect(live()).toEqual([]);
+  });
   it('applies what an edit of the primary changed to the other selected photographs', () => {
     renderHook(() => useEditAllSelected(true, selection));
     edit({ exposure: 0.5 });

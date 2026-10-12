@@ -14,7 +14,7 @@ import type { TransformWrapperHandle } from '../components/panel/Editor';
 import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
 import { saveFailure } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue } from './usePerformanceDiagnostics';
+import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { aiDenoiseToApply } from '../utils/aiDenoise';
 import { originalPreviewAdjustments } from '../utils/beforeAfter';
@@ -241,6 +241,7 @@ export function useImageProcessing(
           maskOverlay: cropEdit ? null : useEditorStore.getState().nativeMaskOverlay,
           cropEdit,
         });
+        const returnedAt = performanceDiagnosticsEnabled ? performance.now() : 0;
         if (performanceDiagnosticsEnabled) {
           const performanceEnd = performance.now();
           // Wall-clock bounds let the log split IPC from native preview work.
@@ -253,8 +254,9 @@ export function useImageProcessing(
             ms: performanceEnd - performanceStart,
             start_epoch_ms: epochOf(performanceStart),
             end_epoch_ms: epochOf(performanceEnd),
-            // Pointer event to a GPU-complete frame (present already queued)
-            // as seen here; excludes scanout and the display itself.
+            // Pointer event to the reply: native presentation is queued;
+            // browser previews still need JPEG decode (tracked below).
+            // Neither measurement includes display scanout.
             ...(inputAt > 0 ? { input_ms: performanceEnd - inputAt } : {}),
             // Event time stamp to its capture listener, listener to this
             // request (canvas handlers, overlay request, queue wait), and the
@@ -306,6 +308,7 @@ export function useImageProcessing(
             const imageBuffer = buffer.slice(24);
             const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
             const url = URL.createObjectURL(blob);
+            noteBrowserPreview(url, returnedAt, inputAt, jobId);
 
             setEditor((state) => {
               const previousUrl = state.interactivePatch?.url;
@@ -323,6 +326,7 @@ export function useImageProcessing(
           } else {
             const blob = new Blob([buffer], { type: 'image/jpeg' });
             const url = URL.createObjectURL(blob);
+            noteBrowserPreview(url, returnedAt, inputAt, jobId);
 
             if (currentPath !== selectedImagePathRef.current || jobId < latestRenderedJobIdRef.current) {
               URL.revokeObjectURL(url);
@@ -433,31 +437,29 @@ export function useImageProcessing(
     [previewQueue, currentResRef],
   );
 
-  // Showing, hiding or restyling the mask overlay changes no adjustment, so
-  // render the current state again. The native display then redraws no image
-  // pixels (nothing changed) and only blends the new overlay. Sent as a live
-  // frame: no histogram, and a newer pointer state still wins.
+  // View options change the rendered pixels without changing the recipe,
+  // including in the browser renderer. A native mask overlay alone only
+  // needs a native redraw; the browser already displays its overlay separately.
   useEffect(
     () =>
       useEditorStore.subscribe((state, previous) => {
-        if (
-          state.nativeMaskOverlay === previous.nativeMaskOverlay &&
-          state.clippingWarnings === previous.clippingWarnings &&
-          state.softProof === previous.softProof &&
-          state.softProofSpace === previous.softProofSpace &&
-          state.softProofWarning === previous.softProofWarning &&
-          state.colorRangeShow === previous.colorRangeShow
-        )
-          return;
+        const viewChanged =
+          state.clippingWarnings !== previous.clippingWarnings ||
+          state.softProof !== previous.softProof ||
+          state.softProofSpace !== previous.softProofSpace ||
+          state.softProofWarning !== previous.softProofWarning ||
+          state.colorRangeShow !== previous.colorRangeShow;
+        const native = nativeDisplayRef.current;
+        if (!viewChanged && (!native || state.nativeMaskOverlay === previous.nativeMaskOverlay)) return;
         const image = state.selectedImage;
         const targetRes = currentResRef.current;
-        if (!canRenderSource(image) || !nativeDisplayRef.current || !targetRes || state.isSliderDragging) return;
+        if (!canRenderSource(image) || !targetRes || state.isSliderDragging) return;
         previewQueue.submit({
           path: image.path,
           adjustments: state.previewOverride ?? state.adjustments,
           dragging: false,
           targetRes,
-          live: true,
+          live: native,
         });
       }),
     [previewQueue, currentResRef],
@@ -505,7 +507,11 @@ export function useImageProcessing(
   const applyAdjustments = useCallback(
     (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {
       if (!canRenderSource(selectedImage)) return;
-      previewQueue.submit({ path: selectedImage!.path, adjustments: currentAdjustments, dragging, targetRes });
+      previewQueue.submit({
+        path: selectedImage!.path, adjustments: currentAdjustments, dragging, targetRes,
+        inputAt: dragging && performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
+        dispatchAt: dragging && performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+      });
     },
     [selectedImage, previewQueue],
   );

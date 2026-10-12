@@ -2716,7 +2716,9 @@ pub struct GlobalAdjustments {
     pub chromatic_aberration_blue_yellow: f32,
     pub show_clipping: u32,
     pub is_raw_image: u32,
-    _pad_ca1: f32,
+    /// Grain structure (recipe key `grainStructure`, see
+    /// `grain_structure_index`); 0 = Even, the original grain.
+    pub grain_structure: u32,
 
     pub has_lut: u32,
     pub lut_intensity: f32,
@@ -3651,7 +3653,7 @@ fn get_global_adjustments_from_json(
             0
         },
         is_raw_image: if is_raw { 1 } else { 0 },
-        _pad_ca1: 0.0,
+        grain_structure: grain_structure_index(js_adjustments["grainStructure"].as_str()),
 
         has_lut,
         lut_intensity,
@@ -5575,6 +5577,19 @@ pub fn auto_results_to_json(results: &AutoAdjustmentResults) -> serde_json::Valu
     })
 }
 
+/// Recipe `grainStructure` names as the shader's grain structure. Missing
+/// and unknown names use Even, the original grain, so older recipes render
+/// unchanged.
+pub fn grain_structure_index(name: Option<&str>) -> u32 {
+    match name {
+        Some("soft") => 1,
+        Some("clumped") => 2,
+        Some("speckled") => 3,
+        Some("gritty") => 4,
+        _ => 0,
+    }
+}
+
 /// Recipe `baseCurve` names as the shader's curve index. Unknown names use
 /// the standard curve.
 pub fn base_curve_index(name: Option<&str>) -> u32 {
@@ -5831,6 +5846,36 @@ mod base_look_exposure_tests {
         );
         assert!((classic.global.exposure - 1.25).abs() < 1e-6);
         assert!((classic.mask_adjustments[0].exposure + 0.625).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod grain_structure_tests {
+    use super::get_all_adjustments_from_json;
+    use serde_json::json;
+
+    #[test]
+    fn recipes_without_a_structure_keep_the_even_grain() {
+        let structure = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .grain_structure
+        };
+        assert_eq!(structure(json!({"grainAmount": 40})), 0);
+        assert_eq!(
+            structure(json!({"grainAmount": 40, "grainStructure": "even"})),
+            0
+        );
+        assert_eq!(
+            structure(json!({"grainAmount": 40, "grainStructure": "unknown"})),
+            0
+        );
+        for (name, index) in [("soft", 1), ("clumped", 2), ("speckled", 3), ("gritty", 4)] {
+            assert_eq!(
+                structure(json!({"grainAmount": 40, "grainStructure": name})),
+                index
+            );
+        }
     }
 }
 

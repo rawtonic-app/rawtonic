@@ -1554,6 +1554,14 @@
         "output": "Sortida"
       },
       "effects": {
+        "grainStructure": "Estructura del gra",
+        "grainStructures": {
+          "clumped": "Agrupat",
+          "even": "Uniforme",
+          "gritty": "Aspre",
+          "soft": "Suau",
+          "speckled": "Clapejat"
+        },
         "light": "Llum",
         "style": "Estil",
         "styles": {

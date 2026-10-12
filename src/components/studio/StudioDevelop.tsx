@@ -29,6 +29,9 @@ import {
   INITIAL_REGION_CURVE,
   type Adjustments,
   type Curves,
+  type GrainStructure,
+  effectiveGrainStructure,
+  withNewGrainStructure,
   type RegionCurve,
 } from "../../utils/adjustments";
 import {
@@ -514,7 +517,7 @@ export default function StudioDevelop() {
                 : m,
             ),
           }
-        : { ...prev, ...patch },
+        : withNewGrainStructure(prev, { ...prev, ...patch }),
     );
   // Layers start neutral; the photo itself starts from the RAW defaults.
   const defaults = layer
@@ -1588,6 +1591,7 @@ export default function StudioDevelop() {
                 ["grainAmount", t("adjustments.effects.grain")],
                 ["grainSize", t("studio.develop.params.grainSize")],
                 ["grainRoughness", t("adjustments.effects.roughness")],
+                ["grainStructure", t("studio.develop.effects.grainStructure")],
                 ["glowAmount", t("adjustments.effects.glow")],
                 ["halationAmount", t("adjustments.effects.halation")],
                 ["flareAmount", t("studio.develop.sliders.lightFlare")],
@@ -1605,6 +1609,7 @@ export default function StudioDevelop() {
                   "grainAmount",
                   "grainSize",
                   "grainRoughness",
+                  "grainStructure",
                   "glowAmount",
                   "halationAmount",
                   "flareAmount",
@@ -1648,6 +1653,38 @@ export default function StudioDevelop() {
               {control(t("adjustments.effects.grain"), "grainAmount", 0)}
               {control(t("adjustments.effects.size"), "grainSize", 0)}
               {control(t("adjustments.effects.roughness"), "grainRoughness", 0)}
+              {/* Grain structures (notes: reference/grain.md): Even is the
+                  original grain; the others are own procedural grains that
+                  cover characters Lightroom's sliders cannot reach. */}
+              <label className="studio-inline">
+                <span>{t("studio.develop.effects.grainStructure")}</span>
+                <select
+                  aria-label={t("studio.develop.effects.grainStructure")}
+                  value={effectiveGrainStructure(values as Partial<Adjustments>)}
+                  disabled={!panelsReady}
+                  onChange={(e) =>
+                    change({
+                      grainStructure: e.target.value as GrainStructure,
+                    })
+                  }
+                >
+                  <option value="even">
+                    {t("studio.develop.effects.grainStructures.even")}
+                  </option>
+                  <option value="soft">
+                    {t("studio.develop.effects.grainStructures.soft")}
+                  </option>
+                  <option value="clumped">
+                    {t("studio.develop.effects.grainStructures.clumped")}
+                  </option>
+                  <option value="speckled">
+                    {t("studio.develop.effects.grainStructures.speckled")}
+                  </option>
+                  <option value="gritty">
+                    {t("studio.develop.effects.grainStructures.gritty")}
+                  </option>
+                </select>
+              </label>
               {/* Beyond Lightroom and Capture One: soft glow of the
                   highlights, red halation around them, light flares. */}
               <div className="studio-subheading">

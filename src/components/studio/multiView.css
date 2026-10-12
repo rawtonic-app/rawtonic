@@ -53,6 +53,19 @@
   cursor: pointer;
   pointer-events: auto;
 }
+.studio-mv-browser {
+  position: absolute;
+  inset: 0 0 auto;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.studio-mv-browser img {
+  position: absolute;
+  max-width: none;
+  pointer-events: none;
+}
 .studio-mv-select:focus-visible {
   outline: 1px solid var(--studio-accent);
   outline-offset: -1px;

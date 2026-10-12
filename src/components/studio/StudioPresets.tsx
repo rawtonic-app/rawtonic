@@ -11,6 +11,7 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
+import { withGrainStructure } from "../../utils/adjustments";
 
 type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
 
@@ -154,7 +155,7 @@ export default function StudioPresets() {
       const { selectedImage: image, adjustments: current, setEditor } = useEditorStore.getState();
       if (!image?.isReady) return;
       previewing.current = true;
-      setEditor({ previewOverride: { ...current, ...structuredClone(preset.adjustments) } });
+      setEditor({ previewOverride: { ...current, ...withGrainStructure(structuredClone(preset.adjustments)) } });
     }, 120);
   };
   useEffect(() => endPreview, []);
@@ -193,7 +194,11 @@ export default function StudioPresets() {
   const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
     setAmount({ ...amount, value });
-    const blended = blendPreset(amount.base, amount.preset.adjustments as unknown as Record<string, unknown>, value / 100);
+    const blended = blendPreset(
+      amount.base,
+      withGrainStructure(amount.preset.adjustments) as unknown as Record<string, unknown>,
+      value / 100,
+    );
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
   };
   const exportPreset = async (preset: Preset) => {

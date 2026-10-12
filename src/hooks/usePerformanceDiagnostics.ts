@@ -9,6 +9,24 @@ import type { LatestPreviewQueue } from "../utils/latestPreviewQueue";
 export const performanceDiagnosticsEnabled =
   import.meta.env.VITE_RAWTONIC_PERF === "1";
 
+const browserFrames = new Map<string, { returned: number; input: number; job: number }>();
+export function noteBrowserPreview(url: string, returned: number, input: number, job: number) {
+  if (!performanceDiagnosticsEnabled) return;
+  browserFrames.set(url, { returned, input, job });
+  if (browserFrames.size > 64) browserFrames.delete(browserFrames.keys().next().value!);
+}
+/** SVG load at full opacity: decoded image availability, not display scanout. */
+export function reportBrowserPreviewLoad(url: string, opaque: boolean) {
+  const frame = browserFrames.get(url);
+  if (!performanceDiagnosticsEnabled || !frame) return;
+  const now = performance.now();
+  reportPerformance('browser_preview_load', {
+    job: frame.job, opaque: opaque ? 1 : 0,
+    return_to_load_ms: now - frame.returned,
+    ...(frame.input > 0 ? { input_to_load_ms: now - frame.input } : {}),
+  });
+}
+
 /** Wall-clock time (ms since the epoch) of a `performance.now()` value, for
  * joining webview records with native ones. `performance.timeOrigin` is not
  * used: WebKit's monotonic clock stops while the Mac sleeps, so after a sleep

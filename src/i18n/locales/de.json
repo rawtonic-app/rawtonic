@@ -1501,6 +1501,14 @@
         "output": "Ausgabe"
       },
       "effects": {
+        "grainStructure": "Kornstruktur",
+        "grainStructures": {
+          "clumped": "Klumpig",
+          "even": "Gleichmäßig",
+          "gritty": "Rau",
+          "soft": "Weich",
+          "speckled": "Gesprenkelt"
+        },
         "light": "Licht",
         "style": "Stil",
         "styles": {

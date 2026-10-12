@@ -1469,6 +1469,14 @@
         "output": "输出"
       },
       "effects": {
+        "grainStructure": "颗粒结构",
+        "grainStructures": {
+          "clumped": "团簇",
+          "even": "均匀",
+          "gritty": "粗糙",
+          "soft": "柔和",
+          "speckled": "斑点"
+        },
         "light": "光线",
         "style": "样式",
         "styles": {

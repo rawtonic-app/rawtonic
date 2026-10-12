@@ -356,7 +356,7 @@ export const useKeyboardShortcuts = ({
           e.preventDefault();
           const { osPlatform, appSettings } = s.settings;
           const multi = useMultiViewStore.getState();
-          if (osPlatform === 'linux' || appSettings?.useWgpuRenderer === false || multi.unavailable) return;
+          if (osPlatform !== 'linux' && (appSettings?.useWgpuRenderer === false || multi.unavailable)) return;
           multi.toggle();
         },
       },

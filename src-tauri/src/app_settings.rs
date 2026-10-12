@@ -191,6 +191,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "moirePattern",
         "vignetteStyle",
         "vignetteHighlights",
+        "grainStructure",
     ]
     .iter()
     .map(|s| s.to_string())

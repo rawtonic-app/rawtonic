@@ -306,11 +306,12 @@ describe('before/after split', () => {
     expect(override.rotation).toBe(3);
   });
 
-  it('does not turn on without the native display or a ready photograph, but always turns off', () => {
+  it('allows Linux browser split, waits for a ready photograph, and always turns off', () => {
     const { result } = renderHook(useEditorActions);
     useSettingsStore.setState({ osPlatform: 'linux' });
     act(() => result.current.toggleSplitView());
-    expect(useEditorStore.getState().splitView).toBe(false);
+    expect(useEditorStore.getState().splitView).toBe(true);
+    act(() => result.current.toggleSplitView());
     useSettingsStore.setState({ osPlatform: 'macos' });
     select('/loading.dng', false);
     act(() => result.current.toggleSplitView());

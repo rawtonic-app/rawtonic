@@ -25,12 +25,12 @@ interface MultiViewState {
    * remembered. With one photograph selected Develop shows it alone. */
   enabled: boolean;
   /** Whether the multi view is on screen now (enabled, Develop, more than
-   * one photograph shown and a native display). */
+   * one photograph shown). */
   active: boolean;
   /** Edits of the primary go to every selected photograph. Off by default
    * and never remembered (a forgotten switch would edit many photographs). */
   editAll: boolean;
-  /** The native display cannot show it (no wgpu display, e.g. Linux). */
+  /** Native presentation failed (Linux uses browser cells instead). */
   unavailable: boolean;
   recipeRevision: number;
   /** The pinned reference photograph (Capture One's compare variant,
