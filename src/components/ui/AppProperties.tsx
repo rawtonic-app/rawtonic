@@ -323,7 +323,14 @@ export interface AppSettings {
   waveformHeight?: number;
   activeWaveformChannel?: string;
   useWgpuRenderer?: boolean;
+  /** Replaced by viewerBackground (true → 'medium'); still read from old settings. */
   editorNeutralGreyBg?: boolean;
+  /** Develop viewer background around the photograph (utils/viewerDisplay). */
+  viewerBackground?: string;
+  /** Develop viewer: fit leaves a proof margin around the photograph (X). */
+  viewerProofMargin?: boolean;
+  /** Proof margin size in % of the viewer's shorter side. */
+  viewerProofMarginPercent?: number;
   canvasInputMode?: 'mouse' | 'trackpad';
   zoomSpeedMultiplier?: number;
   zoomPhotoToPixelClick?: boolean;
@@ -454,6 +461,8 @@ export interface Option {
    */
   customComponent?(props: ContextMenuCustomProps): ReactNode;
   customProps?: object;
+  /** A choice in a group: shows a check mark when true, room for one when false. */
+  checked?: boolean;
   disabled?: boolean;
   icon?: LucideIcon;
   isDestructive?: boolean;

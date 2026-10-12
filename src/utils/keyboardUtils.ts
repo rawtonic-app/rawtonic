@@ -125,6 +125,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
+    // Capture One's proof margin (X): fit leaves a margin around the photograph.
+    action: 'toggle_proof_margin',
+    description: 'settings.keybinds.actions.toggle_proof_margin',
+    defaultCombo: ['KeyX'],
+    section: 'view',
+  },
+  {
     action: 'toggle_fullscreen',
     description: 'settings.keybinds.actions.toggle_fullscreen',
     defaultCombo: ['KeyF'],

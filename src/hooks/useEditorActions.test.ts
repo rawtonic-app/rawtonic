@@ -319,3 +319,19 @@ describe('before/after split', () => {
     expect(useEditorStore.getState().splitView).toBe(false);
   });
 });
+
+it('never zooms out below fit from the keys, the zoom menu or the 100 % button', () => {
+  // A 6000×4000 photograph fitted to 1500×1000: fit is 25 % on a 1× screen.
+  useEditorStore.setState({
+    originalSize: { width: 6000, height: 4000 },
+    baseRenderSize: { width: 1500, height: 1000, offsetX: 0, offsetY: 0, containerWidth: 1500, containerHeight: 1000 },
+    zoom: 2,
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(0.1));
+  expect(useEditorStore.getState().zoom).toBe(1);
+  act(() => result.current.handleZoomChange(1));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(4);
+  act(() => result.current.handleZoomChange(0, true));
+  expect(useEditorStore.getState().zoom).toBe(1);
+});

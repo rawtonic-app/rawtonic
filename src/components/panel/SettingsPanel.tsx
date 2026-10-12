@@ -45,6 +45,13 @@ import { useOsPlatform } from '../../hooks/useOsPlatform';
 import { open } from '@tauri-apps/plugin-shell';
 import { RotateCcw } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
+import {
+  DEFAULT_PROOF_MARGIN_PERCENT,
+  PROOF_MARGIN_PERCENTS,
+  VIEWER_BACKGROUNDS,
+  resolveViewerBackground,
+} from '../../utils/viewerDisplay';
+import { viewerBackgroundLabel } from './editor/viewerBackgroundMenu';
 
 interface ConfirmModalState {
   confirmText: string;
@@ -969,14 +976,34 @@ export default function SettingsPanel({
                       </div>
 
                       <SettingItem
-                        label={t('settings.general.neutralGreyCanvas')}
-                        description={t('settings.general.neutralGreyCanvasDesc')}
+                        label={t('settings.general.viewerBackground')}
+                        description={t('settings.general.viewerBackgroundDesc')}
                       >
-                        <Switch
-                          checked={appSettings?.editorNeutralGreyBg ?? false}
-                          id="neutral-grey-bg-toggle"
-                          label={t('settings.general.enableNeutralGreyCanvas')}
-                          onChange={(checked) => onSettingsChange({ ...appSettings, editorNeutralGreyBg: checked })}
+                        <Dropdown
+                          onChange={(value) => onSettingsChange({ ...appSettings, viewerBackground: String(value) })}
+                          options={VIEWER_BACKGROUNDS.map((background) => ({
+                            value: background,
+                            label: viewerBackgroundLabel(background),
+                          }))}
+                          value={resolveViewerBackground(appSettings)}
+                          triggerClassName="bg-bg-primary"
+                        />
+                      </SettingItem>
+
+                      <SettingItem
+                        label={t('settings.general.proofMargin')}
+                        description={t('settings.general.proofMarginDesc')}
+                      >
+                        <Dropdown
+                          onChange={(value) =>
+                            onSettingsChange({ ...appSettings, viewerProofMarginPercent: Number(value) })
+                          }
+                          options={PROOF_MARGIN_PERCENTS.map((percent) => ({
+                            value: String(percent),
+                            label: `${percent} %`,
+                          }))}
+                          value={String(appSettings?.viewerProofMarginPercent ?? DEFAULT_PROOF_MARGIN_PERCENT)}
+                          triggerClassName="bg-bg-primary"
                         />
                       </SettingItem>
 

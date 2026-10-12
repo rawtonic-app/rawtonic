@@ -12,7 +12,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ChevronRight } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import { Option, OPTION_HEADER, OPTION_SEPARATOR } from '../components/ui/AppProperties';
 import clsx from 'clsx';
 
@@ -274,9 +274,16 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
           }
         }}
         ref={itemRef}
-        role="menuitem"
+        role={option.checked === undefined ? 'menuitem' : 'menuitemradio'}
+        aria-checked={option.checked}
       >
         <div className="flex items-center gap-2.5 min-w-0">
+          {option.checked !== undefined &&
+            (option.checked ? (
+              <Check size={14} className="shrink-0" aria-hidden="true" />
+            ) : (
+              <span className="w-3.5 shrink-0" aria-hidden="true" />
+            ))}
           {option.color && <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: option.color }}></div>}
           {option.icon && <option.icon size={14} className="shrink-0" />}
           <span

@@ -1388,6 +1388,27 @@
   border-top: 1px solid var(--studio-line);
   font-size: 10px;
   color: #aeb2b7;
+  container: viewer-footer / inline-size;
+}
+/* Capture settings under the photograph (Capture One); left out when the
+   viewer is too narrow for them beside the rating. */
+.studio-capture-info {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 14px;
+  min-width: 0;
+  margin-right: auto;
+  padding-left: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  color: #c4c7cc;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+@container viewer-footer (max-width: 860px) {
+  .studio-capture-info {
+    display: none;
+  }
 }
 .studio-viewer-footer button {
   font-size: 10px;
