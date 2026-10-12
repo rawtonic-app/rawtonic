@@ -15,6 +15,10 @@ import {
 } from "../../utils/adjustments";
 import AdjustmentControl from "./AdjustmentControl";
 import StudioColorWheel from "./StudioColorWheel";
+import StudioLuminanceArc, {
+  THREE_WAY_ASPECT,
+  THREE_WAY_DISC,
+} from "./StudioLuminanceArc";
 import { ToolGroup } from "./StudioDevelop";
 import type { ToolParams } from "./StudioToolCopy";
 
@@ -31,12 +35,16 @@ interface ToolProps {
 }
 
 const REGIONS = [
+  ["threeWay", "studio.color.grading.threeWay"],
   ["shadows", "adjustments.color.grading.shadows"],
   ["midtones", "adjustments.color.grading.midtones"],
   ["highlights", "adjustments.color.grading.highlights"],
   ["global", "adjustments.color.grading.global"],
 ] as const;
-type Region = (typeof REGIONS)[number][0];
+type View = (typeof REGIONS)[number][0];
+type Region = Exclude<View, "threeWay">;
+/** Capture One's 3-way layout: midtones on top, shadows and highlights below. */
+const THREE_WAY: Region[] = ["midtones", "shadows", "highlights"];
 
 export const tintColor = ({ hue, saturation }: HueSatLum) =>
   saturation > 0
@@ -44,11 +52,98 @@ export const tintColor = ({ hue, saturation }: HueSatLum) =>
     : undefined;
 
 /**
+ * The range switcher's icons (16 px, stroke 1.5, like the app's lucide
+ * icons): the 3-way view as three circles laid out like the view, each
+ * filled with its range's tint; Shadows dark, Midtones half, Highlights
+ * light, Global a ring around a dot. A range with saturation shows its tint
+ * as a dot at the icon's corner.
+ */
+function GradingRangeIcon({
+  view,
+  tints,
+}: {
+  view: View;
+  tints: (string | undefined)[];
+}) {
+  const outline = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+  } as const;
+  if (view === "threeWay")
+    return (
+      <svg
+        className="studio-grading-icon"
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+        aria-hidden
+      >
+        {THREE_WAY_ICON.map(([cx, cy], i) => (
+          <circle
+            key={i}
+            cx={cx}
+            cy={cy}
+            r={2.9}
+            {...outline}
+            fill={tints[i] ?? "none"}
+          />
+        ))}
+      </svg>
+    );
+  const tint = tints[0];
+  return (
+    <span className="studio-grading-icon-wrap" aria-hidden>
+      <svg
+        className="studio-grading-icon"
+        width="16"
+        height="16"
+        viewBox="0 0 16 16"
+      >
+        {view === "midtones" && (
+          <path d="M8 2.25a5.75 5.75 0 0 0 0 11.5z" fill="currentColor" />
+        )}
+        {view === "global" && (
+          <circle cx={8} cy={8} r={2.25} fill="currentColor" />
+        )}
+        <circle
+          cx={8}
+          cy={8}
+          r={5.75}
+          {...outline}
+          fill={
+            view === "highlights"
+              ? "currentColor"
+              : view === "shadows"
+                ? "#141516"
+                : "none"
+          }
+        />
+      </svg>
+      {tint && (
+        <span className="studio-grading-tint" style={{ background: tint }} />
+      )}
+    </span>
+  );
+}
+/** The 3-way icon's circles, laid out like the view (midtones on top). */
+const THREE_WAY_ICON = [
+  [8, 4.25],
+  [4.25, 11.5],
+  [11.75, 11.5],
+] as const;
+
+/**
  * Lightroom's Color Grading / Capture One's Color Balance: one wheel per
  * tonal range (hue and saturation) with its luminance, plus Blending (how
  * far the ranges overlap) and Balance (where shadows end and highlights
  * begin). The renderer follows Camera Raw's response
  * (notes: reference/color-grading.md).
+ *
+ * The 3-way view (default, as in both editors) shows the three range wheels
+ * at once, each with its luminance as an arc beside it (Capture One's
+ * compact form); the range tabs show one large wheel with numeric sliders.
+ * Both are views of the same recipe values and history entries.
  */
 export function StudioColorGrading({
   values,
@@ -59,18 +154,22 @@ export function StudioColorGrading({
   copy,
 }: ToolProps) {
   const { t } = useTranslation();
-  const [region, setRegion] = useState<Region>("midtones");
+  const [view, setView] = useState<View>("threeWay");
+  const region: Region = view === "threeWay" ? "midtones" : view;
   const grading = {
     ...INITIAL_ADJUSTMENTS.colorGrading,
     ...values.colorGrading,
   };
-  const wheel: HueSatLum = {
-    ...(INITIAL_ADJUSTMENTS.colorGrading[region] as HueSatLum),
-    ...(grading[region] as HueSatLum),
-  };
-  const setWheel = (next: HueSatLum) =>
-    change({ colorGrading: { ...grading, [region]: next } });
-  const label = t(REGIONS.find(([key]) => key === region)![1]);
+  const wheelOf = (key: Region): HueSatLum => ({
+    ...(INITIAL_ADJUSTMENTS.colorGrading[key] as HueSatLum),
+    ...(grading[key] as HueSatLum),
+  });
+  const setWheelOf = (key: Region, next: HueSatLum) =>
+    change({ colorGrading: { ...grading, [key]: next } });
+  const nameOf = (key: View) => t(REGIONS.find(([k]) => k === key)![1]);
+  const wheel = wheelOf(region);
+  const setWheel = (next: HueSatLum) => setWheelOf(region, next);
+  const label = nameOf(region);
   return (
     <ToolGroup
       title="Color grading"
@@ -86,68 +185,130 @@ export function StudioColorGrading({
     >
       <div
         className="studio-segments studio-grading-regions"
+        role="group"
         aria-label={t("studio.color.grading.tonalRange")}
       >
         {REGIONS.map(([key, nameKey]) => {
-          const tint = tintColor(grading[key] as HueSatLum);
           const name = t(nameKey);
           return (
+            // Icon only (Lightroom's view switcher): five equal segments fit
+            // the narrowest panel in every language; the name is the
+            // tooltip, the accessible name and the caption under the wheel.
             <button
               key={key}
               type="button"
-              aria-pressed={region === key}
-              onClick={() => setRegion(key)}
-              title={name}
+              aria-pressed={view === key}
+              aria-label={name}
+              title={
+                key === "threeWay"
+                  ? t("studio.color.grading.threeWayTitle")
+                  : name
+              }
+              onClick={() => setView(key)}
             >
-              <span
-                className="studio-grading-dot"
-                style={{ background: tint }}
-                aria-hidden
+              <GradingRangeIcon
+                view={key}
+                tints={
+                  key === "threeWay"
+                    ? THREE_WAY.map((r) => tintColor(wheelOf(r)))
+                    : [tintColor(wheelOf(key))]
+                }
               />
-              {name}
             </button>
           );
         })}
       </div>
-      <div className="studio-wheel-row">
-        <StudioColorWheel
-          label={label}
-          value={wheel}
-          disabled={disabled}
-          onChange={setWheel}
-          onInteraction={onInteraction}
-        />
+      {view === "threeWay" ? (
+        <div
+          className="studio-grading-3way"
+          role="group"
+          aria-label={t("studio.color.grading.threeWayTitle")}
+        >
+          {THREE_WAY.map((key) => {
+            const value = wheelOf(key);
+            const name = nameOf(key);
+            return (
+              <div key={key} className={`studio-grading-3way-cell is-${key}`}>
+                <div
+                  className="studio-grading-3way-wheel"
+                  style={{ aspectRatio: THREE_WAY_ASPECT }}
+                >
+                  <StudioColorWheel
+                    label={name}
+                    value={value}
+                    size="fill"
+                    className="is-fill"
+                    style={THREE_WAY_DISC}
+                    disabled={disabled}
+                    onChange={(next) => setWheelOf(key, next)}
+                    onInteraction={onInteraction}
+                  />
+                  <StudioLuminanceArc
+                    label={name}
+                    value={value.luminance}
+                    tint={tintColor(value)}
+                    disabled={disabled}
+                    onChange={(luminance) =>
+                      setWheelOf(key, { ...wheelOf(key), luminance })
+                    }
+                    onInteraction={onInteraction}
+                  />
+                </div>
+                <span className="studio-grading-3way-name">{name}</span>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div className="studio-wheel-row is-named">
+            <StudioColorWheel
+              label={label}
+              value={wheel}
+              disabled={disabled}
+              onChange={setWheel}
+              onInteraction={onInteraction}
+            />
+            <span className="studio-grading-3way-name">{label}</span>
+          </div>
+          <AdjustmentControl
+            label={t("adjustments.color.hue")}
+            ariaLabel={t("studio.color.grading.hueAria", { range: label })}
+            value={wheel.hue}
+            min={0}
+            max={359}
+            track="hue"
+            disabled={disabled}
+            onInteraction={onInteraction}
+            onChange={(hue) => setWheel({ ...wheel, hue })}
+          />
+          <AdjustmentControl
+            label={t("adjustments.color.saturation")}
+            ariaLabel={t("studio.color.grading.saturationAria", {
+              range: label,
+            })}
+            value={wheel.saturation}
+            min={0}
+            max={100}
+            disabled={disabled}
+            onInteraction={onInteraction}
+            onChange={(saturation) => setWheel({ ...wheel, saturation })}
+          />
+          <AdjustmentControl
+            label={t("adjustments.color.luminance")}
+            ariaLabel={t("studio.color.grading.luminanceAria", {
+              range: label,
+            })}
+            value={wheel.luminance}
+            disabled={disabled}
+            onInteraction={onInteraction}
+            onChange={(luminance) => setWheel({ ...wheel, luminance })}
+          />
+        </>
+      )}
+      <div className="studio-subheading">
+        {t("studio.color.grading.ranges")}
       </div>
-      <AdjustmentControl
-        label={t("adjustments.color.hue")}
-        ariaLabel={t("studio.color.grading.hueAria", { range: label })}
-        value={wheel.hue}
-        min={0}
-        max={359}
-        track="hue"
-        disabled={disabled}
-        onInteraction={onInteraction}
-        onChange={(hue) => setWheel({ ...wheel, hue })}
-      />
-      <AdjustmentControl
-        label={t("adjustments.color.saturation")}
-        ariaLabel={t("studio.color.grading.saturationAria", { range: label })}
-        value={wheel.saturation}
-        min={0}
-        max={100}
-        disabled={disabled}
-        onInteraction={onInteraction}
-        onChange={(saturation) => setWheel({ ...wheel, saturation })}
-      />
-      <AdjustmentControl
-        label={t("adjustments.color.luminance")}
-        ariaLabel={t("studio.color.grading.luminanceAria", { range: label })}
-        value={wheel.luminance}
-        disabled={disabled}
-        onInteraction={onInteraction}
-        onChange={(luminance) => setWheel({ ...wheel, luminance })}
-      />
-      <div className="studio-subheading">{t("studio.color.grading.ranges")}</div>
       <AdjustmentControl
         label={t("adjustments.color.grading.blending")}
         value={grading.blending}
@@ -367,7 +528,6 @@ export function StudioCalibration({
           )}
         </div>
       ))}
-
     </ToolGroup>
   );
 }

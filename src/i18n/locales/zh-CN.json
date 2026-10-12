@@ -1303,9 +1303,12 @@
       },
       "grading": {
         "hueAria": "{{range}}色相",
+        "luminanceArcTitle": "{{range}}亮度 {{value}} · 拖动或方向键 · Shift 微调 · 双击重置",
         "luminanceAria": "{{range}}亮度",
         "ranges": "范围",
         "saturationAria": "{{range}}饱和度",
+        "threeWay": "三向",
+        "threeWayTitle": "三向：同时显示阴影、中间调和高光",
         "title": "颜色分级",
         "tonalRange": "色调范围"
       },

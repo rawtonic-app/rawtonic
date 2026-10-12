@@ -1426,9 +1426,12 @@
       },
       "grading": {
         "hueAria": "Цветовой тон ({{range}})",
+        "luminanceArcTitle": "Светимость ({{range}}) {{value}} · перетащите или стрелки · Shift — точно · двойной щелчок — сброс",
         "luminanceAria": "Светимость ({{range}})",
         "ranges": "Диапазоны",
         "saturationAria": "Насыщенность ({{range}})",
+        "threeWay": "3 круга",
+        "threeWayTitle": "3 круга: тени, средние тона и света одновременно",
         "title": "Цветокоррекция",
         "tonalRange": "Тональный диапазон"
       },

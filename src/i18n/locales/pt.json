@@ -1378,9 +1378,12 @@
       },
       "grading": {
         "hueAria": "Matiz ({{range}})",
+        "luminanceArcTitle": "Luminância ({{range}}) {{value}} · arraste ou setas · Shift: fino · clique duplo redefine",
         "luminanceAria": "Luminância ({{range}})",
         "ranges": "Faixas",
         "saturationAria": "Saturação ({{range}})",
+        "threeWay": "3 vias",
+        "threeWayTitle": "3 vias: sombras, meios-tons e realces ao mesmo tempo",
         "title": "Gradação de cores",
         "tonalRange": "Faixa tonal"
       },

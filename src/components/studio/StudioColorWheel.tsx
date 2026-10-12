@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
@@ -27,7 +28,11 @@ interface Props {
   label: string;
   value: HueSatLum;
   disabled?: boolean;
-  size?: number;
+  /** Diameter in pixels; "fill" sizes the wheel by its stylesheet (the
+   * three-way view scales the wheels with the panel width). */
+  size?: number | "fill";
+  className?: string;
+  style?: CSSProperties;
   onChange(value: HueSatLum): void;
   onInteraction?(active: boolean): void;
 }
@@ -43,6 +48,8 @@ export default memo(function StudioColorWheel({
   value,
   disabled = false,
   size = 132,
+  className = "",
+  style,
   onChange,
   onInteraction,
 }: Props) {
@@ -150,8 +157,8 @@ export default memo(function StudioColorWheel({
   const tint = `hsl(${local.hue} ${Math.round(40 + local.saturation * 0.6)}% 55%)`;
   return (
     <div
-      className={`studio-wheel-disc ${disabled ? "is-disabled" : ""}`}
-      style={{ width: size, height: size }}
+      className={`studio-wheel-disc ${disabled ? "is-disabled" : ""} ${className}`}
+      style={size === "fill" ? style : { width: size, height: size, ...style }}
       role="slider"
       tabIndex={disabled ? -1 : 0}
       aria-label={t("studio.color.wheel.aria", { range: label })}
@@ -163,7 +170,6 @@ export default memo(function StudioColorWheel({
       aria-valuemin={0}
       aria-valuemax={100}
       title={t("studio.color.wheel.title")}
-
       onPointerDown={start}
       onPointerMove={move}
       onPointerUp={end}

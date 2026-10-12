@@ -1426,9 +1426,12 @@
       },
       "grading": {
         "hueAria": "Odcień ({{range}})",
+        "luminanceArcTitle": "Luminancja ({{range}}) {{value}} · przeciągnij lub strzałki · Shift precyzyjnie · dwuklik resetuje",
         "luminanceAria": "Luminancja ({{range}})",
         "ranges": "Zakresy",
         "saturationAria": "Nasycenie ({{range}})",
+        "threeWay": "3 drogi",
+        "threeWayTitle": "3 drogi: cienie, półcienie i światła naraz",
         "title": "Gradacja kolorów",
         "tonalRange": "Zakres tonalny"
       },
