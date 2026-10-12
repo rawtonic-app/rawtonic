@@ -189,10 +189,7 @@ pub fn run() {
             if let Some(ctx) = state.gpu_context.lock().unwrap().as_ref()
                 && let Ok(mut display_lock) = ctx.display.try_lock()
                     && let Some(display) = display_lock.as_mut() {
-                        display.config.width = size.width.max(1);
-                        display.config.height = size.height.max(1);
-                        display.surface.configure(&ctx.device, &display.config);
-                        display.render(&ctx.device, &ctx.queue);
+                        display.resize(&ctx.device, &ctx.queue, size.width, size.height);
                     }
         })
         .setup(move |app| {
@@ -536,12 +533,12 @@ pub fn run() {
                         #[cfg(not(any(windows, target_os = "linux")))]
                         let maximized = false;
 
-                        #[cfg(any(windows, target_os = "linux"))]
-                        let fullscreen = window_for_handler.is_fullscreen().unwrap_or(false);
-                        #[cfg(not(any(windows, target_os = "linux")))]
-                        let fullscreen = false;
-
-                        if window_for_handler.is_minimized().unwrap_or(false) {
+                        // Full screen is the photo-only view (F), which a
+                        // start does not return to: the window keeps the
+                        // size and place it had before.
+                        if window_for_handler.is_minimized().unwrap_or(false)
+                            || window_for_handler.is_fullscreen().unwrap_or(false)
+                        {
                             return;
                         }
 
@@ -551,7 +548,7 @@ pub fn run() {
                             x: 0,
                             y: 0,
                             maximized,
-                            fullscreen,
+                            fullscreen: false,
                         };
 
                         if let Ok(position) = window_for_handler.outer_position() {
@@ -560,7 +557,6 @@ pub fn run() {
                         }
 
                         if !maximized
-                            && !fullscreen
                             && let Ok(size) = window_for_handler.outer_size()
                             && size.width >= 800
                             && size.height >= 600

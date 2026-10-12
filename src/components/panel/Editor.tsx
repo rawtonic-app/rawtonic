@@ -39,6 +39,7 @@ const parseRgb = (rgbStr: string): [number, number, number, number] => {
 };
 
 const NEUTRAL_GREY_RGB: [number, number, number, number] = [128 / 255, 128 / 255, 128 / 255, 1.0];
+const FULL_SCREEN_BLACK_RGB: [number, number, number, number] = [0, 0, 0, 1.0];
 
 const checkCropValid = (pixelCrop: Partial<Crop>, imageW: number, imageH: number, rotation: number) => {
   if (pixelCrop.x === undefined || pixelCrop.y === undefined || !pixelCrop.width || !pixelCrop.height) {
@@ -1379,6 +1380,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     const bgPrimaryStr = rootStyle.getPropertyValue('--app-bg-primary') || 'rgb(24, 24, 24)';
     const bgSecondaryStr = rootStyle.getPropertyValue('--app-bg-secondary') || 'rgb(35, 35, 35)';
     const isNeutralGrey = appSettings?.editorNeutralGreyBg ?? false;
+    // The photo alone (F): the viewer's background fills the whole screen,
+    // black unless the neutral grey background is chosen.
+    const fullScreenBg = isNeutralGrey ? NEUTRAL_GREY_RGB : FULL_SCREEN_BLACK_RGB;
 
     wgpuStateRef.current = {
       useWgpuRenderer: appSettings?.useWgpuRenderer,
@@ -1390,12 +1394,13 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       showOriginal,
       cropBox,
       cropRotation,
-      bgPrimary: parseRgb(bgPrimaryStr),
-      bgSecondary: isNeutralGrey ? NEUTRAL_GREY_RGB : parseRgb(bgSecondaryStr),
+      bgPrimary: isFullScreen ? fullScreenBg : parseRgb(bgPrimaryStr),
+      bgSecondary: isFullScreen ? fullScreenBg : isNeutralGrey ? NEUTRAL_GREY_RGB : parseRgb(bgSecondaryStr),
     };
   }, [
     appSettings?.useWgpuRenderer,
     appSettings?.editorNeutralGreyBg,
+    isFullScreen,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
     hasRenderedFirstFrame,
@@ -1413,6 +1418,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   }, [
     appSettings?.useWgpuRenderer,
     appSettings?.editorNeutralGreyBg,
+    isFullScreen,
     selectedImage?.isReady,
     selectedImage?.isPreviewReady,
     hasRenderedFirstFrame,
@@ -2272,7 +2278,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         className={clsx(
           'flex-1 relative overflow-hidden touch-none',
           'rounded-none',
-          !isWgpuActive && (appSettings?.editorNeutralGreyBg ? 'bg-[#808080]' : 'bg-bg-secondary'),
+          !isWgpuActive &&
+            (appSettings?.editorNeutralGreyBg ? 'bg-[#808080]' : isFullScreen ? 'bg-black' : 'bg-bg-secondary'),
         )}
         style={{ cursor: cursorStyle }}
         onContextMenu={onContextMenu}

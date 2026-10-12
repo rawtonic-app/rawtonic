@@ -20,6 +20,7 @@ import {
   setPanelGroups,
   togglePanelGroups,
 } from '../utils/panelLayout';
+import { enterPhotoFullScreen, forgetPhotoFullScreen, leavePhotoFullScreen } from '../utils/photoFullScreen';
 
 export type SwitcherPlacement = 'bottom' | 'right' | 'left' | 'top';
 
@@ -256,6 +257,8 @@ export interface UIState {
   searchFocusRequest: number;
   requestSearchFocus: () => void;
   toggleFullScreen: () => void;
+  /** The window's own full screen state, read on every resize. */
+  noteWindowFullScreen: (isWindowFullScreen: boolean) => void;
   resetWorkspaceLayout: (isTetheringSupported?: boolean) => WorkspaceState;
 
   /** Where the Studio workspace puts its tools (stored in localStorage). */
@@ -476,13 +479,27 @@ export const useUIStore = create<UIState>((set, get) => ({
 
     if (isFullScreen) {
       set({ isFullScreen: false });
+      void leavePhotoFullScreen();
     } else {
       if (!selectedImage) return;
       set({ isFullScreen: true });
+      void enterPhotoFullScreen(() => get().isFullScreen);
     }
 
     if (isNotFitToScreen) {
       setTimeout(() => set({ isInstantTransition: false }), 100);
+    }
+  },
+
+  noteWindowFullScreen: (isWindowFullScreen) => {
+    const { isWindowFullScreen: was, isFullScreen } = get();
+    if (was === isWindowFullScreen) return;
+    set({ isWindowFullScreen });
+    // Left full screen by other means (green button, ⌃⌘F, the window
+    // manager) while the photo was shown alone: the panels come back.
+    if (was && !isWindowFullScreen && isFullScreen) {
+      forgetPhotoFullScreen();
+      set({ isFullScreen: false });
     }
   },
 

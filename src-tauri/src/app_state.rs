@@ -100,6 +100,9 @@ pub struct WindowState {
     pub x: i32,
     pub y: i32,
     pub maximized: bool,
+    /// Always written false and not restored (full screen is the photo-only
+    /// view); kept so older files still read.
+    #[serde(default)]
     pub fullscreen: bool,
 }
 

@@ -248,6 +248,68 @@ pub struct WgpuDisplay {
     frame_serial: u64,
 }
 
+/// Where a photograph of `width` × `height` (as shown: cropped and turned)
+/// sits in the viewer's `viewport` at fit: contained and centred, as the
+/// webview's `useImageRenderSize` places it.
+pub fn fit_placement(viewport: [f32; 4], width: f32, height: f32) -> [f32; 4] {
+    let [x, y, w, h] = viewport;
+    let (fit_w, fit_h) = if width / height > w / h {
+        (w, w * height / width)
+    } else {
+        (h * width / height, h)
+    };
+    [x + (w - fit_w) / 2.0, y + (h - fit_h) / 2.0, fit_w, fit_h]
+}
+
+/// The display's placement in a window of `window` device pixels.
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub struct DisplayPlacement {
+    pub window: [f32; 2],
+    pub clip: [f32; 4],
+    pub viewport: Option<[f32; 4]>,
+    pub geometry: DisplayGeometry,
+}
+
+impl DisplayPlacement {
+    /// The placement once the window is `width` × `height`, until the
+    /// webview sends its own. The image keeps its size and place in device
+    /// pixels (with the old window size it would be stretched over the new
+    /// surface). A viewer filling the whole window at fit (the photo alone,
+    /// F) grows with it and the image is fitted again, as the webview will
+    /// place it, so entering or leaving full screen shows no frame of the
+    /// wrong size.
+    pub fn resized(self, width: u32, height: u32, uncropped: bool) -> Self {
+        let (width, height) = (width.max(1) as f32, height.max(1) as f32);
+        let [old_w, old_h] = self.window;
+        let near = |a: f32, b: f32| (a - b).abs() <= 1.0;
+        let fills_window = self.viewport.filter(|&[x, y, w, h]| {
+            near(x, 0.0) && near(y, 0.0) && near(x + w, old_w) && near(y + h, old_h)
+        });
+        let [_, _, rect_w, rect_h] = self.geometry.rect;
+        match fills_window {
+            Some(_) if !uncropped && rect_w > 0.0 && rect_h > 0.0 => {
+                let viewport = [0.0, 0.0, width, height];
+                let rect = fit_placement(viewport, rect_w, rect_h);
+                let [cx, cy, cw, ch] = self.clip;
+                Self {
+                    window: [width, height],
+                    clip: [cx, cy, cw + width - old_w, ch + height - old_h],
+                    viewport: Some(viewport),
+                    geometry: DisplayGeometry {
+                        rect,
+                        crop_rect: rect,
+                        crop_rotation: 0.0,
+                    },
+                }
+            }
+            _ => Self {
+                window: [width, height],
+                ..self
+            },
+        }
+    }
+}
+
 impl WgpuDisplay {
     /// Builds the display pipeline for a configured window surface.
     pub fn new(
@@ -516,6 +578,33 @@ impl WgpuDisplay {
             }
         }
         self.overlay_texture.as_ref().unwrap().view.clone()
+    }
+
+    /// The window is now `width` × `height` device pixels: reconfigures the
+    /// surface and presents the current frame placed for that size (see
+    /// `DisplayPlacement::resized`) until the webview sends its placement.
+    pub fn resize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, width: u32, height: u32) {
+        self.config.width = width.max(1);
+        self.config.height = height.max(1);
+        self.surface.configure(device, &self.config);
+        let placement = DisplayPlacement {
+            window: self.latest_transform.window,
+            clip: self.latest_transform.clip,
+            viewport: self.viewport,
+            geometry: self.geometry,
+        }
+        .resized(width, height, self.frame_uncropped);
+        self.latest_transform.window = placement.window;
+        self.latest_transform.clip = placement.clip;
+        self.viewport = placement.viewport;
+        self.geometry = placement.geometry;
+        self.apply_geometry();
+        queue.write_buffer(
+            &self.transform_buffer,
+            0,
+            bytemuck::bytes_of(&self.latest_transform),
+        );
+        self.render(device, queue);
     }
 
     pub fn render(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -4428,6 +4517,69 @@ mod display_geometry_tests {
         assert_eq!(
             geometry.placement(true),
             ([0.0, 0.0, 400.0, 300.0], 0.1, [0.0, 0.0, 400.0, 300.0])
+        );
+    }
+
+    use super::{DisplayPlacement, fit_placement};
+
+    fn placement(viewport: Option<[f32; 4]>, rect: [f32; 4]) -> DisplayPlacement {
+        DisplayPlacement {
+            window: [2000.0, 1200.0],
+            clip: [-4.0, -4.0, 2008.0, 1208.0],
+            viewport,
+            geometry: DisplayGeometry {
+                rect,
+                crop_rect: rect,
+                crop_rotation: 0.0,
+            },
+        }
+    }
+
+    #[test]
+    fn a_viewer_filling_the_window_refits_the_photo_on_resize() {
+        // A 3:2 photograph fitted in a 2000 × 1200 window, then full screen.
+        let before = placement(
+            Some([0.0, 0.0, 2000.0, 1200.0]),
+            [100.0, 0.0, 1800.0, 1200.0],
+        );
+        let after = before.resized(3024, 1964, false);
+        assert_eq!(after.window, [3024.0, 1964.0]);
+        assert_eq!(after.viewport, Some([0.0, 0.0, 3024.0, 1964.0]));
+        assert_eq!(after.clip, [-4.0, -4.0, 3032.0, 1972.0]);
+        let [x, y, w, h] = after.geometry.rect;
+        assert!((w / h - 1.5).abs() < 1e-4, "keeps the aspect ratio");
+        // The screen is wider than 3:2: full height, centred across.
+        assert_eq!((y, h), (0.0, 1964.0));
+        assert!((x - (3024.0 - w) / 2.0).abs() < 1e-3, "centred");
+        assert_eq!(after.geometry.crop_rect, after.geometry.rect);
+    }
+
+    #[test]
+    fn otherwise_a_resize_keeps_the_photos_pixels() {
+        // A viewer beside panels, a zoomed view (no viewport) and a crop
+        // editing frame: only the window size changes, nothing is stretched.
+        let rect = [300.0, 80.0, 1200.0, 800.0];
+        for (viewport, uncropped) in [
+            (Some([280.0, 60.0, 1400.0, 1000.0]), false),
+            (None, false),
+            (Some([0.0, 0.0, 2000.0, 1200.0]), true),
+        ] {
+            let before = placement(viewport, rect);
+            assert_eq!(
+                before.resized(3024, 1964, uncropped),
+                DisplayPlacement {
+                    window: [3024.0, 1964.0],
+                    ..before
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn fit_contains_and_centres() {
+        assert_eq!(
+            fit_placement([10.0, 20.0, 400.0, 200.0], 300.0, 300.0),
+            [110.0, 20.0, 200.0, 200.0]
         );
     }
 }

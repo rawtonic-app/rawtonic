@@ -104,6 +104,7 @@ function App() {
     isInstantTransition,
     activePanel,
     setUI,
+    noteWindowFullScreen,
   } = useUIStore(
     useShallow((state) => ({
       activeView: state.activeView,
@@ -112,6 +113,7 @@ function App() {
       isInstantTransition: state.isInstantTransition,
       activePanel: state.activePanel,
       setUI: state.setUI,
+      noteWindowFullScreen: state.noteWindowFullScreen,
     })),
   );
   // Shift+Tab also hides the top bar (Lightroom); the workspace shows a strip instead.
@@ -416,14 +418,14 @@ function App() {
   useEffect(() => {
     const appWindow = getCurrentWindow();
     const checkFullscreen = async () => {
-      setUI({ isWindowFullScreen: await appWindow.isFullscreen() });
+      noteWindowFullScreen(await appWindow.isFullscreen());
     };
     checkFullscreen();
     const unlistenPromise = appWindow.onResized(checkFullscreen);
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [setUI]);
+  }, [noteWindowFullScreen]);
 
   // Transparent over the native display once it shows the photograph: a
   // preview proxy frame before the full decode, or the previous frame held

@@ -193,8 +193,6 @@ pub(crate) fn frontend_ready(
     {
         #[cfg(any(windows, target_os = "linux"))]
         let mut should_maximize = false;
-        #[cfg(any(windows, target_os = "linux"))]
-        let mut should_fullscreen = false;
         #[cfg(not(any(windows, target_os = "linux")))]
         let _ = (&app_handle, is_first_run);
 
@@ -205,13 +203,11 @@ pub(crate) fn frontend_ready(
             if let Ok(contents) = std::fs::read_to_string(&path)
                 && let Ok(saved_state) = serde_json::from_str::<WindowState>(&contents)
             {
-                #[cfg(any(windows, target_os = "linux"))]
-                {
-                    should_maximize = saved_state.maximized;
-                    should_fullscreen = saved_state.fullscreen;
-                }
+                // `fullscreen` in older files is not restored: full screen is
+                // the photo-only view (F), which a start does not return to.
+                should_maximize = saved_state.maximized;
 
-                if (should_maximize || should_fullscreen)
+                if should_maximize
                     && let Some(monitor) = window
                         .current_monitor()
                         .ok()
@@ -251,9 +247,6 @@ pub(crate) fn frontend_ready(
         if is_first_run {
             if should_maximize {
                 let _ = window.maximize();
-            }
-            if should_fullscreen {
-                let _ = window.set_fullscreen(true);
             }
         }
     }
