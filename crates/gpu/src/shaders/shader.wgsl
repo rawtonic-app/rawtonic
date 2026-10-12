@@ -975,7 +975,37 @@ fn cr_contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     return out;
 }
 
+// Least rise (EV per EV) of a lowered tone just above the black ramp's toe.
+const CR_LOWER_MIN_RISE: f32 = 0.1;
+
+// Shadows and Blacks with tones kept in order. Lowering divides its
+// display-EV change by the slope, and right above the black ramp's toe that
+// slope (∝ x / (x − black)) falls so fast that the darkening grows faster
+// than the level rises: from 1.5 to ~1.9× the black point the darkened
+// level fell again (Blacks −50 alone by 0.04 EV, which the black ramp's
+// steep toe made a 0.07 EV fall of the output; the own default tone curve
+// of 2026-10-11, 7 % flatter there, pushed Shadows +50 / Blacks −50 past
+// the GPU test's limit). Above the toe's top the darkened level now rises
+// at least `CR_LOWER_MIN_RISE` from the top's: a slowly rising band instead
+// of a reversal, and the measured response wherever it was in order.
 fn camera_raw_shadows_blacks_gain(level_luma: f32, sh: f32, bl: f32) -> f32 {
+    let gain = camera_raw_shadows_blacks_gain_unordered(level_luma, sh, bl);
+    let black = camera_raw_black();
+    if ((sh >= 0.0 && bl >= 0.0) || black <= 0.0) {
+        return gain;
+    }
+    // The toe's top as in `camera_raw_level_slope`, in level units.
+    let radius = min(0.5 * black, 0.0625 * (1.0 - black));
+    let top = (black + radius) / exp2(adjustments.global.baseline_exposure);
+    if (level_luma <= top) {
+        return gain;
+    }
+    let ordered = camera_raw_shadows_blacks_gain_unordered(top, sh, bl)
+        * pow(top / level_luma, 1.0 - CR_LOWER_MIN_RISE);
+    return max(gain, ordered);
+}
+
+fn camera_raw_shadows_blacks_gain_unordered(level_luma: f32, sh: f32, bl: f32) -> f32 {
     // Renderer values are slider / 120 (Shadows) and slider / 40 (Blacks).
     let shadows = clamp(sh * 1.2, -1.0, 1.0);
     let blacks = clamp(bl * 0.4, -1.0, 1.0);

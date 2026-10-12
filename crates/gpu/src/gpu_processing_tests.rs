@@ -2791,6 +2791,8 @@ fn export_specialization_preserves_general_pixels() {
         json!({}),
         json!({"exposure":0.75,"brightness":0.1,"contrast":20}),
         json!({"sharpness":45,"shadows":35}),
+        // Lowering Shadows/Blacks: the tone-order guard's second gain.
+        json!({"shadows":-60,"blacks":-40}),
         json!({"highlights":-40}),
         json!({"lumaNoiseReduction":20,"colorNoiseReduction":15}),
         json!({"curves":custom_curve()}),
@@ -5657,9 +5659,13 @@ fn camera_raw_shadow_gains_stay_smooth_down_to_black() {
         (json!({ "shadows": 100 }), Some(1.0)),
         (json!({ "shadows": 50 }), Some(0.3)),
         (json!({ "shadows": -100 }), None),
+        (json!({ "shadows": -50 }), None),
         (json!({ "blacks": 100 }), Some(1.5)),
         (json!({ "blacks": 50 }), Some(1.0)),
         (json!({ "blacks": -100 }), None),
+        // Darkens the tones just above the black ramp's toe the most
+        // steeply (they reversed by 0.07 EV before the ordering guard).
+        (json!({ "blacks": -50 }), None),
         (json!({ "contrast": -100 }), Some(0.8)),
         (json!({ "contrast": -50 }), Some(0.2)),
         (json!({ "contrast": 100 }), None),
@@ -5677,16 +5683,31 @@ fn camera_raw_shadow_gains_stay_smooth_down_to_black() {
         let toned = render(recipe.clone());
         // Away from the image borders (the blur clamps there).
         let columns = 64..(width - 64) as usize;
+        // Tones stay in order: the output never falls by 0.01 EV between
+        // neighbouring steps (below 1e-4 a single 16-bit code is more than
+        // that) nor, from the black point to 4 EV above it, over up to 16
+        // steps (0.1 EV of scene): a slow reversal there hid in one-code
+        // steps between neighbours (Blacks −50 fell 0.07 EV over 13 steps).
+        let toe_band = column_of(16.0 * black);
         let mut largest_drop = 0.0f64;
-        for x in columns.clone().skip(1) {
-            // One 16-bit level near black is the output's resolution.
-            if toned[x - 1] > 1e-4 {
-                largest_drop = largest_drop.max((toned[x - 1] / toned[x].max(1e-12)).log2());
+        let mut drop_at = (0, 0);
+        for x in columns.clone().skip(16) {
+            let reach = if x <= toe_band { 16 } else { 1 };
+            for k in 1..=reach {
+                if toned[x - k] > 1e-4 {
+                    let drop = (toned[x - k] / toned[x].max(1e-12)).log2();
+                    if drop > largest_drop {
+                        largest_drop = drop;
+                        drop_at = (x, k);
+                    }
+                }
             }
         }
         assert!(
             largest_drop < 0.01,
-            "{recipe}: output falls by {largest_drop:.3} EV between neighbouring ramp steps"
+            "{recipe}: output falls by {largest_drop:.3} EV over {} ramp steps to column {}",
+            drop_at.1,
+            drop_at.0
         );
         // Combinations: smoothness only.
         if recipe.as_object().is_some_and(|o| o.len() > 1) {

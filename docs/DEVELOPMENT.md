@@ -95,6 +95,16 @@ npm run tauri -- build
 
 The advisory check currently reports transitive unmaintained crates; it is not waived. See [ADR 0005](decisions/0005-dependency-remediation.md) for the remediation history. Before a merge, `scripts/check.sh` runs every gate locally; CI (`.github/workflows/ci.yml`) repeats them on Linux after each merge into main.
 
+### GPU tests (manual)
+
+The renderer's GPU tests need a GPU adapter, so they are `#[ignore]`d: neither `scripts/check.sh` nor CI runs them. Run them by hand on a machine with a GPU before merging any change to the shaders (`crates/gpu/src/shaders/`), the GPU pipeline or the tone, colour and look code they render:
+
+```sh
+cargo test -p rawtonic-gpu --locked -- --ignored gpu_processing::preview_tests
+```
+
+They check that the display shader variants, the fallback variant and the CPU-readback export path give the same pixels, and properties of the renderer such as tone order (`camera_raw_shadow_gains_stay_smooth_down_to_black`). A run takes a few minutes; `post_idle_partial_frame_probe` alone runs for over a minute. Compare full-resolution exports of the changed build against the previous commit as well (`rawtonic export` on copies of public sample RAWs, byte for byte): edits the change should not touch must stay identical.
+
 [Fixture instructions](testing/README.md) describe `APP_FIXTURES`, GPU gating and golden comparisons. [Packaging](../packaging/README.md) records signing, Linux and tethering blockers. AI is optional; missing ONNX runtime produces an error, with an opt-in build path documented there.
 
 ## Architecture and implementation
