@@ -48,6 +48,30 @@ pub fn under_pressure() -> bool {
     total > 0 && system.available_memory() < low_threshold(total)
 }
 
+/// How short of memory the system is now (None: not): macOS's pressure
+/// level, else the available memory below `low_threshold` (Warn) or half
+/// of it (Critical). For background work that should yield only when memory
+/// is really scarce: a Mac with several large apps open sits at the warning
+/// level for long stretches.
+pub fn level_now() -> Option<Level> {
+    #[cfg(target_os = "macos")]
+    if let Some(level) = dispatch::current_level() {
+        return level;
+    }
+    let mut system = sysinfo::System::new();
+    system.refresh_memory();
+    let total = system.total_memory();
+    let available = system.available_memory();
+    let threshold = low_threshold(total);
+    if total == 0 || available >= threshold {
+        None
+    } else if available < threshold / 2 {
+        Some(Level::Critical)
+    } else {
+        Some(Level::Warn)
+    }
+}
+
 /// Available memory below which the system counts as short of memory: a
 /// tenth of the physical memory, at most 1 GiB.
 fn low_threshold(total: u64) -> u64 {

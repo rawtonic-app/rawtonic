@@ -599,7 +599,10 @@ export function useEditorActions() {
       targetZoomPercent = zoomValue / dpr;
     }
 
-    targetZoomPercent = Math.max(0.1 / dpr, Math.min(2.0, targetZoomPercent));
+    // No lower bound here but fit (below): a large photograph in a small
+    // view (a multi view cell) fits at well under 10 %, and a floor there
+    // zoomed it in past its cell.
+    targetZoomPercent = Math.min(2.0, targetZoomPercent);
 
     let transformZoom = 1.0;
     if (

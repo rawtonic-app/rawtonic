@@ -665,6 +665,12 @@ struct TcaContext<'a> {
     inv_hd2: f32,
     vr2: f32,
     vb2: f32,
+    /// The frame row and column `src_raw` starts at (0: the whole frame; a
+    /// region's source holds only the rows and columns it reads). Positions
+    /// stay in frame pixels; `src_height` counts the rows from `row0` to the
+    /// frame's end, `src_width` the columns held (the row stride).
+    row0: f32,
+    col0: f32,
 }
 
 #[inline(always)]
@@ -697,6 +703,8 @@ fn interpolate_pixel_with_tca(
     let by = cy + (base_y - cy) * vb;
 
     let sample_channel = |target_x: f32, target_y: f32, channel_idx: usize| -> f32 {
+        let target_y = target_y - tca.row0;
+        let target_x = target_x - tca.col0;
         if target_x.is_nan() || target_y.is_nan() {
             return 0.0;
         }
@@ -919,6 +927,331 @@ fn compute_lens_auto_crop_scale(params: &GeometryParams, width: f32, height: f32
     max_scale
 }
 
+/// The per-pixel mapping of [`warp_image_geometry`]: where an output pixel
+/// samples the source and how it is shaded (lens vignetting), set up once
+/// per frame. The full warp and [`transformed_region`] share it, so a region
+/// is the same arithmetic as the whole frame.
+struct WarpKernel {
+    step_vec_x: NaVector3<f32>,
+    step_vec_y: NaVector3<f32>,
+    origin_vec: NaVector3<f32>,
+    cx: f32,
+    cy: f32,
+    hd: f64,
+    max_radius_sq_inv: f64,
+    k_distortion: f64,
+    lk1: f64,
+    lk2: f64,
+    lk3: f64,
+    lens_dist_amt: f64,
+    has_lens_correction: bool,
+    is_ptlens: bool,
+    auto_crop_scale: f32,
+    vr: f32,
+    vb: f32,
+    vr2: f32,
+    vb2: f32,
+    has_tca: bool,
+    vk1: f64,
+    vk2: f64,
+    vk3: f64,
+    lens_vig_amt: f64,
+    has_vignetting: bool,
+}
+
+impl WarpKernel {
+    /// `src_img` is needed only for the automatic lateral CA (`auto_ca`),
+    /// which is measured on the whole photograph.
+    fn new(
+        params: &GeometryParams,
+        width: u32,
+        height: u32,
+        src_img: Option<&Rgb32FImage>,
+    ) -> Self {
+        let (forward_transform, cx, cy, half_diagonal) =
+            build_transform_matrices(params, width as f32, height as f32);
+        let inv = forward_transform
+            .try_inverse()
+            .unwrap_or(NaMatrix3::identity());
+
+        let step_vec_x = NaVector3::new(inv[(0, 0)], inv[(1, 0)], inv[(2, 0)]);
+        let step_vec_y = NaVector3::new(inv[(0, 1)], inv[(1, 1)], inv[(2, 1)]);
+        let origin_vec = NaVector3::new(inv[(0, 2)], inv[(1, 2)], inv[(2, 2)]);
+
+        let max_radius_sq_inv = 1.0 / ((cx * cx + cy * cy) as f64);
+        let hd = half_diagonal;
+
+        let k_distortion = params.distortion as f64;
+        let lk1 = params.lens_dist_k1 as f64;
+        let lk2 = params.lens_dist_k2 as f64;
+        let lk3 = params.lens_dist_k3 as f64;
+        let lens_dist_amt = (params.lens_distortion_amount as f64) * lens_strength(params).0;
+
+        let has_lens_correction = params.lens_distortion_enabled
+            && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
+        let is_ptlens = params.lens_model == 1;
+
+        let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
+            compute_lens_auto_crop_scale(params, width as f32, height as f32) as f32
+        } else {
+            1.0
+        };
+
+        let (vr, vb, vr2, vb2, tca_on) = if params.auto_ca {
+            // Measured on the photo itself; it covers the whole lateral CA, so
+            // it replaces the profile's.
+            let m = src_img
+                .and_then(crate::lateral_ca::estimate_cached)
+                .unwrap_or(crate::lateral_ca::CaModel::NONE);
+            (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true)
+        } else {
+            let vr = if (params.tca_vr - 1.0).abs() > 1e-5 {
+                params.tca_vr + (1.0 - params.tca_vr) * (1.0 - params.lens_tca_amount)
+            } else {
+                1.0
+            };
+            let vb = if (params.tca_vb - 1.0).abs() > 1e-5 {
+                params.tca_vb + (1.0 - params.tca_vb) * (1.0 - params.lens_tca_amount)
+            } else {
+                1.0
+            };
+            let amount = params.lens_tca_amount;
+            (
+                vr,
+                vb,
+                params.tca_vr2 * amount,
+                params.tca_vb2 * amount,
+                params.lens_tca_enabled,
+            )
+        };
+        let has_tca = tca_on
+            && ((vr - 1.0).abs() > 1e-5
+                || (vb - 1.0).abs() > 1e-5
+                || vr2.abs() > 1e-6
+                || vb2.abs() > 1e-6);
+
+        let vk1 = params.vig_k1 as f64;
+        let vk2 = params.vig_k2 as f64;
+        let vk3 = params.vig_k3 as f64;
+        let lens_vig_amt = (params.lens_vignette_amount as f64) * lens_strength(params).1;
+        let has_vignetting = params.lens_vignette_enabled
+            && (vk1.abs() > 1e-6 || vk2.abs() > 1e-6 || vk3.abs() > 1e-6)
+            && lens_vig_amt > 0.01;
+
+        Self {
+            step_vec_x,
+            step_vec_y,
+            origin_vec,
+            cx,
+            cy,
+            hd,
+            max_radius_sq_inv,
+            k_distortion,
+            lk1,
+            lk2,
+            lk3,
+            lens_dist_amt,
+            has_lens_correction,
+            is_ptlens,
+            auto_crop_scale,
+            vr,
+            vb,
+            vr2,
+            vb2,
+            has_tca,
+            vk1,
+            vk2,
+            vk3,
+            lens_vig_amt,
+            has_vignetting,
+        }
+    }
+
+    /// The projective position of output row `y`'s first pixel.
+    #[inline(always)]
+    fn row_start(&self, y: u32) -> NaVector3<f32> {
+        let y_f = y as f32;
+        self.origin_vec + (self.step_vec_y * y_f)
+    }
+
+    /// Where the output pixel at projective position `current_vec` samples
+    /// the source; None leaves it black.
+    #[inline(always)]
+    fn source_point(&self, current_vec: &NaVector3<f32>) -> Option<(f32, f32)> {
+        if current_vec.z.abs() <= 1e-6 {
+            return None;
+        }
+        let (cx, cy, hd) = (self.cx, self.cy, self.hd);
+        let inv_z = 1.0 / current_vec.z;
+        let mut src_x = current_vec.x * inv_z;
+        let mut src_y = current_vec.y * inv_z;
+
+        if self.auto_crop_scale > 1.0 {
+            src_x = cx + (src_x - cx) / self.auto_crop_scale;
+            src_y = cy + (src_y - cy) / self.auto_crop_scale;
+        }
+
+        if self.has_lens_correction {
+            let dx = (src_x - cx) as f64;
+            let dy = (src_y - cy) as f64;
+            let ru = (dx * dx + dy * dy).sqrt();
+
+            if ru > 1e-6 {
+                let ru_norm = ru / hd;
+                let ru_norm2 = ru_norm * ru_norm;
+
+                let rd_norm = if self.is_ptlens {
+                    let a = self.lk1;
+                    let b = self.lk2;
+                    let c = self.lk3;
+                    let d = 1.0 - a - b - c;
+                    ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
+                } else {
+                    ru_norm
+                        * (1.0
+                            + self.lk1 * ru_norm2
+                            + self.lk2 * (ru_norm2 * ru_norm2)
+                            + self.lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
+                };
+
+                let effective_r_norm = ru_norm + (rd_norm - ru_norm) * self.lens_dist_amt;
+                let scale = effective_r_norm / ru_norm;
+
+                src_x = cx + (dx * scale) as f32;
+                src_y = cy + (dy * scale) as f32;
+            }
+        }
+
+        if self.k_distortion.abs() > 1e-5 {
+            let dx = (src_x - cx) as f64;
+            let dy = (src_y - cy) as f64;
+            let r2_norm = (dx * dx + dy * dy) * self.max_radius_sq_inv;
+            let f = manual_distortion_factor(r2_norm, self.k_distortion);
+
+            src_x = cx + (dx * f) as f32;
+            src_y = cy + (dy * f) as f32;
+        }
+        Some((src_x, src_y))
+    }
+
+    /// The leftmost, rightmost, lowest and highest source position (x0, x1,
+    /// y0, y1) the sample at (`src_x`, `src_y`) reads in a `width` ×
+    /// `height` frame, None when it reads nothing: `interpolate_pixel` leaves positions outside the frame
+    /// black; with lateral CA each channel reads its own position, clamped
+    /// into the frame (`interpolate_pixel_with_tca`).
+    #[inline(always)]
+    fn sampled_area(&self, src_x: f32, src_y: f32, width: u32, height: u32) -> Option<[f32; 4]> {
+        let (last_x, last) = (width as f32 - 1.0, height as f32 - 1.0);
+        if !self.has_tca {
+            let outside = src_x.is_nan()
+                || src_y.is_nan()
+                || src_x < 0.0
+                || src_y < 0.0
+                || src_x >= last_x
+                || src_y >= last;
+            return (!outside).then_some([src_x, src_x, src_y, src_y]);
+        }
+        let (cx, cy) = (self.cx, self.cy);
+        let (vr, vb) = if self.vr2 != 0.0 || self.vb2 != 0.0 {
+            let inv_hd2 = 1.0 / (cx * cx + cy * cy).max(1.0);
+            let r2 = ((src_x - cx) * (src_x - cx) + (src_y - cy) * (src_y - cy)) * inv_hd2;
+            (self.vr + self.vr2 * r2, self.vb + self.vb2 * r2)
+        } else {
+            (self.vr, self.vb)
+        };
+        let (rx, ry) = (cx + (src_x - cx) * vr, cy + (src_y - cy) * vr);
+        let (bx, by) = (cx + (src_x - cx) * vb, cy + (src_y - cy) * vb);
+        let mut area = [f32::MAX, f32::MIN, f32::MAX, f32::MIN];
+        for (x, y) in [(rx, ry), (src_x, src_y), (bx, by)] {
+            if !x.is_nan() && !y.is_nan() {
+                let (x, y) = (x.clamp(0.0, last_x), y.clamp(0.0, last));
+                area = [
+                    area[0].min(x),
+                    area[1].max(x),
+                    area[2].min(y),
+                    area[3].max(y),
+                ];
+            }
+        }
+        (area[0] <= area[1]).then_some(area)
+    }
+
+    /// Lens vignetting of the pixel sampled at (`src_x`, `src_y`).
+    #[inline(always)]
+    fn shade(&self, src_x: f32, src_y: f32, pixel: &mut [f32]) {
+        if !self.has_vignetting {
+            return;
+        }
+        let dx = (src_x - self.cx) as f64;
+        let dy = (src_y - self.cy) as f64;
+        let ru = (dx * dx + dy * dy).sqrt();
+        let ru_norm = ru / self.hd;
+        let ru_norm2 = ru_norm * ru_norm;
+
+        let v_factor = 1.0
+            + self.vk1 * ru_norm2
+            + self.vk2 * (ru_norm2 * ru_norm2)
+            + self.vk3 * (ru_norm2 * ru_norm2 * ru_norm2);
+
+        if v_factor > 1e-6 {
+            let correction_gain = 1.0 / v_factor;
+            let final_gain = 1.0 + (correction_gain - 1.0) * self.lens_vig_amt;
+
+            pixel[0] *= final_gain as f32;
+            pixel[1] *= final_gain as f32;
+            pixel[2] *= final_gain as f32;
+        }
+    }
+
+    /// Fills `row` (RGB) with output pixels `x0..` of output row `y`,
+    /// sampling `source` (the rows of the frame it holds).
+    #[inline(always)]
+    fn warp_row(&self, source: &SourceRows, y: u32, x0: u32, row: &mut [f32]) {
+        let (stride, height, row0, col0) = (
+            source.cols as usize,
+            source.height as usize,
+            source.row0 as usize,
+            source.col0 as f32,
+        );
+        let source = source.pixels;
+        let mut current_vec = self.row_start(y);
+        // The same steps as the whole row takes, so a region is bit-identical.
+        for _ in 0..x0 {
+            current_vec += self.step_vec_x;
+        }
+        let tca_ctx = TcaContext {
+            src_raw: source,
+            src_width: stride,
+            src_height: height - row0,
+            cx: self.cx,
+            cy: self.cy,
+            inv_hd2: 1.0 / (self.cx * self.cx + self.cy * self.cy).max(1.0),
+            vr2: self.vr2,
+            vb2: self.vb2,
+            row0: row0 as f32,
+            col0,
+        };
+        for pixel in row.as_chunks_mut::<3>().0.iter_mut() {
+            if let Some((src_x, src_y)) = self.source_point(&current_vec) {
+                if self.has_tca {
+                    interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, self.vr, self.vb, pixel);
+                } else {
+                    interpolate_pixel(
+                        source,
+                        stride,
+                        height - row0,
+                        src_x - col0,
+                        src_y - row0 as f32,
+                        pixel,
+                    );
+                }
+                self.shade(src_x, src_y, pixel);
+            }
+            current_vec += self.step_vec_x;
+        }
+    }
+}
+
 pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> DynamicImage {
     // RAW sources are float RGB already; converting would copy the whole
     // frame (about 1 GB at 80 MP) before the warp.
@@ -932,179 +1265,14 @@ pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> Dyna
     };
     let (width, height) = src_img.dimensions();
     let mut out_buffer = vec![0.0f32; (width * height * 3) as usize];
-
-    let (forward_transform, cx, cy, half_diagonal) =
-        build_transform_matrices(&params, width as f32, height as f32);
-    let inv = forward_transform
-        .try_inverse()
-        .unwrap_or(NaMatrix3::identity());
-
-    let step_vec_x = NaVector3::new(inv[(0, 0)], inv[(1, 0)], inv[(2, 0)]);
-    let step_vec_y = NaVector3::new(inv[(0, 1)], inv[(1, 1)], inv[(2, 1)]);
-    let origin_vec = NaVector3::new(inv[(0, 2)], inv[(1, 2)], inv[(2, 2)]);
-
-    let max_radius_sq_inv = 1.0 / ((cx * cx + cy * cy) as f64);
-    let hd = half_diagonal;
-
-    let k_distortion = params.distortion as f64;
-    let lk1 = params.lens_dist_k1 as f64;
-    let lk2 = params.lens_dist_k2 as f64;
-    let lk3 = params.lens_dist_k3 as f64;
-    let lens_dist_amt = (params.lens_distortion_amount as f64) * lens_strength(&params).0;
-
-    let has_lens_correction = params.lens_distortion_enabled
-        && (lk1.abs() > 1e-6 || lk2.abs() > 1e-6 || lk3.abs() > 1e-6);
-    let is_ptlens = params.lens_model == 1;
-
-    let auto_crop_scale = if has_lens_correction || k_distortion.abs() > 1e-5 {
-        compute_lens_auto_crop_scale(&params, width as f32, height as f32) as f32
-    } else {
-        1.0
-    };
-
-    let (vr, vb, vr2, vb2, tca_on) = if params.auto_ca {
-        // Measured on the photo itself; it covers the whole lateral CA, so
-        // it replaces the profile's.
-        let m =
-            crate::lateral_ca::estimate_cached(src_img).unwrap_or(crate::lateral_ca::CaModel::NONE);
-        (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true)
-    } else {
-        let vr = if (params.tca_vr - 1.0).abs() > 1e-5 {
-            params.tca_vr + (1.0 - params.tca_vr) * (1.0 - params.lens_tca_amount)
-        } else {
-            1.0
-        };
-        let vb = if (params.tca_vb - 1.0).abs() > 1e-5 {
-            params.tca_vb + (1.0 - params.tca_vb) * (1.0 - params.lens_tca_amount)
-        } else {
-            1.0
-        };
-        let amount = params.lens_tca_amount;
-        (
-            vr,
-            vb,
-            params.tca_vr2 * amount,
-            params.tca_vb2 * amount,
-            params.lens_tca_enabled,
-        )
-    };
-    let has_tca = tca_on
-        && ((vr - 1.0).abs() > 1e-5
-            || (vb - 1.0).abs() > 1e-5
-            || vr2.abs() > 1e-6
-            || vb2.abs() > 1e-6);
-
-    let vk1 = params.vig_k1 as f64;
-    let vk2 = params.vig_k2 as f64;
-    let vk3 = params.vig_k3 as f64;
-    let lens_vig_amt = (params.lens_vignette_amount as f64) * lens_strength(&params).1;
-    let has_vignetting = params.lens_vignette_enabled
-        && (vk1.abs() > 1e-6 || vk2.abs() > 1e-6 || vk3.abs() > 1e-6)
-        && lens_vig_amt > 0.01;
-
-    let src_raw = src_img.as_raw();
-    let width_usize = width as usize;
-    let height_usize = height as usize;
-    let tca_ctx = TcaContext {
-        src_raw,
-        src_width: width_usize,
-        src_height: height_usize,
-        cx,
-        cy,
-        inv_hd2: 1.0 / (cx * cx + cy * cy).max(1.0),
-        vr2,
-        vb2,
-    };
+    let kernel = WarpKernel::new(&params, width, height, Some(src_img));
+    let source = SourceRows::whole(src_img.as_raw(), width, height);
 
     out_buffer
-        .par_chunks_exact_mut(width_usize * 3)
+        .par_chunks_exact_mut(width as usize * 3)
         .enumerate()
         .for_each(|(y, row_pixel_data)| {
-            let y_f = y as f32;
-            let mut current_vec = origin_vec + (step_vec_y * y_f);
-
-            for pixel in row_pixel_data.as_chunks_mut::<3>().0.iter_mut() {
-                if current_vec.z.abs() > 1e-6 {
-                    let inv_z = 1.0 / current_vec.z;
-                    let mut src_x = current_vec.x * inv_z;
-                    let mut src_y = current_vec.y * inv_z;
-
-                    if auto_crop_scale > 1.0 {
-                        src_x = cx + (src_x - cx) / auto_crop_scale;
-                        src_y = cy + (src_y - cy) / auto_crop_scale;
-                    }
-
-                    if has_lens_correction {
-                        let dx = (src_x - cx) as f64;
-                        let dy = (src_y - cy) as f64;
-                        let ru = (dx * dx + dy * dy).sqrt();
-
-                        if ru > 1e-6 {
-                            let ru_norm = ru / hd;
-                            let ru_norm2 = ru_norm * ru_norm;
-
-                            let rd_norm = if is_ptlens {
-                                let a = lk1;
-                                let b = lk2;
-                                let c = lk3;
-                                let d = 1.0 - a - b - c;
-                                ru_norm * (a * ru_norm2 * ru_norm + b * ru_norm2 + c * ru_norm + d)
-                            } else {
-                                ru_norm
-                                    * (1.0
-                                        + lk1 * ru_norm2
-                                        + lk2 * (ru_norm2 * ru_norm2)
-                                        + lk3 * (ru_norm2 * ru_norm2 * ru_norm2))
-                            };
-
-                            let effective_r_norm = ru_norm + (rd_norm - ru_norm) * lens_dist_amt;
-                            let scale = effective_r_norm / ru_norm;
-
-                            src_x = cx + (dx * scale) as f32;
-                            src_y = cy + (dy * scale) as f32;
-                        }
-                    }
-
-                    if k_distortion.abs() > 1e-5 {
-                        let dx = (src_x - cx) as f64;
-                        let dy = (src_y - cy) as f64;
-                        let r2_norm = (dx * dx + dy * dy) * max_radius_sq_inv;
-                        let f = manual_distortion_factor(r2_norm, k_distortion);
-
-                        src_x = cx + (dx * f) as f32;
-                        src_y = cy + (dy * f) as f32;
-                    }
-
-                    if has_tca {
-                        interpolate_pixel_with_tca(&tca_ctx, src_x, src_y, vr, vb, pixel);
-                    } else {
-                        interpolate_pixel(src_raw, width_usize, height_usize, src_x, src_y, pixel);
-                    }
-
-                    if has_vignetting {
-                        let dx = (src_x - cx) as f64;
-                        let dy = (src_y - cy) as f64;
-                        let ru = (dx * dx + dy * dy).sqrt();
-                        let ru_norm = ru / hd;
-                        let ru_norm2 = ru_norm * ru_norm;
-
-                        let v_factor = 1.0
-                            + vk1 * ru_norm2
-                            + vk2 * (ru_norm2 * ru_norm2)
-                            + vk3 * (ru_norm2 * ru_norm2 * ru_norm2);
-
-                        if v_factor > 1e-6 {
-                            let correction_gain = 1.0 / v_factor;
-                            let final_gain = 1.0 + (correction_gain - 1.0) * lens_vig_amt;
-
-                            pixel[0] *= final_gain as f32;
-                            pixel[1] *= final_gain as f32;
-                            pixel[2] *= final_gain as f32;
-                        }
-                    }
-                }
-                current_vec += step_vec_x;
-            }
+            kernel.warp_row(&source, y as u32, 0, row_pixel_data);
         });
 
     let out_img = Rgb32FImage::from_vec(width, height, out_buffer).unwrap();
@@ -1906,6 +2074,14 @@ impl OrientedFrame {
 
     /// Source pixel index of an in-bounds frame pixel.
     #[inline(always)]
+    /// The source pixel (x, y) shown at oriented-frame (`x`, `y`).
+    fn source_xy(&self, x: i64, y: i64) -> (i64, i64) {
+        (
+            self.origin.0 + x * self.along_x.0 + y * self.along_y.0,
+            self.origin.1 + x * self.along_x.1 + y * self.along_y.1,
+        )
+    }
+
     fn source_pixel(&self, x: i64, y: i64, source_width: usize) -> usize {
         let source_x = self.origin.0 + x * self.along_x.0 + y * self.along_y.0;
         let source_y = self.origin.1 + x * self.along_x.1 + y * self.along_y.1;
@@ -2000,6 +2176,369 @@ pub fn fused_spatial_transform(
     Some(DynamicImage::ImageRgba32F(image::ImageBuffer::from_raw(
         out_w, out_h, output,
     )?))
+}
+
+/// Part of a source frame `width` × `height` (32-bit float RGB): `pixels`
+/// holds columns `col0..col0 + cols` of rows `row0..row0 + rows()`.
+pub struct SourceRows<'a> {
+    pub pixels: &'a [f32],
+    pub width: u32,
+    pub height: u32,
+    pub row0: u32,
+    pub col0: u32,
+    pub cols: u32,
+}
+
+impl<'a> SourceRows<'a> {
+    /// The whole frame.
+    pub fn whole(pixels: &'a [f32], width: u32, height: u32) -> Self {
+        Self {
+            pixels,
+            width,
+            height,
+            row0: 0,
+            col0: 0,
+            cols: width,
+        }
+    }
+
+    pub fn rows(&self) -> u32 {
+        (self.pixels.len() / (self.cols as usize * 3).max(1)) as u32
+    }
+}
+
+/// How a region of the transformed frame is made (see
+/// [`plan_transformed_region`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegionPlan {
+    /// The transformed frame's size (warped, turned, flipped, straightened,
+    /// cropped).
+    pub frame: (u32, u32),
+    /// The pixels asked for (x, y, w, h in the transformed frame), inside it.
+    pub rect: [u32; 4],
+    /// The source rows and columns they read (start, end exclusive).
+    pub rows: (u32, u32),
+    pub cols: (u32, u32),
+    /// The warped frame's pixels they read (x, y, w, h).
+    warped: [u32; 4],
+    spatial: SpatialSteps,
+    warp: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct SpatialSteps {
+    orientation_steps: u8,
+    flip_horizontal: bool,
+    flip_vertical: bool,
+    rotation_degrees: f32,
+    crop: Value,
+    /// `fused_spatial_transform` (turned, flipped or straightened);
+    /// otherwise a plain crop.
+    fused: bool,
+}
+
+impl SpatialSteps {
+    fn of(adjustments: &Value) -> Self {
+        let orientation_steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+        let rotation_degrees = adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
+        let flip_horizontal = adjustments["flipHorizontal"].as_bool().unwrap_or(false);
+        let flip_vertical = adjustments["flipVertical"].as_bool().unwrap_or(false);
+        let crop_data: Option<Crop> = serde_json::from_value(adjustments["crop"].clone()).ok();
+        let crop = serde_json::to_value(crop_data).unwrap_or(Value::Null);
+        let reorients = matches!(orientation_steps, 1..=3) || flip_horizontal || flip_vertical;
+        Self {
+            orientation_steps,
+            flip_horizontal,
+            flip_vertical,
+            rotation_degrees,
+            crop,
+            fused: reorients || rotation_degrees % 360.0 != 0.0,
+        }
+    }
+
+    fn oriented(&self, width: u32, height: u32) -> OrientedFrame {
+        if self.fused {
+            OrientedFrame::new(
+                width,
+                height,
+                self.orientation_steps,
+                self.flip_horizontal,
+                self.flip_vertical,
+            )
+        } else {
+            OrientedFrame::new(width, height, 0, false, false)
+        }
+    }
+
+    fn straightens(&self) -> bool {
+        self.fused && self.rotation_degrees % 360.0 != 0.0
+    }
+}
+
+/// Plans pixels `rect` (x, y, w, h) of what [`apply_geometry_warp`] and then
+/// `adjustment_utils::apply_spatial_transformations` make of a `width` ×
+/// `height` source with `adjustments`, so that [`transformed_region`] can
+/// make them from the source rows they read instead of the whole frame (a
+/// zoomed multi view cell). None when that is not possible: lens blur,
+/// automatic lateral CA (measured on the whole photograph), or nothing of
+/// `rect` inside the frame.
+pub fn plan_transformed_region(
+    width: u32,
+    height: u32,
+    adjustments: &Value,
+    rect: [u32; 4],
+) -> Option<RegionPlan> {
+    if width == 0 || height == 0 || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) {
+        return None;
+    }
+    let params = get_geometry_params_from_json(adjustments);
+    let warp = !is_geometry_identity(&params);
+    if warp && params.auto_ca {
+        return None;
+    }
+    let spatial = SpatialSteps::of(adjustments);
+    let frame = spatial.oriented(width, height);
+    let (frame_w, frame_h) = (frame.width, frame.height);
+    let (crop_x, crop_y, out_w, out_h) =
+        crop_rect(&spatial.crop, frame_w, frame_h).unwrap_or((0, 0, frame_w, frame_h));
+    if out_w == 0 || out_h == 0 {
+        return None;
+    }
+    let x0 = rect[0].min(out_w - 1);
+    let y0 = rect[1].min(out_h - 1);
+    let x1 = rect[0].saturating_add(rect[2]).clamp(x0 + 1, out_w);
+    let y1 = rect[1].saturating_add(rect[3]).clamp(y0 + 1, out_h);
+    let rect = [x0, y0, x1 - x0, y1 - y0];
+
+    // The oriented frame's pixels the output reads (inclusive bounds).
+    let (fx0, fy0, fx1, fy1) = if spatial.straightens() {
+        let inverse = rotation_inverse(spatial.rotation_degrees, frame_w, frame_h);
+        let corners = [
+            ((crop_x + x0) as f32, (crop_y + y0) as f32),
+            ((crop_x + x1 - 1) as f32, (crop_y + y0) as f32),
+            ((crop_x + x0) as f32, (crop_y + y1 - 1) as f32),
+            ((crop_x + x1 - 1) as f32, (crop_y + y1 - 1) as f32),
+        ];
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+        for corner in corners {
+            let (px, py) = inverse * corner;
+            min_x = min_x.min(px);
+            min_y = min_y.min(py);
+            max_x = max_x.max(px);
+            max_y = max_y.max(py);
+        }
+        if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
+            return None;
+        }
+        // Bicubic taps reach one pixel before and two after; one more for
+        // the rounding of interior points (an affine map's extremes are its
+        // corners).
+        let clamp_x = |v: f32| (v as i64).clamp(0, frame_w as i64 - 1) as u32;
+        let clamp_y = |v: f32| (v as i64).clamp(0, frame_h as i64 - 1) as u32;
+        (
+            clamp_x(min_x.floor() - 2.0),
+            clamp_y(min_y.floor() - 2.0),
+            clamp_x(max_x.floor() + 3.0),
+            clamp_y(max_y.floor() + 3.0),
+        )
+    } else {
+        (crop_x + x0, crop_y + y0, crop_x + x1 - 1, crop_y + y1 - 1)
+    };
+    // Turned and flipped back to the warped frame (an axis-aligned map: its
+    // extremes are the corners).
+    let (mut wx0, mut wy0, mut wx1, mut wy1) = (i64::MAX, i64::MAX, i64::MIN, i64::MIN);
+    for (x, y) in [(fx0, fy0), (fx1, fy0), (fx0, fy1), (fx1, fy1)] {
+        let (sx, sy) = frame.source_xy(x as i64, y as i64);
+        wx0 = wx0.min(sx);
+        wy0 = wy0.min(sy);
+        wx1 = wx1.max(sx);
+        wy1 = wy1.max(sy);
+    }
+    let warped = [
+        wx0 as u32,
+        wy0 as u32,
+        (wx1 - wx0 + 1) as u32,
+        (wy1 - wy0 + 1) as u32,
+    ];
+
+    let (cols, rows) = if warp {
+        let kernel = WarpKernel::new(&params, width, height, None);
+        let none = [f32::MAX, f32::MIN, f32::MAX, f32::MIN];
+        let area = (warped[1]..warped[1] + warped[3])
+            .into_par_iter()
+            .map(|y| {
+                let mut current_vec = kernel.row_start(y);
+                let mut area = none;
+                for x in 0..warped[0] + warped[2] {
+                    if x >= warped[0]
+                        && let Some((sx, sy)) = kernel.source_point(&current_vec)
+                        && let Some(a) = kernel.sampled_area(sx, sy, width, height)
+                    {
+                        area = [
+                            area[0].min(a[0]),
+                            area[1].max(a[1]),
+                            area[2].min(a[2]),
+                            area[3].max(a[3]),
+                        ];
+                    }
+                    current_vec += kernel.step_vec_x;
+                }
+                area
+            })
+            .reduce(
+                || none,
+                |a, b| {
+                    [
+                        a[0].min(b[0]),
+                        a[1].max(b[1]),
+                        a[2].min(b[2]),
+                        a[3].max(b[3]),
+                    ]
+                },
+            );
+        if area[0] > area[1] {
+            // Nothing is sampled (all outside): any pixel will do.
+            ((0, 1), (0, 1))
+        } else {
+            // Bicubic taps one pixel before and two after (bilinear and the
+            // border cases one after); a region source starting more than
+            // two pixels inside keeps the whole frame's border decisions.
+            let span = |lo: f32, hi: f32, size: u32| {
+                let start = (lo.floor() as i64 - 2).clamp(0, size as i64 - 1) as u32;
+                let end = (hi.floor() as i64 + 4).clamp(start as i64 + 1, size as i64) as u32;
+                (start, end)
+            };
+            (
+                span(area[0], area[1], width),
+                span(area[2], area[3], height),
+            )
+        }
+    } else {
+        (
+            (warped[0], warped[0] + warped[2]),
+            (warped[1], warped[1] + warped[3]),
+        )
+    };
+    Some(RegionPlan {
+        frame: (out_w, out_h),
+        rect,
+        rows,
+        cols,
+        warped,
+        spatial,
+        warp,
+    })
+}
+
+/// The pixels `plan` asks for, from `source` (which must hold `plan.rows`):
+/// bit-identical to the same pixels of the whole frame warped and
+/// transformed (`apply_geometry_warp`, `apply_spatial_transformations`).
+/// None when `source` does not hold the rows or does not fit the plan.
+pub fn transformed_region(
+    source: &SourceRows,
+    adjustments: &Value,
+    plan: &RegionPlan,
+) -> Option<DynamicImage> {
+    let (width, height) = (source.width, source.height);
+    let source_rows = source.rows();
+    if source.row0 > plan.rows.0
+        || source.row0 + source_rows < plan.rows.1
+        || source.col0 > plan.cols.0
+        || source.col0 + source.cols < plan.cols.1
+        || source.col0 + source.cols > width
+        || source.pixels.len() != source_rows as usize * source.cols as usize * 3
+    {
+        return None;
+    }
+    let [wx, wy, ww, wh] = plan.warped;
+    let row_len = ww as usize * 3;
+    // The warped frame's pixels `warped`.
+    let mut warped = vec![0.0f32; row_len * wh as usize];
+    if plan.warp {
+        let params = get_geometry_params_from_json(adjustments);
+        let kernel = WarpKernel::new(&params, width, height, None);
+        warped
+            .par_chunks_exact_mut(row_len)
+            .enumerate()
+            .for_each(|(r, row)| {
+                kernel.warp_row(source, wy + r as u32, wx, row);
+            });
+    } else {
+        let stride = source.cols as usize * 3;
+        warped
+            .par_chunks_exact_mut(row_len)
+            .enumerate()
+            .for_each(|(r, row)| {
+                let start = (wy + r as u32 - source.row0) as usize * stride
+                    + (wx - source.col0) as usize * 3;
+                row.copy_from_slice(&source.pixels[start..start + row_len]);
+            });
+    }
+
+    let spatial = &plan.spatial;
+    let frame = spatial.oriented(width, height);
+    let (crop_x, crop_y, _, _) = crop_rect(&spatial.crop, frame.width, frame.height).unwrap_or((
+        0,
+        0,
+        frame.width,
+        frame.height,
+    ));
+    let [x0, y0, w, h] = plan.rect;
+    let missed = std::sync::atomic::AtomicBool::new(false);
+    // The warped pixel at oriented-frame (x, y); a miss (outside `warped`)
+    // makes the region fail rather than differ.
+    let warped_at = |x: i64, y: i64| -> Option<&[f32]> {
+        let (sx, sy) = frame.source_xy(x, y);
+        let (lx, ly) = (sx - wx as i64, sy - wy as i64);
+        if lx < 0 || ly < 0 || lx >= ww as i64 || ly >= wh as i64 {
+            missed.store(true, std::sync::atomic::Ordering::Relaxed);
+            return None;
+        }
+        let i = (ly as usize * ww as usize + lx as usize) * 3;
+        Some(&warped[i..i + 3])
+    };
+    let image = if spatial.straightens() {
+        let (frame_w, frame_h) = (frame.width, frame.height);
+        let inverse = rotation_inverse(spatial.rotation_degrees, frame_w, frame_h);
+        let fetch = |x: i64, y: i64| -> [f32; 4] {
+            if x < 0 || x >= frame_w as i64 || y < 0 || y >= frame_h as i64 {
+                return [0.0; 4];
+            }
+            match warped_at(x, y) {
+                Some(p) => [p[0], p[1], p[2], 1.0],
+                None => [0.0; 4],
+            }
+        };
+        let mut output = vec![0f32; w as usize * h as usize * 4];
+        output
+            .par_chunks_mut(w as usize * 4)
+            .enumerate()
+            .for_each(|(row, destination)| {
+                let y = (crop_y + y0 + row as u32) as f32;
+                for (column, pixel) in destination.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                    let x = (crop_x + x0 + column as u32) as f32;
+                    let (px, py) = inverse * (x, y);
+                    *pixel = sample_bicubic_rgba(&fetch, px, py);
+                }
+            });
+        DynamicImage::ImageRgba32F(image::ImageBuffer::from_raw(w, h, output)?)
+    } else {
+        let mut output = vec![0f32; w as usize * h as usize * 3];
+        output
+            .par_chunks_mut(w as usize * 3)
+            .enumerate()
+            .for_each(|(row, destination)| {
+                let y = (crop_y + y0 + row as u32) as i64;
+                for (column, pixel) in destination.as_chunks_mut::<3>().0.iter_mut().enumerate() {
+                    let x = (crop_x + x0 + column as u32) as i64;
+                    if let Some(p) = warped_at(x, y) {
+                        pixel.copy_from_slice(p);
+                    }
+                }
+            });
+        DynamicImage::ImageRgb32F(image::ImageBuffer::from_raw(w, h, output)?)
+    };
+    (!missed.load(std::sync::atomic::Ordering::Relaxed)).then_some(image)
 }
 
 pub fn apply_flip<'a>(
@@ -5776,5 +6315,151 @@ mod warp_points_tests {
             }
             assert!(checked > 300, "{adjustments}: {checked}");
         }
+    }
+}
+
+#[cfg(test)]
+mod region_tests {
+    use super::*;
+    use crate::adjustment_utils::apply_spatial_transformations;
+
+    fn frame(width: u32, height: u32) -> DynamicImage {
+        DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(width, height, |x, y| {
+            let v = |c: u32| ((x * 37 + y * 101 + c * 13 + x * y % 7) % 211) as f32 / 97.0;
+            image::Rgb([v(0), v(1) * 0.5, v(2) + 0.25])
+        }))
+    }
+
+    fn bits(image: &DynamicImage) -> Vec<u32> {
+        match image {
+            DynamicImage::ImageRgb32F(i) => i.as_raw().iter().map(|v| v.to_bits()).collect(),
+            DynamicImage::ImageRgba32F(i) => i.as_raw().iter().map(|v| v.to_bits()).collect(),
+            _ => panic!("float images only"),
+        }
+    }
+
+    /// Columns `cols` of rows `rows` of an RGB frame `width` wide.
+    fn crop_rows(raw: &[f32], width: u32, cols: (u32, u32), rows: (u32, u32)) -> Vec<f32> {
+        let stride = width as usize * 3;
+        (rows.0..rows.1)
+            .flat_map(|y| {
+                let start = y as usize * stride;
+                raw[start + cols.0 as usize * 3..start + cols.1 as usize * 3].to_vec()
+            })
+            .collect()
+    }
+
+    fn recipes() -> Vec<Value> {
+        let lens = json!({"k1": -0.12, "k2": 0.03, "k3": 0.0, "model": 0,
+            "tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr2": 0.0004, "vig_k1": -0.4, "vig_k2": 0.1});
+        vec![
+            json!({}),
+            json!({"crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
+            json!({"lensDistortionParams": lens}),
+            json!({"lensDistortionParams": {"k1": 0.02, "k2": -0.01, "k3": 0.004, "model": 1},
+                "lensCorrectionMode": "camera"}),
+            json!({"lensDistortionParams": lens, "orientationSteps": 1, "flipHorizontal": true,
+                "crop": {"x": 10.0, "y": 22.0, "width": 150.0, "height": 230.0}}),
+            json!({"transformVertical": 25.0, "transformRotate": -3.0, "rotation": 3.5,
+                "crop": {"x": 20.0, "y": 15.0, "width": 240.0, "height": 160.0}}),
+            json!({"transformDistortion": 35.0, "orientationSteps": 2, "flipVertical": true}),
+            json!({"rotation": -12.25, "orientationSteps": 3}),
+            json!({"transformHorizontal": -20.0, "transformScale": 90.0, "transformXOffset": 5.0,
+                "lensDistortionParams": lens, "rotation": 1.0}),
+        ]
+    }
+
+    #[test]
+    fn a_region_is_the_same_pixels_as_the_whole_frame() {
+        let (w, h) = (301u32, 211u32);
+        let image = frame(w, h);
+        let raw = image.as_rgb32f().unwrap().as_raw().clone();
+        let mut checked = 0;
+        for adjustments in recipes() {
+            let warped = apply_geometry_warp(&image, &adjustments);
+            let (whole, _) = apply_spatial_transformations(warped, &adjustments);
+            let (fw, fh) = whole.dimensions();
+            for rect in [
+                [0, 0, fw, fh],
+                [5, 7, 40, 30],
+                [fw / 3, fh / 2, 50, 41],
+                [fw - 20, fh - 9, 60, 60],
+                [0, fh - 1, 10, 10],
+                [fw / 2, 0, 1, 1],
+            ] {
+                let plan = plan_transformed_region(w, h, &adjustments, rect).expect("plannable");
+                assert_eq!(plan.frame, (fw, fh), "{adjustments}");
+                let [x, y, rw, rh] = plan.rect;
+                let expected = whole.crop_imm(x, y, rw, rh);
+                // Only the planned rows and columns.
+                let ((c0, c1), (r0, r1)) = (plan.cols, plan.rows);
+                let part = crop_rows(&raw, w, (c0, c1), (r0, r1));
+                let source = SourceRows {
+                    pixels: &part,
+                    width: w,
+                    height: h,
+                    row0: r0,
+                    col0: c0,
+                    cols: c1 - c0,
+                };
+                let region = transformed_region(&source, &adjustments, &plan)
+                    .unwrap_or_else(|| panic!("{adjustments} {rect:?} {plan:?}"));
+                assert_eq!(region.color(), expected.color(), "{adjustments} {rect:?}");
+                assert_eq!(
+                    region.dimensions(),
+                    expected.dimensions(),
+                    "{adjustments} {rect:?}"
+                );
+                assert_eq!(bits(&region), bits(&expected), "{adjustments} {rect:?}");
+                // The whole frame as the source gives the same.
+                let all = SourceRows::whole(&raw, w, h);
+                let again = transformed_region(&all, &adjustments, &plan).unwrap();
+                assert_eq!(bits(&again), bits(&expected), "{adjustments} {rect:?}");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, recipes().len() * 6);
+    }
+
+    #[test]
+    fn a_small_region_reads_few_rows_and_refuses_too_few() {
+        let (w, h) = (400u32, 300u32);
+        let adjustments =
+            json!({"lensDistortionParams": {"k1": -0.05, "k2": 0.0, "k3": 0.0, "model": 0}});
+        let plan = plan_transformed_region(w, h, &adjustments, [180, 140, 40, 20]).unwrap();
+        let ((c0, c1), (r0, r1)) = (plan.cols, plan.rows);
+        assert!(r0 > 100 && r1 < 200, "{plan:?}");
+        assert!(c0 > 150 && c1 < 250, "{plan:?}");
+        let image = frame(w, h);
+        let raw = image.as_rgb32f().unwrap().as_raw();
+        let short_rows = crop_rows(raw, w, (c0, c1), (r0 + 1, r1));
+        let short = SourceRows {
+            pixels: &short_rows,
+            width: w,
+            height: h,
+            row0: r0 + 1,
+            col0: c0,
+            cols: c1 - c0,
+        };
+        assert!(transformed_region(&short, &adjustments, &plan).is_none());
+        let narrow_cols = crop_rows(raw, w, (c0 + 1, c1), (r0, r1));
+        let narrow = SourceRows {
+            pixels: &narrow_cols,
+            width: w,
+            height: h,
+            row0: r0,
+            col0: c0 + 1,
+            cols: c1 - c0 - 1,
+        };
+        assert!(transformed_region(&narrow, &adjustments, &plan).is_none());
+    }
+
+    #[test]
+    fn lens_blur_and_measured_ca_need_the_whole_frame() {
+        let blur = json!({"lensBlurEnabled": true});
+        assert!(plan_transformed_region(100, 80, &blur, [0, 0, 10, 10]).is_none());
+        let auto_ca =
+            json!({"lensDistortionParams": {"k1": -0.1}, "autoChromaticAberration": true});
+        assert!(plan_transformed_region(100, 80, &auto_ca, [0, 0, 10, 10]).is_none());
     }
 }

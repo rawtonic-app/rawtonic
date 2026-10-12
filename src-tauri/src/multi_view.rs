@@ -181,6 +181,7 @@ fn show_cells(
     if cells.is_empty() {
         *worker.memory.lock().unwrap_or_else(|e| e.into_inner()) = Memory::default();
         forget_regions(app_handle);
+        crate::multi_view_prefetch::plan(app_handle, Vec::new());
         return true;
     }
     // Zoomed in: regions of new cells, or of recipes that changed.
@@ -794,6 +795,7 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
     }
     if todos.is_empty() {
         emit_sizes(app_handle, sizes);
+        plan_prefetch(app_handle, &job);
         return;
     }
     let count = todos.len();
@@ -859,6 +861,22 @@ fn run(app_handle: &tauri::AppHandle, worker: &Worker, job: Job) {
         base_bytes(worker) as f64 / 1e6
     );
     emit_sizes(app_handle, sizes);
+    // The decodes and bases freed above go back to the system now (as after
+    // a full develop), not with the allocator's delay or never.
+    rawtonic_runtime::allocator::release_freed_memory();
+    if current() {
+        plan_prefetch(app_handle, &job);
+    }
+}
+
+/// Once the cells are shown: their photographs' 1:1 previews are made in
+/// the background, so that a zoom finds them (multi_view_prefetch).
+fn plan_prefetch(app_handle: &tauri::AppHandle, job: &Job) {
+    let cells: Vec<String> = job.cells.iter().map(|cell| cell.path.clone()).collect();
+    crate::multi_view_prefetch::plan(
+        app_handle,
+        crate::multi_view_prefetch::order(&cells, job.primary.as_deref()),
+    );
 }
 
 /// Zoomed in, each cell's region is developed with this much of the visible
@@ -874,10 +892,24 @@ const BASE_MARGIN: f32 = 1.0;
 /// How long a zoom must stay before its regions are developed.
 const REGION_SETTLE: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// Full-resolution sources decoded at the same time for zoomed regions: one.
-/// A decode and its transformed copy take several hundred megabytes; two at
-/// a time raised the process peak by about 2 GB (11 cells, 24–45 MP).
-const REGION_THREADS: usize = 1;
+/// Full-resolution sources decoded at the same time for zoomed regions whose
+/// photographs have no 1:1 preview yet: two, one when the system is short
+/// of memory. A decode alone takes up to about 2.5 GB while it runs (61 MP);
+/// the region is cut from its rows, so no transformed whole-frame copy is
+/// added (2026-10-12, 11 cells of 20–61 MP, six of them decoded: two at a
+/// time 3.3 s instead of 4.1 s for the first locked 100 %, process peak
+/// about 0.2 GB higher).
+fn region_threads() -> usize {
+    if crate::memory_pressure::level_now().is_none() {
+        2
+    } else {
+        1
+    }
+}
+
+/// Regions developed at the same time from a ready source (the decode in
+/// memory or the bands of a 1:1 preview): a few megabytes each.
+const READY_REGION_THREADS: usize = 4;
 
 #[derive(Clone, Copy, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -924,6 +956,18 @@ fn quantized_scale(scale: f32) -> f32 {
     (scale / step).round() * step
 }
 
+/// [`quantized_scale`], with magnifications within 1/2000 of 100 % at 100 %:
+/// the webview's zoom arithmetic sends 0.99995 for 100 % now and then,
+/// which developed every region from a whole photograph resampled by
+/// 0.01 % instead of its pixels.
+fn snapped_scale(scale: f32) -> f32 {
+    if (scale - 1.0).abs() < 5e-4 {
+        1.0
+    } else {
+        quantized_scale(scale)
+    }
+}
+
 /// Stops region work and releases the kept region bases (back to fit, or
 /// the multi view ended).
 fn forget_regions(app_handle: &tauri::AppHandle) {
@@ -941,7 +985,7 @@ fn forget_regions(app_handle: &tauri::AppHandle) {
 /// magnification); None when not usable.
 fn cell_zoom(z: ZoomPayload) -> Option<CellZoom> {
     (z.scale.is_finite() && z.scale > 0.0).then(|| CellZoom {
-        scale: quantized_scale(z.scale),
+        scale: snapped_scale(z.scale),
         center: [z.center[0].clamp(0.0, 1.0), z.center[1].clamp(0.0, 1.0)],
     })
 }
@@ -1110,7 +1154,21 @@ fn prepare_region(
     zoom: CellZoom,
     recipe: &serde_json::Value,
 ) -> Result<(RegionBase, &'static str), String> {
+    match prepare_region_from_rows(app_handle, path, area, zoom, recipe) {
+        Ok(fast) => return Ok(fast),
+        Err(reason) => {
+            log::info!("[multi_view] {path}: region from the whole photograph ({reason})")
+        }
+    }
     let (source, source_scale, facts, source_kind) = load_full_source(app_handle, path)?;
+    if let Some(base) = region_from_full_decode(&source, source_scale, facts, area, zoom, recipe) {
+        let kind = match source_kind {
+            "full-decode" => "full-decode-rows",
+            "decoded" => "decoded-rows",
+            _ => "1:1-rows",
+        };
+        return Ok((base, kind));
+    }
     let (shown_w, shown_h) = shown_size(recipe, facts);
     let scale = zoom.scale.min(source_scale).min(1.0);
     let dim = ((facts.full_width.max(facts.full_height) as f32 * scale).ceil() as u32).max(1) + 2;
@@ -1158,6 +1216,236 @@ fn prepare_region(
         },
         source_kind,
     ))
+}
+
+/// The facts of `path` the cell worker found (its full size).
+fn known_facts(path: &str) -> Option<Facts> {
+    WORKER.get().and_then(|worker| {
+        worker
+            .memory
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .facts
+            .get(path)
+            .copied()
+    })
+}
+
+/// Whether a region of `recipe` at full resolution can be made from the
+/// rows of the source it shows (`image_processing::plan_transformed_region`
+/// says the rest): retouching and masks that read the warped photograph
+/// need all of it.
+fn region_from_rows_possible(recipe: &serde_json::Value) -> bool {
+    if crate::image_loader::has_base_retouch(recipe)
+        || crate::image_loader::retouch_needs_full_resolution(recipe)
+    {
+        return false;
+    }
+    let masks: Vec<MaskDefinition> = recipe
+        .get("masks")
+        .and_then(|m| serde_json::from_value(m.clone()).ok())
+        .unwrap_or_default();
+    !masks.iter().any(MaskDefinition::requires_warped_image)
+}
+
+/// The base of the region of `path` its cell shows at `zoom` (100 % or
+/// more), made from only the source rows it shows: from the decode still in
+/// memory, else from the bands of its 1:1 preview that hold them (made
+/// ahead by multi_view_prefetch). The pixels are those `prepare_region`
+/// cuts from the whole photograph, bit for bit; None when this way does not
+/// apply (no 1:1 preview yet, below 100 %, a recipe that needs the whole
+/// photograph), with the reason.
+fn prepare_region_from_rows(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> Result<(RegionBase, &'static str), &'static str> {
+    if zoom.scale < 1.0 {
+        return Err("below 100 %");
+    }
+    if !region_from_rows_possible(recipe) {
+        return Err("retouching or masks read the whole photograph");
+    }
+    let known = known_facts(path).ok_or("size not known yet")?;
+    let start = Instant::now();
+    let state = app_handle.state::<AppState>();
+    let (source_path, _) = parse_virtual_path(path);
+    let source_str = source_path.to_string_lossy().to_string();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    // The source and its true size (the cells' facts may come from a fast
+    // decode, whose size is rounded).
+    let decoded = state
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&source_str)
+        .map(|(image, _)| image)
+        .filter(|image| image.as_rgb32f().is_some());
+    let (full_w, full_h) = match &decoded {
+        Some(image) => image.dimensions(),
+        None if known.is_raw => crate::preview_proxy::full_size(&source_path, &settings)
+            .ok_or("no current 1:1 preview")?,
+        None => return Err("not a RAW"),
+    };
+    let facts = Facts {
+        full_width: full_w,
+        full_height: full_h,
+        is_raw: known.is_raw,
+    };
+    let plan = region_plan(facts, area, zoom, recipe)?;
+    let (image, kind, read_ms) = match decoded {
+        Some(decoded) => {
+            let rgb = decoded.as_rgb32f().ok_or("not float RGB")?;
+            let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
+            (
+                image_processing::transformed_region(&rows, recipe, &plan)
+                    .ok_or("rows do not cover the region")?,
+                "decoded-rows",
+                0.0,
+            )
+        }
+        None => {
+            let read =
+                crate::preview_proxy::read_full_rows(&source_path, &settings, plan.rows, plan.cols)
+                    .ok_or("no current 1:1 preview")?;
+            if (read.width, read.height) != (full_w, full_h) {
+                return Err("1:1 preview of another size");
+            }
+            let read_ms = start.elapsed().as_secs_f64() * 1e3;
+            let rows = image_processing::SourceRows {
+                pixels: &read.pixels,
+                width: read.width,
+                height: read.height,
+                row0: read.row0,
+                col0: read.col0,
+                cols: read.cols,
+            };
+            (
+                image_processing::transformed_region(&rows, recipe, &plan)
+                    .ok_or("rows do not cover the region")?,
+                "proxy-1:1-rows",
+                read_ms,
+            )
+        }
+    };
+    log::info!(
+        "[multi_view] {path}: region base from rows {}..{}, columns {}..{} in {:.1} ms (read and decode {read_ms:.1} ms)",
+        plan.rows.0,
+        plan.rows.1,
+        plan.cols.0,
+        plan.cols.1,
+        start.elapsed().as_secs_f64() * 1e3
+    );
+    Ok((region_base(image, &plan, facts, zoom, recipe), kind))
+}
+
+/// How the region of a photograph of `facts` its cell `area` shows at
+/// `zoom` (with BASE_MARGIN) is made from the rows of its source.
+fn region_plan(
+    facts: Facts,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> Result<image_processing::RegionPlan, &'static str> {
+    let (shown_w, shown_h) = shown_size(recipe, facts);
+    let wanted =
+        gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, BASE_MARGIN);
+    image_processing::plan_transformed_region(
+        facts.full_width,
+        facts.full_height,
+        recipe,
+        whole_pixels(wanted),
+    )
+    .ok_or("lens blur or measured chromatic aberration")
+}
+
+/// The region base of `image`, the pixels `plan` asks for.
+fn region_base(
+    image: DynamicImage,
+    plan: &image_processing::RegionPlan,
+    facts: Facts,
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> RegionBase {
+    let [rx, ry, rw, rh] = plan.rect;
+    let unscaled_crop_offset =
+        serde_json::from_value::<image_processing::Crop>(recipe["crop"].clone())
+            .map_or((0.0, 0.0), |c| (c.x as f32, c.y as f32));
+    RegionBase {
+        preparation_key: crate::preview_cache::preparation_key(recipe),
+        zoom_scale: zoom.scale,
+        region: [rx as f32, ry as f32, rw as f32, rh as f32],
+        image: Arc::new(image),
+        scale: 1.0,
+        crop_offset: (
+            unscaled_crop_offset.0 + rx as f32,
+            unscaled_crop_offset.1 + ry as f32,
+        ),
+        facts,
+        mask_source: None,
+    }
+}
+
+/// From a full-resolution decode made now (no 1:1 preview yet): the
+/// region's rows only, instead of warping the whole photograph and cutting
+/// the region out (the same pixels; about a second less for a 61 MP
+/// photograph with lens corrections, and no whole-frame copy).
+fn region_from_full_decode(
+    source: &DynamicImage,
+    source_scale: f32,
+    facts: Facts,
+    area: [f32; 4],
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> Option<RegionBase> {
+    if zoom.scale < 1.0 || source_scale != 1.0 || !region_from_rows_possible(recipe) {
+        return None;
+    }
+    let rgb = source.as_rgb32f()?;
+    let (full_w, full_h) = rgb.dimensions();
+    let facts = Facts {
+        full_width: full_w,
+        full_height: full_h,
+        ..facts
+    };
+    let plan = region_plan(facts, area, zoom, recipe).ok()?;
+    let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
+    let image = image_processing::transformed_region(&rows, recipe, &plan)?;
+    Some(region_base(image, &plan, facts, zoom, recipe))
+}
+
+/// The whole pixels covering `wanted` (x, y, w, h), as `prepare_region`
+/// cuts them from a base at full resolution.
+fn whole_pixels(wanted: [f32; 4]) -> [u32; 4] {
+    let x = wanted[0].floor().max(0.0) as u32;
+    let y = wanted[1].floor().max(0.0) as u32;
+    let w = ((wanted[0] + wanted[2]).ceil().max(0.0) as u32)
+        .saturating_sub(x)
+        .max(1);
+    let h = ((wanted[1] + wanted[3]).ceil().max(0.0) as u32)
+        .saturating_sub(y)
+        .max(1);
+    [x, y, w, h]
+}
+
+/// Whether the region of `path` can be developed from a source that is
+/// ready (the decode in memory or a 1:1 preview), not a RAW decoded now.
+fn region_source_ready(app_handle: &tauri::AppHandle, path: &str, zoom: CellZoom) -> bool {
+    let state = app_handle.state::<AppState>();
+    let (source_path, _) = parse_virtual_path(path);
+    let in_memory = state
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&source_path.to_string_lossy())
+        .is_some();
+    in_memory
+        || (zoom.scale >= 1.0 && {
+            let settings = load_settings(app_handle.clone()).unwrap_or_default();
+            crate::preview_proxy::has_full(&source_path, &settings)
+        })
 }
 
 /// Develops the region of `path` its cell shows at `zoom`, from a kept base
@@ -1322,14 +1610,26 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     if todo.is_empty() {
         return;
     }
+    let _busy = crate::multi_view_prefetch::RegionsBusy::start();
     let count = todo.len();
-    let queue = Mutex::new(todo.into_iter());
+    // Regions from ready sources several at a time; RAWs that must be
+    // decoded now one at a time beside them.
+    let (ready, heavy): (Vec<_>, Vec<_>) =
+        todo.into_iter().partition(|(path, _, zoom, recipe, _)| {
+            region_from_rows_possible(recipe) && region_source_ready(app_handle, path, *zoom)
+        });
+    let ready_count = ready.len();
+    let ready = Mutex::new(ready.into_iter());
+    let heavy = Mutex::new(heavy.into_iter());
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut shown = 0;
     std::thread::scope(|scope| {
-        for _ in 0..REGION_THREADS.min(count) {
+        let workers = (0..READY_REGION_THREADS.min(ready_count))
+            .map(|_| &ready)
+            .chain(std::iter::repeat_n(&heavy, region_threads()));
+        for queue in workers {
             let sender = sender.clone();
-            let (queue, context) = (&queue, &context);
+            let context = &context;
             scope.spawn(move || {
                 loop {
                     if worker.generation.load(Ordering::SeqCst) != job.generation {
@@ -1382,6 +1682,8 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
         "[multi_view] {shown} of {count} zoomed regions developed in {:.1} ms",
         start.elapsed().as_secs_f64() * 1e3
     );
+    // Full-resolution decodes made for the regions are freed: return them.
+    rawtonic_runtime::allocator::release_freed_memory();
 }
 
 /// The recipe a secondary is shown with during Edit all selected: its stored
@@ -1664,6 +1966,14 @@ mod tests {
     }
 
     #[test]
+    fn a_hair_below_100_percent_is_100_percent() {
+        assert_eq!(snapped_scale(0.999_95), 1.0);
+        assert_eq!(snapped_scale(1.000_2), 1.0);
+        assert_eq!(snapped_scale(0.998), quantized_scale(0.998));
+        assert_eq!(snapped_scale(2.0), 2.0);
+    }
+
+    #[test]
     fn regions_must_hold_what_the_cell_shows() {
         assert!(contains([0.0, 0.0, 100.0, 100.0], [10.0, 10.0, 50.0, 50.0]));
         assert!(contains(
@@ -1701,6 +2011,98 @@ mod tests {
             cell_dim([0.0, 0.0, 900.0, 301.0], shown_size(&square, facts)),
             304
         );
+    }
+
+    /// The base `prepare_region` cuts from the whole photograph at 100 %
+    /// and the one made from the rows it shows are the same pixels at the
+    /// same place.
+    #[test]
+    fn a_region_from_rows_matches_the_region_cut_from_the_whole_photograph() {
+        let (full_w, full_h) = (640u32, 480u32);
+        let source =
+            DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(full_w, full_h, |x, y| {
+                let v = |c: u32| ((x * 31 + y * 17 + c * 7 + (x ^ y) % 13) % 199) as f32 / 101.0;
+                image::Rgb([v(0), v(1), v(2)])
+            }));
+        let facts = Facts {
+            full_width: full_w,
+            full_height: full_h,
+            is_raw: true,
+        };
+        let lens =
+            serde_json::json!({"k1": -0.08, "k2": 0.01, "k3": 0.0, "model": 0, "tca_vr": 1.001});
+        for recipe in [
+            serde_json::json!({}),
+            serde_json::json!({"lensDistortionParams": lens, "exposure": 0.5}),
+            serde_json::json!({"lensDistortionParams": lens, "orientationSteps": 1,
+                "crop": {"x": 12.0, "y": 40.5, "width": 400.0, "height": 560.0}}),
+            serde_json::json!({"rotation": 2.5, "crop": {"x": 30.0, "y": 20.0, "width": 560.0, "height": 420.0}}),
+        ] {
+            assert!(region_from_rows_possible(&recipe));
+            let (shown_w, shown_h) = shown_size(&recipe, facts);
+            for (area, center, scale) in [
+                ([0.0, 0.0, 200.0, 150.0], [0.4, 0.6], 1.0),
+                ([10.0, 300.0, 120.0, 90.0], [0.02, 0.97], 1.0),
+                ([0.0, 0.0, 160.0, 160.0], [0.5, 0.5], 2.0),
+            ] {
+                let zoom = CellZoom { scale, center };
+                // As prepare_region: the whole photograph's base, cut.
+                let dim = full_w.max(full_h) + 2;
+                let base =
+                    reduced_preview_base(&source, 1.0, full_w, full_h, &recipe, dim, 1.0).unwrap();
+                let wanted = gpu_processing::multi_view::zoomed_region(
+                    area,
+                    [shown_w, shown_h],
+                    zoom,
+                    BASE_MARGIN,
+                );
+                let (base_w, base_h) = base.image.dimensions();
+                let s = base.scale;
+                assert_eq!(s, 1.0);
+                let x = ((wanted[0] * s).floor() as u32).min(base_w.saturating_sub(1));
+                let y = ((wanted[1] * s).floor() as u32).min(base_h.saturating_sub(1));
+                let w = (((wanted[0] + wanted[2]) * s).ceil() as u32).clamp(x + 1, base_w) - x;
+                let h = (((wanted[1] + wanted[3]) * s).ceil() as u32).clamp(y + 1, base_h) - y;
+                let cut = base.image.crop_imm(x, y, w, h);
+                // From the rows.
+                let plan = image_processing::plan_transformed_region(
+                    full_w,
+                    full_h,
+                    &recipe,
+                    whole_pixels(wanted),
+                )
+                .unwrap();
+                assert_eq!(plan.rect, [x, y, w, h], "{recipe}");
+                assert_eq!(plan.frame, (base_w, base_h), "{recipe}");
+                let raw = source.as_rgb32f().unwrap().as_raw();
+                let stride = full_w as usize * 3;
+                let ((c0, c1), (r0, r1)) = (plan.cols, plan.rows);
+                let part: Vec<f32> = (r0..r1)
+                    .flat_map(|y| {
+                        let row = y as usize * stride;
+                        raw[row + c0 as usize * 3..row + c1 as usize * 3].to_vec()
+                    })
+                    .collect();
+                let rows = image_processing::SourceRows {
+                    pixels: &part,
+                    width: full_w,
+                    height: full_h,
+                    row0: r0,
+                    col0: c0,
+                    cols: c1 - c0,
+                };
+                let region = image_processing::transformed_region(&rows, &recipe, &plan).unwrap();
+                assert_eq!(
+                    region.to_rgba32f().as_raw(),
+                    cut.to_rgba32f().as_raw(),
+                    "{recipe}"
+                );
+            }
+        }
+        // Retouching and parametric masks need the whole photograph.
+        assert!(!region_from_rows_possible(&serde_json::json!({
+            "aiPatches": [{"id": "p", "visible": true}]
+        })));
     }
 
     #[test]

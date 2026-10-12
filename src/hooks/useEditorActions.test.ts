@@ -346,3 +346,18 @@ it('never zooms out below fit from the keys, the zoom menu or the 100 % button',
   act(() => result.current.handleZoomChange(0, true));
   expect(useEditorStore.getState().zoom).toBe(1);
 });
+
+it('fits a large photograph in a small view (a multi view cell) without zooming it in', () => {
+  // 8192×5464 in a 268×179 cell: fit is about 3.3 % per CSS px, under the
+  // old 10 % (5 % per CSS px at 2×) floor that zoomed the primary in to 1.5.
+  vi.stubGlobal('devicePixelRatio', 2);
+  useEditorStore.setState({
+    originalSize: { width: 8192, height: 5464 },
+    baseRenderSize: { width: 268.4, height: 179, offsetX: 0.3, offsetY: 0, containerWidth: 269, containerHeight: 179 },
+    zoom: 1.53,
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.handleZoomChange(0, true));
+  expect(useEditorStore.getState().zoom).toBeCloseTo(1);
+  vi.unstubAllGlobals();
+});

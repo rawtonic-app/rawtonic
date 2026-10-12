@@ -164,6 +164,22 @@ pub fn decode(
     rows: usize,
     transfer: Transfer,
 ) -> Result<Vec<f32>, String> {
+    decode_columns(bytes, width, rows, transfer, (0, width))
+}
+
+/// [`decode`] of only `columns` (first, count): the decoder renders just
+/// that part (a zoomed multi view cell needs a few hundred columns of a
+/// full-resolution preview), with the same values as the whole.
+pub fn decode_columns(
+    bytes: &[u8],
+    width: usize,
+    rows: usize,
+    transfer: Transfer,
+    (left, count): (usize, usize),
+) -> Result<Vec<f32>, String> {
+    if count == 0 || left + count > width {
+        return Err("Columns outside the image".into());
+    }
     let mut image = jxl_oxide::JxlImage::builder()
         .read(std::io::Cursor::new(bytes))
         .map_err(|e| format!("JPEG XL: {e}"))?;
@@ -173,9 +189,17 @@ pub fn decode(
     image.request_color_encoding(jxl_oxide::EnumColourEncoding::srgb_linear(
         jxl_oxide::RenderingIntent::Relative,
     ));
+    if count < width {
+        image.set_image_region(jxl_oxide::CropInfo {
+            width: count as u32,
+            height: rows as u32,
+            left: left as u32,
+            top: 0,
+        });
+    }
     let render = image.render_frame(0).map_err(|e| format!("JPEG XL: {e}"))?;
     let pixels = render.image_all_channels();
-    if pixels.channels() != 3 || pixels.buf().len() != width * rows * 3 {
+    if pixels.channels() != 3 || pixels.buf().len() != count * rows * 3 {
         return Err("Unexpected JPEG XL channels".into());
     }
     let mut out = pixels.buf().to_vec();
@@ -303,6 +327,42 @@ mod tests {
         };
         let (linear, shaped) = (error(Transfer::Linear), error(TRANSFER));
         assert!(shaped < linear * 0.8, "{shaped} vs {linear}");
+    }
+
+    #[test]
+    fn columns_decode_to_the_same_values_as_the_whole() {
+        // A ramp with fine noise, wide enough for several groups.
+        let (width, height) = (700, 96);
+        let mut state = 99u32;
+        let mut pixels = ramps(width, height);
+        for v in &mut pixels {
+            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            *v += ((state >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * 0.02;
+        }
+        let bytes = encode(&pixels, width, DISTANCE, TRANSFER).unwrap();
+        let whole = decode(&bytes, width, height, TRANSFER).unwrap();
+        for (left, count) in [
+            (0, 700),
+            (0, 64),
+            (1, 300),
+            (257, 129),
+            (600, 100),
+            (699, 1),
+        ] {
+            let part = decode_columns(&bytes, width, height, TRANSFER, (left, count)).unwrap();
+            assert_eq!(part.len(), count * height * 3);
+            for row in 0..height {
+                let expected = &whole[(row * width + left) * 3..(row * width + left + count) * 3];
+                let got = &part[row * count * 3..(row + 1) * count * 3];
+                let same = expected
+                    .iter()
+                    .zip(got)
+                    .all(|(a, b)| a.to_bits() == b.to_bits());
+                assert!(same, "columns {left}+{count}, row {row}");
+            }
+        }
+        assert!(decode_columns(&bytes, width, height, TRANSFER, (650, 51)).is_err());
+        assert!(decode_columns(&bytes, width, height, TRANSFER, (10, 0)).is_err());
     }
 
     #[test]

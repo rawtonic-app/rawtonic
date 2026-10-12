@@ -50,6 +50,7 @@ mod mask_generation;
 mod memory_pressure;
 mod merges;
 mod multi_view;
+mod multi_view_prefetch;
 mod negative_conversion;
 #[cfg(feature = "performance-profiling")]
 mod performance;
