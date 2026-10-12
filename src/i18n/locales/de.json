@@ -1537,6 +1537,7 @@
         "newRadialOutside": "Neue radiale Ebene (außen) · Rechtsklick für Optionen",
         "newTitle": "Neue Ebene: zeichnen, auswählen oder Bereich",
         "noneYet": "Noch keine Ebenen. Mit + oder im Tab Ebenen hinzufügen.",
+        "quickAria": "Neue Ebene mit einem Klick",
         "select": "{{name}} auswählen",
         "toggle": "{{name}} ein-/ausblenden"
       },

@@ -1585,6 +1585,7 @@
         "newRadialOutside": "Nuovo livello radiale (esterno) · clic destro per le opzioni",
         "newTitle": "Nuovo livello: disegna, seleziona o gamma",
         "noneYet": "Ancora nessun livello. Aggiungine uno con + o nella scheda Livelli.",
+        "quickAria": "Nuovo livello con un clic",
         "select": "Seleziona {{name}}",
         "toggle": "Mostra/nascondi {{name}}"
       },

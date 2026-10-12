@@ -93,9 +93,10 @@ export function NewLayerButton() {
   );
 }
 
-/** With no layers yet: every kind as a tile, in three captioned groups
- * (Lightroom's Create New Mask grid). */
-function NewLayerGrid() {
+/** What a one-click new-layer button of a kind shows and does: the grid's
+ * tiles and the quick row above the layer list share it, and both create
+ * the layer with `addLayer`, as the "+" menu does. */
+function useNewLayerButtons() {
   const { t } = useTranslation();
   const { addLayer, ready } = useStudioTools();
   const radialMenu = useRadialOptionsMenu();
@@ -104,10 +105,67 @@ function NewLayerGrid() {
   const osPlatform = useSettingsStore((s) => s.osPlatform);
   // Subject and Background have keys of their own (mask_subject, mask_background).
   const titleOf = (kind: MaskKind) => {
+    if (kind === "radial")
+      return inside ? t("studio.develop.layers.newRadialInside") : t("studio.develop.layers.newRadialOutside");
     const title = t(`studio.develop.layers.newKind.${kind}`);
     const key = kind === "subject" || kind === "background" ? shortcutHint(`mask_${kind}`, keybinds, osPlatform) : null;
     return key ? `${title} (${key})` : title;
   };
+  return (kind: MaskKind) => ({
+    type: "button" as const,
+    disabled: !ready,
+    "aria-label": t(`studio.develop.layers.newKind.${kind}`),
+    title: titleOf(kind),
+    onClick: () => addLayer(kind),
+    onContextMenu: kind === "radial" ? radialMenu : undefined,
+  });
+}
+
+/** The common kinds of the quick row: the automatic selections, then the
+ * drawn shapes (Capture One's one-click layer buttons, without its heal,
+ * clone and erase, which work on the photo, not on a layer). */
+const QUICK_LAYER_KINDS: MaskKind[][] = [
+  ["subject", "sky", "background", "people"],
+  ["brush", "linear", "radial"],
+];
+
+/** One click, one new layer: a row of icon buttons above the layer list.
+ * The header's "+" keeps every kind. */
+function QuickLayerBar() {
+  const { t } = useTranslation();
+  const buttonProps = useNewLayerButtons();
+  return (
+    <div className="studio-layer-quick" role="toolbar" aria-label={t("studio.develop.layers.quickAria")}>
+      {QUICK_LAYER_KINDS.map((kinds, index) => (
+        <Fragment key={kinds[0]}>
+          {index > 0 && <span className="studio-layer-quick-separator" aria-hidden="true" />}
+          <div
+            className="studio-layer-quick-group"
+            // Pointing at the selections starts Subject and Sky in the
+            // background, as the grid and the "+" do.
+            onPointerEnter={index === 0 ? () => openMaskingTools() : undefined}
+            onFocus={index === 0 ? () => openMaskingTools() : undefined}
+          >
+            {kinds.map((kind) => {
+              const Icon = MASK_KIND_ICONS[kind];
+              return (
+                <button key={kind} className="studio-layer-quick-button" {...buttonProps(kind)}>
+                  <Icon size={14} aria-hidden="true" />
+                </button>
+              );
+            })}
+          </div>
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/** With no layers yet: every kind as a tile, in three captioned groups
+ * (Lightroom's Create New Mask grid). */
+function NewLayerGrid() {
+  const { t } = useTranslation();
+  const buttonProps = useNewLayerButtons();
   // Short names: the group caption says "Range".
   const label = (kind: MaskKind) => t(`studio.develop.layers.kindButtons.${kind}`);
   return (
@@ -130,22 +188,7 @@ function NewLayerGrid() {
             {kinds.map((kind) => {
               const Icon = MASK_KIND_ICONS[kind];
               return (
-                <button
-                  key={kind}
-                  type="button"
-                  className="studio-layer-tile"
-                  disabled={!ready}
-                  aria-label={t(`studio.develop.layers.newKind.${kind}`)}
-                  title={
-                    kind === "radial"
-                      ? inside
-                        ? t("studio.develop.layers.newRadialInside")
-                        : t("studio.develop.layers.newRadialOutside")
-                      : titleOf(kind)
-                  }
-                  onClick={() => addLayer(kind)}
-                  onContextMenu={kind === "radial" ? radialMenu : undefined}
-                >
+                <button key={kind} className="studio-layer-tile" {...buttonProps(kind)}>
                   <Icon size={16} aria-hidden="true" />
                   <span>{label(kind)}</span>
                 </button>
@@ -363,13 +406,17 @@ export default function StudioLayers({
 
   if (masks.length === 0)
     return compact ? (
-      <p className="studio-help">{t("studio.develop.layers.noneYet")}</p>
+      <>
+        <QuickLayerBar />
+        <p className="studio-help">{t("studio.develop.layers.noneYet")}</p>
+      </>
     ) : (
       <NewLayerGrid />
     );
 
   return (
     <>
+      <QuickLayerBar />
       <div className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
         {[...masks].reverse().map((mask) => {
           const selected = layer?.id === mask.id;

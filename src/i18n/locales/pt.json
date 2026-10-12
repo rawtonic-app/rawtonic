@@ -1585,6 +1585,7 @@
         "newRadialOutside": "Nova camada radial (fora) · clique com o botão direito para opções",
         "newTitle": "Nova camada: desenhar, selecionar ou faixa",
         "noneYet": "Ainda não há camadas. Adicione com + ou na aba Camadas.",
+        "quickAria": "Nova camada com um clique",
         "select": "Selecionar {{name}}",
         "toggle": "Mostrar/ocultar {{name}}"
       },

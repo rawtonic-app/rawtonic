@@ -852,6 +852,39 @@
 .studio-tool-popover .studio-layer-paint {
   margin-top: 4px;
 }
+/* One-click new layers above the list: selections | drawn shapes. */
+.studio-layer-quick {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 2px 0 4px;
+}
+.studio-layer-quick-group {
+  display: flex;
+  gap: 2px;
+}
+.studio-layer-quick-separator {
+  align-self: stretch;
+  width: 1px;
+  margin: 3px 2px;
+  background: #45474b;
+}
+.studio-layer-quick .studio-layer-quick-button {
+  width: 24px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #b9c9d8;
+}
+.studio-layer-quick .studio-layer-quick-button:hover:not(:disabled) {
+  border-color: #6b7884;
+  background: #ffffff10;
+}
+.studio-layer-quick .studio-layer-quick-button:disabled {
+  opacity: 0.4;
+}
 .studio-layer-list {
   margin-top: 2px;
   border: 1px solid #1d1e20;

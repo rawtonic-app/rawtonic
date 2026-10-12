@@ -1510,6 +1510,7 @@
         "newRadialOutside": "新建径向图层（外部）· 右键单击查看选项",
         "newTitle": "新建图层：绘制、选择或范围",
         "noneYet": "尚无图层。用 + 或在“图层”标签中添加。",
+        "quickAria": "一键新建图层",
         "select": "选择{{name}}",
         "toggle": "显示/隐藏{{name}}"
       },
