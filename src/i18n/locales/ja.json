@@ -780,6 +780,11 @@
       "close": "閉じる",
       "openTitle": "Rawtonic のセッションまたはカタログを開く"
     },
+    "drop": {
+      "importing": "読み込み中です。完了してから追加の写真をドロップしてください。",
+      "noLibrary": "まずセッションを開くか作成してから、写真をドロップして読み込んでください。",
+      "overlay": "ドロップして {{name}} に読み込む"
+    },
     "fields": {
       "filenameTemplate": "ファイル名テンプレート"
     },
@@ -821,21 +826,52 @@
       "title": "Lightroom または Capture One から読み込む"
     },
     "ingest": {
+      "addFiles": "写真を追加…",
+      "addFolder": "フォルダを追加…",
+      "addFromCard": "メモリーカード上の写真はコピーが必要です。カードは消去して再利用されます。",
+      "addNote": "写真は現在の場所のままカタログに追加されます。コピー、名前の変更、隣へのファイル書き込みは行われません。",
+      "addToAlbum": "読み込み後にアルバム「{{name}}」に追加",
+      "backToGrid": "グリッドに戻る（スペース）",
       "choose": "写真を選択…",
       "chooseBackup": "バックアップフォルダを選択…",
+      "chooseFolderTitle": "読み込むフォルダを選択",
       "chooseTitle": "取り込む写真を選択",
       "copyNote": "<strong>{{target}}</strong> にコピーします。既存のファイルは保持され、検証済みの重複はスキップされます。",
+      "dropHint": "写真やフォルダをここにドロップするか、上のボタンで追加します。",
+      "duplicates_other": "{{count}} 枚はライブラリに登録済み",
+      "gridLabel": "読み込む写真",
+      "include": "読み込む",
+      "inLibrary": "登録済み",
+      "inLibraryTitle": "このライブラリに登録済み（サイズと内容が同じ）。選択されていません。読み込んでも、確認済みの重複はスキップされます。",
       "keepEditing": "取り込み中も編集を続けられます。",
+      "largeView": "拡大表示",
+      "modeAdd": "現在の場所のまま追加",
+      "modeCopy": "{{destination}} にコピー",
+      "modeLabel": "読み込み方法",
+      "next": "次の写真",
+      "noPhotos": "追加した項目に写真が見つかりません。",
+      "noPreview": "プレビューなし",
+      "onVolume": "ドライブ「{{name}}」",
       "optional": "（任意）",
       "photographs": "写真",
+      "previous": "前の写真",
       "removeBackup": "バックアップフォルダを解除",
+      "scanning": "写真を検索中…",
       "secondCopy": "2 つ目のコピー",
+      "selectAll": "すべて選択",
       "selected_other": "{{count}} 枚の写真を選択済み",
+      "selectedOf_other": "{{total}} 枚中 {{selected}} 枚を選択 · {{size}}",
+      "selectNone": "選択を解除",
       "submit_other": "{{count}} 枚の写真をコピー",
+      "submitAdd_other": "{{count}} 枚を追加",
       "submitNone": "写真をコピー",
       "subtitle": "すべてのコピーは SHA-256 で元ファイルと照合されます。",
       "templateHint": "{{orig}} で元の名前を保持するか、{{pattern}} を使用します。",
-      "title": "写真を取り込む"
+      "thumbnailSize": "サムネールのサイズ",
+      "title": "写真を取り込む",
+      "truncated": "最初の {{n}} 枚のみ表示しています。残りは別途読み込んでください。",
+      "useCapture": "代わりに {{folder}} を使用",
+      "viewLargeHint": "ダブルクリックまたはスペースキーで拡大表示"
     },
     "menu": {
       "importFrom": "Lightroom または Capture One から読み込む…",
@@ -843,6 +879,7 @@
       "open": "セッションを開く…"
     },
     "progress": {
+      "adding_other": "{{count}} 件中 {{current}} 件を追加中",
       "cancel": "キャンセル",
       "verifying_other": "{{count}} 件中 {{current}} 件のファイルを検証中"
     },
@@ -851,6 +888,9 @@
       "opening": "{{name}} を開いています（{{directory}}）… macOS がこのボリュームへのアクセスを求めた場合は許可してください。"
     },
     "toasts": {
+      "added_other": "{{count}} 枚を追加しました",
+      "addedToAlbum": "{{name}} に追加済み",
+      "albumAddFailed": "写真は読み込まれましたが、{{name}} に追加できませんでした: {{error}}",
       "duplicatesSkipped_other": "重複 {{count}} 件をスキップ",
       "flagsFailed": "フラグを保存できませんでした: {{error}}",
       "flagsSavedRefreshFailed": "フラグを保存しましたが、セッションの概要を更新できませんでした: {{error}}",
@@ -2074,6 +2114,7 @@
         "library": "ライブラリ",
         "menu": {
           "addToFavorites": "お気に入りに追加",
+          "importHere": "このフォルダに読み込む…",
           "moveCopiedHere_other": "コピーした写真 {{count}} 枚をここに移動",
           "moveSelectedHere_other": "選択した写真 {{count}} 枚をここに移動",
           "newFolder": "新規フォルダ…",

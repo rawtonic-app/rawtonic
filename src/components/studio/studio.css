@@ -2741,6 +2741,7 @@
 .studio-exif > div {
   grid-template-columns: 110px minmax(0, 1fr);
 }
+.studio-workspace .studio-folder.is-drop-target,
 .studio-workspace .studio-album.is-drop-target {
   background: #3b4a58;
   color: #fff;

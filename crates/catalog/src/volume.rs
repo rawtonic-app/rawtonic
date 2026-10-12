@@ -39,6 +39,23 @@ pub fn mounted_volumes() -> Vec<Volume> {
     imp::mounted_volumes()
 }
 
+/// What the system says about the medium holding a path (import mode).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MediaInfo {
+    /// The medium is removable (a memory card, a card reader's slot, a USB
+    /// stick); `None` when the system does not say.
+    pub removable: Option<bool>,
+    /// Where the file system holding the path is mounted, if known.
+    pub mount_point: Option<PathBuf>,
+}
+
+/// The medium holding `path` (which must exist): macOS `statfs`
+/// (`MNT_REMOVABLE`), Linux sysfs (`/sys/class/block/<disk>/removable`),
+/// Windows `GetDriveTypeW` (`DRIVE_REMOVABLE`). Reads nothing of the file.
+pub fn media_info(path: &Path) -> MediaInfo {
+    imp::media_info(path)
+}
+
 /// (free, total) bytes of the file system holding `path`.
 pub fn space(path: &Path) -> Option<(u64, u64)> {
     #[cfg(unix)]
@@ -244,6 +261,25 @@ mod imp {
         identify(&c_text(&stat.f_mntonname))
     }
 
+    /// `MNT_REMOVABLE` (sys/mount.h): the file system is on removable media.
+    const MNT_REMOVABLE: u32 = 0x0000_0200;
+
+    pub fn media_info(path: &Path) -> super::MediaInfo {
+        let Some(c) = c_path(path) else {
+            return super::MediaInfo::default();
+        };
+        // SAFETY: an all-zero statfs is valid; statfs fills it.
+        let mut stat: libc::statfs = unsafe { std::mem::zeroed() };
+        // SAFETY: valid path and out pointer.
+        if unsafe { libc::statfs(c.as_ptr(), &mut stat) } != 0 {
+            return super::MediaInfo::default();
+        }
+        super::MediaInfo {
+            removable: Some(stat.f_flags & MNT_REMOVABLE != 0),
+            mount_point: Some(c_text(&stat.f_mntonname)),
+        }
+    }
+
     fn statfs_list() -> Vec<libc::statfs> {
         // SAFETY: a null buffer asks for the count.
         let count = unsafe { libc::getfsstat(std::ptr::null_mut(), 0, libc::MNT_NOWAIT) };
@@ -424,6 +460,41 @@ mod imp {
         identify(&mount_point, &device)
     }
 
+    /// The disk's `removable` attribute in sysfs (a partition's is its
+    /// disk's).
+    fn removable(device: &Path) -> Option<bool> {
+        let name = device.canonicalize().ok()?.file_name()?.to_owned();
+        let mut block = PathBuf::from("/sys/class/block")
+            .join(name)
+            .canonicalize()
+            .ok()?;
+        if block.join("partition").exists() {
+            block = block.parent()?.to_path_buf();
+        }
+        let flag = fs::read_to_string(block.join("removable")).ok()?;
+        Some(flag.trim() == "1")
+    }
+
+    pub fn media_info(path: &Path) -> super::MediaInfo {
+        let Ok(path) = path.canonicalize() else {
+            return super::MediaInfo::default();
+        };
+        let Some((mount_point, device)) = mount_table()
+            .into_iter()
+            .filter(|(mount, _)| path.starts_with(mount))
+            .max_by_key(|(mount, _)| mount.as_os_str().len())
+        else {
+            return super::MediaInfo::default();
+        };
+        super::MediaInfo {
+            removable: device
+                .starts_with("/dev/")
+                .then(|| removable(&device))
+                .flatten(),
+            mount_point: Some(mount_point),
+        }
+    }
+
     pub fn mounted_volumes() -> Vec<Volume> {
         mount_table()
             .into_iter()
@@ -479,6 +550,42 @@ mod imp {
 
     pub fn volume_of(_: &Path) -> Option<Volume> {
         None
+    }
+
+    /// The drive's type (`GetDriveTypeW`): `DRIVE_REMOVABLE` is a card
+    /// reader or USB stick.
+    #[cfg(windows)]
+    pub fn media_info(path: &Path) -> super::MediaInfo {
+        use std::os::windows::ffi::OsStrExt;
+        use std::path::{Component, PathBuf, Prefix};
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn GetDriveTypeW(root: *const u16) -> u32;
+        }
+        const DRIVE_REMOVABLE: u32 = 2;
+        let letter = match path.components().next() {
+            Some(Component::Prefix(prefix)) => match prefix.kind() {
+                Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => letter as char,
+                _ => return super::MediaInfo::default(),
+            },
+            _ => return super::MediaInfo::default(),
+        };
+        let root = format!("{letter}:\\");
+        let wide: Vec<u16> = std::ffi::OsStr::new(&root)
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        // SAFETY: a NUL-terminated wide string that outlives the call.
+        let kind = unsafe { GetDriveTypeW(wide.as_ptr()) };
+        super::MediaInfo {
+            removable: Some(kind == DRIVE_REMOVABLE),
+            mount_point: Some(PathBuf::from(root)),
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn media_info(_: &Path) -> super::MediaInfo {
+        super::MediaInfo::default()
     }
 
     pub fn mounted_volumes() -> Vec<Volume> {

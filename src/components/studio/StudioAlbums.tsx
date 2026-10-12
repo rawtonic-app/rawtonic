@@ -427,7 +427,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             role="listitem"
             data-album-row={album.id}
             data-kind={group ? "group" : "album"}
-            {...(group ? {} : { "data-album-drop": album.id })}
+            {...(group ? {} : { "data-album-drop": album.id, "data-album-name": album.name })}
             title={group ? t("studio.library.albums.groupHint") : t("studio.library.albums.albumHint")}
             aria-expanded={group ? expanded : undefined}
             className={`studio-preset studio-album ${group ? "is-group" : ""} ${

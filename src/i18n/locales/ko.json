@@ -780,6 +780,11 @@
       "close": "닫기",
       "openTitle": "Rawtonic 세션 또는 카탈로그 열기"
     },
+    "drop": {
+      "importing": "가져오는 중입니다. 완료된 후 사진을 더 놓으세요.",
+      "noLibrary": "먼저 세션을 열거나 만든 다음 사진을 놓아 가져오세요.",
+      "overlay": "놓아서 {{name}}(으)로 가져오기"
+    },
     "fields": {
       "filenameTemplate": "파일 이름 템플릿"
     },
@@ -821,21 +826,52 @@
       "title": "Lightroom 또는 Capture One에서 가져오기"
     },
     "ingest": {
+      "addFiles": "사진 추가…",
+      "addFolder": "폴더 추가…",
+      "addFromCard": "메모리 카드의 사진은 복사해야 합니다. 카드는 지워지고 다시 사용됩니다.",
+      "addNote": "사진은 현재 위치에 그대로 두고 카탈로그에 추가됩니다. 복사, 이름 변경, 옆에 파일 쓰기는 하지 않습니다.",
+      "addToAlbum": "가져온 후 앨범 “{{name}}”에 추가",
+      "backToGrid": "격자로 돌아가기(스페이스)",
       "choose": "사진 선택…",
       "chooseBackup": "백업 폴더 선택…",
+      "chooseFolderTitle": "가져올 폴더 선택",
       "chooseTitle": "가져올 사진 선택",
       "copyNote": "<strong>{{target}}</strong>(으)로 복사합니다. 기존 파일은 보존되고 검증된 중복 파일은 건너뜁니다.",
+      "dropHint": "사진이나 폴더를 여기에 놓거나 위의 버튼으로 추가하세요.",
+      "duplicates_other": "{{count}}장은 이미 라이브러리에 있음",
+      "gridLabel": "가져올 사진",
+      "include": "가져오기",
+      "inLibrary": "라이브러리에 있음",
+      "inLibraryTitle": "이미 이 라이브러리에 있습니다(크기와 내용이 같음). 선택 해제됨. 가져오더라도 확인된 중복은 건너뜁니다.",
       "keepEditing": "가져오는 동안에도 계속 편집할 수 있습니다.",
+      "largeView": "크게 보기",
+      "modeAdd": "현재 위치에서 추가",
+      "modeCopy": "{{destination}}(으)로 복사",
+      "modeLabel": "가져오기 방식",
+      "next": "다음 사진",
+      "noPhotos": "추가한 항목에서 사진을 찾지 못했습니다.",
+      "noPreview": "미리 보기 없음",
+      "onVolume": "드라이브 “{{name}}”",
       "optional": "(선택 사항)",
       "photographs": "사진",
+      "previous": "이전 사진",
       "removeBackup": "백업 폴더 제거",
+      "scanning": "사진을 찾는 중…",
       "secondCopy": "두 번째 복사본",
+      "selectAll": "모두 선택",
       "selected_other": "사진 {{count}}장 선택됨",
+      "selectedOf_other": "{{total}}장 중 {{selected}}장 선택 · {{size}}",
+      "selectNone": "선택 해제",
       "submit_other": "사진 {{count}}장 복사",
+      "submitAdd_other": "사진 {{count}}장 추가",
       "submitNone": "사진 복사",
       "subtitle": "모든 복사본은 SHA-256으로 원본과 대조됩니다.",
       "templateHint": "{{orig}}(으)로 원래 이름을 유지하거나 {{pattern}}을(를) 사용하세요.",
-      "title": "사진 가져오기"
+      "thumbnailSize": "썸네일 크기",
+      "title": "사진 가져오기",
+      "truncated": "처음 {{n}}장만 표시됩니다. 나머지는 다시 가져오세요.",
+      "useCapture": "대신 {{folder}} 사용",
+      "viewLargeHint": "두 번 클릭하거나 스페이스 키를 눌러 크게 보기"
     },
     "menu": {
       "importFrom": "Lightroom 또는 Capture One에서 가져오기…",
@@ -843,6 +879,7 @@
       "open": "세션 열기…"
     },
     "progress": {
+      "adding_other": "{{count}}개 중 {{current}}개 추가 중",
       "cancel": "취소",
       "verifying_other": "파일 {{count}}개 중 {{current}}개 검증 중"
     },
@@ -851,6 +888,9 @@
       "opening": "{{name}} 여는 중({{directory}})… macOS에서 이 볼륨에 대한 접근을 요청하면 허용하세요."
     },
     "toasts": {
+      "added_other": "사진 {{count}}장 추가됨",
+      "addedToAlbum": "{{name}}에 추가됨",
+      "albumAddFailed": "사진을 가져왔지만 {{name}}에 추가하지 못했습니다: {{error}}",
       "duplicatesSkipped_other": "중복 {{count}}개 건너뜀",
       "flagsFailed": "플래그를 저장할 수 없습니다: {{error}}",
       "flagsSavedRefreshFailed": "플래그를 저장했지만 세션 요약을 새로 고칠 수 없습니다: {{error}}",
@@ -2074,6 +2114,7 @@
         "library": "라이브러리",
         "menu": {
           "addToFavorites": "즐겨찾기에 추가",
+          "importHere": "이 폴더로 가져오기…",
           "moveCopiedHere_other": "복사한 사진 {{count}}장을 여기로 이동",
           "moveSelectedHere_other": "선택한 사진 {{count}}장을 여기로 이동",
           "newFolder": "새 폴더…",

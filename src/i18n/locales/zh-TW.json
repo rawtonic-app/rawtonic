@@ -780,6 +780,11 @@
       "close": "關閉",
       "openTitle": "開啟 Rawtonic 工作階段或目錄"
     },
+    "drop": {
+      "importing": "正在匯入；完成後再拖放更多照片。",
+      "noLibrary": "請先開啟或建立一個工作階段，再拖放照片以匯入。",
+      "overlay": "拖放以匯入到 {{name}}"
+    },
     "fields": {
       "filenameTemplate": "檔案名稱範本"
     },
@@ -821,21 +826,52 @@
       "title": "從 Lightroom 或 Capture One 匯入"
     },
     "ingest": {
+      "addFiles": "加入照片…",
+      "addFolder": "加入檔案夾…",
+      "addFromCard": "記憶卡上的照片必須拷貝出來：記憶卡會被清除並重複使用。",
+      "addNote": "照片保留在原位置並加入目錄；不會拷貝、重新命名或在旁邊寫入任何內容。",
+      "addToAlbum": "匯入後加入相簿「{{name}}」",
+      "backToGrid": "返回網格（空白鍵）",
       "choose": "選擇照片…",
       "chooseBackup": "選擇備份資料夾…",
+      "chooseFolderTitle": "選擇要匯入的檔案夾",
       "chooseTitle": "選擇要匯入的照片",
       "copyNote": "拷貝到 <strong>{{target}}</strong>。現有檔案會保留；經驗證的重複項目會被略過。",
+      "dropHint": "將照片或檔案夾拖放到此處，或用上方的按鈕加入。",
+      "duplicates_other": "{{count}} 張已在圖庫中",
+      "gridLabel": "要匯入的照片",
+      "include": "匯入",
+      "inLibrary": "已在圖庫",
+      "inLibraryTitle": "已在此圖庫中（大小與內容相同）。未勾選；若匯入，經驗證的重複項會被略過。",
       "keepEditing": "匯入期間可以繼續編輯。",
+      "largeView": "大圖檢視",
+      "modeAdd": "在原位置加入",
+      "modeCopy": "拷貝到 {{destination}}",
+      "modeLabel": "匯入方式",
+      "next": "下一張照片",
+      "noPhotos": "所加入的內容中找不到照片。",
+      "noPreview": "無預覽",
+      "onVolume": "位於磁碟「{{name}}」",
       "optional": "（選用）",
       "photographs": "照片",
+      "previous": "上一張照片",
       "removeBackup": "移除備份資料夾",
+      "scanning": "正在尋找照片…",
       "secondCopy": "第二份副本",
+      "selectAll": "全選",
       "selected_other": "已選擇 {{count}} 張照片",
+      "selectedOf_other": "已選取 {{selected}} / {{total}} 張照片 · {{size}}",
+      "selectNone": "全不選",
       "submit_other": "拷貝 {{count}} 張照片",
+      "submitAdd_other": "加入 {{count}} 張照片",
       "submitNone": "拷貝照片",
       "subtitle": "每份副本都會以 SHA-256 與來源檔案核對。",
       "templateHint": "使用 {{orig}} 保留原始檔名，或使用 {{pattern}}。",
-      "title": "匯入你的照片"
+      "thumbnailSize": "縮圖大小",
+      "title": "匯入你的照片",
+      "truncated": "僅列出前 {{n}} 張照片；其餘請另行匯入。",
+      "useCapture": "改用 {{folder}}",
+      "viewLargeHint": "按兩下或按空白鍵以檢視大圖"
     },
     "menu": {
       "importFrom": "從 Lightroom 或 Capture One 匯入…",
@@ -843,6 +879,7 @@
       "open": "開啟工作階段…"
     },
     "progress": {
+      "adding_other": "正在加入第 {{current}} 個，共 {{count}} 個檔案",
       "cancel": "取消",
       "verifying_other": "正在驗證第 {{current}} / {{count}} 個檔案"
     },
@@ -851,6 +888,9 @@
       "opening": "正在開啟 {{name}}（{{directory}}）… 如果 macOS 要求存取此卷宗，請允許。"
     },
     "toasts": {
+      "added_other": "已加入 {{count}} 張照片",
+      "addedToAlbum": "已加入 {{name}}",
+      "albumAddFailed": "照片已匯入，但未加入 {{name}}：{{error}}",
       "duplicatesSkipped_other": "已略過 {{count}} 個重複項目",
       "flagsFailed": "無法儲存旗標：{{error}}",
       "flagsSavedRefreshFailed": "旗標已儲存；無法重新整理工作階段摘要：{{error}}",
@@ -2074,6 +2114,7 @@
         "library": "圖庫",
         "menu": {
           "addToFavorites": "加入收藏",
+          "importHere": "匯入到此檔案夾…",
           "moveCopiedHere_other": "將 {{count}} 張已複製的照片移到此處",
           "moveSelectedHere_other": "將 {{count}} 張所選照片移到此處",
           "newFolder": "新增資料夾…",

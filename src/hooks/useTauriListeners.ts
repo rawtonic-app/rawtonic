@@ -12,6 +12,7 @@ import { libraryImageIndex } from '../utils/libraryIndex';
 import { setMergeStateFor } from './useProductivityActions';
 import { confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
 import { recountAfterFileOperation } from '../utils/offline';
+import { throttleAsync } from '../utils/throttle';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -62,6 +63,14 @@ interface TauriListenerProps {
   refreshImageList: () => void;
   markGenerated: (path: string) => void;
 }
+
+/** How often the grid lists its folder again while an ingest copies
+ * photographs into it (at most four times a second), and how often the
+ * folder counts follow. */
+export const INGEST_LIST_REFRESH_MS = 250;
+export const INGEST_TREE_REFRESH_MS = 1000;
+
+const parentFolder = (path: string) => path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')));
 
 /** New grid thumbnails taken into the store per animation frame. */
 export const THUMBNAILS_PER_FRAME = 12;
@@ -177,7 +186,34 @@ export function useTauriListeners({
       flushHandle.current = requestAnimationFrame(flushThumbnailBatch);
     };
 
+    // An ingest's photographs appear in the grid as each is copied
+    // (`session-ingest-imported`), the list read again at most every
+    // INGEST_LIST_REFRESH_MS, so the user browses and opens them meanwhile.
+    const ingestFolders = new Set<string>();
+    const refreshIngestList = throttleAsync(async () => {
+      const folders = new Set(ingestFolders);
+      ingestFolders.clear();
+      const { currentFolderPath } = useLibraryStore.getState();
+      if (isEffectActive && currentFolderPath && folders.has(currentFolderPath))
+        await refs.current.refreshImageList();
+    }, INGEST_LIST_REFRESH_MS);
+    const refreshIngestTree = throttleAsync(
+      () => isEffectActive && refs.current.refreshAllFolderTrees(),
+      INGEST_TREE_REFRESH_MS,
+    );
+
     const listeners = [
+      listen<{ destination: string | null; skipped: boolean; error: string | null }>(
+        'session-ingest-imported',
+        (event) => {
+          if (!isEffectActive) return;
+          const { destination, skipped, error } = event.payload;
+          if (!destination || skipped || error) return;
+          ingestFolders.add(parentFolder(destination));
+          refreshIngestList();
+          refreshIngestTree();
+        },
+      ),
       listen<string>('preview-update-uncropped', (event) => {
         if (isEffectActive) useEditorStore.getState().setEditor({ uncroppedAdjustedPreviewUrl: event.payload });
       }),
@@ -444,6 +480,8 @@ export function useTauriListeners({
 
     return () => {
       isEffectActive = false;
+      refreshIngestList.cancel();
+      refreshIngestTree.cancel();
       if (flushHandle.current !== null) {
         cancelAnimationFrame(flushHandle.current);
         flushHandle.current = null;

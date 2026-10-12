@@ -792,6 +792,11 @@
       "close": "Close",
       "openTitle": "Open a Rawtonic session or catalog"
     },
+    "drop": {
+      "importing": "An import is running; drop more photographs when it has finished.",
+      "noLibrary": "Open or create a session first, then drop photographs to import them.",
+      "overlay": "Drop to import into {{name}}"
+    },
     "fields": {
       "filenameTemplate": "Filename template"
     },
@@ -839,23 +844,57 @@
       "title": "Import from Lightroom or Capture One"
     },
     "ingest": {
+      "addFiles": "Add photographs…",
+      "addFolder": "Add folder…",
+      "addFromCard": "Photographs on a memory card must be copied off it: the card will be erased and reused.",
+      "addNote": "The photographs stay where they are and are added to the catalog; nothing is copied, renamed or written beside them.",
+      "addToAlbum": "Add to album “{{name}}” after import",
+      "backToGrid": "Back to the grid (Space)",
       "choose": "Choose photographs…",
       "chooseBackup": "Choose a backup folder…",
+      "chooseFolderTitle": "Select folders to ingest",
       "chooseTitle": "Select photographs to ingest",
       "copyNote": "Copy to <strong>{{target}}</strong>. Existing files are preserved; verified duplicates are skipped.",
+      "dropHint": "Drop photographs or folders here, or add them with the buttons above.",
+      "duplicates_one": "{{count}} already in the library",
+      "duplicates_other": "{{count}} already in the library",
+      "gridLabel": "Photographs to import",
+      "include": "Import",
+      "inLibrary": "In library",
+      "inLibraryTitle": "Already in this library (same size and content). Unchecked; if imported, a verified duplicate is skipped.",
       "keepEditing": "You can keep editing during ingest.",
+      "largeView": "Large view",
+      "modeAdd": "Add where they are",
+      "modeCopy": "Copy to {{destination}}",
+      "modeLabel": "How to import",
+      "next": "Next photograph",
+      "noPhotos": "No photographs found in what was added.",
+      "noPreview": "No preview",
+      "onVolume": "On the drive “{{name}}”",
       "optional": "(optional)",
       "photographs": "Photographs",
+      "previous": "Previous photograph",
       "removeBackup": "Remove backup folder",
+      "scanning": "Looking for photographs…",
       "secondCopy": "Second copy",
+      "selectAll": "Select all",
       "selected_one": "{{count}} photograph selected",
       "selected_other": "{{count}} photographs selected",
+      "selectedOf_one": "{{selected}} of {{total}} photograph selected · {{size}}",
+      "selectedOf_other": "{{selected}} of {{total}} photographs selected · {{size}}",
+      "selectNone": "Select none",
       "submit_one": "Copy {{count}} photograph",
       "submit_other": "Copy {{count}} photographs",
+      "submitAdd_one": "Add {{count}} photograph",
+      "submitAdd_other": "Add {{count}} photographs",
       "submitNone": "Copy photographs",
       "subtitle": "Every copy is checked against its source with SHA-256.",
       "templateHint": "Keep original names with {{orig}}, or use {{pattern}}.",
-      "title": "Bring your photographs in"
+      "thumbnailSize": "Thumbnail size",
+      "title": "Bring your photographs in",
+      "truncated": "Only the first {{n}} photographs are listed; import the rest in another pass.",
+      "useCapture": "Use {{folder}} instead",
+      "viewLargeHint": "Double-click or press Space to view large"
     },
     "menu": {
       "importFrom": "Import from Lightroom or Capture One…",
@@ -863,6 +902,8 @@
       "open": "Open session…"
     },
     "progress": {
+      "adding_one": "Adding {{current}} of {{count}} file",
+      "adding_other": "Adding {{current}} of {{count}} files",
       "cancel": "Cancel",
       "verifying_one": "Verifying {{current}} of {{count}} file",
       "verifying_other": "Verifying {{current}} of {{count}} files"
@@ -872,6 +913,10 @@
       "opening": "Opening {{name}} ({{directory}})… If macOS asks for access to this volume, allow it."
     },
     "toasts": {
+      "added_one": "{{count}} photograph added",
+      "added_other": "{{count}} photographs added",
+      "addedToAlbum": "added to {{name}}",
+      "albumAddFailed": "Photographs imported, but not added to {{name}}: {{error}}",
       "duplicatesSkipped_one": "{{count}} duplicate skipped",
       "duplicatesSkipped_other": "{{count}} duplicates skipped",
       "flagsFailed": "Could not save flags: {{error}}",
@@ -2115,6 +2160,7 @@
         "library": "Library",
         "menu": {
           "addToFavorites": "Add to Favorites",
+          "importHere": "Import into this folder…",
           "moveCopiedHere_one": "Move {{count}} Copied Photo Here",
           "moveCopiedHere_other": "Move {{count}} Copied Photos Here",
           "moveSelectedHere_one": "Move Selected Photo Here",

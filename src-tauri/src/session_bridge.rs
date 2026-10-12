@@ -426,31 +426,231 @@ pub async fn session_summary(directory: String) -> Result<Summary, String> {
     .await
     .map_err(|e| e.to_string())?
 }
+/// One photograph found for the import dialog (`session_ingest_scan`).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestCandidate {
+    pub path: PathBuf,
+    pub size: u64,
+    /// The library already holds a file with this content (same size and
+    /// content fingerprint); the import would skip it as a duplicate.
+    pub duplicate: bool,
+    /// On a memory card or on a drive (decides copy or add for a catalog).
+    pub medium: rawtonic_ingest::batch::Medium,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestScan {
+    pub files: Vec<IngestCandidate>,
+    /// More photographs were there than the dialog lists (`SCAN_LIMIT`).
+    pub truncated: bool,
+}
+
+/// The most photographs one import dialog lists (a drop of a whole drive
+/// stops here rather than walking it for minutes).
+const SCAN_LIMIT: usize = 20_000;
+
+/// The photographs in what was chosen or dropped for an import: files as
+/// they are, folders opened up recursively, only the formats the library
+/// shows (`formats::is_supported_image_file`, as the file dialog's filter),
+/// each with its size and whether the library at `directory` already holds
+/// it. Reads only.
 #[tauri::command]
+pub async fn session_ingest_scan(
+    directory: Option<String>,
+    paths: Vec<String>,
+) -> Result<IngestScan, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
+        let (files, truncated) = rawtonic_ingest::batch::expand_sources(
+            &paths,
+            |path| crate::formats::is_supported_image_file(path),
+            SCAN_LIMIT,
+        );
+        let duplicates = match directory {
+            Some(directory) => Library::open(Path::new(&directory))
+                .and_then(|lib| rawtonic_ingest::batch::known_in_library(&lib, &files))
+                .unwrap_or_else(|e| {
+                    log::warn!("Import: duplicates not checked: {e}");
+                    vec![false; files.len()]
+                }),
+            None => vec![false; files.len()],
+        };
+        let files = files
+            .into_iter()
+            .zip(duplicates)
+            .map(|(path, duplicate)| IngestCandidate {
+                size: fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+                medium: rawtonic_ingest::batch::source_medium(&path),
+                path,
+                duplicate,
+            })
+            .collect();
+        Ok(IngestScan { files, truncated })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// A small JPEG preview of a photograph to import (the import dialog's
+/// grid), from its embedded camera preview; empty when there is none quickly.
+#[tauri::command]
+pub async fn session_ingest_thumbnail(path: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::ipc::Response::new(
+            crate::file_management::source_preview_jpeg(Path::new(&path), 320).unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The import dialog's large view of a photograph to import: its largest
+/// embedded camera JPEG (or the file itself for a JPEG), else its largest
+/// preview scaled to `max_size`; empty when there is none. Read-only.
+#[tauri::command]
+pub async fn session_ingest_preview(
+    path: String,
+    max_size: Option<u32>,
+) -> Result<tauri::ipc::Response, String> {
+    let max_size = max_size.unwrap_or(2560).clamp(640, 8192);
+    tauri::async_runtime::spawn_blocking(move || {
+        tauri::ipc::Response::new(
+            crate::file_management::source_large_preview_jpeg(Path::new(&path), max_size)
+                .unwrap_or_default(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// ISO, shutter speed, aperture and focal length of a photograph to import,
+/// for the import dialog's large view. Read-only.
+#[tauri::command]
+pub async fn session_ingest_capture_info(
+    path: String,
+) -> Result<crate::file_management::SourceCaptureInfo, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::file_management::source_capture_info(Path::new(&path))
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// What `session-ingest-imported` reports for each photograph of an ingest,
+/// in order, as soon as it is in the library.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IngestedFile {
+    pub index: usize,
+    pub total: usize,
+    pub source: PathBuf,
+    /// The copy in the library (for a skipped duplicate: the photograph the
+    /// library already holds).
+    pub destination: Option<PathBuf>,
+    pub asset_id: Option<String>,
+    pub skipped: bool,
+    pub error: Option<String>,
+}
+
+impl IngestedFile {
+    fn new(done: &rawtonic_ingest::batch::FileDone<'_>) -> Self {
+        Self {
+            index: done.index,
+            total: done.total,
+            source: done.result.source.clone(),
+            destination: done.result.destination.clone(),
+            asset_id: done.result.asset_id.clone(),
+            skipped: done.result.skipped,
+            error: done.result.error.clone(),
+        }
+    }
+}
+
+/// How an ingest brings photographs in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IngestMode {
+    /// Verified copies into the library (sessions always).
+    #[default]
+    Copy,
+    /// A catalog registers them where they are (never from a card).
+    Add,
+}
+
+/// Copies `sources` into the library (its capture folder, or `folder` of
+/// it), verified, one after the other; with `mode` `add` a catalog
+/// registers them where they are instead (`ingest::batch::add_batch`). Each photograph is announced with
+/// `session-ingest-imported` as soon as it is in the library, so the grid
+/// shows it while the rest copy; `session-ingest-progress` carries the
+/// count and speed.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn session_ingest(
     directory: String,
     sources: Vec<String>,
     template: String,
     backup: Option<String>,
     sequence_start: Option<u32>,
+    folder: Option<String>,
+    mode: Option<IngestMode>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
         return Err("An ingest is already running".into());
     }
     CANCEL_IMPORT.store(false, Ordering::Release);
-    let result=tauri::async_runtime::spawn_blocking(move|| {
-        let lib=Library::open(Path::new(&directory)).map_err(|e|e.to_string())?;let mut results=Vec::new();
-        let sequence_start = u64::from(sequence_start.unwrap_or(1));
-        let total=sources.len();let started=std::time::Instant::now();let mut bytes=0u64;
-        for (i,source) in sources.iter().enumerate() {
-            if CANCEL_IMPORT.load(Ordering::Acquire){break;}
-            let result=rawtonic_ingest::import_one_with_start(&lib,Path::new(source),&template,sequence_start + i as u64,sequence_start,backup.as_deref().map(Path::new),&CANCEL_IMPORT);
-            match result {Ok(r)=>{if !r.skipped && r.error.is_none(){bytes+=fs::metadata(source).map(|m|m.len()).unwrap_or(0);}results.push(r);},Err(e)=>results.push(rawtonic_ingest::ImportResult{source:source.into(),destination:None,backup:None,asset_id:None,error:Some(e.to_string()),skipped:false})}
-            let _=app.emit("session-ingest-progress",serde_json::json!({"current":i+1,"total":total,"bytes":bytes,"mbps":bytes as f64/1_000_000.0/started.elapsed().as_secs_f64().max(0.001)}));
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        let sources: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
+        // The folder list's top-level folders: below them a catalog's
+        // photographs may be copied too (`ingest::destination_folder`).
+        let roots: Vec<PathBuf> = crate::app_settings::load_settings(app.clone())
+            .map(|settings| settings.root_folders.iter().map(PathBuf::from).collect())
+            .unwrap_or_default();
+        let options = rawtonic_ingest::batch::BatchOptions {
+            template: &template,
+            sequence_start: u64::from(sequence_start.unwrap_or(1)),
+            backup: backup.as_deref().map(Path::new),
+            folder: folder.as_deref().map(Path::new),
+            roots: &roots,
+        };
+        let started = std::time::Instant::now();
+        let report = |done: rawtonic_ingest::batch::FileDone<'_>| {
+            let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
+            let _ = app.emit(
+                "session-ingest-progress",
+                serde_json::json!({
+                    "current": done.index + 1,
+                    "total": done.total,
+                    "bytes": done.bytes,
+                    "mbps": done.bytes as f64
+                        / 1_000_000.0
+                        / started.elapsed().as_secs_f64().max(0.001),
+                }),
+            );
+        };
+        match mode.unwrap_or_default() {
+            IngestMode::Copy => rawtonic_ingest::batch::import_batch(
+                &lib,
+                &sources,
+                &options,
+                &CANCEL_IMPORT,
+                report,
+            ),
+            IngestMode::Add => rawtonic_ingest::batch::add_batch(
+                &lib,
+                &sources,
+                rawtonic_ingest::batch::source_medium,
+                &CANCEL_IMPORT,
+                report,
+            ),
         }
-        Ok(results)
-    }).await.map_err(|e|e.to_string());
+        .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string());
     IMPORT_RUNNING.store(false, Ordering::Release);
     result?
 }

@@ -1341,6 +1341,20 @@ impl Library {
         Ok(None)
     }
 
+    /// Size and content fingerprint (`fingerprint`) of every registered
+    /// photograph, in one query: a cheap test whether a file is already in
+    /// the library before importing it (the import itself still compares
+    /// SHA-256 before it skips a duplicate).
+    pub fn content_keys(&self) -> Result<HashSet<(u64, String)>> {
+        Ok(self
+            .conn
+            .prepare("SELECT size, fingerprint FROM assets")?
+            .query_map([], |r| {
+                Ok((r.get::<_, i64>(0)? as u64, r.get::<_, String>(1)?))
+            })?
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     /// The asset as an offline asset (whether or not its file is there now).
     pub fn offline_asset(&self, id: &str) -> Result<OfflineAsset> {
         self.offline_rows("a.id=?", &[&id])?
