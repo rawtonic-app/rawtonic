@@ -3,8 +3,13 @@
 //! photograph is the live preview frame (`WgpuDisplay::current_bind_group`);
 //! every other cell draws its own developed texture, rendered once at the
 //! cell's size by the app with the same GPU pipeline and kept here until its
-//! recipe or size changes. Develop pixels never leave the GPU process: the
-//! webview only sends cell rectangles and draws captions and frames over them.
+//! recipe or size changes. Zoomed in, every cell shows the same photograph
+//! point at the same magnification (Lightroom's locked zoom) or, without the
+//! lock, each cell its own zoom and pan: the cell's whole-photograph texture
+//! enlarged at once, then the visible region developed at that
+//! magnification on top. Develop pixels never leave the
+//! GPU process: the webview only sends cell rectangles and the zoom, and
+//! draws captions and frames over them.
 
 use std::collections::HashMap;
 
@@ -18,11 +23,31 @@ pub struct MultiViewCell {
     pub area: [f32; 4],
 }
 
+/// The zoom every cell shares: `scale` device pixels per full-resolution
+/// pixel of the shown (cropped, turned) photograph, and the photograph point
+/// at each cell's centre (`center`, 0–1 of its shown width and height).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CellZoom {
+    pub scale: f32,
+    pub center: [f32; 2],
+}
+
+/// What part of its photograph a texture holds: the shown photograph's size
+/// in full-resolution pixels and, for a zoomed region, that region (x, y,
+/// w, h in those pixels); `region` None is the whole photograph.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CellExtent {
+    pub shown: [f32; 2],
+    pub region: Option<[f32; 4]>,
+}
+
 /// A secondary photograph's developed frame (display-encoded RGBA8).
 struct CellTexture {
     /// What it was rendered from (recipe and size); 0 for a stand-in that
     /// waits for its own render (see [`MultiView::adopt_live_frame`]).
     key: u64,
+    /// Unknown for a stand-in: then it is only shown to fit.
+    extent: Option<CellExtent>,
     _texture: wgpu::Texture,
     width: u32,
     height: u32,
@@ -36,7 +61,14 @@ struct CellTexture {
 pub struct MultiView {
     cells: Vec<MultiViewCell>,
     primary: Option<String>,
+    /// Each secondary's whole photograph at its cell's size.
     textures: HashMap<String, CellTexture>,
+    /// Zoomed in: each secondary's visible region at the zoom's magnification.
+    regions: HashMap<String, CellTexture>,
+    /// The zoom every secondary shares (the zoom lock), or None.
+    zoom: Option<CellZoom>,
+    /// Without the lock: each secondary's own zoom (absent: fit).
+    cell_zooms: HashMap<String, CellZoom>,
 }
 
 /// Where a photograph of `width` × `height` sits in `area`: contained and
@@ -52,6 +84,44 @@ pub fn fit_rect(area: [f32; 4], width: f32, height: f32) -> [f32; 4] {
         (h * width / height, h)
     };
     [x + (w - fit_w) / 2.0, y + (h - fit_h) / 2.0, fit_w, fit_h]
+}
+
+/// Where a texture of `extent` sits in `area` at `zoom`: the photograph
+/// enlarged by `zoom.scale` with `zoom.center` at the area's centre (the
+/// part outside the area is clipped), the texture covering its region of it.
+pub fn zoomed_rect(area: [f32; 4], extent: CellExtent, zoom: CellZoom) -> [f32; 4] {
+    let s = zoom.scale;
+    let ox = area[0] + area[2] / 2.0 - zoom.center[0] * extent.shown[0] * s;
+    let oy = area[1] + area[3] / 2.0 - zoom.center[1] * extent.shown[1] * s;
+    match extent.region {
+        Some([rx, ry, rw, rh]) => [ox + rx * s, oy + ry * s, rw * s, rh * s],
+        None => [ox, oy, extent.shown[0] * s, extent.shown[1] * s],
+    }
+}
+
+/// The part of a shown photograph (`shown`: width, height in full-resolution
+/// px) a cell `area` (device px) shows at `zoom`, grown by `margin` of the
+/// visible size on each side so that panning stays sharp, inside the
+/// photograph. x, y, w, h in full-resolution px of the shown photograph.
+pub fn zoomed_region(area: [f32; 4], shown: [f32; 2], zoom: CellZoom, margin: f32) -> [f32; 4] {
+    let scale = zoom.scale.max(1e-6);
+    let (w, h) = (area[2] / scale, area[3] / scale);
+    let (cx, cy) = (zoom.center[0] * shown[0], zoom.center[1] * shown[1]);
+    let x1 = (cx - w * (0.5 + margin)).clamp(0.0, shown[0]);
+    let y1 = (cy - h * (0.5 + margin)).clamp(0.0, shown[1]);
+    let x2 = (cx + w * (0.5 + margin)).clamp(0.0, shown[0]);
+    let y2 = (cy + h * (0.5 + margin)).clamp(0.0, shown[1]);
+    [x1, y1, (x2 - x1).max(0.0), (y2 - y1).max(0.0)]
+}
+
+/// Whether `region` holds everything a cell `area` shows at `zoom`.
+pub fn region_covers(region: [f32; 4], area: [f32; 4], shown: [f32; 2], zoom: CellZoom) -> bool {
+    let needed = zoomed_region(area, shown, zoom, 0.0);
+    let eps = 0.5;
+    region[0] <= needed[0] + eps
+        && region[1] <= needed[1] + eps
+        && region[0] + region[2] + eps >= needed[0] + needed[2]
+        && region[1] + region[3] + eps >= needed[1] + needed[3]
 }
 
 /// `rect` (x, y, w, h) as a scissor rectangle inside a `size` target, or
@@ -80,6 +150,15 @@ pub(crate) struct DisplayBindings<'a> {
     pub empty_overlay: &'a wgpu::TextureView,
 }
 
+/// Which texture of a cell an upload is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CellLayer {
+    /// The whole photograph at the cell's size.
+    Whole,
+    /// The visible region at the zoom's magnification.
+    Region,
+}
+
 impl MultiView {
     pub fn is_active(&self) -> bool {
         !self.cells.is_empty()
@@ -97,13 +176,63 @@ impl MultiView {
         self.cells.iter().find(|cell| cell.path == path)
     }
 
+    /// The zoom all secondaries share (the zoom lock is on).
+    pub fn zoom(&self) -> Option<CellZoom> {
+        self.zoom
+    }
+
+    /// Each secondary's own zoom (the zoom lock is off).
+    pub fn cell_zooms(&self) -> &HashMap<String, CellZoom> {
+        &self.cell_zooms
+    }
+
+    /// The zoom `path`'s cell is shown at (None: fit).
+    pub fn zoom_of(&self, path: &str) -> Option<CellZoom> {
+        self.cell_zooms.get(path).copied().or(self.zoom)
+    }
+
+    /// Whether any cell is zoomed in.
+    pub fn is_zoomed(&self) -> bool {
+        self.zoom.is_some() || !self.cell_zooms.is_empty()
+    }
+
     /// Shows `cells` with `primary` as the live photograph. Textures of
     /// photographs no longer shown are released.
     pub fn set_layout(&mut self, primary: Option<String>, cells: Vec<MultiViewCell>) {
-        self.textures
-            .retain(|path, _| cells.iter().any(|cell| &cell.path == path));
+        let shown = |path: &String| cells.iter().any(|cell| &cell.path == path);
+        self.textures.retain(|path, _| shown(path));
+        self.regions.retain(|path, _| shown(path));
+        self.cell_zooms.retain(|path, _| shown(path));
         self.primary = primary;
         self.cells = cells;
+    }
+
+    /// Zooms every cell to `zoom` (None: fit; the zoom lock).
+    pub fn set_zoom(&mut self, zoom: Option<CellZoom>) {
+        self.set_zooms(zoom, HashMap::new());
+    }
+
+    /// Zooms the cells: every one to `shared` (the zoom lock), or each in
+    /// `cells` to its own zoom and the others to fit. A region developed for
+    /// another magnification of its cell is released; panning keeps it (it
+    /// moves along).
+    pub fn set_zooms(&mut self, shared: Option<CellZoom>, cells: HashMap<String, CellZoom>) {
+        let before: HashMap<String, Option<CellZoom>> = self
+            .regions
+            .keys()
+            .map(|path| (path.clone(), self.zoom_of(path)))
+            .collect();
+        self.zoom = shared;
+        self.cell_zooms = cells;
+        let after: HashMap<String, Option<CellZoom>> = before
+            .keys()
+            .map(|path| (path.clone(), self.zoom_of(path)))
+            .collect();
+        self.regions
+            .retain(|path, _| match (before[path], after[path]) {
+                (Some(a), Some(b)) => (a.scale - b.scale).abs() <= a.scale * 1e-3,
+                _ => false,
+            });
     }
 
     /// Back to the single view: every secondary texture is released.
@@ -111,33 +240,44 @@ impl MultiView {
         self.cells.clear();
         self.primary = None;
         self.textures.clear();
+        self.regions.clear();
+        self.zoom = None;
+        self.cell_zooms.clear();
     }
 
-    /// The render key of the texture kept for `path` (0: a stand-in).
+    /// The render key of the whole-photograph texture kept for `path` (0: a
+    /// stand-in).
     pub fn texture_key(&self, path: &str) -> Option<u64> {
         self.textures.get(path).map(|texture| texture.key)
+    }
+
+    /// The render key and extent of the zoomed region kept for `path`.
+    pub fn region_of(&self, path: &str) -> Option<(u64, CellExtent)> {
+        self.regions
+            .get(path)
+            .and_then(|texture| Some((texture.key, texture.extent?)))
     }
 
     /// GPU memory held by the secondary textures (RGBA8), in bytes.
     pub fn texture_bytes(&self) -> u64 {
         self.textures
             .values()
+            .chain(self.regions.values())
             .map(|t| t.width as u64 * t.height as u64 * 4)
             .sum()
     }
 
     pub fn texture_count(&self) -> usize {
-        self.textures.len()
+        self.textures.len() + self.regions.len()
     }
 
-    fn insert_texture(
-        &mut self,
+    fn make_texture(
         device: &wgpu::Device,
         bindings: &DisplayBindings,
-        path: &str,
         key: u64,
+        extent: Option<CellExtent>,
         texture: wgpu::Texture,
-    ) {
+    ) -> CellTexture {
         let (width, height) = (texture.width(), texture.height());
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
@@ -168,17 +308,15 @@ impl MultiView {
                 },
             ],
         });
-        self.textures.insert(
-            path.to_string(),
-            CellTexture {
-                key,
-                _texture: texture,
-                width,
-                height,
-                uniforms,
-                bind_group,
-            },
-        );
+        CellTexture {
+            key,
+            extent,
+            _texture: texture,
+            width,
+            height,
+            uniforms,
+            bind_group,
+        }
     }
 
     fn cell_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
@@ -198,8 +336,9 @@ impl MultiView {
         })
     }
 
-    /// Keeps `rgba` (display-encoded RGBA8, `width` × `height`) as the frame
-    /// of `path`, rendered for `key`. Ignored when `path` is not shown.
+    /// Keeps `rgba` (display-encoded RGBA8, `width` × `height`) as `path`'s
+    /// whole photograph or zoomed region (`layer`), rendered for `key`.
+    /// Ignored when `path` is not shown, and a region when no longer zoomed.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn upload(
         &mut self,
@@ -208,11 +347,17 @@ impl MultiView {
         bindings: &DisplayBindings,
         path: &str,
         key: u64,
+        extent: CellExtent,
+        layer: CellLayer,
         width: u32,
         height: u32,
         rgba: &[u8],
     ) {
-        if self.cell(path).is_none() || width == 0 || height == 0 {
+        if self.cell(path).is_none()
+            || width == 0
+            || height == 0
+            || (layer == CellLayer::Region && self.zoom_of(path).is_none())
+        {
             return;
         }
         let texture = Self::cell_texture(device, width, height);
@@ -235,7 +380,11 @@ impl MultiView {
                 depth_or_array_layers: 1,
             },
         );
-        self.insert_texture(device, bindings, path, key.max(1), texture);
+        let texture = Self::make_texture(device, bindings, key.max(1), Some(extent), texture);
+        match layer {
+            CellLayer::Whole => self.textures.insert(path.to_string(), texture),
+            CellLayer::Region => self.regions.insert(path.to_string(), texture),
+        };
     }
 
     /// The live frame of `path` (the primary's preview, `width` × `height`
@@ -275,36 +424,72 @@ impl MultiView {
             },
         );
         queue.submit(Some(encoder.finish()));
-        self.insert_texture(device, bindings, path, 0, texture);
+        // The live frame's region of the photograph is not known here: it
+        // is shown to fit until the cell's own render arrives.
+        let texture = Self::make_texture(device, bindings, 0, None, texture);
+        self.textures.insert(path.to_string(), texture);
+        self.regions.remove(path);
+    }
+
+    fn placement(&self, path: &str, area: [f32; 4], texture: &CellTexture) -> [f32; 4] {
+        match (self.zoom_of(path), texture.extent) {
+            (Some(zoom), Some(extent)) => zoomed_rect(area, extent, zoom),
+            _ => fit_rect(area, texture.width as f32, texture.height as f32),
+        }
+    }
+
+    /// The screen area a texture covers in `area`: the whole cell for the
+    /// whole photograph (around it the viewer's background), only its own
+    /// rectangle for a zoomed region (drawn over the enlarged photograph).
+    fn clip(
+        &self,
+        path: &str,
+        area: [f32; 4],
+        texture: &CellTexture,
+        layer: CellLayer,
+    ) -> [f32; 4] {
+        match layer {
+            CellLayer::Whole => area,
+            CellLayer::Region => intersect(area, self.placement(path, area, texture)),
+        }
+    }
+
+    /// The textures drawn in a cell, in order: the whole photograph, then
+    /// (zoomed in) its sharp region.
+    fn layers(&self, path: &str) -> impl Iterator<Item = (&CellTexture, CellLayer)> {
+        let region = self.zoom_of(path).and(self.regions.get(path));
+        self.textures
+            .get(path)
+            .map(|t| (t, CellLayer::Whole))
+            .into_iter()
+            .chain(region.map(|t| (t, CellLayer::Region)))
     }
 
     /// Writes each cell's placement for a `window` (device px) frame.
     pub(crate) fn prepare(&self, queue: &wgpu::Queue, window: [f32; 2], background: [f32; 4]) {
         for cell in &self.cells {
-            let Some(texture) = self.textures.get(&cell.path) else {
-                continue;
-            };
-            let size = [texture.width as f32, texture.height as f32];
-            let transform = DisplayTransform {
-                rect: fit_rect(cell.area, size[0], size[1]),
-                clip: cell.area,
-                window,
-                image_size: size,
-                texture_size: size,
-                pixelated: 0.0,
-                rotation: 0.0,
-                bg_primary: background,
-                bg_secondary: background,
-                overlay_color: [0.0; 4],
-                overlay_mode: [0.0; 4],
-                box_rect: [0.0; 4],
-                split: [0.0; 4],
-            };
-            queue.write_buffer(&texture.uniforms, 0, bytemuck::bytes_of(&transform));
+            for (texture, layer) in self.layers(&cell.path) {
+                let size = [texture.width as f32, texture.height as f32];
+                let transform = DisplayTransform {
+                    rect: self.placement(&cell.path, cell.area, texture),
+                    clip: self.clip(&cell.path, cell.area, texture, layer),
+                    window,
+                    image_size: size,
+                    texture_size: size,
+                    pixelated: 0.0,
+                    rotation: 0.0,
+                    bg_primary: background,
+                    bg_secondary: background,
+                    overlay_color: [0.0; 4],
+                    overlay_mode: [0.0; 4],
+                    box_rect: [0.0; 4],
+                    split: [0.0; 4],
+                };
+                queue.write_buffer(&texture.uniforms, 0, bytemuck::bytes_of(&transform));
+            }
         }
     }
 }
-
 /// The live primary frame for [`encode_display_pass`]: its bind group, the
 /// split view's before (the empty one without a split) and the screen area
 /// it may cover.
@@ -371,15 +556,16 @@ pub(crate) fn encode_display_pass(
                     continue;
                 }
             }
-            let Some(texture) = multi.textures.get(&cell.path) else {
-                continue;
-            };
-            let Some([x, y, w, h]) = scissor(cell.area, size) else {
-                continue;
-            };
-            rpass.set_scissor_rect(x, y, w, h);
-            rpass.set_bind_group(0, &texture.bind_group, &[]);
-            rpass.draw(0..4, 0..1);
+            for (texture, layer) in multi.layers(&cell.path) {
+                let Some([x, y, w, h]) =
+                    scissor(multi.clip(&cell.path, cell.area, texture, layer), size)
+                else {
+                    continue;
+                };
+                rpass.set_scissor_rect(x, y, w, h);
+                rpass.set_bind_group(0, &texture.bind_group, &[]);
+                rpass.draw(0..4, 0..1);
+            }
         }
     }
     if let (Some(primary), Some(clip)) = (primary, primary_clip)
@@ -489,6 +675,13 @@ mod tests {
         }
     }
 
+    fn whole(width: u32, height: u32) -> CellExtent {
+        CellExtent {
+            shown: [width as f32, height as f32],
+            region: None,
+        }
+    }
+
     fn solid(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
         (0..width * height)
             .flat_map(|_| [rgb[0], rgb[1], rgb[2], 255])
@@ -516,6 +709,8 @@ mod tests {
             &bindings,
             "live",
             7,
+            whole(8, 8),
+            CellLayer::Whole,
             8,
             8,
             &solid(8, 8, [0, 0, 255]),
@@ -636,6 +831,8 @@ mod tests {
                 &bindings,
                 path,
                 1,
+                whole(w, h),
+                CellLayer::Whole,
                 w,
                 h,
                 &solid(w, h, rgb),
@@ -761,6 +958,8 @@ mod tests {
                 &bindings,
                 &format!("p{i}"),
                 1,
+                whole(w, h),
+                CellLayer::Whole,
                 w,
                 h,
                 &pixels,
@@ -875,5 +1074,305 @@ mod tests {
             intersect([0.0, 0.0, 10.0, 10.0], [5.0, 5.0, 10.0, 10.0]),
             [5.0, 5.0, 5.0, 5.0]
         );
+    }
+
+    #[test]
+    fn zoomed_cells_show_the_same_photograph_point() {
+        // A 6000 × 4000 photograph at 1:1 (one device px per photo px),
+        // centred on (0.5, 0.25), in a 400 × 300 cell at (100, 50).
+        let area = [100.0, 50.0, 400.0, 300.0];
+        let zoom = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.25],
+        };
+        let shown = [6000.0, 4000.0];
+        let whole = zoomed_rect(
+            area,
+            CellExtent {
+                shown,
+                region: None,
+            },
+            zoom,
+        );
+        // The photo point (3000, 1000) lands on the cell's centre (300, 200).
+        assert_eq!(whole, [300.0 - 3000.0, 200.0 - 1000.0, 6000.0, 4000.0]);
+        // What the cell shows, and with a margin of half its size each side.
+        assert_eq!(
+            zoomed_region(area, shown, zoom, 0.0),
+            [2800.0, 850.0, 400.0, 300.0]
+        );
+        let region = zoomed_region(area, shown, zoom, 0.5);
+        assert_eq!(region, [2600.0, 700.0, 800.0, 600.0]);
+        // The region texture sits exactly over its part of the enlarged photo.
+        let placed = zoomed_rect(
+            area,
+            CellExtent {
+                shown,
+                region: Some(region),
+            },
+            zoom,
+        );
+        assert_eq!(placed, [-100.0, -100.0, 800.0, 600.0]);
+        assert!(region_covers(region, area, shown, zoom));
+        // Panned by less than the margin it still covers; further it does not.
+        let panned = CellZoom {
+            center: [0.5 + 150.0 / 6000.0, 0.25],
+            ..zoom
+        };
+        assert!(region_covers(region, area, shown, panned));
+        let far = CellZoom {
+            center: [0.5 + 250.0 / 6000.0, 0.25],
+            ..zoom
+        };
+        assert!(!region_covers(region, area, shown, far));
+        // At 2:1 the cell shows half as many photo pixels.
+        let double = CellZoom { scale: 2.0, ..zoom };
+        assert_eq!(
+            zoomed_region(area, shown, double, 0.0),
+            [2900.0, 925.0, 200.0, 150.0]
+        );
+        // Near the photograph's edge the region stays inside it.
+        let corner = CellZoom {
+            scale: 1.0,
+            center: [0.0, 1.0],
+        };
+        assert_eq!(
+            zoomed_region(area, shown, corner, 0.5),
+            [0.0, 3700.0, 400.0, 300.0]
+        );
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; zoomed cells: enlarged photograph and its sharp region"]
+    fn zoomed_cells_draw_the_region_over_the_enlarged_photograph() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        // One secondary cell (0, 0, 200, 100); the photograph is 400 × 200.
+        let mut multi = MultiView::default();
+        multi.set_layout(
+            Some("primary".into()),
+            vec![MultiViewCell {
+                path: "a".into(),
+                area: [0.0, 0.0, 200.0, 100.0],
+            }],
+        );
+        let shown = [400.0, 200.0];
+        multi.upload(
+            &gpu.device,
+            &gpu.queue,
+            &bindings,
+            "a",
+            1,
+            CellExtent {
+                shown,
+                region: None,
+            },
+            CellLayer::Whole,
+            20,
+            10,
+            &solid(20, 10, [255, 0, 0]),
+        );
+        // At fit the whole photograph fills the cell.
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 10, 10), [255, 0, 0]));
+        assert!(close(pixel(&pixels, 190, 90), [255, 0, 0]));
+        // A region is ignored unless zoomed in.
+        let region = [150.0, 50.0, 100.0, 100.0];
+        let upload_region = |multi: &mut MultiView| {
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                "a",
+                2,
+                CellExtent {
+                    shown,
+                    region: Some(region),
+                },
+                CellLayer::Region,
+                100,
+                100,
+                &solid(100, 100, [0, 255, 0]),
+            );
+        };
+        upload_region(&mut multi);
+        assert_eq!(multi.region_of("a"), None);
+        // 1:1 centred on the photograph's centre (200, 100): the cell shows
+        // photo x 100..300, y 50..150; the region (150..250, 50..150) sits
+        // at cell x 50..150, the enlarged whole photograph around it.
+        multi.set_zoom(Some(CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        }));
+        upload_region(&mut multi);
+        assert_eq!(multi.region_of("a").map(|(key, _)| key), Some(2));
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 100, 50), [0, 255, 0]), "region");
+        assert!(close(pixel(&pixels, 20, 50), [255, 0, 0]), "enlarged photo");
+        assert!(
+            close(pixel(&pixels, 180, 50), [255, 0, 0]),
+            "enlarged photo"
+        );
+        // Panning moves the region along; another magnification drops it.
+        multi.set_zoom(Some(CellZoom {
+            scale: 1.0,
+            center: [0.55, 0.5],
+        }));
+        assert!(multi.region_of("a").is_some());
+        let pixels = present(&gpu, &multi, None);
+        assert!(
+            close(pixel(&pixels, 40, 50), [0, 255, 0]),
+            "moved with the pan"
+        );
+        multi.set_zoom(Some(CellZoom {
+            scale: 2.0,
+            center: [0.5, 0.5],
+        }));
+        assert_eq!(multi.region_of("a"), None);
+        multi.set_zoom(None);
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 100, 50), [255, 0, 0]), "back to fit");
+    }
+
+    #[test]
+    fn a_cell_without_its_own_zoom_follows_the_shared_one() {
+        let mut multi = MultiView::default();
+        let cell = |path: &str| MultiViewCell {
+            path: path.into(),
+            area: [0.0, 0.0, 10.0, 10.0],
+        };
+        multi.set_layout(Some("p".into()), vec![cell("p"), cell("a"), cell("b")]);
+        let one = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        };
+        assert!(!multi.is_zoomed());
+        multi.set_zooms(None, HashMap::from([("a".to_string(), one)]));
+        assert_eq!(multi.zoom_of("a"), Some(one));
+        assert_eq!(multi.zoom_of("b"), None);
+        assert!(multi.is_zoomed());
+        multi.set_zoom(Some(one));
+        assert_eq!(multi.zoom_of("b"), Some(one));
+        assert!(multi.cell_zooms().is_empty());
+        // A cell that leaves the layout loses its zoom.
+        multi.set_zooms(None, HashMap::from([("a".to_string(), one)]));
+        multi.set_layout(Some("p".into()), vec![cell("p"), cell("b")]);
+        assert!(!multi.is_zoomed());
+    }
+
+    #[test]
+    #[ignore = "requires a native GPU; each cell zoomed on its own without the zoom lock"]
+    fn individual_zooms_zoom_only_their_cell() {
+        let gpu = offscreen();
+        let bindings = DisplayBindings {
+            layout: &gpu.layout,
+            sampler: &gpu.sampler,
+            empty_overlay: &gpu.empty,
+        };
+        // Two secondary cells of 100 × 50 side by side; both photographs
+        // are 400 × 200. At 1:1 on the centre a cell shows photo x 150..250,
+        // y 75..125, all inside the region (150..250, 50..150).
+        let mut multi = MultiView::default();
+        multi.set_layout(
+            Some("primary".into()),
+            vec![
+                MultiViewCell {
+                    path: "a".into(),
+                    area: [0.0, 0.0, 100.0, 50.0],
+                },
+                MultiViewCell {
+                    path: "b".into(),
+                    area: [100.0, 0.0, 100.0, 50.0],
+                },
+            ],
+        );
+        let shown = [400.0, 200.0];
+        for (path, colour) in [("a", [255, 0, 0]), ("b", [0, 0, 255])] {
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                path,
+                1,
+                CellExtent {
+                    shown,
+                    region: None,
+                },
+                CellLayer::Whole,
+                20,
+                10,
+                &solid(20, 10, colour),
+            );
+        }
+        let region = |multi: &mut MultiView, path: &str| {
+            multi.upload(
+                &gpu.device,
+                &gpu.queue,
+                &bindings,
+                path,
+                2,
+                CellExtent {
+                    shown,
+                    region: Some([150.0, 50.0, 100.0, 100.0]),
+                },
+                CellLayer::Region,
+                100,
+                100,
+                &solid(100, 100, [0, 255, 0]),
+            );
+        };
+        let one = CellZoom {
+            scale: 1.0,
+            center: [0.5, 0.5],
+        };
+        // Only "a" is zoomed: its region shows, "b" stays at fit and takes
+        // no region.
+        multi.set_zooms(None, HashMap::from([("a".to_string(), one)]));
+        region(&mut multi, "a");
+        region(&mut multi, "b");
+        assert!(multi.region_of("a").is_some());
+        assert_eq!(multi.region_of("b"), None);
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 50, 25), [0, 255, 0]), "a's region");
+        assert!(close(pixel(&pixels, 105, 5), [0, 0, 255]), "b at fit");
+        assert!(close(pixel(&pixels, 195, 45), [0, 0, 255]), "b at fit");
+        // "a" pans on its own: the region moves along, "b" does not move.
+        multi.set_zooms(
+            None,
+            HashMap::from([(
+                "a".to_string(),
+                CellZoom {
+                    center: [0.55, 0.5],
+                    ..one
+                },
+            )]),
+        );
+        assert!(multi.region_of("a").is_some(), "a pan keeps the region");
+        let pixels = present(&gpu, &multi, None);
+        assert!(
+            close(pixel(&pixels, 40, 25), [0, 255, 0]),
+            "moved with a's pan"
+        );
+        assert!(close(pixel(&pixels, 90, 25), [255, 0, 0]), "a enlarged");
+        assert!(close(pixel(&pixels, 150, 25), [0, 0, 255]), "b unchanged");
+        // The lock on: both cells at the shared zoom; "a" keeps its region at
+        // the same magnification, "b" takes one now.
+        multi.set_zoom(Some(one));
+        assert!(multi.region_of("a").is_some());
+        region(&mut multi, "b");
+        assert!(multi.region_of("b").is_some());
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 150, 25), [0, 255, 0]), "b's region");
+        // Each to fit again.
+        multi.set_zooms(None, HashMap::new());
+        assert_eq!(multi.region_of("a"), None);
+        assert_eq!(multi.region_of("b"), None);
+        let pixels = present(&gpu, &multi, None);
+        assert!(close(pixel(&pixels, 50, 25), [255, 0, 0]));
+        assert!(close(pixel(&pixels, 150, 25), [0, 0, 255]));
     }
 }

@@ -58,7 +58,6 @@ import StudioFilters from "./StudioFilters";
 import StudioToolBar from "./StudioToolBar";
 import MultiViewStage from "./MultiViewStage";
 import MultiViewButtons from "./MultiViewButtons";
-import { inSingleView } from "../../store/useMultiViewStore";
 import StudioLayerSelect from "./StudioLayerSelect";
 import StudioToolPopover, { toolPopoverApplies } from "./StudioToolPopover";
 import { stepBrushSize, toggleRemoveObjects, useStudioTools, type StudioTool } from "./useStudioTools";
@@ -782,7 +781,7 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <button
                     title={withShortcut(t("studio.workspace.viewer.actualPixels"), ".")}
-                    onClick={() => inSingleView(() => onZoom(1))}
+                    onClick={() => onZoom(1)}
                   >
                     100%
                   </button>
@@ -792,7 +791,7 @@ export default function StudioWorkspace(props: Props) {
                     title={t("studio.workspace.viewer.zoom")}
                     value=""
                     onChange={(e) => {
-                      if (e.target.value) { const zoom = Number(e.target.value); inSingleView(() => onZoom(zoom)); }
+                      if (e.target.value) onZoom(Number(e.target.value));
                     }}
                   >
                     <option value="" disabled>
@@ -829,7 +828,12 @@ export default function StudioWorkspace(props: Props) {
               >
                 {selectedImage ? (
                   <>
-                    <MultiViewStage files={files} onOpen={onOpen} onRate={onRate}>
+                    <MultiViewStage
+                      files={files}
+                      onOpen={onOpen}
+                      onRate={onRate}
+                      transformWrapperRef={transformWrapperRef}
+                    >
                       <Editor
                         studioMode
                         transformWrapperRef={transformWrapperRef}

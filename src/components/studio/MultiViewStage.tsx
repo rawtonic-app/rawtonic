@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { Flag, Star, X } from "lucide-react";
+import { Flag, Pin, PinOff, Star, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -11,6 +11,7 @@ import { useUIStore } from "../../store/useUIStore";
 import { useMultiViewStore } from "../../store/useMultiViewStore";
 import { useSessionBar } from "../session/sessionBar";
 import { Invokes, type ImageFile } from "../ui/AppProperties";
+import type { TransformWrapperHandle } from "../panel/Editor";
 import {
   captureLine,
   captureValues,
@@ -21,6 +22,7 @@ import {
   stepPrimary,
   type GridCell,
 } from "../../utils/multiView";
+import { useMultiViewZoom } from "./useMultiViewZoom";
 import { useEditAllSelected } from "../../hooks/useEditAllSelected";
 import { proofMarginPx } from "../../utils/viewerDisplay";
 import "./multiView.css";
@@ -32,6 +34,8 @@ interface Props {
   onRate(rating: number, paths?: string[]): void;
   /** The live editor of the primary photograph. */
   children: ReactNode;
+  /** The editor's pan/zoom: with the zoom lock every cell follows it. */
+  transformWrapperRef?: RefObject<TransformWrapperHandle | null>;
 }
 
 /** Removes `path` from the selection; a removed primary hands over to the
@@ -49,6 +53,20 @@ export function removeFromSelection(
     if (next) onOpen(next);
   }
   useLibraryStore.getState().setLibrary({ multiSelectedPaths: rest });
+}
+
+/** The primary photograph's shown size (cropped and turned) in
+ * full-resolution pixels; 0 × 0 while unknown. */
+function useShownSize(): { width: number; height: number } {
+  return useEditorStore(
+    useShallow((s) => {
+      const crop = s.adjustments.crop;
+      if (crop && crop.width > 0 && crop.height > 0) return { width: crop.width, height: crop.height };
+      const w = s.selectedImage?.width ?? 0;
+      const h = s.selectedImage?.height ?? 0;
+      return (s.adjustments.orientationSteps ?? 0) % 2 === 1 ? { width: h, height: w } : { width: w, height: h };
+    }),
+  );
 }
 
 /** The primary photograph's shown aspect (width / height), or null while
@@ -101,6 +119,38 @@ export function useLayoutAspect(selection: string, primary: string | null): numb
   return next?.aspect ?? 1.5;
 }
 
+/** The press area over another photograph's cell: a click makes it the
+ * primary (not the reference), the pointer zooms and pans it (zoom lock off). */
+function CellSelect({
+  path,
+  height,
+  label,
+  handlers,
+  onOpen,
+}: {
+  path: string;
+  height: number;
+  /** None for the reference: only the pointer zooms it. */
+  label?: string;
+  handlers: ReturnType<ReturnType<typeof useMultiViewZoom>["cellHandlers"]>;
+  onOpen?(path: string): void;
+}) {
+  const { panned, ...pointer } = handlers;
+  return (
+    <button
+      className="studio-mv-select"
+      style={{ height }}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      tabIndex={label ? undefined : -1}
+      {...pointer}
+      onClick={() => {
+        if (!panned() && onOpen) onOpen(path);
+      }}
+    />
+  );
+}
+
 /**
  * Develop's viewer: the open (primary) photograph alone, or with more
  * photographs selected (and the multi view on, N) all of them side by side.
@@ -108,8 +158,8 @@ export function useLayoutAspect(selection: string, primary: string | null): numb
  * by the native display from its own developed frame. Captions, frames and
  * the hover controls are HTML over the native cells.
  */
-export default function MultiViewStage({ files, onOpen, onRate, children }: Props) {
-  const { t } = useTranslation();
+export default function MultiViewStage({ files, onOpen, onRate, children, transformWrapperRef }: Props) {
+  const { t, i18n } = useTranslation();
   const stageRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
   const develop = useUIStore((s) => s.activeView === "editor");
@@ -118,11 +168,12 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
   const { imageRatings, imageFlags } = useLibraryStore(
     useShallow((s) => ({ imageRatings: s.imageRatings, imageFlags: s.imageFlags })),
   );
-  const { enabled, editAll, unavailable, setActive, setUnavailable } = useMultiViewStore(
+  const { enabled, editAll, unavailable, reference, setActive, setUnavailable } = useMultiViewStore(
     useShallow((s) => ({
       enabled: s.enabled,
       editAll: s.editAll,
       unavailable: s.unavailable,
+      reference: s.reference,
       setActive: s.setActive,
       setUnavailable: s.setUnavailable,
     })),
@@ -134,11 +185,16 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     })),
   );
   const mark = useSessionBar((s) => s.mark);
+  const shownSize = useShownSize();
   const selection = useMemo(
     () => orderedSelection(files.map((file) => file.path), multiSelectedPaths),
     [files, multiSelectedPaths],
   );
-  const aspect = useLayoutAspect(selection.join("\n"), primary);
+  // The reference stays pinned while it is listed and not the primary.
+  const pinned =
+    reference && reference !== primary && files.some((file) => file.path === reference) ? reference : null;
+  const count = selection.filter((path) => path !== pinned).length + (pinned ? 1 : 0);
+  const aspect = useLayoutAspect([pinned ?? "", ...selection].join("\n"), primary);
   const active =
     develop &&
     enabled &&
@@ -146,7 +202,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     osPlatform !== "linux" &&
     !unavailable &&
     primary !== null &&
-    selection.length > 1 &&
+    count > 1 &&
     selection.includes(primary);
   useEffect(() => setActive(active), [active, setActive]);
   // The before/after split is single-view only: the multi view coming on
@@ -154,9 +210,11 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
   useEffect(() => {
     if (active && useEditorStore.getState().splitView) useEditorStore.getState().setEditor({ splitView: false });
   }, [active]);
-  useEditAllSelected(active && editAll, selection);
+  // Edit all selected leaves the reference as it is (it is not selected).
+  const editable = useMemo(() => selection.filter((path) => path !== pinned), [selection, pinned]);
+  useEditAllSelected(active && editAll, editable);
 
-  const { shown, more } = useMemo(() => cellsFor(selection, primary), [selection, primary]);
+  const { shown, more } = useMemo(() => cellsFor(selection, primary, pinned), [selection, primary, pinned]);
   // The proof margin (X) goes around the whole grid, not around each cell.
   const { proofMarginOn, proofMarginPercent } = useSettingsStore(
     useShallow((s) => ({
@@ -245,13 +303,43 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     window.dispatchEvent(new Event("resize"));
   }, [primaryX, primaryY]);
 
-  // Fit only (step 1): zooming the primary returns to the single view of it.
+  // Zoom: locked, every cell follows the primary (Lightroom's lock); off,
+  // each cell zooms and pans on its own (useMultiViewZoom).
+  const areas = useMemo(
+    () =>
+      new Map(
+        shown.map((path, i) => {
+          const photo = grid.cells[i]?.photo ?? { x: 0, y: 0, width: 0, height: 0 };
+          return [path, { x: box.left + photo.x, y: box.top + photo.y, width: photo.width, height: photo.height }];
+        }),
+      ),
+    [shown, grid, box.left, box.top],
+  );
+  const { zoomOf, cellHandlers, onWheel } = useMultiViewZoom({
+    active,
+    primary,
+    shown,
+    areas,
+    shownSize,
+    transformWrapperRef,
+  });
+  const onWheelRef = useRef(onWheel);
+  onWheelRef.current = onWheel;
   useEffect(() => {
-    if (!active) return;
-    return useEditorStore.subscribe((state, previous) => {
-      if (state.zoom > 1.01 && state.zoom !== previous.zoom) useMultiViewStore.getState().setEnabled(false);
-    });
+    const stage = stageRef.current;
+    if (!stage || !active) return;
+    const wheel = (e: WheelEvent) => {
+      const cell = (e.target as Element | null)?.closest?.<HTMLElement>(".studio-mv-cell[data-path]");
+      const path = cell?.dataset.path;
+      if (path && onWheelRef.current(path, e)) e.preventDefault();
+    };
+    stage.addEventListener("wheel", wheel, { passive: false });
+    return () => stage.removeEventListener("wheel", wheel);
   }, [active]);
+  const percent = useMemo(
+    () => new Intl.NumberFormat(i18n.language, { style: "percent", maximumFractionDigits: 0 }),
+    [i18n.language],
+  );
 
   const exif = useMemo(() => new Map(files.map((file) => [file.path, file.exif])), [files]);
   const selectedExif = useEditorStore((s) => s.selectedImage?.exif);
@@ -278,7 +366,7 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
     );
   };
 
-  const controls = (path: string) => {
+  const controls = (path: string, isReference: boolean) => {
     const rating = imageRatings[path] || 0;
     const flag = imageFlags[path] ?? 0;
     const name = fileName(path);
@@ -316,14 +404,25 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
             </button>
           ))}
         </span>
-        <button
-          className="studio-mv-remove"
-          aria-label={t("studio.multiView.remove", { name })}
-          title={t("studio.multiView.remove", { name })}
-          onClick={() => removeFromSelection(path, selection, onOpen)}
-        >
-          <X size={13} />
-        </button>
+        {isReference ? (
+          <button
+            className="studio-mv-remove"
+            aria-label={t("studio.multiView.unpin", { name })}
+            title={t("studio.multiView.unpin", { name })}
+            onClick={() => useMultiViewStore.getState().setReference(null)}
+          >
+            <PinOff size={12} />
+          </button>
+        ) : (
+          <button
+            className="studio-mv-remove"
+            aria-label={t("studio.multiView.remove", { name })}
+            title={t("studio.multiView.remove", { name })}
+            onClick={() => removeFromSelection(path, selection, onOpen)}
+          >
+            <X size={13} />
+          </button>
+        )}
       </div>
     );
   };
@@ -354,22 +453,44 @@ export default function MultiViewStage({ files, onOpen, onRate, children }: Prop
           }
           const path = shown[i];
           const isPrimary = path === primary;
+          const isReference = path === pinned;
+          const zoom = zoomOf(path);
           return (
             <div
               key={path}
-              className={`studio-mv-cell${isPrimary ? " is-primary" : ""}${editAll ? " is-edit-all" : ""}`}
+              className={`studio-mv-cell${isPrimary ? " is-primary" : ""}${isReference ? " is-reference" : editAll ? " is-edit-all" : ""}`}
               style={style(g.cell)}
               data-path={path}
             >
+              {isReference && (
+                <span
+                  className="studio-mv-pin"
+                  role="img"
+                  aria-label={t("studio.multiView.reference", { name: fileName(path) })}
+                  title={t("studio.multiView.referenceTitle")}
+                >
+                  <Pin size={12} />
+                </span>
+              )}
               {!isPrimary && (
-                <button
-                  className="studio-mv-select"
-                  style={{ height: g.photo.height }}
-                  aria-label={t("studio.multiView.makePrimary", { name: fileName(path) })}
-                  onClick={() => onOpen(path)}
+                <CellSelect
+                  path={path}
+                  height={g.photo.height}
+                  label={isReference ? undefined : t("studio.multiView.makePrimary", { name: fileName(path) })}
+                  handlers={cellHandlers(path)}
+                  onOpen={isReference ? undefined : onOpen}
                 />
               )}
-              {controls(path)}
+              {zoom && (
+                <span
+                  className="studio-mv-zoom"
+                  style={{ top: Math.max(4, g.photo.height - 26) }}
+                  title={t("studio.multiView.zoomBadge", { percent: percent.format(zoom.scale) })}
+                >
+                  {percent.format(zoom.scale)}
+                </span>
+              )}
+              {controls(path, isReference)}
               {caption(path, g)}
             </div>
           );

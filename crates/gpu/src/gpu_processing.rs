@@ -20,8 +20,8 @@ mod preview_tests;
 pub mod multi_view;
 #[path = "preview_layers.rs"]
 mod preview_layers;
+pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
-pub use multi_view::{MultiView, MultiViewCell};
 use preview_layers::{CURVE_LUT_SAMPLES, PreparedLayer, curve_lut, prepare_layers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -876,7 +876,8 @@ impl WgpuDisplay {
         self.multi = multi;
     }
 
-    /// Keeps a secondary cell's developed frame (display-encoded RGBA8).
+    /// Keeps a secondary cell's developed frame (display-encoded RGBA8): its
+    /// whole photograph or, zoomed in, its visible region (`layer`).
     #[allow(clippy::too_many_arguments)]
     pub fn upload_cell(
         &mut self,
@@ -884,6 +885,8 @@ impl WgpuDisplay {
         queue: &wgpu::Queue,
         path: &str,
         key: u64,
+        extent: CellExtent,
+        layer: CellLayer,
         width: u32,
         height: u32,
         rgba: &[u8],
@@ -895,11 +898,28 @@ impl WgpuDisplay {
             &self.bindings(),
             path,
             key,
+            extent,
+            layer,
             width,
             height,
             rgba,
         );
         self.multi = multi;
+    }
+
+    /// Zooms every cell (Lightroom's locked zoom; None: fit).
+    pub fn set_multi_view_zoom(&mut self, zoom: Option<CellZoom>) {
+        self.multi.set_zoom(zoom);
+    }
+
+    /// Without the zoom lock: each secondary in `cells` at its own zoom, the
+    /// others to fit; `shared` zooms all of them alike (the lock).
+    pub fn set_multi_view_zooms(
+        &mut self,
+        shared: Option<CellZoom>,
+        cells: std::collections::HashMap<String, CellZoom>,
+    ) {
+        self.multi.set_zooms(shared, cells);
     }
 }
 

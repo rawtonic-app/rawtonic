@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { LayoutGrid, Layers } from "lucide-react";
+import { LayoutGrid, Layers, Lock, LockOpen } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMultiViewStore } from "../../store/useMultiViewStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -13,7 +13,7 @@ import { shortcutHint } from "../../utils/keyboardUtils";
  */
 export default function MultiViewButtons() {
   const { t } = useTranslation();
-  const { enabled, active, editAll, unavailable, toggle, setEditAll } = useMultiViewStore(
+  const { enabled, active, editAll, unavailable, toggle, setEditAll, zoomLock, setZoomLock } = useMultiViewStore(
     useShallow((s) => ({
       enabled: s.enabled,
       active: s.active,
@@ -21,6 +21,8 @@ export default function MultiViewButtons() {
       unavailable: s.unavailable,
       toggle: s.toggle,
       setEditAll: s.setEditAll,
+      zoomLock: s.zoomLock,
+      setZoomLock: s.setZoomLock,
     })),
   );
   const { keybinds, osPlatform, useWgpu } = useSettingsStore(
@@ -60,6 +62,19 @@ export default function MultiViewButtons() {
         >
           <Layers size={14} />
           <span className="optional-label">{t("studio.multiView.editAll")}</span>
+        </button>
+      )}
+      {active && (
+        <button
+          aria-pressed={zoomLock}
+          aria-label={t("studio.multiView.zoomLock")}
+          title={t("studio.workspace.withShortcut", {
+            label: t("studio.multiView.zoomLockTitle"),
+            shortcut: shortcutHint("toggle_zoom_lock", keybinds, osPlatform) ?? t("studio.workspace.noKey"),
+          })}
+          onClick={() => setZoomLock(!zoomLock)}
+        >
+          {zoomLock ? <Lock size={13} /> : <LockOpen size={13} />}
         </button>
       )}
     </>

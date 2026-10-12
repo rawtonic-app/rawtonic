@@ -233,3 +233,73 @@ describe("multi view", () => {
     expect(caption.textContent).toContain("★★");
   });
 });
+
+describe("reference and locked zoom", () => {
+  it("shows the pinned reference first with its pin, outside the selection", () => {
+    useMultiViewStore.setState({ reference: "/s/d.CR3" });
+    const { container } = stage();
+    expect(cells(container)).toEqual(["/s/d.CR3", "/s/a.CR3", "/s/b.CR3", "/s/c.CR3"]);
+    const reference = container.querySelector('[data-path="/s/d.CR3"]')!;
+    expect(reference.classList.contains("is-reference")).toBe(true);
+    expect(screen.getByRole("img", { name: "Reference: d.CR3" })).toBeTruthy();
+    // Not a "make primary" target; its × unpins instead of deselecting.
+    expect(screen.queryByRole("button", { name: /Edit d\.CR3/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Unpin the reference d.CR3" }));
+    expect(useMultiViewStore.getState().reference).toBeNull();
+    useMultiViewStore.setState({ reference: null });
+  });
+
+  it("makes a 2-up compare with one other photograph", () => {
+    useMultiViewStore.setState({ reference: "/s/d.CR3" });
+    open("/s/b.CR3", ["/s/b.CR3"]);
+    const { container } = stage();
+    expect(cells(container)).toEqual(["/s/d.CR3", "/s/b.CR3"]);
+    useMultiViewStore.setState({ reference: null });
+  });
+
+  it("keeps the reference out of Edit all selected", () => {
+    useMultiViewStore.setState({ reference: "/s/d.CR3", editAll: true });
+    const { container } = stage();
+    expect(container.querySelector('[data-path="/s/d.CR3"]')!.classList.contains("is-edit-all")).toBe(false);
+    expect(container.querySelectorAll(".is-edit-all")).toHaveLength(3);
+    useMultiViewStore.setState({ reference: null, editAll: false });
+  });
+
+  function zoomed(lock: boolean) {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    useMultiViewStore.setState({ zoomLock: lock });
+    useEditorStore.setState({
+      baseRenderSize: { width: 600, height: 400, offsetX: 0, offsetY: 50, containerWidth: 600, containerHeight: 500 },
+      adjustments: { ...useEditorStore.getState().adjustments, crop: null, orientationSteps: 0 },
+    });
+    const ref = {
+      current: {
+        instance: { transformState: { scale: 5, positionX: 300 - 300 * 5, positionY: 250 - 250 * 5 } },
+      },
+    } as never;
+    render(
+      <MultiViewStage files={files} onOpen={onOpen} onRate={onRate} transformWrapperRef={ref}>
+        <div />
+      </MultiViewStage>,
+    );
+    act(() => frames.shift()?.(0));
+    return vi.mocked(invoke).mock.calls.filter(([command]) => command === Invokes.SetMultiViewZoom);
+  }
+
+  it("sends the primary's zoom to every cell with the lock on", () => {
+    const calls = zoomed(true);
+    const { zoom } = calls.at(-1)![1] as { zoom: { scale: number; center: number[] } };
+    // 600 CSS px × 5 × 2 device px over the 6000 px photograph: 1:1.
+    expect(zoom.scale).toBeCloseTo(1);
+    expect(zoom.center[0]).toBeCloseTo(0.5);
+    expect(zoom.center[1]).toBeCloseTo(0.5);
+  });
+
+  it("leaves the other cells at fit with the lock off", () => {
+    const calls = zoomed(false);
+    expect(calls.at(-1)![1]).toEqual({ zoom: null, cells: {} });
+    useMultiViewStore.setState({ zoomLock: true });
+  });
+});

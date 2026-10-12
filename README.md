@@ -136,6 +136,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **Y**                       | before / after split           |
 | hold **\\**                 | whole photograph before        |
 | **N**                       | multi view of the selection    |
+| **⇧Return** / **⌘Return**   | pin / clear the reference      |
 | **C** / **R** / **B**       | crop / straighten / brush      |
 | **M**                       | show or hide the mask overlay  |
 | **J**                       | clipping warnings              |
