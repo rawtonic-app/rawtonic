@@ -281,3 +281,14 @@ describe("zoom lock switching", () => {
     expect(taken).toEqual([]);
   });
 });
+
+describe("lock toggle", () => {
+  it("names its shortcut and the gestures in its tooltip", async () => {
+    const { default: MultiViewButtons } = await import("./MultiViewButtons");
+    useMultiViewStore.setState({ active: true, zoomLock: false });
+    const { getByLabelText } = render(<MultiViewButtons />);
+    const title = getByLabelText("Lock zoom").getAttribute("title")!;
+    expect(title).toMatch(/\((Shift \+ N|⇧ ?N)\)$/);
+    expect(title).toMatch(/double-click/);
+  });
+});
