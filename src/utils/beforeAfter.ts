@@ -69,15 +69,26 @@ export function splitScreenX(rect: { left: number; width: number }, position: nu
   return (rect.left + clampSplitPosition(position) * rect.width) * dpr;
 }
 
+/** Viewer-fixed divider expressed in the browser image's local coordinates. */
+export function browserSplitWidth(
+  position: number,
+  size: { containerWidth: number; offsetX: number; width: number },
+  transform: { scale: number; positionX: number },
+): number {
+  if (!(transform.scale > 0)) return 0;
+  return Math.max(0, Math.min(size.width,
+    (clampSplitPosition(position) * size.containerWidth - transform.positionX) / transform.scale - size.offsetX));
+}
+
 /**
- * Whether the split view can show: both sides are composed by the native GPU
- * display, which Linux builds and the webview renderer setting do not have.
+ * Linux composes developed browser previews; other platforms use the native
+ * GPU display for the split.
  */
 export function splitViewAvailable(
   useWgpuRenderer: boolean | undefined | null,
   osPlatform: string | null | undefined,
 ): boolean {
-  return useWgpuRenderer !== false && osPlatform !== 'linux';
+  return osPlatform === 'linux' || useWgpuRenderer !== false;
 }
 
 /** Arrow keys move a focused divider by a small step, Shift by a larger one. */

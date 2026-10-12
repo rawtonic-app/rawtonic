@@ -9,6 +9,7 @@ import {
   splitPositionAt,
   splitScreenX,
   splitViewAvailable,
+  browserSplitWidth,
 } from './beforeAfter';
 import editorPreview from '../../src-tauri/src/editor_preview.rs?raw';
 import cacheUtils from '../../crates/engine/src/cache_utils.rs?raw';
@@ -92,6 +93,15 @@ describe('before/after', () => {
     expect(splitViewAvailable(undefined, 'macos')).toBe(true);
     expect(splitViewAvailable(true, 'windows')).toBe(true);
     expect(splitViewAvailable(false, 'macos')).toBe(false);
-    expect(splitViewAvailable(true, 'linux')).toBe(false);
+    expect(splitViewAvailable(true, 'linux')).toBe(true);
+    expect(splitViewAvailable(false, 'linux')).toBe(true);
+  });
+
+  it('keeps the browser split fixed in the viewer while zooming and panning', () => {
+    const size = { containerWidth: 1000, offsetX: 100, width: 800 };
+    expect(browserSplitWidth(0.5, size, { scale: 1, positionX: 0 })).toBe(400);
+    expect(browserSplitWidth(0.5, size, { scale: 2, positionX: -200 })).toBe(250);
+    expect(browserSplitWidth(0, size, { scale: 2, positionX: 0 })).toBe(0);
+    expect(browserSplitWidth(1, size, { scale: 1, positionX: -100 })).toBe(800);
   });
 });

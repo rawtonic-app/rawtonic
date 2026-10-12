@@ -200,6 +200,10 @@ impl ModelKind {
     pub fn gpu_exception(self, provider: Provider) -> Option<&'static str> {
         match (self, provider) {
             (_, Provider::Cpu) => None,
+            #[cfg(target_os = "linux")]
+            (ModelKind::FaceParser, Provider::WebGpu) => Some(
+                "WebGPU face parser crashes inside the provider in the Linux GTK app; use CPU until the provider is fixed",
+            ),
             (ModelKind::FaceDetector | ModelKind::FaceMesh, _) => Some(
                 "a few milliseconds on the CPU; the GPU's dispatch and upload cost more (WebGPU on Metal: 7-8 ms against 3-5 ms)",
             ),
@@ -727,6 +731,24 @@ mod tests {
         assert_eq!(
             candidates(ModelKind::Subject, &settings(false), Some(Provider::Cpu)),
             vec![Provider::Cpu]
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_face_parser_avoids_the_crashing_webgpu_provider() {
+        assert_eq!(
+            candidates(ModelKind::FaceParser, &settings(true), None),
+            vec![Provider::Cuda, Provider::Cpu]
+        );
+        // Explicit benchmarks may still measure the provider.
+        assert_eq!(
+            candidates(
+                ModelKind::FaceParser,
+                &settings(true),
+                Some(Provider::WebGpu)
+            ),
+            vec![Provider::WebGpu, Provider::Cpu]
         );
     }
 

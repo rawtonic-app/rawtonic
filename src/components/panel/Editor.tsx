@@ -123,6 +123,7 @@ interface EditorProps {
 
 export default function Editor({ onContextMenu, transformWrapperRef }: EditorProps) {
   const appSettings = useSettingsStore((s) => s.appSettings);
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
   const viewerBackground = resolveViewerBackground(appSettings);
   const { showContextMenu } = useContextMenu();
   const isFullScreen = useUIStore((s) => s.isFullScreen);
@@ -2436,7 +2437,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       </div>
       {/* Beside the viewer, not in it: its pointer handlers (pan, tools)
           must not see drags of the divider. The viewer fills this box. */}
-      {isWgpuActive && !isCropping && canRenderSource(selectedImage) && <SplitViewOverlay />}
+      {(isWgpuActive || osPlatform === 'linux') && !isCropping && canRenderSource(selectedImage) && <SplitViewOverlay />}
     </div>
   );
 }

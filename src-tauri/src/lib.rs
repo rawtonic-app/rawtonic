@@ -658,6 +658,7 @@ pub fn run() {
             gpu_processing::sample_preview_white_balance,
             gpu_processing::sample_preview_grey_world,
             editor_preview::generate_preview_for_path,
+            multi_view::render_browser_view,
             editor_preview::generate_uncropped_preview,
             startup::get_log_file_path,
             startup::frontend_log,

@@ -155,10 +155,11 @@ describe("multi view", () => {
     expect(screen.getByTestId("editor")).toBeTruthy();
   });
 
-  it("is not offered without the native display", () => {
+  it("uses browser cells on Linux without requesting a native display", () => {
     useSettingsStore.setState({ osPlatform: "linux" });
     const { container } = stage();
-    expect(cells(container)).toEqual([]);
+    expect(cells(container)).toHaveLength(3);
+    expect(container.querySelectorAll('.studio-mv-browser')).toHaveLength(2);
     expect(setMultiViewCalls()).toHaveLength(0);
   });
 

@@ -6,8 +6,8 @@ import { DEFAULT_SPLIT_POSITION, nudgeSplitPosition, splitPositionAt } from '../
 
 /**
  * The before/after split's divider, handle and labels over the viewer. The
- * images on both sides are composed natively (display.wgsl); this draws only
- * the controls. The divider is a place in the viewer (a share of its width),
+ * images are composed natively (display.wgsl) or clipped browser previews
+ * on Linux; this draws only the controls. The divider is a place in the viewer (a share of its width),
  * so it stays put while the photograph is panned or zoomed and from one
  * photograph to the next, as in Capture One.
  */
@@ -32,6 +32,7 @@ export default function SplitViewOverlay() {
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    event.currentTarget.focus();
     draggingRef.current = true;
     event.currentTarget.setPointerCapture(event.pointerId);
     moveTo(event.clientX);

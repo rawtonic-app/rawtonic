@@ -236,6 +236,78 @@ fn recipe_of(path: &str) -> serde_json::Value {
     recipe
 }
 
+/// Developed browser cells for Linux (and the split's before), using the
+/// same geometry, retouch, local masks and LUT pipeline as native cells.
+/// This never activates a photo or changes the primary preview's recipe.
+/// Header: shown width/height as little-endian u32, followed by JPEG.
+#[tauri::command]
+pub(crate) async fn render_browser_view(
+    path: String,
+    js_adjustments: Option<serde_json::Value>,
+    target_resolution: u32,
+    app_handle: tauri::AppHandle,
+) -> Result<tauri::ipc::Response, String> {
+    static GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+    let permit = GATE.acquire().await.map_err(|e| e.to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let context = gpu_processing::get_or_init_gpu_context(&state, &app_handle)?;
+        let worker = worker(&app_handle);
+        // At most eight prepared cells; browsing a large session must not
+        // retain every decoded preview. Native display keeps its own cells.
+        {
+            let mut memory = worker.memory.lock().unwrap_or_else(|e| e.into_inner());
+            if memory.bases.len() >= 8 && !memory.bases.contains_key(&path) {
+                memory.bases.clear();
+                memory.facts.clear();
+            }
+        }
+        let recipe = js_adjustments.unwrap_or_else(|| recipe_of(&path));
+        let dim = target_resolution.clamp(64, 4096);
+        let key = render_key(&recipe, dim, &context);
+        let prepared = prepare(
+            &app_handle,
+            &worker,
+            &context,
+            Todo {
+                path,
+                recipe,
+                area: [0.0, 0.0, dim as f32, dim as f32],
+                planned: Some((key, dim)),
+            },
+        )?
+        .ok_or("Browser view was already presented natively")?;
+        let scale = prepared.base.scale;
+        let rgba = develop_rgba(
+            &app_handle,
+            &context,
+            DevelopInput {
+                path: &prepared.path,
+                recipe: &prepared.recipe,
+                facts: prepared.facts,
+                image: &prepared.base.image,
+                scale,
+                crop_offset: (
+                    prepared.base.unscaled_crop_offset.0 * scale,
+                    prepared.base.unscaled_crop_offset.1 * scale,
+                ),
+                mask_source: prepared.mask_source.as_ref(),
+                key: prepared.key,
+            },
+        )?;
+        let (width, height) = shown_size(&prepared.recipe, prepared.facts);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(width.round() as u32).to_le_bytes());
+        bytes.extend_from_slice(&(height.round() as u32).to_le_bytes());
+        bytes.extend(crate::editor_preview::encode_browser_preview(&rgba, 94)?);
+        Ok(tauri::ipc::Response::new(bytes))
+    })
+    .await
+    .map_err(|e| format!("Browser view task failed: {e}"))?;
+    drop(permit);
+    result
+}
+
 /// The size a photograph is shown at: its crop, else the whole frame turned
 /// by its orientation (as `activate_photo` places it).
 fn shown_size(recipe: &serde_json::Value, facts: Facts) -> (f32, f32) {
@@ -276,20 +348,6 @@ fn load_source(
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
     let is_raw = is_raw_file(&source_path);
-    if let Some(proxy) = state
-        .proxy_memory
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(path)
-    {
-        let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
-        let facts = Facts {
-            full_width: proxy.full_width,
-            full_height: proxy.full_height,
-            is_raw: proxy.is_raw,
-        };
-        return Ok((proxy.image, scale, facts, "proxy-memory"));
-    }
     if let Some((image, _)) = state
         .decoded_image_cache
         .lock()
@@ -303,6 +361,20 @@ fn load_source(
             is_raw,
         };
         return Ok((image, 1.0, facts, "decoded"));
+    }
+    if let Some(proxy) = state
+        .proxy_memory
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(path)
+    {
+        let scale = proxy.image.width() as f32 / proxy.full_width.max(1) as f32;
+        let facts = Facts {
+            full_width: proxy.full_width,
+            full_height: proxy.full_height,
+            is_raw: proxy.is_raw,
+        };
+        return Ok((proxy.image, scale, facts, "proxy-memory"));
     }
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     if is_raw && let Some(proxy) = crate::preview_proxy::read(&source_path, &settings) {
@@ -378,7 +450,22 @@ fn prepare(
     todo: Todo,
 ) -> Result<Option<Prepared>, String> {
     let start = Instant::now();
-    let preparation_key = crate::preview_cache::preparation_key(&todo.recipe);
+    // A full decode arriving after a proxy invalidates its prepared base.
+    let preparation_key = {
+        let state = app_handle.state::<AppState>();
+        let (source, _) = parse_virtual_path(&todo.path);
+        let mut hash = DefaultHasher::new();
+        crate::preview_cache::preparation_key(&todo.recipe).hash(&mut hash);
+        if let Some((image, _)) = state
+            .decoded_image_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(source.to_string_lossy().as_ref())
+        {
+            (Arc::as_ptr(&image) as usize).hash(&mut hash);
+        }
+        hash.finish()
+    };
     let known = worker
         .memory
         .lock()

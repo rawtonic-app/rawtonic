@@ -53,9 +53,11 @@ describe('multi view keys', () => {
     expect(useMultiViewStore.getState().enabled).toBe(true);
   });
 
-  it('N does nothing without the native display', () => {
+  it('N switches the Linux browser multi view without a native display', () => {
     useSettingsStore.setState({ osPlatform: 'linux' });
     develop('/s/b.CR3', ['/s/b.CR3', '/s/d.CR3'], false);
+    press('KeyN');
+    expect(useMultiViewStore.getState().enabled).toBe(false);
     press('KeyN');
     expect(useMultiViewStore.getState().enabled).toBe(true);
   });

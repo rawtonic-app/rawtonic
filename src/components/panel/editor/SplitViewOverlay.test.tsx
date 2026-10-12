@@ -47,6 +47,7 @@ it('follows a drag across the whole viewer and stays within it', () => {
   placeViewer();
   const divider = screen.getByRole('slider');
   fireEvent.pointerDown(divider, { button: 0, clientX: 500, pointerId: 1 });
+  expect(document.activeElement).toBe(divider);
   fireEvent.pointerMove(divider, { clientX: 300, pointerId: 1 });
   expect(useEditorStore.getState().splitPosition).toBe(0.25);
   fireEvent.pointerMove(divider, { clientX: 20, pointerId: 1 });
