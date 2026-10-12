@@ -234,3 +234,49 @@ it("renders the uncropped, unrotated crop-editing frame natively while cropping"
   await act(async () => complete.shift()!(wgpuReply()));
   expect(useEditorStore.getState().nativeCropFrame).toBe(false);
 });
+
+it("asks for the split view's before after finished native frames, one request at a time", async () => {
+  const nativeFrame = () => new TextEncoder().encode("WGPU_RENDER").buffer as ArrayBuffer;
+  const befores = () =>
+    vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.RenderSplitBefore);
+  useEditorStore.setState({
+    splitView: true,
+    hasRenderedFirstFrame: true,
+    clippingWarnings: true,
+    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 2, rotation: 3 },
+  });
+  useUIStore.setState({ activePanel: Panel.Adjustments });
+  mount();
+  expect(befores()).toHaveLength(0);
+  await act(async () => complete.shift()!(nativeFrame()));
+  expect(befores()).toHaveLength(1);
+  // The unedited recipe with the edit's framing and the view states.
+  expect(befores()[0][1]).toMatchObject({
+    path: "/first.dng",
+    targetResolution: 1920,
+    jsAdjustments: { exposure: INITIAL_ADJUSTMENTS.exposure, rotation: 3, showClipping: true },
+  });
+
+  // A frame finished while the before renders: one more request, afterwards.
+  act(() =>
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 4, rotation: 3 },
+    }),
+  );
+  await act(async () => complete.splice(1, 1)[0](nativeFrame()));
+  expect(befores()).toHaveLength(1);
+  await act(async () => (complete.shift() as unknown as (value: boolean) => void)(true));
+  expect(befores()).toHaveLength(2);
+  await act(async () => (complete.shift() as unknown as (value: boolean) => void)(true));
+
+  // Without the split, frames ask for nothing.
+  act(() => useEditorStore.setState({ splitView: false }));
+  act(() =>
+    useEditorStore.setState({
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 5 },
+    }),
+  );
+  await act(async () => complete.shift()!(nativeFrame()));
+  expect(befores()).toHaveLength(2);
+  useEditorStore.setState({ clippingWarnings: false, hasRenderedFirstFrame: false });
+});

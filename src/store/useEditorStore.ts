@@ -7,6 +7,7 @@ import { ToolType } from '../components/panel/right/Masks';
 import type { OverlayMode } from '../components/panel/editor/overlays/CompositionOverlays';
 import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } from '../utils/maskDisplay';
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
+import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
 
 interface InteractivePatch {
   url: string;
@@ -44,6 +45,10 @@ interface EditorState {
   uncroppedAdjustedPreviewUrl: string | null;
   interactivePatch: InteractivePatch | null;
   showOriginal: boolean;
+  /** Before/after split view; it stays on from photograph to photograph. */
+  splitView: boolean;
+  /** The split's divider as a share (0–1) of the viewer's width; kept for the session. */
+  splitPosition: number;
 
   // Analytics
   histogram: HistogramData | null;
@@ -170,6 +175,8 @@ export const useEditorStore = create<EditorState>((set) => ({
   finalPreviewUrl: null,
   uncroppedAdjustedPreviewUrl: null,
   showOriginal: false,
+  splitView: false,
+  splitPosition: DEFAULT_SPLIT_POSITION,
   histogram: null,
   waveform: null,
   isWaveformVisible: false,

@@ -21,6 +21,7 @@ import {
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
 import { autoWhiteBalance } from '../utils/whiteBalance';
+import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -174,6 +175,28 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
   });
 }
 
+/**
+ * Starts the held before peek (Lightroom's \ held down): the whole
+ * photograph unedited, framed like the edit, until endBeforePeek. With the
+ * split on it covers both sides; the split comes back on release.
+ */
+export function startBeforePeek(): boolean {
+  let started = false;
+  useEditorStore.getState().setEditor((state) => {
+    if (!state.selectedImage?.isReady || state.showOriginal) return state;
+    started = true;
+    return { showOriginal: true, previewOverride: originalPreviewAdjustments(state.adjustments) };
+  });
+  return started;
+}
+
+/** Ends the held before peek; nothing happens when it is not showing. */
+export function endBeforePeek() {
+  useEditorStore.getState().setEditor((state) =>
+    state.showOriginal ? { showOriginal: false, previewOverride: null } : state,
+  );
+}
+
 export function useEditorActions() {
   const setEditor = useEditorStore((s) => s.setEditor);
 
@@ -252,47 +275,17 @@ export function useEditorActions() {
     }
   }, [setAdjustments]);
 
-  const toggleShowOriginal = useCallback(() => {
+  // Before/After (Y): the split with Capture One's movable divider. A
+  // held \ shows the whole photograph before on top of it (startBeforePeek).
+  const toggleSplitView = useCallback(() => {
     setEditor((state) => {
-      if (!state.selectedImage?.isReady) return state;
-      const isShowing = !state.showOriginal;
-
-      if (isShowing) {
-        const override = { ...INITIAL_ADJUSTMENTS };
-        const geometryKeys: Array<keyof Adjustments> = [
-          'crop',
-          'rotation',
-          'flipHorizontal',
-          'flipVertical',
-          'orientationSteps',
-          'aspectRatio',
-          'transformDistortion',
-          'transformVertical',
-          'transformHorizontal',
-          'transformRotate',
-          'transformAspect',
-          'transformScale',
-          'transformXOffset',
-          'transformYOffset',
-          'lensDistortionAmount',
-          'lensVignetteAmount',
-          'lensTcaAmount',
-          'lensDistortionParams',
-          'lensMaker',
-          'lensModel',
-          'lensDistortionEnabled',
-          'lensTcaEnabled',
-          'lensVignetteEnabled',
-        ];
-
-        geometryKeys.forEach((key) => {
-          override[key] = state.adjustments[key];
-        });
-
-        return { showOriginal: true, previewOverride: override };
-      } else {
-        return { showOriginal: false, previewOverride: null };
-      }
+      if (state.splitView) return { splitView: false };
+      const { appSettings, osPlatform } = useSettingsStore.getState();
+      if (!state.selectedImage?.isReady || !splitViewAvailable(appSettings?.useWgpuRenderer, osPlatform)) return state;
+      return {
+        splitView: true,
+        ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
+      };
     });
   }, [setEditor]);
 
@@ -627,6 +620,6 @@ export function useEditorActions() {
     handlePasteAdjustments,
     applyAdjustmentsToPaths,
     handleZoomChange,
-    toggleShowOriginal,
+    toggleSplitView,
   };
 }

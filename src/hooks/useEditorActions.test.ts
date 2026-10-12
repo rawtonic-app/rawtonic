@@ -1,11 +1,13 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
 import {
   debouncedSave,
   debouncedSetHistory,
+  endBeforePeek,
   flushRecipeSaves,
   registerScheduledRecipe,
+  startBeforePeek,
   useEditorActions,
   waitForPendingMetadataSave,
 } from './useEditorActions';
@@ -239,4 +241,81 @@ it('retries a failed recipe save before quitting and reports it if it fails agai
   expect(await retried).toEqual([]);
   expect(waitForPendingMetadataSave('/unsaved.dng')).toBeUndefined();
   errorLog.mockRestore();
+});
+
+describe('before/after split', () => {
+  beforeEach(() => {
+    useEditorStore.setState({ splitView: false, splitPosition: 0.5, showOriginal: false, previewOverride: null });
+    useSettingsStore.setState({ osPlatform: 'macos' });
+  });
+
+  it('turns the split on and off, ending a held peek', () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => void startBeforePeek());
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    act(() => result.current.toggleSplitView());
+    const state = useEditorStore.getState();
+    expect(state.splitView).toBe(true);
+    expect(state.showOriginal).toBe(false);
+    expect(state.previewOverride).toBeNull();
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+  });
+
+  it('peeks at the whole photograph before over the split and returns to it', () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleSplitView());
+    expect(startBeforePeek()).toBe(true);
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: true });
+    // Already showing: a second start changes nothing (no latched toggle).
+    expect(startBeforePeek()).toBe(false);
+    endBeforePeek();
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: false, previewOverride: null });
+  });
+
+  it('leaves a preset hover preview alone when no peek is showing', () => {
+    const hover = { ...INITIAL_ADJUSTMENTS, exposure: 1 };
+    useEditorStore.setState({ previewOverride: hover });
+    endBeforePeek();
+    expect(useEditorStore.getState().previewOverride).toBe(hover);
+  });
+
+  it('does not peek before the photograph is ready', () => {
+    select('/loading.dng', false);
+    expect(startBeforePeek()).toBe(false);
+    expect(useEditorStore.getState().showOriginal).toBe(false);
+  });
+
+  it('keeps the split and its divider from photograph to photograph', () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleSplitView());
+    useEditorStore.setState({ splitPosition: 0.3 });
+    select('/second.dng');
+    expect(useEditorStore.getState().splitView).toBe(true);
+    expect(useEditorStore.getState().splitPosition).toBe(0.3);
+  });
+
+  it('shows the peek framed like the edit', () => {
+    useEditorStore.setState({
+      adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2, rotation: 3 },
+    });
+    startBeforePeek();
+    const override = useEditorStore.getState().previewOverride!;
+    expect(override.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
+    expect(override.rotation).toBe(3);
+  });
+
+  it('does not turn on without the native display or a ready photograph, but always turns off', () => {
+    const { result } = renderHook(useEditorActions);
+    useSettingsStore.setState({ osPlatform: 'linux' });
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+    useSettingsStore.setState({ osPlatform: 'macos' });
+    select('/loading.dng', false);
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+    useEditorStore.setState({ splitView: true });
+    act(() => result.current.toggleSplitView());
+    expect(useEditorStore.getState().splitView).toBe(false);
+  });
 });

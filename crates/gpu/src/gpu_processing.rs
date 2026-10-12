@@ -176,6 +176,9 @@ pub struct DisplayTransform {
     /// Screen area that may show the image (x, y, w, h); zero width = no
     /// limit beyond `rect`. Crop editing clips the rotated image to its box.
     pub box_rect: [f32; 4],
+    /// Before/after split: x 1 while it shows, y the divider's screen x
+    /// (device pixels, the unit of `rect`). Rest padding. Set by `render`.
+    pub split: [f32; 4],
 }
 
 /// Where the webview places the image: `rect` for normal frames (crop and
@@ -215,6 +218,29 @@ struct OverlayTexture {
     mask: Arc<GrayImage>,
 }
 
+/// The split view's unedited render (the "before" side), kept on the GPU.
+/// It is drawn only beside frames of the same photograph and framing
+/// (`frame_key`), so a crop or the next photograph never shows a stale or
+/// stretched before.
+struct SplitBefore {
+    bind_group: wgpu::BindGroup,
+    /// What was rendered (source, recipe, resolution); a request with the
+    /// same key needs no new render.
+    render_key: u64,
+    frame_key: u64,
+}
+
+/// Whether the split shows: a divider is set, the frame on screen is not the
+/// uncropped crop-editing frame and the before belongs to its framing.
+pub fn split_shows(
+    split_x: Option<f32>,
+    frame_uncropped: bool,
+    before_frame_key: Option<u64>,
+    frame_key: u64,
+) -> bool {
+    split_x.is_some() && !frame_uncropped && before_frame_key == Some(frame_key)
+}
+
 pub struct WgpuDisplay {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
@@ -246,6 +272,131 @@ pub struct WgpuDisplay {
     /// Counts frames bound for presentation (profiling joins a preview job's
     /// frame to the present that shows it).
     frame_serial: u64,
+    /// The before/after divider's screen x (device pixels); `None` = no split.
+    pub split_x: Option<f32>,
+    /// Set by each preview job before it renders: the photograph and framing
+    /// of its frame (see `SplitBefore::frame_key`). Applied when presented.
+    pub next_frame_split_key: u64,
+    frame_split_key: u64,
+    split_before: Option<SplitBefore>,
+    split_bind_group_layout: wgpu::BindGroupLayout,
+    /// Bound while there is no before (the layout always has a texture).
+    empty_split_bind_group: wgpu::BindGroup,
+}
+
+/// The display pipeline for a target of `format`, with its two bind group
+/// layouts (frame and uniforms; the split's before).
+fn create_display_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> Result<
+    (
+        wgpu::RenderPipeline,
+        wgpu::BindGroupLayout,
+        wgpu::BindGroupLayout,
+    ),
+    String,
+> {
+    let shader = create_shader(
+        device,
+        "Display Shader",
+        include_str!("shaders/display.wgsl"),
+    )?;
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("Display BGL"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            },
+        ],
+    });
+
+    let split_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Display Split BGL"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                count: None,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+            }],
+        });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Display Pipeline Layout"),
+        bind_group_layouts: &[Some(&bind_group_layout), Some(&split_bind_group_layout)],
+        immediate_size: 0,
+    });
+
+    let pipeline = validated(device, "pipeline 'Display Pipeline'", || {
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Display Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: NonZero::new(0),
+            cache: None,
+        })
+    })?;
+    Ok((pipeline, bind_group_layout, split_bind_group_layout))
 }
 
 impl WgpuDisplay {
@@ -255,90 +406,8 @@ impl WgpuDisplay {
         surface: wgpu::Surface<'static>,
         config: wgpu::SurfaceConfiguration,
     ) -> Result<Self, String> {
-        let shader = create_shader(
-            device,
-            "Display Shader",
-            include_str!("shaders/display.wgsl"),
-        )?;
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Display BGL"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    count: None,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                },
-            ],
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Display Pipeline Layout"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let pipeline = validated(device, "pipeline 'Display Pipeline'", || {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Display Pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vs_main"),
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: config.format,
-                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleStrip,
-                    ..Default::default()
-                },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState::default(),
-                multiview_mask: NonZero::new(0),
-                cache: None,
-            })
-        })?;
+        let (pipeline, bind_group_layout, split_bind_group_layout) =
+            create_display_pipeline(device, config.format)?;
 
         let transform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Transform Buffer"),
@@ -354,6 +423,31 @@ impl WgpuDisplay {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
+        });
+
+        let empty_split_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("Display Empty Before"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let empty_split_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Display Empty Before"),
+            layout: &split_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&empty_split_view),
+            }],
         });
 
         Ok(WgpuDisplay {
@@ -375,6 +469,7 @@ impl WgpuDisplay {
                 overlay_color: [0.0; 4],
                 overlay_mode: [0.0; 4],
                 box_rect: [0.0; 4],
+                split: [0.0; 4],
             },
             geometry: DisplayGeometry {
                 rect: [0.0, 0.0, 100.0, 100.0],
@@ -386,6 +481,12 @@ impl WgpuDisplay {
             next_frame_uncropped: false,
             frame_uncropped: false,
             frame_serial: 0,
+            split_x: None,
+            next_frame_split_key: 0,
+            frame_split_key: 0,
+            split_before: None,
+            split_bind_group_layout,
+            empty_split_bind_group,
             sampler,
             current_bind_group: None,
             overlay: None,
@@ -421,7 +522,88 @@ impl WgpuDisplay {
             self.geometry = geometry;
         }
         self.frame_uncropped = self.next_frame_uncropped;
+        self.frame_split_key = self.next_frame_split_key;
         self.apply_geometry();
+    }
+
+    /// The render key of the before kept for the split, if any.
+    pub fn split_before_key(&self) -> Option<u64> {
+        self.split_before.as_ref().map(|before| before.render_key)
+    }
+
+    /// Keep `image` (display-encoded RGBA, the unedited render of the frame
+    /// `frame_key`) as the split's before side.
+    pub fn set_split_before(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        image: &image::RgbaImage,
+        render_key: u64,
+        frame_key: u64,
+    ) {
+        let (width, height) = image.dimensions();
+        if width == 0 || height == 0 {
+            self.split_before = None;
+            return;
+        }
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Display Before"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.as_raw(),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            size,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Display Before"),
+            layout: &self.split_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        self.split_before = Some(SplitBefore {
+            bind_group,
+            render_key,
+            frame_key,
+        });
+    }
+
+    /// Drop the split's before (the split was turned off).
+    pub fn clear_split_before(&mut self) {
+        self.split_before = None;
+    }
+
+    fn split_active(&self) -> bool {
+        split_shows(
+            self.split_x,
+            self.frame_uncropped,
+            self.split_before.as_ref().map(|before| before.frame_key),
+            self.frame_split_key,
+        )
     }
 
     /// Upload the overlay mask for a frame of `width` × `height` and set its
@@ -543,6 +725,22 @@ impl WgpuDisplay {
             let view = output
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
+            let split_active = self.split_active();
+            self.latest_transform.split = [
+                if split_active { 1.0 } else { 0.0 },
+                self.split_x.unwrap_or(0.0),
+                0.0,
+                0.0,
+            ];
+            queue.write_buffer(
+                &self.transform_buffer,
+                0,
+                bytemuck::bytes_of(&self.latest_transform),
+            );
+            let split_bind_group = match (&self.split_before, split_active) {
+                (Some(before), true) => &before.bind_group,
+                _ => &self.empty_split_bind_group,
+            };
             let mut encoder =
                 device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
             {
@@ -596,6 +794,7 @@ impl WgpuDisplay {
 
                         rpass.set_pipeline(&self.pipeline);
                         rpass.set_bind_group(0, bind_group, &[]);
+                        rpass.set_bind_group(1, split_bind_group, &[]);
                         rpass.draw(0..4, 0..1);
                     }
                 }
@@ -4412,7 +4611,17 @@ pub fn process_and_get_dynamic_image_inner(
 
 #[cfg(test)]
 mod display_geometry_tests {
-    use super::DisplayGeometry;
+    use super::{DisplayGeometry, split_shows};
+
+    #[test]
+    fn the_split_shows_only_beside_frames_of_its_framing() {
+        assert!(split_shows(Some(400.0), false, Some(7), 7));
+        // No divider, the crop-editing frame, no before or another framing.
+        assert!(!split_shows(None, false, Some(7), 7));
+        assert!(!split_shows(Some(400.0), true, Some(7), 7));
+        assert!(!split_shows(Some(400.0), false, None, 7));
+        assert!(!split_shows(Some(400.0), false, Some(7), 8));
+    }
 
     #[test]
     fn crop_editing_frames_use_the_crop_box_and_angle() {

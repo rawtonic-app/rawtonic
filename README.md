@@ -75,7 +75,7 @@ The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P a
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before**, step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
+The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After**, step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
 
 <table>
 <tr>
@@ -133,7 +133,8 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | ← / →                       | previous / next photograph     |
 | **1**–**5** / **0**         | star rating / clear it         |
 | **P** / **X** / **U**       | pick / reject / clear the flag |
-| **Y** or **\\**             | before / after                 |
+| **Y**                       | before / after split           |
+| hold **\\**                 | whole photograph before        |
 | **C** / **R** / **B**       | crop / straighten / brush      |
 | **M**                       | show or hide the mask overlay  |
 | **J**                       | clipping warnings              |

@@ -29,6 +29,8 @@ import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskO
 import { requestLiveMaskRender, withLiveMaskContainer } from '../../utils/liveMaskRender';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { keepDrawnMasksOnPhoto } from '../../utils/maskGeometry';
+import { splitScreenX } from '../../utils/beforeAfter';
+import SplitViewOverlay from './editor/SplitViewOverlay';
 
 const parseRgb = (rgbStr: string): [number, number, number, number] => {
   const match = rgbStr.match(/[\d.]+/g);
@@ -1548,7 +1550,13 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         ];
       }
 
-      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping}`;
+      // The split's divider: a place in the viewer, not on the photograph,
+      // so it stays where it was put while panning and zooming.
+      // A held before peek (showOriginal) covers both sides with the before.
+      const { splitView, splitPosition, showOriginal: peeking } = useEditorStore.getState();
+      const split = splitView && !state.isCropping && !peeking ? splitScreenX(currentRect, splitPosition, dpr) : null;
+
+      const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split}`;
 
       if (lastWgpuTransformRef.current !== currentTransform && !isInvoking) {
         lastWgpuTransformRef.current = currentTransform;
@@ -1574,6 +1582,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             cropRect,
             cropRotation: state.cropRotation,
             hold: holding,
+            split,
             // At fit the display may place the next photograph itself
             // (native activation, contained and centred like irs).
             viewport:
@@ -1599,9 +1608,19 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       resizeObserver.observe(container);
     }
     window.addEventListener('resize', scheduleSync);
+    const unsubscribeSplit = useEditorStore.subscribe((editor, previous) => {
+      if (
+        editor.splitView !== previous.splitView ||
+        editor.splitPosition !== previous.splitPosition ||
+        editor.showOriginal !== previous.showOriginal
+      ) {
+        scheduleSync();
+      }
+    });
 
     return () => {
       isEffectActive = false;
+      unsubscribeSplit();
       if (wgpuSyncRef.current !== null) {
         cancelAnimationFrame(wgpuSyncRef.current);
         wgpuSyncRef.current = null;
@@ -2360,6 +2379,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
           </svg>
         )}
       </div>
+      {/* Beside the viewer, not in it: its pointer handlers (pan, tools)
+          must not see drags of the divider. The viewer fills this box. */}
+      {isWgpuActive && !isCropping && canRenderSource(selectedImage) && <SplitViewOverlay />}
     </div>
   );
 }

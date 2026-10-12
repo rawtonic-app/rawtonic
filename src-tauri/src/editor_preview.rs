@@ -93,6 +93,41 @@ pub struct WgpuTransformPayload {
     /// `WgpuDisplay::viewport`).
     #[serde(default)]
     pub viewport: Option<[f32; 4]>,
+    /// The before/after split's divider, screen x in device pixels (the unit
+    /// of `x`); `None` while the split view is off.
+    #[serde(default)]
+    pub split: Option<f32>,
+}
+
+/// Recipe keys that place the photograph in the frame. The split's before
+/// keeps them from the edit (`originalPreviewAdjustments` in
+/// src/utils/beforeAfter.ts), so both sides show the same framing.
+const SPLIT_FRAMING_KEYS: &[&str] = &[
+    "crop",
+    "rotation",
+    "flipHorizontal",
+    "flipVertical",
+    "orientationSteps",
+    "aspectRatio",
+];
+
+/// The photograph and framing of a frame: a split before is drawn only
+/// beside frames with its key, never beside another crop or photograph.
+pub(crate) fn split_frame_key(path: &str, adjustments: &serde_json::Value) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    for key in SPLIT_FRAMING_KEYS
+        .iter()
+        .chain(crate::cache_utils::GEOMETRY_KEYS)
+    {
+        key.hash(&mut hasher);
+        adjustments
+            .get(*key)
+            .map(|value| value.to_string())
+            .unwrap_or_default()
+            .hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 pub fn generate_transformed_preview(
@@ -514,6 +549,10 @@ pub(crate) async fn update_wgpu_transform(
                 crop_rotation: payload.crop_rotation.to_radians(),
             };
             display.viewport = payload.viewport;
+            display.split_x = payload.split;
+            if payload.split.is_none() {
+                display.clear_split_before();
+            }
             if payload.hold {
                 display.pending_geometry = Some(geometry);
             } else {
@@ -590,6 +629,80 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
             )
         }
     })
+}
+
+/// The preview base (warped, cropped, retouched source at `build_dim`) for
+/// `adjustments`, from the reusable previews or built and kept there.
+/// `base_adjustments` may differ by a draft flag only.
+#[allow(clippy::too_many_arguments)]
+fn preview_base(
+    state: &tauri::State<AppState>,
+    loaded_image: &LoadedImage,
+    source_scale: f32,
+    full_dims: (u32, u32),
+    adjustments: &serde_json::Value,
+    base_adjustments: &serde_json::Value,
+    build_dim: u32,
+    preparation_key: u64,
+) -> Result<preview_cache::PreviewBase, String> {
+    let reusable = state
+        .reusable_previews
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&loaded_image.image, preparation_key, build_dim);
+    if let Some(preview) = reusable {
+        return Ok(preview);
+    }
+    let preview = if source_scale < 1.0 {
+        // Steps that need the full image wait for it (the frontend
+        // renders again when the decode is in). An offline
+        // photograph gets no decode: its Standard preview is
+        // retouched and blurred at its own resolution.
+        let (full_width, full_height) = full_dims;
+        let needs_full = crate::image_loader::has_base_retouch(adjustments)
+            || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false);
+        let offline = state
+            .offline_source
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_deref()
+            == Some(loaded_image.path.as_str());
+        if needs_full && !offline {
+            return Err("The photograph is still loading".to_string());
+        }
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_proxy_base");
+        let scale = reduced_preview_scale(full_width, full_height, adjustments, build_dim)
+            .unwrap_or(source_scale);
+        reduced_preview_base(
+            &loaded_image.image,
+            source_scale,
+            full_width,
+            full_height,
+            base_adjustments,
+            build_dim,
+            scale,
+        )?
+    } else {
+        generate_shared_transformed_preview(
+            state,
+            loaded_image,
+            base_adjustments,
+            build_dim,
+            preparation_key,
+        )?
+    };
+    state
+        .reusable_previews
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(
+            &loaded_image.image,
+            preparation_key,
+            build_dim,
+            preview.clone(),
+        );
+    Ok(preview)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -695,68 +808,16 @@ pub(crate) fn process_preview_job(
         } else {
             &adjustments_clone
         };
-        let reusable = state
-            .reusable_previews
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&loaded_image.image, preparation_key, build_dim);
-        let preview = if let Some(preview) = reusable {
-            preview
-        } else {
-            let preview = if source_scale < 1.0 {
-                // Steps that need the full image wait for it (the frontend
-                // renders again when the decode is in). An offline
-                // photograph gets no decode: its Standard preview is
-                // retouched and blurred at its own resolution.
-                let (full_width, full_height) = full_dims;
-                let needs_full = crate::image_loader::has_base_retouch(&adjustments_clone)
-                    || adjustments_clone["lensBlurEnabled"]
-                        .as_bool()
-                        .unwrap_or(false);
-                let offline = state
-                    .offline_source
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .as_deref()
-                    == Some(loaded_image.path.as_str());
-                if needs_full && !offline {
-                    return Err("The photograph is still loading".to_string());
-                }
-                #[cfg(feature = "performance-profiling")]
-                let _stage = crate::performance::PerformanceStage::new("preview_proxy_base");
-                let scale =
-                    reduced_preview_scale(full_width, full_height, &adjustments_clone, build_dim)
-                        .unwrap_or(source_scale);
-                reduced_preview_base(
-                    &loaded_image.image,
-                    source_scale,
-                    full_width,
-                    full_height,
-                    base_adjustments,
-                    build_dim,
-                    scale,
-                )?
-            } else {
-                generate_shared_transformed_preview(
-                    &state,
-                    &loaded_image,
-                    base_adjustments,
-                    build_dim,
-                    preparation_key,
-                )?
-            };
-            state
-                .reusable_previews
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(
-                    &loaded_image.image,
-                    preparation_key,
-                    build_dim,
-                    preview.clone(),
-                );
-            preview
-        };
+        let preview = preview_base(
+            &state,
+            &loaded_image,
+            source_scale,
+            full_dims,
+            &adjustments_clone,
+            base_adjustments,
+            build_dim,
+            preparation_key,
+        )?;
         (
             preview.image,
             preview.scale,
@@ -883,6 +944,7 @@ pub(crate) fn process_preview_job(
     {
         display.overlay = display_overlay;
         display.next_frame_uncropped = crop_edit;
+        display.next_frame_split_key = split_frame_key(&loaded_image.path, &adjustments_clone);
     }
     let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
         .iter()
@@ -1366,6 +1428,162 @@ pub(crate) async fn activate_photo(
     Ok(true)
 }
 
+/// Renders the split view's before side (`js_adjustments`: the unedited
+/// recipe with the edit's framing, view states included) for the photograph
+/// at `path` and keeps it on the GPU beside the edited frames, as Capture
+/// One's before/after split shows both renders. Pixels stay native: the
+/// display-shader readback (exactly the display frame's pixels) is uploaded
+/// to the display's before texture. Returns whether a before is in place;
+/// an unchanged request renders nothing.
+#[tauri::command]
+pub(crate) async fn render_split_before(
+    path: String,
+    js_adjustments: serde_json::Value,
+    target_resolution: Option<u32>,
+    app_handle: tauri::AppHandle,
+) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        render_split_before_blocking(&app_handle, &path, js_adjustments, target_resolution)
+    })
+    .await
+    .map_err(|e| format!("Split before task failed: {e}"))?
+}
+
+fn render_split_before_blocking(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    mut adjustments: serde_json::Value,
+    target_resolution: Option<u32>,
+) -> Result<bool, String> {
+    let state = app_handle.state::<AppState>();
+    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    #[cfg(not(target_os = "linux"))]
+    let use_wgpu_renderer = settings.use_wgpu_renderer.unwrap_or(true);
+    #[cfg(target_os = "linux")]
+    let use_wgpu_renderer = false;
+    if !use_wgpu_renderer {
+        return Ok(false);
+    }
+    let context = get_or_init_gpu_context(&state, app_handle)?;
+    let display_key = |context: &gpu_processing::GpuContext| {
+        context
+            .display
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|display| display.split_before_key())
+    };
+    let Some(current_key) = display_key(&context) else {
+        return Ok(false);
+    };
+    hydrate_adjustments(&state, &mut adjustments);
+    let load_generation = state.load_image_generation.load(Ordering::SeqCst);
+    let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
+    if loaded_image.path != path {
+        return Ok(false);
+    }
+    let preview_dim =
+        target_resolution.unwrap_or(settings.editor_preview_resolution.unwrap_or(1920));
+    let frame_key = split_frame_key(path, &adjustments);
+    let render_key = {
+        let mut hasher = DefaultHasher::new();
+        frame_key.hash(&mut hasher);
+        (Arc::as_ptr(&loaded_image.image) as usize).hash(&mut hasher);
+        load_generation.hash(&mut hasher);
+        preview_dim.hash(&mut hasher);
+        adjustments.to_string().hash(&mut hasher);
+        hasher.finish()
+    };
+    if current_key == Some(render_key) {
+        return Ok(true);
+    }
+
+    // The edit's preview base when the before shares it (no retouch, same
+    // framing); else its own, without touching the edit's caches.
+    let transform_hash = calculate_transform_hash(&adjustments);
+    let cached = state
+        .cached_preview
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .filter(|c| {
+            c.source.ptr_eq(&Arc::downgrade(&loaded_image.image))
+                && c.transform_hash == transform_hash
+                && c.preview_dim == preview_dim
+        })
+        .map(|c| (Arc::clone(&c.image), c.scale));
+    let (base, scale) = match cached {
+        Some(cached) => cached,
+        None => {
+            let preview = preview_base(
+                &state,
+                &loaded_image,
+                source_scale,
+                full_dims,
+                &adjustments,
+                &adjustments,
+                preview_dim,
+                preview_cache::preparation_key(&adjustments),
+            )?;
+            (preview.image, preview.scale)
+        }
+    };
+
+    let is_raw = loaded_image.is_raw;
+    let tm_override = resolve_tonemapper_override(&settings, is_raw);
+    let mut all_adjustments = get_all_adjustments_from_json(&adjustments, is_raw, tm_override);
+    crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, &loaded_image.path);
+    all_adjustments.global.detail_scale = scale;
+    // Encoded for the window layer, as display frames are.
+    let space = context.display_space;
+    all_adjustments.global.output_space[0] = space.shader_code();
+    all_adjustments.global.output_matrix =
+        image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    let lut = adjustments["lutPath"]
+        .as_str()
+        .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+    // The unedited recipe has no local adjustments: no mask bitmaps.
+    let rendered = gpu_processing::process_and_get_dynamic_image_with_display_shader(
+        &context,
+        &state,
+        &base,
+        transform_hash,
+        RenderRequest {
+            adjustments: all_adjustments,
+            mask_bitmaps: &[],
+            lut,
+            roi: None,
+        },
+        "split_before",
+    )
+    .map_err(|error| format!("{PREVIEW_RENDER_FAILED}: {error}"))?;
+    let rendered = rendered.into_rgba8();
+
+    // Another photograph or decode meanwhile: this before is not wanted.
+    let still_current = state.load_image_generation.load(Ordering::SeqCst) == load_generation
+        && preview_source(&state).is_ok_and(|(now, _, _)| {
+            now.path == path && Arc::ptr_eq(&now.image, &loaded_image.image)
+        });
+    if !still_current {
+        return Ok(false);
+    }
+    let mut display_lock = context.display.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(display) = display_lock.as_mut() else {
+        return Ok(false);
+    };
+    // Kept even if the divider is not set yet (the webview sends it with its
+    // next placement); the display draws the before only beside a divider.
+    display.set_split_before(
+        &context.device,
+        &context.queue,
+        &rendered,
+        render_key,
+        frame_key,
+    );
+    display.render(&context.device, &context.queue);
+    Ok(true)
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) async fn apply_adjustments(
@@ -1695,6 +1913,29 @@ pub(crate) async fn generate_preview_for_path(
     })
     .await
     .map_err(|e| format!("Task execution failed: {}", e))?
+}
+
+#[cfg(test)]
+mod split_view_tests {
+    use super::split_frame_key;
+    use serde_json::json;
+
+    #[test]
+    fn the_split_before_matches_frames_of_the_same_photograph_and_framing() {
+        let edit = json!({"exposure": 1.5, "crop": {"x": 10, "y": 20}, "rotation": 2.0,
+            "lensDistortionAmount": 80, "masks": [{"id": "a"}]});
+        let before = json!({"exposure": 0, "crop": {"x": 10, "y": 20}, "rotation": 2.0,
+            "lensDistortionAmount": 80, "masks": []});
+        let key = split_frame_key("/a.NEF", &edit);
+        assert_eq!(key, split_frame_key("/a.NEF", &before));
+        assert_ne!(key, split_frame_key("/b.NEF", &before));
+        let mut recropped = before.clone();
+        recropped["crop"]["x"] = json!(11);
+        assert_ne!(key, split_frame_key("/a.NEF", &recropped));
+        let mut perspective = before.clone();
+        perspective["transformVertical"] = json!(-10);
+        assert_ne!(key, split_frame_key("/a.NEF", &perspective));
+    }
 }
 
 #[cfg(test)]

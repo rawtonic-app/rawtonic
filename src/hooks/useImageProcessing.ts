@@ -17,6 +17,7 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { aiDenoiseToApply } from '../utils/aiDenoise';
+import { originalPreviewAdjustments } from '../utils/beforeAfter';
 import { toastAiError } from '../utils/aiErrors';
 
 // Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
@@ -173,15 +174,7 @@ export function useImageProcessing(
       // after Capture One and Lightroom: the photo stays on screen). Crop and
       // angle changes therefore re-use the same frame.
       const cropEdit = isNativeCropEditing();
-      const payload = structuredClone(currentAdjustments);
-      // View states the renderer shows but the recipe never stores.
-      const view = useEditorStore.getState();
-      if (view.clippingWarnings) payload.showClipping = true;
-      if (view.softProof) {
-        payload.softProof = view.softProofSpace;
-        payload.softProofWarning = view.softProofWarning;
-      }
-      payload.colorRangeShow = view.colorRangeShow;
+      const payload = withViewStates(currentAdjustments);
       if (cropEdit) {
         payload.crop = null;
         payload.rotation = 0;
@@ -294,6 +287,10 @@ export function useImageProcessing(
               if (state.interactivePatch && state.interactivePatch.url) URL.revokeObjectURL(state.interactivePatch.url);
               return { interactivePatch: null, nativeCropFrame: cropEdit };
             });
+            // A finished frame may have a new framing, resolution or source
+            // (the full decode): the split's before follows (unchanged
+            // requests cost the backend nothing).
+            if (!dragging && !live && !cropEdit) requestSplitBefore(targetRes || currentResRef.current);
             return;
           }
 
@@ -370,7 +367,7 @@ export function useImageProcessing(
         }
       }
     },
-    [selectedImage?.path, calculateROI, isWaveformVisible, setEditor, previewJobIdRef, latestRenderedJobIdRef],
+    [selectedImage?.path, calculateROI, isWaveformVisible, setEditor, previewJobIdRef, latestRenderedJobIdRef, currentResRef],
   );
 
   const executeRef = useRef(executeApplyAdjustments);
@@ -706,6 +703,14 @@ export function useImageProcessing(
     isWaveformVisible,
   ]);
 
+  // Turning the split on renders its before beside the frame on screen.
+  const splitView = useEditorStore((state) => state.splitView);
+  useEffect(() => {
+    if (!splitView || !nativeDisplayRef.current) return;
+    requestSplitBefore(currentResRef.current || calculateTargetRes());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only turning the split on triggers; the resolution is read now
+  }, [splitView]);
+
   // Entering or leaving crop changes which frame the display needs.
   const isCropping = activeView === 'editor' && activePanel === Panel.Crop;
   const wasCroppingRef = useRef(isCropping);
@@ -722,6 +727,63 @@ export function useImageProcessing(
     applyAdjustments,
     executeApplyAdjustments,
   };
+}
+
+/** The recipe as rendered: view states the renderer shows but the recipe never stores. */
+export function withViewStates(adjustments: Adjustments): Adjustments {
+  const payload = structuredClone(adjustments);
+  const view = useEditorStore.getState();
+  if (view.clippingWarnings) payload.showClipping = true;
+  if (view.softProof) {
+    payload.softProof = view.softProofSpace;
+    payload.softProofWarning = view.softProofWarning;
+  }
+  payload.colorRangeShow = view.colorRangeShow;
+  return payload;
+}
+
+let splitBeforeInFlight = false;
+let splitBeforeQueued: number | null = null;
+
+/**
+ * Asks the native display for the split view's before side (the unedited
+ * recipe with the edit's framing) at `targetRes`. One request at a time;
+ * while one runs, only the newest further request is kept.
+ */
+export function requestSplitBefore(targetRes: number) {
+  if (splitBeforeInFlight) {
+    splitBeforeQueued = targetRes;
+    return;
+  }
+  const editor = useEditorStore.getState();
+  const image = editor.selectedImage;
+  if (
+    !editor.splitView ||
+    !canRenderSource(image) ||
+    useSettingsStore.getState().appSettings?.useWgpuRenderer === false ||
+    isNativeCropEditing()
+  ) {
+    return;
+  }
+  splitBeforeInFlight = true;
+  invoke<boolean>(Invokes.RenderSplitBefore, {
+    path: image.path,
+    jsAdjustments: withViewStates(originalPreviewAdjustments(editor.adjustments)),
+    targetResolution: targetRes || null,
+  })
+    .catch((err) => {
+      if (typeof err === 'string' && err.startsWith(PREVIEW_RENDER_FAILED)) {
+        toast.error(err, { toastId: PREVIEW_RENDER_FAILED });
+      } else {
+        console.warn('Split view before failed:', err);
+      }
+    })
+    .finally(() => {
+      splitBeforeInFlight = false;
+      const queued = splitBeforeQueued;
+      splitBeforeQueued = null;
+      if (queued !== null) requestSplitBefore(queued);
+    });
 }
 
 /** Whether preview frames are the native display's crop-editing frames. */
