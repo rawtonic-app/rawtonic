@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'react-toastify';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, normalizeCombo } from '../utils/keyboardUtils';
+import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -353,10 +354,11 @@ export const useKeyboardShortcuts = ({
         },
       },
       toggle_fullscreen: {
-        shouldFire: (s) => !!s.editor.selectedImage,
-        execute: (e, s) => {
+        // The window's full screen with the interface as it is (Capture One).
+        shouldFire: () => true,
+        execute: (e) => {
           e.preventDefault();
-          s.ui.toggleFullScreen();
+          void toggleWindowFullScreen();
         },
       },
       show_original: {
