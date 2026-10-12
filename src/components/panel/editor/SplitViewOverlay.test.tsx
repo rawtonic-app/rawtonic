@@ -10,7 +10,7 @@ beforeAll(() => {
   Element.prototype.hasPointerCapture = () => true;
   Element.prototype.releasePointerCapture = () => {};
 });
-beforeEach(() => useEditorStore.setState({ splitView: true, splitPosition: 0.5 }));
+beforeEach(() => useEditorStore.setState({ splitView: true, splitPosition: 0.5, showOriginal: false }));
 afterEach(cleanup);
 
 /** The viewer spans x 100…900 on screen. */
@@ -22,6 +22,12 @@ const placeViewer = () => {
 
 it('shows nothing while the split view is off', () => {
   useEditorStore.setState({ splitView: false });
+  render(<SplitViewOverlay />);
+  expect(screen.queryByTestId('split-view-overlay')).toBeNull();
+});
+
+it('hides the divider and labels while the whole photograph shows before (held \\)', () => {
+  useEditorStore.setState({ showOriginal: true });
   render(<SplitViewOverlay />);
   expect(screen.queryByTestId('split-view-overlay')).toBeNull();
 });

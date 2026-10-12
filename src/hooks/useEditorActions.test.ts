@@ -4,8 +4,10 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   debouncedSave,
   debouncedSetHistory,
+  endBeforePeek,
   flushRecipeSaves,
   registerScheduledRecipe,
+  startBeforePeek,
   useEditorActions,
   waitForPendingMetadataSave,
 } from './useEditorActions';
@@ -247,9 +249,9 @@ describe('before/after split', () => {
     useSettingsStore.setState({ osPlatform: 'macos' });
   });
 
-  it('turns the split on as an extra view and the quick original off', () => {
+  it('turns the split on and off, ending a held peek', () => {
     const { result } = renderHook(useEditorActions);
-    act(() => result.current.toggleShowOriginal());
+    act(() => void startBeforePeek());
     expect(useEditorStore.getState().showOriginal).toBe(true);
     act(() => result.current.toggleSplitView());
     const state = useEditorStore.getState();
@@ -258,6 +260,30 @@ describe('before/after split', () => {
     expect(state.previewOverride).toBeNull();
     act(() => result.current.toggleSplitView());
     expect(useEditorStore.getState().splitView).toBe(false);
+  });
+
+  it('peeks at the whole photograph before over the split and returns to it', () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.toggleSplitView());
+    expect(startBeforePeek()).toBe(true);
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: true });
+    // Already showing: a second start changes nothing (no latched toggle).
+    expect(startBeforePeek()).toBe(false);
+    endBeforePeek();
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: false, previewOverride: null });
+  });
+
+  it('leaves a preset hover preview alone when no peek is showing', () => {
+    const hover = { ...INITIAL_ADJUSTMENTS, exposure: 1 };
+    useEditorStore.setState({ previewOverride: hover });
+    endBeforePeek();
+    expect(useEditorStore.getState().previewOverride).toBe(hover);
+  });
+
+  it('does not peek before the photograph is ready', () => {
+    select('/loading.dng', false);
+    expect(startBeforePeek()).toBe(false);
+    expect(useEditorStore.getState().showOriginal).toBe(false);
   });
 
   it('keeps the split and its divider from photograph to photograph', () => {
@@ -269,12 +295,11 @@ describe('before/after split', () => {
     expect(useEditorStore.getState().splitPosition).toBe(0.3);
   });
 
-  it('shows the quick original framed like the edit', () => {
+  it('shows the peek framed like the edit', () => {
     useEditorStore.setState({
       adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 2, rotation: 3 },
     });
-    const { result } = renderHook(useEditorActions);
-    act(() => result.current.toggleShowOriginal());
+    startBeforePeek();
     const override = useEditorStore.getState().previewOverride!;
     expect(override.exposure).toBe(INITIAL_ADJUSTMENTS.exposure);
     expect(override.rotation).toBe(3);

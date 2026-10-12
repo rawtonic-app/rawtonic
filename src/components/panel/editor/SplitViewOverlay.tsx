@@ -15,10 +15,12 @@ export default function SplitViewOverlay() {
   const { t } = useTranslation();
   const splitView = useEditorStore((state) => state.splitView);
   const position = useEditorStore((state) => state.splitPosition);
+  // While \ is held the whole photograph shows before: no divider, no labels.
+  const peeking = useEditorStore((state) => state.showOriginal);
   const rootRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
-  if (!splitView) return null;
+  if (!splitView || peeking) return null;
 
   const setPosition = (next: number) => useEditorStore.getState().setEditor({ splitPosition: next });
   const moveTo = (clientX: number) => {

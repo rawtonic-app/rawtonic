@@ -11,7 +11,7 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
-import { updateAdjustments, useEditorActions } from './useEditorActions';
+import { endBeforePeek, startBeforePeek, updateAdjustments, useEditorActions } from './useEditorActions';
 import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 
@@ -55,7 +55,6 @@ export const useKeyboardShortcuts = ({
     handleRotate,
     handleCopyAdjustments,
     handlePasteAdjustments,
-    toggleShowOriginal,
     toggleSplitView,
     handleAutoAdjustments,
   } = useEditorActions();
@@ -84,6 +83,32 @@ export const useKeyboardShortcuts = ({
     return useUIStore.subscribe((state, previous) => {
       if (state.activePanel !== previous.activePanel) take(state.activePanel);
     });
+  }, []);
+
+  // The key holding the before peek (show_original), released on its keyup
+  // or when the window loses the focus, so the peek can never stick.
+  const peekKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const release = () => {
+      if (peekKeyRef.current === null) return;
+      peekKeyRef.current = null;
+      endBeforePeek();
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === peekKeyRef.current) release();
+    };
+    const onVisibility = () => {
+      if (document.hidden) release();
+    };
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', release);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', release);
+      document.removeEventListener('visibilitychange', onVisibility);
+      release();
+    };
   }, []);
 
   const sortedListRef = useRef(sortedImageList);
@@ -366,10 +391,13 @@ export const useKeyboardShortcuts = ({
         },
       },
       show_original: {
+        // Held, not toggled: the key's release (or the window losing the
+        // focus) ends the peek. Auto-repeat keeps it as it is.
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage,
         execute: (e) => {
           e.preventDefault();
-          toggleShowOriginal();
+          if (e.repeat || peekKeyRef.current) return;
+          if (startBeforePeek()) peekKeyRef.current = e.code;
         },
       },
       toggle_split_view: {
@@ -819,7 +847,6 @@ export const useKeyboardShortcuts = ({
     handlePasteAdjustments,
     handleRate,
     handleSetColorLabel,
-    toggleShowOriginal,
     toggleSplitView,
     handleAutoAdjustments,
   ]);

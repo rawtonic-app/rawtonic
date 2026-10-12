@@ -7,10 +7,10 @@ describe('keybinds', () => {
     expect(map.get('KeyB')).toEqual(['tool_brush']);
     expect(map.get('KeyK')).toEqual(['tool_brush']);
     expect(map.get('KeyR')).toEqual(['tool_straighten']);
-    expect(map.get('KeyY')).toEqual(['show_original']);
+    // One before/after tool: Y toggles the split, a held \ peeks at the before.
+    expect(map.get('KeyY')).toEqual(['toggle_split_view']);
     expect(map.get('Backslash')).toEqual(['show_original']);
-    // Lightroom's split before/after key; Y stays the quick original.
-    expect(map.get('shift+KeyY')).toEqual(['toggle_split_view']);
+    expect(map.has('shift+KeyY')).toBe(false);
     expect(map.get('ctrl+shift+KeyC')).toEqual(['copy_adjustments']);
     expect(map.get('ctrl+shift+KeyE')).toEqual(['toggle_export']);
     expect(map.get('ctrl+KeyL')).toEqual(['auto_adjust']);
@@ -31,7 +31,7 @@ describe('keybinds', () => {
     expect(map.get('KeyN')).toEqual(['tool_brush']);
     expect(map.has('KeyB')).toBe(false);
     expect(map.has('KeyK')).toBe(false);
-    expect(map.has('KeyY')).toBe(false);
+    expect(map.has('Backslash')).toBe(false);
   });
 
   it('keep every default key unique within a view', () => {
@@ -44,7 +44,18 @@ describe('keybinds', () => {
     expect(clashes).toEqual([]);
   });
 
+  it('bind every default and alias combo of an action once', () => {
+    const combos = KEYBIND_DEFINITIONS.flatMap((d) =>
+      [d.defaultCombo, ...(d.aliasCombos ?? [])].filter((c) => c.length > 0).map((c) => `${d.action}:${c.join('+')}`),
+    );
+    expect(combos.length).toBe(new Set(combos).size);
+    const actions = KEYBIND_DEFINITIONS.map((d) => d.action);
+    expect(actions.length).toBe(new Set(actions).size);
+  });
+
   it('format hints for tooltips', () => {
+    expect(shortcutHint('toggle_split_view', null, 'macos')).toBe('Y');
+    expect(shortcutHint('show_original', null, 'macos')).toBe('\\');
     expect(shortcutHint('tool_brush', null, 'macos')).toBe('B');
     expect(shortcutHint('toggle_export', null, 'macos')).toBe('⌘ + Shift + E');
     expect(shortcutHint('copy_files', null, 'macos')).toBeNull();

@@ -35,7 +35,6 @@ import {
   ChevronUp,
   Flag,
   FlagOff,
-  SquareSplitHorizontal,
 } from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -167,18 +166,28 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t } = useTranslation();
-  const { selectedImage, historyIndex, history, showOriginal, splitView } = useEditorStore(
+  const { selectedImage, historyIndex, history, splitView } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
       history: s.history,
-      showOriginal: s.showOriginal,
       splitView: s.splitView,
     })),
   );
   const splitAvailable = useSettingsStore((s) =>
     splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
   );
+  // One before/after tool: the split on Y and, held, the whole photograph
+  // before on \ (the peek works without the split too).
+  const beforeAfterTitle = useSettingsStore((s) => {
+    const noKey = t("studio.workspace.noKey");
+    const peek = shortcutHint("show_original", s.appSettings?.keybinds, s.osPlatform) ?? noKey;
+    if (!splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform)) {
+      return t("studio.workspace.viewer.beforeAfterUnavailable", { peek });
+    }
+    const split = shortcutHint("toggle_split_view", s.appSettings?.keybinds, s.osPlatform) ?? noKey;
+    return t("studio.workspace.viewer.beforeAfterTitle", { split, peek });
+  });
   const tools = useStudioTools();
   const [toolPopover, setToolPopover] = useState<{
     x: number;
@@ -248,7 +257,7 @@ export default function StudioWorkspace(props: Props) {
       imageRatings: s.imageRatings,
     })),
   );
-  const { toggleShowOriginal, toggleSplitView } = useEditorActions();
+  const { toggleSplitView } = useEditorActions();
   const exportState = useProcessStore((s) => s.exportState);
   const develop = activeView === "editor";
   useEffect(() => {
@@ -734,40 +743,13 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                   <div className="studio-toolbar-divider" />
                   <button
-                    aria-pressed={showOriginal}
-                    title={withShortcut(
-                      t("studio.workspace.viewer.showOriginal"),
-                      shortcutHint(
-                        "show_original",
-                        useSettingsStore.getState().appSettings?.keybinds,
-                        useSettingsStore.getState().osPlatform,
-                      ),
-                    )}
-                    onClick={toggleShowOriginal}
-                    disabled={!selectedImage?.isReady}
-                  >
-                    <SquareSplitHorizontal size={14} />
-                    <span className="optional-label">{t("studio.workspace.viewer.before")}</span>
-                  </button>
-                  <button
                     aria-pressed={splitView}
-                    title={
-                      splitAvailable
-                        ? withShortcut(
-                            t("studio.workspace.viewer.splitView"),
-                            shortcutHint(
-                              "toggle_split_view",
-                              useSettingsStore.getState().appSettings?.keybinds,
-                              useSettingsStore.getState().osPlatform,
-                            ),
-                          )
-                        : t("studio.workspace.viewer.splitUnavailable")
-                    }
+                    title={beforeAfterTitle}
                     onClick={toggleSplitView}
                     disabled={!selectedImage?.isReady || !splitAvailable}
                   >
                     <Columns2 size={14} />
-                    <span className="optional-label">{t("studio.workspace.viewer.split")}</span>
+                    <span className="optional-label">{t("studio.workspace.viewer.beforeAfter")}</span>
                   </button>
                 </div>
                 <StudioToolBar />

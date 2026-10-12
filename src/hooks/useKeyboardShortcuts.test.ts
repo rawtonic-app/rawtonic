@@ -392,3 +392,71 @@ describe("panel keys (Lightroom's Tab, Shift+Tab, F6–F8)", () => {
     expect(layout("library").left).toBe(false);
   });
 });
+
+describe("Before/After keys", () => {
+  const key = (type: "keydown" | "keyup", code: string, init: KeyboardEventInit = {}) =>
+    window.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...init }));
+  beforeEach(() => {
+    useUIStore.setState({ activeView: "editor" });
+    useEditorStore.setState({
+      selectedImage: { path: "/a.raf", isReady: true, width: 100, height: 100 } as never,
+      splitView: false,
+      showOriginal: false,
+      previewOverride: null,
+    });
+  });
+
+  it("toggles the split with Y, and Shift+Y does nothing", () => {
+    key("keydown", "KeyY", { key: "y" });
+    expect(useEditorStore.getState().splitView).toBe(true);
+    key("keydown", "KeyY", { key: "Y", shiftKey: true });
+    expect(useEditorStore.getState().splitView).toBe(true);
+    key("keydown", "KeyY", { key: "y" });
+    expect(useEditorStore.getState().splitView).toBe(false);
+  });
+
+  it("shows the whole photograph before while \\ is held, through auto-repeat", () => {
+    key("keydown", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    expect(useEditorStore.getState().previewOverride).not.toBeNull();
+    key("keydown", "Backslash", { key: "\\", repeat: true });
+    key("keydown", "Backslash", { key: "\\", repeat: true });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    // Another key's release leaves it.
+    key("keyup", "KeyY", { key: "y" });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    key("keyup", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState()).toMatchObject({ showOriginal: false, previewOverride: null });
+    // No latched state: a second press is again a held peek.
+    key("keydown", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    key("keyup", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(false);
+  });
+
+  it("ignores a lone auto-repeat without a first press", () => {
+    key("keydown", "Backslash", { key: "\\", repeat: true });
+    expect(useEditorStore.getState().showOriginal).toBe(false);
+  });
+
+  it("ends the peek when the window loses the focus", () => {
+    key("keydown", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    window.dispatchEvent(new Event("blur"));
+    expect(useEditorStore.getState().showOriginal).toBe(false);
+    // The key's later release changes nothing, the next press peeks again.
+    key("keyup", "Backslash", { key: "\\" });
+    key("keydown", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState().showOriginal).toBe(true);
+    key("keyup", "Backslash", { key: "\\" });
+  });
+
+  it("peeks over the split and returns to it on release", () => {
+    useSettingsStore.setState({ osPlatform: "macos" });
+    key("keydown", "KeyY", { key: "y" });
+    key("keydown", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: true });
+    key("keyup", "Backslash", { key: "\\" });
+    expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: false });
+  });
+});

@@ -5,7 +5,8 @@ import StudioWorkspace from "./StudioWorkspace";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import type { SelectedImage } from "../ui/AppProperties";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import type { AppSettings, SelectedImage } from "../ui/AppProperties";
 
 vi.mock("../panel/Editor", () => ({ default: () => null }));
 vi.mock("./StudioDevelop", () => ({
@@ -81,4 +82,41 @@ it("sends the open photo to Paste and Reset instead of the click event or old Li
   expect(reset).toHaveBeenCalledTimes(1);
   expect(paste).toHaveBeenCalledTimes(1);
   expect(copy).toHaveBeenCalledTimes(1);
+});
+
+it("has one Before/After button: it toggles the split and names both keys", () => {
+  useSettingsStore.setState({ appSettings: { keybinds: {} } as unknown as AppSettings, osPlatform: "macos" });
+  useEditorStore.setState({ splitView: false, showOriginal: false });
+  const noop = vi.fn();
+  render(
+    <StudioWorkspace
+      files={[]}
+      flagCounts={{ all: 0, picked: 0, rejected: 0, unflagged: 0 }}
+      transformWrapperRef={{ current: null }}
+      onSelect={noop}
+      onFilmSelect={noop}
+      onOpen={noop}
+      onNavigate={noop}
+      onBack={noop}
+      onRate={noop}
+      onContextMenu={noop}
+      onEditorContextMenu={noop}
+      onCopy={noop}
+      onPaste={noop}
+      onReset={noop}
+      onZoom={noop}
+      requestThumbnails={noop}
+      settings={null}
+      onSettings={noop}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "Before" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Split" })).toBeNull();
+  const button = screen.getByRole("button", { name: "Before/After" });
+  expect(button.title).toBe("Before/After (Y) · hold \\ for the whole photo before");
+  fireEvent.click(button);
+  expect(useEditorStore.getState().splitView).toBe(true);
+  expect(button.getAttribute("aria-pressed")).toBe("true");
+  fireEvent.click(button);
+  expect(useEditorStore.getState().splitView).toBe(false);
 });

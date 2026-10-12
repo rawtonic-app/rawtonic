@@ -131,19 +131,19 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'view',
   },
   {
-    action: 'show_original',
-    description: 'settings.keybinds.actions.show_original',
-    // Y in Capture One, backslash in Lightroom; B is the brush.
+    // Before/After: the split with a movable divider (Capture One's split,
+    // on Lightroom's before/after key Y). One before/after tool, no modes.
+    action: 'toggle_split_view',
+    description: 'settings.keybinds.actions.toggle_split_view',
     defaultCombo: ['KeyY'],
-    aliasCombos: [['Backslash']],
     section: 'view',
   },
   {
-    // Before/after split with a movable divider (Capture One's split;
-    // Lightroom's split is Shift+Y, Y here is the quick original toggle).
-    action: 'toggle_split_view',
-    description: 'settings.keybinds.actions.toggle_split_view',
-    defaultCombo: ['shift', 'KeyY'],
+    // Held down: the whole photograph before, until the key is released
+    // (Lightroom's backslash). Works with and without the split.
+    action: 'show_original',
+    description: 'settings.keybinds.actions.show_original',
+    defaultCombo: ['Backslash'],
     section: 'view',
   },
   {

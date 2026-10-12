@@ -1552,8 +1552,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
       // The split's divider: a place in the viewer, not on the photograph,
       // so it stays where it was put while panning and zooming.
-      const { splitView, splitPosition } = useEditorStore.getState();
-      const split = splitView && !state.isCropping ? splitScreenX(currentRect, splitPosition, dpr) : null;
+      // A held before peek (showOriginal) covers both sides with the before.
+      const { splitView, splitPosition, showOriginal: peeking } = useEditorStore.getState();
+      const split = splitView && !state.isCropping && !peeking ? splitScreenX(currentRect, splitPosition, dpr) : null;
 
       const currentTransform = `${windowWidth},${windowHeight},${screenX},${screenY},${screenW},${screenH},${clipX},${clipY},${clipW},${clipH},${state.bgPrimary?.join(',')},${state.bgSecondary?.join(',')},${cropRect?.join(',')},${state.cropRotation},${holding},${state.isCropping},${split}`;
 
@@ -1608,7 +1609,13 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     }
     window.addEventListener('resize', scheduleSync);
     const unsubscribeSplit = useEditorStore.subscribe((editor, previous) => {
-      if (editor.splitView !== previous.splitView || editor.splitPosition !== previous.splitPosition) scheduleSync();
+      if (
+        editor.splitView !== previous.splitView ||
+        editor.splitPosition !== previous.splitPosition ||
+        editor.showOriginal !== previous.showOriginal
+      ) {
+        scheduleSync();
+      }
     });
 
     return () => {
