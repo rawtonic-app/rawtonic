@@ -17,6 +17,8 @@ mod app_settings;
 mod app_state;
 mod apple_raw;
 mod auto_white_balance;
+#[cfg(any(target_os = "linux", test))]
+mod browser_preview_transport;
 mod bw_auto;
 mod cache_utils;
 mod camera_profile;
@@ -130,6 +132,12 @@ pub fn run() {
 
     #[cfg(target_os = "linux")]
     {
+        builder = builder.register_asynchronous_uri_scheme_protocol(
+            "rawtonic-preview",
+            |_context, request, responder| {
+                browser_preview_transport::serve(request, responder);
+            },
+        );
         if !is_headless {
             builder = builder.plugin(tauri_plugin_wayland_nvidia_quirk::init());
         }

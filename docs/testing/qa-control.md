@@ -13,6 +13,15 @@ For latency runs add `VITE_RAWTONIC_PERF=1` and `performance-profiling`. Without
 
 Run it against disposable sessions and a backed-up app configuration, as for every native QA run.
 
+Linux profiling builds can compare preview transports without rebuilding:
+`RAWTONIC_PREVIEW_TRANSPORT=bytes` keeps binary replies, `uri-reply` sends
+large interactive JPEGs through the image protocol with a normal command reply,
+and the unset default delivers their small frame IDs through a Tauri channel.
+Use the same build and restored recipe for each run. Join `preview_reply_ready`
+and frontend roundtrip records by `sequence`; image availability is recorded
+separately by `browser_preview_load`. A quicker frame ID reply alone does not
+prove faster image display or pointer-to-photon latency.
+
 ## Protocol
 
 One JSON object per line: `{"id":1,"method":"…","params":{…}}` → `{"id":1,"result":…}` or `{"id":1,"error":"…"}`. Coordinates are CSS pixels from the webview's top left (the borderless window's content).

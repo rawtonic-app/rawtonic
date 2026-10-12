@@ -1614,6 +1614,8 @@ fn render_split_before_blocking(
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub(crate) async fn apply_adjustments(
+    preview_channel: Option<tauri::ipc::JavaScriptChannelId>,
+    webview: tauri::Webview,
     js_adjustments: serde_json::Value,
     is_interactive: bool,
     target_resolution: Option<u32>,
@@ -1624,8 +1626,11 @@ pub(crate) async fn apply_adjustments(
     sequence: Option<u64>,
     mask_overlay: Option<crate::app_state::MaskOverlayRequest>,
     crop_edit: Option<bool>,
+    browser_preview_uri: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<Response, String> {
+    let preview_channel: Option<tauri::ipc::Channel<Response>> =
+        preview_channel.map(|id| id.channel_on(webview));
     #[cfg(feature = "performance-profiling")]
     log::info!(
         "[PERF] {}",
@@ -1662,7 +1667,49 @@ pub(crate) async fn apply_adjustments(
     }
 
     match rx.await {
-        Ok(Ok(bytes)) => Ok(Response::new(bytes)),
+        Ok(Ok(bytes)) => {
+            #[cfg(target_os = "linux")]
+            let use_uri = is_interactive && browser_preview_uri.unwrap_or(false);
+            #[cfg(all(target_os = "linux", feature = "performance-profiling"))]
+            let use_uri =
+                use_uri && std::env::var("RAWTONIC_PREVIEW_TRANSPORT").as_deref() != Ok("bytes");
+            #[cfg(target_os = "linux")]
+            let bytes = if use_uri {
+                crate::browser_preview_transport::interactive_reply(bytes)
+            } else {
+                bytes
+            };
+            #[cfg(not(target_os = "linux"))]
+            let _ = browser_preview_uri;
+            #[cfg(feature = "performance-profiling")]
+            log::info!(
+                "[PERF] {}",
+                serde_json::json!({
+                    "stage": "preview_reply_ready", "epoch_ms": crate::performance::epoch_ms(),
+                    "sequence": sequence, "bytes": bytes.len(), "interactive": is_interactive
+                })
+            );
+            #[cfg(target_os = "linux")]
+            {
+                #[cfg(not(feature = "performance-profiling"))]
+                let use_channel = true;
+                #[cfg(feature = "performance-profiling")]
+                let use_channel =
+                    std::env::var("RAWTONIC_PREVIEW_TRANSPORT").as_deref() != Ok("uri-reply");
+                // Only the tiny URI packet uses direct channel delivery.
+                // Large binary channel messages would incur another fetch.
+                if use_channel
+                    && bytes.starts_with(b"JPEG_URI___")
+                    && let Some(channel) = preview_channel
+                    && channel.send(Response::new(bytes.clone())).is_ok()
+                {
+                    return Ok(Response::new(Vec::new()));
+                }
+            }
+            #[cfg(not(target_os = "linux"))]
+            let _ = preview_channel;
+            Ok(Response::new(bytes))
+        }
         Ok(Err(error)) => Err(error),
         Err(_) => Err("Superseded or worker failed".to_string()),
     }

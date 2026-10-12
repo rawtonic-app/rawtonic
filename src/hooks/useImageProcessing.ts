@@ -24,6 +24,9 @@ import { toastAiError } from '../utils/aiErrors';
 const PREVIEW_RENDER_FAILED = 'Preview rendering failed';
 import { registerLiveMaskRenderer } from '../utils/liveMaskRender';
 import { frameDrawnMasks } from '../utils/maskGeometry';
+import { interactivePreview } from '../utils/interactivePreview';
+import { previewBuffer } from '../utils/previewBuffer';
+import { useOsPlatform } from './useOsPlatform';
 
 interface PreviewRequest {
   path: string;
@@ -58,6 +61,7 @@ export function useImageProcessing(
   },
 ) {
   const { previewJobIdRef, latestRenderedJobIdRef, currentResRef } = renderRefs;
+  const os = useOsPlatform();
 
   const selectedImage = useEditorStore((state) => state.selectedImage);
   const adjustments = useEditorStore((state) => state.adjustments);
@@ -228,7 +232,7 @@ export function useImageProcessing(
       const performanceStart = performanceDiagnosticsEnabled ? performance.now() : 0;
 
       try {
-        const buffer: ArrayBuffer = await invoke(Invokes.ApplyAdjustments, {
+        const buffer: ArrayBuffer = await previewBuffer(Invokes.ApplyAdjustments, {
           jsAdjustments: payload,
           isInteractive: dragging,
           targetResolution: targetRes || null,
@@ -240,7 +244,10 @@ export function useImageProcessing(
           // Drawn by the native display over this frame (mask layers only).
           maskOverlay: cropEdit ? null : useEditorStore.getState().nativeMaskOverlay,
           cropEdit,
-        });
+          // Large Linux patches go directly to the image loader. Small
+          // frames, final previews and other platforms retain binary replies.
+          browserPreviewUri: import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0',
+        }, os === 'linux' && dragging && import.meta.env.VITE_RAWTONIC_PREVIEW_URI !== '0');
         const returnedAt = performanceDiagnosticsEnabled ? performance.now() : 0;
         if (performanceDiagnosticsEnabled) {
           const performanceEnd = performance.now();
@@ -251,6 +258,7 @@ export function useImageProcessing(
               ? 'preview_interactive_roundtrip'
               : 'preview_final_roundtrip';
           reportPerformance(stage, {
+            sequence: PREVIEW_SEQUENCE_BASE + jobId,
             ms: performanceEnd - performanceStart,
             start_epoch_ms: epochOf(performanceStart),
             end_epoch_ms: epochOf(performanceEnd),
@@ -286,7 +294,7 @@ export function useImageProcessing(
           nativeDisplayRef.current = prefix === 'WGPU_RENDER';
           if (prefix === 'WGPU_RENDER') {
             setEditor((state) => {
-              if (state.interactivePatch && state.interactivePatch.url) URL.revokeObjectURL(state.interactivePatch.url);
+              if (state.interactivePatch?.url.startsWith('blob:')) URL.revokeObjectURL(state.interactivePatch.url);
               return { interactivePatch: null, nativeCropFrame: cropEdit };
             });
             // A finished frame may have a new framing, resolution or source
@@ -297,31 +305,13 @@ export function useImageProcessing(
           }
 
           if (dragging) {
-            const view = new DataView(buffer);
-            const patchX = view.getUint32(0, true);
-            const patchY = view.getUint32(4, true);
-            const patchW = view.getUint32(8, true);
-            const patchH = view.getUint32(12, true);
-            const fullW = view.getUint32(16, true);
-            const fullH = view.getUint32(20, true);
-
-            const imageBuffer = buffer.slice(24);
-            const blob = new Blob([imageBuffer], { type: 'image/jpeg' });
-            const url = URL.createObjectURL(blob);
-            noteBrowserPreview(url, returnedAt, inputAt, jobId);
+            const patch = interactivePreview(buffer);
+            noteBrowserPreview(patch.url, returnedAt, inputAt, jobId);
 
             setEditor((state) => {
               const previousUrl = state.interactivePatch?.url;
-              if (previousUrl) setTimeout(() => URL.revokeObjectURL(previousUrl), 100);
-              return {
-                interactivePatch: {
-                  url,
-                  normX: patchX / fullW,
-                  normY: patchY / fullH,
-                  normW: patchW / fullW,
-                  normH: patchH / fullH,
-                },
-              };
+              if (previousUrl?.startsWith('blob:')) setTimeout(() => URL.revokeObjectURL(previousUrl), 100);
+              return { interactivePatch: patch };
             });
           } else {
             const blob = new Blob([buffer], { type: 'image/jpeg' });
@@ -347,7 +337,7 @@ export function useImageProcessing(
 
             setEditor((state) => {
               const oldUrl = state.interactivePatch?.url;
-              if (oldUrl) {
+              if (oldUrl?.startsWith('blob:')) {
                 setTimeout(() => URL.revokeObjectURL(oldUrl), 500);
               }
               return { interactivePatch: null };
@@ -365,13 +355,13 @@ export function useImageProcessing(
         }
         if (!dragging) {
           setEditor((state) => {
-            if (state.interactivePatch && state.interactivePatch.url) URL.revokeObjectURL(state.interactivePatch.url);
+            if (state.interactivePatch?.url.startsWith('blob:')) URL.revokeObjectURL(state.interactivePatch.url);
             return { interactivePatch: null };
           });
         }
       }
     },
-    [selectedImage?.path, calculateROI, isWaveformVisible, setEditor, previewJobIdRef, latestRenderedJobIdRef, currentResRef],
+    [os, selectedImage?.path, calculateROI, isWaveformVisible, setEditor, previewJobIdRef, latestRenderedJobIdRef, currentResRef],
   );
 
   const executeRef = useRef(executeApplyAdjustments);
