@@ -60,7 +60,7 @@ fn fit(depth: &DepthSurface, camera: Camera, x: u32, y: u32) -> [f32; 4] {
     ]
 }
 
-pub(super) fn texture(depth: &DepthSurface, camera: Camera) -> Surface {
+pub(super) fn scene_texture(depth: &DepthSurface, camera: Camera) -> Surface {
     let (w, h) = depth.image.dimensions();
     let mut pixels = vec![[0.; 4]; (w * h) as usize];
     pixels
@@ -97,10 +97,11 @@ pub(super) fn texture(depth: &DepthSurface, camera: Camera) -> Surface {
             [0., 0., center[2], 0.]
         };
     });
-    let base = ImageBuffer::from_raw(w, h, pixels.into_iter().flatten().collect()).unwrap();
-    if depth.faces.is_empty() {
-        return base;
-    }
+    ImageBuffer::from_raw(w, h, pixels.into_iter().flatten().collect()).unwrap()
+}
+
+pub(super) fn refine_faces(depth: &DepthSurface, camera: Camera, base: &Surface) -> Surface {
+    let (w, h) = base.dimensions();
     let scale = (1024. / w.max(h) as f32).clamp(1., 2.);
     let (w, h) = (
         (w as f32 * scale).round() as u32,
@@ -108,7 +109,7 @@ pub(super) fn texture(depth: &DepthSurface, camera: Camera) -> Surface {
     );
     let mut output = ImageBuffer::from_fn(w, h, |x, y| {
         Rgba(sample(
-            &base,
+            base,
             [(x as f32 + 0.5) / w as f32, (y as f32 + 0.5) / h as f32],
         ))
     });
@@ -119,7 +120,7 @@ pub(super) fn texture(depth: &DepthSurface, camera: Camera) -> Surface {
             .iter()
             .enumerate()
             .filter(|(i, p)| p[3] > 0.8 && !OVAL.contains(i))
-            .map(|(_, p)| (sample(&base, [p[0], p[1]])[2].recip(), p[2]))
+            .map(|(_, p)| (sample(base, [p[0], p[1]])[2].recip(), p[2]))
             .collect();
         if anchors.len() < 20 {
             continue;
@@ -235,7 +236,7 @@ pub(super) fn texture(depth: &DepthSurface, camera: Camera) -> Surface {
                         inverse,
                         1.,
                     ];
-                    let prior = sample(&base, uv);
+                    let prior = sample(base, uv);
                     output.put_pixel(
                         x,
                         y,
@@ -295,7 +296,7 @@ mod tests {
                     faces: vec![],
                     refined: true,
                 };
-                let output = texture(&depth, c);
+                let output = crate::relight::surface_texture(&depth);
                 for y in 0..h {
                     for x in 0..w {
                         let expected = [
@@ -350,15 +351,12 @@ mod tests {
         let c = camera();
         let face = super::super::test_face_geometry();
         let render = |code| {
-            texture(
-                &DepthSurface {
-                    camera: Some(c),
-                    image: ImageBuffer::from_pixel(128, 128, image::Luma([code])),
-                    faces: vec![face.clone()],
-                    refined: true,
-                },
-                c,
-            )
+            crate::relight::surface_texture(&DepthSurface {
+                camera: Some(c),
+                image: ImageBuffer::from_pixel(128, 128, image::Luma([code])),
+                faces: vec![face.clone()],
+                refined: true,
+            })
         };
         let near = render(60000);
         let far = render(5000);
@@ -380,7 +378,7 @@ mod tests {
             faces: vec![face.clone()],
             refined: true,
         };
-        let out = texture(&input, c);
+        let out = crate::relight::surface_texture(&input);
         let at = |i: usize| sample(&out, [face[i][0], face[i][1]]);
         assert!(at(1)[2] > at(50)[2] && at(1)[2] > at(280)[2]);
         assert!(at(1)[3] > 0.99);

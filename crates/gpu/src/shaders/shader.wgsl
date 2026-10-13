@@ -270,6 +270,7 @@ struct AllAdjustments {
 @group(0) @binding(17) var nr_blur_texture: texture_2d<f32>;
 @group(0) @binding(18) var relight_depth_texture: texture_2d<f32>;
 @group(0) @binding(19) var relight_camera_texture: texture_2d<f32>;
+@group(0) @binding(20) var relight_scene_texture: texture_2d<f32>;
 
 @group(0) @binding(10) var flare_texture: texture_2d<f32>;
 @group(0) @binding(11) var flare_sampler: sampler;
@@ -4354,25 +4355,30 @@ fn relight_skin(normal: vec3<f32>, light: vec3<f32>, view: vec3<f32>, softness: 
     return vec2<f32>(1.0 - fresnel, reflected);
 }
 
-fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
+struct RelightEnergy {
+    diffuse: vec3<f32>,
+    reflected: vec3<f32>,
+    shadow_ev: f32,
+    has_light: bool,
+}
+
+fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, dims: vec2<f32>, scene_only: bool) -> RelightEnergy {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
-    let camera_mode = adjustments.global.relight_geometry.w > 0.5;
+    let camera_mode = scene_only || adjustments.global.relight_geometry.w > 0.5;
     let strength = adjustments.global.relight_surface.x;
-    let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
+    let has_depth = scene_only || any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
     let camera_lighting = has_depth && camera_mode;
     var world_position = vec3<f32>(0.0);
     var view = vec3<f32>(0.0, 0.0, 1.0);
-    let surface_lighting = has_depth && adjustments.global.relight_surface.z > 0.5;
+    let surface_lighting = scene_only || has_depth && adjustments.global.relight_surface.z > 0.5;
     var depth_value = 0.0;
     var skin = 0.0;
     // Height and its derivatives must use the same physical scale.
     let height_scale = adjustments.global.relight_surface.x * 0.25;
     if (has_depth) {
-        var surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
-        if (camera_lighting) { surface = relight_camera_sample(uv); }
         let slope = surface.xy * min(dims.x, dims.y) / dims;
         depth_value = surface.z;
-        if (surface_lighting) { skin = smoothstep(0.5, 1.0, surface.a) * adjustments.global.relight_surface.w; }
+        if (surface_lighting && !scene_only) { skin = smoothstep(0.5, 1.0, surface.a) * adjustments.global.relight_surface.w; }
         normal = normalize(vec3<f32>(-slope * height_scale, 1.0));
         if (camera_lighting) {
             world_position = relight_position(uv, surface.z, strength);
@@ -4473,7 +4479,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
                 let material = relight_skin(normal, direction, view, shape.z, skin);
                 response *= material.x;
                 specular = material.y;
-                if (response > 0.0 && settings.z > 0.0) {
+                if (!scene_only && response > 0.0 && settings.z > 0.0) {
                     var visibility = 1.0;
                     if (camera_lighting) {
                         visibility = relight_camera_visibility(uv, world_position, direction, reach, strength, shape.z);
@@ -4493,6 +4499,62 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         if (!surface_lighting) {
             shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
         }
+    }
+    return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light);
+}
+
+fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
+    let camera_mode = adjustments.global.relight_geometry.w > 0.5;
+    let strength = adjustments.global.relight_surface.x;
+    let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
+    let surface_lighting = has_depth && adjustments.global.relight_surface.z > 0.5;
+    var surface = vec4<f32>(0.0);
+    if (has_depth) {
+        if (camera_mode) { surface = relight_camera_sample(uv); }
+        else { surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0); }
+    }
+    var confidence = 0.0;
+    var planes: array<vec4<f32>, 4>;
+    var weights: array<f32, 4>;
+    if (camera_mode && has_depth && strength > 0.0 && surface.a < 0.2) {
+        // Tangent planes coincide on a continuous planar surface. Where they
+        // disagree, interpolate incident light, never an invented wall joining
+        // disconnected depths. Use the original scene grid, before face-atlas
+        // upsampling can blend those depths irreversibly.
+        let size = vec2<i32>(textureDimensions(relight_scene_texture));
+        let pixel = clamp(uv * vec2<f32>(size) - vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(size - vec2<i32>(1)));
+        let a = vec2<i32>(floor(pixel));
+        let b = min(a + vec2<i32>(1), size - vec2<i32>(1));
+        let f = fract(pixel);
+        let coords = array<vec2<i32>, 4>(a, vec2<i32>(b.x, a.y), vec2<i32>(a.x, b.y), b);
+        weights = array<f32, 4>((1.0-f.x)*(1.0-f.y), f.x*(1.0-f.y), (1.0-f.x)*f.y, f.x*f.y);
+        var scene_surface = vec4<f32>(0.0);
+        var low = 1e10;
+        var high = 0.0;
+        for (var j = 0u; j < 4u; j++) {
+            let tap = textureLoad(relight_scene_texture, coords[j], 0);
+            scene_surface += weights[j] * tap;
+            let offset = uv - (vec2<f32>(coords[j]) + vec2<f32>(0.5)) / vec2<f32>(size);
+            let inverse = max(tap.z + dot(tap.xy, offset), tap.z * 0.1);
+            planes[j] = vec4<f32>(tap.xy, inverse, 0.0);
+            low = min(low, inverse);
+            high = max(high, inverse);
+        }
+        confidence = smoothstep(0.005, 0.025, (high-low) / max(surface.z, 0.000001)) * (1.0 - smoothstep(0.0, 0.2, surface.a));
+        let face_weight = smoothstep(0.0, 0.2, surface.a);
+        surface = vec4<f32>(mix(scene_surface.xyz, surface.xyz, face_weight), surface.a);
+    }
+    let energy = relight_energy(surface, uv, dims, false);
+    var light_gain = energy.diffuse;
+    let reflected_light = energy.reflected;
+    let shadow_ev = energy.shadow_ev;
+    let has_light = energy.has_light;
+    if (confidence > 0.0 && has_light) {
+        var separated = vec3<f32>(0.0);
+        for (var j = 0u; j < 4u; j++) {
+            separated += weights[j] * relight_energy(planes[j], uv, dims, true).diffuse;
+        }
+        light_gain = mix(light_gain, separated, confidence);
     }
     // Multiplicative illumination preserves photographic texture and black;
     // accumulate lights commutatively so reordering does not change the result.

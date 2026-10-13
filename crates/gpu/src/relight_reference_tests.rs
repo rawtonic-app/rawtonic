@@ -18,92 +18,104 @@ fn relight_camera_plane_precision() {
     let texture = create_input_texture(&context.device, &context.queue, &image, SIZE).unwrap();
     let view = texture.create_view(&Default::default());
     let mut failures = Vec::new();
-    for resolution in [64, 192] {
-        let mut png = std::io::Cursor::new(Vec::new());
-        DynamicImage::ImageLuma16(ImageBuffer::from_fn(resolution, resolution, |x, y| {
-            let q = 1.03 + 0.02 * (x as f32 + 0.5) / resolution as f32
-                - 0.03 * (y as f32 + 0.5) / resolution as f32;
-            image::Luma([((q - 0.8) / 0.4 * 65535.).round() as u16])
-        }))
-        .write_to(&mut png, image::ImageFormat::Png)
-        .unwrap();
-        let data = base64::engine::general_purpose::STANDARD.encode(png.into_inner());
-        for scale in [0.1f32, 0.4] {
-            for elevation in [5f32, 25.] {
-                for softness in [0f32, 0.2] {
-                    let mut recipe = json!({"relightLights":[{"pattern":"blinds","intensity":25,"color":"#ffffff","rotation":0,"patternRotation":31,"scale":scale*100.,"softness":softness*100.,"elevation":elevation,"diffusion":0,"shadows":100}],"relightOriginalLight":0,"relightDepthAmount":100,"relightSkinReflections":0});
-                    recipe["relightDepth"] = json!({"data":data,"version":4,"geometry":rawtonic_engine::relight::geometry(&recipe),"camera":{"fx":1.2,"fy":1.2,"cx":0.5,"cy":0.5,"inverseMin":0.8,"inverseMax":1.2,"reference":1.0}});
-                    let adjustments = get_all_adjustments_from_json(&recipe, false, Some(0));
-                    let depth =
-                        rawtonic_engine::relight::depth(adjustments.global.relight_depth).unwrap();
-                    // Deliberately retain the original CPU surface; quantizing
-                    // this reference would hide the storage error under test.
-                    let surface = rawtonic_engine::relight::surface_texture(&depth);
-                    let (pixels, ..) = processor
-                        .run(
-                            &view,
-                            SIZE,
-                            SIZE,
-                            RenderRequest {
-                                adjustments,
-                                mask_bitmaps: &[],
-                                lut: None,
-                                roi: None,
-                            },
-                            false,
-                            RenderOutputPrecision::EightBit,
-                        )
-                        .unwrap();
-                    let RenderedPixels::U8(pixels) = pixels else {
-                        unreachable!()
+    for curved in [false, true] {
+        for resolution in [64, 192] {
+            let mut png = std::io::Cursor::new(Vec::new());
+            DynamicImage::ImageLuma16(ImageBuffer::from_fn(resolution, resolution, |x, y| {
+                let u = (x as f32 + 0.5) / resolution as f32;
+                let v = (y as f32 + 0.5) / resolution as f32;
+                let q = 1.03 + 0.02 * u - 0.03 * v
+                    + if curved {
+                        0.16 * (u - 0.5).powi(2) + 0.08 * (v - 0.5).powi(2)
+                    } else {
+                        0.
                     };
-                    let camera = depth.camera.unwrap();
-                    let (e, r) = elevation.to_radians().sin_cos();
-                    let (s, c) = 31f32.to_radians().sin_cos();
-                    let edge = (0.002 + softness * 0.22).max(1. / (SIZE as f32 * scale));
-                    let mut errors = Vec::new();
-                    for y in 0..SIZE {
-                        for x in 0..SIZE {
-                            let uv = [x as f32 / SIZE as f32, y as f32 / SIZE as f32];
-                            let p = sample(&surface, uv);
-                            let world = camera.position(uv, p[2].recip(), 1.);
-                            // Intersect the directional ray with reference z=0.
-                            let py = (-s * world[0] + c * (world[1] - r / e * world[2])) / scale;
-                            let cell = (py - py.floor() - 0.5).abs();
-                            let mask = 1. - smooth(0.23 - edge, 0.23 + edge, cell);
-                            let n = [
-                                -camera.fx * p[0],
-                                -camera.fy * p[1],
-                                p[2] - p[0] * (uv[0] - 0.5) - p[1] * (uv[1] - 0.5),
-                            ];
-                            let response = ((n[1] * r + n[2] * e)
-                                / n.iter().map(|a| a * a).sum::<f32>().sqrt())
-                            .max(0.);
-                            let linear =
-                                ((0.5f32 + 0.055) / 1.055).powf(2.4) * 0.75 * mask * response;
-                            let expected = if linear <= 0.0031308 {
-                                linear * 12.92
-                            } else {
-                                1.055 * linear.powf(1. / 2.4) - 0.055
-                            };
-                            errors.push(
-                                (pixels[((y * SIZE + x) * 4) as usize] as f32
-                                    - (expected * 255.).round())
-                                .abs(),
-                            );
+                image::Luma([((q - 0.8) / 0.4 * 65535.).round() as u16])
+            }))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+            let data = base64::engine::general_purpose::STANDARD.encode(png.into_inner());
+            for scale in [0.1f32, 0.4] {
+                for elevation in [5f32, 25.] {
+                    for softness in [0f32, 0.2] {
+                        let mut recipe = json!({"relightLights":[{"pattern":"blinds","intensity":25,"color":"#ffffff","rotation":0,"patternRotation":31,"scale":scale*100.,"softness":softness*100.,"elevation":elevation,"diffusion":0,"shadows":100}],"relightOriginalLight":0,"relightDepthAmount":100,"relightSkinReflections":0});
+                        recipe["relightDepth"] = json!({"data":data,"version":4,"geometry":rawtonic_engine::relight::geometry(&recipe),"camera":{"fx":1.2,"fy":1.2,"cx":0.5,"cy":0.5,"inverseMin":0.8,"inverseMax":1.2,"reference":1.0}});
+                        let adjustments = get_all_adjustments_from_json(&recipe, false, Some(0));
+                        let depth =
+                            rawtonic_engine::relight::depth(adjustments.global.relight_depth)
+                                .unwrap();
+                        // Deliberately retain the original CPU surface; quantizing
+                        // this reference would hide the storage error under test.
+                        let surface = rawtonic_engine::relight::surface_texture(&depth);
+                        let (pixels, ..) = processor
+                            .run(
+                                &view,
+                                SIZE,
+                                SIZE,
+                                RenderRequest {
+                                    adjustments,
+                                    mask_bitmaps: &[],
+                                    lut: None,
+                                    roi: None,
+                                },
+                                false,
+                                RenderOutputPrecision::EightBit,
+                            )
+                            .unwrap();
+                        let RenderedPixels::U8(pixels) = pixels else {
+                            unreachable!()
+                        };
+                        let camera = depth.camera.unwrap();
+                        let (e, r) = elevation.to_radians().sin_cos();
+                        let (s, c) = 31f32.to_radians().sin_cos();
+                        let edge = (0.002 + softness * 0.22).max(1. / (SIZE as f32 * scale));
+                        let mut errors = Vec::new();
+                        for y in 0..SIZE {
+                            for x in 0..SIZE {
+                                let uv = [x as f32 / SIZE as f32, y as f32 / SIZE as f32];
+                                let p = sample(&surface, uv);
+                                let world = camera.position(uv, p[2].recip(), 1.);
+                                // Intersect the directional ray with reference z=0.
+                                let py =
+                                    (-s * world[0] + c * (world[1] - r / e * world[2])) / scale;
+                                let cell = (py - py.floor() - 0.5).abs();
+                                let mask = 1. - smooth(0.23 - edge, 0.23 + edge, cell);
+                                let n = [
+                                    -camera.fx * p[0],
+                                    -camera.fy * p[1],
+                                    p[2] - p[0] * (uv[0] - 0.5) - p[1] * (uv[1] - 0.5),
+                                ];
+                                let response = ((n[1] * r + n[2] * e)
+                                    / n.iter().map(|a| a * a).sum::<f32>().sqrt())
+                                .max(0.);
+                                let linear =
+                                    ((0.5f32 + 0.055) / 1.055).powf(2.4) * 0.75 * mask * response;
+                                let expected = if linear <= 0.0031308 {
+                                    linear * 12.92
+                                } else {
+                                    1.055 * linear.powf(1. / 2.4) - 0.055
+                                };
+                                errors.push(
+                                    (pixels[((y * SIZE + x) * 4) as usize] as f32
+                                        - (expected * 255.).round())
+                                    .abs(),
+                                );
+                            }
                         }
-                    }
-                    errors.sort_by(f32::total_cmp);
-                    let mean = errors.iter().sum::<f32>() / errors.len() as f32;
-                    let p99 = errors[errors.len() * 99 / 100];
-                    let max = errors.last().copied().unwrap();
-                    eprintln!(
-                        "camera precision resolution={resolution} scale={scale} elevation={elevation} softness={softness}: mean={mean:.4} p99={p99} max={max}"
-                    );
-                    // The renderer adds sub-LSB output dither; the independent
-                    // undithered reference may differ by one U8 level.
-                    if mean > 0.25 || max > 1. {
-                        failures.push((resolution, scale, elevation, softness, mean, p99, max));
+                        errors.sort_by(f32::total_cmp);
+                        let mean = errors.iter().sum::<f32>() / errors.len() as f32;
+                        let p99 = errors[errors.len() * 99 / 100];
+                        let max = errors.last().copied().unwrap();
+                        eprintln!(
+                            "camera precision curved={curved} resolution={resolution} scale={scale} elevation={elevation} softness={softness}: mean={mean:.4} p99={p99} max={max}"
+                        );
+                        // The renderer adds sub-LSB output dither; the independent
+                        // undithered reference may differ by one U8 level.
+                        if mean > 0.25 || max > 1. {
+                            failures.push((
+                                curved, resolution, scale, elevation, softness, mean, p99, max,
+                            ));
+                        }
                     }
                 }
             }
@@ -351,5 +363,169 @@ fn dense_reference_case(version: u64) {
     assert!(
         failures.is_empty(),
         "sparse shadows diverge from dense visibility: {failures:?}"
+    );
+}
+
+#[test]
+#[ignore = "native GPU: separate illumination across scene occlusion boundaries"]
+fn relight_camera_discontinuity_transport() {
+    let context = context();
+    const W: u32 = 384;
+    const H: u32 = 256;
+    let processor = GpuProcessor::new(context.clone(), W, H).unwrap();
+    let image = DynamicImage::ImageRgba32F(ImageBuffer::from_pixel(
+        W,
+        H,
+        image::Rgba([0.5, 0.5, 0.5, 1.]),
+    ));
+    let texture = create_input_texture(&context.device, &context.queue, &image, W).unwrap();
+    let view = texture.create_view(&Default::default());
+    let encode = |linear: f32| {
+        if linear <= 0.0031308 {
+            linear * 12.92 * 255.
+        } else {
+            (1.055 * linear.powf(1. / 2.4) - 0.055) * 255.
+        }
+    };
+    let incident = |u: f32, v: f32, q: f32, spot: bool| {
+        if spot {
+            let x = (u - 0.5) / q;
+            let y = (v - 0.5) / q;
+            let z = 0.6 + 1. / q - 1. / 3.2;
+            let distance2 = x * x + y * y + z * z;
+            return 0.36 / (distance2 + 0.01) * z / distance2.sqrt();
+        }
+        let (e, r) = 20f32.to_radians().sin_cos();
+        let (s, c) = 31f32.to_radians().sin_cos();
+        let x = (u - 0.5) / q;
+        let y = (v - 0.5) / q - r / e * (1. - 1. / q);
+        let phase = (-s * x + c * y) / 0.1;
+        let cell = (phase - phase.floor() - 0.5).abs();
+        let edge = 1. / (H as f32 * 0.1);
+        e * (1. - smooth(0.23 - edge, 0.23 + edge, cell))
+    };
+    let mut candidate_total = 0.;
+    let mut legacy_total = 0.;
+    let mut improved = 0;
+    let mut cases = 0;
+    for spot in [false, true] {
+        for with_face in [false, true] {
+            for degrees in [0f32, 23., 45., 79.] {
+                let (sin, cos) = degrees.to_radians().sin_cos();
+                for ratio in [1.15f32, 2., 3.] {
+                    let boundary = |u: f32, v: f32| (u - 0.5) * cos + (v - 0.5) * sin - 0.23 / 48.;
+                    let mut png = std::io::Cursor::new(Vec::new());
+                    DynamicImage::ImageLuma16(ImageBuffer::from_fn(48, 32, |x, y| {
+                        let q = if boundary((x as f32 + 0.5) / 48., (y as f32 + 0.5) / 32.) > 0. {
+                            ratio
+                        } else {
+                            1.
+                        };
+                        image::Luma([((q - 0.8) / 2.4 * 65535.).round() as u16])
+                    }))
+                    .write_to(&mut png, image::ImageFormat::Png)
+                    .unwrap();
+                    let mut recipe = json!({"relightLights":[{"pattern":"blinds","intensity":50,"color":"#ffffff","rotation":0,"patternRotation":31,"scale":10,"softness":0,"elevation":20,"diffusion":0,"shadows":100}],"relightOriginalLight":0,"relightDepthAmount":100,"relightSkinReflections":0,"relightDepth":{"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"version":4,"camera":{"fx":1,"fy":1,"cx":0.5,"cy":0.5,"inverseMin":0.8,"inverseMax":3.2,"reference":1}}});
+                    if spot {
+                        recipe["relightLights"][0]["type"] = json!("spot");
+                        recipe["relightLights"][0]["pattern"] = json!("none");
+                        recipe["relightLights"][0]["size"] = json!(200);
+                        recipe["relightLights"][0]["intensity"] = json!(20);
+                    }
+                    if with_face {
+                        let points: Vec<_> = rawtonic_engine::relight::test_face_geometry()
+                            .into_iter()
+                            .map(|mut p| {
+                                p[0] = 0.9 + (p[0] - 0.5) * 0.15;
+                                p[1] = 0.9 + (p[1] - 0.5) * 0.15;
+                                p[2] *= 0.15;
+                                p
+                            })
+                            .collect();
+                        recipe["relightDepth"]["faces"] = json!([points]);
+                    }
+                    recipe["relightDepth"]["geometry"] =
+                        rawtonic_engine::relight::geometry(&recipe);
+                    let adjustments = get_all_adjustments_from_json(&recipe, false, Some(0));
+                    let depth =
+                        rawtonic_engine::relight::depth(adjustments.global.relight_depth).unwrap();
+                    let surface = rawtonic_engine::relight::surface_texture(&depth);
+                    let (pixels, ..) = processor
+                        .run(
+                            &view,
+                            W,
+                            H,
+                            RenderRequest {
+                                adjustments,
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            false,
+                            RenderOutputPrecision::EightBit,
+                        )
+                        .unwrap();
+                    let RenderedPixels::U8(pixels) = pixels else {
+                        unreachable!()
+                    };
+                    let mut candidate = 0.;
+                    let mut legacy = 0.;
+                    let mut count = 0;
+                    let energy =
+                        ((0.5f32 + 0.055) / 1.055).powf(2.4) * if spot { 0.6 } else { 1.5 };
+                    for y in 0..H {
+                        for x in 0..W {
+                            let (u, v) = (x as f32 / W as f32, y as f32 / H as f32);
+                            if boundary(u, v).abs() > 2. / 32. {
+                                continue;
+                            }
+                            // Independent pixel coverage of the known opaque silhouette.
+                            // No estimated depth, filter weights or candidate slopes enter.
+                            let mut truth = 0.;
+                            for sy in 0..4 {
+                                for sx in 0..4 {
+                                    let su = u + ((sx as f32 + 0.5) / 4. - 0.5) / W as f32;
+                                    let sv = v + ((sy as f32 + 0.5) / 4. - 0.5) / H as f32;
+                                    let q = if boundary(su, sv) > 0. { ratio } else { 1. };
+                                    truth += incident(su, sv, q, spot) / 16.;
+                                }
+                            }
+                            let expected = encode(energy * truth);
+                            let mixed = sample(&surface, [u, v])[2];
+                            legacy +=
+                                (encode(energy * incident(u, v, mixed, spot)) - expected).abs();
+                            candidate +=
+                                (pixels[((y * W + x) * 4) as usize] as f32 - expected).abs();
+                            count += 1;
+                        }
+                    }
+                    candidate /= count as f32;
+                    legacy /= count as f32;
+                    eprintln!(
+                        "occlusion transport spot={spot} face={with_face} angle={degrees} ratio={ratio}: bilinear={legacy:.4} filtered={candidate:.4}"
+                    );
+                    if spot {
+                        // A sub-code-value bound includes the output dither. The
+                        // narrow stripe gain must not hide a spot-falloff regression.
+                        assert!(
+                            candidate <= legacy + 0.75,
+                            "spot regression: {legacy} -> {candidate}"
+                        );
+                    } else {
+                        candidate_total += candidate;
+                        legacy_total += legacy;
+                        cases += 1;
+                        if candidate < legacy {
+                            improved += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(improved, cases, "each hard-boundary reference must improve");
+    assert!(
+        candidate_total < legacy_total * 0.7,
+        "occlusion MAE: {legacy_total} -> {candidate_total}"
     );
 }

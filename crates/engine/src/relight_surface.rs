@@ -61,9 +61,26 @@ fn unit(v: [f32; 3]) -> [f32; 3] {
 }
 
 pub fn surface_texture(depth: &DepthSurface) -> Surface {
+    surface_textures(depth).0
+}
+
+/// Keep the coarse scene separate: resampling its depth into the face atlas
+/// would invent intermediate surfaces across an occlusion boundary.
+pub fn surface_textures(depth: &DepthSurface) -> (Surface, Option<Surface>) {
     if let Some(camera) = depth.camera {
-        return self::camera::texture(depth, camera);
+        let scene = self::camera::scene_texture(depth, camera);
+        if depth.faces.is_empty() {
+            return (scene, None);
+        }
+        return (
+            self::camera::refine_faces(depth, camera, &scene),
+            Some(scene),
+        );
     }
+    (legacy_texture(depth), None)
+}
+
+fn legacy_texture(depth: &DepthSurface) -> Surface {
     let (w, h) = depth.image.dimensions();
     let base = ImageBuffer::from_fn(w, h, |x, y| Rgba(surface_sample(&depth.image, x, y)));
     let base = if depth.refined {

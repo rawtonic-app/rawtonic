@@ -1682,6 +1682,7 @@ struct MaskTextureCache {
 struct RelightDepthViews {
     legacy: wgpu::TextureView,
     camera: wgpu::TextureView,
+    scene: wgpu::TextureView,
 }
 
 const MASK_CACHE_BYTES: usize = 256 * 1024 * 1024;
@@ -2525,6 +2526,16 @@ impl GpuProcessor {
             },
             count: None,
         });
+        bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 20,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
 
         bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
             binding: 9 + MAX_MASK_BINDINGS,
@@ -2902,6 +2913,7 @@ impl GpuProcessor {
             return Ok(RelightDepthViews {
                 legacy: self.dummy_blur_view.clone(),
                 camera: self.dummy_blur_view.clone(),
+                scene: self.dummy_blur_view.clone(),
             });
         }
         let depth = rawtonic_engine::relight::depth(key)
@@ -2910,7 +2922,7 @@ impl GpuProcessor {
         // half-float inverse-depth errors, so keep its entire surface in f32.
         // A separate unfilterable binding needs no optional GPU format feature
         // and preserves legacy texture filtering exactly.
-        let surface = rawtonic_engine::relight::surface_texture(&depth);
+        let (surface, scene) = rawtonic_engine::relight::surface_textures(&depth);
         let camera = depth.camera.is_some();
         let values: Vec<f16> = if camera {
             Vec::new()
@@ -2946,14 +2958,44 @@ impl GpuProcessor {
         );
         let view = texture.create_view(&Default::default());
         let views = if camera {
+            let scene = scene.map_or_else(
+                || view.clone(),
+                |scene| {
+                    self.context
+                        .device
+                        .create_texture_with_data(
+                            &self.context.queue,
+                            &wgpu::TextureDescriptor {
+                                label: Some("Relight scene surface"),
+                                size: wgpu::Extent3d {
+                                    width: scene.width(),
+                                    height: scene.height(),
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba32Float,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
+                            },
+                            wgpu::util::TextureDataOrder::MipMajor,
+                            bytemuck::cast_slice(scene.as_raw()),
+                        )
+                        .create_view(&Default::default())
+                },
+            );
             RelightDepthViews {
                 legacy: self.dummy_blur_view.clone(),
                 camera: view,
+                scene,
             }
         } else {
             RelightDepthViews {
                 legacy: view,
                 camera: self.dummy_blur_view.clone(),
+                scene: self.dummy_blur_view.clone(),
             }
         };
         *cache = Some((key, views.clone()));
@@ -4261,6 +4303,10 @@ impl GpuProcessor {
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 19,
                     resource: wgpu::BindingResource::TextureView(&relight_depth_view.camera),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 20,
+                    resource: wgpu::BindingResource::TextureView(&relight_depth_view.scene),
                 });
                 let use_flare = adjustments.global.flare_amount > 0.0;
                 bind_group_entries.push(wgpu::BindGroupEntry {
