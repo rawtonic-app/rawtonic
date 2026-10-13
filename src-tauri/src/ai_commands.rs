@@ -1007,7 +1007,7 @@ pub async fn generate_relight_depth(
             "data": data,
             "geometry": rawtonic_engine::relight::geometry(&js_adjustments),
             "faces": faces,
-            "version": 2,
+            "version": 3,
         }))
     })
     .await

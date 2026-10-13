@@ -6576,6 +6576,150 @@ fn relight_refined_surface_light_transport() {
 }
 
 #[test]
+#[ignore = "requires a GPU"]
+fn relight_face_reflections_follow_light() {
+    use base64::Engine as _;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 128, 128).unwrap();
+    let image = DynamicImage::ImageRgba32F(image::ImageBuffer::from_pixel(
+        128,
+        128,
+        image::Rgba([0., 0., 0., 1.]),
+    ));
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("black dielectric relight fixture"),
+                size: wgpu::Extent3d {
+                    width: 128,
+                    height: 128,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&to_rgba_f16(&image)),
+        )
+        .create_view(&Default::default());
+    let mut png = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageLuma16(image::ImageBuffer::from_fn(64, 64, |x, _| {
+        image::Luma([if x < 32 { 12000 } else { 50000 }])
+    }))
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let mut recipe = json!({"relightLights":[{"type":"sun","intensity":55,"color":"#ffffff","pattern":"none","rotation":90,"elevation":45,"diffusion":10,"softness":30,"shadows":0}],"relightOriginalLight":0,"relightDepthAmount":100});
+    recipe["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&recipe),"version":2});
+    let render = |recipe: &serde_json::Value, general: bool| {
+        processor
+            .force_general_pipeline
+            .store(general, Ordering::Relaxed);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                128,
+                128,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(recipe, false, Some(0)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U8(p) => p,
+            _ => unreachable!(),
+        }
+    };
+    recipe["relightDepth"]["faces"] = json!([rawtonic_engine::relight::test_face_geometry()]);
+    let old = render(&recipe, false);
+    assert!(old.as_chunks::<4>().0.iter().all(|p| p[..3] == [0, 0, 0]));
+    recipe["relightDepth"]["version"] = json!(3);
+    recipe["relightSkinReflections"] = json!(0);
+    assert_eq!(
+        old,
+        render(&recipe, false),
+        "zero preserves legacy appearance"
+    );
+    recipe["relightSkinReflections"] = json!(100);
+    let left = render(&recipe, false);
+    assert_eq!(
+        left,
+        render(&recipe, true),
+        "reflection preview/export parity"
+    );
+    let centroid = |pixels: &[u8]| {
+        let mut weight = 0.;
+        let mut xsum = 0.;
+        for (i, p) in pixels.as_chunks::<4>().0.iter().enumerate() {
+            weight += p[0] as f32;
+            xsum += (i % 128) as f32 * p[0] as f32;
+        }
+        assert!(
+            weight > 1000.,
+            "a black dielectric still reflects a white emitter"
+        );
+        xsum / weight
+    };
+    recipe["relightLights"][0]["rotation"] = json!(-90);
+    let right = render(&recipe, false);
+    println!(
+        "Reflection centroids: {} -> {}",
+        centroid(&left),
+        centroid(&right)
+    );
+    assert!(
+        centroid(&right) > centroid(&left) + 10.,
+        "highlight must move across the face"
+    );
+    for y in 0..128 {
+        for x in 0..128 {
+            if !(20..108).contains(&x) || !(10..118).contains(&y) {
+                assert_eq!(
+                    &right[(y * 128 + x) * 4..(y * 128 + x) * 4 + 3],
+                    &[0, 0, 0],
+                    "no invented background reflections"
+                );
+            }
+        }
+    }
+    recipe["relightLights"][0]["color"] = json!("#ff0000");
+    let red = render(&recipe, false);
+    assert!(red.as_chunks::<4>().0.iter().any(|p| p[0] > 10));
+    assert!(
+        red.as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[1] == 0 && p[2] == 0),
+        "reflections inherit emitter colour"
+    );
+    recipe["relightLights"][0]["pattern"] = json!("blinds");
+    recipe["relightLights"][0]["shadows"] = json!(100);
+    let patterned = render(&recipe, false);
+    assert!(
+        red.iter()
+            .zip(&patterned)
+            .any(|(a, b)| u16::from(*a) > u16::from(*b) + 5),
+        "gobo must occlude the reflection too"
+    );
+    recipe["relightDepth"]["faces"] = json!([]);
+    assert_eq!(
+        old,
+        render(&recipe, false),
+        "no face means no specular guess"
+    );
+}
+
+#[test]
 #[ignore = "manual real-photo render and timing; RELIGHT_PHOTO and RELIGHT_OUT containing depth16.png"]
 fn relight_real_photo_and_timing() {
     use base64::Engine as _;
@@ -6721,7 +6865,10 @@ fn relight_tiled_roi_matches_full_frame() {
         .collect();
     refined["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&refined),"version":2,"faces":[face]});
     refined["relightDepthAmount"] = json!(100);
-    for profile in [profile, refined] {
+    let mut reflective = refined.clone();
+    reflective["relightDepth"]["version"] = json!(3);
+    reflective["relightSkinReflections"] = json!(100);
+    for profile in [profile, refined, reflective] {
         for precision in [
             RenderOutputPrecision::EightBit,
             RenderOutputPrecision::SixteenBit,

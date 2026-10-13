@@ -2860,9 +2860,10 @@ pub struct GlobalAdjustments {
     /// Linear sRGB → the proofed space's linear RGB, and back.
     pub proof_matrix: GpuMat3,
     pub proof_inverse: GpuMat3,
-    /// Four projected lights, four aligned vec4s each (relight.rs).
+    /// Four projected lights, five aligned vec4s each (relight.rs).
     pub relight: [[f32; 4]; 20],
     pub relight_depth: [u32; 4],
+    /// Normal strength, original light, refined lighting flag, face reflection amount.
     pub relight_surface: [f32; 4],
 }
 
@@ -3844,7 +3845,21 @@ fn get_global_adjustments_from_json(
             } else {
                 0.
             },
-            0.,
+            (js_adjustments["relightSkinReflections"]
+                .as_f64()
+                .unwrap_or_else(|| {
+                    if js_adjustments["relightDepth"]["version"]
+                        .as_u64()
+                        .unwrap_or(0)
+                        >= 3
+                    {
+                        25.
+                    } else {
+                        0.
+                    }
+                })
+                .clamp(0., 100.)
+                / 100.) as f32,
         ],
     };
     if modern_grading(global.tonemapper_mode) && is_visible("color") {
@@ -5972,6 +5987,36 @@ mod raw_detail_default_tests {
 
 #[cfg(test)]
 mod editing_tool_tests {
+    #[test]
+    fn relight_reflections_preserve_old_recipes() {
+        let settings = |v: serde_json::Value| {
+            super::get_all_adjustments_from_json(&v, false, None)
+                .global
+                .relight_surface[3]
+        };
+        assert_eq!(settings(serde_json::json!({})), 0.);
+        assert_eq!(
+            settings(serde_json::json!({"relightDepth":{"version":2}})),
+            0.
+        );
+        assert_eq!(
+            settings(serde_json::json!({"relightDepth":{"version":3}})),
+            0.25
+        );
+        assert_eq!(
+            settings(serde_json::json!({"relightDepth":{"version":3},"relightSkinReflections":0})),
+            0.
+        );
+        assert_eq!(
+            settings(serde_json::json!({"relightSkinReflections":120})),
+            1.
+        );
+        assert_eq!(
+            settings(serde_json::json!({"relightSkinReflections":-10})),
+            0.
+        );
+    }
+
     use super::*;
     use serde_json::json;
 

@@ -4259,20 +4259,49 @@ fn relight_visibility(uv: vec2<f32>, height: f32, direction: vec3<f32>, reach: f
     return mix(1.0, visibility, smoothstep(0.99, 1.0, receiver));
 }
 
+// Dielectric skin surface: GGX distribution, separable Smith masking and
+// Schlick Fresnel (IOR 1.4 -> F0=1/36). This models an added light's reflection;
+// it does not estimate or remove the photograph's original specular highlights.
+// Return diffuse energy fraction and reflected radiance for unit illumination.
+fn relight_skin(normal: vec3<f32>, light: vec3<f32>, softness: f32, amount: f32) -> vec2<f32> {
+    let nl = max(dot(normal, light), 0.0);
+    let nv = max(normal.z, 0.0);
+    if (amount <= 0.0 || nl <= 0.0 || nv <= 0.0) { return vec2<f32>(1.0, 0.0); }
+    let half_vector = normalize(light + vec3<f32>(0.0, 0.0, 1.0));
+    let nh = max(dot(normal, half_vector), 0.0);
+    let vh = clamp(half_vector.z, 0.0, 1.0);
+    // Broaden the lobe for softer sources; the skin roughness is a modest
+    // default, not a recovered material parameter.
+    let roughness = 0.5 + 0.25 * softness;
+    let alpha2 = roughness * roughness * roughness * roughness;
+    let denominator = nh * nh * (alpha2 - 1.0) + 1.0;
+    let distribution = alpha2 / (3.14159265 * denominator * denominator);
+    let masking_v = 2.0 * nv / (nv + sqrt(alpha2 + (1.0 - alpha2) * nv * nv));
+    let masking_l = 2.0 * nl / (nl + sqrt(alpha2 + (1.0 - alpha2) * nl * nl));
+    let fresnel = (1.0 / 36.0 + (35.0 / 36.0) * pow(1.0 - vh, 5.0)) * amount;
+    // The diffuse lighting convention absorbs 1/pi; use the same incident
+    // energy here. N.L cancels the microfacet BRDF's denominator.
+    let reflected = 3.14159265 * fresnel * distribution * masking_v * masking_l / (4.0 * nv);
+    return vec2<f32>(1.0 - fresnel, reflected);
+}
+
 fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
     let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && adjustments.global.relight_surface.x > 0.0;
     let surface_lighting = has_depth && adjustments.global.relight_surface.z > 0.5;
     var depth_value = 0.0;
+    var skin = 0.0;
     // Height and its derivatives must use the same physical scale.
     let height_scale = adjustments.global.relight_surface.x * 0.25;
     if (has_depth) {
-        let surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0).rgb;
+        let surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
         let slope = surface.xy * min(dims.x, dims.y) / dims;
         depth_value = surface.z;
+        if (surface_lighting) { skin = smoothstep(0.5, 1.0, surface.a) * adjustments.global.relight_surface.w; }
         normal = normalize(vec3<f32>(-slope * height_scale, 1.0));
     }
     var light_gain = vec3<f32>(0.0);
+    var reflected_light = vec3<f32>(0.0);
     var shadow_ev = 0.0;
     var has_light = false;
     for (var i = 0u; i < 4u; i++) {
@@ -4313,6 +4342,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         let footprint = select(1.0, spot, placement.w > 0.5);
         var response = 1.0;
         var attenuation = 1.0;
+        var specular = 0.0;
         if (has_depth) {
             let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
             let spot_direction = normalize(vec3<f32>(-source_delta, sin(settings.w) + depth_value * 0.4));
@@ -4334,15 +4364,21 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
                 }
                 let wrap = shape.w * 0.2;
                 response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
+                let material = relight_skin(normal, direction, shape.z, skin);
+                response *= material.x;
+                specular = material.y;
                 if (response > 0.0 && settings.z > 0.0) {
                     let visibility = relight_visibility(uv, depth_value * height_scale, direction, reach, height_scale, shape.z, dims);
-                    response *= mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
+                    let shadow = mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
+                    response *= shadow;
+                    specular *= shadow;
                 }
             }
         }
         let transmission = select(mix(mask, 1.0, shape.w), mix(1.0, mask, settings.z), surface_lighting);
         let illumination = transmission * footprint * response * attenuation;
         light_gain += color.rgb * color.w * illumination;
+        reflected_light += color.rgb * color.w * transmission * footprint * attenuation * specular;
         if (!surface_lighting) {
             shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
         }
@@ -4355,7 +4391,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         // Already-rendered photos have no scene highlight headroom. Roll off
         // added light continuously, preserving texture instead of clipping it.
         let base = rgb * min(gain, vec3<f32>(1.0));
-        let extra = rgb * max(gain - vec3<f32>(1.0), vec3<f32>(0.0));
+        let extra = rgb * max(gain - vec3<f32>(1.0), vec3<f32>(0.0)) + reflected_light;
         let room = max(vec3<f32>(1.0) - base, vec3<f32>(0.00001));
         if (surface_lighting) {
             // One scale for the added RGB energy: per-channel rolloff would
@@ -4367,7 +4403,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         }
         return base + room * (vec3<f32>(1.0) - exp(-extra / room));
     }
-    return rgb * gain;
+    return rgb * gain + reflected_light;
 }
 
 fn apply_halation(

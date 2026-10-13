@@ -2518,6 +2518,7 @@
       "shadows": "그림자 농도",
       "showGuides": "조명 가이드 표시",
       "size": "조명 크기",
+      "skinReflections": "얼굴 반사광",
       "softness": "부드러움",
       "spot": "스포트라이트",
       "sun": "태양광",

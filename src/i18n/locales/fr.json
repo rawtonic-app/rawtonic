@@ -2657,6 +2657,7 @@
       "shadows": "Profondeur des ombres",
       "showGuides": "Afficher les repères de lumière",
       "size": "Taille de la lumière",
+      "skinReflections": "Reflets du visage",
       "softness": "Douceur",
       "spot": "Spot",
       "sun": "Soleil",

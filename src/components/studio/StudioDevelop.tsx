@@ -1717,12 +1717,14 @@ export default function StudioDevelop() {
                 ["relightLights", t("studio.relight.title")],
                 ["relightOriginalLight", t("studio.relight.originalLight")],
                 ["relightDepthAmount", t("studio.relight.depthAmount")],
+                ["relightSkinReflections", t("studio.relight.skinReflections")],
               ])}
               onReset={() =>
                 change({
                   relightLights: [],
                   relightDepth: undefined,
                   relightDepthAmount: 60,
+                  relightSkinReflections: undefined,
                   relightOriginalLight: 100,
                 })
               }

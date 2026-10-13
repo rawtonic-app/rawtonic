@@ -66,3 +66,11 @@ Facial geometry remains photo-specific and is excluded from copy/paste.
 No model inference or network request is needed to reopen or export
 a recipe containing a depth map. The feature does not synthesize photo pixels
 and does not add an AI patch.
+
+Analysis version 3 keeps the same depth and facial geometry and defaults
+`relightSkinReflections` (0–100) to 25; older analyses default to zero.
+An explicit value overrides either default. This global, copyable setting adds
+view-dependent dielectric reflections only within confident facial coverage,
+using cached normals, a fixed skin-like roughness and the light's colour.
+It does not recover skin/material parameters or remove existing highlights.
+Zero, missing faces, disabled depth and stale geometry suppress the reflection.

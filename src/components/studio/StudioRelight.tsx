@@ -319,6 +319,22 @@ export default function StudioRelight({
             {slider("y", -100, 200)}
             {light.type === "spot" && slider("size", 5, 200)}
             {slider("rotation", -180, 180)}
+            {depthValid && !!depth.faces?.length && (
+              <AdjustmentControl
+                label={t("studio.relight.skinReflections")}
+                value={
+                  adjustments.relightSkinReflections ??
+                  ((depth.version ?? 0) >= 3 ? 25 : 0)
+                }
+                min={0}
+                max={100}
+                disabled={disabled}
+                onChange={(value) =>
+                  setAdjustments({ relightSkinReflections: value })
+                }
+                onInteraction={onInteraction}
+              />
+            )}
             {depthValid &&
               (light.type === "sun"
                 ? slider("elevation", 5, 90)
