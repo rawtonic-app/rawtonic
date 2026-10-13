@@ -20,6 +20,8 @@ import { createRelightLight, type RelightDepth } from "../../utils/relight";
 import { debouncedSetHistory } from "../../hooks/useEditorActions";
 import type { SelectedImage } from "../ui/AppProperties";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
+import { open } from "@tauri-apps/plugin-dialog";
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   useRelightStore.setState(useRelightStore.getInitialState());
@@ -80,7 +82,10 @@ it("stores depth once and preserves it through a recipe reload", async () => {
   const reloaded = normalizeLoadedAdjustments(
     JSON.parse(JSON.stringify(useEditorStore.getState().adjustments)),
   );
-  expect(reloaded.relightDepth).toEqual(depth);
+  expect(reloaded.relightDepth).toEqual({
+    ...depth,
+    cacheKey: useEditorStore.getState().adjustments.relightDepth!.cacheKey,
+  });
   fireEvent.change(screen.getByLabelText("Light color"), {
     target: { value: "#ff8800" },
   });
@@ -166,6 +171,73 @@ it("analyzes depth on adding a light, then reuses it for subsequent lights", asy
   );
   fireEvent.click(screen.getByRole("button", { name: "Add light" }));
   expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+});
+
+it("names an analysis, shows why it failed, and drops depth with the last light", async () => {
+  vi.mocked(invoke).mockRejectedValueOnce("Face models: download failed (offline)");
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Analyze depth" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("download failed (offline)");
+  vi.mocked(invoke).mockResolvedValueOnce({ data: "depth", geometry: {} });
+  fireEvent.click(screen.getByRole("button", { name: "Analyze depth" }));
+  await screen.findByText("Estimated depth ready. Reduce surface strength if edges look unnatural.");
+  expect(useEditorStore.getState().adjustments.relightDepth?.cacheKey).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Remove light" }));
+  expect(useEditorStore.getState().adjustments.relightDepth).toBeUndefined();
+});
+
+it("keeps light numbers, placement on reset, and solo outside the recipe", () => {
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Add light" }));
+  fireEvent.click(screen.getByRole("button", { name: "Add light" }));
+  act(() => useRelightStore.setState({ selected: useEditorStore.getState().adjustments.relightLights![0].id }));
+  fireEvent.click(screen.getByRole("button", { name: "Remove light" }));
+  expect(screen.queryByRole("button", { name: "Light 1" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Light 3" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Light 3" }));
+  const before = useEditorStore.getState().adjustments.relightLights!.find((l) => l.number === 3)!;
+  fireEvent.click(screen.getByRole("button", { name: "Reset light" }));
+  const after = useEditorStore.getState().adjustments.relightLights!.find((l) => l.number === 3)!;
+  expect([after.sourceX, after.sourceY, after.id]).toEqual([before.sourceX, before.sourceY, before.id]);
+  const recipe = useEditorStore.getState().adjustments;
+  fireEvent.click(screen.getByRole("button", { name: "Show only this light" }));
+  expect(useRelightStore.getState().solo).toBe(after.id);
+  expect(useEditorStore.getState().adjustments).toBe(recipe);
+});
+
+it("applies a preset, a color temperature and a mask limit", () => {
+  useEditorStore.setState((s) => ({
+    adjustments: {
+      ...s.adjustments,
+      relightDepth: { data: "d", geometry: {} },
+      masks: [{ id: "m1", name: "Subject", visible: true, subMasks: [] } as never],
+    },
+  }));
+  mount();
+  fireEvent.change(screen.getByRole("combobox", { name: "Lighting preset" }), { target: { value: "butterfly" } });
+  const [light] = useEditorStore.getState().adjustments.relightLights!;
+  expect(light).toMatchObject({ rotation: 180, number: 1 });
+  fireEvent.click(screen.getByRole("button", { name: "2700 K" }));
+  expect(useEditorStore.getState().adjustments.relightLights![0]).toMatchObject({ temperature: 2700 });
+  fireEvent.change(screen.getByRole("combobox", { name: "Limit to" }), { target: { value: "m1" } });
+  expect(useEditorStore.getState().adjustments.relightLights![0].maskId).toBe("m1");
+  // An empty layer switches the light off; the panel says so.
+  expect(screen.getByText("This mask layer is hidden or empty, so the light is off.")).toBeTruthy();
+});
+
+it("imports an image pattern through the backend", async () => {
+  vi.mocked(invoke).mockResolvedValue("data:image/png;base64,PATTERN");
+  vi.mocked(open).mockResolvedValue("/qa/leaves.png");
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Pattern" }));
+  fireEvent.click(screen.getByRole("button", { name: "Import image…" }));
+  await waitFor(() =>
+    expect(useEditorStore.getState().adjustments.relightLights![0]).toMatchObject({
+      pattern: "custom",
+      customPattern: { data: "data:image/png;base64,PATTERN", name: "leaves.png" },
+    }),
+  );
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith("load_relight_pattern", { path: "/qa/leaves.png" });
 });
 
 it("hides and restores light guides without changing the lighting recipe", () => {

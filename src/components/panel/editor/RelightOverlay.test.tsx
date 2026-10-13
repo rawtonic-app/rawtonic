@@ -144,6 +144,20 @@ it("Escape also restores absent source and pattern controls in legacy recipes", 
   );
 });
 
+it("Alt-drag on a sun's source changes only its elevation, in one undo step", () => {
+  const handle = mount();
+  const original = useEditorStore.getState().adjustments.relightLights![0];
+  fireEvent.pointerDown(handle, { button: 0, altKey: true, clientX: 210, clientY: 180 });
+  fireEvent.pointerMove(handle, { altKey: true, clientX: 210, clientY: 140 });
+  fireEvent.pointerUp(handle, { altKey: true, clientX: 210, clientY: 140 });
+  const light = useEditorStore.getState().adjustments.relightLights![0];
+  expect(light.elevation).toBeCloseTo(original.elevation + 10);
+  expect([light.sourceX, light.sourceY]).toEqual([original.sourceX, original.sourceY]);
+  expect(useEditorStore.getState().history).toHaveLength(2);
+  fireEvent.keyDown(handle, { key: "ArrowUp", altKey: true });
+  expect(useEditorStore.getState().adjustments.relightLights![0].elevation).toBeCloseTo(original.elevation + 11);
+});
+
 it("returning to the starting point before release restores the original without a history step", () => {
   const handle = mount();
   const original = useEditorStore.getState().adjustments.relightLights![0];

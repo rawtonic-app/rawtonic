@@ -2862,6 +2862,7 @@ pub struct GlobalAdjustments {
     pub proof_inverse: GpuMat3,
     /// Four projected lights, five aligned vec4s each (relight.rs).
     pub relight: [[f32; 4]; 20],
+    /// Registered depth (xy) and imported-pattern atlas (zw) keys.
     pub relight_depth: [u32; 4],
     /// Normal strength, original light, refined lighting flag, face reflection amount.
     pub relight_surface: [f32; 4],
@@ -2956,6 +2957,8 @@ pub struct AllAdjustments {
 pub struct PreparedAdjustments {
     pub uniforms: AllAdjustments,
     pub relight_surface: Option<std::sync::Arc<crate::relight::DepthSurface>>,
+    /// Imported Relight patterns (atlas key in `global.relight_depth[2..]`).
+    pub relight_patterns: Option<std::sync::Arc<image::GrayImage>>,
 }
 impl std::ops::Deref for PreparedAdjustments {
     type Target = AllAdjustments;
@@ -2971,9 +2974,12 @@ impl std::ops::DerefMut for PreparedAdjustments {
 impl From<AllAdjustments> for PreparedAdjustments {
     fn from(uniforms: AllAdjustments) -> Self {
         let relight_surface = crate::relight::depth(uniforms.global.relight_depth);
+        let [.., low, high] = uniforms.global.relight_depth;
+        let relight_patterns = crate::relight::pattern_atlas([low, high]);
         Self {
             uniforms,
             relight_surface,
+            relight_patterns,
         }
     }
 }
@@ -4355,7 +4361,9 @@ pub fn get_all_adjustments_from_json(
 ) -> PreparedAdjustments {
     let mut global = get_global_adjustments_from_json(js_adjustments, is_raw, tonemapper_override);
     let (depth_key, relight_surface) = crate::relight::prepare_depth(js_adjustments);
-    global.relight_depth = depth_key;
+    let ([pattern_low, pattern_high], relight_patterns) =
+        crate::relight::prepare_patterns(js_adjustments);
+    global.relight_depth = [depth_key[0], depth_key[1], pattern_low, pattern_high];
     // The inherited Exposure slider applies 1/0.8 EV per unit. With the
     // Standard base look one unit is one stop, as in Capture One and
     // Lightroom (notes: reference/tone-controls.md); Classic and AgX edits keep
@@ -4388,6 +4396,7 @@ pub fn get_all_adjustments_from_json(
 
     PreparedAdjustments {
         relight_surface,
+        relight_patterns,
         uniforms: AllAdjustments {
             global,
             mask_adjustments,

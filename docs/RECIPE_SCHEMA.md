@@ -86,3 +86,19 @@ use this camera. Facial relief scales with the face's local scene distance.
 Surface amount zero flattens this geometry onto its reference plane, retaining
 the same light transport. Scene normals are regularized without smoothing across
 large depth jumps; only confident facial geometry casts local shadows.
+
+Since 2026-10-13: absent light fields render with a new light's values
+(intensity 25, rotation 135, shadows 100, colour `#fff1db`; engine
+`relight::DEFAULT_*`, parity-tested against `createRelightLight`). Earlier
+recipes with fields missing therefore render with these values. The editor
+writes `sourceX`/`sourceY`/`patternRotation`/`distance` explicitly when it loads
+a recipe (same rendering). Optional light fields: `number` (stable display
+number), `temperature` (Kelvin the colour came from; `color` stays
+authoritative), `maskId` (limit the light to that mask layer; a hidden or empty
+layer switches the light off, a deleted one no longer limits it), and
+`pattern: "custom"` with `customPattern: {id, data, name}` — a 512×512 grayscale
+PNG data URL made from the chosen image's central square (white transmits
+light), copied with the light. A custom light without its bitmap is
+unpatterned. `relightDepth.cacheKey` names an analysis: previews send its
+bitmap and landmarks once and then only the name, as with AI patches; files
+without a key are named by a hash of the bitmap when loaded.

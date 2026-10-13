@@ -9,6 +9,72 @@ pub use surface::{surface_texture, surface_textures};
 
 pub const MAX_LIGHTS: usize = 4;
 
+/// Pattern names in GPU order: the index is the WGSL `relight_pattern` case.
+/// Parity with `RELIGHT_PATTERNS` in src/utils/relight.ts is tested there.
+pub const PATTERNS: [&str; 16] = [
+    "none",
+    "blinds",
+    "window",
+    "strip",
+    "foliage",
+    "grid",
+    "palm",
+    "branches",
+    "checkerboard",
+    "dots",
+    "horizontal",
+    "diagonal",
+    "weave",
+    "noise",
+    "crosshatch",
+    "custom",
+];
+const CUSTOM_PATTERN: usize = 15;
+/// Side of one imported pattern in the 2×2 atlas (one slot per light).
+pub const PATTERN_SLOT: u32 = 512;
+
+// Values for absent light fields: those of a new light, `createRelightLight`
+// in src/utils/relight.ts (parity tested there).
+const DEFAULT_COLOR: u32 = 0xfff1db;
+const DEFAULT_INTENSITY: f64 = 25.;
+const DEFAULT_ELEVATION: f64 = 45.;
+const DEFAULT_X: f64 = 50.;
+const DEFAULT_Y: f64 = 50.;
+const DEFAULT_SIZE: f64 = 60.;
+const DEFAULT_ROTATION: f64 = 135.;
+const DEFAULT_DISTANCE: f64 = 60.;
+const DEFAULT_SCALE: f64 = 50.;
+const DEFAULT_SOFTNESS: f64 = 30.;
+const DEFAULT_DIFFUSION: f64 = 25.;
+const DEFAULT_SHADOWS: f64 = 100.;
+
+/// Where a light may act: `Some(0)` everywhere, `Some(n)` inside mask layer
+/// n − 1 (its index among the layers that produce a bitmap, as in
+/// `get_all_adjustments_from_json`), `None` nowhere (the layer is hidden,
+/// empty or beyond the GPU limit). A deleted layer no longer restricts.
+fn mask_slot(recipe: &Value, light: &Value) -> Option<u32> {
+    let Some(id) = light["maskId"].as_str() else {
+        return Some(0);
+    };
+    let mut index = 0;
+    for mask in recipe["masks"].as_array().into_iter().flatten() {
+        let produces = mask["visible"].as_bool() == Some(true)
+            && mask["subMasks"].as_array().is_some_and(|s| !s.is_empty());
+        if mask["id"].as_str() == Some(id) {
+            return (produces && index < crate::image_processing::MAX_MASKS)
+                .then_some(index as u32 + 1);
+        }
+        index += usize::from(produces);
+    }
+    Some(0)
+}
+
+fn custom_pattern(light: &Value) -> Option<&str> {
+    (light["pattern"].as_str() == Some("custom"))
+        .then(|| light["customPattern"]["data"].as_str())
+        .flatten()
+}
+
 pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
     let mut out = [[0.; 4]; 20];
     if recipe["sectionVisibility"]["relight"].as_bool() == Some(false) {
@@ -21,6 +87,9 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
         if light["enabled"].as_bool() == Some(false) {
             continue;
         }
+        let Some(mask) = mask_slot(recipe, light) else {
+            continue;
+        };
         let n = |key: &str, default: f64, lo: f64, hi: f64| {
             light[key]
                 .as_f64()
@@ -28,12 +97,12 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
                 .unwrap_or(default)
                 .clamp(lo, hi) as f32
         };
-        let color = light["color"].as_str().unwrap_or("#fff1db");
-        let hex = color
-            .strip_prefix('#')
+        let hex = light["color"]
+            .as_str()
+            .and_then(|c| c.strip_prefix('#'))
             .filter(|s| s.len() == 6)
             .and_then(|s| u32::from_str_radix(s, 16).ok())
-            .unwrap_or(0xfff1db);
+            .unwrap_or(DEFAULT_COLOR);
         let linear = |v: u32| {
             let c = (v & 255) as f32 / 255.;
             if c <= 0.04045 {
@@ -42,59 +111,50 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
                 ((c + 0.055) / 1.055).powf(2.4)
             }
         };
-        let pattern = match light["pattern"].as_str() {
-            Some("blinds") => 1.,
-            Some("window") => 2.,
-            Some("strip") => 3.,
-            Some("foliage") => 4.,
-            Some("grid") => 5.,
-            Some("palm") => 6.,
-            Some("branches") => 7.,
-            Some("checkerboard") => 8.,
-            Some("dots") => 9.,
-            Some("horizontal") => 10.,
-            Some("diagonal") => 11.,
-            Some("weave") => 12.,
-            Some("noise") => 13.,
-            Some("crosshatch") => 14.,
-            _ => 0.,
+        // A custom light without its bitmap stays unpatterned.
+        let pattern = match light["pattern"]
+            .as_str()
+            .and_then(|name| PATTERNS.iter().position(|p| *p == name))
+        {
+            Some(CUSTOM_PATTERN) if custom_pattern(light).is_none() => 0,
+            Some(index) => index,
+            None => 0,
         };
         let j = i * 5;
         out[j] = [
             linear(hex >> 16),
             linear(hex >> 8),
             linear(hex),
-            n("intensity", 50., 0., 100.) / 100. * 3.,
+            n("intensity", DEFAULT_INTENSITY, 0., 100.) / 100. * 3.,
         ];
         out[j + 1] = [
-            n("x", 50., -100., 200.) / 100.,
-            n("y", 50., -100., 200.) / 100.,
-            n("size", 60., 5., 200.) / 100.,
+            n("x", DEFAULT_X, -100., 200.) / 100.,
+            n("y", DEFAULT_Y, -100., 200.) / 100.,
+            n("size", DEFAULT_SIZE, 5., 200.) / 100.,
             f32::from(light["type"].as_str() == Some("spot")),
         ];
+        let rotation = n("rotation", DEFAULT_ROTATION, -180., 180.);
         out[j + 2] = [
-            n("rotation", -30., -180., 180.).to_radians(),
-            n("scale", 50., 5., 300.) / 100.,
-            n("softness", 30., 0., 100.) / 100.,
-            n("diffusion", 25., 0., 100.) / 100.,
+            rotation.to_radians(),
+            n("scale", DEFAULT_SCALE, 5., 300.) / 100.,
+            n("softness", DEFAULT_SOFTNESS, 0., 100.) / 100.,
+            n("diffusion", DEFAULT_DIFFUSION, 0., 100.) / 100.,
         ];
+        // Flags: bit 0 inverts the pattern, the bits above hold the mask slot.
+        let flags = u32::from(light["invert"].as_bool() == Some(true)) | (mask << 1);
         out[j + 3] = [
-            pattern,
-            f32::from(light["invert"].as_bool() == Some(true)),
-            n("shadows", 35., 0., 100.) / 100.,
-            n("elevation", 45., 5., 90.).to_radians(),
+            pattern as f32,
+            flags as f32,
+            n("shadows", DEFAULT_SHADOWS, 0., 100.) / 100.,
+            n("elevation", DEFAULT_ELEVATION, 5., 90.).to_radians(),
         ];
+        // Legacy recipes: the spot sits at the pattern center and the pattern
+        // turns with the light, as before these controls were independent.
         out[j + 4] = [
             n("sourceX", out[j + 1][0] as f64 * 100., -100., 200.) / 100.,
             n("sourceY", out[j + 1][1] as f64 * 100., -100., 200.) / 100.,
-            n(
-                "patternRotation",
-                n("rotation", -30., -180., 180.) as f64,
-                -180.,
-                180.,
-            )
-            .to_radians(),
-            n("distance", 60., 10., 300.) / 100.,
+            n("patternRotation", rotation as f64, -180., 180.).to_radians(),
+            n("distance", DEFAULT_DISTANCE, 10., 300.) / 100.,
         ];
     }
     out
@@ -222,18 +282,25 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
     if recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 4 && camera.is_none() {
         return ([0; 4], None);
     }
-    let Some(data) = recipe["relightDepth"]["data"].as_str() else {
-        return ([0; 4], None);
-    };
+    let data = recipe["relightDepth"]["data"].as_str();
     let mut hasher = DefaultHasher::new();
-    data.hash(&mut hasher);
     recipe["relightDepth"]["camera"]
         .to_string()
         .hash(&mut hasher);
     recipe["relightDepth"]["version"].as_u64().hash(&mut hasher);
-    recipe["relightDepth"]["faces"]
-        .to_string()
-        .hash(&mut hasher);
+    // The editor names each analysis (`cacheKey`), so a preview frame need
+    // not hash the bitmap and its landmarks again; files carry no key.
+    if let Some(name) = recipe["relightDepth"]["cacheKey"].as_str() {
+        name.hash(&mut hasher);
+    } else {
+        let Some(data) = data else {
+            return ([0; 4], None);
+        };
+        data.hash(&mut hasher);
+        recipe["relightDepth"]["faces"]
+            .to_string()
+            .hash(&mut hasher);
+    }
     let key = hasher.finish().max(1);
     let cache = DEPTHS.get_or_init(Mutex::default);
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -241,6 +308,9 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
         let entry = cache.remove(index).unwrap();
         cache.push_front(entry);
     } else {
+        let Some(data) = data else {
+            return ([0; 4], None);
+        };
         let Some(bytes) = STANDARD
             .decode(data.split_once(',').map_or(data, |(_, d)| d))
             .ok()
@@ -297,6 +367,124 @@ pub fn depth(key: [u32; 4]) -> Option<Arc<DepthSurface>> {
         .iter()
         .find(|(k, _)| *k == id)
         .map(|(_, v)| Arc::clone(v))
+}
+
+type PatternEntry = (u64, Arc<image::GrayImage>);
+static PATTERN_ATLASES: OnceLock<Mutex<VecDeque<PatternEntry>>> = OnceLock::new();
+
+/// Imported patterns of the enabled lights as one 2×2 atlas (slot = light
+/// index, white where a light has none), registered once like the depth.
+/// Returns its key for the GPU (zero without imported patterns) and the atlas,
+/// which a queued render keeps alive independently of the bounded cache.
+pub fn prepare_patterns(recipe: &Value) -> ([u32; 2], Option<Arc<image::GrayImage>>) {
+    if recipe["sectionVisibility"]["relight"].as_bool() == Some(false) {
+        return ([0; 2], None);
+    }
+    let mut slots: [Option<&str>; MAX_LIGHTS] = [None; MAX_LIGHTS];
+    let mut hasher = DefaultHasher::new();
+    for (i, light) in recipe["relightLights"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(MAX_LIGHTS)
+        .enumerate()
+    {
+        if light["enabled"].as_bool() == Some(false) {
+            continue;
+        }
+        let Some(data) = custom_pattern(light) else {
+            continue;
+        };
+        i.hash(&mut hasher);
+        // An import's id names its immutable bitmap.
+        match light["customPattern"]["id"].as_str() {
+            Some(id) => id.hash(&mut hasher),
+            None => data.hash(&mut hasher),
+        }
+        slots[i] = Some(data);
+    }
+    if slots.iter().all(Option::is_none) {
+        return ([0; 2], None);
+    }
+    let key = hasher.finish().max(1);
+    let cache = PATTERN_ATLASES.get_or_init(Mutex::default);
+    let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(index) = cache.iter().position(|(k, _)| *k == key) {
+        let entry = cache.remove(index).unwrap();
+        cache.push_front(entry);
+    } else {
+        let mut atlas =
+            image::GrayImage::from_pixel(PATTERN_SLOT * 2, PATTERN_SLOT * 2, image::Luma([255]));
+        for (i, data) in slots.iter().enumerate() {
+            let Some(pattern) = data.and_then(decode_pattern) else {
+                continue;
+            };
+            let (x, y) = ((i as u32 % 2) * PATTERN_SLOT, (i as u32 / 2) * PATTERN_SLOT);
+            image::imageops::replace(&mut atlas, &pattern, x.into(), y.into());
+        }
+        cache.push_front((key, Arc::new(atlas)));
+        cache.truncate(4);
+    }
+    let atlas = Arc::clone(&cache.front().unwrap().1);
+    ([key as u32, (key >> 32) as u32], Some(atlas))
+}
+
+pub fn register_patterns(recipe: &Value) -> [u32; 2] {
+    prepare_patterns(recipe).0
+}
+
+fn decode_pattern(data: &str) -> Option<image::GrayImage> {
+    let bytes = STANDARD
+        .decode(data.split_once(',').map_or(data, |(_, d)| d))
+        .ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.to_luma8();
+    Some(if image.dimensions() == (PATTERN_SLOT, PATTERN_SLOT) {
+        image
+    } else {
+        image::imageops::resize(
+            &image,
+            PATTERN_SLOT,
+            PATTERN_SLOT,
+            image::imageops::FilterType::Triangle,
+        )
+    })
+}
+
+pub fn pattern_atlas(key: [u32; 2]) -> Option<Arc<image::GrayImage>> {
+    let id = key[0] as u64 | ((key[1] as u64) << 32);
+    PATTERN_ATLASES
+        .get()?
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(k, _)| *k == id)
+        .map(|(_, v)| Arc::clone(v))
+}
+
+/// An imported light pattern as stored in a recipe: the image's central
+/// square, at the atlas slot size, in grayscale (white transmits light).
+pub fn pattern_png(image: &image::DynamicImage) -> Result<Vec<u8>, String> {
+    let side = image.width().min(image.height());
+    if side == 0 {
+        return Err("The image is empty".into());
+    }
+    let square = image.crop_imm(
+        (image.width() - side) / 2,
+        (image.height() - side) / 2,
+        side,
+        side,
+    );
+    let gray = square
+        .resize_exact(
+            PATTERN_SLOT,
+            PATTERN_SLOT,
+            image::imageops::FilterType::Lanczos3,
+        )
+        .to_luma8();
+    let mut png = std::io::Cursor::new(Vec::new());
+    gray.write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(png.into_inner())
 }
 
 /// Fit local slopes without joining disconnected surfaces. A spatial/range
@@ -515,6 +703,118 @@ mod tests {
             assert_eq!(gpu_lights(&r), [[0.; 4]; 20]);
         }
     }
+    #[test]
+    fn mask_restriction_follows_bitmap_layers() {
+        let layer = |id: &str, visible: bool, subs: usize| json!({"id": id, "visible": visible, "subMasks": vec![json!({}); subs]});
+        let recipe = |mask_id: &str| {
+            json!({
+                "masks": [layer("hidden", false, 1), layer("empty", true, 0), layer("a", true, 1), layer("b", true, 2)],
+                "relightLights": [{"maskId": mask_id, "invert": true, "pattern": "dots"}],
+            })
+        };
+        // Flags: invert in bit 0, mask slot (bitmap index + 1) above.
+        assert_eq!(gpu_lights(&recipe("a"))[3][1], (1 | (1 << 1)) as f32);
+        assert_eq!(gpu_lights(&recipe("b"))[3][1], (1 | (2 << 1)) as f32);
+        assert_eq!(gpu_lights(&recipe("deleted"))[3][1], 1.);
+        for unavailable in ["hidden", "empty"] {
+            assert_eq!(gpu_lights(&recipe(unavailable)), [[0.; 4]; 20]);
+        }
+        assert_eq!(gpu_lights(&recipe("a"))[3][0], 9.);
+    }
+
+    #[test]
+    fn imported_patterns_share_one_atlas_per_light_set() {
+        let png = |value: u8| {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::GrayImage::from_pixel(8, 4, image::Luma([value]))
+                .write_to(&mut out, image::ImageFormat::Png)
+                .unwrap();
+            format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode(out.into_inner())
+            )
+        };
+        let light = |id: &str, value: u8| json!({"pattern": "custom", "customPattern": {"id": id, "data": png(value)}});
+        let recipe =
+            json!({"relightLights": [light("a", 0), {"pattern": "dots"}, {}, light("b", 100)]});
+        let key = register_patterns(&recipe);
+        assert_ne!(key, [0; 2]);
+        assert_eq!(register_patterns(&recipe), key);
+        let atlas = pattern_atlas(key).unwrap();
+        assert_eq!(atlas.dimensions(), (PATTERN_SLOT * 2, PATTERN_SLOT * 2));
+        assert_eq!(atlas.get_pixel(10, 10)[0], 0);
+        assert_eq!(atlas.get_pixel(PATTERN_SLOT + 10, 10)[0], 255);
+        assert_eq!(
+            atlas.get_pixel(PATTERN_SLOT + 10, PATTERN_SLOT + 10)[0],
+            100
+        );
+        assert_eq!(gpu_lights(&recipe)[3][0], CUSTOM_PATTERN as f32);
+        // Without its bitmap a custom light is unpatterned, not an error.
+        let missing = json!({"relightLights": [{"pattern": "custom"}]});
+        assert_eq!(register_patterns(&missing), [0; 2]);
+        assert_eq!(gpu_lights(&missing)[3][0], 0.);
+        assert_eq!(
+            register_patterns(&json!({"relightLights": [{"pattern": "dots"}]})),
+            [0; 2]
+        );
+    }
+
+    #[test]
+    fn prepared_pattern_atlas_outlives_cache_eviction() {
+        let png = {
+            let mut out = std::io::Cursor::new(Vec::new());
+            image::GrayImage::from_pixel(4, 4, image::Luma([7]))
+                .write_to(&mut out, image::ImageFormat::Png)
+                .unwrap();
+            format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode(out.into_inner())
+            )
+        };
+        let recipe = |id: &str| json!({"relightLights": [{"pattern": "custom", "customPattern": {"id": id, "data": png}}]});
+        let (_, queued) = prepare_patterns(&recipe("queued"));
+        for i in 0..8 {
+            prepare_patterns(&recipe(&format!("other-{i}")));
+        }
+        assert_eq!(queued.unwrap().get_pixel(1, 1)[0], 7);
+    }
+
+    #[test]
+    fn imported_pattern_is_the_central_gray_square() {
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_fn(300, 100, |x, _| {
+            if (100..200).contains(&x) {
+                image::Rgb([255, 255, 255])
+            } else {
+                image::Rgb([0, 0, 0])
+            }
+        }));
+        let decoded = image::load_from_memory(&pattern_png(&image).unwrap())
+            .unwrap()
+            .to_luma8();
+        assert_eq!(decoded.dimensions(), (PATTERN_SLOT, PATTERN_SLOT));
+        assert!(decoded.pixels().all(|p| p[0] > 250));
+    }
+
+    #[test]
+    fn named_depth_skips_bitmap_hashing_and_survives_without_data() {
+        let mut png = std::io::Cursor::new(Vec::new());
+        DepthImage::from_pixel(4, 4, image::Luma([30000]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut recipe = json!({"relightLights": [{"intensity": 40}]});
+        recipe["relightDepth"] = json!({
+            "data": format!("data:image/png;base64,{}", STANDARD.encode(png.into_inner())),
+            "geometry": geometry(&recipe),
+            "cacheKey": "analysis-1",
+        });
+        let key = register_depth(&recipe);
+        assert_ne!(key, [0; 4]);
+        // A preview whose bitmap was sent before carries only its name.
+        recipe["relightDepth"]["data"] = Value::Null;
+        assert_eq!(register_depth(&recipe), key);
+        assert!(depth(key).is_some());
+    }
+
     #[test]
     fn bounds_and_color_are_safe() {
         let p = gpu_lights(

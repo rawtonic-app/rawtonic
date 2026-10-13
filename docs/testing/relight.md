@@ -119,8 +119,9 @@ ranking**. Matched input-to-present timing remains unverified.
 The implementation-caused depth-edge defects above are corrected. The broader
 acceptance gate remains open for a calibrated portrait/product assessment,
 transparent objects/fine hair, matched end-to-end timing, and execution on Intel
-macOS and Windows/Linux GPU-provider hardware. File/layer pattern import remains unimplemented; direct canvas controls and
-fifteen built-in pattern choices are covered below. No overall superiority or production-parity claim. Detailed
+macOS and Windows/Linux GPU-provider hardware. Image pattern import exists
+(see the workflow revision below); direct canvas controls and fifteen built-in
+pattern choices are covered below. No overall superiority or production-parity claim. Detailed
 evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
 
 ## Direct canvas controls, 2026-10-13
@@ -256,6 +257,30 @@ The latter measures cost only, not inferred geometry or a photo-quality result.
 These measurements exclude input/display latency and initial analysis. Full/ROI
 and tiled rendering still agree within U8 ≤1 and U16 exactly.
 
+## Workflow and transport revision, 2026-10-13
+
+- Previews send the depth map, facial landmarks and imported patterns once
+  per name (`cacheKey`, pattern `id`); later frames send only the name and the
+  renderer no longer hashes the bitmap per frame. Exports and thumbnails still
+  carry the full data. Not yet measured as IPC payload/latency in the native app.
+- Analysis continues with scene depth alone when the face models are missing
+  or fail; the panel shows the backend's error text.
+- One set of light defaults in engine and editor (parity test reads
+  `relight.rs`); pattern ids are parity-tested the same way.
+- Panel: Scene section (original light, depth) separate from the selected
+  light; stable light numbers; solo preview (view state, not recipe); reset
+  keeps placement; Kelvin swatches and slider beside the picker; five lighting
+  presets; Advanced shows only controls that affect the current light.
+- Canvas: Alt-drag (or Alt+arrows) on a sun's source sets elevation; the other
+  lights' pattern frames stay faintly visible.
+- Lights can be limited to a mask layer (GPU multiplies the footprint by that
+  layer's bitmap). Custom patterns: an imported image, stored in the recipe.
+- Native GPU test `relight_masks_and_imported_patterns`: no pixel changes
+  outside the mask, a hidden layer is identity, the imported pattern differs
+  from unpatterned and inverted light and renders deterministically. Existing
+  parity tests still pass (preview/export max difference 0 at 8 and 16 bit).
+  Native-app QA of the new panel and pattern import is still open.
+
 ## Reproduce
 
 ```sh
@@ -263,7 +288,8 @@ cargo test -p rawtonic-engine relight --lib
 cargo test -p rawtonic-gpu relight_pixels -- --ignored --nocapture
 cargo test -p rawtonic-gpu relight_tiled -- --ignored --nocapture
 cargo test -p rawtonic-gpu relight_refined -- --ignored --nocapture
-npx vitest run src/components/panel/editor/RelightOverlay.test.tsx src/components/studio/StudioRelight.test.tsx src/components/studio/StudioDevelop.test.tsx src/components/studio/historyLabels.test.ts src/utils/adjustments.test.ts
+cargo test -p rawtonic-gpu relight_masks -- --ignored --nocapture
+npx vitest run src/utils/relight.test.ts src/components/panel/editor/RelightOverlay.test.tsx src/components/studio/StudioRelight.test.tsx src/components/studio/StudioDevelop.test.tsx src/components/studio/historyLabels.test.ts src/utils/adjustments.test.ts
 ```
 
 For local real-photo analysis, set `RELIGHT_PHOTO`, `RELIGHT_MODEL`,

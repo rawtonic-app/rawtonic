@@ -1481,6 +1481,7 @@ pub struct GpuProcessor {
     flare_final_view: wgpu::TextureView,
     flare_sampler: wgpu::Sampler,
     relight_depth_cache: Mutex<Option<([u32; 4], RelightDepthViews)>>,
+    relight_pattern_cache: Mutex<Option<([u32; 2], wgpu::TextureView)>>,
 
     main_bgl: wgpu::BindGroupLayout,
     main_pipeline: wgpu::ComputePipeline,
@@ -2536,6 +2537,16 @@ impl GpuProcessor {
             },
             count: None,
         });
+        bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 21,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
 
         bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
             binding: 9 + MAX_MASK_BINDINGS,
@@ -2824,6 +2835,7 @@ impl GpuProcessor {
             flare_final_view,
             flare_sampler,
             relight_depth_cache: Mutex::new(None),
+            relight_pattern_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
             detail_bgl,
@@ -3003,6 +3015,48 @@ impl GpuProcessor {
         };
         *cache = Some((key, views.clone()));
         Ok(views)
+    }
+
+    fn relight_pattern_view(
+        &self,
+        key: [u32; 2],
+        retained: Option<&image::GrayImage>,
+    ) -> Result<wgpu::TextureView, String> {
+        let mut cache = self
+            .relight_pattern_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some((cached, view)) = cache.as_ref()
+            && *cached == key
+        {
+            return Ok(view.clone());
+        }
+        if key == [0; 2] {
+            return Ok(self.dummy_blur_view.clone());
+        }
+        let atlas = retained.ok_or("Relight render has no retained pattern atlas")?;
+        let texture = self.context.device.create_texture_with_data(
+            &self.context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Relight patterns"),
+                size: wgpu::Extent3d {
+                    width: atlas.width(),
+                    height: atlas.height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::MipMajor,
+            atlas.as_raw(),
+        );
+        let view = texture.create_view(&Default::default());
+        *cache = Some((key, view.clone()));
+        Ok(view)
     }
 
     fn create_mask_texture(&self, width: u32, height: u32, layers: u32) -> wgpu::Texture {
@@ -3721,9 +3775,16 @@ impl GpuProcessor {
         } else {
             None
         };
+        // Depth key in xy, imported-pattern atlas key in zw (relight.rs).
+        let [depth_low, depth_high, pattern_low, pattern_high] =
+            request.adjustments.global.relight_depth;
         let relight_depth_view = self.relight_depth_view(
-            request.adjustments.global.relight_depth,
+            [depth_low, depth_high, 0, 0],
             request.adjustments.relight_surface.as_deref(),
+        )?;
+        let relight_pattern_view = self.relight_pattern_view(
+            [pattern_low, pattern_high],
+            request.adjustments.relight_patterns.as_deref(),
         )?;
         let (mask_texture_view, mask_update) = self.prepare_mask_texture(
             width,
@@ -4312,6 +4373,10 @@ impl GpuProcessor {
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 20,
                     resource: wgpu::BindingResource::TextureView(&relight_depth_view.scene),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 21,
+                    resource: wgpu::BindingResource::TextureView(&relight_pattern_view),
                 });
                 let use_flare = adjustments.global.flare_amount > 0.0;
                 bind_group_entries.push(wgpu::BindGroupEntry {
