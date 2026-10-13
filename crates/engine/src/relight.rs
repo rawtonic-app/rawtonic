@@ -3,9 +3,9 @@
 use serde_json::Value;
 #[path = "relight_surface.rs"]
 mod surface;
-pub use surface::surface_texture;
 #[cfg(any(test, feature = "test-support"))]
 pub use surface::test_face_geometry;
+pub use surface::{surface_texture, surface_textures};
 
 pub const MAX_LIGHTS: usize = 4;
 

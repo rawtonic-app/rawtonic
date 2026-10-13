@@ -6934,7 +6934,16 @@ fn relight_tiled_roi_matches_full_frame() {
     let mut camera = reflective.clone();
     camera["relightDepth"]["version"] = json!(4);
     camera["relightDepth"]["camera"] = json!({"fx":0.06,"fy":2.04,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0});
-    for profile in [profile, refined, reflective, camera] {
+    let mut camera_edge = camera.clone();
+    let mut edge_png = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageLuma16(image::ImageBuffer::from_fn(1024, 32, |x, _| {
+        image::Luma([if x < 964 { 18000 } else { 52000 }])
+    }))
+    .write_to(&mut edge_png, image::ImageFormat::Png)
+    .unwrap();
+    camera_edge["relightDepth"]["data"] =
+        json!(base64::engine::general_purpose::STANDARD.encode(edge_png.into_inner()));
+    for profile in [profile, refined, reflective, camera, camera_edge] {
         for precision in [
             RenderOutputPrecision::EightBit,
             RenderOutputPrecision::SixteenBit,
