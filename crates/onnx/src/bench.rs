@@ -252,6 +252,8 @@ pub(crate) fn inputs_for(
                 if *d < 0 {
                     *d = match (kind, name, i) {
                         (ModelKind::Inpaint, _, 2 | 3) => 512,
+                        (ModelKind::Relight, _, 3) => 350,
+                        (ModelKind::Relight, _, 4) => 518,
                         (ModelKind::SamDecoder, _, 1) => 2,
                         (ModelKind::TagText, _, 1) => 64,
                         _ => 1,
@@ -273,7 +275,7 @@ pub(crate) fn inputs_for(
                     Input::F32(dims, (0..count).map(|_| noise() - 0.5).collect())
                 }
                 (ModelKind::Inpaint, "mask", _) => {
-                    let (h, w) = (dims[2] as usize, dims[3] as usize);
+                    let (h, w) = (dims[dims.len() - 2] as usize, dims[dims.len() - 1] as usize);
                     let mask = (0..h * w)
                         .map(|i| {
                             let (y, x) = (i / w, i % w);
@@ -326,7 +328,10 @@ pub(crate) fn inputs_for(
                         matches!(kind, ModelKind::FaceMesh | ModelKind::FaceParser),
                     );
                     match kind {
-                        ModelKind::Subject | ModelKind::Sky | ModelKind::Depth => {
+                        ModelKind::Subject
+                        | ModelKind::Sky
+                        | ModelKind::Depth
+                        | ModelKind::Relight => {
                             let (mean, std) = ([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]);
                             let plane = planes.len() / 3;
                             for (i, v) in planes.iter_mut().enumerate() {
@@ -356,7 +361,7 @@ fn image_planes(dims: &[i64], picture: &Picture, nhwc: bool) -> Vec<f32> {
     let (h, w) = if nhwc {
         (dims[1] as usize, dims[2] as usize)
     } else {
-        (dims[2] as usize, dims[3] as usize)
+        (dims[dims.len() - 2] as usize, dims[dims.len() - 1] as usize)
     };
     let mut out = vec![0.0f32; 3 * h * w];
     for y in 0..h {

@@ -970,9 +970,13 @@ pub async fn generate_relight_depth(
     let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
     LIFECYCLE.touch();
     let running = LIFECYCLE.run();
-    let model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
-        .await
-        .map_err(|e| e.to_string())?;
+    let model = crate::ai_processing::get_or_init_relight_model(
+        &app_handle,
+        &state.ai_state,
+        &state.ai_init_lock,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let face_models = crate::ai_faces::models(&app_handle, true).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let _running = running;
@@ -985,7 +989,7 @@ pub async fn generate_relight_depth(
             warped.as_ref(),
             &js_adjustments,
         );
-        let depth = crate::ai_processing::run_depth_anything_model16(&displayed, &model, is_raw)
+        let (depth, camera) = crate::ai_processing::run_relight_model(&displayed, &model, is_raw)
             .map_err(|e| e.to_string())?;
         let face_input = if displayed.width().max(displayed.height()) > 1600 {
             displayed.thumbnail(1600, 1600)
@@ -1007,7 +1011,8 @@ pub async fn generate_relight_depth(
             "data": data,
             "geometry": rawtonic_engine::relight::geometry(&js_adjustments),
             "faces": faces,
-            "version": 3,
+            "version": 4,
+            "camera": camera,
         }))
     })
     .await

@@ -181,6 +181,8 @@ struct GlobalAdjustments {
     relight: array<vec4<f32>, 20>,
     relight_depth: vec4<u32>,
     relight_surface: vec4<f32>,
+    relight_camera: vec4<f32>,
+    relight_geometry: vec4<f32>,
 }
 
 struct MaskAdjustments {
@@ -4259,17 +4261,82 @@ fn relight_visibility(uv: vec2<f32>, height: f32, direction: vec3<f32>, reach: f
     return mix(1.0, visibility, smoothstep(0.99, 1.0, receiver));
 }
 
+// Interpolate half-float texels in full precision: hardware filtering can
+// round inverse depth before reciprocal projection and shift tight shadows.
+fn relight_camera_sample(uv: vec2<f32>) -> vec4<f32> {
+    let size = vec2<i32>(textureDimensions(relight_depth_texture));
+    let pixel = clamp(uv * vec2<f32>(size) - vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(size - vec2<i32>(1)));
+    let a = vec2<i32>(floor(pixel));
+    let b = min(a + vec2<i32>(1), size - vec2<i32>(1));
+    let fraction = fract(pixel);
+    let top = mix(textureLoad(relight_depth_texture, a, 0), textureLoad(relight_depth_texture, vec2<i32>(b.x, a.y), 0), fraction.x);
+    let bottom = mix(textureLoad(relight_depth_texture, vec2<i32>(a.x, b.y), 0), textureLoad(relight_depth_texture, b, 0), fraction.x);
+    return mix(top, bottom, fraction.y);
+}
+
+// Version-four geometry uses inverse depth and normalized camera intrinsics.
+fn relight_position(uv: vec2<f32>, inverse: f32, strength: f32) -> vec3<f32> {
+    let c = adjustments.global.relight_camera;
+    let g = adjustments.global.relight_geometry;
+    let distance = g.x + (1.0 / max(inverse, 0.000001) - g.x) * strength;
+    return vec3<f32>((uv - c.zw) * distance / c.xy, g.x - distance) / g.y;
+}
+
+fn relight_source(uv: vec2<f32>, distance: f32, strength: f32) -> vec3<f32> {
+    let c = adjustments.global.relight_camera;
+    let g = adjustments.global.relight_geometry;
+    return vec3<f32>((uv - c.zw) * g.x / c.xy / g.y, (g.x - g.z) * strength / g.y + distance);
+}
+
+fn relight_camera_normal(uv: vec2<f32>, surface: vec4<f32>, strength: f32) -> vec3<f32> {
+    let c = adjustments.global.relight_camera;
+    let original_distance = 1.0 / max(surface.z, 0.000001);
+    let distance = adjustments.global.relight_geometry.x + (original_distance - adjustments.global.relight_geometry.x) * strength;
+    let derivative = surface.xy * strength * original_distance * original_distance / (distance * distance);
+    return normalize(vec3<f32>(-c.xy * derivative, 1.0 / distance - dot(derivative, uv - c.zw)));
+}
+
+fn relight_camera_visibility(uv: vec2<f32>, origin: vec3<f32>, direction: vec3<f32>, reach: f32, strength: f32, softness: f32) -> f32 {
+    let receiver = relight_camera_sample(uv).a;
+    if (receiver < 0.99) { return 1.0; }
+    let c = adjustments.global.relight_camera;
+    let g = adjustments.global.relight_geometry;
+    let resolution = vec2<f32>(textureDimensions(relight_depth_texture));
+    let depth_ratio = (g.x - origin.z * g.y) / g.x;
+    var travel = 1.25 * depth_ratio / min(resolution.x, resolution.y);
+    var step = min(0.75 / min(resolution.x, resolution.y), 1.0 / 512.0) * depth_ratio;
+    var visibility = 1.0;
+    for (var index = 0u; index < 256u; index++) {
+        if (travel >= reach) { break; }
+        let ray = origin + direction * travel;
+        let distance = g.x - ray.z * g.y;
+        if (distance <= g.x * 0.0001) { break; }
+        let q = ray.xy * g.y * c.xy / distance + c.zw;
+        if (any(q <= vec2<f32>(0.0)) || any(q >= vec2<f32>(1.0))) { break; }
+        let surface = relight_camera_sample(q);
+        if (surface.a < 0.995) { break; }
+        let occluder = relight_position(q, surface.z, strength).z;
+        let penumbra = 0.0008 + softness * travel * 0.18;
+        visibility = min(visibility, smoothstep(-penumbra, penumbra, ray.z - occluder + 0.001));
+        if (visibility <= 0.0) { break; }
+        let max_step = min(2.0 / min(resolution.x, resolution.y), 1.0 / 512.0) * distance / g.x;
+        step = min(step * 1.03, max_step);
+        travel += step;
+    }
+    return mix(1.0, visibility, smoothstep(0.99, 1.0, receiver));
+}
+
 // Dielectric skin surface: GGX distribution, separable Smith masking and
 // Schlick Fresnel (IOR 1.4 -> F0=1/36). This models an added light's reflection;
 // it does not estimate or remove the photograph's original specular highlights.
 // Return diffuse energy fraction and reflected radiance for unit illumination.
-fn relight_skin(normal: vec3<f32>, light: vec3<f32>, softness: f32, amount: f32) -> vec2<f32> {
+fn relight_skin(normal: vec3<f32>, light: vec3<f32>, view: vec3<f32>, softness: f32, amount: f32) -> vec2<f32> {
     let nl = max(dot(normal, light), 0.0);
-    let nv = max(normal.z, 0.0);
+    let nv = max(dot(normal, view), 0.0);
     if (amount <= 0.0 || nl <= 0.0 || nv <= 0.0) { return vec2<f32>(1.0, 0.0); }
-    let half_vector = normalize(light + vec3<f32>(0.0, 0.0, 1.0));
+    let half_vector = normalize(light + view);
     let nh = max(dot(normal, half_vector), 0.0);
-    let vh = clamp(half_vector.z, 0.0, 1.0);
+    let vh = clamp(dot(half_vector, view), 0.0, 1.0);
     // Broaden the lobe for softer sources; the skin roughness is a modest
     // default, not a recovered material parameter.
     let roughness = 0.5 + 0.25 * softness;
@@ -4287,18 +4354,29 @@ fn relight_skin(normal: vec3<f32>, light: vec3<f32>, softness: f32, amount: f32)
 
 fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
-    let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && adjustments.global.relight_surface.x > 0.0;
+    let camera_mode = adjustments.global.relight_geometry.w > 0.5;
+    let strength = adjustments.global.relight_surface.x;
+    let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
+    let camera_lighting = has_depth && camera_mode;
+    var world_position = vec3<f32>(0.0);
+    var view = vec3<f32>(0.0, 0.0, 1.0);
     let surface_lighting = has_depth && adjustments.global.relight_surface.z > 0.5;
     var depth_value = 0.0;
     var skin = 0.0;
     // Height and its derivatives must use the same physical scale.
     let height_scale = adjustments.global.relight_surface.x * 0.25;
     if (has_depth) {
-        let surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
+        var surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
+        if (camera_lighting) { surface = relight_camera_sample(uv); }
         let slope = surface.xy * min(dims.x, dims.y) / dims;
         depth_value = surface.z;
         if (surface_lighting) { skin = smoothstep(0.5, 1.0, surface.a) * adjustments.global.relight_surface.w; }
         normal = normalize(vec3<f32>(-slope * height_scale, 1.0));
+        if (camera_lighting) {
+            world_position = relight_position(uv, surface.z, strength);
+            normal = relight_camera_normal(uv, surface, strength);
+            view = normalize(vec3<f32>(-(uv - adjustments.global.relight_camera.zw) / adjustments.global.relight_camera.xy, 1.0));
+        }
     }
     var light_gain = vec3<f32>(0.0);
     var reflected_light = vec3<f32>(0.0);
@@ -4331,6 +4409,17 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
                 }
             }
         }
+        if (camera_lighting) {
+            let c_camera = adjustments.global.relight_camera;
+            let g_camera = adjustments.global.relight_geometry;
+            let pattern_center = (placement.xy - c_camera.zw) * g_camera.x / c_camera.xy / g_camera.y;
+            let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
+            projected = world_position.xy - sun_direction.xy * world_position.z / max(sun_direction.z, 0.0001) - pattern_center;
+            if (placement.w > 0.5) {
+                let source = relight_source(controls.xy, controls.w, strength);
+                projected = world_position.xy + (world_position.xy - source.xy) * world_position.z / max(source.z - world_position.z, 0.0001) - pattern_center;
+            }
+        }
         let pc = cos(controls.z);
         let ps = sin(controls.z);
         let p = vec2<f32>(pc * projected.x + ps * projected.y, -ps * projected.x + pc * projected.y) / shape.y;
@@ -4339,7 +4428,15 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         if (settings.y > 0.5) { mask = 1.0 - mask; }
         let radius = length(source_delta) / placement.z;
         let spot = 1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, radius);
-        let footprint = select(1.0, spot, placement.w > 0.5);
+        var footprint = select(1.0, spot, placement.w > 0.5);
+        if (camera_lighting && placement.w > 0.5) {
+            // Cone radius is specified at the reference plane. Its physical
+            // footprint expands with distance from the source.
+            let source = relight_source(controls.xy, controls.w, strength);
+            let gap = source.z - world_position.z;
+            let cone_radius = length(world_position.xy - source.xy) * source.z / (max(gap, 0.0001) * placement.z);
+            footprint = (1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, cone_radius)) * select(0.0, 1.0, gap > 0.0);
+        }
         var response = 1.0;
         var attenuation = 1.0;
         var specular = 0.0;
@@ -4362,13 +4459,25 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
                     // finite emitter radius avoids a singular near-field gain.
                     attenuation = 0.36 / (distance2 + 0.01);
                 }
+                if (camera_lighting && placement.w > 0.5) {
+                    let to_light = relight_source(controls.xy, controls.w, strength) - world_position;
+                    let distance2 = max(dot(to_light, to_light), 0.0025);
+                    reach = sqrt(distance2);
+                    direction = to_light / reach;
+                    attenuation = 0.36 / (distance2 + 0.01);
+                }
                 let wrap = shape.w * 0.2;
                 response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
-                let material = relight_skin(normal, direction, shape.z, skin);
+                let material = relight_skin(normal, direction, view, shape.z, skin);
                 response *= material.x;
                 specular = material.y;
                 if (response > 0.0 && settings.z > 0.0) {
-                    let visibility = relight_visibility(uv, depth_value * height_scale, direction, reach, height_scale, shape.z, dims);
+                    var visibility = 1.0;
+                    if (camera_lighting) {
+                        visibility = relight_camera_visibility(uv, world_position, direction, reach, strength, shape.z);
+                    } else {
+                        visibility = relight_visibility(uv, depth_value * height_scale, direction, reach, height_scale, shape.z, dims);
+                    }
                     let shadow = mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
                     response *= shadow;
                     specular *= shadow;

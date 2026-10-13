@@ -36,6 +36,8 @@ The opt-in AI build (`RAWTONIC_BUNDLE_ONNX=1`) bundles Microsoft's [ONNX Runtime
 
 **MediaPipe face topology.** `crates/engine/src/relight_face_topology.rs` contains triangle indices from Google's [canonical face mesh](https://raw.githubusercontent.com/google-ai-edge/mediapipe/a908d668c730da128dfa8d9f6bd25d519d006692/mediapipe/modules/face_geometry/data/canonical_face_model.obj), Copyright 2020 The MediaPipe Authors, Apache-2.0 (`licenses/spdx/Apache-2.0.txt`, included in `THIRD_PARTY_LICENSES.txt`). Indices are converted to zero-based Rust arrays; canonical positions are retained only in `relight_face_fixture.rs` for tests, and textures are not included. Runtime Relight uses locally inferred face geometry.
 
+**Depth Anything 3 export.** `scripts/models/relight_da3_dynamic.patch` adapts ByteDance Seed's Depth Anything 3 source at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4` for dynamic ONNX export. Copyright (c) 2025 ByteDance Ltd. and/or its affiliates, and Meta Platforms, Inc. and affiliates (the inherited DINOv2 backbone), Apache-2.0; upstream copyright notices remain in the patched source. The DA3 Base weights are explicitly Apache-2.0 in the rights holder's `depth-anything/DA3-BASE` model card. See `docs/MODELS.md` and `licenses/models/Depth-Anything-3-Apache-2.0.txt`. No weights are included in this repository.
+
 **AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT or Apache-2.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
 
 **Icons and fonts** come with the inherited frontend; see the dependency inventory below for the npm packages that ship them.

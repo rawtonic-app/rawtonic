@@ -106,7 +106,72 @@ use std::collections::{VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
+/// Version-four inverse-depth maps use normalized camera intrinsics. Distances
+/// remain relative; the reference image plane defines one short-side world unit.
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Camera {
+    pub fx: f32,
+    pub fy: f32,
+    pub cx: f32,
+    pub cy: f32,
+    pub inverse_min: f32,
+    pub inverse_max: f32,
+    pub reference: f32,
+}
+impl Camera {
+    pub fn from_recipe(recipe: &Value) -> Option<Self> {
+        if recipe["relightDepth"]["version"].as_u64()? != 4 {
+            return None;
+        }
+        let c: Self = serde_json::from_value(recipe["relightDepth"]["camera"].clone()).ok()?;
+        let values = [
+            c.fx,
+            c.fy,
+            c.cx,
+            c.cy,
+            c.inverse_min,
+            c.inverse_max,
+            c.reference,
+        ];
+        (values.iter().all(|v| v.is_finite())
+            && (0.05..=100.).contains(&c.fx)
+            && (0.05..=100.).contains(&c.fy)
+            && (-1.0..=2.).contains(&c.cx)
+            && (-1.0..=2.).contains(&c.cy)
+            && c.inverse_min >= 1e-4
+            && c.inverse_max >= c.inverse_min
+            && c.inverse_max <= 100.
+            && c.reference >= c.inverse_max.recip()
+            && c.reference <= c.inverse_min.recip())
+        .then_some(c)
+    }
+    pub fn world_unit(self) -> f32 {
+        self.reference / self.fx.max(self.fy)
+    }
+    pub fn inverse(self, code: u16) -> f32 {
+        self.inverse_min + (self.inverse_max - self.inverse_min) * code as f32 / 65535.
+    }
+    pub fn position(self, uv: [f32; 2], depth: f32, strength: f32) -> [f32; 3] {
+        let d = self.reference + (depth - self.reference) * strength;
+        [
+            (uv[0] - self.cx) * d / self.fx / self.world_unit(),
+            (uv[1] - self.cy) * d / self.fy / self.world_unit(),
+            (self.reference - d) / self.world_unit(),
+        ]
+    }
+    pub fn uniforms(recipe: &Value) -> ([f32; 4], [f32; 4]) {
+        Self::from_recipe(recipe).map_or(([0.; 4], [0.; 4]), |c| {
+            (
+                [c.fx, c.fy, c.cx, c.cy],
+                [c.reference, c.world_unit(), c.inverse_max.recip(), 1.],
+            )
+        })
+    }
+}
+
 pub struct DepthSurface {
+    pub camera: Option<Camera>,
     pub image: DepthImage,
     pub faces: Vec<Vec<[f32; 4]>>,
     pub refined: bool,
@@ -147,11 +212,18 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
     {
         return [0; 4];
     }
+    let camera = Camera::from_recipe(recipe);
+    if recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 4 && camera.is_none() {
+        return [0; 4];
+    }
     let Some(data) = recipe["relightDepth"]["data"].as_str() else {
         return [0; 4];
     };
     let mut hasher = DefaultHasher::new();
     data.hash(&mut hasher);
+    recipe["relightDepth"]["camera"]
+        .to_string()
+        .hash(&mut hasher);
     recipe["relightDepth"]["version"].as_u64().hash(&mut hasher);
     recipe["relightDepth"]["faces"]
         .to_string()
@@ -198,6 +270,7 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
         cache.push_front((
             key,
             Arc::new(DepthSurface {
+                camera,
                 image: depth,
                 faces,
                 refined: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 2,
@@ -291,6 +364,38 @@ pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn camera_metadata_is_validated_and_part_of_surface_cache_identity() {
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageLuma16(DepthImage::from_pixel(16, 16, image::Luma([32768])))
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let mut recipe = serde_json::json!({"relightLights":[{"intensity":50}],"relightDepth":{"version":4,"data":STANDARD.encode(bytes.into_inner()),"camera":{"fx":1.2,"fy":1.3,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0}}});
+        recipe["relightDepth"]["geometry"] = geometry(&recipe);
+        let first = register_depth(&recipe);
+        assert_ne!(first, [0; 4]);
+        assert_eq!(first, register_depth(&recipe));
+        assert!(depth(first).unwrap().camera.is_some());
+        recipe["relightDepth"]["camera"]["fx"] = serde_json::json!(1.4);
+        assert_ne!(first, register_depth(&recipe));
+        for (key, value) in [
+            ("fx", 0.),
+            ("inverseMin", 0.),
+            ("inverseMax", 200.),
+            ("reference", 0.1),
+        ] {
+            let mut invalid = recipe.clone();
+            invalid["relightDepth"]["camera"][key] = serde_json::json!(value);
+            assert_eq!(register_depth(&invalid), [0; 4], "{key}");
+            assert_eq!(Camera::uniforms(&invalid), ([0.; 4], [0.; 4]));
+        }
+        recipe["relightDepth"]["version"] = serde_json::json!(5);
+        assert_eq!(register_depth(&recipe), [0; 4]);
+        recipe["relightDepth"]["version"] = serde_json::json!(3);
+        assert!(depth(register_depth(&recipe)).unwrap().camera.is_none());
+        assert_eq!(Camera::uniforms(&recipe), ([0.; 4], [0.; 4]));
+    }
+
     #[test]
     fn surface_fit_preserves_planes_and_rejects_depth_steps() {
         for (w, h) in [(64, 32), (32, 64)] {

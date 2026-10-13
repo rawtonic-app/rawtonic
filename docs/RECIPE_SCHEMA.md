@@ -74,3 +74,15 @@ view-dependent dielectric reflections only within confident facial coverage,
 using cached normals, a fixed skin-like roughness and the light's colour.
 It does not recover skin/material parameters or remove existing highlights.
 Zero, missing faces, disabled depth and stale geometry suppress the reflection.
+
+Analysis version 4 additionally stores `camera` with normalized `fx, fy, cx, cy`,
+`inverseMin`, `inverseMax` and `reference` (currently 1). A PNG code `v` decodes
+as inverse distance `inverseMin + (inverseMax-inverseMin)*v/65535`. Distance
+is relative, normalized by the analysis median, not metres. Version 4 requires
+valid finite camera metadata; unknown newer versions are not decoded as old
+height maps. The cache key includes the camera. Gradients, perspective positions,
+face relief, view direction, gobo projection, spot falloff and local shadows all
+use this camera. Facial relief scales with the face's local scene distance.
+Surface amount zero flattens this geometry onto its reference plane, retaining
+the same light transport. Scene normals are regularized without smoothing across
+large depth jumps; only confident facial geometry casts local shadows.

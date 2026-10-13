@@ -95,6 +95,22 @@ SAM_CHECKPOINT = {
     "url": "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth",
     "sha256": "ec2df62732614e57411cdcf32a23ffdf28910380d03139ee0f4fcbe91eb8c912",
 }
+RELIGHT_SHA256 = "070a4ff34ed406d057044daf9b84fd6287e5a7cc66134060acf2ccfe5d5dea23"
+RELIGHT_ENTRY = {
+    "used_by": "Relight relative scene geometry and camera",
+    "source": "DA3 Base (ByteDance-Seed/Depth-Anything-3 source 3d835ec1a5802d64a8b8b15f817a1ab54809bfe4; depth-anything/DA3-BASE revision f4a6c9b3c95e41c82048423d3493a81ec3fa810e), exported by scripts/models/export_relight.py",
+    "license": "Apache-2.0",
+    "license_files": ["Depth-Anything-3-Apache-2.0.txt"],
+    "checkpoint_sha256": "e01067dc1659613083d9145a9a2547ccdbe6ccbbf83c4fe7b3e8a4e2bdae78b5",
+}
+RELIGHT_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "torch==2.14.1",
+    "--with", "numpy==2.5.4", "--with", "onnx==1.23.2",
+    "--with", "safetensors==0.8.0", "--with", "omegaconf==2.4.0",
+    "--with", "einops==0.8.2", "--with", "addict==2.4.0",
+    "python", str(Path(__file__).resolve().parent / "export_relight.py"),
+]
+
 SIGLIP_ENTRY = {
     "source": "SigLIP 2 B/16 (google/siglip2-base-patch16-224, revision 75de2d5), exported by scripts/models/export_siglip2.py",
     "license": "Apache-2.0",
@@ -356,6 +372,11 @@ def main() -> None:
         source = fetch(model["url"], model["sha256"], args.cache, model["file"])
         meta = {k: v for k, v in model.items() if k not in ("file", "sha256")}
         entries.append(place(source, args.out, model["file"], model["sha256"]) | meta)
+
+    relight_dir = args.cache / "relight"
+    subprocess.run(RELIGHT_EXPORT + [str(relight_dir)], check=True)
+    relight_name = "relight_geometry_da3_base.onnx"
+    entries.append(place(relight_dir / relight_name, args.out, relight_name, RELIGHT_SHA256) | RELIGHT_ENTRY)
 
     from export_sam import export  # needs torch; imported only when building
 

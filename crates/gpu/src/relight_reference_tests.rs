@@ -30,16 +30,33 @@ fn visibility(
     uv: [f32; 2],
     direction: [f32; 3],
     softness: f32,
+    camera: Option<rawtonic_engine::relight::Camera>,
 ) -> f32 {
     let receiver = sample(surface, uv);
     if receiver[3] < 0.99 {
         return 1.;
     }
     let resolution = surface.width().min(surface.height()) as f32;
-    let mut travel = 1.25 / resolution;
+    let origin = camera.map(|c| c.position(uv, receiver[2].recip(), 1.));
+    let ratio = camera.map_or(1., |c| receiver[2].recip() / c.reference);
+    let mut travel = 1.25 / resolution * ratio;
     let mut result: f32 = 1.;
     while travel < 2. {
-        let q = [uv[0] + direction[0] * travel, uv[1] + direction[1] * travel];
+        let ray = origin.map(|o| std::array::from_fn::<_, 3, _>(|i| o[i] + direction[i] * travel));
+        let mut ratio = 1.;
+        let q = if let (Some(c), Some(ray)) = (camera, ray) {
+            let distance = c.reference - ray[2] * c.world_unit();
+            if distance <= c.reference * 0.0001 {
+                break;
+            }
+            ratio = distance / c.reference;
+            [
+                ray[0] * c.world_unit() * c.fx / distance + c.cx,
+                ray[1] * c.world_unit() * c.fy / distance + c.cy,
+            ]
+        } else {
+            [uv[0] + direction[0] * travel, uv[1] + direction[1] * travel]
+        };
         if q.iter().any(|v| *v <= 0. || *v >= 1.) {
             break;
         }
@@ -47,10 +64,14 @@ fn visibility(
         if blocker[3] < 0.995 {
             break;
         }
-        let clearance = receiver[2] * 0.25 + direction[2] * travel - blocker[2] * 0.25;
+        let clearance = if let (Some(c), Some(ray)) = (camera, ray) {
+            ray[2] - c.position(q, blocker[2].recip(), 1.)[2]
+        } else {
+            receiver[2] * 0.25 + direction[2] * travel - blocker[2] * 0.25
+        };
         let penumbra = 0.0008 + softness * travel * 0.18;
         result = result.min(smooth(-penumbra, penumbra, clearance + 0.001));
-        travel += 0.25 / resolution;
+        travel += 0.25 / resolution * ratio;
     }
     1. + (result - 1.) * smooth(0.99, 1., receiver[3])
 }
@@ -58,6 +79,16 @@ fn visibility(
 #[test]
 #[ignore = "native GPU: dense shadow reference across face scales and directions"]
 fn relight_shadow_dense_reference() {
+    dense_reference_case(2);
+}
+
+#[test]
+#[ignore = "native GPU: camera-space dense shadow reference"]
+fn relight_camera_shadow_dense_reference() {
+    dense_reference_case(4);
+}
+
+fn dense_reference_case(version: u64) {
     let context = context();
     const SIZE: u32 = 192;
     let processor = GpuProcessor::new(context.clone(), SIZE, SIZE).unwrap();
@@ -129,7 +160,11 @@ fn relight_shadow_dense_reference() {
                 (0., 0.3, 75.),
             ] {
                 let mut recipe = json!({"relightLights":[{"intensity":25,"color":"#ffffff","rotation":angle,"elevation":elevation,"diffusion":0,"softness":softness*100.,"shadows":100}],"relightOriginalLight":0,"relightDepthAmount":100});
-                recipe["relightDepth"] = json!({"data":data,"geometry":rawtonic_engine::relight::geometry(&recipe),"version":2,"faces":[face]});
+                recipe["relightDepth"] = json!({"data":data,"geometry":rawtonic_engine::relight::geometry(&recipe),"version":version,"faces":[face]});
+                if version == 4 {
+                    recipe["relightDepth"]["camera"] = json!({"fx":1.2,"fy":1.2,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0});
+                    recipe["relightSkinReflections"] = json!(0);
+                }
                 let adjustments = get_all_adjustments_from_json(&recipe, false, Some(0));
                 let depth =
                     rawtonic_engine::relight::depth(adjustments.global.relight_depth).unwrap();
@@ -166,7 +201,13 @@ fn relight_shadow_dense_reference() {
                         if p[3] < 0.99 {
                             continue;
                         }
-                        let normal = [-p[0] * 0.25, -p[1] * 0.25, 1.];
+                        let normal = depth.camera.map_or([-p[0] * 0.25, -p[1] * 0.25, 1.], |c| {
+                            [
+                                -c.fx * p[0],
+                                -c.fy * p[1],
+                                p[2] - p[0] * (uv[0] - c.cx) - p[1] * (uv[1] - c.cy),
+                            ]
+                        });
                         let length = normal.iter().map(|v| v * v).sum::<f32>().sqrt();
                         let response = normal
                             .iter()
@@ -175,7 +216,7 @@ fn relight_shadow_dense_reference() {
                             .sum::<f32>()
                             .max(0.)
                             / length;
-                        let visible = visibility(&surface, uv, direction, softness);
+                        let visible = visibility(&surface, uv, direction, softness, depth.camera);
                         let expected = encode(input_linear * 0.75 * response * visible);
                         let actual = pixels[((y * SIZE + x) * 4) as usize] as f32;
                         errors.push((actual - expected).abs());
