@@ -145,6 +145,20 @@ evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
   verify fifteen distinct outputs, legacy-recipe equivalence, independent spot
   positioning/pattern rotation and stale-depth rejection.
 
+- Final native macOS QA on copied public portrait and synthetic sphere: source,
+  pattern move, rotation and scale via native mouse events; focused Cmd-Z;
+  independent source placement; saved settings restored after app restart and
+  photo switching; fixed 42-pixel source handle at 50% zoom. The viewer's capture
+  handler now excludes Relight handles so a completed gesture cannot leave
+  panning active. Pattern swatches and controls were inspected in the native UI.
+- First-light automatic analysis reached ready in 616 ms in this warm-model QA
+  run (including QA polling, not a cold-download or competitor measurement).
+  Changing the sphere to a square crop invalidated depth, and reanalysis produced
+  a 518×518 map with the matching crop geometry.
+- Full project gates pass, including 871 frontend tests; all three ignored
+  Relight GPU tests pass. This remains workflow/implementation verification,
+  with the broader quality and timing limits stated above.
+
 ## Reproduce
 
 ```sh
