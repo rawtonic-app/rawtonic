@@ -22,7 +22,7 @@
 
 use std::ffi::{CStr, CString, c_char};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
@@ -297,17 +297,17 @@ pub struct Device {
     pub label: String,
     pub library: PathBuf,
     ep_device: EpDevice,
+    environment: Arc<ort::environment::Environment>,
 }
 
 #[derive(Clone, Copy, Debug)]
 struct EpDevice(*const ort::sys::OrtEpDevice);
-// The device belongs to the process-wide environment, which outlives every
-// session; ONNX Runtime only reads it.
+// Device retains its environment, so the read-only pointer remains valid.
 unsafe impl Send for EpDevice {}
 unsafe impl Sync for EpDevice {}
 
 enum Registration {
-    Ready(Device),
+    Ready(Weak<Device>),
     /// Registered or tried without a usable device; not tried again.
     Unusable(String),
 }
@@ -317,16 +317,21 @@ static REGISTRY: Mutex<Vec<(Provider, Registration)>> = Mutex::new(Vec::new());
 /// The device of `provider`, registering its plugin library on first use.
 /// `Err` says why it is not usable (no library, no device, a failed
 /// registration).
-pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Device> {
+pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Arc<Device>> {
     let file = provider
         .library_file()
         .ok_or_else(|| anyhow!("the CPU needs no plugin"))?;
     let mut registry = REGISTRY.lock().unwrap();
-    if let Some((_, registration)) = registry.iter().find(|(p, _)| *p == provider) {
-        return match registration {
-            Registration::Ready(device) => Ok(device.clone()),
-            Registration::Unusable(why) => Err(anyhow!("{why}")),
-        };
+    if let Some(index) = registry.iter().position(|(p, _)| *p == provider) {
+        match &registry[index].1 {
+            Registration::Ready(device) => {
+                if let Some(device) = device.upgrade() {
+                    return Ok(device);
+                }
+            }
+            Registration::Unusable(why) => return Err(anyhow!("{why}")),
+        }
+        registry.remove(index);
     }
     // Not registered yet: a missing library may still be installed later.
     let Some(library) = dirs.iter().map(|d| d.join(file)).find(|p| p.is_file()) else {
@@ -340,7 +345,9 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Device> {
                 library.display(),
                 device.label
             );
-            Registration::Ready(device)
+            let device = Arc::new(device);
+            registry.push((provider, Registration::Ready(Arc::downgrade(&device))));
+            return Ok(device);
         }
         Err(e) => {
             log::warn!(
@@ -352,7 +359,7 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Device> {
         }
     };
     let result = match &registration {
-        Registration::Ready(device) => Ok(device.clone()),
+        Registration::Ready(_) => unreachable!(),
         Registration::Unusable(why) => Err(anyhow!("{why}")),
     };
     registry.push((provider, registration));
@@ -362,8 +369,8 @@ pub fn device(provider: Provider, dirs: &[PathBuf]) -> Result<Device> {
 fn register(provider: Provider, library: &Path) -> Result<Device> {
     ensure_runtime()?;
     let api = ort::api();
-    let env =
-        ort::environment::get_environment().context("creating the ONNX Runtime environment")?;
+    let env = ort::environment::Environment::current()
+        .context("creating the ONNX Runtime environment")?;
     let name = CString::new(provider.ep_name())?;
     let path = ort_path(library);
     unsafe {
@@ -415,6 +422,7 @@ fn register(provider: Provider, library: &Path) -> Result<Device> {
                 label,
                 library: library.to_path_buf(),
                 ep_device: EpDevice(device),
+                environment: env,
             });
         }
     }
@@ -424,7 +432,7 @@ fn register(provider: Provider, library: &Path) -> Result<Device> {
 /// Adds `device`'s provider to a session's options.
 fn append(builder: &mut SessionBuilder, device: &Device) -> Result<()> {
     let api = ort::api();
-    let env = ort::environment::get_environment()?;
+    let env = &device.environment;
     let devices = [device.ep_device.0];
     unsafe {
         check((api.SessionOptionsAppendExecutionProvider_V2)(
@@ -491,6 +499,19 @@ pub(crate) fn session(path: &Path, device: Option<&Device>) -> Result<Session> {
     let mut builder = Session::builder()?;
     if let Some(device) = device {
         append(&mut builder, device)?;
+    } else {
+        // Explicit CPU registration bypasses ort's default NPU discovery.
+        // Runtime 1.22 has no discoverable CPU device on macOS.
+        unsafe {
+            let library = libloading::Library::new(runtime::library_path())?;
+            let append_cpu: libloading::Symbol<
+                unsafe extern "system" fn(
+                    *mut ort::sys::OrtSessionOptions,
+                    i32,
+                ) -> ort::sys::OrtStatusPtr,
+            > = library.get(b"OrtSessionOptionsAppendExecutionProvider_CPU\0")?;
+            check(append_cpu(builder.ptr_mut(), 1))?;
+        }
     }
     Ok(builder.commit_from_file(path)?)
 }

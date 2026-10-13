@@ -958,3 +958,59 @@ pub async fn preload_ai_mask_models(
     );
     Ok(())
 }
+
+/// Analyze only on request; subsequent light edits reuse the persisted depth.
+#[tauri::command]
+pub async fn generate_relight_depth(
+    js_adjustments: serde_json::Value,
+    state: tauri::State<'_, AppState>,
+    app_handle: tauri::AppHandle,
+) -> Result<serde_json::Value, String> {
+    // Capture the source before awaiting model initialization.
+    let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
+    LIFECYCLE.touch();
+    let running = LIFECYCLE.run();
+    let model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
+        .await
+        .map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _running = running;
+        let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
+            &source,
+            is_raw,
+            &js_adjustments,
+        );
+        let depth = crate::ai_processing::run_depth_anything_model16(&warped, &model, is_raw)
+            .map_err(|e| e.to_string())?;
+        let depth = match js_adjustments["orientationSteps"].as_u64().unwrap_or(0) % 4 {
+            1 => image::imageops::rotate90(&depth),
+            2 => image::imageops::rotate180(&depth),
+            3 => image::imageops::rotate270(&depth),
+            _ => depth,
+        };
+        let depth = if js_adjustments["flipHorizontal"].as_bool() == Some(true) {
+            image::imageops::flip_horizontal(&depth)
+        } else {
+            depth
+        };
+        let depth = if js_adjustments["flipVertical"].as_bool() == Some(true) {
+            image::imageops::flip_vertical(&depth)
+        } else {
+            depth
+        };
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageLuma16(depth)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .map_err(|e| e.to_string())?;
+        let data = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+        );
+        Ok(serde_json::json!({
+            "data": data,
+            "geometry": rawtonic_engine::relight::geometry(&js_adjustments),
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

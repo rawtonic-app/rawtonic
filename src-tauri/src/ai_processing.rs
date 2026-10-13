@@ -2782,11 +2782,12 @@ pub fn run_subject_model(
     Ok(full)
 }
 
-pub fn run_depth_anything_model(
+fn depth_anything_values(
     image: &DynamicImage,
     depth_session: &rawtonic_onnx::Model,
     linear: bool,
-) -> Result<GrayImage> {
+    max_code: f32,
+) -> Result<(u32, u32, Vec<f32>)> {
     let resized_image = image.resize(DEPTH_INPUT_SIZE, DEPTH_INPUT_SIZE, FilterType::Triangle);
     let (resized_w, resized_h) = resized_image.dimensions();
     let resized_rgb = display_rgb8(resized_image, linear);
@@ -2837,7 +2838,7 @@ pub fn run_depth_anything_model(
     }
 
     let range = max_val - min_val;
-    let scale = if range > 1e-6 { 255.0 / range } else { 0.0 };
+    let scale = if range > 1e-6 { max_code / range } else { 0.0 };
 
     let mut cropped_depth_data = Vec::with_capacity(rw * rh);
 
@@ -2847,18 +2848,36 @@ pub fn run_depth_anything_model(
             let src_x = x + paste_x;
             let val = out_slice[src_y * usize_size + src_x];
             let pixel = if range > 1e-6 {
-                ((val - min_val) * scale) as u8
+                ((val - min_val) * scale).clamp(0.0, max_code)
             } else {
-                0
+                0.0
             };
             cropped_depth_data.push(pixel);
         }
     }
 
-    let depth_map = GrayImage::from_raw(resized_w, resized_h, cropped_depth_data)
-        .ok_or_else(|| anyhow::anyhow!("Failed to create mask from Depth output"))?;
+    Ok((resized_w, resized_h, cropped_depth_data))
+}
 
-    Ok(depth_map)
+pub fn run_depth_anything_model(
+    image: &DynamicImage,
+    model: &rawtonic_onnx::Model,
+    linear: bool,
+) -> Result<GrayImage> {
+    let (w, h, values) = depth_anything_values(image, model, linear, 255.)?;
+    GrayImage::from_raw(w, h, values.iter().map(|v| *v as u8).collect())
+        .ok_or_else(|| anyhow::anyhow!("Invalid depth dimensions"))
+}
+
+/// Preserve gradients for surface normals: 8-bit masks cause terracing.
+pub fn run_depth_anything_model16(
+    image: &DynamicImage,
+    model: &rawtonic_onnx::Model,
+    linear: bool,
+) -> Result<image::ImageBuffer<image::Luma<u16>, Vec<u16>>> {
+    let (w, h, values) = depth_anything_values(image, model, linear, 65535.)?;
+    image::ImageBuffer::from_raw(w, h, values.iter().map(|v| v.round() as u16).collect())
+        .ok_or_else(|| anyhow::anyhow!("Invalid depth dimensions"))
 }
 
 /// ONNX Runtime from `ORT_DYLIB_PATH` (bundled by the `RAWTONIC_BUNDLE_ONNX=1`
@@ -3989,6 +4008,52 @@ mod tool_tests {
                 }
             }
             other => panic!("WARM_MODEL {other}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod relight_tests {
+    #[test]
+    #[ignore = "requires RELIGHT_PHOTO, RELIGHT_MODEL, RELIGHT_OUT and ONNX Runtime"]
+    fn relight_depth_preserves_surface_precision() {
+        let image = image::open(std::env::var("RELIGHT_PHOTO").expect("RELIGHT_PHOTO")).unwrap();
+        let model = rawtonic_onnx::Model::load(
+            std::path::Path::new(&std::env::var("RELIGHT_MODEL").expect("RELIGHT_MODEL")),
+            rawtonic_onnx::ModelKind::Depth,
+        )
+        .unwrap();
+        let start = std::time::Instant::now();
+        let depth = super::run_depth_anything_model16(&image, &model, false).unwrap();
+        println!(
+            "Relight first inference + preprocessing: {:.1} ms, {}x{}",
+            start.elapsed().as_secs_f64() * 1000.,
+            depth.width(),
+            depth.height()
+        );
+        let distinct = depth
+            .as_raw()
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        assert!(
+            distinct > 256,
+            "depth lost its surface precision: {distinct} values"
+        );
+        assert!(depth.width().max(depth.height()) <= super::DEPTH_INPUT_SIZE);
+        let dir = std::path::PathBuf::from(std::env::var("RELIGHT_OUT").expect("RELIGHT_OUT"));
+        std::fs::create_dir_all(&dir).unwrap();
+        // Test artifacts only; never write alongside or over the photograph.
+        depth.save(dir.join("depth16.png")).unwrap();
+        for i in 0..3 {
+            let start = std::time::Instant::now();
+            let next = super::run_depth_anything_model16(&image, &model, false).unwrap();
+            assert_eq!(depth.dimensions(), next.dimensions());
+            println!(
+                "Relight warm inference {i}: {:.1} ms",
+                start.elapsed().as_secs_f64() * 1000.
+            );
         }
     }
 }

@@ -35,11 +35,11 @@ case "$(uname -s)" in
   *) echo "unsupported system: $(uname -s)" >&2; exit 1 ;;
 esac
 # Runtime files: "pack name:name in resources" (Windows and Linux: ONNX
-# Runtime 1.30.0 and the WebGPU plugin; macOS: 1.22.0).
+# Runtime 1.30.0 and the WebGPU plugin; macOS: 1.23.2).
 CUDA_LIB=
 case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64) LIBS="libonnxruntime-macos-aarch64.dylib:libonnxruntime.dylib" ;;
-  Darwin-x86_64) LIBS="libonnxruntime-macos-x86_64.dylib:libonnxruntime.dylib" ;;
+  Darwin-arm64) LIBS="libonnxruntime-1.23.2-macos-aarch64.dylib:libonnxruntime.dylib" ;;
+  Darwin-x86_64) LIBS="libonnxruntime-1.23.2-macos-x86_64.dylib:libonnxruntime.dylib" ;;
   Linux-x86_64)
     LIBS="libonnxruntime-1.30.0-linux-x86_64.so:libonnxruntime.so libonnxruntime_providers_webgpu-0.4.0-linux-x86_64.so:libonnxruntime_providers_webgpu.so"
     CUDA_LIB="libonnxruntime_providers_cuda-0.2.0-cuda13-linux-x86_64.so:libonnxruntime_providers_cuda.so" ;;

@@ -192,6 +192,9 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "vignetteStyle",
         "vignetteHighlights",
         "grainStructure",
+        "relightLights",
+        "relightDepthAmount",
+        "relightOriginalLight",
     ]
     .iter()
     .map(|s| s.to_string())

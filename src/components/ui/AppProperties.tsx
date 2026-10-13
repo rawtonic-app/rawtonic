@@ -62,6 +62,7 @@ export enum Invokes {
   ExportQueueResume = 'export_queue_resume',
   ExportQueueRemove = 'export_queue_remove',
   FrontendLog = 'frontend_log',
+  GenerateRelightDepth = 'generate_relight_depth',
   GenerateAiForegroundMask = 'generate_ai_foreground_mask',
   GenerateAiSkyMask = 'generate_ai_sky_mask',
   GenerateAiPeopleMask = 'generate_ai_people_mask',

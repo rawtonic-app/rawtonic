@@ -1480,6 +1480,7 @@ pub struct GpuProcessor {
     flare_ghosts_view: wgpu::TextureView,
     flare_final_view: wgpu::TextureView,
     flare_sampler: wgpu::Sampler,
+    relight_depth_cache: Mutex<Option<([u32; 4], wgpu::TextureView)>>,
 
     main_bgl: wgpu::BindGroupLayout,
     main_pipeline: wgpu::ComputePipeline,
@@ -2498,6 +2499,16 @@ impl GpuProcessor {
             },
             count: None,
         });
+        bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 18,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
 
         bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
             binding: 9 + MAX_MASK_BINDINGS,
@@ -2785,6 +2796,7 @@ impl GpuProcessor {
             flare_ghosts_view,
             flare_final_view,
             flare_sampler,
+            relight_depth_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
             detail_bgl,
@@ -2860,6 +2872,68 @@ impl GpuProcessor {
         Ok(processor)
     }
 
+    fn relight_depth_view(&self, key: [u32; 4]) -> Result<wgpu::TextureView, String> {
+        let mut cache = self
+            .relight_depth_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some((cached, view)) = cache.as_ref()
+            && *cached == key
+        {
+            return Ok(view.clone());
+        }
+        if key == [0; 4] {
+            return Ok(self.dummy_blur_view.clone());
+        }
+        let depth = rawtonic_engine::relight::depth(key)
+            .ok_or("Relight depth cache expired while rendering; retry this render")?;
+        // Derivatives once per analysis, not four texture samples per pixel
+        // on every light edit. Work at 16-bit depth before float16 packing.
+        let (w, h) = depth.dimensions();
+        let values: Vec<f16> = (0..h)
+            .flat_map(|y| {
+                (0..w).flat_map({
+                    let depth = &depth;
+                    move |x| {
+                        let d = |x, y| depth.get_pixel(x, y)[0] as f32 / 65535.;
+                        let dx =
+                            (d((x + 1).min(w - 1), y) - d(x.saturating_sub(1), y)) * w as f32 * 0.5;
+                        let dy =
+                            (d(x, (y + 1).min(h - 1)) - d(x, y.saturating_sub(1))) * h as f32 * 0.5;
+                        [
+                            f16::from_f32(dx),
+                            f16::from_f32(dy),
+                            f16::from_f32(d(x, y)),
+                            f16::ONE,
+                        ]
+                    }
+                })
+            })
+            .collect();
+        let texture = self.context.device.create_texture_with_data(
+            &self.context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Relight depth"),
+                size: wgpu::Extent3d {
+                    width: depth.width(),
+                    height: depth.height(),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&values),
+        );
+        let view = texture.create_view(&Default::default());
+        *cache = Some((key, view.clone()));
+        Ok(view)
+    }
+
     fn create_mask_texture(&self, width: u32, height: u32, layers: u32) -> wgpu::Texture {
         self.context
             .device
@@ -2873,7 +2947,7 @@ impl GpuProcessor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
+                format: wgpu::TextureFormat::R16Float,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             })
@@ -3575,6 +3649,8 @@ impl GpuProcessor {
         } else {
             None
         };
+        let relight_depth_view =
+            self.relight_depth_view(request.adjustments.global.relight_depth)?;
         let (mask_texture_view, mask_update) = self.prepare_mask_texture(
             width,
             height,
@@ -4151,6 +4227,10 @@ impl GpuProcessor {
                     ),
                 });
 
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 18,
+                    resource: wgpu::BindingResource::TextureView(&relight_depth_view),
+                });
                 let use_flare = adjustments.global.flare_amount > 0.0;
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 9 + MAX_MASK_BINDINGS,

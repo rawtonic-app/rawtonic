@@ -78,3 +78,15 @@ The Rust test `models_run_on_the_gpu_only_where_it_matches_the_cpu` loaded every
 - GPU memory: BiRefNet takes about 1 GB on the GPU in fp32; small GPUs may fail to load it (falls back to the CPU).
 - macOS could use WebGPU (Metal) for SAM 2.1, sky, depth and the others that have no Core ML path (2–3× in the table) once macOS moves to ONNX Runtime ≥ 1.24.4 (drops Intel Macs' ORT build) — not part of this change.
 - The bundled build (`RAWTONIC_BUNDLE_ONNX=1`) for Windows/Linux needs the new pack files uploaded (`build_model_pack.py` lists them).
+
+## Runtime maintenance, 2026-10-13
+
+`ort` rc.12 / `ndarray` 0.17 now retain API 22 explicitly. CPU sessions register
+CPU explicitly (the binding's automatic NPU policy is incompatible with the
+old macOS runtime); device handles retain their environment and registry entries
+are weak. macOS bundles Microsoft Runtime 1.23.2 on both architectures after
+1.22 reproduced an exit-time mutex abort even with the newer binding. Twelve
+installed ONNX models passed two CPU load/inference/unload rounds and process
+shutdown on Apple Silicon. Windows/Linux retain Runtime 1.30 and their pinned
+plugins; provider hardware regression there remains unverified in this run.
+See `docs/testing/relight.md`.

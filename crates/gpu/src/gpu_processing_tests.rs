@@ -6179,3 +6179,315 @@ fn display_split_shows_the_before_left_of_the_divider() {
     assert_eq!(pixel(&all_before, 17, 24), before_rgba);
     assert_eq!(pixel(&all_before, 78, 24), before_rgba);
 }
+
+#[test]
+#[ignore = "requires native GPU; relight identity, patterns, depth and cached/general parity"]
+fn relight_pixels_and_depth_are_consistent() {
+    use base64::Engine as _;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 192, 128).unwrap();
+    let view = input(&context, 192, 128, 17);
+    let render = |profile: &serde_json::Value| {
+        let request = RenderRequest {
+            adjustments: get_all_adjustments_from_json(profile, false, Some(0)),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        };
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                192,
+                128,
+                request,
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U8(p) => p,
+            _ => unreachable!(),
+        }
+    };
+    let baseline = render(&json!({}));
+    let light =
+        json!({"intensity":65,"pattern":"blinds","rotation":30,"elevation":25,"diffusion":10});
+    assert_eq!(
+        baseline,
+        render(&json!({"relightLights":[{"intensity":0}]}))
+    );
+    assert_eq!(
+        baseline,
+        render(&json!({"relightLights":[light], "sectionVisibility":{"relight":false}}))
+    );
+    let mut outputs = Vec::new();
+    for pattern in ["none", "blinds", "window", "strip", "foliage", "grid"] {
+        let mut l = light.clone();
+        l["pattern"] = json!(pattern);
+        let pixels = render(&json!({"relightLights":[l]}));
+        assert_ne!(baseline, pixels, "{pattern} must change pixels");
+        assert!(!outputs.contains(&pixels), "patterns must differ");
+        outputs.push(pixels);
+    }
+    let depth = image::ImageBuffer::from_fn(96, 64, |x, y| {
+        image::Luma([((x as f32 / 95.).powi(2) * 50000. + y as f32 * 100.) as u16])
+    });
+    let mut png = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageLuma16(depth)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let mut profile = json!({"relightLights":[light],"relightDepthAmount":80});
+    let flat = render(&profile);
+    profile["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()), "geometry":rawtonic_engine::relight::geometry(&profile)});
+    let surface = render(&profile);
+    assert_ne!(flat, surface, "actual depth must affect illumination");
+    // Both output precisions, ROI and the display specialization must match
+    // the general export shader, including the stored surface normals.
+    for precision in [
+        RenderOutputPrecision::EightBit,
+        RenderOutputPrecision::SixteenBit,
+    ] {
+        for roi in [
+            None,
+            Some(Roi {
+                x: 19,
+                y: 13,
+                width: 151,
+                height: 97,
+            }),
+        ] {
+            let render_variant = |general: bool, shader: ReadbackShader| {
+                processor
+                    .force_general_pipeline
+                    .store(general, Ordering::Relaxed);
+                let (pixels, ..) = processor
+                    .run_with_shader(
+                        &view,
+                        192,
+                        128,
+                        RenderRequest {
+                            adjustments: get_all_adjustments_from_json(&profile, false, Some(0)),
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi,
+                        },
+                        false,
+                        precision,
+                        shader,
+                    )
+                    .unwrap();
+                match pixels {
+                    RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect::<Vec<_>>(),
+                    RenderedPixels::U16(p) => p,
+                }
+            };
+            let reference = render_variant(true, ReadbackShader::Export);
+            let preview = render_variant(false, ReadbackShader::Preview);
+            let max_diff = reference
+                .iter()
+                .zip(&preview)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            println!(
+                "Relight parity {precision:?}, ROI={roi:?}: maximum code difference {max_diff}"
+            );
+            let tolerance = if precision == RenderOutputPrecision::EightBit {
+                1
+            } else {
+                0
+            };
+            assert!(
+                max_diff <= tolerance,
+                "maximum difference {max_diff} exceeds {tolerance}"
+            );
+        }
+    }
+    processor
+        .force_general_pipeline
+        .store(false, Ordering::Relaxed);
+
+    assert_eq!(
+        surface,
+        render(&profile),
+        "cached depth must be deterministic"
+    );
+    profile["transformRotate"] = json!(10);
+    assert_eq!(flat, render(&profile), "stale geometry must disable depth");
+    let mut inverse = light.clone();
+    inverse["invert"] = json!(true);
+    assert_ne!(flat, render(&json!({"relightLights":[inverse]})));
+    let mut second = light.clone();
+    second["color"] = json!("#3388ff");
+    assert_eq!(
+        render(&json!({"relightLights":[light, second]})),
+        render(&json!({"relightLights":[second, light]}))
+    );
+}
+
+#[test]
+#[ignore = "manual real-photo render and timing; RELIGHT_PHOTO and RELIGHT_OUT containing depth16.png"]
+fn relight_real_photo_and_timing() {
+    use base64::Engine as _;
+    let photo = image::open(std::env::var("RELIGHT_PHOTO").expect("RELIGHT_PHOTO"))
+        .unwrap()
+        .resize(1280, 1280, image::imageops::FilterType::Triangle);
+    let dir = std::path::PathBuf::from(std::env::var("RELIGHT_OUT").expect("RELIGHT_OUT"));
+    let png = std::fs::read(dir.join("depth16.png")).unwrap();
+    let context = context();
+    let (w, h) = photo.dimensions();
+    let processor = GpuProcessor::new(context.clone(), w, h).unwrap();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Relight photo test"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&to_rgba_f16(&photo)),
+        )
+        .create_view(&Default::default());
+    let source = json!({"relightLights":[{"intensity":40,"pattern":"none","rotation":-135,"elevation":25,"diffusion":15,"color":"#fff0df"}],"relightOriginalLight":55});
+    let mut depth = source.clone();
+    depth["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png),"geometry":rawtonic_engine::relight::geometry(&source)});
+    let render = |profile: &serde_json::Value| {
+        let (p, ..) = processor
+            .run_with_shader(
+                &view,
+                w,
+                h,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(profile, false, Some(0)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+                ReadbackShader::Preview,
+            )
+            .unwrap();
+        match p {
+            RenderedPixels::U8(p) => p,
+            _ => unreachable!(),
+        }
+    };
+    for (name, recipe) in [
+        ("before", json!({})),
+        ("projected", source),
+        ("surface", depth.clone()),
+    ] {
+        let pixels = render(&recipe);
+        image::RgbaImage::from_raw(w, h, pixels)
+            .unwrap()
+            .save(dir.join(format!("{name}.png")))
+            .unwrap();
+    }
+    for (name, mut profile) in [
+        ("neutral", json!({})),
+        ("one-light-depth", depth.clone()),
+        ("four-lights-depth", depth),
+    ] {
+        if name == "four-lights-depth" {
+            profile["relightLights"] = json!(vec![profile["relightLights"][0].clone(); 4]);
+        }
+        let features = preview_features(&get_all_adjustments_from_json(&profile, false, Some(0)));
+        prepare_preview_pipeline(&processor, features);
+        for _ in 0..4 {
+            render(&profile);
+        }
+        let mut timings = Vec::new();
+        for i in 0..30 {
+            if name != "neutral" {
+                profile["relightLights"][0]["rotation"] = json!(-135. + i as f64);
+            }
+            let start = std::time::Instant::now();
+            render(&profile);
+            timings.push(start.elapsed().as_secs_f64() * 1000.);
+        }
+        timings.sort_by(f64::total_cmp);
+        println!(
+            "Relight {name}, {w}x{h}, warm GPU render + readback incl. recipe parsing: p50={:.2}ms p95={:.2}ms",
+            timings[15], timings[28]
+        );
+    }
+}
+
+#[test]
+#[ignore = "native GPU; relight must keep its coordinates across the 2048px tile boundary"]
+fn relight_tiled_roi_matches_full_frame() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2176, 64).unwrap();
+    processor
+        .force_general_pipeline
+        .store(true, Ordering::Relaxed);
+    let view = input(&context, 2176, 64, 11);
+    let profile = json!({"relightLights":[{"pattern":"foliage","intensity":65,"scale":80,"rotation":17},{"type":"spot","pattern":"window","x":95,"y":40,"intensity":30}],"relightOriginalLight":70});
+    for precision in [
+        RenderOutputPrecision::EightBit,
+        RenderOutputPrecision::SixteenBit,
+    ] {
+        let render = |roi| {
+            let (pixels, ..) = processor
+                .run(
+                    &view,
+                    2176,
+                    64,
+                    RenderRequest {
+                        adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi,
+                    },
+                    false,
+                    precision,
+                )
+                .unwrap();
+            match pixels {
+                RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect::<Vec<_>>(),
+                RenderedPixels::U16(p) => p,
+            }
+        };
+        let full = render(None);
+        let crop = render(Some(Roi {
+            x: 2030,
+            y: 8,
+            width: 120,
+            height: 40,
+        }));
+        let expected: Vec<u16> = (8..48)
+            .flat_map(|y| {
+                full[(y * 2176 + 2030) * 4..(y * 2176 + 2150) * 4]
+                    .iter()
+                    .copied()
+            })
+            .collect();
+        let diff = crop
+            .iter()
+            .zip(&expected)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        println!("Relight tile/ROI {precision:?}: maximum code difference {diff}");
+        assert!(
+            diff <= if precision == RenderOutputPrecision::EightBit {
+                1
+            } else {
+                0
+            },
+            "Relight tile/ROI coordinate mismatch {precision:?}: maximum {diff}"
+        );
+    }
+}

@@ -10,7 +10,7 @@ anyhow.workspace = true
 base64 = "0.23"
 serde_json.workspace = true
 image = "0.25.10"
-ndarray = "0.16"
-ort = { version = "=2.0.0-rc.10", features = ["ndarray", "load-dynamic"] }
+ndarray = "0.17"
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 rayon = "1.12.0"

@@ -135,3 +135,20 @@ fn a_provider_without_its_library_falls_back_to_the_cpu() {
     .unwrap();
     assert_eq!(model.provider(), Provider::Cpu);
 }
+
+/// Exercises load, inference, unload and reload on every installed model.
+/// Run this binary to completion: a shutdown abort is a test failure too.
+#[test]
+#[ignore = "needs ORT_DYLIB_PATH and AI_MODELS"]
+fn cpu_models_survive_reload_and_shutdown() {
+    let files = model_files(&models(), false).unwrap();
+    assert!(!files.is_empty(), "no models to exercise");
+    let picture = Picture::synthetic(640, 480);
+    for round in 0..2 {
+        for path in &files {
+            let report = bench_file(path, Provider::Cpu, 1, &[], &picture).unwrap();
+            assert!(report.cpu.first_run_ms.is_finite());
+            println!("round {round}: {} CPU inference OK", report.file);
+        }
+    }
+}

@@ -1,3 +1,4 @@
+import type { RelightLight, RelightDepth } from "./relight";
 import { Crop } from 'react-image-crop';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
@@ -571,6 +572,10 @@ export interface Adjustments {
   vignetteStyle?: 'highlightPriority' | 'colorPriority' | 'paintOverlay';
   /** Grain structure; missing = 'even', the original grain (docs/RECIPE_SCHEMA.md). */
   grainStructure?: GrainStructure;
+  relightLights?: RelightLight[];
+  relightDepth?: RelightDepth;
+  relightDepthAmount?: number;
+  relightOriginalLight?: number;
   vignetteHighlights?: number;
   whites: number;
 }
@@ -1139,6 +1144,9 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       ...(loadedAdjustments.guidedPerspective?.upright ? { upright: loadedAdjustments.guidedPerspective.upright } : {}),
     },
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
+    relightLights: loadedAdjustments.relightLights,
+    relightDepth: loadedAdjustments.relightDepth,
+    relightDepthAmount: loadedAdjustments.relightDepthAmount,
     flareAmount: loadedAdjustments.flareAmount ?? INITIAL_ADJUSTMENTS.flareAmount,
     glowAmount: loadedAdjustments.glowAmount ?? INITIAL_ADJUSTMENTS.glowAmount,
     halationAmount: loadedAdjustments.halationAmount ?? INITIAL_ADJUSTMENTS.halationAmount,
@@ -1294,6 +1302,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
   ],
   effects: [
+    { label: 'studio.relight.title', keys: ['relightLights', 'relightDepthAmount', 'relightOriginalLight'] },
     {
       label: 'modals.copyPaste.groups.vignette',
       keys: [
@@ -1376,6 +1385,7 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
  * copied: retouching, the depth-based lens blur, derived lens data, tool
  * visibility and the clipping display. Every other key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
+  'relightDepth',
   'aiPatches',
   'spots',
   'faceRetouch',
@@ -1445,6 +1455,9 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     'moirePattern',
   ],
   effects: [
+    'relightLights',
+    'relightDepthAmount',
+    'relightOriginalLight',
     CreativeAdjustment.GlowAmount,
     CreativeAdjustment.HalationAmount,
     CreativeAdjustment.FlareAmount,

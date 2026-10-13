@@ -221,6 +221,14 @@ ORT = [
     ("onnxruntime-win-arm64-1.22.0.zip", "onnxruntime-win-arm64-1.22.0/lib/onnxruntime.dll",
      "onnxruntime-windows-aarch64.dll", "79281671a386ed1baab9dbdbb09fe55f99577011472e9526cf9d0b468bb6bcc7"),
 ]
+# macOS shutdown fixes; versioned filenames retain compatibility with old builds.
+ORT123_BASE = "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/"
+ORT123 = [
+    ("onnxruntime-osx-arm64-1.23.2.tgz", "onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.1.23.2.dylib",
+     "libonnxruntime-1.23.2-macos-aarch64.dylib", "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299"),
+    ("onnxruntime-osx-x86_64-1.23.2.tgz", "onnxruntime-osx-x86_64-1.23.2/lib/libonnxruntime.1.23.2.dylib",
+     "libonnxruntime-1.23.2-macos-x86_64.dylib", "8c9c78de65ea3786f987c0d980e9c1b13a3a5fbc6b3e2965ba05b450e6e4c054"),
+]
 # Windows and Linux: ONNX Runtime 1.30.0 (plugin execution providers need
 # 1.24.4 or later) and Microsoft's WebGPU plugin 0.4.0, built from the same
 # revision (docs/decisions/0011-gpu-ai.md). New file names, so builds that
@@ -392,10 +400,15 @@ def main() -> None:
     for name, expected in FACES_SHA256.items():
         entries.append(place(faces / name, args.out, name, expected) | {"used_by": FACES_USE[name]} | FACES_ENTRY)
 
-    for archive_name, member, name, expected in ORT:
+    for archive_name, member, name, expected in ORT + ORT123:
+        base = ORT123_BASE if "1.23.2" in archive_name else ORT_BASE
+        meta = ORT_ENTRY if base == ORT_BASE else ORT_ENTRY | {
+            "source": "ONNX Runtime 1.23.2 release (github.com/microsoft/onnxruntime)",
+            "license_files": ["onnxruntime-MIT.txt", "onnxruntime-1.23.2-ThirdPartyNotices.txt"],
+        }
         archive = args.cache / archive_name
         if not archive.exists():
-            fetch_url = ORT_BASE + archive_name
+            fetch_url = base + archive_name
             with urllib.request.urlopen(fetch_url) as response, archive.open("wb") as out:
                 shutil.copyfileobj(response, out)
         extracted = args.cache / name
@@ -405,7 +418,7 @@ def main() -> None:
         else:
             with tarfile.open(archive) as bundle:
                 extracted.write_bytes(bundle.extractfile(member).read())
-        entries.append(place(extracted, args.out, name, expected) | {"url": ORT_BASE + archive_name} | ORT_ENTRY)
+        entries.append(place(extracted, args.out, name, expected) | {"url": base + archive_name} | meta)
 
     for files, meta in ((ORT130, ORT130_ENTRY), (WEBGPU, WEBGPU_ENTRY), (CUDA, CUDA_ENTRY)):
         for url, archive_sha, member, name, expected in files:

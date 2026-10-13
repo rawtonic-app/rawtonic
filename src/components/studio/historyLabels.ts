@@ -28,6 +28,7 @@ const SLIDERS: Record<string, [label: ParseKeys, digits: number]> = {
 
 /** The tool other changed values belong to, by key or key prefix. */
 const TOOLS: [match: RegExp, label: ParseKeys][] = [
+  [/^relight/, "studio.relight.title"],
   [/^(crop|aspectRatio|flip|orientationSteps)/, "studio.develop.groups.crop"],
   [/^(transform|guidedPerspective)/, "studio.develop.groups.geometry"],
   [/^lens(?!Blur)/, "studio.lens.title"],
