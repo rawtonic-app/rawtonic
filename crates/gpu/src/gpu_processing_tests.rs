@@ -6220,8 +6220,40 @@ fn relight_pixels_and_depth_are_consistent() {
         baseline,
         render(&json!({"relightLights":[light], "sectionVisibility":{"relight":false}}))
     );
+    // New controls must preserve old recipes when explicitly set to their defaults.
+    let legacy = json!({"relightLights":[light]});
+    let mut explicit = legacy.clone();
+    explicit["relightLights"][0]["patternRotation"] = json!(30);
+    explicit["relightLights"][0]["sourceX"] = json!(50);
+    explicit["relightLights"][0]["sourceY"] = json!(50);
+    assert!(render(&legacy) == render(&explicit));
+    explicit["relightLights"][0]["patternRotation"] = json!(80);
+    assert!(render(&legacy) != render(&explicit));
+    let mut spot = json!({"relightLights":[{"type":"spot","pattern":"none","intensity":70,"sourceX":20,"sourceY":30}]});
+    let at_left = render(&spot);
+    spot["relightLights"][0]["sourceX"] = json!(80);
+    assert!(
+        at_left != render(&spot),
+        "moving the source must move spot illumination"
+    );
     let mut outputs = Vec::new();
-    for pattern in ["none", "blinds", "window", "strip", "foliage", "grid"] {
+    for pattern in [
+        "none",
+        "blinds",
+        "window",
+        "strip",
+        "foliage",
+        "grid",
+        "palm",
+        "branches",
+        "checkerboard",
+        "dots",
+        "horizontal",
+        "diagonal",
+        "weave",
+        "noise",
+        "crosshatch",
+    ] {
         let mut l = light.clone();
         l["pattern"] = json!(pattern);
         let pixels = render(&json!({"relightLights":[l]}));
@@ -6312,8 +6344,15 @@ fn relight_pixels_and_depth_are_consistent() {
         render(&profile),
         "cached depth must be deterministic"
     );
-    profile["transformRotate"] = json!(10);
-    assert_eq!(flat, render(&profile), "stale geometry must disable depth");
+    for (key, value) in [
+        ("transformRotate", json!(10)),
+        ("rotation", json!(10)),
+        ("crop", json!({"x":0.1,"y":0.2,"width":0.5,"height":0.6})),
+    ] {
+        let mut changed = profile.clone();
+        changed[key] = value;
+        assert_eq!(flat, render(&changed), "stale {key} must disable depth");
+    }
     let mut inverse = light.clone();
     inverse["invert"] = json!(true);
     assert_ne!(flat, render(&json!({"relightLights":[inverse]})));

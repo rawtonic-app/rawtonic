@@ -2861,7 +2861,7 @@ pub struct GlobalAdjustments {
     pub proof_matrix: GpuMat3,
     pub proof_inverse: GpuMat3,
     /// Four projected lights, four aligned vec4s each (relight.rs).
-    pub relight: [[f32; 4]; 16],
+    pub relight: [[f32; 4]; 20],
     pub relight_depth: [u32; 4],
     pub relight_surface: [f32; 4],
 }

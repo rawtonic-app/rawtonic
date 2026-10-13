@@ -178,7 +178,7 @@ struct GlobalAdjustments {
     output_matrix: mat3x3<f32>,
     proof_matrix: mat3x3<f32>,
     proof_inverse: mat3x3<f32>,
-    relight: array<vec4<f32>, 16>,
+    relight: array<vec4<f32>, 20>,
     relight_depth: vec4<u32>,
     relight_surface: vec4<f32>,
 }
@@ -4159,6 +4159,11 @@ fn apply_glow_bloom(
 
 // Projected light masks, evaluated in photograph coordinates for matching
 // full-frame, tiled export and preview. Own analytic patterns, no bitmap assets.
+fn relight_segment(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
+    let ab = b - a;
+    return length(p - a - ab * clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0));
+}
+
 fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32 {
     let edge = max(0.002 + softness * 0.22, pixel);
     let cell = abs(fract(p) - vec2<f32>(0.5));
@@ -4177,6 +4182,49 @@ fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32
             return smoothstep(-0.12 - edge * 4.0, 0.12 + edge * 4.0, canopy);
         }
         case 5u: { return smoothstep(0.07 - edge, 0.07 + edge, min(cell.x, cell.y)); }
+        case 6u: {
+            // An original repeated frond silhouette: curved ribs and leaflets.
+            let q = fract(p) - vec2<f32>(0.5);
+            let rib = q.x - 0.22 * sin(q.y * 3.0);
+            let stem = abs(rib);
+            let leaflet = abs(fract(q.y * 7.0 + abs(rib) * 2.5) - 0.5);
+            let canopy = (1.0 - smoothstep(0.32, 0.46, abs(rib)))
+                * (1.0 - smoothstep(0.12 - edge, 0.12 + edge, leaflet));
+            return 1.0 - max(canopy, 1.0 - smoothstep(0.015, 0.015 + edge, stem));
+        }
+        case 7u: {
+            let q = fract(p) - vec2<f32>(0.5);
+            var d = relight_segment(q, vec2<f32>(-0.1, 0.5), vec2<f32>(0.05, -0.5));
+            for (var j = 0; j < 4; j++) {
+                let y = -0.35 + f32(j) * 0.22;
+                let side = select(-1.0, 1.0, j % 2 == 0);
+                d = min(d, relight_segment(q, vec2<f32>(-0.1 * y, y + 0.15), vec2<f32>(side * 0.45, y - 0.2)));
+            }
+            return smoothstep(0.012, 0.028 + edge, d);
+        }
+        case 8u: {
+            let a = smoothstep(0.25 - edge, 0.25 + edge, cell.x);
+            let b = smoothstep(0.25 - edge, 0.25 + edge, cell.y);
+            return a + b - 2.0 * a * b;
+        }
+        case 9u: { return 1.0 - smoothstep(0.22 - edge, 0.22 + edge, length(cell)); }
+        case 10u: { return 1.0 - smoothstep(0.07 - edge, 0.07 + edge, cell.y); }
+        case 11u: { return 1.0 - smoothstep(0.1 - edge, 0.1 + edge, abs(fract(p.x + p.y) - 0.5)); }
+        case 12u: {
+            let horizontal = smoothstep(0.12 - edge, 0.12 + edge, cell.y);
+            let vertical = smoothstep(0.12 - edge, 0.12 + edge, cell.x);
+            let over = step(0.5, fract((floor(p.x) + floor(p.y)) * 0.5));
+            return mix(horizontal, vertical, over) * 0.8 + horizontal * vertical * 0.2;
+        }
+        case 13u: {
+            let n = sin(p.x * 37.0 + sin(p.y * 43.0)) * sin(p.y * 31.0 - cos(p.x * 29.0));
+            return smoothstep(-0.15 - edge * 3.0, 0.15 + edge * 3.0, n);
+        }
+        case 14u: {
+            let a = abs(fract(p.x + p.y) - 0.5);
+            let b = abs(fract(p.x - p.y) - 0.5);
+            return smoothstep(0.07 - edge, 0.07 + edge, min(a, b));
+        }
         default: { return 1.0; }
     }
 }
@@ -4197,12 +4245,14 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
     var shadow_ev = 0.0;
     var has_light = false;
     for (var i = 0u; i < 4u; i++) {
-        let color = adjustments.global.relight[i * 4u];
+        let color = adjustments.global.relight[i * 5u];
         if (color.w <= 0.0) { continue; }
         has_light = true;
-        let placement = adjustments.global.relight[i * 4u + 1u];
-        let shape = adjustments.global.relight[i * 4u + 2u];
-        let settings = adjustments.global.relight[i * 4u + 3u];
+        let placement = adjustments.global.relight[i * 5u + 1u];
+        let shape = adjustments.global.relight[i * 5u + 2u];
+        let settings = adjustments.global.relight[i * 5u + 3u];
+        let controls = adjustments.global.relight[i * 5u + 4u];
+        let source_delta = (uv - controls.xy) * dims / min(dims.x, dims.y);
         let delta = (uv - placement.xy) * dims / min(dims.x, dims.y);
         let c = cos(shape.x);
         let s = sin(shape.x);
@@ -4214,17 +4264,19 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
             let travel = min(cos(settings.w) / max(sin(settings.w), 0.15), 3.0);
             projected += vec2<f32>(-s, c) * height * travel;
         }
-        let p = vec2<f32>(c * projected.x + s * projected.y, -s * projected.x + c * projected.y) / shape.y;
+        let pc = cos(controls.z);
+        let ps = sin(controls.z);
+        let p = vec2<f32>(pc * projected.x + ps * projected.y, -ps * projected.x + pc * projected.y) / shape.y;
         let pixel = 1.0 / (min(dims.x, dims.y) * shape.y);
         var mask = relight_pattern(p, u32(settings.x), shape.z, pixel);
         if (settings.y > 0.5) { mask = 1.0 - mask; }
-        let radius = length(delta) / placement.z;
+        let radius = length(source_delta) / placement.z;
         let spot = 1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, radius);
         let footprint = select(1.0, spot, placement.w > 0.5);
         var response = 1.0;
         if (has_depth) {
             let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
-            let spot_direction = normalize(vec3<f32>(-delta, sin(settings.w) + depth_value * 0.4));
+            let spot_direction = normalize(vec3<f32>(-source_delta, sin(settings.w) + depth_value * 0.4));
             let direction = select(sun_direction, spot_direction, placement.w > 0.5);
             response = mix(max(dot(normal, direction), 0.0), 1.0, shape.w);
         }

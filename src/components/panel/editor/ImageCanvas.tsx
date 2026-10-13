@@ -18,6 +18,8 @@ import { calculateStraightenAngle } from '../../../utils/cropUtils';
 import { pickColorRange } from '../../../utils/colorRanges';
 import { sampleLumaRange } from '../../../utils/lumaSample';
 import TargetedAdjustmentOverlay from './TargetedAdjustmentOverlay';
+import RelightOverlay from './RelightOverlay';
+import { useRelightStore } from '../../../store/useRelightStore';
 import SpotOverlay from './SpotOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
@@ -1262,6 +1264,7 @@ const ImageCanvas = memo(
     const maskOverlayAutoHidden = useEditorStore((state) => state.maskOverlayAuto === 'hidden');
     const lumaPickerLayer = useEditorStore((state) => state.lumaPickerLayer);
     const tatTarget = useEditorStore((state) => state.tatTarget);
+    const relightHandles = useRelightStore((s) => s.panelOpen && s.showHandles);
     const isSpotToolActive = useEditorStore((state) => state.isSpotToolActive);
     const showFaceBlemishes = useEditorStore((state) => state.showFaceBlemishes);
     const [draftGuideLine, setDraftGuideLine] = useState<{ p1: Coord; p2: Coord } | null>(null);
@@ -3107,6 +3110,11 @@ const ImageCanvas = memo(
                 zoom={effectiveZoomScale}
               />
             )}
+          {relightHandles && selectedImage.isReady && !holdingNativeFrame && adjustments.sectionVisibility?.relight !== false
+            && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && !isSpotToolActive && !tatTarget && !showFaceBlemishes && (
+            <RelightOverlay key={selectedImage.path} rect={{ left: imageRenderSize.offsetX, top: imageRenderSize.offsetY,
+              width: imageRenderSize.width, height: imageRenderSize.height }} zoom={effectiveZoomScale} />
+          )}
           {tatTarget && !isCropping && !isMasking && !isWbPickerActive && !isShowingOriginal && (
             <TargetedAdjustmentOverlay
               rect={{

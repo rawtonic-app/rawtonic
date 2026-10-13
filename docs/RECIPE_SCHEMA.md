@@ -30,10 +30,15 @@ Masks read from the photo's own frame (AI masks, colour and luminance ranges, th
 
 `relightLights` holds up to four non-generative projected lights. Each has an
 `id`, `enabled`, `type` (`sun` or `spot`), sRGB hex `color`, `intensity` (0–100),
-`x`/`y` (0–100 percent of the developed frame), `size` (5–200), `rotation`
-(−180…180 degrees), `elevation` (5–90 degrees), `scale` (5–200), `softness`,
+`x`/`y` (pattern center, −100…200 percent of the developed frame), `size` (5–200), `rotation`
+(−180…180 degrees), `elevation` (5–90 degrees), `scale` (5–300), `softness`,
 `diffusion`, `shadows` (all 0–100), `pattern` (`none`, `blinds`, `window`,
-`strip`, `foliage`, `grid`) and `invert`. Missing lights are identity.
+`strip`, `foliage`, `grid`, `palm`, `branches`, `checkerboard`, `dots`,
+`horizontal`, `diagonal`, `weave`, `noise`, `crosshatch`) and `invert`.
+Optional `sourceX`/`sourceY` (−100…200 percent) position the light independently
+of the pattern; optional `patternRotation` (−180…180 degrees) rotates only the
+pattern. Legacy recipes fall back to `x`/`y` for spot position and `rotation`
+for pattern rotation, preserving their rendered output. Missing lights are identity.
 `sectionVisibility.relight=false` bypasses all lighting without losing settings.
 `relightOriginalLight` (0–100, default 100) scales the existing illumination
 when at least one light has nonzero intensity. It does not reconstruct albedo
@@ -41,11 +46,12 @@ or remove the original light direction.
 
 Optional `relightDepth` contains `{data, geometry}`: a 16-bit grayscale PNG data
 URL at inference resolution, and the geometry parameters at analysis time
-(engine `relight::geometry`). The bitmap is already coarsely rotated/flipped
-into the GPU input frame. Straightening and crop are applied later, like the
-photo. A geometry mismatch disables depth until the user analyzes again.
+(engine `relight::geometry`). Analysis uses the displayed GPU input frame, after lens/perspective correction,
+orientation, flips, straightening and crop. Geometry records non-neutral crop
+and straightening too; older maps remain valid only in their original neutral
+frame. A geometry mismatch disables depth until the user analyzes again.
 `relightDepthAmount` (0–100, default 60) controls normal strength; zero uses
-projected lighting. Surface gradients are computed once from smoothed 16-bit
+projected lighting. Surface gradients are computed once using an edge-aware local slope fit on 16-bit
 depth, packed in a GPU texture, and reused for light edits. Depth is specific to
 the photograph and excluded from copy/paste and presets; light settings are
 copyable. No model inference or network request is needed to reopen or export

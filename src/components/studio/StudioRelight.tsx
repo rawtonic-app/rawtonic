@@ -1,7 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, Trash2, Eye, EyeOff, RotateCcw } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  Eye,
+  EyeOff,
+  RotateCcw,
+  MousePointer2,
+  ChevronDown,
+} from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import {
@@ -12,6 +20,8 @@ import {
   type RelightLight,
   type RelightDepth,
 } from "../../utils/relight";
+import { useRelightStore } from "../../store/useRelightStore";
+import RelightPatternPreview from "./RelightPatternPreview";
 import AdjustmentControl from "./AdjustmentControl";
 import { Invokes } from "../ui/AppProperties";
 
@@ -26,7 +36,12 @@ export default function StudioRelight({
   const adjustments = useEditorStore((s) => s.adjustments);
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const { setAdjustments } = useEditorActions();
-  const [selected, setSelected] = useState<string>();
+  const selected = useRelightStore((s) => s.selected);
+  const showHandles = useRelightStore((s) => s.showHandles);
+  const setSelected = (selected: string) =>
+    useRelightStore.setState({ selected });
+  const patternToggle = useRef<HTMLButtonElement>(null);
+  const [patternsOpen, setPatternsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const request = useRef(0);
@@ -38,7 +53,8 @@ export default function StudioRelight({
   const lights = adjustments.relightLights ?? [];
   const light = lights.find((l) => l.id === selected) ?? lights[0];
   const depth = adjustments.relightDepth;
-  const depthValid = !!depth && matchesRelightGeometry(adjustments, depth.geometry);
+  const depthValid =
+    !!depth && matchesRelightGeometry(adjustments, depth.geometry);
   const update = (patch: Partial<RelightLight>) =>
     setAdjustments((prev) => ({
       ...prev,
@@ -83,7 +99,8 @@ export default function StudioRelight({
       | "softness"
       | "diffusion"
       | "shadows"
-      | "elevation",
+      | "elevation"
+      | "patternRotation",
     min = 0,
     max = 100,
   ) =>
@@ -91,7 +108,11 @@ export default function StudioRelight({
       <AdjustmentControl
         key={key}
         label={t(`studio.relight.${key}`)}
-        value={light[key]}
+        value={
+          key === "patternRotation"
+            ? (light.patternRotation ?? light.rotation)
+            : light[key]
+        }
         min={min}
         max={max}
         disabled={disabled}
@@ -101,7 +122,17 @@ export default function StudioRelight({
     );
   return (
     <div className="studio-relight">
-      <p className="studio-relight-help">{t("studio.relight.description")}</p>
+      <button
+        type="button"
+        className="studio-relight-edit"
+        aria-pressed={showHandles}
+        disabled={disabled}
+        onClick={() => useRelightStore.setState({ showHandles: !showHandles })}
+      >
+        <MousePointer2 size={14} />
+        {t("studio.relight.editOnImage")}
+      </button>
+      <p className="studio-relight-help">{t("studio.relight.dragHint")}</p>
       <div className="studio-relight-lights">
         {lights.map((l, i) => (
           <button
@@ -124,6 +155,22 @@ export default function StudioRelight({
           disabled={disabled || lights.length >= MAX_RELIGHT_LIGHTS}
           onClick={() => {
             const next = createRelightLight();
+            // Give new sources a free corner so every light is easy to grab.
+            const position = [
+              [20, 20, 135],
+              [80, 20, -135],
+              [20, 80, 45],
+              [80, 80, -45],
+            ].find(
+              ([x, y]) =>
+                !lights.some(
+                  (l) =>
+                    Math.abs((l.sourceX ?? l.x) - x) < 5 &&
+                    Math.abs((l.sourceY ?? l.y) - y) < 5,
+                ),
+            );
+            if (position)
+              [next.sourceX, next.sourceY, next.rotation] = position;
             setAdjustments((prev) => ({
               ...prev,
               relightLights: [
@@ -132,6 +179,8 @@ export default function StudioRelight({
               ],
             }));
             setSelected(next.id);
+            useRelightStore.setState({ showHandles: true });
+            if (!depthValid && !busy) void analyze();
           }}
         >
           <Plus size={13} />
@@ -197,33 +246,57 @@ export default function StudioRelight({
             />
           </label>
           {slider("intensity")}
-          <label className="studio-inline">
-            <span>{t("studio.relight.pattern")}</span>
-            <select
-              value={light.pattern}
-              disabled={disabled}
-              onChange={(e) =>
-                update({ pattern: e.target.value as RelightLight["pattern"] })
-              }
-            >
-              {RELIGHT_PATTERNS.map((p) => (
-                <option key={p} value={p}>
-                  {t(`studio.relight.patterns.${p}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-          {slider("x")}
-          {slider("y")}
-          {light.type === "spot" && slider("size", 5, 200)}
-          {slider("rotation", -180, 180)}
-          {depthValid && slider("elevation", 5, 90)}
-          {light.pattern !== "none" && slider("scale", 5, 200)}
           {slider("softness")}
           {slider("diffusion")}
+          <button
+            ref={patternToggle}
+            type="button"
+            className="studio-relight-pattern-toggle"
+            disabled={disabled}
+            aria-expanded={patternsOpen}
+            aria-label={t("studio.relight.pattern")}
+            onClick={() => setPatternsOpen(!patternsOpen)}
+          >
+            <RelightPatternPreview pattern={light.pattern} />
+            <span>{t(`studio.relight.patterns.${light.pattern}`)}</span>
+            <ChevronDown size={14} />
+          </button>
+          {patternsOpen && (
+            <div
+              className="studio-relight-patterns"
+              role="group"
+              aria-label={t("studio.relight.pattern")}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setPatternsOpen(false);
+                  patternToggle.current?.focus();
+                }
+              }}
+            >
+              {RELIGHT_PATTERNS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  disabled={disabled}
+                  aria-label={t(`studio.relight.patterns.${p}`)}
+                  aria-pressed={light.pattern === p}
+                  onClick={() => {
+                    update({ pattern: p });
+                    setPatternsOpen(false);
+                    patternToggle.current?.focus();
+                  }}
+                >
+                  <RelightPatternPreview pattern={p} />
+                  <span>{t(`studio.relight.patterns.${p}`)}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {light.pattern !== "none" && (
             <>
-              {slider("shadows")}
+              {slider("scale", 5, 300)}
+              {slider("patternRotation", -180, 180)}
               <label className="studio-inline">
                 <span>{t("studio.relight.invert")}</span>
                 <input
@@ -235,6 +308,15 @@ export default function StudioRelight({
               </label>
             </>
           )}
+          <details className="studio-relight-advanced">
+            <summary>{t("studio.relight.advanced")}</summary>
+            {slider("x", -100, 200)}
+            {slider("y", -100, 200)}
+            {light.type === "spot" && slider("size", 5, 200)}
+            {slider("rotation", -180, 180)}
+            {depthValid && slider("elevation", 5, 90)}
+            {light.pattern !== "none" && slider("shadows")}
+          </details>
           <AdjustmentControl
             label={t("studio.relight.originalLight")}
             value={adjustments.relightOriginalLight ?? 100}
