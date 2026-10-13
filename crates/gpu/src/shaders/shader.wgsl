@@ -269,6 +269,7 @@ struct AllAdjustments {
 // Blur of sigma 1 px for the luminance noise reduction's finest band.
 @group(0) @binding(17) var nr_blur_texture: texture_2d<f32>;
 @group(0) @binding(18) var relight_depth_texture: texture_2d<f32>;
+@group(0) @binding(19) var relight_camera_texture: texture_2d<f32>;
 
 @group(0) @binding(10) var flare_texture: texture_2d<f32>;
 @group(0) @binding(11) var flare_sampler: sampler;
@@ -4261,16 +4262,17 @@ fn relight_visibility(uv: vec2<f32>, height: f32, direction: vec3<f32>, reach: f
     return mix(1.0, visibility, smoothstep(0.99, 1.0, receiver));
 }
 
-// Interpolate half-float texels in full precision: hardware filtering can
-// round inverse depth before reciprocal projection and shift tight shadows.
+// Preserve inverse depth through storage and interpolation. Half-float texels
+// shift projected patterns even when interpolated in f32. The unfilterable
+// f32 camera texture uses explicit loads; legacy filtering stays unchanged.
 fn relight_camera_sample(uv: vec2<f32>) -> vec4<f32> {
-    let size = vec2<i32>(textureDimensions(relight_depth_texture));
+    let size = vec2<i32>(textureDimensions(relight_camera_texture));
     let pixel = clamp(uv * vec2<f32>(size) - vec2<f32>(0.5), vec2<f32>(0.0), vec2<f32>(size - vec2<i32>(1)));
     let a = vec2<i32>(floor(pixel));
     let b = min(a + vec2<i32>(1), size - vec2<i32>(1));
     let fraction = fract(pixel);
-    let top = mix(textureLoad(relight_depth_texture, a, 0), textureLoad(relight_depth_texture, vec2<i32>(b.x, a.y), 0), fraction.x);
-    let bottom = mix(textureLoad(relight_depth_texture, vec2<i32>(a.x, b.y), 0), textureLoad(relight_depth_texture, b, 0), fraction.x);
+    let top = mix(textureLoad(relight_camera_texture, a, 0), textureLoad(relight_camera_texture, vec2<i32>(b.x, a.y), 0), fraction.x);
+    let bottom = mix(textureLoad(relight_camera_texture, vec2<i32>(a.x, b.y), 0), textureLoad(relight_camera_texture, b, 0), fraction.x);
     return mix(top, bottom, fraction.y);
 }
 
@@ -4301,7 +4303,7 @@ fn relight_camera_visibility(uv: vec2<f32>, origin: vec3<f32>, direction: vec3<f
     if (receiver < 0.99) { return 1.0; }
     let c = adjustments.global.relight_camera;
     let g = adjustments.global.relight_geometry;
-    let resolution = vec2<f32>(textureDimensions(relight_depth_texture));
+    let resolution = vec2<f32>(textureDimensions(relight_camera_texture));
     let depth_ratio = (g.x - origin.z * g.y) / g.x;
     var travel = 1.25 * depth_ratio / min(resolution.x, resolution.y);
     var step = min(0.75 / min(resolution.x, resolution.y), 1.0 / 512.0) * depth_ratio;
