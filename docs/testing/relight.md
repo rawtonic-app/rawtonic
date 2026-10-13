@@ -230,6 +230,32 @@ from the warm edit timings. Broader timing/quality limits above still apply.
 Sources: [MediaPipe face coordinates](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/face_mesh.md#multi_face_landmarks),
 [point-source distance falloff](https://www.pbr-book.org/4ed/Light_Sources/Point_Lights).
 
+## Dense facial shadow reference
+
+The original 16 geometrically growing ray steps could skip narrow nose/eye
+relief. Simply increasing the count still left gaps, while uniformly short
+rays missed blockers on large faces. Rays now start finely, grow slowly with a
+two-texel/image-space cap, and stop at 256 samples, outside confident facial
+interiors, or full occlusion. Shadow-disabled and unlit surfaces skip tracing.
+Blended face/scene boundary texels are excluded as blockers: the blended height
+otherwise invents a raised rim. This remains a height-field shadow approximation,
+not recovery of hidden geometry or illumination already present in a photograph.
+
+A separate CPU reference marches at quarter-texel intervals. The native GPU test
+compares final sRGB output across 36 cases: three face scales, two depth-map
+resolutions, side/diagonal/overhead light, 5/20/75-degree elevations and hard/soft
+shadows. Acceptance is mean error <0.5, p99 ≤2 and maximum ≤20 code values on
+confident facial pixels. Observed p99 is 1 in all cases; maximum is 15. The old
+marcher failed six of the initial nine cases (p99 up to 19). This is a numerical
+visibility check on known geometry, not an assessment of inferred face accuracy.
+
+On the same 1280×854 copied portrait (30 warm native GPU/render/readback samples),
+one light measured p50/p95 2.13/2.18 ms and four 2.14/2.20 ms. A deliberately large
+analytic face covering much of the frame with four lights measured 3.63/5.18 ms.
+The latter measures cost only, not inferred geometry or a photo-quality result.
+These measurements exclude input/display latency and initial analysis. Full/ROI
+and tiled rendering still agree within U8 ≤1 and U16 exactly.
+
 ## Reproduce
 
 ```sh

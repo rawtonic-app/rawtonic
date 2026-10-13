@@ -858,6 +858,7 @@
       "chooseFolderTitle": "Ordner zum Importieren auswählen",
       "chooseTitle": "Zu importierende Fotos auswählen",
       "copyNote": "Kopieren nach <strong>{{target}}</strong>. Vorhandene Dateien bleiben erhalten; geprüfte Duplikate werden übersprungen.",
+      "dateFolders": "Sortiert in Jahres- und Datumsordner nach Aufnahmedatum, ersatzweise nach Änderungsdatum der Datei.",
       "dropHint": "Fotos oder Ordner hierher ziehen oder oben hinzufügen.",
       "duplicates_one": "{{count}} schon in der Bibliothek",
       "duplicates_other": "{{count}} schon in der Bibliothek",
@@ -897,8 +898,7 @@
       "title": "Fotos importieren",
       "truncated": "Nur die ersten {{n}} Fotos sind aufgelistet; importiere den Rest in einem weiteren Durchgang.",
       "useCapture": "Stattdessen {{folder}} verwenden",
-      "viewLargeHint": "Doppelklicken oder Leertaste drücken für die große Ansicht",
-      "dateFolders": "Sortiert in Jahres- und Datumsordner nach Aufnahmedatum, ersatzweise nach Änderungsdatum der Datei."
+      "viewLargeHint": "Doppelklicken oder Leertaste drücken für die große Ansicht"
     },
     "menu": {
       "importFrom": "Aus Lightroom oder Capture One importieren…",
@@ -939,6 +939,32 @@
       "ingestFailed_other": "{{copied}} kopiert; {{count}} fehlgeschlagen. {{error}}",
       "watching": "{{folder}} wird auf neue Fotos überwacht."
     },
+    "transfer": {
+      "backup": "Vollständiges Backup erstellen…",
+      "backupDone": "Erstelle über „Backup wiederherstellen“ eine Arbeitskopie. Lass dieses Backup unverändert, damit seine Prüfsummen gültig bleiben.",
+      "backupHint": "Speichere einen vollständigen, geprüften Stand auf einem anderen Laufwerk. Frühere Backups bleiben erhalten.",
+      "cancelling": "Wird abgebrochen…",
+      "chooseSource": "Rawtonic-Backup wählen…",
+      "complete_one": "Geprüfte Kopie erstellt · {{count}} Foto",
+      "complete_other": "Geprüfte Kopie erstellt · {{count}} Fotos",
+      "copyProgress_one": "Kopieren · {{count}} Datei verarbeitet",
+      "copyProgress_other": "Kopieren · {{count}} Dateien verarbeitet",
+      "destination": "Übergeordneter Zielordner",
+      "folderName": "Neuer Ordnername",
+      "includes": "Enthält Originale, Alben, Bewertungen, Bearbeitungsverlauf, virtuelle Kopien, Masken, LUTs und Profile. Vorschauen werden bei Bedarf neu erstellt. Fehlende Originale oder benötigte Dateien verhindern die Kopie.",
+      "openCopy": "Kopierte Bibliothek öffnen",
+      "originalUnchanged": "Vorhandene Dateien bleiben unverändert.",
+      "preparing": "Änderungen werden gespeichert und ein Datenbankstand wird erstellt…",
+      "restore": "Backup wiederherstellen…",
+      "restoreHint": "Prüfe ein Backup und stelle es in einem neuen Ordner wieder her. Das Backup und vorhandene Bibliotheken bleiben unverändert.",
+      "source": "Backupordner",
+      "transfer": "Portable Kopie erstellen…",
+      "transferDone": "Der gesamte Ordner kann auf einen anderen Computer umziehen. Öffne ihn mit einer kompatiblen Rawtonic-Version. Getrennt bearbeitete Kopien synchronisieren sich nicht automatisch.",
+      "transferHint": "Nimm dieses Projekt oder diesen Katalog auf einen anderen Computer mit. Externe Originale und benötigte Bearbeitungsdateien werden in der Kopie gesammelt.",
+      "unsaved": "Änderungen konnten nicht gespeichert werden: {{files}}",
+      "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
+      "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft"
+    },
     "welcome": {
       "body": "Ein Shooting oder deine ganze Sammlung? Wähle die passende Organisation — die Bearbeitungswerkzeuge sind dieselben.",
       "create": "Projekt erstellen",
@@ -947,32 +973,6 @@
       "open": "Projekt oder Katalog öffnen",
       "tagline": "Lokale Dateien. Nicht-destruktive Bearbeitung. Deine Fotos.",
       "title": "Deine Fotos. Deine Arbeitsweise."
-    },
-    "transfer": {
-      "transfer": "Portable Kopie erstellen…",
-      "backup": "Vollständiges Backup erstellen…",
-      "restore": "Backup wiederherstellen…",
-      "transferHint": "Nimm dieses Projekt oder diesen Katalog auf einen anderen Computer mit. Externe Originale und benötigte Bearbeitungsdateien werden in der Kopie gesammelt.",
-      "backupHint": "Speichere einen vollständigen, geprüften Stand auf einem anderen Laufwerk. Frühere Backups bleiben erhalten.",
-      "restoreHint": "Prüfe ein Backup und stelle es in einem neuen Ordner wieder her. Das Backup und vorhandene Bibliotheken bleiben unverändert.",
-      "source": "Backupordner",
-      "chooseSource": "Rawtonic-Backup wählen…",
-      "destination": "Übergeordneter Zielordner",
-      "folderName": "Neuer Ordnername",
-      "includes": "Enthält Originale, Alben, Bewertungen, Bearbeitungsverlauf, virtuelle Kopien, Masken, LUTs und Profile. Vorschauen werden bei Bedarf neu erstellt. Fehlende Originale oder benötigte Dateien verhindern die Kopie.",
-      "unsaved": "Änderungen konnten nicht gespeichert werden: {{files}}",
-      "complete_one": "Geprüfte Kopie erstellt · {{count}} Foto",
-      "complete_other": "Geprüfte Kopie erstellt · {{count}} Fotos",
-      "backupDone": "Erstelle über „Backup wiederherstellen“ eine Arbeitskopie. Lass dieses Backup unverändert, damit seine Prüfsummen gültig bleiben.",
-      "transferDone": "Der gesamte Ordner kann auf einen anderen Computer umziehen. Öffne ihn mit einer kompatiblen Rawtonic-Version. Getrennt bearbeitete Kopien synchronisieren sich nicht automatisch.",
-      "openCopy": "Kopierte Bibliothek öffnen",
-      "cancelling": "Wird abgebrochen…",
-      "preparing": "Änderungen werden gespeichert und ein Datenbankstand wird erstellt…",
-      "copyProgress_one": "Kopieren · {{count}} Datei verarbeitet",
-      "copyProgress_other": "Kopieren · {{count}} Dateien verarbeitet",
-      "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
-      "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft",
-      "originalUnchanged": "Vorhandene Dateien bleiben unverändert."
     }
   },
   "settings": {

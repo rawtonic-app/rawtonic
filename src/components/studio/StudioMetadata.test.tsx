@@ -235,7 +235,7 @@ describe("Metadata tool", () => {
     mockInvoke.mockResolvedValue(undefined);
     render(<StudioMetadataTool />);
     expect((screen.getByLabelText("Title") as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/title and IPTC fields are saved in sessions/)).toBeTruthy();
+    expect(screen.getByText(/title and IPTC fields are saved in projects/)).toBeTruthy();
     const creator = screen.getByLabelText("Creator") as HTMLInputElement;
     // Quotes and a camera's "default" placeholder are not shown.
     expect(creator.value).toBe("N. F.");

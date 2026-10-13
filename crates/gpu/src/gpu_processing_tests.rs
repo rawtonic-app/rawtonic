@@ -6657,10 +6657,18 @@ fn relight_real_photo_and_timing() {
     for (name, mut profile) in [
         ("neutral", json!({})),
         ("one-light-depth", depth.clone()),
-        ("four-lights-depth", depth),
+        ("four-lights-depth", depth.clone()),
+        ("four-lights-face-stress", depth),
     ] {
-        if name == "four-lights-depth" {
+        if name.starts_with("four-lights") {
             profile["relightLights"] = json!(vec![profile["relightLights"][0].clone(); 4]);
+        }
+        if name == "four-lights-face-stress" {
+            // Deliberately large analytic face coverage, not inferred geometry
+            // or a quality rendering of this photo. Bound the shadow cost.
+            profile["relightDepth"]["faces"] =
+                json!([rawtonic_engine::relight::test_face_geometry()]);
+            profile["relightDepth"]["version"] = json!(2);
         }
         let features = preview_features(&get_all_adjustments_from_json(&profile, false, Some(0)));
         prepare_preview_pipeline(&processor, features);
@@ -6771,3 +6779,6 @@ fn relight_tiled_roi_matches_full_frame() {
         }
     }
 }
+
+#[path = "relight_reference_tests.rs"]
+mod relight_reference_tests;
