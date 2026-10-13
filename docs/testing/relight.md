@@ -312,3 +312,17 @@ Native QA verifies persisted old default zero, editing without geometry changes,
 new analysis version 3/default 25, and exact recipe restoration after history
 commit. A pre-existing immediate-undo race within the 500 ms history debounce
 was observed; this verification does not claim that race is resolved.
+
+## Immediate edit history, 2026-10-13
+
+The observed 500 ms history race is now resolved. Pending edits belong to the
+editor store and are settled before Undo/Redo/history selection, canceled on
+reset/photo changes, and reflected immediately in toolbar/context-menu states.
+A focused range slider admits Undo/Redo; text fields retain native text undo.
+Eight store regression tests plus two keyboard cases cover pending first edits,
+coalescing, branching, reset/photo isolation, direct commits and the 50-entry
+history cap. Full project checks pass (887 frontend tests).
+Native QA: first slider edit, pending=true, Undo enabled; Cmd+Z completed after
+36 ms, before the 500 ms commit. Waiting past the debounce does not resurrect
+it, Cmd+Shift+Z restores it, and a final Undo restores the exact saved recipe.
+This is control-channel test timing, not rendering or pointer-to-photon latency.

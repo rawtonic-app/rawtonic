@@ -173,10 +173,11 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t } = useTranslation();
-  const { selectedImage, historyIndex, history, splitView } = useEditorStore(
+  const { selectedImage, historyIndex, historyPending, history, splitView } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
+      historyPending: s.historyPending,
       history: s.history,
       splitView: s.splitView,
     })),
@@ -741,7 +742,7 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={withShortcut(t("studio.workspace.viewer.undo"), "⌘Z")}
                     aria-label={t("studio.workspace.viewer.undo")}
-                    disabled={!panelsReady || historyIndex <= 0}
+                    disabled={!panelsReady || (!historyPending && historyIndex <= 0)}
                     onClick={() => readyNow() && useEditorStore.getState().undo()}
                   >
                     <Undo2 size={15} />
@@ -751,6 +752,7 @@ export default function StudioWorkspace(props: Props) {
                     aria-label={t("studio.workspace.viewer.redo")}
                     disabled={
                       !panelsReady ||
+                      historyPending ||
                       historyIndex >= history.length - 1
                     }
                     onClick={() => readyNow() && useEditorStore.getState().redo()}

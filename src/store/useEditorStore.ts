@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import debounce from 'lodash.debounce';
 import { DEFAULT_BRUSH_SIZE } from '../utils/brushSize';
 import { Adjustments, INITIAL_ADJUSTMENTS, MaskContainer } from '../utils/adjustments';
 import { SelectedImage, WaveformData, BrushSettings, HistogramData } from '../components/ui/AppProperties';
@@ -39,6 +40,7 @@ interface EditorState {
   // History State
   history: Adjustments[];
   historyIndex: number;
+  historyPending: boolean;
 
   // Previews & Overlays
   finalPreviewUrl: string | null;
@@ -183,6 +185,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   previewOverride: null,
   history: [INITIAL_ADJUSTMENTS],
   historyIndex: 0,
+  historyPending: false,
 
   finalPreviewUrl: null,
   uncroppedAdjustedPreviewUrl: null,
@@ -253,52 +256,93 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
 
-  pushHistory: (newAdj) =>
+  pushHistory: (newAdj) => {
+    scheduledHistory.cancel();
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);
       if (newHistory.length > 50) newHistory.shift();
-      return { history: newHistory, historyIndex: newHistory.length - 1 };
-    }),
+      return { history: newHistory, historyIndex: newHistory.length - 1, historyPending: false };
+    });
+  },
 
-  undo: () =>
+  undo: () => {
+    debouncedSetHistory.flush();
     set((state) => {
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
       }
       return state;
-    }),
+    });
+  },
 
-  redo: () =>
+  redo: () => {
+    // A pending edit branches history and invalidates the old redo chain.
+    debouncedSetHistory.flush();
     set((state) => {
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
       }
       return state;
-    }),
+    });
+  },
 
-  resetHistory: (initialState) =>
+  resetHistory: (initialState) => {
+    scheduledHistory.cancel();
     set({
       history: [initialState],
       historyIndex: 0,
+      historyPending: false,
       adjustments: initialState,
-    }),
+    });
+  },
 
-  goToHistoryIndex: (index) =>
+  goToHistoryIndex: (index) => {
+    // Flushing at the 50-entry limit can shift indexes. Keep the clicked entry.
+    const target = useEditorStore.getState().history[index];
+    if (!target) return;
+    debouncedSetHistory.flush();
     set((state) => {
-      if (index >= 0 && index < state.history.length) {
-        return { historyIndex: index, adjustments: state.history[index] };
+      const currentIndex = state.history.indexOf(target);
+      if (currentIndex >= 0) {
+        return { historyIndex: currentIndex, adjustments: target };
       }
-      return state;
-    }),
+      // The clicked snapshot was evicted by the size cap or the new branch.
+      // Record returning to it, retaining the just-committed edit for Undo.
+      const history = [...state.history, target].slice(-50);
+      return { history, historyIndex: history.length - 1, adjustments: target };
+    });
+  },
 }));
+
+// The store owns pending history so every navigation path can settle it.
+// Slider edits still coalesce, but Undo is available from the first edit.
+const scheduledHistory = debounce((adjustments: Adjustments) => {
+  useEditorStore.getState().pushHistory(adjustments);
+}, 500);
+export const debouncedSetHistory = Object.assign(
+  (adjustments: Adjustments) => {
+    scheduledHistory(adjustments);
+    if (!useEditorStore.getState().historyPending)
+      useEditorStore.setState({ historyPending: true });
+  },
+  {
+    flush: () => scheduledHistory.flush(),
+    cancel: () => {
+      scheduledHistory.cancel();
+      if (useEditorStore.getState().historyPending)
+        useEditorStore.setState({ historyPending: false });
+    },
+  },
+);
 
 // View state that follows the edits (one place, so every way of editing a
 // layer counts: sliders, typed values, presets, undo).
 useEditorStore.subscribe((state, previous) => {
   const patch: Partial<EditorState> = {};
+  if (state.selectedImage?.path !== previous.selectedImage?.path) debouncedSetHistory.cancel();
   // Lightroom's automatic overlay (notes: reference/layers-panel-c1-lr.md):
   // shown while a mask is made or painted, off at the layer's first
   // adjustment; a new photo starts automatic again.

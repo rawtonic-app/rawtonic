@@ -3,7 +3,8 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
 import { toast } from 'react-toastify';
-import { useEditorStore } from '../store/useEditorStore';
+import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
+export { debouncedSetHistory } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
@@ -30,10 +31,6 @@ import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
-
-export const debouncedSetHistory = debounce((newAdj: Adjustments) => {
-  useEditorStore.getState().pushHistory(newAdj);
-}, 500);
 
 const pendingMetadataSaves = new Map<string, Promise<Adjustments | undefined>>();
 const unsavedRecipes = new Map<string, Adjustments>();
