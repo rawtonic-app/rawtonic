@@ -858,6 +858,7 @@
       "chooseFolderTitle": "Select folders to ingest",
       "chooseTitle": "Select photographs to ingest",
       "copyNote": "Copy to <strong>{{target}}</strong>. Existing files are preserved; verified duplicates are skipped.",
+      "dateFolders": "Organized in year/date folders using the capture date, or the file modification date when unavailable.",
       "dropHint": "Drop photographs or folders here, or add them with the buttons above.",
       "duplicates_one": "{{count}} already in the library",
       "duplicates_other": "{{count}} already in the library",
@@ -897,8 +898,7 @@
       "title": "Bring your photographs in",
       "truncated": "Only the first {{n}} photographs are listed; import the rest in another pass.",
       "useCapture": "Use {{folder}} instead",
-      "viewLargeHint": "Double-click or press Space to view large",
-      "dateFolders": "Organized in year/date folders using the capture date, or the file modification date when unavailable."
+      "viewLargeHint": "Double-click or press Space to view large"
     },
     "menu": {
       "importFrom": "Import from Lightroom or Capture One…",
@@ -939,6 +939,32 @@
       "ingestFailed_other": "{{copied}} copied; {{count}} failed. {{error}}",
       "watching": "Watching {{folder}} for new photographs."
     },
+    "transfer": {
+      "backup": "Create full backup…",
+      "backupDone": "Use Restore backup to create a working copy. Keep this snapshot unchanged so its checksums remain valid.",
+      "backupHint": "Save a complete, verified snapshot on another drive. Earlier backups are kept.",
+      "cancelling": "Cancelling…",
+      "chooseSource": "Choose a Rawtonic backup…",
+      "complete_one": "Verified copy created · {{count}} photograph",
+      "complete_other": "Verified copy created · {{count}} photographs",
+      "copyProgress_one": "Copying · {{count}} file processed",
+      "copyProgress_other": "Copying · {{count}} files processed",
+      "destination": "Destination parent folder",
+      "folderName": "New folder name",
+      "includes": "Includes originals, albums, ratings, edit history, virtual copies, masks, LUTs and profiles. Disposable previews are rebuilt. Missing originals or required resources stop the copy.",
+      "openCopy": "Open copied library",
+      "originalUnchanged": "Existing files stay unchanged.",
+      "preparing": "Saving changes and preparing a database snapshot…",
+      "restore": "Restore backup…",
+      "restoreHint": "Verify a backup and restore it into a new folder. The backup and existing libraries stay unchanged.",
+      "source": "Backup folder",
+      "transfer": "Create portable copy…",
+      "transferDone": "The whole folder can be moved to another computer. Open it in a compatible Rawtonic version. Copies edited separately do not synchronize automatically.",
+      "transferHint": "Take this project or catalog to another computer. External originals and required edit resources are collected into the copy.",
+      "unsaved": "Changes could not be saved: {{files}}",
+      "verifyProgress_one": "Verifying · {{count}} file checked",
+      "verifyProgress_other": "Verifying · {{count}} files checked"
+    },
     "welcome": {
       "body": "One shoot or your whole collection? Choose how to organize your photos — the editing tools are the same.",
       "create": "Create a project",
@@ -947,32 +973,6 @@
       "open": "Open a project or catalog",
       "tagline": "Local files. Non-destructive edits. Your photographs.",
       "title": "Your photos. Your workflow."
-    },
-    "transfer": {
-      "transfer": "Create portable copy…",
-      "backup": "Create full backup…",
-      "restore": "Restore backup…",
-      "transferHint": "Take this project or catalog to another computer. External originals and required edit resources are collected into the copy.",
-      "backupHint": "Save a complete, verified snapshot on another drive. Earlier backups are kept.",
-      "restoreHint": "Verify a backup and restore it into a new folder. The backup and existing libraries stay unchanged.",
-      "source": "Backup folder",
-      "chooseSource": "Choose a Rawtonic backup…",
-      "destination": "Destination parent folder",
-      "folderName": "New folder name",
-      "includes": "Includes originals, albums, ratings, edit history, virtual copies, masks, LUTs and profiles. Disposable previews are rebuilt. Missing originals or required resources stop the copy.",
-      "unsaved": "Changes could not be saved: {{files}}",
-      "complete_one": "Verified copy created · {{count}} photograph",
-      "complete_other": "Verified copy created · {{count}} photographs",
-      "backupDone": "Use Restore backup to create a working copy. Keep this snapshot unchanged so its checksums remain valid.",
-      "transferDone": "The whole folder can be moved to another computer. Open it in a compatible Rawtonic version. Copies edited separately do not synchronize automatically.",
-      "openCopy": "Open copied library",
-      "cancelling": "Cancelling…",
-      "preparing": "Saving changes and preparing a database snapshot…",
-      "copyProgress_one": "Copying · {{count}} file processed",
-      "copyProgress_other": "Copying · {{count}} files processed",
-      "verifyProgress_one": "Verifying · {{count}} file checked",
-      "verifyProgress_other": "Verifying · {{count}} files checked",
-      "originalUnchanged": "Existing files stay unchanged."
     }
   },
   "settings": {
