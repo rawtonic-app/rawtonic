@@ -26,6 +26,9 @@ pub struct DecodeFingerprint {
     pub failed: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Make and model from the file's metadata when a later step failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camera: Option<String>,
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
     pub facts: Option<DecodeFacts>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -128,16 +131,19 @@ pub fn fingerprint(file_bytes: &[u8], develop: bool) -> DecodeFingerprint {
     let mut result = DecodeFingerprint {
         failed: None,
         error: None,
+        camera: None,
         facts: None,
         developed: None,
     };
     let mut step = "decoder";
-    let described = catch(|| describe(file_bytes, &mut step));
+    let mut camera = None;
+    let described = catch(|| describe(file_bytes, &mut step, &mut camera));
     match described {
         Ok(facts) => result.facts = Some(facts),
         Err(error) => {
             result.failed = Some(step);
             result.error = Some(error);
+            result.camera = camera;
             return result;
         }
     }
@@ -170,11 +176,19 @@ fn panic_message(panic: &Box<dyn std::any::Any + Send>) -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-fn describe(file_bytes: &[u8], step: &mut &'static str) -> anyhow::Result<DecodeFacts> {
+fn describe(
+    file_bytes: &[u8],
+    step: &mut &'static str,
+    camera: &mut Option<String>,
+) -> anyhow::Result<DecodeFacts> {
     let source = RawSource::new_from_slice(file_bytes);
     *step = "decoder";
     let decoder = rawler::get_decoder(&source)?;
     *step = "unpack";
+    *camera = catch(|| Ok(decoder.raw_metadata(&source, &RawDecodeParams::default())?))
+        .ok()
+        .map(|m| format!("{} {}", m.make, m.model).trim().to_string())
+        .filter(|name| !name.is_empty());
     let mut raw_image = decoder.raw_image(&source, &RawDecodeParams::default(), false)?;
     let raw_sha256 = data_hash(&raw_image);
     let as_shot_wb = finite(raw_image.wb_coeffs);
@@ -514,5 +528,6 @@ mod tests {
         truncated.truncate(truncated.len() - 1000);
         let fp = fingerprint(&truncated, true);
         assert_eq!(fp.failed, Some("unpack"), "{:?}", fp.error);
+        assert_eq!(fp.camera.as_deref(), Some("Rawtonic Synthetic Mosaic"));
     }
 }

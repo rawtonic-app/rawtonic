@@ -204,6 +204,9 @@ pub fn run(args: FingerprintArgs) -> Result<()> {
 }
 
 fn camera_of(value: &Value) -> Option<String> {
+    if let Some(camera) = value.get("camera").and_then(Value::as_str) {
+        return Some(camera.to_string());
+    }
     Some(format!(
         "{} {}",
         value.get("clean_make")?.as_str()?,
