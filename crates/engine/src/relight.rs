@@ -129,9 +129,13 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
         let Some(image) = image::load_from_memory(&bytes).ok() else {
             return [0; 4];
         };
-        let depth = image.thumbnail(1024, 1024).to_luma16();
-        // Smooth quantization before differentiating; never upscale to photo size.
-        let depth = image::imageops::blur(&depth, 1.2);
+        // `thumbnail` also enlarges small images: retain the inference grid.
+        // Upsampling before fitting would turn a depth jump into a ramp.
+        let depth = if image.width() > 1024 || image.height() > 1024 {
+            image.thumbnail(1024, 1024).to_luma16()
+        } else {
+            image.to_luma16()
+        };
         cache.push_front((key, Arc::new(depth)));
         cache.truncate(8);
     }
@@ -149,10 +153,81 @@ pub fn depth(key: [u32; 4]) -> Option<Arc<DepthImage>> {
         .map(|(_, v)| Arc::clone(v))
 }
 
+/// Fit local slopes without joining disconnected surfaces. A spatial/range
+/// weighted linear fit averages depth noise while preserving ramps, including
+/// at image boundaries. Unlike blurring then differentiating, a depth step
+/// between two flat surfaces cannot create a bright/dark silhouette halo.
+/// Derivatives are per normalized image coordinate; height stays unfiltered.
+pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
+    let center = depth.get_pixel(x, y)[0] as f32 / 65535.;
+    let slope = |horizontal: bool| {
+        let mut sw = 0.;
+        let mut st = 0.;
+        let mut sz = 0.;
+        let mut stt = 0.;
+        let mut stz = 0.;
+        for offset in -3i32..=3 {
+            let px = x as i32 + if horizontal { offset } else { 0 };
+            let py = y as i32 + if horizontal { 0 } else { offset };
+            if px < 0 || py < 0 || px >= depth.width() as i32 || py >= depth.height() as i32 {
+                continue;
+            }
+            let z = depth.get_pixel(px as u32, py as u32)[0] as f32 / 65535. - center;
+            // Compact support: samples across a >4% normalized depth jump
+            // contribute exactly zero, rather than a tiny but steep slope.
+            let range = (1. - (z / 0.04).powi(2)).max(0.);
+            let t = offset as f32;
+            let weight = range * range / (1. + t * t);
+            sw += weight;
+            st += weight * t;
+            sz += weight * z;
+            stt += weight * t * t;
+            stz += weight * t * z;
+        }
+        let determinant = sw * stt - st * st;
+        if determinant > 1e-6 {
+            (sw * stz - st * sz) / determinant
+                * if horizontal {
+                    depth.width()
+                } else {
+                    depth.height()
+                } as f32
+        } else {
+            0.
+        }
+    };
+    [slope(true), slope(false), center, 1.]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn surface_fit_preserves_planes_and_rejects_depth_steps() {
+        for (w, h) in [(64, 32), (32, 64)] {
+            let plane = DepthImage::from_fn(w, h, |x, y| {
+                image::Luma([(10000 + x * 100 + y * 200) as u16])
+            });
+            let step = DepthImage::from_fn(w, h, |x, y| {
+                image::Luma([if x < w / 2 && y < h / 2 { 10000 } else { 50000 }])
+            });
+            for y in 0..h {
+                for x in 0..w {
+                    let actual = surface_sample(&plane, x, y);
+                    assert!((actual[0] - 100. * w as f32 / 65535.).abs() < 1e-4);
+                    assert!((actual[1] - 200. * h as f32 / 65535.).abs() < 1e-4);
+                    let edge = surface_sample(&step, x, y);
+                    assert_eq!(&edge[..2], &[0., 0.], "false normal at {x},{y}");
+                    assert_eq!(edge[2], step.get_pixel(x, y)[0] as f32 / 65535.);
+                }
+            }
+        }
+        assert_eq!(
+            surface_sample(&DepthImage::from_pixel(1, 1, image::Luma([0])), 0, 0),
+            [0., 0., 0., 1.]
+        );
+    }
     #[test]
     fn legacy_and_hidden_recipes_are_identity() {
         assert_eq!(gpu_lights(&json!({})), [[0.; 4]; 16]);

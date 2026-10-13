@@ -124,6 +124,12 @@ pub(crate) fn compute_thumbnail_cache_hash(
     hasher.update(path_str.as_bytes());
     hasher.update(&img_mod_time.to_le_bytes());
     hasher.update(adjustments_bytes);
+    if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
+        .ok()
+        .is_some_and(|adjustments| !adjustments["relightDepth"].is_null())
+    {
+        hasher.update(b"\0relight-surface-fit-v2");
+    }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF
         // containers (notably RAF). Their pixels must not survive this fix.

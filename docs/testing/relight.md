@@ -71,24 +71,58 @@ for monocular depth estimation.
   formatting, lint, clippy, layering, dependency/license checks). All three
   ignored Relight GPU tests pass with their required fixtures.
 
+## Depth-edge correction, 2026-10-13
+
+- Preserve the inference grid: `thumbnail(1024, 1024)` was enlarging smaller
+  maps, turning discontinuities into ramps. A 518×370 map now remains that
+  size instead of 1024×731: 74.4% fewer depth/normal texels and upload bytes.
+- Replace blur/central differences with a spatial/range-weighted local slope
+  fit. Neighbors across a normalized depth jump of 0.04 or greater do not
+  contribute. Heights remain unfiltered. This removes invented bevels across
+  separate surfaces while averaging small depth noise.
+- Normal derivatives and projected height now use the same scale (0.25).
+  Normals previously exaggerated the height eightfold. Existing depth-lit
+  recipes consequently have a gentler surface response. Depth-lit thumbnails
+  are invalidated; original photographs and decode caches are unchanged.
+- New analytic tests cover rectangular planes, image borders, a single pixel,
+  and discontinuities. GPU regression: a hard depth step under unpatterned
+  sunlight is pixel-identical to a flat map; a known ramp matches its expected
+  Lambert response within 1/255. The step test failed before the grid fix.
+- All project checks and all three ignored Relight GPU tests pass. Preview,
+  export, ROI and tile agreement remains within the documented tolerances.
+- Final serial 1280×914/30-sample GPU + readback p50/p95: neutral 1.98/3.47 ms,
+  one depth light 2.07/2.13 ms, four 2.07/2.12 ms. No inference is performed
+  on these light edits. A separate native 60-input sequence without capture
+  overhead produced 59 interactive previews: IPC p50 5 ms / p95 9 ms.
+  Neither measurement is an end-to-end competitor benchmark.
+
 ## Reference use test and remaining quality gates
 
-ImageFlow was inspected on 2026-10-13 using an independently drawn 800×600
-shaded sphere, also opened and depth-lit in Rawtonic. No private photographs
-were sent to the reference site and no implementation/assets were copied.
-Both tools deform projected patterns over estimated surface depth. ImageFlow
-has direct canvas light handles, a larger pattern library and file/layer
-pattern import; Rawtonic currently has six analytic patterns and sidebar
-position/direction controls. Rawtonic's native portrait and sphere results
-were visually checked; the sphere exposes some depth-edge ringing. Its
-original illumination is retained, so neither this test nor the shader is
-proof of inverse-rendering accuracy.
+ImageFlow and the native Rawtonic editor were inspected on the same independent
+800×600 shaded sphere and the same public-domain NASA portrait, photograph
+S99-00858 / GPN-2000-001177 (NASA / Robert Markowitz;
+[source and reuse information](https://commons.wikimedia.org/wiki/File:Commander_Eileen_Collins_-_GPN-2000-001177.jpg)).
+No private photographs were sent to the reference site. Unpatterned sunlight
+and blinds were compared, including skin, hair, the suit and reflective helmet.
+The corrected native result no longer has the earlier exaggerated silhouette
+response. The original illumination and helmet reflections remain in both
+images. Equal percentage settings do not define equal lighting between tools;
+this use test is not a calibrated or blind quality ranking.
 
-The basic reference use test is complete, but controlled matched-light
-portrait/product quality evaluation and matched end-to-end timing against
-ImageFlow and professional editors remain open. No quality/performance
-superiority claim or production-parity sign-off is justified by the current
-evidence. The detailed remaining acceptance gate is notes: PARITY_GAPS G70.
+A recorded sphere test alternated intensity twelve times. ImageFlow's displayed
+control and image changed in the same captured frames. Native window captures
+showed the image in the same or following capture, but their roughly 31 ms
+sampling and synchronous capture overhead delayed the app. The capture methods
+are different, so these observations **must not be presented as a latency
+ranking**. Matched input-to-present timing remains unverified.
+
+The implementation-caused depth-edge defects above are corrected. The broader
+acceptance gate remains open for a calibrated portrait/product assessment,
+transparent objects/fine hair, matched end-to-end timing, and execution on Intel
+macOS and Windows/Linux GPU-provider hardware. ImageFlow also offers direct
+canvas handles and file/layer pattern import; those workflow additions are not
+implemented here. No overall superiority or production-parity claim. Detailed
+evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
 
 ## Reproduce
 
