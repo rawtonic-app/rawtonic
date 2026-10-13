@@ -1480,7 +1480,7 @@ pub struct GpuProcessor {
     flare_ghosts_view: wgpu::TextureView,
     flare_final_view: wgpu::TextureView,
     flare_sampler: wgpu::Sampler,
-    relight_depth_cache: Mutex<Option<([u32; 4], wgpu::TextureView)>>,
+    relight_depth_cache: Mutex<Option<([u32; 4], RelightDepthViews)>>,
 
     main_bgl: wgpu::BindGroupLayout,
     main_pipeline: wgpu::ComputePipeline,
@@ -1676,6 +1676,12 @@ struct MaskTextureCache {
     height: u32,
     masks: Vec<Arc<GrayImage>>,
     bytes: usize,
+}
+
+#[derive(Clone)]
+struct RelightDepthViews {
+    legacy: wgpu::TextureView,
+    camera: wgpu::TextureView,
 }
 
 const MASK_CACHE_BYTES: usize = 256 * 1024 * 1024;
@@ -2509,6 +2515,16 @@ impl GpuProcessor {
             },
             count: None,
         });
+        bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 19,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
 
         bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
             binding: 9 + MAX_MASK_BINDINGS,
@@ -2872,7 +2888,7 @@ impl GpuProcessor {
         Ok(processor)
     }
 
-    fn relight_depth_view(&self, key: [u32; 4]) -> Result<wgpu::TextureView, String> {
+    fn relight_depth_view(&self, key: [u32; 4]) -> Result<RelightDepthViews, String> {
         let mut cache = self
             .relight_depth_cache
             .lock()
@@ -2883,14 +2899,24 @@ impl GpuProcessor {
             return Ok(view.clone());
         }
         if key == [0; 4] {
-            return Ok(self.dummy_blur_view.clone());
+            return Ok(RelightDepthViews {
+                legacy: self.dummy_blur_view.clone(),
+                camera: self.dummy_blur_view.clone(),
+            });
         }
         let depth = rawtonic_engine::relight::depth(key)
             .ok_or("Relight depth cache expired while rendering; retry this render")?;
-        // Derivatives once per analysis, not four texture samples per pixel
-        // on every light edit. Work at 16-bit depth before float16 packing.
+        // Cache derivatives once per analysis. Camera-space projection amplifies
+        // half-float inverse-depth errors, so keep its entire surface in f32.
+        // A separate unfilterable binding needs no optional GPU format feature
+        // and preserves legacy texture filtering exactly.
         let surface = rawtonic_engine::relight::surface_texture(&depth);
-        let values: Vec<f16> = surface.as_raw().iter().map(|v| f16::from_f32(*v)).collect();
+        let camera = depth.camera.is_some();
+        let values: Vec<f16> = if camera {
+            Vec::new()
+        } else {
+            surface.as_raw().iter().map(|v| f16::from_f32(*v)).collect()
+        };
         let texture = self.context.device.create_texture_with_data(
             &self.context.queue,
             &wgpu::TextureDescriptor {
@@ -2903,16 +2929,35 @@ impl GpuProcessor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba16Float,
+                format: if camera {
+                    wgpu::TextureFormat::Rgba32Float
+                } else {
+                    wgpu::TextureFormat::Rgba16Float
+                },
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::MipMajor,
-            bytemuck::cast_slice(&values),
+            if camera {
+                bytemuck::cast_slice(surface.as_raw())
+            } else {
+                bytemuck::cast_slice(&values)
+            },
         );
         let view = texture.create_view(&Default::default());
-        *cache = Some((key, view.clone()));
-        Ok(view)
+        let views = if camera {
+            RelightDepthViews {
+                legacy: self.dummy_blur_view.clone(),
+                camera: view,
+            }
+        } else {
+            RelightDepthViews {
+                legacy: view,
+                camera: self.dummy_blur_view.clone(),
+            }
+        };
+        *cache = Some((key, views.clone()));
+        Ok(views)
     }
 
     fn create_mask_texture(&self, width: u32, height: u32, layers: u32) -> wgpu::Texture {
@@ -4211,7 +4256,11 @@ impl GpuProcessor {
 
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 18,
-                    resource: wgpu::BindingResource::TextureView(&relight_depth_view),
+                    resource: wgpu::BindingResource::TextureView(&relight_depth_view.legacy),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 19,
+                    resource: wgpu::BindingResource::TextureView(&relight_depth_view.camera),
                 });
                 let use_flare = adjustments.global.flare_amount > 0.0;
                 bind_group_entries.push(wgpu::BindGroupEntry {
