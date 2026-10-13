@@ -2865,6 +2865,8 @@ pub struct GlobalAdjustments {
     pub relight_depth: [u32; 4],
     /// Normal strength, original light, refined lighting flag, face reflection amount.
     pub relight_surface: [f32; 4],
+    pub relight_camera: [f32; 4],
+    pub relight_geometry: [f32; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3825,6 +3827,8 @@ fn get_global_adjustments_from_json(
         proof_inverse: proof_matrices(js_adjustments).1,
         relight: crate::relight::gpu_lights(js_adjustments),
         relight_depth: crate::relight::register_depth(js_adjustments),
+        relight_camera: crate::relight::Camera::uniforms(js_adjustments).0,
+        relight_geometry: crate::relight::Camera::uniforms(js_adjustments).1,
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()

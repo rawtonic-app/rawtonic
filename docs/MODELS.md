@@ -33,7 +33,8 @@ weights tensor by tensor.
 | `birefnet_fp16_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Subject and background masks on macOS (fast path) | The same BiRefNet checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_birefnet_coreml.py` (deformable convolutions decomposed as for ONNX; ML program, fp16, 464 MB; reproducible: same SHA-256 in every conversion, on any day). Masks score as the fp32 program's against subject references (Subject on Core ML in fp16 below). Without these files, or if Core ML fails, the app uses `birefnet_subject.onnx`. | MIT | Built 2026-10-11, to be uploaded to the pack |
 | `birefnet_coreml_*` (Core ML package, fp32) | Subject and background masks on macOS, builds from 2026-10-10 to 2026-10-11 | As above in fp32 (927 MB; `--precision fp32` reproduces the pack's files). | MIT | In the pack; replaced by the fp16 program 2026-10-11 (the release assets stay for older builds) |
 | `u2net.onnx` | Foreground mask (inherited) | Byte-identical to rembg's `u2net.onnx` (release v0.0.0), the export of Qin et al.'s U²-Net. | Apache-2.0 (weights), MIT (rembg) | Replaced by BiRefNet 2026-10-09 (the release asset stays for older builds) |
-| `depth_anything_v2_vits.onnx` | Depth masks and Relight surface lighting | Byte-identical to fabio-sim/Depth-Anything-ONNX v2.0.0, the export of Depth Anything V2 **Small**. | Apache-2.0 (Small only; Base/Large/Giant are CC BY-NC 4.0) | Keep, self-host |
+| `relight_geometry_da3_base.onnx` | Relight relative scene geometry and camera | DA3 **Base**, rights holder `depth-anything/DA3-BASE` revision `f4a6c9b3c95e41c82048423d3493a81ec3fa810e`; source `ByteDance-Seed/Depth-Anything-3` at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4`. Exported by `scripts/models/export_relight.py`. | Apache-2.0 | Self-host |
+| `depth_anything_v2_vits.onnx` | Depth masks | Byte-identical to fabio-sim/Depth-Anything-ONNX v2.0.0, the export of Depth Anything V2 **Small**. | Apache-2.0 (Small only; Base/Large/Giant are CC BY-NC 4.0) | Keep, self-host |
 | ONNX Runtime 1.23.2 (macOS arm64 / x86_64) | Runtime for macOS AI tools | Unchanged Microsoft release libraries, SHA-256 pinned; fixes the shutdown crash reproduced on 1.22.0. | MIT + 1.23.2 third-party notices | Keep, self-host |
 | ONNX Runtime 1.22.0 (six desktop libraries) | Legacy runtime (macOS before 2026-10-13; Windows and Linux before 2026-10-10) | Byte-identical to Microsoft's v1.22.0 release archives (all six platforms). | MIT + third-party notices | Keep, self-host |
 | ONNX Runtime 1.30.0 (`libonnxruntime-1.30.0-linux-{x86_64,aarch64}.so`, `onnxruntime-1.30.0-windows-{x86_64,aarch64}.dll`) | Runtime on Windows and Linux (plugin providers need 1.24.4+) | Byte-identical to the libraries in Microsoft's v1.30.0 release archives. | MIT + third-party notices (`onnxruntime-1.30.0-ThirdPartyNotices.txt`) | Built 2026-10-10, to be uploaded to the pack |
@@ -987,3 +988,29 @@ Excluded for their weight licenses: FLUX.1 Fill/Kontext [dev], FLUX.2 [dev]
 and [klein] 9B, MAT, Qwen-Image-2.1, Mask2Former and SegFormer weights,
 Apple MobileCLIP/DFN, MetaCLIP, CycleISP, MIRNet-v2, LED, DualDn,
 Noise2Noise.
+
+### Relight camera geometry
+
+`relight_geometry_da3_base.onnx` is 412,844,389 bytes, SHA-256
+`070a4ff34ed406d057044daf9b84fd6287e5a7cc66134060acf2ccfe5d5dea23`.
+The original safetensors checkpoint is SHA-256
+`e01067dc1659613083d9145a9a2547ccdbe6ccbbf83c4fe7b3e8a4e2bdae78b5`.
+The pack's exporter pins the source, checkpoint, config and conversion environment.
+The export patch fixes symbolic spatial sizes, positional interpolation and UV
+aspect ratios; it retains the original network and weights. The ONNX output
+was compared with unmodified Torch at ten aspect sizes on runtime 1.23.2.
+
+Input is float32 `[1,1,3,H,W]`, ImageNet-normalized sRGB, resized without padding
+to a 518-pixel longest side and multiples of 14, minimum 28 per side. The
+minimum avoids undefined single-token camera geometry on extremely narrow
+frames. Output is relative camera-axis
+distance and intrinsics, not calibrated metres. The app normalizes by median
+distance, stores 16-bit inverse depth plus the camera in version-4 recipes, and
+fits a cached surface for GPU shading. Bounds on extreme inverse distance are
+0.0001–100 after normalization. Existing maps retain their previous renderer;
+new analysis is explicit and light movement performs no model inference.
+
+Controlled geometry and runtime comparisons are recorded in the private notes
+(reference/relight-da3.md). Single-image geometry remains uncertain at hair,
+thin edges, glossy/transparent products and defocused backgrounds; this is not
+recovered ground-truth geometry or material/source-light separation.

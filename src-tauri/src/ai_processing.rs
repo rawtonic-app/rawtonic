@@ -1,7 +1,9 @@
+mod relight;
 pub use rawtonic_engine::masks::{
     AiDepthMaskParameters, AiForegroundMaskParameters, AiPeopleMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters,
 };
+pub use relight::{get_or_init_relight_model, run_relight_model};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -280,6 +282,7 @@ pub struct AiState {
     /// for the depth model.
     pub sky_model: Option<Arc<SkyModel>>,
     pub depth_model: Option<Arc<rawtonic_onnx::Model>>,
+    pub relight_model: Option<Arc<rawtonic_onnx::Model>>,
     pub sam_models: Option<Arc<SamModels>>,
     pub tag_models: Option<Arc<TagModels>>,
     pub inpaint_model: Option<Arc<rawtonic_onnx::Model>>,
@@ -2869,7 +2872,8 @@ pub fn run_depth_anything_model(
         .ok_or_else(|| anyhow::anyhow!("Invalid depth dimensions"))
 }
 
-/// Preserve gradients for surface normals: 8-bit masks cause terracing.
+/// Legacy analysis precision gate; new Relight uses camera geometry.
+#[cfg(test)]
 pub fn run_depth_anything_model16(
     image: &DynamicImage,
     model: &rawtonic_onnx::Model,

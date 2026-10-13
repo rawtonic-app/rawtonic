@@ -116,6 +116,8 @@ pub enum ModelKind {
     Sky,
     /// Depth Anything V2 Small.
     Depth,
+    /// Camera-aware relative geometry for Relight (DA3 Base).
+    Relight,
     /// SigLIP 2 image encoder (automatic tags).
     TagVision,
     /// SigLIP 2 text encoder (the user's own tags).
@@ -133,12 +135,13 @@ pub enum ModelKind {
 }
 
 impl ModelKind {
-    pub const ALL: [ModelKind; 12] = [
+    pub const ALL: [ModelKind; 13] = [
         ModelKind::Subject,
         ModelKind::SamEncoder,
         ModelKind::SamDecoder,
         ModelKind::Sky,
         ModelKind::Depth,
+        ModelKind::Relight,
         ModelKind::TagVision,
         ModelKind::TagText,
         ModelKind::Inpaint,
@@ -155,6 +158,7 @@ impl ModelKind {
             ModelKind::SamDecoder => "sam-decoder",
             ModelKind::Sky => "sky",
             ModelKind::Depth => "depth",
+            ModelKind::Relight => "relight",
             ModelKind::TagVision => "tags-vision",
             ModelKind::TagText => "tags-text",
             ModelKind::Inpaint => "inpaint",
@@ -173,12 +177,13 @@ impl ModelKind {
 
     /// The model a file of the model pack holds, by its name.
     pub fn from_file_name(name: &str) -> Option<Self> {
-        const PREFIXES: [(&str, ModelKind); 12] = [
+        const PREFIXES: [(&str, ModelKind); 13] = [
             ("birefnet", ModelKind::Subject),
             ("sam2.1_tiny_encoder", ModelKind::SamEncoder),
             ("sam2.1_tiny_decoder", ModelKind::SamDecoder),
             ("skyseg", ModelKind::Sky),
             ("depth_anything", ModelKind::Depth),
+            ("relight_geometry", ModelKind::Relight),
             ("siglip2_vision", ModelKind::TagVision),
             ("siglip2_text", ModelKind::TagText),
             ("migan", ModelKind::Inpaint),

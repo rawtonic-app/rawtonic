@@ -6423,6 +6423,16 @@ fn relight_pixels_and_depth_are_consistent() {
 #[test]
 #[ignore = "requires native GPU: facial direction, distance, colour and export equivalence"]
 fn relight_refined_surface_light_transport() {
+    relight_surface_transport_case(2);
+}
+
+#[test]
+#[ignore = "requires a GPU"]
+fn relight_camera_surface_light_transport() {
+    relight_surface_transport_case(4);
+}
+
+fn relight_surface_transport_case(version: u64) {
     use base64::Engine as _;
     let context = context();
     let processor = GpuProcessor::new(context.clone(), 128, 128).unwrap();
@@ -6460,7 +6470,11 @@ fn relight_refined_surface_light_transport() {
     .write_to(&mut png, image::ImageFormat::Png)
     .unwrap();
     let mut recipe = json!({"relightLights":[{"type":"sun","intensity":55,"color":"#ffffff","pattern":"none","rotation":90,"elevation":20,"diffusion":10,"softness":30,"shadows":100}],"relightOriginalLight":15,"relightDepthAmount":100});
-    recipe["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&recipe),"version":2});
+    recipe["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&recipe),"version":version});
+    if version == 4 {
+        recipe["relightDepth"]["camera"] = json!({"fx":1.2,"fy":1.2,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0});
+        recipe["relightSkinReflections"] = json!(0);
+    }
     let render = |recipe: &serde_json::Value, general: bool| {
         processor
             .force_general_pipeline
@@ -6545,9 +6559,52 @@ fn relight_refined_surface_light_transport() {
     let far = render(&recipe, false);
     assert!(
         average(&near, 96) > average(&far, 96) + 20.
-            && average(&near, 32) > average(&far, 32) + 20.,
-        "point source must fall off with distance"
+            && average(&near, 32) > average(&far, 32) + if version == 4 { 5. } else { 20. },
+        "point source must fall off with distance: near {},{} far {},{}",
+        average(&near, 32),
+        average(&near, 96),
+        average(&far, 32),
+        average(&far, 96)
     );
+
+    if version == 4 {
+        // Compare actual linear irradiance with an independently exposed
+        // reference image, including perspective position and inverse-square
+        // falloff. Keep gains below one to exclude the JPEG highlight rolloff.
+        let camera = rawtonic_engine::relight::Camera::from_recipe(&recipe).unwrap();
+        let mut physical = recipe.clone();
+        physical["relightOriginalLight"] = json!(0);
+        physical["relightLights"][0]["intensity"] = json!(10);
+        for distance in [0.3_f32, 1.2] {
+            physical["relightLights"][0]["distance"] = json!(distance * 100.);
+            let actual = render(&physical, false);
+            for (x, code) in [(32usize, 12000u16), (96, 50000)] {
+                let p = camera.position([x as f32 / 128., 0.5], camera.inverse(code).recip(), 1.);
+                let source_z = (camera.reference - camera.inverse_max.recip())
+                    / camera.world_unit()
+                    + distance;
+                let direction = [-p[0], -p[1], source_z - p[2]];
+                let distance2: f32 = direction.iter().map(|v| v * v).sum();
+                let irradiance = 0.3 * 0.36 / (distance2 + 0.01) * direction[2] / distance2.sqrt();
+                assert!(irradiance > 0. && irradiance < 1.);
+                let exposure_unit =
+                    get_all_adjustments_from_json(&json!({"exposure":1}), false, Some(0))
+                        .global
+                        .exposure;
+                let reference = render(
+                    &json!({"exposure": irradiance.log2() / exposure_unit}),
+                    false,
+                );
+                let pixel = (64 * 128 + x) * 4;
+                assert!(
+                    actual[pixel].abs_diff(reference[pixel]) <= 1,
+                    "camera irradiance distance={distance}, x={x}: {} != {}",
+                    actual[pixel],
+                    reference[pixel]
+                );
+            }
+        }
+    }
 
     // A red emitter cannot add green/blue illumination to a neutral surface.
     recipe["relightLights"][0]["color"] = json!("#ff0000");
@@ -6764,6 +6821,7 @@ fn relight_real_photo_and_timing() {
     let mut depth = source.clone();
     depth["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png),"geometry":rawtonic_engine::relight::geometry(&source)});
     depth["relightDepth"]["faces"] = saved_depth["faces"].clone();
+    depth["relightDepth"]["camera"] = saved_depth["camera"].clone();
     depth["relightDepth"]["version"] = saved_depth["version"].clone();
     let render = |profile: &serde_json::Value| {
         let (p, ..) = processor
@@ -6812,7 +6870,12 @@ fn relight_real_photo_and_timing() {
             // or a quality rendering of this photo. Bound the shadow cost.
             profile["relightDepth"]["faces"] =
                 json!([rawtonic_engine::relight::test_face_geometry()]);
-            profile["relightDepth"]["version"] = json!(2);
+            profile["relightDepth"]["version"] =
+                json!(if profile["relightDepth"]["camera"].is_object() {
+                    4
+                } else {
+                    2
+                });
         }
         let features = preview_features(&get_all_adjustments_from_json(&profile, false, Some(0)));
         prepare_preview_pipeline(&processor, features);
@@ -6868,7 +6931,10 @@ fn relight_tiled_roi_matches_full_frame() {
     let mut reflective = refined.clone();
     reflective["relightDepth"]["version"] = json!(3);
     reflective["relightSkinReflections"] = json!(100);
-    for profile in [profile, refined, reflective] {
+    let mut camera = reflective.clone();
+    camera["relightDepth"]["version"] = json!(4);
+    camera["relightDepth"]["camera"] = json!({"fx":0.06,"fy":2.04,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0});
+    for profile in [profile, refined, reflective, camera] {
         for precision in [
             RenderOutputPrecision::EightBit,
             RenderOutputPrecision::SixteenBit,

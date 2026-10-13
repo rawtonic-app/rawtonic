@@ -79,6 +79,12 @@ export const CREDITS: Credit[] = [
     license: "MIT",
   },
   {
+    name: "Depth Anything 3 Base",
+    url: "https://github.com/ByteDance-Seed/Depth-Anything-3",
+    what: "Relative scene geometry and camera estimation for Relight (ByteDance Seed).",
+    license: "Apache-2.0",
+  },
+  {
     name: "Depth Anything V2 Small",
     url: "https://github.com/DepthAnything/Depth-Anything-V2",
     what: "Depth masks.",

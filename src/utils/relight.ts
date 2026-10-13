@@ -67,6 +67,10 @@ export interface RelightDepth {
   geometry: Record<string, unknown>;
   version?: number;
   faces?: number[][][];
+  camera?: {
+    fx: number; fy: number; cx: number; cy: number;
+    inverseMin: number; inverseMax: number; reference: number;
+  };
 }
 
 // Rust serializes object keys in sorted order. Geometry equality must not

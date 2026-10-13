@@ -4,6 +4,8 @@
 //! local relief without magnifying depth-map stair steps.
 use super::{DepthSurface, surface_sample};
 use image::{ImageBuffer, Rgba};
+#[path = "relight_camera.rs"]
+mod camera;
 #[path = "relight_face_topology.rs"]
 mod topology;
 type Surface = ImageBuffer<Rgba<f32>, Vec<f32>>;
@@ -59,6 +61,9 @@ fn unit(v: [f32; 3]) -> [f32; 3] {
 }
 
 pub fn surface_texture(depth: &DepthSurface) -> Surface {
+    if let Some(camera) = depth.camera {
+        return self::camera::texture(depth, camera);
+    }
     let (w, h) = depth.image.dimensions();
     let base = ImageBuffer::from_fn(w, h, |x, y| Rgba(surface_sample(&depth.image, x, y)));
     let base = if depth.refined {
@@ -235,6 +240,7 @@ mod tests {
     fn face_relief_preserves_nose_and_opposed_cheek_normals() {
         let face = test_face_geometry();
         let input = DepthSurface {
+            camera: None,
             image: ImageBuffer::from_pixel(128, 128, image::Luma([32768])),
             faces: vec![face.clone()],
             refined: true,
