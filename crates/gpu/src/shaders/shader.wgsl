@@ -1377,7 +1377,18 @@ fn apply_tonal_adjustments(
         let t = clamp(pow(max(get_luma(max(rgb, vec3<f32>(0.0))), 0.0), 0.4545), 0.0, 1.0);
         let gain = select(WHITES_LOWER, WHITES_RAISE, w > 0.0);
         let reach = select(WHITES_REACH_LOWER, WHITES_REACH_RAISE, w > 0.0);
-        let ratio = pow(max(1.0 + gain * w * pow(t, reach), 0.05), 2.2);
+        // The result is (t · (1 + k · t^reach))^2.2, which turns down where
+        // 1 + k · (1 + reach) · t^reach < 0: Whites below about −75 under
+        // Standard darkened the tones from −0.37 EV up to white (−100: 0.09
+        // scene EV, the brightest grey lower than one 0.37 EV darker). From
+        // that level on the gain stays the level's, so brighter stays
+        // brighter; tones below it are unchanged.
+        let k = gain * w;
+        var t_gain = t;
+        if (k * (1.0 + reach) < -1.0) {
+            t_gain = min(t, pow(-1.0 / (k * (1.0 + reach)), 1.0 / reach));
+        }
+        let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
         rgb *= ratio;
         blurred_linear *= ratio;
     }

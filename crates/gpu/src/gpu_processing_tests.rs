@@ -5994,6 +5994,300 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     );
 }
 
+/// An opaque grey `Rgba16Float` texture of scene luminances, row by row.
+fn grey_texture(
+    context: &GpuContext,
+    width: u32,
+    height: u32,
+    levels: &[f32],
+) -> wgpu::TextureView {
+    assert_eq!(levels.len(), (width * height) as usize);
+    let data: Vec<f16> = levels
+        .iter()
+        .flat_map(|&level| {
+            let v = f16::from_f32(level);
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Grey test scene"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default())
+}
+
+/// The base looks a RAW renders with, as (name, tonemapper mode, curve
+/// flag): Classic (0), AgX (1), Standard (2) and the Camera Raw look (3)
+/// with neutral colour (flag 2) and through the own-curve path given the
+/// default curve's points (flag 1, no roll-off).
+const RAW_LOOKS: [(&str, u32, f32); 5] = [
+    ("classic", 0, 0.0),
+    ("agx", 1, 0.0),
+    ("standard", 2, 0.0),
+    ("camera-raw", 3, 2.0),
+    ("camera-raw-own-curve", 3, 1.0),
+];
+
+/// 16-bit RGB codes of a RAW render of `view` in one of `RAW_LOOKS`.
+fn render_raw_look(
+    processor: &GpuProcessor,
+    view: &wgpu::TextureView,
+    (width, height): (u32, u32),
+    recipe: &serde_json::Value,
+    (mode, flag): (u32, f32),
+) -> Vec<[u16; 3]> {
+    let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(mode.min(2)));
+    adjustments.global.tonemapper_mode = mode;
+    if mode == 3 {
+        if flag < 1.5 || flag > 2.5 {
+            let default_curve: Vec<f32> = include_str!("shaders/shader.wgsl")
+                .split("const DEFAULT_TONE_CURVE = array<f32, 49>(")
+                .nth(1)
+                .and_then(|rest| rest.split(')').next())
+                .unwrap()
+                .split(',')
+                .map(|v| v.trim().parse().unwrap())
+                .collect();
+            for (i, v) in default_curve.iter().enumerate() {
+                adjustments.global.profile_curve[i / 4][i % 4] = *v;
+            }
+        }
+        adjustments.global.profile_curve[15][3] = flag;
+    }
+    let (pixels, ..) = processor
+        .run(
+            view,
+            width,
+            height,
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            false,
+            RenderOutputPrecision::SixteenBit,
+        )
+        .unwrap();
+    let RenderedPixels::U16(pixels) = pixels else {
+        unreachable!()
+    };
+    pixels.chunks(4).map(|p| [p[0], p[1], p[2]]).collect()
+}
+
+fn srgb_code_to_linear(v: u16) -> f64 {
+    let e = v as f64 / 65535.0;
+    if e <= 0.04045 {
+        e / 12.92
+    } else {
+        ((e + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The worst fall of any channel along `row` (input rising left to right)
+/// within `columns`, over up to `reach` steps, in units of the limit: 0.01 EV
+/// or two 16-bit codes, whichever is more (as in
+/// `camera_raw_tone_sliders_keep_tones_in_order`). Returns (excess, column,
+/// steps, channel, EV fallen) for an excess above 1.
+fn worst_tone_reversal(
+    row: &[[u16; 3]],
+    columns: std::ops::Range<usize>,
+    reach: usize,
+) -> Option<(f64, usize, usize, usize, f64)> {
+    let mut worst: Option<(f64, usize, usize, usize, f64)> = None;
+    for x in columns.clone().skip(reach) {
+        for k in 1..=reach {
+            for (c, (&before, &after)) in row[x - k].iter().zip(&row[x]).enumerate() {
+                if after >= before {
+                    continue;
+                }
+                let ev =
+                    (srgb_code_to_linear(before) / srgb_code_to_linear(after).max(1e-12)).log2();
+                let excess = (ev / 0.01).min((before - after) as f64 / 2.0);
+                if excess > 1.0 && worst.is_none_or(|w| excess > w.0) {
+                    worst = Some((excess, x, k, c, ev));
+                }
+            }
+        }
+    }
+    worst
+}
+
+#[test]
+#[ignore = "requires a native GPU; every tone slider step on a ramp from black to past white, every base look"]
+fn tone_sliders_keep_tones_in_order_at_every_step() {
+    let context = context();
+    let (width, height) = (4096u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-14 to 2^4, evenly in EV across the columns.
+    let (low_ev, span_ev) = (-14.0f32, 18.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    // Every tone slider from −100 to +100 in steps of 10, Exposure from −5
+    // to +5 EV in half stops, and all five sliders at ±100 together in every
+    // sign combination, alone and at Exposure ±2.
+    let sliders = ["contrast", "highlights", "shadows", "whites", "blacks"];
+    let mut recipes = Vec::new();
+    for slider in sliders {
+        for amount in (-100..=100).step_by(10).filter(|a| *a != 0) {
+            recipes.push(json!({ slider: amount }));
+        }
+    }
+    for half_stops in -10..=10 {
+        if half_stops != 0 {
+            recipes.push(json!({ "exposure": half_stops as f64 * 0.5 }));
+        }
+    }
+    for signs in 0..32u32 {
+        for exposure in [0.0, -2.0, 2.0] {
+            let mut recipe = json!({ "exposure": exposure });
+            for (i, slider) in sliders.iter().enumerate() {
+                recipe[*slider] = json!(if signs & (1 << i) != 0 { 100 } else { -100 });
+            }
+            recipes.push(recipe);
+        }
+    }
+    let columns = 64..(width - 64) as usize;
+    let row = (height / 2 * width) as usize;
+    let mut failures = Vec::new();
+    for (look, mode, flag) in RAW_LOOKS {
+        for recipe in &recipes {
+            let pixels = render_raw_look(&processor, &view, (width, height), recipe, (mode, flag));
+            let toned = &pixels[row..row + width as usize];
+            if let Some((excess, x, k, c, ev)) = worst_tone_reversal(toned, columns.clone(), 24) {
+                let scene = low_ev + span_ev * x as f32 / (width - 1) as f32;
+                let line = format!(
+                    "{look} {recipe}: channel {c} falls {ev:.3} EV ({} → {}) over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
+                    toned[x - k][c],
+                    toned[x][c]
+                );
+                // Known under the Camera Raw look, up to 1.5× the limit: the
+                // ordering floors rise only 0.1 EV per EV, so the blurred
+                // luminance's interpolation wobble (Shadows and Blacks act
+                // on it) shows as a fall of up to 4 codes there (Blacks −40:
+                // 0.013 EV near display −6.6 EV), and all five sliders at
+                // their extremes fall up to 0.012 EV below display −1 EV.
+                if mode == 3 && excess <= 1.5 {
+                    eprintln!("tolerated: {line}");
+                } else {
+                    failures.push(line);
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} renders out of order:\n{}",
+        failures.len(),
+        recipes.len() * RAW_LOOKS.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; Highlights on a clipped bright disc with a soft rim on a dark background"]
+fn highlights_keep_a_clipped_plateau_above_its_rim() {
+    let context = context();
+    let (width, height) = (384u32, 384u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let centre = (width / 2) as f32;
+    let plateau_radius = 64.0f32;
+    let mut failures = Vec::new();
+    let mut worst_ratio = 0.0f64;
+    // Plateaus from white to three stops past it (clipped, reconstructed
+    // highlights), rims from hard to soft, dark and mid backgrounds.
+    for plateau in [1.0f32, 2.0, 4.0, 8.0] {
+        for rim in [4.0f32, 16.0, 48.0] {
+            for background in [0.01f32, 0.1] {
+                let levels: Vec<f32> = (0..height)
+                    .flat_map(|y| (0..width).map(move |x| (x, y)))
+                    .map(|(x, y)| {
+                        let r = ((x as f32 + 0.5 - centre).powi(2)
+                            + (y as f32 + 0.5 - centre).powi(2))
+                        .sqrt();
+                        let t = ((plateau_radius + rim - r) / rim).clamp(0.0, 1.0);
+                        let t = t * t * (3.0 - 2.0 * t);
+                        // Mixed in EV, so the rim covers every level between.
+                        background * (plateau / background).powf(t)
+                    })
+                    .collect();
+                let view = grey_texture(&context, width, height, &levels);
+                for (look, mode, flag) in RAW_LOOKS {
+                    for amount in [-100, -50, 50, 100] {
+                        let recipe = json!({ "highlights": amount });
+                        let pixels = render_raw_look(
+                            &processor,
+                            &view,
+                            (width, height),
+                            &recipe,
+                            (mode, flag),
+                        );
+                        // The centre row from the left edge to the centre:
+                        // background, rim, plateau.
+                        let row = (height / 2 * width) as usize;
+                        let half = &pixels[row..row + (width / 2) as usize];
+                        let luma = |p: &[u16; 3]| {
+                            0.2126 * srgb_code_to_linear(p[0])
+                                + 0.7152 * srgb_code_to_linear(p[1])
+                                + 0.0722 * srgb_code_to_linear(p[2])
+                        };
+                        let centre_luma = luma(&half[half.len() - 1]);
+                        let brightest = half.iter().map(luma).fold(0.0f64, f64::max);
+                        let ratio = brightest / centre_luma.max(1e-12);
+                        worst_ratio = worst_ratio.max(ratio);
+                        // No solarization: nothing on the way in is brighter
+                        // than the centre. Lowering keeps a slight bright
+                        // ring at the plateau's edge (its detail lift against
+                        // the darker surround), up to 2.8 % (0.04 EV) above
+                        // the centre for a plateau at white with a 16 px rim;
+                        // 4 % fails.
+                        if ratio > 1.04 {
+                            failures.push(format!(
+                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
+                            ));
+                        }
+                        // Anything darker than the background-to-plateau
+                        // gradient beyond the edge ring would be a reversal.
+                        let edge = (centre - plateau_radius - 4.0) as usize;
+                        if let Some((excess, x, k, c, ev)) = worst_tone_reversal(half, 8..edge, 4) {
+                            failures.push(format!(
+                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: channel {c} falls {ev:.3} EV over {k} px in the rim at x {x} ({excess:.1}× the limit)"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("largest brightest / centre luminance: {worst_ratio:.4}");
+    assert!(
+        failures.is_empty(),
+        "{} renders reverse towards the plateau:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 /// A `width` × `height` texture of one opaque colour for the display pipeline.
 fn solid_display_texture(
     context: &GpuContext,
