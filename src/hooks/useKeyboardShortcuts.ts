@@ -403,7 +403,7 @@ export const useKeyboardShortcuts = ({
         // Develop: edit history. Library: the last rename, move or delete.
         shouldFire: (s) =>
           s.ui.activeView === 'editor'
-            ? s.editor.selectedImage?.isReady && s.editor.historyIndex > 0
+            ? s.editor.selectedImage?.isReady && (s.editor.historyPending || s.editor.historyIndex > 0)
             : !!handleUndoFileOperation,
         execute: (e, s) => {
           e.preventDefault();
@@ -415,7 +415,7 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) =>
           s.ui.activeView === 'editor' &&
           s.editor.selectedImage?.isReady &&
-          s.editor.historyIndex < s.editor.history.length - 1,
+          !s.editor.historyPending && s.editor.historyIndex < s.editor.history.length - 1,
         execute: (e, s) => {
           e.preventDefault();
           s.editor.redo();
@@ -886,13 +886,16 @@ export const useKeyboardShortcuts = ({
 
       const isInputFocused =
         document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
-      if (isInputFocused) return;
+      const rangeFocused = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
+      // Range controls have no text undo stack. Keep their arrow keys native,
+      // but let Undo/Redo reach edit history immediately after a slider drag.
+      if (isInputFocused && !rangeFocused) return;
       // Tab moves the focus between fields and controls; it hides panels only
       // from the photograph, the browser tiles or with nothing focused.
       if (event.code === 'Tab' && !ownsPanelShortcut(document.activeElement)) return;
 
       for (const builtin of builtinShortcuts) {
-        if (builtin.match(event, state)) {
+        if (!rangeFocused && builtin.match(event, state)) {
           builtin.execute(event, state);
           return;
         }
@@ -903,6 +906,7 @@ export const useKeyboardShortcuts = ({
       const comboMap = buildComboMap(state.settings.appSettings?.keybinds);
       const normalized = normalizeCombo(event, state.settings.osPlatform);
       for (const action of comboMap.get(normalized.join('+')) ?? []) {
+        if (rangeFocused && action !== 'undo' && action !== 'redo') continue;
         const handler = actions[action];
         if (handler && (!handler.shouldFire || handler.shouldFire(state))) {
           handler.execute(event, state);

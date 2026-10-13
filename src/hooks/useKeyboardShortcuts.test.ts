@@ -5,7 +5,7 @@ import { useLibraryStore } from "../store/useLibraryStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { isAnyModalOpen, useUIStore } from "../store/useUIStore";
 import { AppSettings, Panel } from "../components/ui/AppProperties";
-import { useEditorStore } from "../store/useEditorStore";
+import { useEditorStore, debouncedSetHistory } from "../store/useEditorStore";
 import { readModuleLayout } from "../utils/panelLayout";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -126,6 +126,24 @@ it("leaves Cmd+Z in Develop to the edit history", () => {
   useUIStore.setState({ activeView: "editor" });
   pressUndo();
   expect(props.handleUndoFileOperation).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("Cmd+Z catches the first pending edit (slider focused: %s)", (sliderFocused) => {
+  if (sliderFocused) {
+    document.body.innerHTML = '<input type="range" aria-label="Face reflections" />';
+    document.querySelector('input')!.focus();
+  }
+  useUIStore.setState({ activeView: "editor" });
+  useEditorStore.setState({ selectedImage: {path: "/pending.jpg", isReady: true} as never });
+  const initial = {...useEditorStore.getState().adjustments, relightSkinReflections: 0};
+  useEditorStore.getState().resetHistory(initial);
+  const changed = {...initial, relightSkinReflections: 65};
+  useEditorStore.setState({adjustments: changed});
+  debouncedSetHistory(changed);
+  pressUndo();
+  expect(useEditorStore.getState().adjustments).toEqual(initial);
+  expect(useEditorStore.getState().historyPending).toBe(false);
+  expect(useEditorStore.getState().history).toHaveLength(2);
 });
 
 it("Escape in the crop tool restores the crop it opened with, Enter keeps the change", () => {

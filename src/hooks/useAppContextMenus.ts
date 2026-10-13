@@ -212,15 +212,15 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.preventDefault();
       event.stopPropagation();
 
-      const { selectedImage, history, historyIndex, undo, redo, resetHistory, copiedAdjustments, setEditor } =
+      const { selectedImage, history, historyIndex, historyPending, undo, redo, resetHistory, copiedAdjustments, setEditor } =
         useEditorStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { setPanel, setUI } = useUIStore.getState();
 
       if (!selectedImage) return;
 
-      const canUndo = historyIndex > 0;
-      const canRedo = historyIndex < history.length - 1;
+      const canUndo = historyPending || historyIndex > 0;
+      const canRedo = !historyPending && historyIndex < history.length - 1;
       const commonTags = getCommonTags([selectedImage.path]);
 
       const options: Array<Option> = [
