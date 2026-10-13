@@ -56,7 +56,8 @@ enum Command {
         flag: i8,
     },
     /// Register files where they are (catalogs; session files must be inside
-    /// the session). Reads only.
+    /// the session), each with its sidecar edits or XMP metadata, all in one
+    /// transaction and one import batch. Reads only.
     Add {
         library: PathBuf,
         #[arg(required = true)]
@@ -368,6 +369,7 @@ fn run() -> Result<()> {
             backup,
         } => {
             let lib = Library::open(&library)?;
+            let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Ingest);
             let cancel = AtomicBool::new(false);
             let mut failed = 0;
             for (i, path) in sources.iter().enumerate() {
@@ -421,9 +423,14 @@ fn run() -> Result<()> {
         }
         Command::Add { library, paths } => {
             let l = Library::open(&library)?;
-            for path in paths {
-                print(l.add_asset(&path)?)?;
-            }
+            let _batch = l.import_batch(rawtonic_catalog::ImportKind::Add);
+            let report = l.add_files(&paths)?;
+            print(&report)?;
+            anyhow::ensure!(
+                report.failed.is_empty(),
+                "{} file(s) not added; the others are in the library",
+                report.failed.len()
+            );
             Ok(())
         }
         Command::Missing { library } => {
