@@ -4185,11 +4185,13 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
     let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && adjustments.global.relight_surface.x > 0.0;
     var depth_value = 0.0;
+    // Height and its derivatives must use the same physical scale.
+    let height_scale = adjustments.global.relight_surface.x * 0.25;
     if (has_depth) {
         let surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0).rgb;
         let slope = surface.xy * min(dims.x, dims.y) / dims;
         depth_value = surface.z;
-        normal = normalize(vec3<f32>(-slope * adjustments.global.relight_surface.x * 2.0, 1.0));
+        normal = normalize(vec3<f32>(-slope * height_scale, 1.0));
     }
     var light_gain = vec3<f32>(0.0);
     var shadow_ev = 0.0;
@@ -4208,7 +4210,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         // faces/objects instead of remaining a flat overlay. No extra samples.
         var projected = delta;
         if (has_depth) {
-            let height = depth_value * adjustments.global.relight_surface.x * 0.25;
+            let height = depth_value * height_scale;
             let travel = min(cos(settings.w) / max(sin(settings.w), 0.15), 3.0);
             projected += vec2<f32>(-s, c) * height * travel;
         }

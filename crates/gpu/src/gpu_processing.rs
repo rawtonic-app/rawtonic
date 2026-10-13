@@ -2895,17 +2895,7 @@ impl GpuProcessor {
                 (0..w).flat_map({
                     let depth = &depth;
                     move |x| {
-                        let d = |x, y| depth.get_pixel(x, y)[0] as f32 / 65535.;
-                        let dx =
-                            (d((x + 1).min(w - 1), y) - d(x.saturating_sub(1), y)) * w as f32 * 0.5;
-                        let dy =
-                            (d(x, (y + 1).min(h - 1)) - d(x, y.saturating_sub(1))) * h as f32 * 0.5;
-                        [
-                            f16::from_f32(dx),
-                            f16::from_f32(dy),
-                            f16::from_f32(d(x, y)),
-                            f16::ONE,
-                        ]
+                        rawtonic_engine::relight::surface_sample(depth, x, y).map(f16::from_f32)
                     }
                 })
             })

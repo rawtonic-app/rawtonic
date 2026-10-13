@@ -6323,6 +6323,48 @@ fn relight_pixels_and_depth_are_consistent() {
         render(&json!({"relightLights":[light, second]})),
         render(&json!({"relightLights":[second, light]}))
     );
+
+    // Two disconnected flat surfaces must receive identical unpatterned sun
+    // light at every pixel, even next to their silhouette (no invented bevel).
+    let with_depth = |map: image::ImageBuffer<image::Luma<u16>, Vec<u16>>| {
+        let mut png = std::io::Cursor::new(Vec::new());
+        DynamicImage::ImageLuma16(map)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        let mut recipe = json!({"relightLights":[{"intensity":50,"pattern":"none","rotation":90,"elevation":25,"diffusion":0}],"relightDepthAmount":100});
+        recipe["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&recipe)});
+        recipe
+    };
+    let flat_recipe = with_depth(image::ImageBuffer::from_pixel(96, 64, image::Luma([10000])));
+    let step_recipe = with_depth(image::ImageBuffer::from_fn(96, 64, |x, _| {
+        image::Luma([if x < 48 { 10000 } else { 50000 }])
+    }));
+    assert_eq!(
+        render(&flat_recipe),
+        render(&step_recipe),
+        "depth step halo"
+    );
+
+    // A known plane's normal is the derivative of the projected height.
+    // Match its Lambert response to a flat plane under an equivalent sun.
+    let ramp = with_depth(image::ImageBuffer::from_fn(96, 64, |x, _| {
+        image::Luma([(10000 + x * 300) as u16])
+    }));
+    let slope = 300. * 96. / 65535. * (128. / 192.) * 0.25;
+    let angle = 25f64.to_radians();
+    let response = (slope * angle.cos() + angle.sin()) / (1. + slope * slope).sqrt();
+    let mut equivalent = flat_recipe;
+    equivalent["relightLights"][0]["elevation"] = json!(response.asin().to_degrees());
+    let max_error = render(&ramp)
+        .iter()
+        .zip(render(&equivalent))
+        .map(|(a, b)| a.abs_diff(b))
+        .max()
+        .unwrap();
+    assert!(
+        max_error <= 1,
+        "inconsistent normal/height scale: {max_error}"
+    );
 }
 
 #[test]
