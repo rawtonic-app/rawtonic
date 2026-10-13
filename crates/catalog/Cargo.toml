@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Failure injection for other crates' tests of all-or-nothing writes.
+test-support = []
+
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true

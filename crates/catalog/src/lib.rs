@@ -10,18 +10,20 @@ use std::{
     fs,
     io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
-    time::{Duration, UNIX_EPOCH},
+    time::Duration,
 };
 use uuid::Uuid;
 
+pub mod add;
 pub mod folders;
 pub mod volume;
+pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
 pub use volume::Volume;
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 3;
+pub const DB_SCHEMA_VERSION: u32 = 4;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -136,6 +138,9 @@ pub struct Library {
     pub directory: PathBuf,
     pub manifest: Manifest,
     conn: Connection,
+    /// The import batch new assets join (`Library::import_batch`): its kind
+    /// and, once its first asset is in, its id.
+    import: std::cell::Cell<Option<(ImportKind, Option<i64>)>>,
 }
 
 pub fn validate_relative(path: &Path) -> Result<()> {
@@ -213,6 +218,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0001.sql"))?;
         conn.execute_batch(include_str!("../migrations/0002.sql"))?;
         conn.execute_batch(include_str!("../migrations/0003.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0004.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -240,6 +246,7 @@ impl Library {
             directory,
             manifest,
             conn,
+            import: Default::default(),
         })
     }
 
@@ -276,6 +283,7 @@ impl Library {
             directory,
             manifest,
             conn,
+            import: Default::default(),
         })
     }
 
@@ -298,6 +306,9 @@ impl Library {
         }
         if version < 3 {
             tx.execute_batch(include_str!("../migrations/0003.sql"))?;
+        }
+        if version < 4 {
+            tx.execute_batch(include_str!("../migrations/0004.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -329,59 +340,19 @@ impl Library {
         })
     }
 
-    /// Sessions only accept contained files. Catalogs register an external root.
+    /// Registers one file without reading its sidecars (an already
+    /// registered file returns its asset). Sessions only accept contained
+    /// files; catalogs register an external root. `add_files` also brings
+    /// each file's sidecar edits and XMP metadata, in the same transaction.
     pub fn add_asset(&self, path: &Path) -> Result<Asset> {
-        let path = path.canonicalize()?;
-        ensure!(path.is_file(), "Asset is not a file");
-        let (root, relative, root_path) = if path.starts_with(&self.directory) {
-            (
-                "session".to_string(),
-                path.strip_prefix(&self.directory)?.to_path_buf(),
-                ".".to_string(),
-            )
-        } else {
-            ensure!(
-                self.manifest.mode == Mode::Catalog,
-                "Session assets must be inside the session; use verified ingest to copy them"
-            );
-            let parent = path.parent().context("No parent")?;
-            (
-                external_root_key(parent),
-                PathBuf::from(path.file_name().context("No filename")?),
-                parent.to_string_lossy().into_owned(),
-            )
-        };
-        validate_relative(&relative)?;
-        let rel = relative.to_str().context("Paths must be valid UTF-8")?;
-        if let Some(id) = self
-            .conn
-            .query_row(
-                "SELECT id FROM assets WHERE root_id=? AND rel_path=?",
-                params![root, rel],
-                |r| r.get::<_, String>(0),
-            )
-            .optional()?
-        {
+        let planned = self.plan_add(path, Contents::default())?;
+        if let Some(id) = self.registered_id(&planned.root, &planned.rel)? {
             return self.asset(&id);
         }
-        let meta = fs::metadata(&path)?;
-        let fp = fingerprint(&path)?;
-        let mtime = meta
-            .modified()?
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
-        let id = Uuid::new_v4().to_string();
-        let version = Uuid::new_v4().to_string();
-        let tx = self.conn.unchecked_transaction()?;
-        insert_root(&tx, &root, &root_path)?;
-        tx.execute("INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind) VALUES(?,?,?,?,?,?,?)", params![id,root,rel,i64::try_from(meta.len())?,mtime,fp,path.extension().unwrap_or_default().to_string_lossy().to_lowercase()])?;
-        tx.execute("INSERT INTO metadata(asset_id) VALUES(?)", [&id])?;
-        tx.execute(
-            "INSERT INTO versions(id,asset_id,name,is_primary) VALUES(?,?,'Original',1)",
-            params![version, id],
-        )?;
-        tx.commit()?;
+        let (id, _) = self
+            .insert_planned(vec![planned])?
+            .pop()
+            .context("Nothing was registered")?;
         self.asset(&id)
     }
 
@@ -519,25 +490,7 @@ impl Library {
     pub fn set_metadata(&self, id: &str, metadata: &Metadata) -> Result<()> {
         metadata.validate()?;
         let tx = self.conn.unchecked_transaction()?;
-        ensure!(tx.execute("UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending' WHERE asset_id=?", params![metadata.rating,metadata.label,metadata.flag,serde_json::to_string(metadata)?,id])? == 1, "Unknown asset");
-        // IPTC fields (city, country, headline …) are searchable too.
-        let search = format!(
-            "{} {} {} {} {}",
-            metadata.keywords.join(" "),
-            metadata.title,
-            metadata.description,
-            metadata.creator,
-            metadata
-                .iptc
-                .values()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
-        tx.execute(
-            "UPDATE assets SET search_text=? WHERE id=?",
-            params![search, id],
-        )?;
+        write_metadata(&tx, id, metadata)?;
         tx.commit()?;
         Ok(())
     }
@@ -845,12 +798,23 @@ impl Library {
 
     /// Editor adapter: the DB owns the serialized state; sidecars are derived.
     pub fn save_editor_state(&self, asset: &str, legacy: &Value) -> Result<()> {
+        let version = self.primary_version(asset)?;
+        let (bytes, meta) = self.editor_recipe(legacy, self.metadata(asset)?)?;
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        write_recipe(&tx, &version, &bytes)?;
+        write_metadata(&tx, asset, &meta)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The recipe payload an editor state is stored as, and the metadata it
+    /// means on top of `meta` (its rating, keywords and colour label).
+    /// Reads nothing but `legacy`; validated before anything is written.
+    fn editor_recipe(&self, legacy: &Value, mut meta: Metadata) -> Result<(String, Metadata)> {
         let mut stored = legacy.clone();
         rawtonic_metadata::resources::localize(&mut stored, &self.directory);
         let legacy = &stored;
-        let version = self.primary_version(asset)?;
         let payload = json!({"schema_version":1,"process_version":"rapidraw-1.6.4","adjustments":legacy.get("adjustments").cloned().unwrap_or(Value::Null),"editor_state":legacy,"layers":[]});
-        let mut meta = self.metadata(asset)?;
         if let Some(rating) = legacy.get("rating").and_then(Value::as_u64) {
             ensure!(rating <= 5, "Rating must be 0–5");
             meta.rating = rating as u8;
@@ -892,40 +856,7 @@ impl Library {
         meta.validate()?;
         let bytes = serde_json::to_string(&payload)?;
         ensure!(bytes.len() <= 64 * 1024 * 1024, "Recipe too large");
-        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        let head: Option<i64> =
-            tx.query_row("SELECT head FROM versions WHERE id=?", [&version], |r| {
-                r.get(0)
-            })?;
-        let old: Option<String> = head
-            .map(|id| tx.query_row("SELECT payload FROM recipes WHERE id=?", [id], |r| r.get(0)))
-            .transpose()?;
-        if old.as_deref() != Some(&bytes) {
-            tx.execute(
-                "INSERT INTO recipes(version_id,parent,payload) VALUES(?,?,?)",
-                params![version, head, bytes],
-            )?;
-            tx.execute(
-                "UPDATE versions SET head=? WHERE id=?",
-                params![tx.last_insert_rowid(), version],
-            )?;
-        }
-        tx.execute("UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending' WHERE asset_id=?", params![meta.rating,meta.label,meta.flag,serde_json::to_string(&meta)?,asset])?;
-        tx.execute(
-            "UPDATE assets SET search_text=? WHERE id=?",
-            params![
-                format!(
-                    "{} {} {} {}",
-                    meta.keywords.join(" "),
-                    meta.title,
-                    meta.description,
-                    meta.creator
-                ),
-                asset
-            ],
-        )?;
-        tx.commit()?;
-        Ok(())
+        Ok((bytes, meta))
     }
 
     pub fn editor_state(&self, asset: &str) -> Result<Option<Value>> {
@@ -1757,6 +1688,70 @@ fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> 
         )?;
     }
     Ok(())
+}
+
+/// Makes `payload` the head recipe of `version` (a new history entry unless
+/// it is the head already).
+fn write_recipe(tx: &Connection, version: &str, payload: &str) -> Result<()> {
+    let head: Option<i64> =
+        tx.query_row("SELECT head FROM versions WHERE id=?", [version], |r| {
+            r.get(0)
+        })?;
+    let old: Option<String> = head
+        .map(|id| tx.query_row("SELECT payload FROM recipes WHERE id=?", [id], |r| r.get(0)))
+        .transpose()?;
+    if old.as_deref() != Some(payload) {
+        tx.execute(
+            "INSERT INTO recipes(version_id,parent,payload) VALUES(?,?,?)",
+            params![version, head, payload],
+        )?;
+        tx.execute(
+            "UPDATE versions SET head=? WHERE id=?",
+            params![tx.last_insert_rowid(), version],
+        )?;
+    }
+    Ok(())
+}
+
+/// Stores an asset's metadata (its XMP is to be written again) and the
+/// search text it gives.
+fn write_metadata(tx: &Connection, id: &str, metadata: &Metadata) -> Result<()> {
+    ensure!(
+        tx.execute(
+            "UPDATE metadata SET rating=?,label=?,flag=?,data=?,xmp_status='pending' WHERE asset_id=?",
+            params![
+                metadata.rating,
+                metadata.label,
+                metadata.flag,
+                serde_json::to_string(metadata)?,
+                id
+            ]
+        )? == 1,
+        "Unknown asset"
+    );
+    tx.execute(
+        "UPDATE assets SET search_text=? WHERE id=?",
+        params![search_text(metadata), id],
+    )?;
+    Ok(())
+}
+
+/// What a library search finds an asset by besides its path: keywords,
+/// title, description, creator and the IPTC fields (city, country, …).
+fn search_text(metadata: &Metadata) -> String {
+    format!(
+        "{} {} {} {} {}",
+        metadata.keywords.join(" "),
+        metadata.title,
+        metadata.description,
+        metadata.creator,
+        metadata
+            .iptc
+            .values()
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
 }
 
 /// The editor's prefix for keywords the user typed (other tags come from

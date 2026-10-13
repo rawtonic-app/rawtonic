@@ -227,8 +227,10 @@ pub fn require_verified_import() -> Result<(), String> {
     )
 }
 
-fn index_folder(lib: &Library) -> anyhow::Result<()> {
-    let known = lib.index_entries()?;
+/// The photographs in a session folder (its working folders, not caches,
+/// Trash or outputs), in walk order.
+fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
+    let mut photos = Vec::new();
     for entry in walkdir::WalkDir::new(&lib.directory)
         .follow_links(false)
         .into_iter()
@@ -267,50 +269,53 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
         {
             continue;
         }
-        let id = if let Some(asset) = known.get(entry.path()) {
+        photos.push(entry.into_path());
+    }
+    Ok(photos)
+}
+
+/// Brings a session up to its folder: photographs renamed or moved inside
+/// it are followed with their edits, new ones are added with what their
+/// sidecars hold (all in one transaction, one import batch), and
+/// registered ones never edited adopt sidecars that appeared later (each in
+/// one transaction). A photograph whose sidecar cannot be read is left out
+/// and logged, so it is never registered without its edits.
+fn index_folder(lib: &Library) -> anyhow::Result<()> {
+    let known = lib.index_entries()?;
+    let mut new = Vec::new();
+    for photo in session_photos(lib)? {
+        if let Some(asset) = known.get(&photo) {
             if !asset.needs_metadata_adoption {
                 continue;
             }
-            asset.id.clone()
-        } else if let Some(id) = lib.vanished_as(entry.path())?
-            && let Ok(report) = lib.relink(&id, entry.path(), true)
+            // Neutral files without sidecars need no more per-asset DB
+            // queries; `adopt_contents` checks again inside its transaction,
+            // so an edit or explicit clear made since the index snapshot stays.
+            match rawtonic_catalog::Contents::read_sidecars(&photo) {
+                Ok(contents) => {
+                    lib.adopt_contents(&asset.id, &contents)?;
+                }
+                Err(e) => log::warn!("Sidecar not adopted: {e:#}"),
+            }
+        } else if let Some(id) = lib.vanished_as(&photo)?
+            && let Ok(report) = lib.relink(&id, &photo, true)
         {
             // The same photograph, renamed or moved here in Finder (a
             // renamed folder): followed with its edits rather than
             // registered again as an unedited duplicate.
             after_relink(lib, &report);
-            continue;
         } else {
-            // New source registration keeps the existing fingerprint and
-            // durable per-asset transaction semantics.
-            lib.add_asset(entry.path())?.id
-        };
-        let sidecar = entry
-            .path()
-            .with_file_name(format!("{}.rrdata", entry.file_name().to_string_lossy()));
-        // Neutral files without sidecars need no more per-asset DB queries.
-        // Recheck actual adoption candidates after reading, so a concurrent
-        // edit/explicit clear after the index snapshot remains authoritative.
-        if let Ok(bytes) = fs::read(sidecar) {
-            if !lib.metadata_initialized(&id)? && lib.editor_state(&id)?.is_none() {
-                let value: Value = serde_json::from_slice(&bytes)?;
-                lib.save_editor_state(&id, &value)?;
-            }
-        } else if let Ok(text) = fs::read_to_string(entry.path().with_extension("xmp"))
-            && !lib.metadata_initialized(&id)?
-            && lib.editor_state(&id)?.is_none()
-        {
-            let (meta, _) = rawtonic_metadata::read_xmp(&text)?;
-            lib.adopt_xmp(&id)?;
-            lib.set_metadata(&id, &meta)?;
-            let mut tags = meta.keywords;
-            if !meta.label.is_empty() {
-                tags.push(format!("color:{}", meta.label.to_lowercase()));
-            }
-            let state =
-                serde_json::json!({"version":1,"rating":meta.rating,"tags":tags,"adjustments":{}});
-            lib.save_editor_state(&id, &state)?;
+            new.push(photo);
         }
+    }
+    if new.is_empty() {
+        return Ok(());
+    }
+    let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Add);
+    // A relink above may already have taken some of them.
+    let report = lib.add_files(&new)?;
+    for (path, error) in &report.failed {
+        log::warn!("{} not added to the session: {error}", path.display());
     }
     Ok(())
 }
@@ -1463,6 +1468,54 @@ mod tests {
                 .rating,
             4
         );
+    }
+
+    /// A crash or full disk while a session indexes new photographs leaves
+    /// none of them half added (without the edits of their sidecars); the
+    /// next open adds them complete.
+    #[test]
+    fn indexing_new_photographs_is_all_or_nothing_and_a_retry_completes_them() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Atomic", Mode::Session).unwrap();
+        let capture = lib.directory.join("Capture");
+        fs::write(capture.join("A.ARW"), b"fixture A").unwrap();
+        fs::write(
+            capture.join("A.ARW.rrdata"),
+            br#"{"rating":4,"tags":["user:pier"],"adjustments":{"exposure":1}}"#,
+        )
+        .unwrap();
+        fs::write(capture.join("B.ARW"), b"fixture B").unwrap();
+        fs::write(capture.join("B.xmp"), r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="2"/></rdf:RDF></x:xmpmeta>"#).unwrap();
+        fs::write(capture.join("C.ARW"), b"fixture C").unwrap();
+        lib.inject_write_failure("recipes").unwrap();
+        assert!(index_folder(&lib).is_err());
+        assert_eq!(lib.summary().unwrap().assets, 0);
+        lib.clear_write_failures().unwrap();
+        index_folder(&lib).unwrap();
+        let a = lib.asset_at(&capture.join("A.ARW")).unwrap().unwrap();
+        assert_eq!(a.rating, 4);
+        assert_eq!(lib.metadata(&a.id).unwrap().keywords, ["pier"]);
+        assert_eq!(
+            lib.editor_state(&a.id).unwrap().unwrap()["adjustments"]["exposure"],
+            1
+        );
+        assert_eq!(
+            lib.asset_at(&capture.join("B.ARW"))
+                .unwrap()
+                .unwrap()
+                .rating,
+            2
+        );
+        assert_eq!(lib.summary().unwrap().assets, 3);
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!(
+            (batch.kind, batch.count),
+            (rawtonic_catalog::ImportKind::Add, 3)
+        );
+        // Reopening adds nothing and starts no new batch.
+        index_folder(&lib).unwrap();
+        assert_eq!(lib.previous_import().unwrap().unwrap().id, batch.id);
+        assert_eq!(fs::read(capture.join("A.ARW")).unwrap(), b"fixture A");
     }
 
     #[test]

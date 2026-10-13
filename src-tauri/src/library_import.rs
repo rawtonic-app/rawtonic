@@ -120,6 +120,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     }
     let mut report = ImportReport::default();
     let mut assets: HashMap<&str, String> = HashMap::new();
+    let _batch = catalog.import_batch(rawtonic_catalog::ImportKind::Ingest);
     for photo in &source.photos {
         if photo.copy_of.is_some() {
             report.copies_skipped += 1;
@@ -202,20 +203,38 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
 }
 
 fn import_photo(catalog: &Library, photo: &Photo) -> anyhow::Result<(String, bool)> {
-    let asset = catalog.add_asset(&photo.path)?;
     let adjustments = translate(&photo.develop);
-    if let Some(adjustments) = &adjustments {
-        catalog.save_editor_state(
-            &asset.id,
-            &json!({
+    // The photograph, its translated edit and its metadata are stored in one
+    // transaction: a failure leaves none of them, a retry imports it whole.
+    let contents = rawtonic_catalog::Contents {
+        editor_state: adjustments.as_ref().map(|adjustments| {
+            json!({
                 "version": crate::image_processing::ImageMetadata::default().version,
                 "rating": photo.metadata.rating,
                 "adjustments": adjustments,
-            }),
-        )?;
-    }
-    catalog.set_metadata(&asset.id, &photo.metadata)?;
-    Ok((asset.id, adjustments.is_some()))
+            })
+        }),
+        metadata: Some(photo.metadata.clone()),
+        xmp_digest: None,
+    };
+    let id = match catalog.asset_at(&photo.path)? {
+        Some(asset) => {
+            catalog.apply_contents(&asset.id, &contents)?;
+            asset.id
+        }
+        None => {
+            let planned = catalog.plan_add(&photo.path, contents.clone())?;
+            let (id, added) = catalog
+                .insert_planned(vec![planned])?
+                .pop()
+                .ok_or_else(|| anyhow::anyhow!("Nothing was registered"))?;
+            if !added {
+                catalog.apply_contents(&id, &contents)?;
+            }
+            id
+        }
+    };
+    Ok((id, adjustments.is_some()))
 }
 
 #[tauri::command]
