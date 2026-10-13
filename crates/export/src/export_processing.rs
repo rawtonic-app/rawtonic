@@ -1400,7 +1400,10 @@ pub fn process_image_for_export(
     apply_export_geometry_and_watermark(processed_image, export_settings).map(|(image, _)| image)
 }
 
-pub fn build_single_mask_adjustments(all: &AllAdjustments, mask_index: usize) -> AllAdjustments {
+pub fn build_single_mask_adjustments(
+    all: &crate::image_processing::PreparedAdjustments,
+    mask_index: usize,
+) -> crate::image_processing::PreparedAdjustments {
     let mut single = AllAdjustments {
         global: all.global,
         mask_adjustments: all.mask_adjustments,
@@ -1415,7 +1418,10 @@ pub fn build_single_mask_adjustments(all: &AllAdjustments, mask_index: usize) ->
     for i in 1..single.mask_adjustments.len() {
         single.mask_adjustments[i] = Default::default();
     }
-    single
+    crate::image_processing::PreparedAdjustments {
+        uniforms: single,
+        relight_surface: all.relight_surface.clone(),
+    }
 }
 
 pub fn encode_grayscale_to_png(bitmap: &GrayImage) -> Result<Vec<u8>, String> {

@@ -10,7 +10,7 @@ fn get_all_adjustments_from_json(
     profile: &serde_json::Value,
     is_raw: bool,
     tonemapper_override: Option<u32>,
-) -> crate::image_processing::AllAdjustments {
+) -> crate::image_processing::PreparedAdjustments {
     let mut profile = profile.clone();
     if let Some(object) = profile.as_object_mut() {
         object.entry("sharpness").or_insert(json!(0));
@@ -558,7 +558,7 @@ fn empty_mask_layers_preserve_adjustment_pixels() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &bitmaps,
                     lut: None,
                     roi,
@@ -639,7 +639,7 @@ fn diffraction_correction_sharpens_without_shifting_the_level() {
                 256,
                 128,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
@@ -695,7 +695,7 @@ fn camera_profile_matrix_and_tables_act_on_the_gpu() {
                 256,
                 128,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
@@ -784,7 +784,7 @@ fn develop_controls_change_pixels_and_reset_exactly() {
                 256,
                 128,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
@@ -1236,7 +1236,7 @@ fn cached_preview_pixels_match_full_preparation() {
                                         width,
                                         height,
                                         RenderRequest {
-                                            adjustments,
+                                            adjustments: adjustments.clone(),
                                             mask_bitmaps: masks,
                                             lut: None,
                                             roi,
@@ -1277,7 +1277,7 @@ fn cached_preview_pixels_match_full_preparation() {
                                         width,
                                         height,
                                         RenderRequest {
-                                            adjustments,
+                                            adjustments: adjustments.clone(),
                                             mask_bitmaps: masks,
                                             lut: None,
                                             roi,
@@ -1558,7 +1558,7 @@ fn complex_preview_timing_probe() {
                             width,
                             height,
                             RenderRequest {
-                                adjustments,
+                                adjustments: adjustments.clone(),
                                 mask_bitmaps: masks,
                                 lut: None,
                                 roi,
@@ -1809,7 +1809,7 @@ fn direct_curve_preview_matches_legacy_specialization() {
                                 width,
                                 height,
                                 RenderRequest {
-                                    adjustments,
+                                    adjustments: adjustments.clone(),
                                     mask_bitmaps: &masks[..adjustments.mask_count as usize],
                                     lut: None,
                                     roi,
@@ -1926,7 +1926,7 @@ fn curve_preview_timing_probe() {
                         width,
                         height,
                         RenderRequest {
-                            adjustments,
+                            adjustments: adjustments.clone(),
                             mask_bitmaps: &masks[..adjustments.mask_count as usize],
                             lut: None,
                             roi: None,
@@ -2005,7 +2005,7 @@ fn assert_mask_upload_frame(
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: masks,
                     lut: None,
                     roi,
@@ -2257,7 +2257,7 @@ fn mask_upload_timing_probe() {
                         width,
                         height,
                         RenderRequest {
-                            adjustments,
+                            adjustments: adjustments.clone(),
                             mask_bitmaps: &request_masks,
                             lut: None,
                             roi,
@@ -2376,7 +2376,7 @@ fn prepared_layers_match_previous_preview() {
                                 width,
                                 height,
                                 RenderRequest {
-                                    adjustments,
+                                    adjustments: adjustments.clone(),
                                     mask_bitmaps: &masks[..adjustments.mask_count as usize],
                                     lut: None,
                                     roi,
@@ -2493,7 +2493,7 @@ fn layer_preview_timing_probe() {
                         width,
                         height,
                         RenderRequest {
-                            adjustments,
+                            adjustments: adjustments.clone(),
                             mask_bitmaps: &masks[..adjustments.mask_count as usize],
                             lut: None,
                             roi: None,
@@ -2569,7 +2569,7 @@ fn curve_tables_match_exact_display_curves() {
                         width,
                         height,
                         RenderRequest {
-                            adjustments,
+                            adjustments: adjustments.clone(),
                             mask_bitmaps: &masks[..adjustments.mask_count as usize],
                             lut: None,
                             roi: None,
@@ -2693,7 +2693,7 @@ fn recipe_preview_timing_probe() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments: full,
+                    adjustments: full.clone(),
                     mask_bitmaps: &masks[..full.mask_count as usize],
                     lut: None,
                     roi: None,
@@ -2732,7 +2732,7 @@ fn recipe_preview_timing_probe() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments: full,
+                        adjustments: full.clone(),
                         mask_bitmaps: &masks[..full.mask_count as usize],
                         lut: None,
                         roi: None,
@@ -2768,7 +2768,7 @@ fn recipe_preview_timing_probe() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &masks[..adjustments.mask_count as usize],
                         lut: None,
                         roi: None,
@@ -2869,7 +2869,7 @@ fn export_specialization_preserves_general_pixels() {
                                     width,
                                     height,
                                     RenderRequest {
-                                        adjustments,
+                                        adjustments: adjustments.clone(),
                                         mask_bitmaps: masks,
                                         lut: None,
                                         roi,
@@ -2923,7 +2923,7 @@ fn display_targets_follow_current_image_without_retaining_peak() {
     for (width, height) in [(160, 100), (2176, 64), (80, 50)] {
         let view = input(&context, width, height, 19);
         let request = || RenderRequest {
-            adjustments,
+            adjustments: adjustments.clone(),
             mask_bitmaps: &[],
             lut: None,
             roi: None,
@@ -3068,7 +3068,7 @@ fn export_direct_curves_preserve_dense_general_pixels() {
                                     width,
                                     height,
                                     RenderRequest {
-                                        adjustments,
+                                        adjustments: adjustments.clone(),
                                         mask_bitmaps: &masks[..adjustments.mask_count as usize],
                                         lut: None,
                                         roi,
@@ -3481,7 +3481,7 @@ fn partial_display_frames_match_complete_renders() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.into(),
                     mask_bitmaps: masks,
                     lut: None,
                     roi,
@@ -3537,19 +3537,26 @@ fn partial_display_frames_match_complete_renders() {
     };
 
     let masks = upload_test_masks(width, height, 3);
-    check("cold", &view, three, &masks, None, full);
-    check("unchanged", &view, three, &masks, None, 0);
+    check("cold", &view, *three, &masks, None, full);
+    check("unchanged", &view, *three, &masks, None, 0);
     let deep_copies: Vec<_> = masks
         .iter()
         .map(|mask| Arc::new((**mask).clone()))
         .collect();
-    check("identical new bitmaps", &view, three, &deep_copies, None, 0);
+    check(
+        "identical new bitmaps",
+        &view,
+        *three,
+        &deep_copies,
+        None,
+        0,
+    );
 
     let seam = painted(&masks, 0, (1990..2110, 40..95), 230);
     check(
         "stroke across tile seam",
         &view,
-        three,
+        *three,
         &seam,
         None,
         changed_area(&masks, &seam, None),
@@ -3563,7 +3570,7 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "two layers and image edges",
         &view,
-        three,
+        *three,
         &two_layers,
         None,
         changed_area(&seam, &two_layers, None),
@@ -3572,7 +3579,7 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "single corner pixel",
         &view,
-        three,
+        *three,
         &corner,
         None,
         changed_area(&two_layers, &corner, None),
@@ -3593,7 +3600,7 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "long diagonal stroke",
         &view,
-        three,
+        *three,
         &diagonal,
         None,
         diagonal_area,
@@ -3609,7 +3616,7 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "ROI change renders the ROI",
         &view,
-        three,
+        *three,
         &corner,
         roi,
         401 * 203,
@@ -3618,14 +3625,14 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "stroke clipped to ROI",
         &view,
-        three,
+        *three,
         &inside,
         roi,
         changed_area(&corner, &inside, roi),
     );
     let outside = painted(&inside, 0, (10..40, 250..280), 9);
-    check("stroke outside ROI", &view, three, &outside, roi, 0);
-    check("ROI to full image", &view, three, &outside, None, full);
+    check("stroke outside ROI", &view, *three, &outside, roi, 0);
+    check("ROI to full image", &view, *three, &outside, None, full);
 
     // Readback jobs share scratch tiles and uniform buffers, not display state.
     let background_masks = upload_test_masks(257, 129, 2);
@@ -3636,7 +3643,7 @@ fn partial_display_frames_match_complete_renders() {
             257,
             129,
             RenderRequest {
-                adjustments: two,
+                adjustments: two.clone(),
                 mask_bitmaps: &background_masks,
                 lut: None,
                 roi: None,
@@ -3649,28 +3656,35 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "stroke after background job",
         &view,
-        three,
+        *three,
         &after_background,
         None,
         changed_area(&outside, &after_background, None),
     );
 
     let stroke = painted(&after_background, 0, (300..340, 30..60), 50);
-    check("adjustment change", &view, brighter, &stroke, None, full);
-    check("source change", &second_view, brighter, &stroke, None, full);
-    check("fewer layers", &second_view, two, &stroke[..2], None, full);
+    check("adjustment change", &view, *brighter, &stroke, None, full);
+    check(
+        "source change",
+        &second_view,
+        *brighter,
+        &stroke,
+        None,
+        full,
+    );
+    check("fewer layers", &second_view, *two, &stroke[..2], None, full);
     let two_stroke = painted(&stroke[..2], 1, (1000..1100, 0..10), 3);
     check(
         "stroke after layer change",
         &second_view,
-        two,
+        *two,
         &two_stroke,
         None,
         changed_area(&stroke[..2], &two_stroke, None),
     );
 
     processor.force_exact_curves.store(true, Ordering::Relaxed);
-    let exact = frame(&processor, &second_view, two, &two_stroke, None);
+    let exact = frame(&processor, &second_view, *two, &two_stroke, None);
     assert_eq!(
         processor.last_display_render_pixels.load(Ordering::Relaxed),
         full
@@ -3678,7 +3692,7 @@ fn partial_display_frames_match_complete_renders() {
     processor.force_exact_curves.store(false, Ordering::Relaxed);
     assert_ne!(
         exact,
-        frame(&reference, &second_view, two, &two_stroke, None),
+        frame(&reference, &second_view, *two, &two_stroke, None),
         "override fixture must change pixels"
     );
     reference
@@ -3687,7 +3701,7 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "frame after a test override",
         &second_view,
-        two,
+        *two,
         &two_stroke,
         None,
         full,
@@ -3695,7 +3709,7 @@ fn partial_display_frames_match_complete_renders() {
     check(
         "unchanged after override",
         &second_view,
-        two,
+        *two,
         &two_stroke,
         None,
         0,
@@ -3718,7 +3732,7 @@ fn readback_pixels(
             width,
             height,
             RenderRequest {
-                adjustments,
+                adjustments: adjustments.into(),
                 mask_bitmaps: masks,
                 lut: None,
                 roi: None,
@@ -3782,7 +3796,7 @@ fn browser_preview_readback_retains_intermediates_and_matches_uncached_pixels() 
             &oracle,
             &view,
             (width, height),
-            adjustments,
+            *adjustments,
             &masks,
             RenderOutputPrecision::EightBit,
             ReadbackShader::Preview,
@@ -3792,7 +3806,7 @@ fn browser_preview_readback_retains_intermediates_and_matches_uncached_pixels() 
                 &processor,
                 &view,
                 (width, height),
-                adjustments,
+                *adjustments,
                 &masks,
                 RenderOutputPrecision::EightBit,
                 ReadbackShader::Preview,
@@ -3817,7 +3831,7 @@ fn browser_preview_readback_retains_intermediates_and_matches_uncached_pixels() 
             &processor,
             &other,
             (width, height),
-            adjustments,
+            *adjustments,
             &[],
             RenderOutputPrecision::EightBit,
             ReadbackShader::Export,
@@ -3833,7 +3847,7 @@ fn browser_preview_readback_retains_intermediates_and_matches_uncached_pixels() 
         &processor,
         &other,
         (width, height),
-        adjustments,
+        *adjustments,
         &masks,
         RenderOutputPrecision::EightBit,
         ReadbackShader::Preview,
@@ -3842,7 +3856,7 @@ fn browser_preview_readback_retains_intermediates_and_matches_uncached_pixels() 
         &oracle,
         &other,
         (width, height),
-        adjustments,
+        *adjustments,
         &masks,
         RenderOutputPrecision::EightBit,
         ReadbackShader::Preview,
@@ -3883,7 +3897,7 @@ fn display_shader_readback_matches_display_frames() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &masks,
                         lut: None,
                         roi: None,
@@ -3911,7 +3925,7 @@ fn display_shader_readback_matches_display_frames() {
                 &processor,
                 &view,
                 size,
-                adjustments,
+                *adjustments,
                 &masks,
                 eight,
                 ReadbackShader::Display,
@@ -3926,7 +3940,7 @@ fn display_shader_readback_matches_display_frames() {
                 &processor,
                 &view,
                 size,
-                adjustments,
+                *adjustments,
                 &masks,
                 eight,
                 ReadbackShader::Export,
@@ -3947,7 +3961,7 @@ fn display_shader_readback_matches_display_frames() {
                 &processor,
                 &view,
                 size,
-                adjustments,
+                *adjustments,
                 &masks,
                 sixteen,
                 ReadbackShader::Display,
@@ -3958,7 +3972,7 @@ fn display_shader_readback_matches_display_frames() {
                 &processor,
                 &view,
                 size,
-                adjustments,
+                *adjustments,
                 &masks,
                 sixteen,
                 ReadbackShader::Export,
@@ -3997,7 +4011,7 @@ fn thumbnail_readback_timing_probe() {
                 &processor,
                 &view,
                 (width, height),
-                adjustments,
+                *adjustments,
                 &masks,
                 RenderOutputPrecision::EightBit,
                 shader,
@@ -4033,7 +4047,7 @@ fn post_idle_partial_frame_probe() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: masks,
                     lut: None,
                     roi: None,
@@ -4190,7 +4204,7 @@ fn partial_frame_cpu_timing_probe() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: masks,
                     lut: None,
                     roi: None,
@@ -4426,7 +4440,7 @@ fn linear_drag_region_probe() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: masks,
                     lut: None,
                     roi: None,
@@ -4635,7 +4649,7 @@ fn shape_layer_cost_probe() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &masks[..layers],
                         lut: None,
                         roi: None,
@@ -4718,7 +4732,7 @@ fn detail_default_cost_probe() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &masks,
                         lut: None,
                         roi: None,
@@ -4819,7 +4833,7 @@ fn cached_detail_matches_inline_detail() {
                         width,
                         height,
                         RenderRequest {
-                            adjustments,
+                            adjustments: adjustments.clone(),
                             mask_bitmaps: &masks,
                             lut: None,
                             roi: None,
@@ -4943,7 +4957,7 @@ fn detail_cache_timing_probe() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.into(),
                     mask_bitmaps: masks,
                     lut: None,
                     roi: None,
@@ -4976,7 +4990,7 @@ fn detail_cache_timing_probe() {
         profile["exposure"] = json!(0.01 * frame as f64);
         let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         pace();
-        let ms = render(adjustments, &states[0]);
+        let ms = render(*adjustments, &states[0]);
         if frame >= 8 {
             println!(
                 "{}",
@@ -5003,14 +5017,14 @@ fn detail_cache_timing_probe() {
         }
     }
     // Partial frames of the gradient drag.
-    render(adjustments, &states[0]);
+    render(*adjustments, &states[0]);
     for (step, masks) in states.iter().enumerate().skip(1) {
         let inline = step % 2 == 0;
         processor
             .force_inline_detail
             .store(inline, Ordering::Relaxed);
         pace();
-        let ms = render(adjustments, masks);
+        let ms = render(*adjustments, masks);
         if step > 8 {
             println!(
                 "{}",
@@ -5030,7 +5044,7 @@ fn detail_cache_timing_probe() {
             .force_inline_detail
             .store(step % 2 == 0, Ordering::Relaxed);
         pace();
-        let ms = render(adjustments, &tiny);
+        let ms = render(*adjustments, &tiny);
         if step >= 8 {
             println!(
                 "{}",
@@ -5133,7 +5147,7 @@ fn pipeline_compilation_probe() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &masks,
                     lut: None,
                     roi: None,
@@ -5203,7 +5217,7 @@ fn fallback_variant_matches_specialized_display() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &masks,
                         lut: None,
                         roi: None,
@@ -5276,7 +5290,7 @@ fn export_render_timing_probe() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &[],
                         lut: None,
                         roi: None,
@@ -5334,7 +5348,7 @@ fn export_specialization_difference_probe() {
                         width,
                         height,
                         RenderRequest {
-                            adjustments,
+                            adjustments: adjustments.clone(),
                             mask_bitmaps: &[],
                             lut: None,
                             roi: None,
@@ -5448,7 +5462,7 @@ fn wide_gamut_exports_keep_colours_beyond_srgb_and_match_inside_it() {
                     width,
                     height,
                     RenderRequest {
-                        adjustments,
+                        adjustments: adjustments.clone(),
                         mask_bitmaps: &[],
                         lut: None,
                         roi: None,
@@ -5627,7 +5641,7 @@ fn camera_raw_shadow_gains_stay_smooth_down_to_black() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
@@ -5886,7 +5900,7 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
                 width,
                 height,
                 RenderRequest {
-                    adjustments,
+                    adjustments: adjustments.clone(),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
@@ -7004,3 +7018,57 @@ fn relight_tiled_roi_matches_full_frame() {
 
 #[path = "relight_reference_tests.rs"]
 mod relight_reference_tests;
+
+#[test]
+#[ignore = "requires native GPU; queued Relight geometry outlives the reuse cache"]
+fn relight_queued_depth_survives_cache_eviction() {
+    use base64::Engine as _;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 64, 48).unwrap();
+    let view = input(&context, 64, 48, 17);
+    let render = |adjustments| {
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                64,
+                48,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(p) => p,
+            _ => unreachable!(),
+        }
+    };
+    let mut queued = Vec::new();
+    for i in 0..24u16 {
+        let depth = image::ImageBuffer::from_fn(16, 12, |x, y| {
+            image::Luma([16000 + i * 997 + (x * 431 + y * 127) as u16])
+        });
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageLuma16(depth)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+        let mut recipe = json!({"relightLights":[{"intensity":65,"pattern":"blinds","elevation":25}],"relightDepthAmount":100,"relightDepth":{"version":4,"data":base64::engine::general_purpose::STANDARD.encode(bytes.into_inner()),"camera":{"fx":1.2,"fy":1.3,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0}}});
+        recipe["relightDepth"]["geometry"] = rawtonic_engine::relight::geometry(&recipe);
+        let prepared = get_all_adjustments_from_json(&recipe, false, Some(0));
+        let expected = render(prepared.clone());
+        queued.push((prepared, expected));
+    }
+    assert!(
+        queued.windows(2).all(|pair| pair[0].1 != pair[1].1),
+        "fixture must distinguish depth maps"
+    );
+    // Every pending render keeps its own surface after 24 distinct registrations.
+    // Reusing the processor cannot hide eviction: its last cached surface is #24.
+    for (prepared, expected) in queued {
+        assert_eq!(render(prepared), expected);
+    }
+}

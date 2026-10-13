@@ -2950,6 +2950,34 @@ pub struct AllAdjustments {
     pub detail_cache: [u32; 4],
 }
 
+/// CPU-owned render inputs. Uniforms remain POD; the geometry allocation stays
+/// alive until the last queued render using this preparation has completed.
+#[derive(Debug, Clone, Default)]
+pub struct PreparedAdjustments {
+    pub uniforms: AllAdjustments,
+    pub relight_surface: Option<std::sync::Arc<crate::relight::DepthSurface>>,
+}
+impl std::ops::Deref for PreparedAdjustments {
+    type Target = AllAdjustments;
+    fn deref(&self) -> &Self::Target {
+        &self.uniforms
+    }
+}
+impl std::ops::DerefMut for PreparedAdjustments {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.uniforms
+    }
+}
+impl From<AllAdjustments> for PreparedAdjustments {
+    fn from(uniforms: AllAdjustments) -> Self {
+        let relight_surface = crate::relight::depth(uniforms.global.relight_depth);
+        Self {
+            uniforms,
+            relight_surface,
+        }
+    }
+}
+
 struct AdjustmentScales {
     exposure: f32,
     brightness: f32,
@@ -3417,7 +3445,7 @@ pub fn is_image_edited(
     let default_adj =
         get_all_adjustments_from_json(&serde_json::json!({}), is_raw, tonemapper_override);
 
-    bytemuck::bytes_of(&current_adj) != bytemuck::bytes_of(&default_adj)
+    bytemuck::bytes_of(&current_adj.uniforms) != bytemuck::bytes_of(&default_adj.uniforms)
 }
 
 /// Lightroom-style per-tool on/off switches in `sectionVisibility`, finer
@@ -3826,7 +3854,7 @@ fn get_global_adjustments_from_json(
         proof_matrix: proof_matrices(js_adjustments).0,
         proof_inverse: proof_matrices(js_adjustments).1,
         relight: crate::relight::gpu_lights(js_adjustments),
-        relight_depth: crate::relight::register_depth(js_adjustments),
+        relight_depth: [0; 4],
         relight_camera: crate::relight::Camera::uniforms(js_adjustments).0,
         relight_geometry: crate::relight::Camera::uniforms(js_adjustments).1,
         relight_surface: [
@@ -4324,8 +4352,10 @@ pub fn get_all_adjustments_from_json(
     js_adjustments: &serde_json::Value,
     is_raw: bool,
     tonemapper_override: Option<u32>,
-) -> AllAdjustments {
+) -> PreparedAdjustments {
     let mut global = get_global_adjustments_from_json(js_adjustments, is_raw, tonemapper_override);
+    let (depth_key, relight_surface) = crate::relight::prepare_depth(js_adjustments);
+    global.relight_depth = depth_key;
     // The inherited Exposure slider applies 1/0.8 EV per unit. With the
     // Standard base look one unit is one stop, as in Capture One and
     // Lightroom (notes: reference/tone-controls.md); Classic and AgX edits keep
@@ -4356,15 +4386,18 @@ pub fn get_all_adjustments_from_json(
         mask_count += 1;
     }
 
-    AllAdjustments {
-        global,
-        mask_adjustments,
-        mask_count,
-        tile_offset_x: 0,
-        tile_offset_y: 0,
-        mask_atlas_cols: 1,
-        render_region: [0; 4],
-        detail_cache: [0; 4],
+    PreparedAdjustments {
+        relight_surface,
+        uniforms: AllAdjustments {
+            global,
+            mask_adjustments,
+            mask_count,
+            tile_offset_x: 0,
+            tile_offset_y: 0,
+            mask_atlas_cols: 1,
+            render_region: [0; 4],
+            detail_cache: [0; 4],
+        },
     }
 }
 

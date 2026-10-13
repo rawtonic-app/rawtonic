@@ -170,6 +170,7 @@ impl Camera {
     }
 }
 
+#[derive(Debug)]
 pub struct DepthSurface {
     pub camera: Option<Camera>,
     pub image: DepthImage,
@@ -202,6 +203,11 @@ pub fn geometry(recipe: &Value) -> Value {
 /// Register once per depth bitmap, shared by editor, thumbnails and export.
 /// The bounded cache holds at most eight inference-resolution images.
 pub fn register_depth(recipe: &Value) -> [u32; 4] {
+    prepare_depth(recipe).0
+}
+
+/// Keep a render's geometry alive independently of the bounded reuse cache.
+pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
     if recipe["sectionVisibility"]["relight"].as_bool() == Some(false)
         || !recipe["relightLights"].as_array().is_some_and(|lights| {
             lights.iter().any(|l| {
@@ -210,14 +216,14 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
         })
         || recipe["relightDepth"]["geometry"] != geometry(recipe)
     {
-        return [0; 4];
+        return ([0; 4], None);
     }
     let camera = Camera::from_recipe(recipe);
     if recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 4 && camera.is_none() {
-        return [0; 4];
+        return ([0; 4], None);
     }
     let Some(data) = recipe["relightDepth"]["data"].as_str() else {
-        return [0; 4];
+        return ([0; 4], None);
     };
     let mut hasher = DefaultHasher::new();
     data.hash(&mut hasher);
@@ -239,10 +245,10 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
             .decode(data.split_once(',').map_or(data, |(_, d)| d))
             .ok()
         else {
-            return [0; 4];
+            return ([0; 4], None);
         };
         let Some(image) = image::load_from_memory(&bytes).ok() else {
-            return [0; 4];
+            return ([0; 4], None);
         };
         // `thumbnail` also enlarges small images: retain the inference grid.
         // Upsampling before fitting would turn a depth jump into a ramp.
@@ -278,7 +284,8 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
         ));
         cache.truncate(8);
     }
-    [key as u32, (key >> 32) as u32, 0, 0]
+    let surface = Arc::clone(&cache.front().unwrap().1);
+    ([key as u32, (key >> 32) as u32, 0, 0], Some(surface))
 }
 
 pub fn depth(key: [u32; 4]) -> Option<Arc<DepthSurface>> {
@@ -372,10 +379,10 @@ mod tests {
             .unwrap();
         let mut recipe = serde_json::json!({"relightLights":[{"intensity":50}],"relightDepth":{"version":4,"data":STANDARD.encode(bytes.into_inner()),"camera":{"fx":1.2,"fy":1.3,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0}}});
         recipe["relightDepth"]["geometry"] = geometry(&recipe);
-        let first = register_depth(&recipe);
+        let (first, retained) = prepare_depth(&recipe);
         assert_ne!(first, [0; 4]);
         assert_eq!(first, register_depth(&recipe));
-        assert!(depth(first).unwrap().camera.is_some());
+        assert!(retained.unwrap().camera.is_some());
         recipe["relightDepth"]["camera"]["fx"] = serde_json::json!(1.4);
         assert_ne!(first, register_depth(&recipe));
         for (key, value) in [
@@ -392,8 +399,42 @@ mod tests {
         recipe["relightDepth"]["version"] = serde_json::json!(5);
         assert_eq!(register_depth(&recipe), [0; 4]);
         recipe["relightDepth"]["version"] = serde_json::json!(3);
-        assert!(depth(register_depth(&recipe)).unwrap().camera.is_none());
+        assert!(prepare_depth(&recipe).1.unwrap().camera.is_none());
         assert_eq!(Camera::uniforms(&recipe), ([0.; 4], [0.; 4]));
+    }
+
+    #[test]
+    fn prepared_renders_retain_geometry_and_release_it_after_cache_eviction() {
+        use crate::image_processing::get_all_adjustments_from_json;
+        let recipe = |code| {
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageLuma16(DepthImage::from_pixel(8, 8, image::Luma([code])))
+                .write_to(&mut bytes, image::ImageFormat::Png)
+                .unwrap();
+            let mut r = json!({"relightLights":[{"intensity":50}],"relightDepth":{"version":3,"data":STANDARD.encode(bytes.into_inner())}});
+            r["relightDepth"]["geometry"] = geometry(&r);
+            r
+        };
+        let first = get_all_adjustments_from_json(&recipe(11123), false, None);
+        let weak = Arc::downgrade(first.relight_surface.as_ref().unwrap());
+        let queued = first.clone();
+        for i in 0..24 {
+            let other = get_all_adjustments_from_json(&recipe(12000 + i * 701), false, None);
+            assert_eq!(
+                other.relight_surface.as_ref().unwrap().image[(0, 0)][0],
+                12000 + i * 701
+            );
+        }
+        assert!(depth(first.global.relight_depth).is_none());
+        assert_eq!(
+            queued.relight_surface.as_ref().unwrap().image[(0, 0)][0],
+            11123
+        );
+        drop(first);
+        assert!(weak.upgrade().is_some());
+        drop(queued);
+        assert!(weak.upgrade().is_none(), "evicted geometry must not leak");
+        assert!(DEPTHS.get().unwrap().lock().unwrap().len() <= 8);
     }
 
     #[test]
