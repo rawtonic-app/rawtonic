@@ -153,7 +153,7 @@ pub enum ReadbackShader {
 }
 
 pub struct RenderRequest<'a> {
-    pub adjustments: AllAdjustments,
+    pub adjustments: rawtonic_engine::image_processing::PreparedAdjustments,
     pub mask_bitmaps: &'a [Arc<GrayImage>],
     pub lut: Option<Arc<Lut>>,
     pub roi: Option<Roi>,
@@ -2899,7 +2899,11 @@ impl GpuProcessor {
         Ok(processor)
     }
 
-    fn relight_depth_view(&self, key: [u32; 4]) -> Result<RelightDepthViews, String> {
+    fn relight_depth_view(
+        &self,
+        key: [u32; 4],
+        retained: Option<&rawtonic_engine::relight::DepthSurface>,
+    ) -> Result<RelightDepthViews, String> {
         let mut cache = self
             .relight_depth_cache
             .lock()
@@ -2916,13 +2920,12 @@ impl GpuProcessor {
                 scene: self.dummy_blur_view.clone(),
             });
         }
-        let depth = rawtonic_engine::relight::depth(key)
-            .ok_or("Relight depth cache expired while rendering; retry this render")?;
+        let depth = retained.ok_or("Relight render has no retained depth surface")?;
         // Cache derivatives once per analysis. Camera-space projection amplifies
         // half-float inverse-depth errors, so keep its entire surface in f32.
         // A separate unfilterable binding needs no optional GPU format feature
         // and preserves legacy texture filtering exactly.
-        let (surface, scene) = rawtonic_engine::relight::surface_textures(&depth);
+        let (surface, scene) = rawtonic_engine::relight::surface_textures(depth);
         let camera = depth.camera.is_some();
         let values: Vec<f16> = if camera {
             Vec::new()
@@ -3718,8 +3721,10 @@ impl GpuProcessor {
         } else {
             None
         };
-        let relight_depth_view =
-            self.relight_depth_view(request.adjustments.global.relight_depth)?;
+        let relight_depth_view = self.relight_depth_view(
+            request.adjustments.global.relight_depth,
+            request.adjustments.relight_surface.as_deref(),
+        )?;
         let (mask_texture_view, mask_update) = self.prepare_mask_texture(
             width,
             height,
@@ -3750,7 +3755,7 @@ impl GpuProcessor {
                     targets: Arc::downgrade(display_targets.as_ref().unwrap()),
                     dimensions: (width, height),
                     bounds,
-                    adjustments: request.adjustments,
+                    adjustments: request.adjustments.uniforms,
                     lut: request.lut.as_ref().map(Arc::downgrade),
                     pipeline: main_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),
@@ -3838,7 +3843,7 @@ impl GpuProcessor {
             (self.dummy_lut_view.clone(), self.dummy_lut_sampler.clone())
         };
 
-        let adjustments = request.adjustments;
+        let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
         if display_shader {
             let mut layers = prepare_layers(&adjustments);
