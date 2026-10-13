@@ -24,6 +24,7 @@ import { LAYOUTS, type Layout, type LayoutDefinition } from '../../utils/Collage
 import Text from '../ui/Text';
 import { TextVariants } from '../../types/typography';
 import { useEscapeToClose } from '../../hooks/useEscapeToClose';
+import { renderErrorMessage } from '../../utils/renderErrors';
 
 interface CollageModalProps {
   isOpen: boolean;
@@ -460,7 +461,7 @@ export default function CollageModal({ isOpen, onClose, onSave, sourceImages }: 
       });
       setSavedPath(path);
     } catch (err) {
-      setError(String((err as Error)?.message ?? err) || 'Could not save the collage.');
+      setError(renderErrorMessage((err as Error)?.message ?? err) || 'Could not save the collage.');
     } finally {
       setIsSaving(false);
     }

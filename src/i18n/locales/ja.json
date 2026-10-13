@@ -1790,6 +1790,10 @@
         "imageFilter": "画像",
         "watermarkTitle": "透かし画像を選択"
       },
+      "errors": {
+        "flareTextureLimit": "{{width}} × {{height}} px の画像は、このグラフィックカードの上限 (1 辺 {{limit}} px) を超えるため、ライトフレアを描画できません。書き出すにはライトフレアをオフにしてください。",
+        "textureLimit": "画像 ({{width}} × {{height}} px) は、このグラフィックカードで処理できるサイズ (1 辺 {{limit}} px) を超えています。"
+      },
       "estimate": "推定サイズ: 約 {{size}}",
       "estimatePerFile": "推定サイズ: 約 {{size}}（1 ファイルあたり {{perFile}}）",
       "file": {

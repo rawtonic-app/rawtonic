@@ -1881,6 +1881,10 @@
         "imageFilter": "Imagen",
         "watermarkTitle": "Elige una imagen de marca de agua"
       },
+      "errors": {
+        "flareTextureLimit": "El destello de luz no se puede procesar en una imagen de {{width}} × {{height}} px, mayor que el límite de esta tarjeta gráfica ({{limit}} px por lado). Desactiva Destello de luz para exportarla.",
+        "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado)."
+      },
       "estimate": "Tamaño estimado: unos {{size}}",
       "estimatePerFile": "Tamaño estimado: unos {{size}} ({{perFile}} por archivo)",
       "file": {

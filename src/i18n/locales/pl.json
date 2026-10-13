@@ -1937,6 +1937,10 @@
         "imageFilter": "Obraz",
         "watermarkTitle": "Wybierz obraz znaku wodnego"
       },
+      "errors": {
+        "flareTextureLimit": "Flary świetlnej nie można wyrenderować na obrazie {{width}} × {{height}} px, większym niż limit tej karty graficznej ({{limit}} px na bok). Wyłącz Flarę świetlną, aby go wyeksportować.",
+        "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok)."
+      },
       "estimate": "Szacowany rozmiar: około {{size}}",
       "estimatePerFile": "Szacowany rozmiar: około {{size}} ({{perFile}} na plik)",
       "file": {

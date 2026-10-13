@@ -1202,15 +1202,17 @@ fn store_tile(final_pixels: &mut RenderedPixels, tile: TilePlacement, out_width:
     }
 }
 
-/// Converts row `y` into the Rgba16Float upload layout (`width * 4` texels).
-fn rgba_f16_row(img: &DynamicImage, y: u32, destination: &mut [f16]) {
+/// Converts the pixels of row `y` from column `x` on into the Rgba16Float
+/// upload layout (`destination` holds 4 texels per pixel).
+fn rgba_f16_row(img: &DynamicImage, x: u32, y: u32, destination: &mut [f16]) {
     let width = img.width() as usize;
-    let row = y as usize;
+    let first = y as usize * width + x as usize;
+    let pixels = destination.len() / 4;
     // RAWs already contain linear RGB floats. Expanding them to an owned RGBA
     // float image first costs another 16 bytes per pixel (800 MB at 50 MP).
     // Convert directly into the upload payload, preserving the same f16 values.
     if let Some(rgb) = img.as_rgb32f() {
-        let source = &rgb.as_raw()[row * width * 3..(row + 1) * width * 3];
+        let source = &rgb.as_raw()[first * 3..(first + pixels) * 3];
         for (rgba, rgb) in destination
             .as_chunks_mut::<4>()
             .0
@@ -1223,13 +1225,13 @@ fn rgba_f16_row(img: &DynamicImage, y: u32, destination: &mut [f16]) {
             rgba[3] = f16::ONE;
         }
     } else if let Some(rgba) = img.as_rgba32f() {
-        let source = &rgba.as_raw()[row * width * 4..(row + 1) * width * 4];
+        let source = &rgba.as_raw()[first * 4..(first + pixels) * 4];
         for (texel, value) in destination.iter_mut().zip(source) {
             *texel = f16::from_f32(*value);
         }
     } else {
         // Conversion is per pixel, so converting a copy of the row is exact.
-        let source = img.crop_imm(0, y, img.width(), 1).to_rgba32f();
+        let source = img.crop_imm(x, y, pixels as u32, 1).to_rgba32f();
         for (texel, value) in destination.iter_mut().zip(source.as_raw()) {
             *texel = f16::from_f32(*value);
         }
@@ -1241,7 +1243,7 @@ fn to_rgba_f16(img: &DynamicImage) -> Vec<f16> {
     let row_texels = (img.width() as usize * 4).max(1);
     let mut output = vec![f16::ZERO; img.width() as usize * 4 * img.height() as usize];
     for (y, row) in output.chunks_exact_mut(row_texels).enumerate() {
-        rgba_f16_row(img, y as u32, row);
+        rgba_f16_row(img, 0, y as u32, row);
     }
     output
 }
@@ -1275,9 +1277,37 @@ fn create_input_texture(
     image: &DynamicImage,
     band_rows: u32,
 ) -> Result<wgpu::Texture, String> {
+    let (width, height) = image.dimensions();
+    create_window_texture(
+        device,
+        queue,
+        image,
+        Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        band_rows,
+    )
+}
+
+/// [`create_input_texture`] of `window` of `image` only.
+fn create_window_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &DynamicImage,
+    window: Roi,
+    band_rows: u32,
+) -> Result<wgpu::Texture, String> {
     use rayon::prelude::*;
 
-    let (width, height) = image.dimensions();
+    let Roi {
+        x: window_x,
+        y: window_y,
+        width,
+        height,
+    } = window;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Input Texture"),
         size: wgpu::Extent3d {
@@ -1309,14 +1339,16 @@ fn create_input_texture(
             texels
                 .par_chunks_mut(row_texels)
                 .enumerate()
-                .for_each(|(row, texels)| rgba_f16_row(image, y + row as u32, texels));
+                .for_each(|(row, texels)| {
+                    rgba_f16_row(image, window_x, window_y + y + row as u32, texels)
+                });
         };
         if rayon::current_thread_index().is_some() {
             // A rayon worker (thumbnails, batch work) may hold the GPU
             // processor lock here: waiting for rayon jobs could run another
             // task of the pool on this thread that waits for the same lock.
             for (row, texels) in texels.chunks_mut(row_texels).enumerate() {
-                rgba_f16_row(image, y + row as u32, texels);
+                rgba_f16_row(image, window_x, window_y + y + row as u32, texels);
             }
         } else {
             // Not the global pool: its threads may all be waiting for the
@@ -1367,6 +1399,10 @@ struct BlurParams {
     tile_offset_y: u32,
     input_width: u32,
     input_height: u32,
+    source_x: u32,
+    source_y: u32,
+    full_width: u32,
+    full_height: u32,
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
@@ -2151,6 +2187,11 @@ fn create_preview_pipeline(
 
 const FLARE_MAP_SIZE: u32 = 512;
 
+/// Renders run in tiles of this size (photo pixels, aligned to the photo's
+/// origin); each tile's blurs cover the tile and `TILE_OVERLAP` around it.
+const TILE_SIZE: u32 = 2048;
+const TILE_OVERLAP: u32 = 128;
+
 impl GpuProcessor {
     pub fn new(context: GpuContext, max_width: u32, max_height: u32) -> Result<Self, String> {
         Self::with_shader_source(
@@ -2775,9 +2816,6 @@ impl GpuProcessor {
         });
         let dummy_lut_view = dummy_lut_texture.create_view(&Default::default());
         let dummy_lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-
-        const TILE_SIZE: u32 = 2048;
-        const TILE_OVERLAP: u32 = 128;
 
         let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
         let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
@@ -3676,6 +3714,54 @@ impl GpuProcessor {
         output_precision: RenderOutputPrecision,
         readback_shader: ReadbackShader,
     ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
+        self.run_in_window(
+            input_texture_view,
+            width,
+            height,
+            Roi {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+            request,
+            output_to_display,
+            output_precision,
+            readback_shader,
+        )
+    }
+
+    /// Renders a `width` x `height` photo whose input texture (and mask
+    /// bitmaps) hold only `window` of it. The output is `request.roi`, which
+    /// must lie in the window far enough from its edges that every read stays
+    /// inside it (see [`plan_render_windows`]); the pixels then equal those of
+    /// a render from the whole photo.
+    #[allow(clippy::too_many_arguments)]
+    fn run_in_window(
+        &self,
+        input_texture_view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        window: Roi,
+        request: RenderRequest,
+        output_to_display: bool,
+        output_precision: RenderOutputPrecision,
+        readback_shader: ReadbackShader,
+    ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
+        let whole_photo = window
+            == Roi {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            };
+        if !whole_photo && (output_to_display || request.roi.is_none()) {
+            return Err("A render from a photo window needs a CPU readback region.".to_string());
+        }
+        if !whole_photo && request.adjustments.global.flare_amount > 0.0 {
+            return Err(FLARE_WINDOW_ERROR.to_string());
+        }
+        let source_window = [window.x, window.y, width, height];
         let display_shader = output_to_display
             || (matches!(
                 readback_shader,
@@ -3787,8 +3873,8 @@ impl GpuProcessor {
             request.adjustments.relight_patterns.as_deref(),
         )?;
         let (mask_texture_view, mask_update) = self.prepare_mask_texture(
-            width,
-            height,
+            window.width,
+            window.height,
             request.mask_bitmaps,
             retain_intermediates,
             force_full_preparation,
@@ -4019,8 +4105,6 @@ impl GpuProcessor {
             queue.submit(Some(encoder.finish()));
         }
 
-        const TILE_SIZE: u32 = 2048;
-        const TILE_OVERLAP: u32 = 128;
         // Display frames cache the detail stage with the blurs when every tile
         // of the frame fits the cache budget together.
         let detail_fits = display_cache_bytes(
@@ -4157,6 +4241,10 @@ impl GpuProcessor {
                         tile_offset_y: input_y_start,
                         input_width,
                         input_height,
+                        source_x: window.x,
+                        source_y: window.y,
+                        full_width: width,
+                        full_height: height,
                         _pad1: 0,
                         _pad2: 0,
                         _pad3: 0,
@@ -4415,6 +4503,7 @@ impl GpuProcessor {
                     detail_adjustments.render_region =
                         [crop_x_start, crop_y_start, tile_width, tile_height];
                     detail_adjustments.detail_cache = [0; 4];
+                    detail_adjustments.source_window = source_window;
                     queue.write_buffer(
                         &self.adjustments_buffer,
                         0,
@@ -4508,6 +4597,7 @@ impl GpuProcessor {
                 tile_adjustments.tile_offset_y = input_y_start;
                 tile_adjustments.render_region = regions[0];
                 tile_adjustments.detail_cache = [u32::from(detail_view.is_some()), 0, 0, 0];
+                tile_adjustments.source_window = source_window;
                 queue.write_buffer(
                     &self.adjustments_buffer,
                     0,
@@ -4617,9 +4707,9 @@ impl GpuProcessor {
 /// caller can release its CPU pixels before rendering.
 pub struct UploadedImage(GpuImageCache);
 
-/// Uploads a CPU-readback source for [`process_uploaded_image_with_precision`].
-/// `None` means the image exceeds the GPU's texture limits; render it with
-/// [`process_and_get_dynamic_image_with_precision`] instead.
+/// Uploads a CPU-readback source for [`process_and_get_dynamic_image_inner`].
+/// `None` means the image exceeds the GPU's texture limits; render it from
+/// [`RenderSource::Image`] instead, which renders it in windows.
 pub fn upload_render_source(
     context: &GpuContext,
     image: &DynamicImage,
@@ -4648,61 +4738,283 @@ pub fn upload_render_source(
     })))
 }
 
-pub enum RenderSource<'a> {
-    /// Uploaded unless the image cache already holds `transform_hash`.
-    Image {
-        image: &'a DynamicImage,
-        transform_hash: u64,
-    },
-    Uploaded(UploadedImage),
+/// The error of a render this GPU cannot do because the photo exceeds its
+/// texture size limit. The app translates it (`src/utils/renderErrors.ts`
+/// matches this wording).
+pub fn texture_limit_error(width: u32, height: u32, max_dim: u32) -> String {
+    format!(
+        "The image ({width} × {height} px) is larger than this graphics card can render ({max_dim} px per side)."
+    )
 }
 
-/// Renders on the GPU with the caller's processor slot and uploaded-source
-/// cache (the app keeps both in its state), creating or resizing the
-/// processor as needed.
-#[allow(clippy::too_many_arguments)]
-pub fn process_and_get_dynamic_image_inner(
+/// The error of an export with Light flare from a photo larger than the GPU's
+/// texture limit: the flare is built from the whole photo at once. The app
+/// translates it (`src/utils/renderErrors.ts` matches this wording).
+pub fn flare_texture_limit_error(width: u32, height: u32, max_dim: u32) -> String {
+    format!(
+        "Light flare cannot be rendered on an image of {width} × {height} px, larger than this graphics card's limit ({max_dim} px per side). Turn Light flare off to export it."
+    )
+}
+
+const FLARE_WINDOW_ERROR: &str = "Light flare needs the whole photo on the GPU.";
+
+/// Photo pixels around a rendered pixel that its render may read, for the
+/// renders of photos larger than the GPU's texture limit.
+///
+/// Every input read of the shaders, by the photo's size and the recipe:
+/// - blurs (`run_blur`): each tile's blur covers the tile and `TILE_OVERLAP`
+///   around it, the horizontal pass reads its radius further (largest base
+///   radius 40, Structure);
+/// - Highlights' local contrast (`apply_highlights_adjustment`): 7.5 x scale;
+/// - Defringe (`apply_defringe`): up to 18 detail-scaled pixels;
+/// - Moiré (`apply_moire`): two pattern steps, at most 8 detail-scaled pixels
+///   each (`moire_settings`), for the photo and every layer;
+/// - chromatic aberration (`apply_ca_correction`): the shift, at most the
+///   amount times the distance from the centre;
+/// - sharpening (6), luminance noise reduction (4) and diffraction
+///   correction (3); colour noise reduction reads the blurs only.
+///
+/// Masks are read at the rendered pixel itself. Flare reads the whole photo
+/// and is not rendered from windows.
+fn render_window_margin(adjustments: &AllAdjustments, width: u32, height: u32) -> u32 {
+    let global = &adjustments.global;
+    let short_side = width.min(height) as f32;
+    // As in `run_in_window` and the shader's `scale`.
+    let blur_scale = short_side / 1080.0;
+    let shader_scale = (short_side / 1080.0).max(0.1);
+    let blur = TILE_OVERLAP + (40.0 * blur_scale).ceil().max(1.0) as u32;
+    // Full-resolution renders have detail scale 0 (1), previews less.
+    let detail = global.detail_scale.max(1.0);
+    let highlights = (7.5 * shader_scale).round().max(2.0) as u32;
+    let defringe = (18.0 * detail).ceil() as u32 + 1;
+    let moire = (2.0 * 8.0 * detail).ceil() as u32 + 1;
+    let aberration = global
+        .chromatic_aberration_red_cyan
+        .abs()
+        .max(global.chromatic_aberration_blue_yellow.abs());
+    let half_diagonal = (width as f32 / 2.0).hypot(height as f32 / 2.0);
+    let aberration = (aberration * half_diagonal)
+        .ceil()
+        .min(u32::MAX as f32 / 4.0) as u32
+        + 1;
+    let kernels = 6;
+    // Two more pixels for rounding.
+    blur.max(highlights)
+        .max(defringe)
+        .max(moire)
+        .max(aberration)
+        .max(kernels)
+        .saturating_add(2)
+}
+
+/// Splits `bounds` of a `width` x `height` photo into regions to render, each
+/// with the window of the photo it reads: the region and `margin` around it,
+/// at most `max_dim` pixels per side. Regions follow the render tiles
+/// (multiples of [`TILE_SIZE`] from the photo's origin), so every tile keeps
+/// the geometry of a render from the whole photo. `None` when a tile and its
+/// margins do not fit `max_dim`.
+fn plan_render_windows(
+    width: u32,
+    height: u32,
+    bounds: Roi,
+    max_dim: u32,
+    margin: u32,
+) -> Option<Vec<(Roi, Roi)>> {
+    let step = max_dim.checked_sub(margin.checked_mul(2)?)? / TILE_SIZE * TILE_SIZE;
+    if step == 0 {
+        return None;
+    }
+    let mut plan = Vec::new();
+    for y in (0..height).step_by(step as usize) {
+        for x in (0..width).step_by(step as usize) {
+            let cell = Roi {
+                x,
+                y,
+                width: step.min(width - x),
+                height: step.min(height - y),
+            };
+            let Some(region) = intersect_roi(cell, bounds) else {
+                continue;
+            };
+            let left = region.x.saturating_sub(margin);
+            let top = region.y.saturating_sub(margin);
+            let right = (region.x + region.width).saturating_add(margin).min(width);
+            let bottom = (region.y + region.height)
+                .saturating_add(margin)
+                .min(height);
+            plan.push((
+                region,
+                Roi {
+                    x: left,
+                    y: top,
+                    width: right - left,
+                    height: bottom - top,
+                },
+            ));
+        }
+    }
+    Some(plan)
+}
+
+/// Renders a photo larger than the GPU's texture limit for CPU readback,
+/// region by region from windows of it (see [`plan_render_windows`]). The
+/// pixels equal those of a render from the whole photo (compared byte for
+/// byte by `renders_over_the_texture_limit_match_whole_renders`); recipes that need the whole photo at once (Light flare) fail.
+fn render_in_windows(
     context: &GpuContext,
     processor_slot: &Mutex<Option<GpuProcessorState>>,
-    image_cache: &Mutex<Option<GpuImageCache>>,
-    source: RenderSource,
+    image: &DynamicImage,
     request: RenderRequest,
     caller_id: &str,
     output_precision: RenderOutputPrecision,
-    output_to_display: bool,
-    analytics_config: Option<AnalyticsConfig>,
-    display_identity: Option<DisplayFrameIdentity>,
     readback_shader: ReadbackShader,
 ) -> Result<DynamicImage, String> {
-    let mut request = request;
-    if output_to_display {
-        let space = context.display_space;
-        request.adjustments.global.output_space[0] = space.shader_code();
-        request.adjustments.global.output_matrix =
-            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
-    }
     let start_time = Instant::now();
-    let (width, height) = match &source {
-        RenderSource::Image { image, .. } => image.dimensions(),
-        RenderSource::Uploaded(UploadedImage(input)) => (input.width, input.height),
-    };
-    let device = &context.device;
-    let queue = &context.queue;
-
+    let (width, height) = image.dimensions();
     let max_dim = context.limits.max_texture_dimension_2d;
-    if width > max_dim || height > max_dim {
-        log::warn!(
-            "Image dimensions ({}x{}) exceed GPU limits ({}). Bypassing GPU processing and returning unprocessed image to prevent a crash. Try upgrading your GPU :)",
+    if request.adjustments.global.flare_amount > 0.0 {
+        return Err(flare_texture_limit_error(width, height, max_dim));
+    }
+    let bounds = request.roi.unwrap_or(Roi {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    });
+    if bounds.width == 0
+        || bounds.height == 0
+        || bounds
+            .x
+            .checked_add(bounds.width)
+            .is_none_or(|right| right > width)
+        || bounds
+            .y
+            .checked_add(bounds.height)
+            .is_none_or(|bottom| bottom > height)
+    {
+        return Err("Render region lies outside the image.".to_string());
+    }
+    let masks = &request.mask_bitmaps[..request.mask_bitmaps.len().min(MAX_MASKS)];
+    if let Some(mask) = masks
+        .iter()
+        .find(|mask| mask.dimensions() != (width, height))
+    {
+        return Err(format!(
+            "Mask dimensions ({}x{}) do not match render dimensions ({width}x{height}).",
+            mask.width(),
+            mask.height()
+        ));
+    }
+    let margin = render_window_margin(&request.adjustments.uniforms, width, height);
+    let plan = plan_render_windows(width, height, bounds, max_dim, margin)
+        .ok_or_else(|| texture_limit_error(width, height, max_dim))?;
+
+    let processor_lock = lock_processor(context, processor_slot, max_dim, max_dim)?;
+    let processor = &processor_lock.as_ref().unwrap().processor;
+    let output_len = bounds.width as usize * bounds.height as usize * 4;
+    let mut output = match output_precision {
+        RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0; output_len]),
+        RenderOutputPrecision::SixteenBit => RenderedPixels::U16(vec![0; output_len]),
+    };
+    for (region, window) in &plan {
+        let texture = create_window_texture(
+            &context.device,
+            &context.queue,
+            image,
+            *window,
+            INPUT_UPLOAD_BAND_ROWS,
+        )?;
+        let window_masks: Vec<Arc<GrayImage>> = masks
+            .iter()
+            .map(|mask| {
+                Arc::new(
+                    image::imageops::crop_imm(
+                        mask.as_ref(),
+                        window.x,
+                        window.y,
+                        window.width,
+                        window.height,
+                    )
+                    .to_image(),
+                )
+            })
+            .collect();
+        let (pixels, region_width, region_height, x, y) = processor.run_in_window(
+            &texture.create_view(&Default::default()),
             width,
             height,
-            max_dim
+            *window,
+            RenderRequest {
+                adjustments: request.adjustments.clone(),
+                mask_bitmaps: &window_masks,
+                lut: request.lut.clone(),
+                roi: Some(*region),
+            },
+            false,
+            output_precision,
+            readback_shader,
+        )?;
+        place_region(
+            &mut output,
+            bounds.width,
+            Roi {
+                x: x - bounds.x,
+                y: y - bounds.y,
+                width: region_width,
+                height: region_height,
+            },
+            &pixels,
         );
-        return match source {
-            RenderSource::Image { image, .. } => Ok(image.clone()),
-            RenderSource::Uploaded(_) => Err("Uploaded image exceeds GPU limits.".to_string()),
-        };
     }
+    log::info!(
+        "[{}] {}x{} processed (ROI: {}x{}) on GPU in {} windows of at most {} px in {:?}",
+        caller_id,
+        width,
+        height,
+        bounds.width,
+        bounds.height,
+        plan.len(),
+        max_dim,
+        start_time.elapsed()
+    );
+    rendered_image(output, bounds.width, bounds.height)
+}
 
+/// Copies a rendered region (RGBA rows) into the output at `placement`.
+fn place_region(
+    output: &mut RenderedPixels,
+    output_width: u32,
+    placement: Roi,
+    region: &RenderedPixels,
+) {
+    fn copy<T: Copy>(output: &mut [T], output_width: u32, placement: Roi, region: &[T]) {
+        let row_len = placement.width as usize * 4;
+        for (row, source) in region.chunks_exact(row_len).enumerate() {
+            let start =
+                ((placement.y as usize + row) * output_width as usize + placement.x as usize) * 4;
+            output[start..start + row_len].copy_from_slice(source);
+        }
+    }
+    match (output, region) {
+        (RenderedPixels::U8(output), RenderedPixels::U8(region)) => {
+            copy(output, output_width, placement, region)
+        }
+        (RenderedPixels::U16(output), RenderedPixels::U16(region)) => {
+            copy(output, output_width, placement, region)
+        }
+        _ => unreachable!("regions share the render's precision"),
+    }
+}
+
+/// The caller's processor, created (or replaced by a larger one) for a
+/// `width` x `height` input texture.
+fn lock_processor<'a>(
+    context: &GpuContext,
+    processor_slot: &'a Mutex<Option<GpuProcessorState>>,
+    width: u32,
+    height: u32,
+) -> Result<std::sync::MutexGuard<'a, Option<GpuProcessorState>>, String> {
+    let max_dim = context.limits.max_texture_dimension_2d;
     let mut processor_lock = match processor_slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -4756,6 +5068,67 @@ pub fn process_and_get_dynamic_image_inner(
         });
     }
 
+    Ok(processor_lock)
+}
+
+pub enum RenderSource<'a> {
+    /// Uploaded unless the image cache already holds `transform_hash`.
+    Image {
+        image: &'a DynamicImage,
+        transform_hash: u64,
+    },
+    Uploaded(UploadedImage),
+}
+
+/// Renders on the GPU with the caller's processor slot and uploaded-source
+/// cache (the app keeps both in its state), creating or resizing the
+/// processor as needed.
+#[allow(clippy::too_many_arguments)]
+pub fn process_and_get_dynamic_image_inner(
+    context: &GpuContext,
+    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    source: RenderSource,
+    request: RenderRequest,
+    caller_id: &str,
+    output_precision: RenderOutputPrecision,
+    output_to_display: bool,
+    analytics_config: Option<AnalyticsConfig>,
+    display_identity: Option<DisplayFrameIdentity>,
+    readback_shader: ReadbackShader,
+) -> Result<DynamicImage, String> {
+    let mut request = request;
+    if output_to_display {
+        let space = context.display_space;
+        request.adjustments.global.output_space[0] = space.shader_code();
+        request.adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    }
+    let start_time = Instant::now();
+    let (width, height) = match &source {
+        RenderSource::Image { image, .. } => image.dimensions(),
+        RenderSource::Uploaded(UploadedImage(input)) => (input.width, input.height),
+    };
+    let device = &context.device;
+    let queue = &context.queue;
+
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return match source {
+            RenderSource::Image { image, .. } if !output_to_display => render_in_windows(
+                context,
+                processor_slot,
+                image,
+                request,
+                caller_id,
+                output_precision,
+                readback_shader,
+            ),
+            _ => Err(texture_limit_error(width, height, max_dim)),
+        };
+    }
+
+    let processor_lock = lock_processor(context, processor_slot, width, height)?;
     let processor_state = processor_lock.as_ref().unwrap();
     let processor = &processor_state.processor;
 
@@ -5075,14 +5448,18 @@ pub fn process_and_get_dynamic_image_inner(
         fps
     );
 
-    match processed_pixels {
+    rendered_image(processed_pixels, out_w, out_h)
+}
+
+fn rendered_image(pixels: RenderedPixels, width: u32, height: u32) -> Result<DynamicImage, String> {
+    match pixels {
         RenderedPixels::U8(pixels) => {
-            let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(out_w, out_h, pixels)
+            let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, pixels)
                 .ok_or("Failed to create 8-bit image buffer from GPU data")?;
             Ok(DynamicImage::ImageRgba8(img_buf))
         }
         RenderedPixels::U16(pixels) => {
-            let img_buf = ImageBuffer::<Rgba<u16>, Vec<u16>>::from_raw(out_w, out_h, pixels)
+            let img_buf = ImageBuffer::<Rgba<u16>, Vec<u16>>::from_raw(width, height, pixels)
                 .ok_or("Failed to create 16-bit image buffer from GPU data")?;
             Ok(DynamicImage::ImageRgba16(img_buf))
         }

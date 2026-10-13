@@ -1881,6 +1881,10 @@
         "imageFilter": "Imatge",
         "watermarkTitle": "Tria una imatge de marca d'aigua"
       },
+      "errors": {
+        "flareTextureLimit": "L'esclat de llum no es pot processar en una imatge de {{width}} × {{height}} px, més gran que el límit d'aquesta targeta gràfica ({{limit}} px per costat). Desactiva Esclat de llum per exportar-la.",
+        "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat)."
+      },
       "estimate": "Mida estimada: uns {{size}}",
       "estimatePerFile": "Mida estimada: uns {{size}} ({{perFile}} per fitxer)",
       "file": {
