@@ -324,7 +324,7 @@ export default function StudioRelight({
                 ? slider("elevation", 5, 90)
                 : slider("distance", 10, 300))}
             {(light.pattern !== "none" ||
-              (depthValid && depth.version === 2)) &&
+              (depthValid && !!depth.faces?.length)) &&
               slider("shadows")}
           </details>
           <AdjustmentControl

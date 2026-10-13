@@ -4229,9 +4229,9 @@ fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32
     }
 }
 
-// Visibility in the reconstructed 2.5D surface. Fixed bounded work per light;
-// missing/off-screen geometry is deliberately not invented. Near samples
-// resolve facial relief; growing steps cover separated scene surfaces.
+// Visibility inside confident facial relief, with bounded work per light.
+// Coarse scene silhouettes and missing/off-screen geometry are too uncertain
+// for cast shadows. Growing steps cover the rest of the same facial surface.
 fn relight_visibility(uv: vec2<f32>, height: f32, direction: vec3<f32>, reach: f32, height_scale: f32, softness: f32, dims: vec2<f32>) -> f32 {
     let receiver = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0).a;
     if (receiver < 0.9) { return 1.0; }

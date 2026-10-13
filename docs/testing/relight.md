@@ -213,7 +213,19 @@ normals; actual native GPU tests exchange the lit cheek with the light direction
 exercise nose visibility, near/far and foreground/background falloff, pure red
 illumination, light ordering, and preview/general equivalence. Local portrait
 inference found one face in 119 ms (models already loaded; not end-to-end).
-Detailed final timings and native-app verification are recorded in notes.
+Final native macOS QA on copied fixtures: reanalysis returned 468 landmarks
+for one portrait face in 947 ms (including model initialization and QA polling);
+source dragging reused the persisted geometry, Undo restored it, and the guide
+checkbox changed no lighting values. A sphere produced no false face and distance
+edits reused its depth. All four ignored Relight GPU tests pass, including
+above-nose visibility and legacy/refined full-frame versus tiled U8 (≤1 code)
+and U16 (exact). All project gates pass (872 frontend tests).
+
+On the same 1280×854 portrait, 30 warm GPU/render/readback samples measured one
+light p50/p95 2.11/2.17 ms, four lights 2.15/3.71 ms. A 36-step native source drag
+at 16.7 ms intervals produced 34 interactive replies with IPC p50/p95 7/9 ms.
+Neither measurement is pointer-to-photon; first load and analysis are excluded
+from the warm edit timings. Broader timing/quality limits above still apply.
 
 Sources: [MediaPipe face coordinates](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/face_mesh.md#multi_face_landmarks),
 [point-source distance falloff](https://www.pbr-book.org/4ed/Light_Sources/Point_Lights).
@@ -224,6 +236,7 @@ Sources: [MediaPipe face coordinates](https://github.com/google-ai-edge/mediapip
 cargo test -p rawtonic-engine relight --lib
 cargo test -p rawtonic-gpu relight_pixels -- --ignored --nocapture
 cargo test -p rawtonic-gpu relight_tiled -- --ignored --nocapture
+cargo test -p rawtonic-gpu relight_refined -- --ignored --nocapture
 npx vitest run src/components/panel/editor/RelightOverlay.test.tsx src/components/studio/StudioRelight.test.tsx src/components/studio/StudioDevelop.test.tsx src/components/studio/historyLabels.test.ts src/utils/adjustments.test.ts
 ```
 

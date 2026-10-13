@@ -6519,6 +6519,19 @@ fn relight_refined_surface_light_transport() {
         "nose visibility must affect shading"
     );
 
+    recipe["relightLights"][0]["rotation"] = json!(180);
+    recipe["relightLights"][0]["shadows"] = json!(100);
+    let top_shadow = render(&recipe, false);
+    recipe["relightLights"][0]["shadows"] = json!(0);
+    let top_open = render(&recipe, false);
+    let philtrum = (72 * 128 + 64) * 4;
+    assert!(
+        top_open[philtrum] > top_shadow[philtrum] + 5,
+        "overhead light must cast a nose shadow: {} vs {}",
+        top_open[philtrum],
+        top_shadow[philtrum]
+    );
+
     // Equal screen distances, different scene depth: the foreground receives
     // more light. Moving the source away reduces both by geometric falloff.
     recipe["relightDepth"]["faces"] = json!([]);
@@ -6541,9 +6554,12 @@ fn relight_refined_surface_light_transport() {
     recipe["relightLights"][0]["distance"] = json!(30);
     recipe["relightOriginalLight"] = json!(0);
     let red = render(&recipe, false);
-    assert!(red.chunks_exact(4).any(|p| p[0] > 50));
+    assert!(red.as_chunks::<4>().0.iter().any(|p| p[0] > 50));
     assert!(
-        red.chunks_exact(4).all(|p| p[1] <= 1 && p[2] <= 1),
+        red.as_chunks::<4>()
+            .0
+            .iter()
+            .all(|p| p[1] <= 1 && p[2] <= 1),
         "coloured light must preserve additive channel behaviour"
     );
     let light = recipe["relightLights"][0].clone();
@@ -6678,59 +6694,80 @@ fn relight_tiled_roi_matches_full_frame() {
         .store(true, Ordering::Relaxed);
     let view = input(&context, 2176, 64, 11);
     let profile = json!({"relightLights":[{"pattern":"foliage","intensity":65,"scale":80,"rotation":17},{"type":"spot","pattern":"window","x":95,"y":40,"intensity":30}],"relightOriginalLight":70});
-    for precision in [
-        RenderOutputPrecision::EightBit,
-        RenderOutputPrecision::SixteenBit,
-    ] {
-        let render = |roi| {
-            let (pixels, ..) = processor
-                .run(
-                    &view,
-                    2176,
-                    64,
-                    RenderRequest {
-                        adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
-                        mask_bitmaps: &[],
-                        lut: None,
-                        roi,
-                    },
-                    false,
-                    precision,
-                )
+    use base64::Engine as _;
+    let mut refined = profile.clone();
+    let mut png = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageLuma16(image::ImageBuffer::from_pixel(
+        1024,
+        32,
+        image::Luma([32768]),
+    ))
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let face: Vec<_> = rawtonic_engine::relight::test_face_geometry()
+        .into_iter()
+        .map(|mut p| {
+            p[0] = 2100. / 2176. + (p[0] - 0.5) * 64. / 2176.;
+            p
+        })
+        .collect();
+    refined["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&refined),"version":2,"faces":[face]});
+    refined["relightDepthAmount"] = json!(100);
+    for profile in [profile, refined] {
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let render = |roi| {
+                let (pixels, ..) = processor
+                    .run(
+                        &view,
+                        2176,
+                        64,
+                        RenderRequest {
+                            adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi,
+                        },
+                        false,
+                        precision,
+                    )
+                    .unwrap();
+                match pixels {
+                    RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect::<Vec<_>>(),
+                    RenderedPixels::U16(p) => p,
+                }
+            };
+            let full = render(None);
+            let crop = render(Some(Roi {
+                x: 2030,
+                y: 8,
+                width: 120,
+                height: 40,
+            }));
+            let expected: Vec<u16> = (8..48)
+                .flat_map(|y| {
+                    full[(y * 2176 + 2030) * 4..(y * 2176 + 2150) * 4]
+                        .iter()
+                        .copied()
+                })
+                .collect();
+            let diff = crop
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
                 .unwrap();
-            match pixels {
-                RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect::<Vec<_>>(),
-                RenderedPixels::U16(p) => p,
-            }
-        };
-        let full = render(None);
-        let crop = render(Some(Roi {
-            x: 2030,
-            y: 8,
-            width: 120,
-            height: 40,
-        }));
-        let expected: Vec<u16> = (8..48)
-            .flat_map(|y| {
-                full[(y * 2176 + 2030) * 4..(y * 2176 + 2150) * 4]
-                    .iter()
-                    .copied()
-            })
-            .collect();
-        let diff = crop
-            .iter()
-            .zip(&expected)
-            .map(|(a, b)| a.abs_diff(*b))
-            .max()
-            .unwrap();
-        println!("Relight tile/ROI {precision:?}: maximum code difference {diff}");
-        assert!(
-            diff <= if precision == RenderOutputPrecision::EightBit {
-                1
-            } else {
-                0
-            },
-            "Relight tile/ROI coordinate mismatch {precision:?}: maximum {diff}"
-        );
+            println!("Relight tile/ROI {precision:?}: maximum code difference {diff}");
+            assert!(
+                diff <= if precision == RenderOutputPrecision::EightBit {
+                    1
+                } else {
+                    0
+                },
+                "Relight tile/ROI coordinate mismatch {precision:?}: maximum {diff}"
+            );
+        }
     }
 }

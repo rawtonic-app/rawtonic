@@ -5,6 +5,8 @@
 // SHA-256: 8bac80443397e113f41a8b565ea72c59390bc031d9defab289dba7bc0c54e618
 // Apache-2.0 license: licenses/spdx/Apache-2.0.txt.
 
+// Preserve the published numerical fixture verbatim.
+#[allow(clippy::excessive_precision)]
 pub const POSITIONS: &[[f32; 3]] = &[
     [0.000000, -3.406404, 5.979507],
     [0.000000, -1.126865, 7.475604],

@@ -990,7 +990,7 @@ pub async fn generate_relight_depth(
         let face_input = if displayed.width().max(displayed.height()) > 1600 {
             displayed.thumbnail(1600, 1600)
         } else {
-            displayed
+            displayed.into_owned()
         };
         let face_input = rawtonic_faces::recipe::display_rgb8(&face_input, is_raw);
         let faces = rawtonic_faces::relight::analyze(&face_input, &face_models)
