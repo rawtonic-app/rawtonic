@@ -2581,6 +2581,7 @@
       "shadows": "Shadow depth",
       "showGuides": "Show light guides",
       "size": "Light size",
+      "skinReflections": "Face reflections",
       "softness": "Softness",
       "spot": "Spot",
       "sun": "Sun",

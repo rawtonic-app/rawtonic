@@ -128,7 +128,7 @@ pub(crate) fn compute_thumbnail_cache_hash(
         .ok()
         .is_some_and(|adjustments| !adjustments["relightDepth"].is_null())
     {
-        hasher.update(b"\0relight-face-shadow-v6");
+        hasher.update(b"\0relight-face-reflection-v7");
     }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF

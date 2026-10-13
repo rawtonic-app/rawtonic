@@ -2518,6 +2518,7 @@
       "shadows": "影の濃さ",
       "showGuides": "ライトのガイドを表示",
       "size": "ライトのサイズ",
+      "skinReflections": "顔の反射光",
       "softness": "柔らかさ",
       "spot": "スポット",
       "sun": "太陽光",

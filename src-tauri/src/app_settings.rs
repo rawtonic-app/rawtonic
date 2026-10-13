@@ -194,6 +194,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "grainStructure",
         "relightLights",
         "relightDepthAmount",
+        "relightSkinReflections",
         "relightOriginalLight",
     ]
     .iter()

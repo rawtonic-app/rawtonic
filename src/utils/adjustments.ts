@@ -575,6 +575,7 @@ export interface Adjustments {
   relightLights?: RelightLight[];
   relightDepth?: RelightDepth;
   relightDepthAmount?: number;
+  relightSkinReflections?: number;
   relightOriginalLight?: number;
   vignetteHighlights?: number;
   whites: number;
@@ -1147,6 +1148,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     relightLights: loadedAdjustments.relightLights,
     relightDepth: loadedAdjustments.relightDepth,
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
+    relightSkinReflections: loadedAdjustments.relightSkinReflections,
     flareAmount: loadedAdjustments.flareAmount ?? INITIAL_ADJUSTMENTS.flareAmount,
     glowAmount: loadedAdjustments.glowAmount ?? INITIAL_ADJUSTMENTS.glowAmount,
     halationAmount: loadedAdjustments.halationAmount ?? INITIAL_ADJUSTMENTS.halationAmount,
@@ -1302,7 +1304,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
   ],
   effects: [
-    { label: 'studio.relight.title', keys: ['relightLights', 'relightDepthAmount', 'relightOriginalLight'] },
+    { label: 'studio.relight.title', keys: ['relightLights', 'relightDepthAmount', 'relightSkinReflections', 'relightOriginalLight'] },
     {
       label: 'modals.copyPaste.groups.vignette',
       keys: [
@@ -1457,6 +1459,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
   effects: [
     'relightLights',
     'relightDepthAmount',
+    'relightSkinReflections',
     'relightOriginalLight',
     CreativeAdjustment.GlowAmount,
     CreativeAdjustment.HalationAmount,

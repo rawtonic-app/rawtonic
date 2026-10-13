@@ -274,3 +274,41 @@ It writes `depth16.png`. Using the same photo and output directory, run
 Optionally set `RELIGHT_RECIPE` to a local adjustments JSON file to reproduce
 its light settings with that map.
 Do not commit the fixture, its path or the generated photo artifacts.
+
+## Facial reflection response, 2026-10-13
+
+- A cached facial normal now drives a modest GGX dielectric reflection. The
+  lobe moves with the emitter and reflects its colour independently of the
+  photographed diffuse colour. Face confidence fades the contribution; no
+  material is guessed for products or background pixels. The same gobo,
+  visibility and point-source falloff modulate diffuse and reflected light.
+- “Face reflections” under Advanced controls the amount. Analysis version 3
+  defaults to 25/100; existing version 2 recipes retain zero unless explicitly
+  adjusted. No additional inference is performed during interaction.
+- The implementation uses separable Smith masking and Schlick Fresnel with
+  IOR 1.4 (F0 = 1/36). These are our equations based on the
+  [PBRT dielectric model](https://www.pbr-book.org/4ed/Reflection_Models/Dielectric_BSDF)
+  and the skin IOR discussed in
+  [GPU Gems 3](https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-14-advanced-techniques-realistic-real-time-skin).
+  Roughness is a fixed conservative approximation broadened for soft lights;
+  the camera is orthographic as in the existing height-field geometry.
+- The photograph still contains its original illumination and highlights.
+  This is not intrinsic-image recovery, measured skin material or full
+  subsurface transport. Accurate geometry on textured products, separation
+  from background, and calibrated portrait/product comparisons remain open.
+
+Verification: six ignored Relight GPU tests passed, including a black dielectric
+fixture isolating reflections (left/right highlight centroid moves 21 pixels
+on a 128-pixel frame), pure-red reflection, gobo occlusion, unchanged background,
+zero-amount compatibility and general/optimized agreement. Reflection-enabled
+full/tiled/ROI export remains within U8 max 1 / U16 exact. Full project checks
+pass, including 877 frontend tests, 13 locales and the Rust workspace.
+Warm 1280×854 GPU/render/readback, 30 samples: one light p50/p95 2.13/2.20 ms,
+four lights 2.12/2.19 ms; deliberately large facial coverage with four lights
+3.64/5.18 ms. Includes recipe parsing; excludes presentation and inference and
+is not pointer-to-photon latency.
+
+Native QA verifies persisted old default zero, editing without geometry changes,
+new analysis version 3/default 25, and exact recipe restoration after history
+commit. A pre-existing immediate-undo race within the 500 ms history debounce
+was observed; this verification does not claim that race is resolved.

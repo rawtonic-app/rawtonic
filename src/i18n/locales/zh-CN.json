@@ -2518,6 +2518,7 @@
       "shadows": "阴影浓度",
       "showGuides": "显示光源控制柄",
       "size": "光源大小",
+      "skinReflections": "面部反光",
       "softness": "柔和度",
       "spot": "聚光灯",
       "sun": "太阳光",

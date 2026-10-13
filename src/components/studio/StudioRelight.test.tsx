@@ -182,3 +182,36 @@ it("hides and restores light guides without changing the lighting recipe", () =>
   expect(useRelightStore.getState().showHandles).toBe(true);
   expect(useEditorStore.getState().adjustments).toBe(recipe);
 });
+
+it("defaults face reflections only for new analyses, edits and reloads without inference", async () => {
+  vi.mocked(invoke).mockResolvedValue({
+    data: "data:image/png;base64,test",
+    version: 3,
+    faces: [[[0.5, 0.5, 0.02, 1]]],
+    geometry: {
+      transformRotate: 0,
+      guidedPerspective: { autoCrop: true, enabled: false, lines: [] },
+    },
+  });
+  mount();
+  expect(screen.queryByText("Face reflections")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Analyze depth" }));
+  await screen.findByText("Faces refined: 1");
+  fireEvent.click(screen.getByText("Advanced"));
+  const input = screen.getByRole("textbox", { name: "Face reflections value" });
+  expect((input as HTMLInputElement).value).toBe("25");
+  fireEvent.change(input, { target: { value: "65" } });
+  fireEvent.blur(input);
+  await waitFor(() =>
+    expect(useEditorStore.getState().adjustments.relightSkinReflections).toBe(
+      65,
+    ),
+  );
+  const loaded = normalizeLoadedAdjustments(
+    JSON.parse(JSON.stringify(useEditorStore.getState().adjustments)),
+  );
+  expect(loaded.relightSkinReflections).toBe(65);
+  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "Remove depth" }));
+  expect(screen.queryByText("Face reflections")).toBeNull();
+});
