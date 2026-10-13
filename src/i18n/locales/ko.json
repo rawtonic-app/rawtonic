@@ -1790,6 +1790,10 @@
         "imageFilter": "이미지",
         "watermarkTitle": "워터마크 이미지 선택"
       },
+      "errors": {
+        "flareTextureLimit": "{{width}} × {{height}} px 이미지는 이 그래픽 카드의 한도(한 변 {{limit}} px)를 넘어 빛 번짐을 렌더링할 수 없습니다. 내보내려면 빛 번짐을 끄세요.",
+        "textureLimit": "이미지({{width}} × {{height}} px)가 이 그래픽 카드가 처리할 수 있는 크기(한 변 {{limit}} px)보다 큽니다."
+      },
       "estimate": "예상 크기: 약 {{size}}",
       "estimatePerFile": "예상 크기: 약 {{size}} (파일당 {{perFile}})",
       "file": {

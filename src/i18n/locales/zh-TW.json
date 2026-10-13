@@ -1790,6 +1790,10 @@
         "imageFilter": "影像",
         "watermarkTitle": "選擇浮水印影像"
       },
+      "errors": {
+        "flareTextureLimit": "{{width}} × {{height}} px 的影像超出此顯示卡的上限（每邊 {{limit}} px），無法算繪光線耀斑。請關閉光線耀斑後再匯出。",
+        "textureLimit": "影像（{{width}} × {{height}} px）超出此顯示卡可算繪的尺寸（每邊 {{limit}} px）。"
+      },
       "estimate": "預估大小：約 {{size}}",
       "estimatePerFile": "預估大小：約 {{size}}（每個檔案 {{perFile}}）",
       "file": {

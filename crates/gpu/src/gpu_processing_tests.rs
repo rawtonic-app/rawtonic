@@ -4303,7 +4303,7 @@ fn input_upload_band_timing_probe() {
                 let mut data = vec![f16::ZERO; width as usize * 4 * height as usize];
                 data.par_chunks_mut(width as usize * 4)
                     .enumerate()
-                    .for_each(|(row, texels)| rgba_f16_row(&image, row as u32, texels));
+                    .for_each(|(row, texels)| rgba_f16_row(&image, 0, row as u32, texels));
                 context.device.create_texture_with_data(
                     &context.queue,
                     &wgpu::TextureDescriptor {
@@ -7180,4 +7180,349 @@ fn relight_queued_depth_survives_cache_eviction() {
     for (prepared, expected) in queued {
         assert_eq!(render(prepared), expected);
     }
+}
+
+/// A CPU source with gradients, edges, fine texture and highlights, so every
+/// neighbourhood operation changes pixels near chunk borders.
+fn chunk_test_source(width: u32, height: u32) -> DynamicImage {
+    let mut seed = 0x9e37_79b9_u32;
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        let noise = (seed % 1000) as f32 / 1000.0 - 0.5;
+        let gradient = x as f32 / width as f32 * 0.6 + y as f32 / height as f32 * 0.3;
+        let edge = if (x / 97 + y / 61) % 2 == 0 {
+            0.25
+        } else {
+            0.0
+        };
+        let stripes = if (x / 3) % 2 == 0 { 0.04 } else { -0.04 };
+        let highlight = if ((x as i32 - 1500).pow(2) + (y as i32 - 900).pow(2)) < 160_000 {
+            1.4
+        } else {
+            0.0
+        };
+        let base = gradient + edge + stripes + highlight + noise * 0.08;
+        image::Rgb([
+            (base * 1.1).max(0.0),
+            base.max(0.0),
+            (base * 0.8 + noise * 0.05).max(0.0),
+        ])
+    }))
+}
+
+fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
+    let neighbourhood = json!({
+        "exposure":0.3,"contrast":25,"highlights":-80,"shadows":40,"whites":10,"blacks":-10,
+        "clarity":60,"structure":50,"dehaze":30,"centré":40,
+        "sharpness":70,"sharpenRadius":3,"sharpnessFalloff":80,
+        "lumaNoiseReduction":40,"colorNoiseReduction":50,
+        "moireAmount":100,"moirePattern":100,
+        "chromaticAberrationRedCyan":100,"chromaticAberrationBlueYellow":-100,
+        "defringePurpleAmount":20,"defringeGreenAmount":20,
+        "vignetteAmount":-50,"grainAmount":40,"glowAmount":50,"halationAmount":50
+    });
+    let mut masked = neighbourhood.clone();
+    masked["masks"] = json!([local_mask(
+        "local",
+        json!({"exposure":0.5,"clarity":-40,"structure":30,"sharpness":40,
+            "highlights":-30,"lumaNoiseReduction":20,"moireAmount":60,"moirePattern":80})
+    )]);
+    vec![
+        ("plain", json!({})),
+        ("neighbourhood", neighbourhood),
+        ("masked", masked),
+        (
+            "relight",
+            json!({"relightLights":[{"intensity":65,"pattern":"blinds","elevation":25}]}),
+        ),
+    ]
+}
+
+fn chunk_test_render(
+    context: &GpuContext,
+    source: &DynamicImage,
+    profile: &serde_json::Value,
+    raw: bool,
+    precision: RenderOutputPrecision,
+    roi: Option<Roi>,
+) -> Result<DynamicImage, String> {
+    let (width, height) = source.dimensions();
+    let adjustments = get_all_adjustments_from_json(profile, raw, Some(2));
+    let mask = Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+        Luma([((x * 3 + y * 7) % 256) as u8])
+    }));
+    let masks = if adjustments.mask_count > 0 {
+        vec![mask]
+    } else {
+        Vec::new()
+    };
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: source,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: &masks,
+            lut: None,
+            roi,
+        },
+        "chunk_test",
+        precision,
+        false,
+        None,
+        None,
+        ReadbackShader::Export,
+    )
+}
+
+#[test]
+#[ignore = "requires a native GPU; prints whole-render hashes to compare across commits"]
+fn whole_render_hash_probe() {
+    use std::hash::{Hash, Hasher};
+    let context = context();
+    let source = chunk_test_source(3100, 2300);
+    let mut profiles = chunk_test_profiles();
+    profiles.push(("flare", json!({"flareAmount":60,"exposure":1.5})));
+    for (key, value) in [
+        ("highlights", -80.0),
+        ("clarity", 60.0),
+        ("structure", 50.0),
+        ("dehaze", 30.0),
+        ("centré", 40.0),
+        ("sharpness", 70.0),
+        ("lumaNoiseReduction", 40.0),
+        ("colorNoiseReduction", 50.0),
+        ("moireAmount", 100.0),
+        ("chromaticAberrationRedCyan", 100.0),
+        ("defringePurpleAmount", 20.0),
+        ("vignetteAmount", -50.0),
+        ("grainAmount", 40.0),
+        ("glowAmount", 50.0),
+        ("halationAmount", 50.0),
+        ("sharpnessFalloff", 80.0),
+    ] {
+        profiles.push((key, json!({ key: value })));
+    }
+    for (name, profile) in profiles {
+        for raw in [true, false] {
+            for precision in [
+                RenderOutputPrecision::EightBit,
+                RenderOutputPrecision::SixteenBit,
+            ] {
+                let image =
+                    chunk_test_render(&context, &source, &profile, raw, precision, None).unwrap();
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                image.as_bytes().hash(&mut hasher);
+                println!(
+                    "HASH {name} raw={raw} {precision:?} {:016x}",
+                    hasher.finish()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn render_windows_cover_the_region_in_tiles_within_the_limit() {
+    for (width, height, bounds, max_dim, margin) in [
+        (3100, 2300, None, 2600, 216),
+        (40_000, 9000, None, 16_384, 500),
+        (
+            9000,
+            5000,
+            Some(Roi {
+                x: 1500,
+                y: 700,
+                width: 6000,
+                height: 3000,
+            }),
+            4096,
+            300,
+        ),
+    ] {
+        let bounds = bounds.unwrap_or(Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        });
+        let plan = plan_render_windows(width, height, bounds, max_dim, margin).unwrap();
+        let mut covered = 0u64;
+        for (region, window) in &plan {
+            assert!(window.width <= max_dim && window.height <= max_dim);
+            assert!(intersect_roi(*region, bounds) == Some(*region));
+            // Regions start on tile boundaries or the requested region's edge,
+            // and end on one or at its edge, as the tiles of a whole render.
+            assert!(region.x % TILE_SIZE == 0 || region.x == bounds.x);
+            assert!(region.y % TILE_SIZE == 0 || region.y == bounds.y);
+            let right = region.x + region.width;
+            let bottom = region.y + region.height;
+            assert!(right % TILE_SIZE == 0 || right == bounds.x + bounds.width);
+            assert!(bottom % TILE_SIZE == 0 || bottom == bounds.y + bounds.height);
+            // The window holds the region and the margin, up to the photo's edges.
+            assert_eq!(window.x, region.x.saturating_sub(margin));
+            assert_eq!(window.y, region.y.saturating_sub(margin));
+            assert_eq!(window.x + window.width, (right + margin).min(width));
+            assert_eq!(window.y + window.height, (bottom + margin).min(height));
+            covered += area(*region);
+        }
+        assert_eq!(covered, area(bounds), "regions must tile the bounds");
+        for (i, (a, _)) in plan.iter().enumerate() {
+            for (b, _) in &plan[i + 1..] {
+                assert!(intersect_roi(*a, *b).is_none(), "regions overlap");
+            }
+        }
+    }
+    // A tile with its margins must fit the limit.
+    let whole = Roi {
+        x: 0,
+        y: 0,
+        width: 20_000,
+        height: 20_000,
+    };
+    assert!(plan_render_windows(20_000, 20_000, whole, 2048 + 2 * 300 - 1, 300).is_none());
+    assert!(plan_render_windows(20_000, 20_000, whole, 2048 + 2 * 300, 300).is_some());
+    assert!(plan_render_windows(20_000, 20_000, whole, 500, 300).is_none());
+}
+
+#[test]
+fn render_window_margin_covers_the_widest_read() {
+    let plain = get_all_adjustments_from_json(&json!({}), true, Some(2));
+    // Structure's blur at the photo's scale plus the tile overlap.
+    let margin = render_window_margin(&plain.uniforms, 3100, 2300);
+    assert!(margin >= TILE_OVERLAP + (40.0_f32 * 2300.0 / 1080.0).ceil() as u32);
+    let shifted = get_all_adjustments_from_json(
+        &json!({"chromaticAberrationRedCyan": 100, "chromaticAberrationBlueYellow": -100}),
+        true,
+        Some(2),
+    );
+    // 1 % of the half diagonal of a 60 000 x 2000 px panorama: 300 px.
+    let wide = render_window_margin(&shifted.uniforms, 60_000, 2000);
+    assert!(wide > 300, "{wide}");
+    assert!(wide > render_window_margin(&plain.uniforms, 60_000, 2000));
+}
+
+/// A context whose texture limit is lowered to `max_dim`.
+fn limited_context(context: &GpuContext, max_dim: u32) -> GpuContext {
+    let mut limited = context.clone();
+    limited.limits.max_texture_dimension_2d = max_dim;
+    limited
+}
+
+#[test]
+#[ignore = "requires a native GPU; renders over the texture limit from windows"]
+fn renders_over_the_texture_limit_match_whole_renders() {
+    let context = context();
+    let (width, height) = (3100, 2300);
+    let source = chunk_test_source(width, height);
+    let limited = limited_context(&context, 2600);
+    let mut comparisons = 0;
+    for (name, profile) in chunk_test_profiles() {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(2));
+        let margin = render_window_margin(&adjustments.uniforms, width, height);
+        let whole_photo = Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let windows = plan_render_windows(width, height, whole_photo, 2600, margin).unwrap();
+        assert!(windows.len() >= 4, "{name}: {} windows", windows.len());
+        for raw in [true, false] {
+            for precision in [
+                RenderOutputPrecision::EightBit,
+                RenderOutputPrecision::SixteenBit,
+            ] {
+                for roi in [
+                    None,
+                    Some(Roi {
+                        x: 1001,
+                        y: 1500,
+                        width: 2003,
+                        height: 701,
+                    }),
+                ] {
+                    let whole = chunk_test_render(&context, &source, &profile, raw, precision, roi)
+                        .unwrap();
+                    let windowed =
+                        chunk_test_render(&limited, &source, &profile, raw, precision, roi)
+                            .unwrap();
+                    assert_eq!(windowed.dimensions(), whole.dimensions());
+                    let differing = whole
+                        .as_bytes()
+                        .iter()
+                        .zip(windowed.as_bytes())
+                        .filter(|(a, b)| a != b)
+                        .count();
+                    assert!(
+                        differing == 0,
+                        "{name} raw={raw} {precision:?} roi={roi:?}: {differing} bytes differ"
+                    );
+                    comparisons += 1;
+                }
+            }
+        }
+    }
+    println!("{comparisons} windowed renders matched whole renders byte for byte");
+}
+
+#[test]
+#[ignore = "requires a native GPU; renders over the texture limit never return the source"]
+fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {
+    let context = context();
+    let source = chunk_test_source(600, 400);
+    let limited = limited_context(&context, 512);
+    // Lens flare is built from the whole photo: a clear error.
+    let flare = chunk_test_render(
+        &limited,
+        &source,
+        &json!({"flareAmount": 60}),
+        true,
+        RenderOutputPrecision::EightBit,
+        None,
+    );
+    assert_eq!(flare.unwrap_err(), flare_texture_limit_error(600, 400, 512));
+    // A tile with its margins does not fit 512 px: no windows either.
+    let edited = chunk_test_render(
+        &limited,
+        &source,
+        &json!({"exposure": 1}),
+        true,
+        RenderOutputPrecision::EightBit,
+        None,
+    );
+    assert_eq!(edited.unwrap_err(), texture_limit_error(600, 400, 512));
+    // Display frames are never rendered from windows.
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    let display = process_and_get_dynamic_image_inner(
+        &limited,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: &source,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments: get_all_adjustments_from_json(&json!({}), true, Some(2)),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "chunk_test",
+        RenderOutputPrecision::EightBit,
+        true,
+        None,
+        None,
+        ReadbackShader::Export,
+    );
+    assert_eq!(display.unwrap_err(), texture_limit_error(600, 400, 512));
 }

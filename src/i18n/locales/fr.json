@@ -1881,6 +1881,10 @@
         "imageFilter": "Image",
         "watermarkTitle": "Choisir une image de filigrane"
       },
+      "errors": {
+        "flareTextureLimit": "Le reflet lumineux ne peut pas être rendu sur une image de {{width}} × {{height}} px, au-delà de la limite de cette carte graphique ({{limit}} px par côté). Désactivez Reflet lumineux pour l'exporter.",
+        "textureLimit": "L'image ({{width}} × {{height}} px) dépasse ce que cette carte graphique peut rendre ({{limit}} px par côté)."
+      },
       "estimate": "Taille estimée : environ {{size}}",
       "estimatePerFile": "Taille estimée : environ {{size}} ({{perFile}} par fichier)",
       "file": {

@@ -1829,6 +1829,10 @@
         "imageFilter": "Bild",
         "watermarkTitle": "Wasserzeichenbild auswählen"
       },
+      "errors": {
+        "flareTextureLimit": "Lichtreflex kann auf einem Bild mit {{width}} × {{height}} px nicht gerendert werden, es überschreitet die Grenze dieser Grafikkarte ({{limit}} px pro Seite). Schalte Lichtreflex aus, um es zu exportieren.",
+        "textureLimit": "Das Bild ({{width}} × {{height}} px) ist größer, als diese Grafikkarte rendern kann ({{limit}} px pro Seite)."
+      },
       "estimate": "Geschätzte Größe: etwa {{size}}",
       "estimatePerFile": "Geschätzte Größe: etwa {{size}} ({{perFile}} pro Datei)",
       "file": {

@@ -1881,6 +1881,10 @@
         "imageFilter": "Imagem",
         "watermarkTitle": "Escolha uma imagem de marca d'água"
       },
+      "errors": {
+        "flareTextureLimit": "O reflexo de luz não pode ser processado numa imagem de {{width}} × {{height}} px, acima do limite desta placa gráfica ({{limit}} px por lado). Desative Reflexo de luz para a exportar.",
+        "textureLimit": "A imagem ({{width}} × {{height}} px) é maior do que esta placa gráfica consegue processar ({{limit}} px por lado)."
+      },
       "estimate": "Tamanho estimado: cerca de {{size}}",
       "estimatePerFile": "Tamanho estimado: cerca de {{size}} ({{perFile}} por arquivo)",
       "file": {

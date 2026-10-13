@@ -2949,6 +2949,9 @@ pub struct AllAdjustments {
     /// x != 0: the bound detail texture holds the detail stage (noise
     /// reduction and sharpening at the global amounts) for this tile.
     pub detail_cache: [u32; 4],
+    /// Origin (x, y) of the photo window the input texture holds and the
+    /// photo's size (width, height); the renderer sets it for every tile.
+    pub source_window: [u32; 4],
 }
 
 /// CPU-owned render inputs. Uniforms remain POD; the geometry allocation stays
@@ -4406,6 +4409,7 @@ pub fn get_all_adjustments_from_json(
             mask_atlas_cols: 1,
             render_region: [0; 4],
             detail_cache: [0; 4],
+            source_window: [0; 4],
         },
     }
 }

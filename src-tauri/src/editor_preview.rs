@@ -314,6 +314,14 @@ pub(crate) fn generate_shared_transformed_preview(
     })
 }
 
+/// The longest side a Develop preview is built at: the requested size within
+/// the GPU's texture limit. Display frames render from one texture, so a
+/// photo larger than the limit (a wide panorama at 100 %) is shown
+/// downsampled to it instead of failing.
+pub(crate) fn preview_dim_within_limit(requested: u32, max_texture_dimension: u32) -> u32 {
+    requested.min(max_texture_dimension)
+}
+
 pub(crate) fn shared_preview_at_resolution(
     source: &Arc<DynamicImage>,
     preview_dim: u32,
@@ -740,7 +748,10 @@ pub(crate) fn process_preview_job(
     let live_quality = settings.live_preview_quality.as_deref().unwrap_or("high");
 
     let default_preview_dim = settings.editor_preview_resolution.unwrap_or(1920);
-    let preview_dim = target_resolution.unwrap_or(default_preview_dim);
+    let preview_dim = preview_dim_within_limit(
+        target_resolution.unwrap_or(default_preview_dim),
+        context.limits.max_texture_dimension_2d,
+    );
     if roi.is_none() && !is_interactive {
         // The fit view's size decides the size of new preview proxies.
         state.last_preview_dim.store(preview_dim, Ordering::Relaxed);
@@ -1509,8 +1520,10 @@ fn render_split_before_blocking(
     if loaded_image.path != path {
         return Ok(false);
     }
-    let preview_dim =
-        target_resolution.unwrap_or(settings.editor_preview_resolution.unwrap_or(1920));
+    let preview_dim = preview_dim_within_limit(
+        target_resolution.unwrap_or(settings.editor_preview_resolution.unwrap_or(1920)),
+        context.limits.max_texture_dimension_2d,
+    );
     let frame_key = split_frame_key(path, &adjustments);
     let render_key = {
         let mut hasher = DefaultHasher::new();
@@ -2236,6 +2249,31 @@ mod preview_memory_tests {
         };
         let result = compute_patched_and_warped(&loaded, &serde_json::json!({})).unwrap();
         assert!(Arc::ptr_eq(&loaded.image, &result));
+    }
+
+    #[test]
+    fn previews_of_photos_over_the_texture_limit_are_downsampled_to_it() {
+        // A 100 % view of a 40 000 px panorama asks for its full size.
+        let limit = 64;
+        let dim = preview_dim_within_limit(400, limit);
+        assert_eq!(dim, limit);
+        assert_eq!(preview_dim_within_limit(48, limit), 48);
+        let panorama = Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(400, 90)));
+        let preview = shared_preview_at_resolution(&panorama, dim);
+        assert!(preview.width() <= limit && preview.height() <= limit);
+        assert_eq!(preview.width(), limit);
+        let reduced = reduced_preview_scale(400, 90, &serde_json::json!({}), dim).unwrap();
+        let base = reduced_preview_base(
+            &panorama,
+            1.0,
+            400,
+            90,
+            &serde_json::json!({}),
+            dim,
+            reduced,
+        )
+        .unwrap();
+        assert!(base.image.width() <= limit && base.image.height() <= limit);
     }
 
     #[test]

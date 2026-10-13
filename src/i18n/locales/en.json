@@ -1829,6 +1829,10 @@
         "imageFilter": "Image",
         "watermarkTitle": "Choose a watermark image"
       },
+      "errors": {
+        "flareTextureLimit": "Light flare cannot be rendered on an image of {{width}} × {{height}} px, larger than this graphics card's limit ({{limit}} px per side). Turn Light flare off to export it.",
+        "textureLimit": "The image ({{width}} × {{height}} px) is larger than this graphics card can render ({{limit}} px per side)."
+      },
       "estimate": "Estimated size: about {{size}}",
       "estimatePerFile": "Estimated size: about {{size}} ({{perFile}} per file)",
       "file": {

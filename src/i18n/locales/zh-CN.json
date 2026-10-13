@@ -1790,6 +1790,10 @@
         "imageFilter": "图像",
         "watermarkTitle": "选择水印图像"
       },
+      "errors": {
+        "flareTextureLimit": "{{width}} × {{height}} px 的图像超出此显卡的上限（每边 {{limit}} px），无法渲染光线耀斑。请关闭光线耀斑后再导出。",
+        "textureLimit": "图像（{{width}} × {{height}} px）超出了此显卡可渲染的尺寸（每边 {{limit}} px）。"
+      },
       "estimate": "预计大小：约 {{size}}",
       "estimatePerFile": "预计大小：约 {{size}}（每个文件 {{perFile}}）",
       "file": {
