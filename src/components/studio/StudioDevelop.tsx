@@ -56,6 +56,7 @@ import StudioHistogram from "./StudioHistogram";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
 import StudioLut from "./StudioLut";
 import StudioRelight from "./StudioRelight";
+import { setRelightPanelOpen } from "../../store/useRelightStore";
 import StudioCropControls from "./StudioCropControls";
 import StudioPresets from "./StudioPresets";
 import StudioLensCorrection from "./StudioLensCorrection";
@@ -89,10 +90,12 @@ export function ToolGroup({
   copy,
   toggle,
   actions,
+  onOpenChange,
 }: {
   /** Stable id of the tool (remembered open state and order, copy/apply,
    * `data-tool-title`); never translated. */
   title: string;
+  onOpenChange?: (open: boolean) => void;
   /** The shown, translated name; `title` when absent. */
   label?: string;
   children: ReactNode;
@@ -108,6 +111,10 @@ export function ToolGroup({
   const { t } = useTranslation();
   const name = label ?? title;
   const [isOpen, setOpen] = useToolOpen(title, open);
+  useEffect(() => {
+    onOpenChange?.(isOpen);
+    return () => onOpenChange?.(false);
+  }, [isOpen, onOpenChange]);
   const menu = useToolMenu();
   return (
     <details
@@ -1702,6 +1709,7 @@ export default function StudioDevelop() {
             <ToolGroup
               key="relight"
               title="Relight"
+              onOpenChange={setRelightPanelOpen}
               label={t("studio.relight.title")}
               open={false}
               toggle={toolSwitch("relight")}

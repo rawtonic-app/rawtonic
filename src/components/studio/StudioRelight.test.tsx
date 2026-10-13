@@ -10,6 +10,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import StudioRelight from "./StudioRelight";
+import { useRelightStore } from "../../store/useRelightStore";
 import { useEditorStore } from "../../store/useEditorStore";
 import {
   INITIAL_ADJUSTMENTS,
@@ -21,6 +22,7 @@ import type { SelectedImage } from "../ui/AppProperties";
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
+  useRelightStore.setState(useRelightStore.getInitialState());
   useEditorStore.setState({
     ...useEditorStore.getInitialState(),
     selectedImage: {
@@ -61,7 +63,10 @@ it("adds up to four lights, toggles and removes them without altering other edit
 it("stores depth once and preserves it through a recipe reload", async () => {
   const depth = {
     data: "data:image/png;base64,test",
-    geometry: { transformRotate: 0, guidedPerspective: { autoCrop: true, enabled: false, lines: [] } },
+    geometry: {
+      transformRotate: 0,
+      guidedPerspective: { autoCrop: true, enabled: false, lines: [] },
+    },
   };
   vi.mocked(invoke).mockResolvedValue(depth);
   mount();
@@ -124,4 +129,34 @@ it("shows errors and allows retry; geometry edits invalidate the analysis", asyn
   expect(
     screen.getByText("Geometry changed. Analyze depth again."),
   ).toBeTruthy();
+});
+
+it("selects a visual pattern and shares light selection with the canvas", () => {
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Pattern" }));
+  fireEvent.click(screen.getByRole("button", { name: "Palm" }));
+  expect(useEditorStore.getState().adjustments.relightLights![0].pattern).toBe(
+    "palm",
+  );
+  expect(screen.queryByRole("group", { name: "Pattern" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Add light" }));
+  const lights = useEditorStore.getState().adjustments.relightLights!;
+  expect(useRelightStore.getState().selected).toBe(lights[1].id);
+  act(() => useRelightStore.setState({ selected: lights[0].id }));
+  expect(
+    screen
+      .getByRole("button", { name: "Light 1" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+});
+it("analyzes depth on adding a light, then reuses it for subsequent lights", async () => {
+  useEditorStore.setState((s) => ({
+    adjustments: { ...s.adjustments, relightLights: [] },
+  }));
+  vi.mocked(invoke).mockResolvedValue({ data: "depth", geometry: {} });
+  mount();
+  fireEvent.click(screen.getByRole("button", { name: "Add light" }));
+  await screen.findByText("Depth ready. Light follows the surface.");
+  fireEvent.click(screen.getByRole("button", { name: "Add light" }));
+  expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
 });

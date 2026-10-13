@@ -119,10 +119,31 @@ ranking**. Matched input-to-present timing remains unverified.
 The implementation-caused depth-edge defects above are corrected. The broader
 acceptance gate remains open for a calibrated portrait/product assessment,
 transparent objects/fine hair, matched end-to-end timing, and execution on Intel
-macOS and Windows/Linux GPU-provider hardware. ImageFlow also offers direct
-canvas handles and file/layer pattern import; those workflow additions are not
-implemented here. No overall superiority or production-parity claim. Detailed
+macOS and Windows/Linux GPU-provider hardware. File/layer pattern import remains unimplemented; direct canvas controls and
+fifteen built-in pattern choices are covered below. No overall superiority or production-parity claim. Detailed
 evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
+
+## Direct canvas controls, 2026-10-13
+
+- The Relight tool exposes light-source handles in the developed photograph.
+  Pattern center, rotation and scale are independent; spot lights also have
+  a radius handle. Handles stay a fixed screen size at zoom, support keyboard
+  arrows (Shift for larger steps), and disappear when the tool closes or a
+  conflicting image tool is active. Escape cancels a drag; a completed gesture
+  produces one undo step, including when the pointer pauses.
+- Fifteen visual choices: none, blinds, window, strip, foliage, grid, palm,
+  branches, checkerboard, dots, horizontal lines, diagonal lines, weave, noise
+  and crosshatch. All are original analytic GPU patterns with schematic SVG
+  swatches. Numeric positioning and secondary controls live under Advanced.
+- Adding a light starts local depth analysis if no matching map exists. Edits
+  reuse the saved map. The depth input now includes straightening and crop,
+  matching the GPU photograph frame; geometry changes invalidate older maps.
+  Existing neutral-frame maps and legacy light placement remain compatible.
+- Regression tests exercise gesture undo/cancel (including legacy recipes),
+  zoom coordinates, photo switching, independent transforms, shared selection,
+  automatic analysis/reuse, and stale crop/straightening. Native GPU tests
+  verify fifteen distinct outputs, legacy-recipe equivalence, independent spot
+  positioning/pattern rotation and stale-depth rejection.
 
 ## Reproduce
 
@@ -130,7 +151,7 @@ evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
 cargo test -p rawtonic-engine relight --lib
 cargo test -p rawtonic-gpu relight_pixels -- --ignored --nocapture
 cargo test -p rawtonic-gpu relight_tiled -- --ignored --nocapture
-npx vitest run src/components/studio/StudioRelight.test.tsx src/components/studio/StudioDevelop.test.tsx src/components/studio/historyLabels.test.ts src/utils/adjustments.test.ts
+npx vitest run src/components/panel/editor/RelightOverlay.test.tsx src/components/studio/StudioRelight.test.tsx src/components/studio/StudioDevelop.test.tsx src/components/studio/historyLabels.test.ts src/utils/adjustments.test.ts
 ```
 
 For local real-photo analysis, set `RELIGHT_PHOTO`, `RELIGHT_MODEL`,

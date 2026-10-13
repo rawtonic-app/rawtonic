@@ -980,24 +980,12 @@ pub async fn generate_relight_depth(
             is_raw,
             &js_adjustments,
         );
-        let depth = crate::ai_processing::run_depth_anything_model16(&warped, &model, is_raw)
+        let (displayed, _) = rawtonic_engine::adjustment_utils::apply_spatial_transformations(
+            warped.as_ref(),
+            &js_adjustments,
+        );
+        let depth = crate::ai_processing::run_depth_anything_model16(&displayed, &model, is_raw)
             .map_err(|e| e.to_string())?;
-        let depth = match js_adjustments["orientationSteps"].as_u64().unwrap_or(0) % 4 {
-            1 => image::imageops::rotate90(&depth),
-            2 => image::imageops::rotate180(&depth),
-            3 => image::imageops::rotate270(&depth),
-            _ => depth,
-        };
-        let depth = if js_adjustments["flipHorizontal"].as_bool() == Some(true) {
-            image::imageops::flip_horizontal(&depth)
-        } else {
-            depth
-        };
-        let depth = if js_adjustments["flipVertical"].as_bool() == Some(true) {
-            image::imageops::flip_vertical(&depth)
-        } else {
-            depth
-        };
         let mut png = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageLuma16(depth)
             .write_to(&mut png, image::ImageFormat::Png)

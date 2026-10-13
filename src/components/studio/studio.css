@@ -4040,3 +4040,29 @@ body.is-dragging * {
   width: 100%;
   margin-bottom: 8px;
 }
+
+/* Relight keeps editing on the photograph; the panel supplies labelled fallbacks. */
+.studio-relight-edit, .studio-relight-pattern-toggle {
+  display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px;
+  border: 1px solid var(--studio-line); border-radius: 4px; font-size: 11px;
+  background: var(--studio-raised); color: var(--studio-text); cursor: pointer;
+}
+.studio-relight-edit[aria-pressed="true"] { border-color: var(--studio-accent); }
+.studio-relight-pattern-toggle { margin: 8px 0; }
+.studio-relight-pattern-toggle > span { flex: 1; text-align: left; }
+.relight-pattern-preview { width: 36px; height: 28px; flex-shrink: 0; color: #eee; background: #252525; border-radius: 3px; }
+.studio-relight-patterns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-bottom: 10px; }
+.studio-relight-patterns button { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 60px; padding: 5px 3px; font-size: 10px; border: 1px solid transparent; border-radius: 4px; cursor: pointer; }
+.studio-relight-patterns button:hover, .studio-relight-patterns button[aria-pressed="true"] { background: var(--studio-raised); border-color: var(--studio-accent); }
+.studio-relight-advanced > summary { padding: 8px 0; font-size: 11px; cursor: pointer; color: var(--studio-muted); }
+.relight-overlay { position: absolute; z-index: 7; pointer-events: none; }
+.relight-overlay svg { overflow: visible; pointer-events: none; }
+.relight-overlay > svg > * { fill: none; stroke: white; stroke-width: 1.2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 1px #111); }
+.studio-workspace .relight-handle { position: absolute; display: flex; justify-content: center; align-items: center; width: 32px; height: 32px; padding: 0; border-radius: 50%; border: 1px solid white; background: #242424d9; color: white; pointer-events: auto; touch-action: none; cursor: grab; box-shadow: 0 1px 5px #0009; }
+.studio-workspace .relight-handle-source { width: 42px; height: 42px; }
+.studio-workspace .relight-handle-source[aria-pressed="true"] { box-shadow: 0 0 0 2px #242424, 0 0 0 3px currentColor, 0 2px 8px #0009; }
+.studio-workspace .relight-handle:active { cursor: grabbing; }
+.relight-handle:focus-visible, .studio-relight button:focus-visible { outline: 2px solid var(--studio-accent); outline-offset: 3px; }
+
+.relight-overlay > svg > .relight-direction { stroke-dasharray: none; }
+.studio-workspace .relight-handle:hover, .studio-workspace .relight-handle[aria-pressed="true"] { background: #242424ed; }

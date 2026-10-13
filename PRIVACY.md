@@ -11,7 +11,8 @@ Rawtonic goes online only when you ask it to:
   object removal, automatic keywords), Rawtonic downloads that tool's model
   from Rawtonic's model pack on GitHub (github.com/rawtonic-app/models)
   and checks its SHA-256. GitHub sees your IP address, as with any
-  download. No photo is uploaded; the models run on your computer, on its
+  download. Adding a Relight light starts local depth analysis and downloads the
+  depth model if it is not installed yet. No photo is uploaded; the models run on your computer, on its
   graphics card when it can (Windows, Linux: the WebGPU plugin ships with the
   app; using the GPU downloads nothing).
 - **Map.** In the Library's EXIF tool, "Show on map" loads a map of the photo's

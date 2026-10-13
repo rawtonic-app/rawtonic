@@ -882,6 +882,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
+      // Capture runs before a canvas handle can stop propagation. Let Relight
+      // own its complete gesture; otherwise a stale pan survives its release.
+      if ((e.target as Element).closest('.relight-handle')) return;
       const panningDisabled = isPanningDisabled || !!maskHitTestRef.current?.(e.clientX, e.clientY);
       wasPanningDisabledOnDown.current = panningDisabled;
 

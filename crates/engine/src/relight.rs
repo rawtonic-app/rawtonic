@@ -4,8 +4,8 @@ use serde_json::Value;
 
 pub const MAX_LIGHTS: usize = 4;
 
-pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 16] {
-    let mut out = [[0.; 4]; 16];
+pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
+    let mut out = [[0.; 4]; 20];
     if recipe["sectionVisibility"]["relight"].as_bool() == Some(false) {
         return out;
     }
@@ -43,9 +43,18 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 16] {
             Some("strip") => 3.,
             Some("foliage") => 4.,
             Some("grid") => 5.,
+            Some("palm") => 6.,
+            Some("branches") => 7.,
+            Some("checkerboard") => 8.,
+            Some("dots") => 9.,
+            Some("horizontal") => 10.,
+            Some("diagonal") => 11.,
+            Some("weave") => 12.,
+            Some("noise") => 13.,
+            Some("crosshatch") => 14.,
             _ => 0.,
         };
-        let j = i * 4;
+        let j = i * 5;
         out[j] = [
             linear(hex >> 16),
             linear(hex >> 8),
@@ -53,14 +62,14 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 16] {
             n("intensity", 50., 0., 100.) / 100. * 3.,
         ];
         out[j + 1] = [
-            n("x", 50., 0., 100.) / 100.,
-            n("y", 50., 0., 100.) / 100.,
+            n("x", 50., -100., 200.) / 100.,
+            n("y", 50., -100., 200.) / 100.,
             n("size", 60., 5., 200.) / 100.,
             f32::from(light["type"].as_str() == Some("spot")),
         ];
         out[j + 2] = [
             n("rotation", -30., -180., 180.).to_radians(),
-            n("scale", 50., 5., 200.) / 100.,
+            n("scale", 50., 5., 300.) / 100.,
             n("softness", 30., 0., 100.) / 100.,
             n("diffusion", 25., 0., 100.) / 100.,
         ];
@@ -69,6 +78,18 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 16] {
             f32::from(light["invert"].as_bool() == Some(true)),
             n("shadows", 35., 0., 100.) / 100.,
             n("elevation", 45., 5., 90.).to_radians(),
+        ];
+        out[j + 4] = [
+            n("sourceX", out[j + 1][0] as f64 * 100., -100., 200.) / 100.,
+            n("sourceY", out[j + 1][1] as f64 * 100., -100., 200.) / 100.,
+            n(
+                "patternRotation",
+                n("rotation", -30., -180., 180.) as f64,
+                -180.,
+                180.,
+            )
+            .to_radians(),
+            0.,
         ];
     }
     out
@@ -91,6 +112,14 @@ pub fn geometry(recipe: &Value) -> Value {
         "flipVertical",
     ]) {
         map.insert(key.into(), recipe[key].clone());
+    }
+    // Depth is analyzed in the displayed (straightened and cropped) frame.
+    // Keep legacy identity-frame maps valid, but reject them after a crop.
+    if !recipe["crop"].is_null() {
+        map.insert("crop".into(), recipe["crop"].clone());
+    }
+    if recipe["rotation"].as_f64().unwrap_or(0.) != 0. {
+        map.insert("rotation".into(), recipe["rotation"].clone());
     }
     Value::Object(map)
 }
@@ -230,12 +259,12 @@ mod tests {
     }
     #[test]
     fn legacy_and_hidden_recipes_are_identity() {
-        assert_eq!(gpu_lights(&json!({})), [[0.; 4]; 16]);
+        assert_eq!(gpu_lights(&json!({})), [[0.; 4]; 20]);
         for r in [
             json!({"relightLights":[{"enabled":false}]}),
             json!({"relightLights":[{}],"sectionVisibility":{"relight":false}}),
         ] {
-            assert_eq!(gpu_lights(&r), [[0.; 4]; 16]);
+            assert_eq!(gpu_lights(&r), [[0.; 4]; 20]);
         }
     }
     #[test]
@@ -244,7 +273,7 @@ mod tests {
             &json!({"relightLights":[{"intensity":999,"color":"#ff0000","size":0,"x":-999,"pattern":"window"}]}),
         );
         assert_eq!(p[0], [1., 0., 0., 3.]);
-        assert_eq!(p[1][0], 0.);
+        assert_eq!(p[1][0], -1.);
         assert_eq!(p[1][2], 0.05);
         assert_eq!(p[3][0], 2.);
         assert!(
