@@ -4503,7 +4503,7 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, dims: vec2<f32>, scene_only
     return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light);
 }
 
-fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
+fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>, exposure_gain: f32) -> vec3<f32> {
     let camera_mode = adjustments.global.relight_geometry.w > 0.5;
     let strength = adjustments.global.relight_surface.x;
     let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
@@ -4546,7 +4546,9 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
     }
     let energy = relight_energy(surface, uv, dims, false);
     var light_gain = energy.diffuse;
-    let reflected_light = energy.reflected;
+    // Incident radiance must receive the same exposure as the diffuse photo.
+    // Otherwise reducing exposure leaves newly added dielectric highlights fixed.
+    let reflected_light = energy.reflected * exposure_gain;
     let shadow_ev = energy.shadow_ev;
     let has_light = energy.has_light;
     if (confidence > 0.0 && has_light) {
@@ -5009,7 +5011,7 @@ fn main(
         locally_contrasted_rgb = apply_camera_profile(locally_contrasted_rgb);
     }
     var processed_rgb = apply_linear_exposure(locally_contrasted_rgb, t_exposure);
-    processed_rgb = apply_relight(processed_rgb, vec2<f32>(absolute_coord) / full_dims, full_dims);
+    processed_rgb = apply_relight(processed_rgb, vec2<f32>(absolute_coord) / full_dims, full_dims, exposure_gain);
 
     if (t_glow > 0.0) {
         processed_rgb = apply_glow_bloom(
