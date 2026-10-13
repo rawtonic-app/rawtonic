@@ -4231,28 +4231,32 @@ fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32
 
 // Visibility inside confident facial relief, with bounded work per light.
 // Coarse scene silhouettes and missing/off-screen geometry are too uncertain
-// for cast shadows. Growing steps cover the rest of the same facial surface.
+// for cast shadows. Fine bounded steps cannot jump over narrow nose/eye relief.
+// Blended mesh boundaries are not occluders: their height includes coarse scene
+// depth and would invent a raised rim around the face.
 fn relight_visibility(uv: vec2<f32>, height: f32, direction: vec3<f32>, reach: f32, height_scale: f32, softness: f32, dims: vec2<f32>) -> f32 {
     let receiver = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0).a;
-    if (receiver < 0.9) { return 1.0; }
+    if (receiver < 0.99) { return 1.0; }
     let resolution = vec2<f32>(textureDimensions(relight_depth_texture));
-    var step = 1.25 / min(resolution.x, resolution.y);
-    var travel = step;
+    let max_step = min(2.0 / min(resolution.x, resolution.y), 1.0 / 512.0);
+    var step = min(0.75 / min(resolution.x, resolution.y), max_step);
+    var travel = 1.25 / min(resolution.x, resolution.y);
     var visibility = 1.0;
-    for (var sample = 0u; sample < 16u; sample++) {
+    for (var sample = 0u; sample < 256u; sample++) {
         if (travel >= reach) { break; }
         let q = uv + direction.xy * travel * min(dims.x, dims.y) / dims;
         if (any(q <= vec2<f32>(0.0)) || any(q >= vec2<f32>(1.0))) { break; }
         let surface = textureSampleLevel(relight_depth_texture, flare_sampler, q, 0.0);
-        if (surface.a < 0.9) { break; }
+        if (surface.a < 0.995) { break; }
         let occluder = surface.z * height_scale;
         let clearance = height + direction.z * travel - occluder;
         let penumbra = 0.0008 + softness * travel * 0.18;
         visibility = min(visibility, smoothstep(-penumbra, penumbra, clearance + 0.001));
-        step *= 1.35;
+        if (visibility <= 0.0) { break; }
+        step = min(step * 1.03, max_step);
         travel += step;
     }
-    return mix(1.0, visibility, smoothstep(0.9, 1.0, receiver));
+    return mix(1.0, visibility, smoothstep(0.99, 1.0, receiver));
 }
 
 fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
@@ -4330,8 +4334,10 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
                 }
                 let wrap = shape.w * 0.2;
                 response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
-                let visibility = relight_visibility(uv, depth_value * height_scale, direction, reach, height_scale, shape.z, dims);
-                response *= mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
+                if (response > 0.0 && settings.z > 0.0) {
+                    let visibility = relight_visibility(uv, depth_value * height_scale, direction, reach, height_scale, shape.z, dims);
+                    response *= mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
+                }
             }
         }
         let transmission = select(mix(mask, 1.0, shape.w), mix(1.0, mask, settings.z), surface_lighting);
