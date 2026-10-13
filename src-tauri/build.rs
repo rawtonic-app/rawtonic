@@ -83,7 +83,7 @@ fn main() {
     // (file in the model pack, name in resources/, SHA-256). Windows and
     // Linux get ONNX Runtime 1.30.0 and its WebGPU plugin 0.4.0 (GPU AI,
     // docs/decisions/0011-gpu-ai.md; plugins need 1.24.4 or later); macOS
-    // keeps 1.22.0 (Core ML is its fast path; 1.30 has no Intel build).
+    // uses 1.23.2 (Core ML is its fast path; 1.30 has no Intel build).
     // All are Microsoft's release files, unchanged (docs/MODELS.md).
     let files: &[(&str, &str, &str)] = match (target_os.as_str(), target_arch.as_str()) {
         ("windows", "x86_64") => &[
@@ -135,14 +135,14 @@ fn main() {
             ),
         ],
         ("macos", "x86_64") => &[(
-            "libonnxruntime-macos-x86_64.dylib",
+            "libonnxruntime-1.23.2-macos-x86_64.dylib",
             "libonnxruntime.dylib",
-            "283e595e61cf65df7a6b1d59a1616cbd35c8b6399dd90d799d99b71a3ff83160",
+            "8c9c78de65ea3786f987c0d980e9c1b13a3a5fbc6b3e2965ba05b450e6e4c054",
         )],
         ("macos", "aarch64") => &[(
-            "libonnxruntime-macos-aarch64.dylib",
+            "libonnxruntime-1.23.2-macos-aarch64.dylib",
             "libonnxruntime.dylib",
-            "2b885992d3d6fa4130d39ec84a80d7504ff52750027c547bb22c86165f19406a",
+            "d306d2bc768540766c7ed8a1e0ff05d2870c77a934ebeee4a7bafa1b732ef299",
         )],
         ("android", "aarch64") => &[(
             "libonnxruntime-android-arm64-v8a.so",
@@ -209,6 +209,8 @@ fn main() {
     // the WebGPU plugin) ship beside it.
     let notices = if files[0].0.contains("1.30.0") {
         "onnxruntime-1.30.0-ThirdPartyNotices.txt"
+    } else if files[0].0.contains("1.23.2") {
+        "onnxruntime-1.23.2-ThirdPartyNotices.txt"
     } else {
         "onnxruntime-ThirdPartyNotices.txt"
     };

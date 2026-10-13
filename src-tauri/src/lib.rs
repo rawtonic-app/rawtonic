@@ -733,6 +733,7 @@ pub fn run() {
             ai_commands::generate_ai_foreground_mask,
             ai_commands::generate_ai_sky_mask,
             ai_commands::generate_full_image_depth_map,
+            ai_commands::generate_relight_depth,
             ai_commands::cancel_ai_task,
             ai_faces::detect_people,
             ai_faces::generate_ai_people_mask,

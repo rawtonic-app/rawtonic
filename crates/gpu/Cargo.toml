@@ -28,4 +28,5 @@ log = "0.4"
 pollster = "1.0"
 
 [dev-dependencies]
+base64 = "0.23"
 rawtonic-engine = { path = "../engine", version = "0.1.0", features = ["test-support"] }

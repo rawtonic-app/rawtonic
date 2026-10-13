@@ -2860,6 +2860,10 @@ pub struct GlobalAdjustments {
     /// Linear sRGB → the proofed space's linear RGB, and back.
     pub proof_matrix: GpuMat3,
     pub proof_inverse: GpuMat3,
+    /// Four projected lights, four aligned vec4s each (relight.rs).
+    pub relight: [[f32; 4]; 16],
+    pub relight_depth: [u32; 4],
+    pub relight_surface: [f32; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3818,6 +3822,22 @@ fn get_global_adjustments_from_json(
         output_matrix: GpuMat3::default(),
         proof_matrix: proof_matrices(js_adjustments).0,
         proof_inverse: proof_matrices(js_adjustments).1,
+        relight: crate::relight::gpu_lights(js_adjustments),
+        relight_depth: crate::relight::register_depth(js_adjustments),
+        relight_surface: [
+            (js_adjustments["relightDepthAmount"]
+                .as_f64()
+                .unwrap_or(60.0)
+                .clamp(0.0, 100.0)
+                / 100.0) as f32,
+            (js_adjustments["relightOriginalLight"]
+                .as_f64()
+                .unwrap_or(100.0)
+                .clamp(0.0, 100.0)
+                / 100.0) as f32,
+            0.,
+            0.,
+        ],
     };
     if modern_grading(global.tonemapper_mode) && is_visible("color") {
         // The Standard and Camera Raw looks use Camera Raw's calibration.

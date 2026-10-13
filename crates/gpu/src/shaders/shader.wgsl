@@ -178,6 +178,9 @@ struct GlobalAdjustments {
     output_matrix: mat3x3<f32>,
     proof_matrix: mat3x3<f32>,
     proof_inverse: mat3x3<f32>,
+    relight: array<vec4<f32>, 16>,
+    relight_depth: vec4<u32>,
+    relight_surface: vec4<f32>,
 }
 
 struct MaskAdjustments {
@@ -263,6 +266,7 @@ struct AllAdjustments {
 @group(0) @binding(9) var structure_blur_texture: texture_2d<f32>;
 // Blur of sigma 1 px for the luminance noise reduction's finest band.
 @group(0) @binding(17) var nr_blur_texture: texture_2d<f32>;
+@group(0) @binding(18) var relight_depth_texture: texture_2d<f32>;
 
 @group(0) @binding(10) var flare_texture: texture_2d<f32>;
 @group(0) @binding(11) var flare_sampler: sampler;
@@ -4153,6 +4157,94 @@ fn apply_glow_bloom(
     return color + bloom_color * amount * 3.8 * protection;
 }
 
+// Projected light masks, evaluated in photograph coordinates for matching
+// full-frame, tiled export and preview. Own analytic patterns, no bitmap assets.
+fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32 {
+    let edge = max(0.002 + softness * 0.22, pixel);
+    let cell = abs(fract(p) - vec2<f32>(0.5));
+    switch pattern {
+        case 1u: { return 1.0 - smoothstep(0.23 - edge, 0.23 + edge, cell.y); }
+        case 2u: {
+            let box = 1.0 - smoothstep(0.47 - edge, 0.47 + edge, max(abs(p.x), abs(p.y)));
+            let bars = smoothstep(0.025 - edge, 0.025 + edge, min(abs(p.x), abs(p.y)));
+            return box * bars;
+        }
+        case 3u: { return 1.0 - smoothstep(0.15 - edge, 0.15 + edge, abs(p.y)); }
+        case 4u: {
+            // Smooth multiscale canopy shapes, deterministic at every resolution.
+            let canopy = sin(p.x * 17.0 + sin(p.y * 11.0)) * sin(p.y * 19.0 - cos(p.x * 7.0))
+                + 0.35 * sin(p.x * 39.0 + p.y * 29.0);
+            return smoothstep(-0.12 - edge * 4.0, 0.12 + edge * 4.0, canopy);
+        }
+        case 5u: { return smoothstep(0.07 - edge, 0.07 + edge, min(cell.x, cell.y)); }
+        default: { return 1.0; }
+    }
+}
+
+fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
+    var normal = vec3<f32>(0.0, 0.0, 1.0);
+    let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && adjustments.global.relight_surface.x > 0.0;
+    var depth_value = 0.0;
+    if (has_depth) {
+        let surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0).rgb;
+        let slope = surface.xy * min(dims.x, dims.y) / dims;
+        depth_value = surface.z;
+        normal = normalize(vec3<f32>(-slope * adjustments.global.relight_surface.x * 2.0, 1.0));
+    }
+    var light_gain = vec3<f32>(0.0);
+    var shadow_ev = 0.0;
+    var has_light = false;
+    for (var i = 0u; i < 4u; i++) {
+        let color = adjustments.global.relight[i * 4u];
+        if (color.w <= 0.0) { continue; }
+        has_light = true;
+        let placement = adjustments.global.relight[i * 4u + 1u];
+        let shape = adjustments.global.relight[i * 4u + 2u];
+        let settings = adjustments.global.relight[i * 4u + 3u];
+        let delta = (uv - placement.xy) * dims / min(dims.x, dims.y);
+        let c = cos(shape.x);
+        let s = sin(shape.x);
+        // Project onto the inferred height field, so gobo stripes bend over
+        // faces/objects instead of remaining a flat overlay. No extra samples.
+        var projected = delta;
+        if (has_depth) {
+            let height = depth_value * adjustments.global.relight_surface.x * 0.25;
+            let travel = min(cos(settings.w) / max(sin(settings.w), 0.15), 3.0);
+            projected += vec2<f32>(-s, c) * height * travel;
+        }
+        let p = vec2<f32>(c * projected.x + s * projected.y, -s * projected.x + c * projected.y) / shape.y;
+        let pixel = 1.0 / (min(dims.x, dims.y) * shape.y);
+        var mask = relight_pattern(p, u32(settings.x), shape.z, pixel);
+        if (settings.y > 0.5) { mask = 1.0 - mask; }
+        let radius = length(delta) / placement.z;
+        let spot = 1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, radius);
+        let footprint = select(1.0, spot, placement.w > 0.5);
+        var response = 1.0;
+        if (has_depth) {
+            let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
+            let spot_direction = normalize(vec3<f32>(-delta, sin(settings.w) + depth_value * 0.4));
+            let direction = select(sun_direction, spot_direction, placement.w > 0.5);
+            response = mix(max(dot(normal, direction), 0.0), 1.0, shape.w);
+        }
+        let illumination = mix(mask, 1.0, shape.w) * footprint * response;
+        light_gain += color.rgb * color.w * illumination;
+        shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
+    }
+    // Multiplicative illumination preserves photographic texture and black;
+    // accumulate lights commutatively so reordering does not change the result.
+    let original = select(1.0, adjustments.global.relight_surface.y, has_light);
+    let gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
+    if (adjustments.global.is_raw_image == 0u && has_light) {
+        // Already-rendered photos have no scene highlight headroom. Roll off
+        // added light continuously, preserving texture instead of clipping it.
+        let base = rgb * min(gain, vec3<f32>(1.0));
+        let extra = rgb * max(gain - vec3<f32>(1.0), vec3<f32>(0.0));
+        let room = max(vec3<f32>(1.0) - base, vec3<f32>(0.00001));
+        return base + room * (vec3<f32>(1.0) - exp(-extra / room));
+    }
+    return rgb * gain;
+}
+
 fn apply_halation(
     color: vec3<f32>,
     blurred_color_input_space: vec3<f32>,
@@ -4583,6 +4675,7 @@ fn main(
         locally_contrasted_rgb = apply_camera_profile(locally_contrasted_rgb);
     }
     var processed_rgb = apply_linear_exposure(locally_contrasted_rgb, t_exposure);
+    processed_rgb = apply_relight(processed_rgb, vec2<f32>(absolute_coord) / full_dims, full_dims);
 
     if (t_glow > 0.0) {
         processed_rgb = apply_glow_bloom(

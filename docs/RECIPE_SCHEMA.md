@@ -25,3 +25,29 @@ Drawn mask frames (2026-10-10, `crates/engine/src/mask_generation.rs` `ShapeFram
 Frame sizes (2026-10-11): `width` and `height` may be absent (frames stamped by the backend, which does not decode the photo); such a frame is in the size of the photo it is on. A frame whose size differs from the photo's own size by a pixel or more (a mask copied, synced or saved in a preset from a photo of another size) places the shape proportionally, as Lightroom keeps its masks relative to the photo: every point at the same fraction of the photo's own width and height (pixel index i of n at (i + 0.5) / n), a radial's first radius along its carried axis and its second so that the ellipse's area scales with the photo's, a linear's `range` and `rangeEnd` as distances from the carried central line, a stroke's `brushSize` by the square root of the area ratio. Copying settings, syncing them and saving a preset give the drawn masks they take along the frame of their photo (`frameDrawnMasks`; its size when it is the open photo). Frames recorded with the same size, and shapes without a frame, render as before.
 
 Masks read from the photo's own frame (AI masks, colour and luminance ranges, the luma range, colour samples, Auto Mask strokes) take, on a straightened photo, the photo's pixel nearest the point the straightened photo is resampled at (since 2026-10-11; they rounded that point down before, half a pixel off on average).
+
+## Relight
+
+`relightLights` holds up to four non-generative projected lights. Each has an
+`id`, `enabled`, `type` (`sun` or `spot`), sRGB hex `color`, `intensity` (0–100),
+`x`/`y` (0–100 percent of the developed frame), `size` (5–200), `rotation`
+(−180…180 degrees), `elevation` (5–90 degrees), `scale` (5–200), `softness`,
+`diffusion`, `shadows` (all 0–100), `pattern` (`none`, `blinds`, `window`,
+`strip`, `foliage`, `grid`) and `invert`. Missing lights are identity.
+`sectionVisibility.relight=false` bypasses all lighting without losing settings.
+`relightOriginalLight` (0–100, default 100) scales the existing illumination
+when at least one light has nonzero intensity. It does not reconstruct albedo
+or remove the original light direction.
+
+Optional `relightDepth` contains `{data, geometry}`: a 16-bit grayscale PNG data
+URL at inference resolution, and the geometry parameters at analysis time
+(engine `relight::geometry`). The bitmap is already coarsely rotated/flipped
+into the GPU input frame. Straightening and crop are applied later, like the
+photo. A geometry mismatch disables depth until the user analyzes again.
+`relightDepthAmount` (0–100, default 60) controls normal strength; zero uses
+projected lighting. Surface gradients are computed once from smoothed 16-bit
+depth, packed in a GPU texture, and reused for light edits. Depth is specific to
+the photograph and excluded from copy/paste and presets; light settings are
+copyable. No model inference or network request is needed to reopen or export
+a recipe containing a depth map. The feature does not synthesize photo pixels
+and does not add an AI patch.

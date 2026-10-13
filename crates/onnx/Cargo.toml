@@ -9,7 +9,7 @@ description = "ONNX Runtime sessions for Rawtonic's AI models: GPU execution pro
 anyhow.workspace = true
 libloading = "0.8"
 log = "0.4"
-ort = { version = "=2.0.0-rc.10", features = ["ndarray", "load-dynamic"] }
+ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 
 [dev-dependencies]
-ndarray = "0.16"
+ndarray = "0.17"

@@ -212,7 +212,9 @@ pub(crate) fn load(path: &Path) -> Result<String, RuntimeError> {
     let version = check_library(path)?;
     // `ort` loads this file from now on (its environment is created on
     // first use, as before).
-    drop(ort::init_from(path.to_string_lossy()));
+    ort::init_from(path).map_err(|error| {
+        RuntimeError::unusable(format!("ONNX Runtime at {shown} could not start: {error}"))
+    })?;
     match std::panic::catch_unwind(|| {
         ort::api();
     }) {
@@ -252,10 +254,15 @@ fn check_library(path: &Path) -> Result<String, RuntimeError> {
         .nth(1)
         .and_then(|m| m.parse::<u32>().ok())
         .unwrap_or(0);
-    if minor < ort::MINOR_VERSION {
+    let required_minor = if cfg!(target_os = "macos") {
+        23
+    } else {
+        ort::MINOR_VERSION
+    };
+    if minor < required_minor {
         return Err(RuntimeError::unusable(format!(
             "ONNX Runtime {version} at {shown} is too old: 1.{}.0 or later is needed",
-            ort::MINOR_VERSION
+            required_minor
         )));
     }
     Ok(version)

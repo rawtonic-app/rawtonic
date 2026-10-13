@@ -55,6 +55,7 @@ import type { TatTarget } from "../../utils/targetedAdjustment";
 import StudioHistogram from "./StudioHistogram";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
 import StudioLut from "./StudioLut";
+import StudioRelight from "./StudioRelight";
 import StudioCropControls from "./StudioCropControls";
 import StudioPresets from "./StudioPresets";
 import StudioLensCorrection from "./StudioLensCorrection";
@@ -1695,6 +1696,34 @@ export default function StudioDevelop() {
               {control(t("studio.develop.sliders.lightFlare"), "flareAmount", 0)}
               <div className="studio-subheading">LUT</div>
               <StudioLut disabled={!panelsReady} onInteraction={onInteraction} />
+            </ToolGroup>
+          )}
+          {inTab("all") && !layer && (
+            <ToolGroup
+              key="relight"
+              title="Relight"
+              label={t("studio.relight.title")}
+              open={false}
+              toggle={toolSwitch("relight")}
+              copy={photoOnly([
+                ["relightLights", t("studio.relight.title")],
+                ["relightOriginalLight", t("studio.relight.originalLight")],
+                ["relightDepthAmount", t("studio.relight.depthAmount")],
+              ])}
+              onReset={() =>
+                change({
+                  relightLights: [],
+                  relightDepth: undefined,
+                  relightDepthAmount: 60,
+                  relightOriginalLight: 100,
+                })
+              }
+            >
+              <StudioRelight
+                key={selectedImage?.path}
+                disabled={!panelsReady}
+                onInteraction={onInteraction}
+              />
             </ToolGroup>
           )}
           <StudioHistory key="history" />

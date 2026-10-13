@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow};
 use ort::session::Session;
-use ort::tensor::TensorElementType;
+use ort::value::TensorElementType;
 use ort::value::{DynValue, Tensor, ValueType};
 
 use crate::{Model, ModelKind, Provider};
@@ -141,7 +141,7 @@ pub fn bench_file(
             return Ok(report);
         }
     };
-    report.gpu_device = crate::device(gpu, dirs).ok().map(|d| d.label);
+    report.gpu_device = crate::device(gpu, dirs).ok().map(|d| d.label.clone());
     match time_runs(&gpu_model, &inputs, runs, gpu_load) {
         Ok((gpu_outputs, timing)) => {
             report.gpu = Some(timing);
@@ -242,11 +242,11 @@ pub(crate) fn inputs_for(
             (seed >> 40) as f32 / (1u64 << 24) as f32
         };
         let mut inputs = Vec::new();
-        for input in &session.inputs {
-            let ValueType::Tensor { ty, shape, .. } = &input.input_type else {
-                return Err(anyhow!("{}: not a tensor input", input.name));
+        for input in session.inputs() {
+            let ValueType::Tensor { ty, shape, .. } = input.dtype() else {
+                return Err(anyhow!("{}: not a tensor input", input.name()));
             };
-            let name = input.name.as_str();
+            let name = input.name();
             let mut dims: Vec<i64> = shape.iter().copied().collect();
             for (i, d) in dims.iter_mut().enumerate() {
                 if *d < 0 {

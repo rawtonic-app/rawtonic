@@ -3990,3 +3990,53 @@ body.is-dragging * {
   background: #3a3c40;
   color: #eef0f3;
 }
+
+.studio-relight-help {
+  color: var(--studio-muted);
+  font-size: 11px;
+  line-height: 1.5;
+  margin: 6px 0 10px;
+}
+.studio-relight-lights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.studio-relight-lights button,
+.studio-relight-actions button,
+.studio-relight-analyze {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--studio-line);
+  border-radius: 4px;
+}
+.studio-relight-lights button[aria-pressed="true"] {
+  outline: 1px solid var(--studio-accent);
+  background: var(--studio-raised);
+}
+.studio-relight-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.studio-relight-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+.studio-relight input[type="color"] {
+  width: 40px;
+  height: 25px;
+  padding: 2px;
+}
+.studio-relight-analyze {
+  width: 100%;
+  margin-bottom: 8px;
+}
