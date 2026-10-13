@@ -145,6 +145,35 @@ describe("Missing Photographs", () => {
   });
 });
 
+describe("Previous Import", () => {
+  it("lists the newest import batch while it holds photographs and follows new imports", async () => {
+    await renderTool();
+    expect(screen.queryByText("Previous Import")).toBeNull();
+    cleanup();
+
+    let paths = ["/job/Capture/n1.arw", "/job/Capture/n2.arw"];
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) =>
+      command === "session_previous_import"
+        ? { batch: { id: 3, kind: "sync", created_at: "2026-10-13 10:00:00", count: paths.length }, paths }
+        : base(command, args),
+    );
+    const select = await renderTool();
+    const row = screen.getByText("Previous Import").closest("button")!;
+    expect(row.textContent).toContain("2");
+    await act(async () => {
+      fireEvent.click(row);
+    });
+    expect(select).toHaveBeenCalledWith("session-previous-import", "Previous Import", paths, false);
+    // A new ingest: the count follows.
+    paths = ["/job/Capture/n3.arw"];
+    await act(async () => {
+      window.dispatchEvent(new Event("rawtonic:imports-changed"));
+    });
+    expect(screen.getByText("Previous Import").closest("button")!.textContent).toContain("1");
+  });
+});
+
 describe("album groups", () => {
   const tree: SessionAlbum[] = [
     { id: "g", name: "Client", parent: null, count: 0, kind: "group" },

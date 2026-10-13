@@ -724,6 +724,8 @@ mod tests {
             (rawtonic_catalog::ImportKind::Ingest, 3)
         );
         assert_eq!(lib.previous_import_assets().unwrap().len(), 3);
+        // The verified copies' hashes are on record for Synchronize Folder.
+        assert_eq!(lib.checksum_backlog().unwrap(), 0);
         // Again: all duplicates, nothing added, no new batch.
         import_batch(
             &lib,

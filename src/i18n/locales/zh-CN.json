@@ -891,6 +891,57 @@
       "failed": "无法打开上次的图库：{{error}}",
       "opening": "正在打开 {{name}}（{{directory}}）… 如果 macOS 请求访问此宗卷，请允许。"
     },
+    "sync": {
+      "applied": "已移动 {{moved}} · 已添加 {{added}} · 已移除 {{removed}}",
+      "apply": "应用（{{n}}）",
+      "cancel": "取消",
+      "cancelling": "正在取消…",
+      "checking": "正在检查图库未知的文件 · {{done}} / {{total}}",
+      "choice": {
+        "add": "一张新照片",
+        "addCopy": "一张新照片（{{of}} 的副本）",
+        "moved": "是 {{path}}，已移动（可能）",
+        "movedVerified": "是 {{path}}，已移动（已验证）",
+        "skip": "暂时不处理"
+      },
+      "chooseFirst": "请先为每个有争议的文件作出选择（剩余：{{n}}）。",
+      "chooseFolder": "同步哪个文件夹？",
+      "copyOf": "{{path}}（与 {{of}} 相同）",
+      "counted": "{{selected}} / {{total}}",
+      "filesUnchanged": "磁盘上的文件不会被更改。",
+      "found": "已检查 {{n}} 个照片文件。只应用勾选的更改。",
+      "groups": {
+        "contested": "需要你选择",
+        "copies": "图库中照片的副本",
+        "errors": "无法读取",
+        "newFiles": "新照片",
+        "probableMoves": "可能已移动或重命名",
+        "removed": "缺失的照片",
+        "unavailable": "不可用",
+        "verifiedMoves": "已移动或重命名（已验证）"
+      },
+      "hints": {
+        "contested": "此文件可能是几张照片之一，或是副本。请选择它是什么。",
+        "copies": "与仍然存在的照片字节相同。仅在勾选时作为单独照片添加。",
+        "errors": "已跳过。",
+        "newFiles": "连同其 XMP 或编辑附属文件中的内容一起添加。",
+        "probableMoves": "大小和内容抽样一致，但没有完整校验和记录可以证明。请勾选你认得的。",
+        "removed": "其文件已不在，也没有找到对应文件。勾选的照片会连同编辑、评级和相册一起从图库移除。文件永远不会被删除。",
+        "unavailable": "位于未连接的驱动器上或无法读取的文件夹中。保持原样。",
+        "verifiedMoves": "与照片文件逐字节相同：在新位置保留编辑、评级、关键字和相册。"
+      },
+      "inSync": "一切已同步：已检查 {{n}} 个照片文件，无需更改。",
+      "listing": "正在查找照片… 已找到 {{n}} 张",
+      "menu": "同步文件夹…",
+      "more": "… 另有 {{n}} 个",
+      "onVolume": "位于“{{volume}}”",
+      "readOnly": "扫描只读取文件。",
+      "selectGroup": "全选：{{group}}",
+      "skipped": "因扫描后有变化而跳过：{{n}}",
+      "title": "同步文件夹",
+      "toChoose": "待选择：{{n}}",
+      "wholeLibrary": "整个图库"
+    },
     "toasts": {
       "added_other": "已添加 {{count}} 张照片",
       "addedToAlbum": "已添加到 {{name}}",
@@ -2093,6 +2144,8 @@
         "newAlbumName": "新相册名称",
         "newGroupName": "新组名称",
         "newTitle": "新建相册或组",
+        "previousImport": "上次导入",
+        "previousImportTitle": "最近一次导入、添加或同步文件夹所添加的照片",
         "renameLabel": "重命名 {{name}}",
         "title": "相册",
         "toasts": {

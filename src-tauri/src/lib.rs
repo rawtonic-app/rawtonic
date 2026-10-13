@@ -35,6 +35,7 @@ mod export_processing;
 mod export_queue;
 mod file_management;
 mod file_operations;
+mod folder_sync;
 mod gpu_processing;
 mod guided_perspective;
 mod hot_folder;
@@ -680,6 +681,10 @@ pub fn run() {
             session_bridge::session_offline,
             session_bridge::session_relink,
             session_bridge::session_relink_folder,
+            folder_sync::folder_sync_scan,
+            folder_sync::folder_sync_cancel,
+            folder_sync::folder_sync_apply,
+            folder_sync::session_previous_import,
             session_bridge::catalog_folders,
             session_bridge::session_flags,
             editor_preview::apply_adjustments,

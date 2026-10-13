@@ -84,6 +84,16 @@ describe("folder menu", () => {
     expect(row("/job/Selects/Day 1").dataset.folderDrop).toBe("/job/Selects/Day 1");
   });
 
+  it("synchronizes a folder of the session from its menu", () => {
+    const requested = vi.fn();
+    const listener = (e: Event) => requested((e as CustomEvent).detail);
+    window.addEventListener("rawtonic:open-folder-sync", listener);
+    openMenu("/job/Selects/Day 1");
+    fireEvent.click(item("Synchronize Folder…"));
+    expect(requested).toHaveBeenCalledWith({ folder: "/job/Selects/Day 1" });
+    window.removeEventListener("rawtonic:open-folder-sync", listener);
+  });
+
   it("keeps the session's own folders from being renamed or trashed", () => {
     openMenu("/job/Selects");
     expect(item(/Rename Folder/)).toHaveProperty("disabled", true);

@@ -916,6 +916,57 @@
       "failed": "Die letzte Bibliothek konnte nicht geöffnet werden: {{error}}",
       "opening": "{{name}} wird geöffnet ({{directory}})… Wenn macOS nach dem Zugriff auf dieses Volume fragt, erlauben Sie ihn."
     },
+    "sync": {
+      "applied": "Verschoben {{moved}} · Hinzugefügt {{added}} · Entfernt {{removed}}",
+      "apply": "Übernehmen ({{n}})",
+      "cancel": "Abbrechen",
+      "cancelling": "Wird abgebrochen…",
+      "checking": "Dateien prüfen, die die Bibliothek nicht kennt · {{done}} von {{total}}",
+      "choice": {
+        "add": "Ein neues Foto",
+        "addCopy": "Ein neues Foto (eine Kopie von {{of}})",
+        "moved": "Es ist {{path}}, verschoben (wahrscheinlich)",
+        "movedVerified": "Es ist {{path}}, verschoben (geprüft)",
+        "skip": "Vorerst lassen"
+      },
+      "chooseFirst": "Erst für jede strittige Datei wählen (offen: {{n}}).",
+      "chooseFolder": "Welchen Ordner synchronisieren?",
+      "copyOf": "{{path}} (gleich wie {{of}})",
+      "counted": "{{selected}} von {{total}}",
+      "filesUnchanged": "Dateien auf der Festplatte bleiben unverändert.",
+      "found": "{{n}} Fotodateien geprüft. Nur die angehakten Änderungen werden übernommen.",
+      "groups": {
+        "contested": "Ihre Wahl nötig",
+        "copies": "Kopien von Fotos der Bibliothek",
+        "errors": "Nicht lesbar",
+        "newFiles": "Neue Fotos",
+        "probableMoves": "Wahrscheinlich verschoben oder umbenannt",
+        "removed": "Fehlende Fotos",
+        "unavailable": "Nicht verfügbar",
+        "verifiedMoves": "Verschoben oder umbenannt (geprüft)"
+      },
+      "hints": {
+        "contested": "Diese Datei könnte eines von mehreren Fotos oder eine Kopie sein. Wählen Sie, was sie ist.",
+        "copies": "Dieselben Bytes wie ein Foto, das noch da ist. Nur angehakt als eigene Fotos hinzugefügt.",
+        "errors": "Übersprungen.",
+        "newFiles": "Werden mit dem Inhalt ihrer XMP- oder Editor-Begleitdateien hinzugefügt.",
+        "probableMoves": "Größe und Stichproben des Inhalts stimmen, aber keine vollständige Prüfsumme belegt es. Haken Sie die an, die Sie erkennen.",
+        "removed": "Ihre Dateien fehlen und es wurde nichts für sie gefunden. Angehakte werden mit Bearbeitungen, Bewertungen und Albumzugehörigkeit aus der Bibliothek entfernt. Dateien werden nie gelöscht.",
+        "unavailable": "Auf einem nicht verbundenen Laufwerk oder in einem nicht lesbaren Ordner. Sie bleiben, wie sie sind.",
+        "verifiedMoves": "Byte für Byte die Datei des Fotos: Es behält Bearbeitungen, Bewertungen, Stichwörter und Alben am neuen Ort."
+      },
+      "inSync": "Alles ist synchron: {{n}} Fotodateien geprüft, nichts zu ändern.",
+      "listing": "Fotos werden gesucht… {{n}} gefunden",
+      "menu": "Ordner synchronisieren…",
+      "more": "… und {{n}} weitere",
+      "onVolume": "auf „{{volume}}“",
+      "readOnly": "Die Suche liest Dateien nur.",
+      "selectGroup": "Alle auswählen: {{group}}",
+      "skipped": "Übersprungen, weil sich seit der Suche etwas geändert hat: {{n}}",
+      "title": "Ordner synchronisieren",
+      "toChoose": "Noch zu wählen: {{n}}",
+      "wholeLibrary": "Die ganze Bibliothek"
+    },
     "toasts": {
       "added_one": "{{count}} Foto hinzugefügt",
       "added_other": "{{count}} Fotos hinzugefügt",
@@ -2140,6 +2191,8 @@
         "newAlbumName": "Name des neuen Albums",
         "newGroupName": "Name der neuen Gruppe",
         "newTitle": "Neues Album oder neue Gruppe",
+        "previousImport": "Letzter Import",
+        "previousImportTitle": "Die Fotos, die der letzte Import, „Hinzufügen“ oder „Ordner synchronisieren“ aufgenommen hat",
         "renameLabel": "{{name}} umbenennen",
         "title": "Alben",
         "toasts": {

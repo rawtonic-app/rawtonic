@@ -959,6 +959,57 @@
       "failed": "No s’ha pogut obrir l’última biblioteca: {{error}}",
       "opening": "S’està obrint {{name}} ({{directory}})… Si el macOS demana accés a aquest volum, permet-lo."
     },
+    "sync": {
+      "applied": "Mogudes {{moved}} · Afegides {{added}} · Tretes {{removed}}",
+      "apply": "Aplica ({{n}})",
+      "cancel": "Cancel·la",
+      "cancelling": "Cancel·lant…",
+      "checking": "Comprovant fitxers que la biblioteca no coneix · {{done}} de {{total}}",
+      "choice": {
+        "add": "Una foto nova",
+        "addCopy": "Una foto nova (còpia de {{of}})",
+        "moved": "És {{path}}, moguda (probable)",
+        "movedVerified": "És {{path}}, moguda (verificat)",
+        "skip": "Deixa-ho de moment"
+      },
+      "chooseFirst": "Tria primer per a cada fitxer en conflicte (en queden: {{n}}).",
+      "chooseFolder": "Quina carpeta vols sincronitzar?",
+      "copyOf": "{{path}} (igual que {{of}})",
+      "counted": "{{selected}} de {{total}}",
+      "filesUnchanged": "Els fitxers del disc no canvien.",
+      "found": "{{n}} fitxers de foto examinats. Només s’apliquen els canvis marcats.",
+      "groups": {
+        "contested": "Cal que triïs",
+        "copies": "Còpies de fotos de la biblioteca",
+        "errors": "No s’han pogut llegir",
+        "newFiles": "Fotos noves",
+        "probableMoves": "Probablement mogudes o reanomenades",
+        "removed": "Fotos que falten",
+        "unavailable": "No disponibles",
+        "verifiedMoves": "Mogudes o reanomenades (verificat)"
+      },
+      "hints": {
+        "contested": "Aquest fitxer podria ser una de diverses fotos, o una còpia. Tria què és.",
+        "copies": "Els mateixos bytes que una foto que encara hi és. S’afegeixen com a fotos separades només si es marquen.",
+        "errors": "Omesos.",
+        "newFiles": "S’afegeixen amb el que contenen els seus fitxers XMP o d’edició.",
+        "probableMoves": "La mida i mostres del contingut coincideixen, però cap suma de verificació completa ho demostra. Marca les que reconeguis.",
+        "removed": "Els seus fitxers ja no hi són i no s’ha trobat res. Les marcades es treuen de la biblioteca amb els ajustos, valoracions i àlbums. Els fitxers no s’esborren mai.",
+        "unavailable": "En un disc desconnectat o en una carpeta il·legible. Es queden com estan.",
+        "verifiedMoves": "Byte a byte el fitxer de la foto: conserva els ajustos, valoracions, paraules clau i àlbums al nou lloc."
+      },
+      "inSync": "Tot està sincronitzat: {{n}} fitxers de foto examinats, res a canviar.",
+      "listing": "Cercant fotos… {{n}} trobades",
+      "menu": "Sincronitza la carpeta…",
+      "more": "… i {{n}} més",
+      "onVolume": "a «{{volume}}»",
+      "readOnly": "L’anàlisi només llegeix fitxers.",
+      "selectGroup": "Selecciona-ho tot: {{group}}",
+      "skipped": "Omeses perquè alguna cosa ha canviat des de l’anàlisi: {{n}}",
+      "title": "Sincronitza la carpeta",
+      "toChoose": "Per triar: {{n}}",
+      "wholeLibrary": "Tota la biblioteca"
+    },
     "toasts": {
       "added_one": "{{count}} fotografia afegida",
       "added_many": "{{count}} fotografies afegides",
@@ -2200,6 +2251,8 @@
         "newAlbumName": "Nom de l'àlbum nou",
         "newGroupName": "Nom del grup nou",
         "newTitle": "Àlbum o grup nou",
+        "previousImport": "Importació anterior",
+        "previousImportTitle": "Les fotos que ha afegit l’última importació, Afegeix o Sincronitza la carpeta",
         "renameLabel": "Canvia el nom de {{name}}",
         "title": "Àlbums",
         "toasts": {

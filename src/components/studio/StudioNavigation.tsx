@@ -16,6 +16,7 @@ import {
   FolderSearch,
   FolderX,
   HardDrive,
+  RefreshCcw,
   RefreshCw,
   Star,
   StarOff,
@@ -31,6 +32,7 @@ import {
   type OfflineFolder,
 } from "../../utils/offline";
 import { useContextMenu } from "../../context/ContextMenuContext";
+import { requestFolderSync } from "../../utils/folderSync";
 import {
   Invokes,
   OPTION_SEPARATOR,
@@ -225,6 +227,9 @@ function FolderRow({
           { type: OPTION_SEPARATOR },
         ]
       : [];
+    // A folder of the open library (a catalog reaches any folder) can be
+    // synchronized with what happened to it on disk.
+    const syncable = !!sessionRoot && (catalog || path === sessionRoot || isBelow(path, sessionRoot));
     showContextMenu(e.clientX, e.clientY, [
       ...(importable
         ? [
@@ -233,9 +238,18 @@ function FolderRow({
               icon: ArrowDownToLine,
               onClick: () => requestIngestInto(path),
             },
-            { type: OPTION_SEPARATOR },
           ]
         : []),
+      ...(syncable
+        ? [
+            {
+              label: t("session.sync.menu"),
+              icon: RefreshCcw,
+              onClick: () => requestFolderSync(path),
+            },
+          ]
+        : []),
+      ...(importable || syncable ? [{ type: OPTION_SEPARATOR }] : []),
       ...fileItems,
       {
         label: pinned

@@ -916,6 +916,57 @@
       "failed": "Last library could not open: {{error}}",
       "opening": "Opening {{name}} ({{directory}})… If macOS asks for access to this volume, allow it."
     },
+    "sync": {
+      "applied": "Moved {{moved}} · Added {{added}} · Removed {{removed}}",
+      "apply": "Apply ({{n}})",
+      "cancel": "Cancel",
+      "cancelling": "Cancelling…",
+      "checking": "Checking files the library does not know · {{done}} of {{total}}",
+      "choice": {
+        "add": "A new photograph",
+        "addCopy": "A new photograph (a copy of {{of}})",
+        "moved": "It is {{path}}, moved (probable)",
+        "movedVerified": "It is {{path}}, moved (verified)",
+        "skip": "Leave it for now"
+      },
+      "chooseFirst": "Choose for every contested file first (left: {{n}}).",
+      "chooseFolder": "Synchronize which folder?",
+      "copyOf": "{{path}} (same as {{of}})",
+      "counted": "{{selected}} of {{total}}",
+      "filesUnchanged": "Files on disk are not changed.",
+      "found": "{{n}} photograph files looked at. Only the ticked changes are applied.",
+      "groups": {
+        "contested": "Needs your choice",
+        "copies": "Copies of photographs in the library",
+        "errors": "Could not be read",
+        "newFiles": "New photographs",
+        "probableMoves": "Probably moved or renamed",
+        "removed": "Missing photographs",
+        "unavailable": "Not available",
+        "verifiedMoves": "Moved or renamed (verified)"
+      },
+      "hints": {
+        "contested": "This file could be one of several photographs, or a copy. Choose what it is.",
+        "copies": "The same bytes as a photograph that is still there. Added as separate photographs only when ticked.",
+        "errors": "Skipped.",
+        "newFiles": "Added with what their XMP or editor sidecars hold.",
+        "probableMoves": "Size and sampled content match, but no full checksum is on record to prove it. Tick the ones you recognise.",
+        "removed": "Their files are gone and nothing was found for them. Ticked ones are removed from the library with their edits, ratings and album memberships. Files are never deleted.",
+        "unavailable": "On a disconnected drive or in a folder that could not be read. They stay as they are.",
+        "verifiedMoves": "Byte for byte the photograph's file: it keeps its edits, ratings, keywords and albums at the new place."
+      },
+      "inSync": "Everything is in sync: {{n}} photograph files looked at, nothing to change.",
+      "listing": "Looking for photographs… {{n}} found",
+      "menu": "Synchronize Folder…",
+      "more": "… and {{n}} more",
+      "onVolume": "on “{{volume}}”",
+      "readOnly": "The scan only reads files.",
+      "selectGroup": "Select all: {{group}}",
+      "skipped": "Skipped because something changed since the scan: {{n}}",
+      "title": "Synchronize Folder",
+      "toChoose": "Left to choose: {{n}}",
+      "wholeLibrary": "The whole library"
+    },
     "toasts": {
       "added_one": "{{count}} photograph added",
       "added_other": "{{count}} photographs added",
@@ -2140,6 +2191,8 @@
         "newAlbumName": "New album name",
         "newGroupName": "New group name",
         "newTitle": "New album or group",
+        "previousImport": "Previous Import",
+        "previousImportTitle": "The photographs the latest ingest, Add or Synchronize Folder added",
         "renameLabel": "Rename {{name}}",
         "title": "Albums",
         "toasts": {

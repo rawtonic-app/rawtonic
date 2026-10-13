@@ -1,6 +1,7 @@
 import { validNamingTemplate, validSequenceStart } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
+import FolderSyncDialog from "./FolderSyncDialog";
 import {
   useCallback,
   useEffect,
@@ -25,6 +26,7 @@ import {
   FolderPlus as FolderAdd,
   HardDrive,
   Import,
+  RefreshCcw,
   LoaderCircle,
   X,
 } from "lucide-react";
@@ -40,7 +42,8 @@ import { withGrainStructure } from "../../utils/adjustments";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
-import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { DRIVES_CHANGED, OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
 import {
   OPEN_INGEST_EVENT,
@@ -217,6 +220,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [parent, setParent] = useState("");
   const [catalog, setCatalog] = useState(false);
   const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
+  /** Synchronize Folder's review dialog, for a folder (null: the whole library). */
+  const [syncing, setSyncing] = useState<{ folder: string | null } | null>(null);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
   const [importAfterCreate, setImportAfterCreate] = useState(false);
   const [sources, setSources] = useState<IngestCandidate[]>([]);
@@ -477,6 +482,27 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   }, [session]);
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
+  // The folder list's "Synchronize Folder…".
+  useEffect(() => {
+    const open = (e: Event) => setSyncing({ folder: (e as CustomEvent<OpenFolderSyncDetail>).detail.folder });
+    window.addEventListener(OPEN_FOLDER_SYNC_EVENT, open);
+    return () => window.removeEventListener(OPEN_FOLDER_SYNC_EVENT, open);
+  }, []);
+  /** The library menu's "Synchronize Folder…": which folder (the one shown, else the library's). */
+  const chooseFolderToSync = async () => {
+    if (!session) return;
+    try {
+      const picked = await open({
+        title: t("session.sync.chooseFolder"),
+        directory: true,
+        multiple: false,
+        defaultPath: useLibraryStore.getState().currentFolderPath ?? session.directory,
+      });
+      if (typeof picked === "string") setSyncing({ folder: picked });
+    } catch (e) {
+      toast.error(String(e));
+    }
+  };
   // A relink, or a check that found photographs gone or back, changes how
   // many photographs are offline.
   useEffect(() => {
@@ -836,6 +862,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       toast.error(String(e), { autoClose: false });
     } finally {
       setImporting(false);
+      window.dispatchEvent(new Event(IMPORTS_CHANGED));
     }
   };
 
@@ -882,6 +909,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   label: t("session.menu.importFrom"),
                   icon: Import,
                   onClick: startImport,
+                },
+                {
+                  label: t("session.sync.menu"),
+                  icon: RefreshCcw,
+                  disabled: !session,
+                  onClick: () => void chooseFolderToSync(),
                 },
                 { label: t("session.transfer.transfer"), icon: FolderOpen, disabled: !session || !!hotFolder,
                   onClick: () => setTransfer("transfer") },
@@ -1054,6 +1087,21 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             {t("session.drop.overlay", { name: session.manifest.name })}
           </span>
         </div>
+      )}
+      {syncing && session && (
+        <FolderSyncDialog
+          directory={session.directory}
+          folder={syncing.folder}
+          onClose={() => setSyncing(null)}
+          onApplied={() => {
+            // Moved, added and removed photographs: counts, folders, the
+            // grid, Missing Photographs and Previous Import follow.
+            void refresh().catch(() => {});
+            window.dispatchEvent(new Event(OFFLINE_CHANGED));
+            window.dispatchEvent(new Event(DRIVES_CHANGED));
+            window.dispatchEvent(new Event(IMPORTS_CHANGED));
+          }}
+        />
       )}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {

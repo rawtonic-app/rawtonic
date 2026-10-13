@@ -392,6 +392,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
             let _stage = crate::performance::PerformanceStage::new("session_remember");
             remember(&app, &lib.directory)?;
         }
+        crate::folder_sync::start_checksum_pass(lib.directory.clone());
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("session_summary");
         lib.summary().map_err(|e| e.to_string())
@@ -615,6 +616,7 @@ pub async fn session_ingest(
         return Err("An ingest is already running".into());
     }
     CANCEL_IMPORT.store(false, Ordering::Release);
+    let library = PathBuf::from(&directory);
     let result = tauri::async_runtime::spawn_blocking(move || {
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
         let sources: Vec<PathBuf> = sources.into_iter().map(PathBuf::from).collect();
@@ -666,6 +668,10 @@ pub async fn session_ingest(
     .await
     .map_err(|e| e.to_string());
     IMPORT_RUNNING.store(false, Ordering::Release);
+    // Photographs added where they are get their content hashes later.
+    if matches!(mode, Some(IngestMode::Add)) {
+        crate::folder_sync::start_checksum_pass(library);
+    }
     result?
 }
 #[tauri::command]
@@ -895,7 +901,7 @@ pub async fn session_set_text_metadata(
     .map_err(|e| e.to_string())?
 }
 
-fn with_library<T: Send + 'static>(
+pub(crate) fn with_library<T: Send + 'static>(
     directory: String,
     write: bool,
     work: impl FnOnce(&Library) -> Result<T, String> + Send + 'static,
@@ -1321,7 +1327,7 @@ impl rawtonic_catalog::folders::Probe for AppProbe {
 /// After a relink: previews move to the photograph's new place (cache files
 /// only, never replacing one), and the derived editor sidecar and XMP are
 /// written there from the library, as an edit writes them.
-fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkReport) {
+pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkReport) {
     for (from, to) in &report.relinked {
         crate::preview_proxy::carry_over(from, to);
         if let Ok(Some(asset)) = lib.asset_at(to) {
