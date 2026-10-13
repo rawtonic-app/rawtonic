@@ -200,36 +200,12 @@ fn develop_internal(
         decoder.raw_image(&source, &RawDecodeParams::default(), false)?
     };
 
-    let metadata = decoder.raw_metadata(&source, &RawDecodeParams::default())?;
-    // Canon CRW files keep their orientation in the CIFF ImageSpec record,
-    // which rawler does not read.
-    let orientation = crate::capture_info::phase_one_orientation(file_bytes)
-        .or(metadata.exif.orientation)
-        .or_else(|| crate::capture_info::crw_orientation(file_bytes))
-        .map(Orientation::from_u16)
-        .unwrap_or(Orientation::Normal);
-
-    use_mode_color_pattern(&mut raw_image);
-    let iso = metadata
-        .exif
-        .iso_speed_ratings
-        .map(u32::from)
-        .filter(|iso| *iso > 0)
-        .or_else(|| crate::capture_info::crw_iso(file_bytes));
-    // DNGs of the 300D (Adobe DNG Converter) carry the curve as their
-    // LinearizationTable, which rawler applies already.
-    if decoder.format_hint() != rawler::decoders::FormatHint::DNG {
-        linearize_canon_300d(&mut raw_image, iso);
-    }
-    apply_aspect_crop(&mut raw_image, file_bytes, decoder.format_hint());
-    if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
-        apply_dng_user_crop(&mut raw_image, decoder.as_ref());
-    }
+    let Prepared {
+        orientation,
+        gain_table_map_bytes,
+        ..
+    } = prepare_raw_image(decoder.as_ref(), &source, &mut raw_image, file_bytes)?;
     let is_linear_format = is_linear_raw_format(&raw_image);
-    let (gain_table_map_bytes, _, _) =
-        prepare_color(decoder.as_ref(), &mut raw_image, file_bytes, None);
-    log::info!("White balance multipliers {:?}", raw_image.wb_coeffs);
-    reconcile_black_level_count(&mut raw_image);
     let superccd = superccd_layout(&raw_image, file_bytes);
     let cfa_opcodes = read_dng_opcode_list(decoder.as_ref(), rawler::tags::DngTag::OpcodeList2);
     // A FixVignetteRadial in OpcodeList2 (Adobe DNG Converter files of
@@ -785,6 +761,60 @@ fn develop_internal(
     })
 }
 
+/// What `prepare_raw_image` resolved besides the changes to the raw image.
+pub(crate) struct Prepared {
+    pub metadata: rawler::decoders::RawMetadata,
+    pub orientation: Orientation,
+    pub iso: Option<u32>,
+    pub gain_table_map_bytes: Option<Vec<u8>>,
+}
+
+/// The decoded raw image as the development uses it: orientation, colour
+/// pattern fixes, linearisation, default crops, white balance and colour
+/// matrices, black levels. Shared by `develop_internal` and the decode
+/// fingerprint (fingerprint.rs), so both see the same facts.
+pub(crate) fn prepare_raw_image(
+    decoder: &dyn rawler::decoders::Decoder,
+    source: &RawSource,
+    raw_image: &mut RawImage,
+    file_bytes: &[u8],
+) -> Result<Prepared> {
+    let metadata = decoder.raw_metadata(source, &RawDecodeParams::default())?;
+    // Canon CRW files keep their orientation in the CIFF ImageSpec record,
+    // which rawler does not read.
+    let orientation = crate::capture_info::phase_one_orientation(file_bytes)
+        .or(metadata.exif.orientation)
+        .or_else(|| crate::capture_info::crw_orientation(file_bytes))
+        .map(Orientation::from_u16)
+        .unwrap_or(Orientation::Normal);
+
+    use_mode_color_pattern(raw_image);
+    let iso = metadata
+        .exif
+        .iso_speed_ratings
+        .map(u32::from)
+        .filter(|iso| *iso > 0)
+        .or_else(|| crate::capture_info::crw_iso(file_bytes));
+    // DNGs of the 300D (Adobe DNG Converter) carry the curve as their
+    // LinearizationTable, which rawler applies already.
+    if decoder.format_hint() != rawler::decoders::FormatHint::DNG {
+        linearize_canon_300d(raw_image, iso);
+    }
+    apply_aspect_crop(raw_image, file_bytes, decoder.format_hint());
+    if decoder.format_hint() == rawler::decoders::FormatHint::DNG {
+        apply_dng_user_crop(raw_image, decoder);
+    }
+    let (gain_table_map_bytes, _, _) = prepare_color(decoder, raw_image, file_bytes, None);
+    log::info!("White balance multipliers {:?}", raw_image.wb_coeffs);
+    reconcile_black_level_count(raw_image);
+    Ok(Prepared {
+        metadata,
+        orientation,
+        iso,
+        gain_table_map_bytes,
+    })
+}
+
 /// The part of a decoded buffer that rawler does not demosaic (linear and
 /// multi-channel files) which the developed image should keep: the active
 /// area, and the default crop where it lies inside it. Both rectangles are
@@ -956,7 +986,7 @@ fn canon_300d_linear(value: u32) -> u16 {
     (x + excess).round() as u16
 }
 
-fn is_canon_sraw(raw_image: &RawImage, file_bytes: &[u8]) -> bool {
+pub(crate) fn is_canon_sraw(raw_image: &RawImage, file_bytes: &[u8]) -> bool {
     // CR2 files carry "CR", version 2 after the TIFF header.
     file_bytes.get(8..11) == Some(b"CR\x02".as_slice())
         && raw_image.cpp == 3
@@ -968,7 +998,7 @@ fn is_canon_sraw(raw_image: &RawImage, file_bytes: &[u8]) -> bool {
 }
 
 /// BaselineExposure plus BaselineExposureOffset of a DNG, in EV.
-fn dng_baseline_exposure(decoder: &dyn rawler::decoders::Decoder) -> f32 {
+pub(crate) fn dng_baseline_exposure(decoder: &dyn rawler::decoders::Decoder) -> f32 {
     let Ok(Some(root)) = decoder.ifd(rawler::decoders::WellKnownIFD::Root) else {
         return 0.0;
     };

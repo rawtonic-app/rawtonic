@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 use rawtonic_catalog::{Library, Mode};
 use std::{path::PathBuf, sync::atomic::AtomicBool, time::Instant};
 
+mod fingerprint;
+
 #[derive(Parser)]
 #[command(
     name = "rawtonic",
@@ -113,6 +115,10 @@ enum Command {
     /// 1.24.4 or later in `ORT_DYLIB_PATH` and the provider's plugin library
     /// beside it, in --plugins or the model folder. Reads only the models.
     AiBench(AiBenchArgs),
+    /// Record what each RAW file decodes to (camera, levels, crop, colour,
+    /// lens, raw data and development hashes), keyed by file content, or
+    /// compare with a baseline (--check) after a decoder change. Reads only.
+    Fingerprint(fingerprint::FingerprintArgs),
 }
 #[derive(clap::Args)]
 struct AiBenchArgs {
@@ -486,6 +492,7 @@ fn run() -> Result<()> {
         Command::Export(args) => export(args),
         Command::Merge(args) => merge(args),
         Command::AiBench(args) => ai_bench(args),
+        Command::Fingerprint(args) => fingerprint::run(args),
     }
 }
 fn ai_bench(args: AiBenchArgs) -> Result<()> {

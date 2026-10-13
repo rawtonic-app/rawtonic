@@ -30,3 +30,19 @@ Record camera/body/firmware, compression variant, lens, ISO, original SHA-256 an
 Synthetic native QA used a 1536×1024 authored color/gray chart: create session, ingest, open Develop, rate, pick, change exposure, reopen, export, reject output collision, compare source hashes.
 
 Automated interface checks in a running app use the [QA control channel](qa-control.md) (debug builds only).
+
+## Decode fingerprints
+
+A rawler update, a new camera entry or a change to the decode path can silently change what a RAW decodes to. `rawtonic fingerprint` records, per file, what the decoder and Rawtonic's decode preparation (`raw_processing::prepare_raw_image`, the same code the development runs) make of it: make/model as decoded and resolved (clean and canonical model, rawler's mode), format and TIFF compression, buffer size, samples per pixel, bit depth, photometric interpretation, colour pattern, active area and default crop (incl. in-camera aspect ratios and DNG user crops), black levels (exact rationals with their repeat pattern) and white levels, the decoder's as-shot white balance and the multipliers the development uses, the decoder's colour matrices and the selected/adapted one, DNG baseline exposure, the applied orientation, ISO, lens make/model/spec and rawler's lens match, the engine's base look (baseline EV, embedded curve) and embedded lens corrections, a SHA-256 of the decoder's samples, and (unless `--no-develop`) the size, SHA-256 and mean RGB of a full-resolution development at default settings (as `rawtonic decode`). Files that fail report the step (`decoder`, `unpack`, `prepare`, `develop`) and the error; decoder panics are caught.
+
+Entries are keyed by the file's SHA-256 and hold no paths or file names (only the extension and size), so a baseline describes the files without naming them. It still describes private photographs: keep baselines outside this repository (e.g. in the private notes repository).
+
+```sh
+cargo build --release -p rawtonic-cli
+# Before the change: write a baseline (never overwrites).
+target/release/rawtonic fingerprint /path/to/raw-copies --out /private/baselines/decode-<commit>.json
+# After it (e.g. a rawler bump): one line per changed field, exit code 1 on any change.
+target/release/rawtonic fingerprint /path/to/raw-copies --check /private/baselines/decode-<commit>.json
+```
+
+Files are only read. Run the check over the same set of files: new and missing files count as differences too. Everything but `developed` is exact and should match on every machine; the development hash may differ between CPU architectures, so `--check` compares it only when both runs come from the same platform (and both developed). A summary (files, failures by camera, time per file) goes to stderr and is not part of the baseline. `--no-develop` checks the decoder facts alone, much faster.

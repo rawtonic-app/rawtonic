@@ -5808,6 +5808,8 @@ dependencies = [
  "rawler",
  "rawtonic-runtime",
  "rayon",
+ "serde",
+ "sha2 0.11.0",
  "wgpu",
 ]
 
