@@ -4229,9 +4229,36 @@ fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32
     }
 }
 
+// Visibility in the reconstructed 2.5D surface. Fixed bounded work per light;
+// missing/off-screen geometry is deliberately not invented. Near samples
+// resolve facial relief; growing steps cover separated scene surfaces.
+fn relight_visibility(uv: vec2<f32>, height: f32, direction: vec3<f32>, reach: f32, height_scale: f32, softness: f32, dims: vec2<f32>) -> f32 {
+    let receiver = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0).a;
+    if (receiver < 0.9) { return 1.0; }
+    let resolution = vec2<f32>(textureDimensions(relight_depth_texture));
+    var step = 1.25 / min(resolution.x, resolution.y);
+    var travel = step;
+    var visibility = 1.0;
+    for (var sample = 0u; sample < 16u; sample++) {
+        if (travel >= reach) { break; }
+        let q = uv + direction.xy * travel * min(dims.x, dims.y) / dims;
+        if (any(q <= vec2<f32>(0.0)) || any(q >= vec2<f32>(1.0))) { break; }
+        let surface = textureSampleLevel(relight_depth_texture, flare_sampler, q, 0.0);
+        if (surface.a < 0.9) { break; }
+        let occluder = surface.z * height_scale;
+        let clearance = height + direction.z * travel - occluder;
+        let penumbra = 0.0008 + softness * travel * 0.18;
+        visibility = min(visibility, smoothstep(-penumbra, penumbra, clearance + 0.001));
+        step *= 1.35;
+        travel += step;
+    }
+    return mix(1.0, visibility, smoothstep(0.9, 1.0, receiver));
+}
+
 fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
     let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && adjustments.global.relight_surface.x > 0.0;
+    let surface_lighting = has_depth && adjustments.global.relight_surface.z > 0.5;
     var depth_value = 0.0;
     // Height and its derivatives must use the same physical scale.
     let height_scale = adjustments.global.relight_surface.x * 0.25;
@@ -4263,6 +4290,13 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
             let height = depth_value * height_scale;
             let travel = min(cos(settings.w) / max(sin(settings.w), 0.15), 3.0);
             projected += vec2<f32>(-s, c) * height * travel;
+            if (surface_lighting) {
+                projected = delta - vec2<f32>(-s, c) * height * travel;
+                if (placement.w > 0.5) {
+                    let source_z = height_scale + controls.w;
+                    projected = delta + source_delta * height / max(source_z - height, 0.05);
+                }
+            }
         }
         let pc = cos(controls.z);
         let ps = sin(controls.z);
@@ -4274,15 +4308,38 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         let spot = 1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, radius);
         let footprint = select(1.0, spot, placement.w > 0.5);
         var response = 1.0;
+        var attenuation = 1.0;
         if (has_depth) {
             let sun_direction = vec3<f32>(-s * cos(settings.w), c * cos(settings.w), sin(settings.w));
             let spot_direction = normalize(vec3<f32>(-source_delta, sin(settings.w) + depth_value * 0.4));
-            let direction = select(sun_direction, spot_direction, placement.w > 0.5);
+            var direction = select(sun_direction, spot_direction, placement.w > 0.5);
             response = mix(max(dot(normal, direction), 0.0), 1.0, shape.w);
+            if (surface_lighting) {
+                var reach = 2.0;
+                if (placement.w > 0.5) {
+                    // Scene height grows towards the camera. A foreground
+                    // surface is closer to the source, not farther from it.
+                    let source_z = height_scale + controls.w;
+                    let to_light = vec3<f32>(-source_delta, source_z - depth_value * height_scale);
+                    let distance2 = max(dot(to_light, to_light), 0.0025);
+                    reach = sqrt(distance2);
+                    direction = to_light / reach;
+                    // Intensity is referenced to one short-side unit. A
+                    // finite emitter radius avoids a singular near-field gain.
+                    attenuation = 0.36 / (distance2 + 0.01);
+                }
+                let wrap = shape.w * 0.2;
+                response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
+                let visibility = relight_visibility(uv, depth_value * height_scale, direction, reach, height_scale, shape.z, dims);
+                response *= mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
+            }
         }
-        let illumination = mix(mask, 1.0, shape.w) * footprint * response;
+        let transmission = select(mix(mask, 1.0, shape.w), mix(1.0, mask, settings.z), surface_lighting);
+        let illumination = transmission * footprint * response * attenuation;
         light_gain += color.rgb * color.w * illumination;
-        shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
+        if (!surface_lighting) {
+            shadow_ev += (1.0 - mask) * footprint * settings.z * color.w * (1.0 - shape.w);
+        }
     }
     // Multiplicative illumination preserves photographic texture and black;
     // accumulate lights commutatively so reordering does not change the result.
@@ -4294,6 +4351,14 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>) -> vec3<f32> {
         let base = rgb * min(gain, vec3<f32>(1.0));
         let extra = rgb * max(gain - vec3<f32>(1.0), vec3<f32>(0.0));
         let room = max(vec3<f32>(1.0) - base, vec3<f32>(0.00001));
+        if (surface_lighting) {
+            // One scale for the added RGB energy: per-channel rolloff would
+            // change the light's hue as intensity increases.
+            let relative = extra / room;
+            let peak = max(relative.x, max(relative.y, relative.z));
+            let scale = select(1.0, (1.0 - exp(-peak)) / max(peak, 0.00001), peak > 0.00001);
+            return base + extra * scale;
+        }
         return base + room * (vec3<f32>(1.0) - exp(-extra / room));
     }
     return rgb * gain;

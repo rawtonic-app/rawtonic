@@ -56,6 +56,13 @@ depth. A local curvature heuristic reduces unreliable normals near short
 silhouette transitions, without changing height or exact linear planes.
 The result is packed in a GPU texture and reused for light edits. Depth is specific to
 the photograph and excluded from copy/paste and presets; light settings are
-copyable. No model inference or network request is needed to reopen or export
+copyable. Analysis version 2 additionally stores `faces`: up to eight arrays of
+468 `[x, y, z, confidence]` points (x/y normalized to the displayed frame; z is
+camera-facing relief in short-side image units). They refine normals and local
+height without rerunning inference on light edits. `version: 2` opts into the
+refined light response; legacy maps remain compatible. Each light may store
+`distance` (10–300, default 60), the spot source's image-relative distance.
+Facial geometry remains photo-specific and is excluded from copy/paste.
+No model inference or network request is needed to reopen or export
 a recipe containing a depth map. The feature does not synthesize photo pixels
 and does not add an AI patch.

@@ -31,6 +31,7 @@ export interface RelightLight {
   sourceX?: number;
   sourceY?: number;
   patternRotation?: number;
+  distance?: number;
   scale: number;
   softness: number;
   diffusion: number;
@@ -52,10 +53,11 @@ export const createRelightLight = (): RelightLight => ({
   sourceX: 20,
   sourceY: 20,
   patternRotation: 0,
+  distance: 60,
   scale: 50,
   softness: 30,
   diffusion: 25,
-  shadows: 35,
+  shadows: 100,
   pattern: "none",
   invert: false,
 });
@@ -63,6 +65,8 @@ export const createRelightLight = (): RelightLight => ({
 export interface RelightDepth {
   data: string;
   geometry: Record<string, unknown>;
+  version?: number;
+  faces?: number[][][];
 }
 
 // Rust serializes object keys in sorted order. Geometry equality must not

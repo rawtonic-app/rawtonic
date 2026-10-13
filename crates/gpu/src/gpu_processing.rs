@@ -2889,24 +2889,15 @@ impl GpuProcessor {
             .ok_or("Relight depth cache expired while rendering; retry this render")?;
         // Derivatives once per analysis, not four texture samples per pixel
         // on every light edit. Work at 16-bit depth before float16 packing.
-        let (w, h) = depth.dimensions();
-        let values: Vec<f16> = (0..h)
-            .flat_map(|y| {
-                (0..w).flat_map({
-                    let depth = &depth;
-                    move |x| {
-                        rawtonic_engine::relight::surface_sample(depth, x, y).map(f16::from_f32)
-                    }
-                })
-            })
-            .collect();
+        let surface = rawtonic_engine::relight::surface_texture(&depth);
+        let values: Vec<f16> = surface.as_raw().iter().map(|v| f16::from_f32(*v)).collect();
         let texture = self.context.device.create_texture_with_data(
             &self.context.queue,
             &wgpu::TextureDescriptor {
                 label: Some("Relight depth"),
                 size: wgpu::Extent3d {
-                    width: depth.width(),
-                    height: depth.height(),
+                    width: surface.width(),
+                    height: surface.height(),
                     depth_or_array_layers: 1,
                 },
                 mip_level_count: 1,

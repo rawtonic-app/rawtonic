@@ -6421,6 +6421,145 @@ fn relight_pixels_and_depth_are_consistent() {
 }
 
 #[test]
+#[ignore = "requires native GPU: facial direction, distance, colour and export equivalence"]
+fn relight_refined_surface_light_transport() {
+    use base64::Engine as _;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 128, 128).unwrap();
+    let image = DynamicImage::ImageRgba32F(image::ImageBuffer::from_pixel(
+        128,
+        128,
+        image::Rgba([0.18, 0.18, 0.18, 1.]),
+    ));
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("neutral matte relight fixture"),
+                size: wgpu::Extent3d {
+                    width: 128,
+                    height: 128,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&to_rgba_f16(&image)),
+        )
+        .create_view(&Default::default());
+    let mut png = std::io::Cursor::new(Vec::new());
+    DynamicImage::ImageLuma16(image::ImageBuffer::from_fn(64, 64, |x, _| {
+        image::Luma([if x < 32 { 12000 } else { 50000 }])
+    }))
+    .write_to(&mut png, image::ImageFormat::Png)
+    .unwrap();
+    let mut recipe = json!({"relightLights":[{"type":"sun","intensity":55,"color":"#ffffff","pattern":"none","rotation":90,"elevation":20,"diffusion":10,"softness":30,"shadows":100}],"relightOriginalLight":15,"relightDepthAmount":100});
+    recipe["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&recipe),"version":2});
+    let render = |recipe: &serde_json::Value, general: bool| {
+        processor
+            .force_general_pipeline
+            .store(general, Ordering::Relaxed);
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                128,
+                128,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(recipe, false, Some(0)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U8(p) => p,
+            _ => unreachable!(),
+        }
+    };
+    // Opposing light must exchange lit and shadow cheeks on the 3D fixture.
+    recipe["relightDepth"]["faces"] = json!([rawtonic_engine::relight::test_face_geometry()]);
+    let left = render(&recipe, false);
+    assert_eq!(
+        left,
+        render(&recipe, true),
+        "refined preview/export divergence"
+    );
+    let average = |pixels: &[u8], x: usize| {
+        (59..69)
+            .flat_map(|y| (x - 3..x + 3).map(move |x| pixels[(y * 128 + x) * 4] as f32))
+            .sum::<f32>()
+            / 60.
+    };
+    assert!(
+        average(&left, 43) > average(&left, 85) + 20.,
+        "left-facing light must model cheeks"
+    );
+    recipe["relightLights"][0]["rotation"] = json!(-90);
+    let right = render(&recipe, false);
+    assert!(
+        average(&right, 85) > average(&right, 43) + 20.,
+        "right-facing light must reverse cheeks"
+    );
+    recipe["relightLights"][0]["shadows"] = json!(0);
+    let no_shadows = render(&recipe, false);
+    assert!(
+        right
+            .iter()
+            .zip(&no_shadows)
+            .any(|(a, b)| a.abs_diff(*b) > 5),
+        "nose visibility must affect shading"
+    );
+
+    // Equal screen distances, different scene depth: the foreground receives
+    // more light. Moving the source away reduces both by geometric falloff.
+    recipe["relightDepth"]["faces"] = json!([]);
+    recipe["relightLights"][0] = json!({"type":"spot","intensity":40,"color":"#ffffff","pattern":"none","sourceX":50,"sourceY":50,"size":200,"distance":30,"diffusion":0});
+    let near = render(&recipe, false);
+    assert!(
+        average(&near, 96) > average(&near, 32) + 5.,
+        "foreground must be closer to the point source"
+    );
+    recipe["relightLights"][0]["distance"] = json!(120);
+    let far = render(&recipe, false);
+    assert!(
+        average(&near, 96) > average(&far, 96) + 20.
+            && average(&near, 32) > average(&far, 32) + 20.,
+        "point source must fall off with distance"
+    );
+
+    // A red emitter cannot add green/blue illumination to a neutral surface.
+    recipe["relightLights"][0]["color"] = json!("#ff0000");
+    recipe["relightLights"][0]["distance"] = json!(30);
+    recipe["relightOriginalLight"] = json!(0);
+    let red = render(&recipe, false);
+    assert!(red.chunks_exact(4).any(|p| p[0] > 50));
+    assert!(
+        red.chunks_exact(4).all(|p| p[1] <= 1 && p[2] <= 1),
+        "coloured light must preserve additive channel behaviour"
+    );
+    let light = recipe["relightLights"][0].clone();
+    let mut blue = light.clone();
+    blue["color"] = json!("#0044ff");
+    recipe["relightLights"] = json!([light, blue]);
+    let ordered = render(&recipe, false);
+    recipe["relightLights"] = json!([blue, light]);
+    assert_eq!(
+        ordered,
+        render(&recipe, false),
+        "lights must add independently of ordering"
+    );
+}
+
+#[test]
 #[ignore = "manual real-photo render and timing; RELIGHT_PHOTO and RELIGHT_OUT containing depth16.png"]
 fn relight_real_photo_and_timing() {
     use base64::Engine as _;
@@ -6457,9 +6596,15 @@ fn relight_real_photo_and_timing() {
     let mut source = std::env::var("RELIGHT_RECIPE").ok().map(|path| {
         serde_json::from_slice::<serde_json::Value>(&std::fs::read(path).unwrap()).unwrap()
     }).unwrap_or_else(|| json!({"relightLights":[{"intensity":40,"pattern":"none","rotation":-135,"elevation":25,"diffusion":15,"color":"#fff0df"}],"relightOriginalLight":55}));
-    source.as_object_mut().unwrap().remove("relightDepth");
+    let saved_depth = source
+        .as_object_mut()
+        .unwrap()
+        .remove("relightDepth")
+        .unwrap_or_default();
     let mut depth = source.clone();
     depth["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png),"geometry":rawtonic_engine::relight::geometry(&source)});
+    depth["relightDepth"]["faces"] = saved_depth["faces"].clone();
+    depth["relightDepth"]["version"] = saved_depth["version"].clone();
     let render = |profile: &serde_json::Value| {
         let (p, ..) = processor
             .run_with_shader(

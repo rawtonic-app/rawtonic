@@ -973,6 +973,7 @@ pub async fn generate_relight_depth(
     let model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
         .map_err(|e| e.to_string())?;
+    let face_models = crate::ai_faces::models(&app_handle, true).await?;
     tauri::async_runtime::spawn_blocking(move || {
         let _running = running;
         let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
@@ -986,6 +987,14 @@ pub async fn generate_relight_depth(
         );
         let depth = crate::ai_processing::run_depth_anything_model16(&displayed, &model, is_raw)
             .map_err(|e| e.to_string())?;
+        let face_input = if displayed.width().max(displayed.height()) > 1600 {
+            displayed.thumbnail(1600, 1600)
+        } else {
+            displayed
+        };
+        let face_input = rawtonic_faces::recipe::display_rgb8(&face_input, is_raw);
+        let faces = rawtonic_faces::relight::analyze(&face_input, &face_models)
+            .map_err(|e| e.to_string())?;
         let mut png = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageLuma16(depth)
             .write_to(&mut png, image::ImageFormat::Png)
@@ -997,6 +1006,8 @@ pub async fn generate_relight_depth(
         Ok(serde_json::json!({
             "data": data,
             "geometry": rawtonic_engine::relight::geometry(&js_adjustments),
+            "faces": faces,
+            "version": 2,
         }))
     })
     .await

@@ -53,7 +53,7 @@ pub const RIGHT_IRIS: [usize; 5] = [468, 469, 470, 471, 472];
 pub const EYE_CORNERS: [usize; 2] = [33, 263];
 
 /// One pass: landmarks in photo pixels and the presence probability.
-fn run(session: &mut Session, image: &RgbImage, to_photo: &Affine) -> Result<(Vec<[f32; 2]>, f32)> {
+fn run(session: &mut Session, image: &RgbImage, to_photo: &Affine) -> Result<(Vec<[f32; 3]>, f32)> {
     let crop = sample_crop(image, to_photo, INPUT);
     let n = INPUT as usize;
     let mut input = Array4::<f32>::zeros((1, n, n, 3));
@@ -79,7 +79,10 @@ fn run(session: &mut Session, image: &RgbImage, to_photo: &Affine) -> Result<(Ve
         .0
         .iter()
         .take(COUNT)
-        .map(|p| to_photo.apply(p[0], p[1]))
+        .map(|p| {
+            let xy = to_photo.apply(p[0], p[1]);
+            [xy[0], xy[1], p[2] * to_photo.scale()]
+        })
         .collect();
     Ok((points, 1.0 / (1.0 + (-logit).exp())))
 }
@@ -112,11 +115,11 @@ pub fn roll(right_eye: [f32; 2], left_eye: [f32; 2]) -> f32 {
 
 /// The face's landmarks in photo pixels, or `None` when the network finds
 /// no face in the crop (mostly profiles).
-pub fn landmarks(
+pub fn landmarks3d(
     session: &mut Session,
     image: &RgbImage,
     face: &Detection,
-) -> Result<Option<Vec<[f32; 2]>>> {
+) -> Result<Option<Vec<[f32; 3]>>> {
     let angle = roll(face.keypoints[0], face.keypoints[1]);
     let [x, y, w, h] = face.bbox;
     let k = &face.keypoints;
@@ -160,10 +163,21 @@ pub fn landmarks(
     let Some(points) = found else {
         return Ok(None);
     };
-    let angle = roll(points[EYE_CORNERS[0]], points[EYE_CORNERS[1]]);
-    let second = crop_around(&points, angle);
+    let xy: Vec<_> = points.iter().map(|p| [p[0], p[1]]).collect();
+    let angle = roll(xy[EYE_CORNERS[0]], xy[EYE_CORNERS[1]]);
+    let second = crop_around(&xy, angle);
     let (refined, presence) = run(session, image, &second)?;
     Ok((presence >= PRESENCE).then_some(refined).or(Some(points)))
+}
+
+/// The two-dimensional projection used by existing masks and retouch.
+pub fn landmarks(
+    session: &mut Session,
+    image: &RgbImage,
+    face: &Detection,
+) -> Result<Option<Vec<[f32; 2]>>> {
+    Ok(landmarks3d(session, image, face)?
+        .map(|points| points.into_iter().map(|p| [p[0], p[1]]).collect()))
 }
 
 #[cfg(test)]

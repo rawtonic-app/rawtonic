@@ -99,6 +99,7 @@ export default function StudioRelight({
       | "diffusion"
       | "shadows"
       | "elevation"
+      | "distance"
       | "patternRotation",
     min = 0,
     max = 100,
@@ -110,7 +111,9 @@ export default function StudioRelight({
         value={
           key === "patternRotation"
             ? (light.patternRotation ?? light.rotation)
-            : light[key]
+            : key === "distance"
+              ? (light.distance ?? 60)
+              : light[key]
         }
         min={min}
         max={max}
@@ -173,6 +176,8 @@ export default function StudioRelight({
               [next.sourceX, next.sourceY, next.rotation] = position;
             setAdjustments((prev) => ({
               ...prev,
+              relightOriginalLight: prev.relightOriginalLight ?? 60,
+              relightDepthAmount: prev.relightDepthAmount ?? 100,
               relightLights: [
                 ...(prev.relightLights ?? []).slice(0, MAX_RELIGHT_LIGHTS - 1),
                 next,
@@ -314,8 +319,13 @@ export default function StudioRelight({
             {slider("y", -100, 200)}
             {light.type === "spot" && slider("size", 5, 200)}
             {slider("rotation", -180, 180)}
-            {depthValid && slider("elevation", 5, 90)}
-            {light.pattern !== "none" && slider("shadows")}
+            {depthValid &&
+              (light.type === "sun"
+                ? slider("elevation", 5, 90)
+                : slider("distance", 10, 300))}
+            {(light.pattern !== "none" ||
+              (depthValid && depth.version === 2)) &&
+              slider("shadows")}
           </details>
           <AdjustmentControl
             label={t("studio.relight.originalLight")}
@@ -351,6 +361,11 @@ export default function StudioRelight({
             )}
           </button>
           {error && <p role="alert">{t("studio.relight.error")}</p>}
+          {depthValid && !!depth.faces?.length && (
+            <p className="studio-relight-help">
+              {t("studio.relight.faceDetail", { faces: depth.faces.length })}
+            </p>
+          )}
           {depthValid && (
             <>
               <AdjustmentControl

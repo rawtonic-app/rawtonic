@@ -3835,7 +3835,15 @@ fn get_global_adjustments_from_json(
                 .unwrap_or(100.0)
                 .clamp(0.0, 100.0)
                 / 100.0) as f32,
-            0.,
+            if js_adjustments["relightDepth"]["version"]
+                .as_u64()
+                .unwrap_or(0)
+                >= 2
+            {
+                1.
+            } else {
+                0.
+            },
             0.,
         ],
     };

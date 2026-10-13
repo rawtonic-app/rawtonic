@@ -181,6 +181,43 @@ evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
   The ready message explicitly describes estimated depth and points to surface
   strength for unnatural edges. Existing depth-lit thumbnails are invalidated.
 
+## Refined portrait surfaces and light transport
+
+A new analysis stores 468 image-specific XYZ facial landmarks plus skin confidence
+per detected face (up to eight), alongside scene depth. MediaPipe's crop-relative
+z is retained in photo units. The renderer aligns the local relief to scene depth,
+builds smooth vertex normals with the Apache-2.0 canonical topology, and blends
+away at the face boundary/occlusions. This is not a canonical face replacement.
+Scene directions are regularized within depth surfaces; fitting still happens
+before upsampling. The resulting texture is cached across light edits.
+
+Version-2 analysis uses directional diffuse response, bounded local facial
+visibility, finite point-source distance falloff and independent coloured light
+addition. A common highlight scale preserves the added light's RGB direction.
+The spot's **Light distance** is relative to image scale, not measured metres.
+Legacy analyses retain their previous light model until **Analyze again**.
+New lights start with original illumination 60 and surface strength 100 only
+when those values have not previously been set.
+
+The first global height-ray test produced implausible silhouette shadows on a
+real defocused background. It was rejected: visibility tracing is currently
+restricted to confident facial interiors. Object surfaces receive directional
+lighting, depth-dependent spot falloff and gobo projection; general object-to-
+background cast shadows are not claimed. Existing lighting/reflections remain
+in the input; albedo, roughness, transparent materials and off-screen geometry
+are not recovered. Relative monocular depth does not determine metric distance.
+The broader portrait/product realism acceptance gate remains open.
+
+Targeted gates: canonical test surface retains nose relief and opposed cheek
+normals; actual native GPU tests exchange the lit cheek with the light direction,
+exercise nose visibility, near/far and foreground/background falloff, pure red
+illumination, light ordering, and preview/general equivalence. Local portrait
+inference found one face in 119 ms (models already loaded; not end-to-end).
+Detailed final timings and native-app verification are recorded in notes.
+
+Sources: [MediaPipe face coordinates](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/face_mesh.md#multi_face_landmarks),
+[point-source distance falloff](https://www.pbr-book.org/4ed/Light_Sources/Point_Lights).
+
 ## Reproduce
 
 ```sh

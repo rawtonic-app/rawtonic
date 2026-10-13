@@ -63,6 +63,8 @@ it("adds up to four lights, toggles and removes them without altering other edit
 it("stores depth once and preserves it through a recipe reload", async () => {
   const depth = {
     data: "data:image/png;base64,test",
+    version: 2,
+    faces: [[[0.5, 0.5, 0.02, 1]]],
     geometry: {
       transformRotate: 0,
       guidedPerspective: { autoCrop: true, enabled: false, lines: [] },
@@ -74,6 +76,7 @@ it("stores depth once and preserves it through a recipe reload", async () => {
   await screen.findByText(
     "Estimated depth ready. Reduce surface strength if edges look unnatural.",
   );
+  expect(screen.getByText("Faces refined: 1")).toBeTruthy();
   const reloaded = normalizeLoadedAdjustments(
     JSON.parse(JSON.stringify(useEditorStore.getState().adjustments)),
   );

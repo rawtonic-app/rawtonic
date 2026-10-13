@@ -1,6 +1,11 @@
 //! Non-generative projected lighting in scene-linear RGB. Coordinates are
 //! normalized to the developed photograph; no original pixels are changed.
 use serde_json::Value;
+#[path = "relight_surface.rs"]
+mod surface;
+pub use surface::surface_texture;
+#[cfg(any(test, feature = "test-support"))]
+pub use surface::test_face_geometry;
 
 pub const MAX_LIGHTS: usize = 4;
 
@@ -89,7 +94,7 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
                 180.,
             )
             .to_radians(),
-            0.,
+            n("distance", 60., 10., 300.) / 100.,
         ];
     }
     out
@@ -101,7 +106,12 @@ use std::collections::{VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
-type DepthEntry = (u64, Arc<DepthImage>);
+pub struct DepthSurface {
+    pub image: DepthImage,
+    pub faces: Vec<Vec<[f32; 4]>>,
+    pub refined: bool,
+}
+type DepthEntry = (u64, Arc<DepthSurface>);
 static DEPTHS: OnceLock<Mutex<VecDeque<DepthEntry>>> = OnceLock::new();
 
 pub fn geometry(recipe: &Value) -> Value {
@@ -142,6 +152,10 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
     };
     let mut hasher = DefaultHasher::new();
     data.hash(&mut hasher);
+    recipe["relightDepth"]["version"].as_u64().hash(&mut hasher);
+    recipe["relightDepth"]["faces"]
+        .to_string()
+        .hash(&mut hasher);
     let key = hasher.finish().max(1);
     let cache = DEPTHS.get_or_init(Mutex::default);
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -165,13 +179,36 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
         } else {
             image.to_luma16()
         };
-        cache.push_front((key, Arc::new(depth)));
+        let faces: Vec<Vec<[f32; 4]>> =
+            serde_json::from_value(recipe["relightDepth"]["faces"].clone()).unwrap_or_default();
+        let faces = faces
+            .into_iter()
+            .take(8)
+            .filter(|points| {
+                points.len() == 468
+                    && points.iter().all(|p| {
+                        p.iter().all(|v| v.is_finite())
+                            && (-0.5..=1.5).contains(&p[0])
+                            && (-0.5..=1.5).contains(&p[1])
+                            && p[2].abs() <= 1.
+                            && (0.0..=1.0).contains(&p[3])
+                    })
+            })
+            .collect();
+        cache.push_front((
+            key,
+            Arc::new(DepthSurface {
+                image: depth,
+                faces,
+                refined: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 2,
+            }),
+        ));
         cache.truncate(8);
     }
     [key as u32, (key >> 32) as u32, 0, 0]
 }
 
-pub fn depth(key: [u32; 4]) -> Option<Arc<DepthImage>> {
+pub fn depth(key: [u32; 4]) -> Option<Arc<DepthSurface>> {
     let id = key[0] as u64 | ((key[1] as u64) << 32);
     DEPTHS
         .get()?
@@ -247,7 +284,7 @@ pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
     // and exact linear planes; this is a confidence heuristic, not new depth.
     let edge = ((cx.max(cy) - 0.004) / 0.016).clamp(0., 1.);
     let confidence = 1. - edge * edge * (3. - 2. * edge);
-    [dx * confidence, dy * confidence, center, 1.]
+    [dx * confidence, dy * confidence, center, confidence]
 }
 
 #[cfg(test)]
