@@ -159,6 +159,28 @@ evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
   Relight GPU tests pass. This remains workflow/implementation verification,
   with the broader quality and timing limits stated above.
 
+## Transitional depth edges and guide visibility, 2026-10-13
+
+- A saved portrait recipe reproduced dark, dashed shading along a defocused
+  furniture edge. The inferred 518×346 depth map contained short intermediate
+  steps that passed the slope fit's range cutoff and invented a steep bevel.
+  Local curvature now fades unreliable surface normals there, retaining the
+  original height for pattern projection. The dark line disappeared in a
+  native GPU render of the same photograph, recipe and persisted map.
+- This is a confidence heuristic, not a more detailed depth reconstruction.
+  The map separates broad subject/background forms but simplifies hair,
+  clothing silhouettes and defocused boundaries. Pattern projection can still
+  expose those errors. Quality gates above remain open.
+- Analytic tests cover intermediate steps on both axes and diagonals, exact
+  planes, image borders and smooth curvature. GPU tests require disconnected
+  flat surfaces with transitional edges to match flat-map sunlight pixel for
+  pixel, alongside the existing plane/Lambert-response check.
+- A native **Show light guides** checkbox replaces the ambiguous editing
+  button. It hides source handles and pattern guides without changing any
+  lighting values; a UI regression checks both directions and recipe identity.
+  The ready message explicitly describes estimated depth and points to surface
+  strength for unnatural edges. Existing depth-lit thumbnails are invalidated.
+
 ## Reproduce
 
 ```sh
@@ -173,4 +195,6 @@ For local real-photo analysis, set `RELIGHT_PHOTO`, `RELIGHT_MODEL`,
 `cargo test -p rawtonic-app --lib relight_depth_preserves -- --ignored --nocapture`.
 It writes `depth16.png`. Using the same photo and output directory, run
 `cargo test -p rawtonic-gpu relight_real_photo_and_timing -- --ignored --nocapture --test-threads=1`.
+Optionally set `RELIGHT_RECIPE` to a local adjustments JSON file to reproduce
+its light settings with that map.
 Do not commit the fixture, its path or the generated photo artifacts.

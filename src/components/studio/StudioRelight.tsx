@@ -7,7 +7,6 @@ import {
   Eye,
   EyeOff,
   RotateCcw,
-  MousePointer2,
   ChevronDown,
 } from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -122,16 +121,17 @@ export default function StudioRelight({
     );
   return (
     <div className="studio-relight">
-      <button
-        type="button"
-        className="studio-relight-edit"
-        aria-pressed={showHandles}
-        disabled={disabled}
-        onClick={() => useRelightStore.setState({ showHandles: !showHandles })}
-      >
-        <MousePointer2 size={14} />
-        {t("studio.relight.editOnImage")}
-      </button>
+      <label className="studio-relight-edit">
+        <input
+          type="checkbox"
+          checked={showHandles}
+          disabled={disabled}
+          onChange={(e) =>
+            useRelightStore.setState({ showHandles: e.target.checked })
+          }
+        />
+        <span>{t("studio.relight.showGuides")}</span>
+      </label>
       <p className="studio-relight-help">{t("studio.relight.dragHint")}</p>
       <div className="studio-relight-lights">
         {lights.map((l, i) => (

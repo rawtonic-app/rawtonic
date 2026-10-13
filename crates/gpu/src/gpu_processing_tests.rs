@@ -6383,6 +6383,20 @@ fn relight_pixels_and_depth_are_consistent() {
         render(&step_recipe),
         "depth step halo"
     );
+    // Real monocular silhouettes have intermediate texels whose individual
+    // steps pass the range cutoff. They must not invent dark bevels either.
+    for diagonal in [false, true] {
+        let transition = with_depth(image::ImageBuffer::from_fn(96, 64, |x, y| {
+            let coordinate = x + if diagonal { y } else { 0 };
+            let t = (coordinate as i32 - 48).clamp(0, 4);
+            image::Luma([(10000 + 2000 * t) as u16])
+        }));
+        assert_eq!(
+            render(&flat_recipe),
+            render(&transition),
+            "transitional depth halo, diagonal={diagonal}"
+        );
+    }
 
     // A known plane's normal is the derivative of the projected height.
     // Match its Lambert response to a flat plane under an equivalent sun.
@@ -6440,7 +6454,10 @@ fn relight_real_photo_and_timing() {
             bytemuck::cast_slice(&to_rgba_f16(&photo)),
         )
         .create_view(&Default::default());
-    let source = json!({"relightLights":[{"intensity":40,"pattern":"none","rotation":-135,"elevation":25,"diffusion":15,"color":"#fff0df"}],"relightOriginalLight":55});
+    let mut source = std::env::var("RELIGHT_RECIPE").ok().map(|path| {
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(path).unwrap()).unwrap()
+    }).unwrap_or_else(|| json!({"relightLights":[{"intensity":40,"pattern":"none","rotation":-135,"elevation":25,"diffusion":15,"color":"#fff0df"}],"relightOriginalLight":55}));
+    source.as_object_mut().unwrap().remove("relightDepth");
     let mut depth = source.clone();
     depth["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png),"geometry":rawtonic_engine::relight::geometry(&source)});
     let render = |profile: &serde_json::Value| {

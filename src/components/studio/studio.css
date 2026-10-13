@@ -4047,7 +4047,7 @@ body.is-dragging * {
   border: 1px solid var(--studio-line); border-radius: 4px; font-size: 11px;
   background: var(--studio-raised); color: var(--studio-text); cursor: pointer;
 }
-.studio-relight-edit[aria-pressed="true"] { border-color: var(--studio-accent); }
+.studio-relight-edit:has(input:checked) { border-color: var(--studio-accent); }
 .studio-relight-pattern-toggle { margin: 8px 0; }
 .studio-relight-pattern-toggle > span { flex: 1; text-align: left; }
 .relight-pattern-preview { width: 36px; height: 28px; flex-shrink: 0; color: #eee; background: #252525; border-radius: 3px; }

@@ -52,7 +52,9 @@ and straightening too; older maps remain valid only in their original neutral
 frame. A geometry mismatch disables depth until the user analyzes again.
 `relightDepthAmount` (0–100, default 60) controls normal strength; zero uses
 projected lighting. Surface gradients are computed once using an edge-aware local slope fit on 16-bit
-depth, packed in a GPU texture, and reused for light edits. Depth is specific to
+depth. A local curvature heuristic reduces unreliable normals near short
+silhouette transitions, without changing height or exact linear planes.
+The result is packed in a GPU texture and reused for light edits. Depth is specific to
 the photograph and excluded from copy/paste and presets; light settings are
 copyable. No model inference or network request is needed to reopen or export
 a recipe containing a depth map. The feature does not synthesize photo pixels
