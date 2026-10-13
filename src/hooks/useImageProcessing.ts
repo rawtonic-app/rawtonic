@@ -7,6 +7,8 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
+import { useRelightStore } from '../store/useRelightStore';
+import { stripSentRelightData } from '../utils/relight';
 import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
@@ -226,6 +228,7 @@ export function useImageProcessing(
           if (container.subMasks) processSubMasks(container.subMasks);
         });
       }
+      stripSentRelightData(payload, patchesSentToBackend).forEach((name) => newlySentPatches.add(name));
 
       const jobId = ++previewJobIdRef.current;
       const roi = cropEdit ? null : calculateROI();
@@ -450,6 +453,24 @@ export function useImageProcessing(
           dragging: false,
           targetRes,
           live: native,
+        });
+      }),
+    [previewQueue, currentResRef],
+  );
+  useEffect(
+    () =>
+      useRelightStore.subscribe((relight, previous) => {
+        if (relight.solo === previous.solo) return;
+        const state = useEditorStore.getState();
+        const image = state.selectedImage;
+        const targetRes = currentResRef.current;
+        if (!canRenderSource(image) || !targetRes || state.isSliderDragging) return;
+        previewQueue.submit({
+          path: image.path,
+          adjustments: state.previewOverride ?? state.adjustments,
+          dragging: false,
+          targetRes,
+          live: nativeDisplayRef.current,
         });
       }),
     [previewQueue, currentResRef],
@@ -735,6 +756,11 @@ export function withViewStates(adjustments: Adjustments): Adjustments {
     payload.softProofWarning = view.softProofWarning;
   }
   payload.colorRangeShow = view.colorRangeShow;
+  // Relight's solo view shows one light without changing the recipe.
+  const solo = useRelightStore.getState().solo;
+  if (solo && payload.relightLights?.some((l) => l.id === solo)) {
+    payload.relightLights = payload.relightLights.map((l) => (l.id === solo ? l : { ...l, enabled: false }));
+  }
   return payload;
 }
 

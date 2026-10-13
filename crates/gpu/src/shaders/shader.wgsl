@@ -271,6 +271,8 @@ struct AllAdjustments {
 @group(0) @binding(18) var relight_depth_texture: texture_2d<f32>;
 @group(0) @binding(19) var relight_camera_texture: texture_2d<f32>;
 @group(0) @binding(20) var relight_scene_texture: texture_2d<f32>;
+// Imported patterns, a 2×2 atlas with one slot per light (relight.rs).
+@group(0) @binding(21) var relight_pattern_texture: texture_2d<f32>;
 
 @group(0) @binding(10) var flare_texture: texture_2d<f32>;
 @group(0) @binding(11) var flare_sampler: sampler;
@@ -4168,7 +4170,35 @@ fn relight_segment(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
     return length(p - a - ab * clamp(dot(p - a, ab) / dot(ab, ab), 0.0, 1.0));
 }
 
-fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32 {
+// One texel of an imported pattern, bilinear and repeating within its slot;
+// the image is centred on the pattern origin like the built-in shapes.
+fn relight_custom_sample(p: vec2<f32>, origin: vec2<i32>, size: i32) -> f32 {
+    let t = fract(p + vec2<f32>(0.5)) * f32(size) - vec2<f32>(0.5);
+    let base = vec2<i32>(floor(t));
+    let f = t - floor(t);
+    let a = (base % size + size) % size;
+    let b = (base + vec2<i32>(1) + size) % size;
+    let v00 = textureLoad(relight_pattern_texture, origin + a, 0).r;
+    let v10 = textureLoad(relight_pattern_texture, origin + vec2<i32>(b.x, a.y), 0).r;
+    let v01 = textureLoad(relight_pattern_texture, origin + vec2<i32>(a.x, b.y), 0).r;
+    let v11 = textureLoad(relight_pattern_texture, origin + b, 0).r;
+    return mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y);
+}
+
+// Softness widens a small fixed kernel instead of blurring the stored image.
+fn relight_custom_pattern(p: vec2<f32>, slot: u32, softness: f32) -> f32 {
+    let size = i32(textureDimensions(relight_pattern_texture).x / 2u);
+    if (size < 1) { return 1.0; }
+    let origin = vec2<i32>(i32(slot % 2u), i32(slot / 2u)) * size;
+    let r = softness * 0.05;
+    return (relight_custom_sample(p, origin, size) * 2.0
+        + relight_custom_sample(p + vec2<f32>(r, 0.0), origin, size)
+        + relight_custom_sample(p - vec2<f32>(r, 0.0), origin, size)
+        + relight_custom_sample(p + vec2<f32>(0.0, r), origin, size)
+        + relight_custom_sample(p - vec2<f32>(0.0, r), origin, size)) / 6.0;
+}
+
+fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32, slot: u32) -> f32 {
     let edge = max(0.002 + softness * 0.22, pixel);
     let cell = abs(fract(p) - vec2<f32>(0.5));
     switch pattern {
@@ -4229,6 +4259,7 @@ fn relight_pattern(p: vec2<f32>, pattern: u32, softness: f32, pixel: f32) -> f32
             let b = abs(fract(p.x - p.y) - 0.5);
             return smoothstep(0.07 - edge, 0.07 + edge, min(a, b));
         }
+        case 15u: { return relight_custom_pattern(p, slot, softness); }
         default: { return 1.0; }
     }
 }
@@ -4362,7 +4393,7 @@ struct RelightEnergy {
     has_light: bool,
 }
 
-fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, dims: vec2<f32>, scene_only: bool) -> RelightEnergy {
+fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool) -> RelightEnergy {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
     let camera_mode = scene_only || adjustments.global.relight_geometry.w > 0.5;
     let strength = adjustments.global.relight_surface.x;
@@ -4432,8 +4463,10 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, dims: vec2<f32>, scene_only
         let ps = sin(controls.z);
         let p = vec2<f32>(pc * projected.x + ps * projected.y, -ps * projected.x + pc * projected.y) / shape.y;
         let pixel = 1.0 / (min(dims.x, dims.y) * shape.y);
-        var mask = relight_pattern(p, u32(settings.x), shape.z, pixel);
-        if (settings.y > 0.5) { mask = 1.0 - mask; }
+        // Bit 0 inverts the pattern; the bits above name a mask layer + 1.
+        let flags = u32(settings.y + 0.5);
+        var mask = relight_pattern(p, u32(settings.x), shape.z, pixel, i);
+        if ((flags & 1u) != 0u) { mask = 1.0 - mask; }
         let radius = length(source_delta) / placement.z;
         let spot = 1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, radius);
         var footprint = select(1.0, spot, placement.w > 0.5);
@@ -4444,6 +4477,16 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, dims: vec2<f32>, scene_only
             let gap = source.z - world_position.z;
             let cone_radius = length(world_position.xy - source.xy) * source.z / (max(gap, 0.0001) * placement.z);
             footprint = (1.0 - smoothstep(max(0.0, 0.95 - shape.z * 0.9), 1.0, cone_radius)) * select(0.0, 1.0, gap > 0.0);
+        }
+        // A light limited to a mask layer acts only where that layer does;
+        // a layer missing from this render (one-layer previews) excludes it.
+        let mask_slot = flags >> 1u;
+        if (mask_slot > 0u) {
+            if (ENABLE_MASKS && mask_slot <= adjustments.mask_count) {
+                footprint *= get_mask_influence(mask_slot - 1u, coord);
+            } else {
+                footprint = 0.0;
+            }
         }
         var response = 1.0;
         var attenuation = 1.0;
@@ -4503,7 +4546,8 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, dims: vec2<f32>, scene_only
     return RelightEnergy(light_gain, reflected_light, shadow_ev, has_light);
 }
 
-fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>, exposure_gain: f32) -> vec3<f32> {
+fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gain: f32) -> vec3<f32> {
+    let uv = vec2<f32>(coord) / dims;
     let camera_mode = adjustments.global.relight_geometry.w > 0.5;
     let strength = adjustments.global.relight_surface.x;
     let has_depth = any(adjustments.global.relight_depth.xy != vec2<u32>(0u)) && (strength > 0.0 || camera_mode);
@@ -4544,7 +4588,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>, exposure_gain: 
         let face_weight = smoothstep(0.0, 0.2, surface.a);
         surface = vec4<f32>(mix(scene_surface.xyz, surface.xyz, face_weight), surface.a);
     }
-    let energy = relight_energy(surface, uv, dims, false);
+    let energy = relight_energy(surface, uv, coord, dims, false);
     var light_gain = energy.diffuse;
     // Incident radiance must receive the same exposure as the diffuse photo.
     // Otherwise reducing exposure leaves newly added dielectric highlights fixed.
@@ -4554,7 +4598,7 @@ fn apply_relight(rgb: vec3<f32>, uv: vec2<f32>, dims: vec2<f32>, exposure_gain: 
     if (confidence > 0.0 && has_light) {
         var separated = vec3<f32>(0.0);
         for (var j = 0u; j < 4u; j++) {
-            separated += weights[j] * relight_energy(planes[j], uv, dims, true).diffuse;
+            separated += weights[j] * relight_energy(planes[j], uv, coord, dims, true).diffuse;
         }
         light_gain = mix(light_gain, separated, confidence);
     }
@@ -5011,7 +5055,7 @@ fn main(
         locally_contrasted_rgb = apply_camera_profile(locally_contrasted_rgb);
     }
     var processed_rgb = apply_linear_exposure(locally_contrasted_rgb, t_exposure);
-    processed_rgb = apply_relight(processed_rgb, vec2<f32>(absolute_coord) / full_dims, full_dims, exposure_gain);
+    processed_rgb = apply_relight(processed_rgb, absolute_coord, full_dims, exposure_gain);
 
     if (t_glow > 0.0) {
         processed_rgb = apply_glow_bloom(

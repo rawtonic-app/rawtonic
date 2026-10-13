@@ -6435,6 +6435,85 @@ fn relight_pixels_and_depth_are_consistent() {
 }
 
 #[test]
+#[ignore = "requires native GPU; relight mask restriction and imported patterns"]
+fn relight_masks_and_imported_patterns() {
+    use base64::Engine as _;
+    let (width, height) = (192u32, 128u32);
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 23);
+    let left_half = Arc::new(GrayImage::from_fn(width, height, |x, _| {
+        image::Luma([if x < width / 2 { 255 } else { 0 }])
+    }));
+    let render = |profile: &serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(profile, false, Some(0));
+        let masks = vec![left_half.clone(); adjustments.mask_count as usize];
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &masks,
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U8(p) => p,
+            _ => unreachable!(),
+        }
+    };
+    let layer = |visible: bool| {
+        json!({"id":"subject","name":"Subject","visible":visible,"invert":false,"opacity":100,
+            "adjustments":{},"subMasks":[{"id":"s","type":"all","visible":true,"mode":"additive","parameters":{}}]})
+    };
+    let light = json!({"intensity":70,"pattern":"none","maskId":"subject"});
+    let baseline = render(&json!({"masks":[layer(true)]}));
+    let restricted =
+        render(&json!({"masks":[layer(true)],"relightLights":[light],"relightOriginalLight":100}));
+    let row = (width * 4) as usize;
+    let (mut inside, mut outside) = (0, 0);
+    for (i, (a, b)) in baseline.iter().zip(&restricted).enumerate() {
+        if (i % row) / 4 < (width / 2) as usize {
+            inside += usize::from(a != b);
+        } else {
+            outside += usize::from(a != b);
+        }
+    }
+    assert!(inside > 0, "the light must act inside its mask layer");
+    assert_eq!(outside, 0, "the light must not act outside its mask layer");
+    assert_eq!(
+        baseline,
+        render(&json!({"masks":[layer(false)],"relightLights":[light],"relightOriginalLight":100})),
+        "a hidden mask layer switches its lights off"
+    );
+
+    // An imported half-black, half-white pattern shades like a gobo.
+    let mut png = std::io::Cursor::new(Vec::new());
+    GrayImage::from_fn(16, 16, |x, _| image::Luma([if x < 8 { 0 } else { 255 }]))
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+    let data = format!(
+        "data:image/png;base64,{}",
+        base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+    );
+    let custom = json!({"intensity":70,"pattern":"custom","scale":100,"softness":0,"shadows":100,
+        "customPattern":{"id":"half","data":data}});
+    let plain = json!({"intensity":70,"pattern":"none","scale":100,"softness":0,"shadows":100});
+    let mut inverted = custom.clone();
+    inverted["invert"] = json!(true);
+    let patterned = render(&json!({"relightLights":[custom]}));
+    assert_ne!(patterned, render(&json!({"relightLights":[plain]})));
+    assert_ne!(patterned, render(&json!({"relightLights":[inverted]})));
+    assert_eq!(patterned, render(&json!({"relightLights":[custom]})));
+}
+
+#[test]
 #[ignore = "requires native GPU: facial direction, distance, colour and export equivalence"]
 fn relight_refined_surface_light_transport() {
     relight_surface_transport_case(2);

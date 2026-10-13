@@ -16,10 +16,13 @@ import {
 import {
   relightSource,
   relightDragPatch,
+  relightPatternRotation,
   type RelightHandle,
   type RelightLight,
   type RelightPoint,
 } from "../../../utils/relight";
+
+type ButtonHandle = Exclude<RelightHandle, "elevation">;
 
 export default function RelightOverlay({
   rect,
@@ -117,7 +120,7 @@ export default function RelightOverlay({
   const begin = (
     e: PointerEvent<HTMLButtonElement>,
     light: RelightLight,
-    handle: RelightHandle,
+    handle: ButtonHandle,
   ) => {
     if (e.button !== 0 || !useEditorStore.getState().selectedImage?.isReady)
       return;
@@ -128,7 +131,11 @@ export default function RelightOverlay({
     debouncedSetHistory.flush();
     drag.current = {
       light,
-      handle,
+      // Alt-dragging a sun's source sets its height above the photo.
+      handle:
+        handle === "source" && e.altKey && light.type === "sun"
+          ? "elevation"
+          : handle,
       start: point(e),
       now: point(e),
       path: useEditorStore.getState().selectedImage!.path,
@@ -145,7 +152,7 @@ export default function RelightOverlay({
   const key = (
     e: KeyboardEvent<HTMLButtonElement>,
     light: RelightLight,
-    handle: RelightHandle,
+    handle: ButtonHandle,
   ) => {
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -153,18 +160,26 @@ export default function RelightOverlay({
       finish(true);
       return;
     }
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.metaKey || e.ctrlKey) return;
     const dx = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
     const dy = e.key === "ArrowDown" ? 1 : e.key === "ArrowUp" ? -1 : 0;
     if (!dx && !dy) return;
+    const elevation = e.altKey && handle === "source" && light.type === "sun";
+    if (e.altKey && !elevation) return;
     e.stopPropagation();
     e.preventDefault();
     const amount = e.shiftKey ? 5 : 0.5;
+    if (elevation) {
+      patch(light.id, {
+        elevation: Math.max(5, Math.min(90, light.elevation - dy * amount * 2)),
+      });
+      return;
+    }
     const values =
       handle === "rotate"
         ? {
             patternRotation:
-              (((light.patternRotation ?? light.rotation) +
+              ((relightPatternRotation(light) +
                 (dx || -dy) * amount +
                 540) %
                 360) -
@@ -196,7 +211,7 @@ export default function RelightOverlay({
   };
   const button = (
     light: RelightLight,
-    handle: RelightHandle,
+    handle: ButtonHandle,
     x: number,
     y: number,
     icon: React.ReactNode,
@@ -206,11 +221,16 @@ export default function RelightOverlay({
       type="button"
       className={`relight-handle relight-handle-${handle}`}
       aria-label={t(`studio.relight.handles.${handle}`, {
-        number: lights.indexOf(light) + 1,
+        number: light.number ?? lights.indexOf(light) + 1,
       })}
-      title={t(`studio.relight.handles.${handle}`, {
-        number: lights.indexOf(light) + 1,
-      })}
+      title={
+        t(`studio.relight.handles.${handle}`, {
+          number: light.number ?? lights.indexOf(light) + 1,
+        }) +
+        (handle === "source" && light.type === "sun"
+          ? ` — ${t("studio.relight.elevationHint")}`
+          : "")
+      }
       aria-pressed={light.id === active?.id}
       style={{
         left: x,
@@ -255,11 +275,14 @@ export default function RelightOverlay({
   const cx = (active.x / 100) * rect.width,
     cy = (active.y / 100) * rect.height;
   const short = Math.min(rect.width, rect.height);
-  const a = ((active.patternRotation ?? active.rotation) * Math.PI) / 180;
-  const w =
-    ((short * active.scale) / 100) * (active.pattern === "strip" ? 2 : 1);
-  const h =
-    ((short * active.scale) / 100) * (active.pattern === "strip" ? 0.3 : 1);
+  const frame = (light: RelightLight) => ({
+    cx: (light.x / 100) * rect.width,
+    cy: (light.y / 100) * rect.height,
+    a: (relightPatternRotation(light) * Math.PI) / 180,
+    w: ((short * light.scale) / 100) * (light.pattern === "strip" ? 2 : 1),
+    h: ((short * light.scale) / 100) * (light.pattern === "strip" ? 0.3 : 1),
+  });
+  const { a, w, h } = frame(active);
   const at = (x: number, y: number) => ({
     x: cx + Math.cos(a) * x - Math.sin(a) * y,
     y: cy + Math.sin(a) * x + Math.cos(a) * y,
@@ -318,6 +341,22 @@ export default function RelightOverlay({
         {active.type === "spot" && (
           <circle cx={sx} cy={sy} r={(short * active.size) / 100} />
         )}
+        {lights
+          .filter((l) => l.id !== active.id && l.pattern !== "none")
+          .map((l) => {
+            const f = frame(l);
+            return (
+              <rect
+                key={l.id}
+                className="relight-inactive"
+                x={f.cx - f.w / 2}
+                y={f.cy - f.h / 2}
+                width={f.w}
+                height={f.h}
+                transform={`rotate(${(f.a * 180) / Math.PI} ${f.cx} ${f.cy})`}
+              />
+            );
+          })}
         {active.pattern !== "none" && (
           <>
             <rect

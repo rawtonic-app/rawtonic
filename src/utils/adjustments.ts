@@ -1,4 +1,4 @@
-import type { RelightLight, RelightDepth } from "./relight";
+import { normalizeRelight, type RelightLight, type RelightDepth } from "./relight";
 import { Crop } from 'react-image-crop';
 import { v4 as uuidv4 } from 'uuid';
 import { SubMask, SubMaskMode } from '../components/panel/right/Masks';
@@ -1145,8 +1145,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       ...(loadedAdjustments.guidedPerspective?.upright ? { upright: loadedAdjustments.guidedPerspective.upright } : {}),
     },
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
-    relightLights: loadedAdjustments.relightLights,
-    relightDepth: loadedAdjustments.relightDepth,
+    ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
     flareAmount: loadedAdjustments.flareAmount ?? INITIAL_ADJUSTMENTS.flareAmount,

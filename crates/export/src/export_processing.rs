@@ -1421,6 +1421,7 @@ pub fn build_single_mask_adjustments(
     crate::image_processing::PreparedAdjustments {
         uniforms: single,
         relight_surface: all.relight_surface.clone(),
+        relight_patterns: all.relight_patterns.clone(),
     }
 }
 

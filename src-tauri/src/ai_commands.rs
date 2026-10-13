@@ -977,7 +977,12 @@ pub async fn generate_relight_depth(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let face_models = crate::ai_faces::models(&app_handle, true).await?;
+    // Facial relief only refines the depth; without the face models (or if
+    // they fail on this photo) the scene depth alone still lights it.
+    let face_models = crate::ai_faces::models(&app_handle, true)
+        .await
+        .inspect_err(|e| log::warn!("Relight: continuing without face models: {e}"))
+        .ok();
     tauri::async_runtime::spawn_blocking(move || {
         let _running = running;
         let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
@@ -991,14 +996,19 @@ pub async fn generate_relight_depth(
         );
         let (depth, camera) = crate::ai_processing::run_relight_model(&displayed, &model, is_raw)
             .map_err(|e| e.to_string())?;
-        let face_input = if displayed.width().max(displayed.height()) > 1600 {
-            displayed.thumbnail(1600, 1600)
-        } else {
-            displayed.into_owned()
-        };
-        let face_input = rawtonic_faces::recipe::display_rgb8(&face_input, is_raw);
-        let faces = rawtonic_faces::relight::analyze(&face_input, &face_models)
-            .map_err(|e| e.to_string())?;
+        let faces = face_models
+            .and_then(|models| {
+                let face_input = if displayed.width().max(displayed.height()) > 1600 {
+                    displayed.thumbnail(1600, 1600)
+                } else {
+                    displayed.into_owned()
+                };
+                let face_input = rawtonic_faces::recipe::display_rgb8(&face_input, is_raw);
+                rawtonic_faces::relight::analyze(&face_input, &models)
+                    .inspect_err(|e| log::warn!("Relight: face analysis failed: {e}"))
+                    .ok()
+            })
+            .unwrap_or_default();
         let mut png = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageLuma16(depth)
             .write_to(&mut png, image::ImageFormat::Png)
@@ -1014,6 +1024,26 @@ pub async fn generate_relight_depth(
             "version": 4,
             "camera": camera,
         }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Reads an image the user chose as a Relight pattern and returns it as the
+/// recipe stores it (`relight::pattern_png`, a PNG data URL). Read only.
+#[tauri::command]
+pub async fn load_relight_pattern(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let image = image::ImageReader::open(&path)
+            .and_then(|reader| reader.with_guessed_format())
+            .map_err(|e| e.to_string())?
+            .decode()
+            .map_err(|e| e.to_string())?;
+        let png = rawtonic_engine::relight::pattern_png(&image)?;
+        Ok(format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        ))
     })
     .await
     .map_err(|e| e.to_string())?

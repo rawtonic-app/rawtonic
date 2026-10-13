@@ -90,6 +90,57 @@ pub fn hydrate_adjustments_from_cache(
             }
         }
     }
+
+    // Relight depth and imported patterns, named by the editor
+    // (src/utils/relight.ts `stripSentRelightData`).
+    if let Some(depth) = adjustments
+        .get_mut("relightDepth")
+        .and_then(|v| v.as_object_mut())
+        && let Some(key) = depth
+            .get("cacheKey")
+            .and_then(|v| v.as_str())
+            .map(|k| format!("relight-depth:{k}"))
+    {
+        hydrate_fields(cache, key, depth, &["data", "faces"]);
+    }
+    for light in adjustments
+        .get_mut("relightLights")
+        .and_then(|v| v.as_array_mut())
+        .into_iter()
+        .flatten()
+    {
+        if let Some(pattern) = light
+            .get_mut("customPattern")
+            .and_then(|v| v.as_object_mut())
+            && let Some(key) = pattern
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|id| format!("relight-pattern:{id}"))
+        {
+            hydrate_fields(cache, key, pattern, &["data"]);
+        }
+    }
+}
+
+/// Remembers `fields` when the object carries its bitmap (`data`), else
+/// restores them from an earlier request.
+fn hydrate_fields(
+    cache: &mut HashMap<String, serde_json::Value>,
+    key: String,
+    object: &mut serde_json::Map<String, serde_json::Value>,
+    fields: &[&str],
+) {
+    if object.get("data").is_some_and(|v| !v.is_null()) {
+        let saved = fields
+            .iter()
+            .map(|f| (f.to_string(), object.get(*f).cloned().unwrap_or_default()))
+            .collect();
+        cache.insert(key, serde_json::Value::Object(saved));
+    } else if let Some(saved) = cache.get(&key) {
+        for field in fields {
+            object.insert(field.to_string(), saved[*field].clone());
+        }
+    }
 }
 
 pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
@@ -145,4 +196,28 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     log::info!("apply_all_transformations took {:.2?}", total_duration);
 
     (cropped_image, unscaled_crop_offset)
+}
+
+#[cfg(test)]
+mod relight_hydration_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn relight_bitmaps_are_sent_once_and_restored_by_name() {
+        let mut cache = HashMap::new();
+        let mut first = json!({
+            "relightDepth": {"cacheKey": "d1", "data": "DEPTH", "faces": [[1]], "version": 2},
+            "relightLights": [{"customPattern": {"id": "p1", "data": "PATTERN"}}, {}],
+        });
+        hydrate_adjustments_from_cache(&mut cache, &mut first);
+        let mut later = json!({
+            "relightDepth": {"cacheKey": "d1", "data": null, "faces": null, "version": 2},
+            "relightLights": [{"customPattern": {"id": "p1", "data": null}}, {}],
+        });
+        hydrate_adjustments_from_cache(&mut cache, &mut later);
+        assert_eq!(later, first);
+        // Lights without patterns stay untouched (no inserted nulls).
+        assert_eq!(later["relightLights"][1], json!({}));
+    }
 }

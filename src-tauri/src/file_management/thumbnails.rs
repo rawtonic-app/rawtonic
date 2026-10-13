@@ -124,11 +124,20 @@ pub(crate) fn compute_thumbnail_cache_hash(
     hasher.update(path_str.as_bytes());
     hasher.update(&img_mod_time.to_le_bytes());
     hasher.update(adjustments_bytes);
-    if serde_json::from_slice::<serde_json::Value>(adjustments_bytes)
-        .ok()
+    let adjustments = serde_json::from_slice::<serde_json::Value>(adjustments_bytes).ok();
+    if adjustments
+        .as_ref()
         .is_some_and(|adjustments| !adjustments["relightDepth"].is_null())
     {
         hasher.update(b"\0relight-face-reflection-v7");
+    }
+    // Absent light fields now render with a new light's values.
+    if adjustments
+        .as_ref()
+        .and_then(|adjustments| adjustments["relightLights"].as_array())
+        .is_some_and(|lights| !lights.is_empty())
+    {
+        hasher.update(b"\0relight-defaults-v1");
     }
     if is_raw_file(&source_path) {
         // Old embedded RAW previews could omit camera orientation for non-TIFF

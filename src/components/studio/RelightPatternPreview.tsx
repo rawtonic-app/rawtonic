@@ -4,11 +4,20 @@ import type { RelightLight } from "../../utils/relight";
 /** Own small schematic swatches, not a second photograph renderer. */
 export default function RelightPatternPreview({
   pattern,
+  image,
 }: {
   pattern: RelightLight["pattern"];
+  /** An imported pattern's bitmap (absent once only its name was sent). */
+  image?: string | null;
 }) {
   const id = useId();
   const lines = [4, 12, 20, 28];
+  if (pattern === "custom")
+    return image ? (
+      <img src={image} alt="" className="relight-pattern-preview" />
+    ) : (
+      <svg viewBox="0 0 40 32" aria-hidden="true" className="relight-pattern-preview" />
+    );
   return (
     <svg
       viewBox="0 0 40 32"
