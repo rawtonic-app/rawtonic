@@ -159,12 +159,84 @@ evidence and remaining acceptance criteria: notes PARITY_GAPS G70.
   Relight GPU tests pass. This remains workflow/implementation verification,
   with the broader quality and timing limits stated above.
 
+## Transitional depth edges and guide visibility, 2026-10-13
+
+- A saved portrait recipe reproduced dark, dashed shading along a defocused
+  furniture edge. The inferred 518×346 depth map contained short intermediate
+  steps that passed the slope fit's range cutoff and invented a steep bevel.
+  Local curvature now fades unreliable surface normals there, retaining the
+  original height for pattern projection. The dark line disappeared in a
+  native GPU render of the same photograph, recipe and persisted map.
+- This is a confidence heuristic, not a more detailed depth reconstruction.
+  The map separates broad subject/background forms but simplifies hair,
+  clothing silhouettes and defocused boundaries. Pattern projection can still
+  expose those errors. Quality gates above remain open.
+- Analytic tests cover intermediate steps on both axes and diagonals, exact
+  planes, image borders and smooth curvature. GPU tests require disconnected
+  flat surfaces with transitional edges to match flat-map sunlight pixel for
+  pixel, alongside the existing plane/Lambert-response check.
+- A native **Show light guides** checkbox replaces the ambiguous editing
+  button. It hides source handles and pattern guides without changing any
+  lighting values; a UI regression checks both directions and recipe identity.
+  The ready message explicitly describes estimated depth and points to surface
+  strength for unnatural edges. Existing depth-lit thumbnails are invalidated.
+
+## Refined portrait surfaces and light transport
+
+A new analysis stores 468 image-specific XYZ facial landmarks plus skin confidence
+per detected face (up to eight), alongside scene depth. MediaPipe's crop-relative
+z is retained in photo units. The renderer aligns the local relief to scene depth,
+builds smooth vertex normals with the Apache-2.0 canonical topology, and blends
+away at the face boundary/occlusions. This is not a canonical face replacement.
+Scene directions are regularized within depth surfaces; fitting still happens
+before upsampling. The resulting texture is cached across light edits.
+
+Version-2 analysis uses directional diffuse response, bounded local facial
+visibility, finite point-source distance falloff and independent coloured light
+addition. A common highlight scale preserves the added light's RGB direction.
+The spot's **Light distance** is relative to image scale, not measured metres.
+Legacy analyses retain their previous light model until **Analyze again**.
+New lights start with original illumination 60 and surface strength 100 only
+when those values have not previously been set.
+
+The first global height-ray test produced implausible silhouette shadows on a
+real defocused background. It was rejected: visibility tracing is currently
+restricted to confident facial interiors. Object surfaces receive directional
+lighting, depth-dependent spot falloff and gobo projection; general object-to-
+background cast shadows are not claimed. Existing lighting/reflections remain
+in the input; albedo, roughness, transparent materials and off-screen geometry
+are not recovered. Relative monocular depth does not determine metric distance.
+The broader portrait/product realism acceptance gate remains open.
+
+Targeted gates: canonical test surface retains nose relief and opposed cheek
+normals; actual native GPU tests exchange the lit cheek with the light direction,
+exercise nose visibility, near/far and foreground/background falloff, pure red
+illumination, light ordering, and preview/general equivalence. Local portrait
+inference found one face in 119 ms (models already loaded; not end-to-end).
+Final native macOS QA on copied fixtures: reanalysis returned 468 landmarks
+for one portrait face in 947 ms (including model initialization and QA polling);
+source dragging reused the persisted geometry, Undo restored it, and the guide
+checkbox changed no lighting values. A sphere produced no false face and distance
+edits reused its depth. All four ignored Relight GPU tests pass, including
+above-nose visibility and legacy/refined full-frame versus tiled U8 (≤1 code)
+and U16 (exact). All project gates pass (872 frontend tests).
+
+On the same 1280×854 portrait, 30 warm GPU/render/readback samples measured one
+light p50/p95 2.11/2.17 ms, four lights 2.15/3.71 ms. A 36-step native source drag
+at 16.7 ms intervals produced 34 interactive replies with IPC p50/p95 7/9 ms.
+Neither measurement is pointer-to-photon; first load and analysis are excluded
+from the warm edit timings. Broader timing/quality limits above still apply.
+
+Sources: [MediaPipe face coordinates](https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/face_mesh.md#multi_face_landmarks),
+[point-source distance falloff](https://www.pbr-book.org/4ed/Light_Sources/Point_Lights).
+
 ## Reproduce
 
 ```sh
 cargo test -p rawtonic-engine relight --lib
 cargo test -p rawtonic-gpu relight_pixels -- --ignored --nocapture
 cargo test -p rawtonic-gpu relight_tiled -- --ignored --nocapture
+cargo test -p rawtonic-gpu relight_refined -- --ignored --nocapture
 npx vitest run src/components/panel/editor/RelightOverlay.test.tsx src/components/studio/StudioRelight.test.tsx src/components/studio/StudioDevelop.test.tsx src/components/studio/historyLabels.test.ts src/utils/adjustments.test.ts
 ```
 
@@ -173,4 +245,6 @@ For local real-photo analysis, set `RELIGHT_PHOTO`, `RELIGHT_MODEL`,
 `cargo test -p rawtonic-app --lib relight_depth_preserves -- --ignored --nocapture`.
 It writes `depth16.png`. Using the same photo and output directory, run
 `cargo test -p rawtonic-gpu relight_real_photo_and_timing -- --ignored --nocapture --test-threads=1`.
+Optionally set `RELIGHT_RECIPE` to a local adjustments JSON file to reproduce
+its light settings with that map.
 Do not commit the fixture, its path or the generated photo artifacts.

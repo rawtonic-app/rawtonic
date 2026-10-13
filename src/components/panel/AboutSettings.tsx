@@ -93,7 +93,7 @@ export const CREDITS: Credit[] = [
   {
     name: "MediaPipe Face Mesh V2 and selfie segmentation",
     url: "https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker",
-    what: "Face landmarks and skin, hair and clothes for People masks (Google).",
+    what: "Face landmarks, Relight mesh topology, and skin, hair and clothes for People masks (Google).",
     license: "Apache-2.0",
   },
   {

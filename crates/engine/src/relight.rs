@@ -1,6 +1,11 @@
 //! Non-generative projected lighting in scene-linear RGB. Coordinates are
 //! normalized to the developed photograph; no original pixels are changed.
 use serde_json::Value;
+#[path = "relight_surface.rs"]
+mod surface;
+pub use surface::surface_texture;
+#[cfg(any(test, feature = "test-support"))]
+pub use surface::test_face_geometry;
 
 pub const MAX_LIGHTS: usize = 4;
 
@@ -89,7 +94,7 @@ pub fn gpu_lights(recipe: &Value) -> [[f32; 4]; 20] {
                 180.,
             )
             .to_radians(),
-            0.,
+            n("distance", 60., 10., 300.) / 100.,
         ];
     }
     out
@@ -101,7 +106,12 @@ use std::collections::{VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
-type DepthEntry = (u64, Arc<DepthImage>);
+pub struct DepthSurface {
+    pub image: DepthImage,
+    pub faces: Vec<Vec<[f32; 4]>>,
+    pub refined: bool,
+}
+type DepthEntry = (u64, Arc<DepthSurface>);
 static DEPTHS: OnceLock<Mutex<VecDeque<DepthEntry>>> = OnceLock::new();
 
 pub fn geometry(recipe: &Value) -> Value {
@@ -142,6 +152,10 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
     };
     let mut hasher = DefaultHasher::new();
     data.hash(&mut hasher);
+    recipe["relightDepth"]["version"].as_u64().hash(&mut hasher);
+    recipe["relightDepth"]["faces"]
+        .to_string()
+        .hash(&mut hasher);
     let key = hasher.finish().max(1);
     let cache = DEPTHS.get_or_init(Mutex::default);
     let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
@@ -165,13 +179,36 @@ pub fn register_depth(recipe: &Value) -> [u32; 4] {
         } else {
             image.to_luma16()
         };
-        cache.push_front((key, Arc::new(depth)));
+        let faces: Vec<Vec<[f32; 4]>> =
+            serde_json::from_value(recipe["relightDepth"]["faces"].clone()).unwrap_or_default();
+        let faces = faces
+            .into_iter()
+            .take(8)
+            .filter(|points| {
+                points.len() == 468
+                    && points.iter().all(|p| {
+                        p.iter().all(|v| v.is_finite())
+                            && (-0.5..=1.5).contains(&p[0])
+                            && (-0.5..=1.5).contains(&p[1])
+                            && p[2].abs() <= 1.
+                            && (0.0..=1.0).contains(&p[3])
+                    })
+            })
+            .collect();
+        cache.push_front((
+            key,
+            Arc::new(DepthSurface {
+                image: depth,
+                faces,
+                refined: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 2,
+            }),
+        ));
         cache.truncate(8);
     }
     [key as u32, (key >> 32) as u32, 0, 0]
 }
 
-pub fn depth(key: [u32; 4]) -> Option<Arc<DepthImage>> {
+pub fn depth(key: [u32; 4]) -> Option<Arc<DepthSurface>> {
     let id = key[0] as u64 | ((key[1] as u64) << 32);
     DEPTHS
         .get()?
@@ -184,8 +221,8 @@ pub fn depth(key: [u32; 4]) -> Option<Arc<DepthImage>> {
 
 /// Fit local slopes without joining disconnected surfaces. A spatial/range
 /// weighted linear fit averages depth noise while preserving ramps, including
-/// at image boundaries. Unlike blurring then differentiating, a depth step
-/// between two flat surfaces cannot create a bright/dark silhouette halo.
+/// at image boundaries. A curvature confidence suppresses invented bevels at
+/// short transitional silhouettes while retaining smooth surface curvature.
 /// Derivatives are per normalized image coordinate; height stays unfiltered.
 pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
     let center = depth.get_pixel(x, y)[0] as f32 / 65535.;
@@ -195,13 +232,25 @@ pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
         let mut sz = 0.;
         let mut stt = 0.;
         let mut stz = 0.;
+        let mut curvature = 0.0_f32;
         for offset in -3i32..=3 {
             let px = x as i32 + if horizontal { offset } else { 0 };
             let py = y as i32 + if horizontal { 0 } else { offset };
             if px < 0 || py < 0 || px >= depth.width() as i32 || py >= depth.height() as i32 {
                 continue;
             }
-            let z = depth.get_pixel(px as u32, py as u32)[0] as f32 / 65535. - center;
+            let sample = depth.get_pixel(px as u32, py as u32)[0] as f32 / 65535.;
+            let (ax, ay) = if horizontal { (1, 0) } else { (0, 1) };
+            if px >= ax
+                && py >= ay
+                && px + ax < depth.width() as i32
+                && py + ay < depth.height() as i32
+            {
+                let before = depth.get_pixel((px - ax) as u32, (py - ay) as u32)[0] as f32 / 65535.;
+                let after = depth.get_pixel((px + ax) as u32, (py + ay) as u32)[0] as f32 / 65535.;
+                curvature = curvature.max((before + after - 2. * sample).abs());
+            }
+            let z = sample - center;
             // Compact support: samples across a >4% normalized depth jump
             // contribute exactly zero, rather than a tiny but steep slope.
             let range = (1. - (z / 0.04).powi(2)).max(0.);
@@ -214,7 +263,7 @@ pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
             stz += weight * t * z;
         }
         let determinant = sw * stt - st * st;
-        if determinant > 1e-6 {
+        let fitted = if determinant > 1e-6 {
             (sw * stz - st * sz) / determinant
                 * if horizontal {
                     depth.width()
@@ -223,9 +272,19 @@ pub fn surface_sample(depth: &DepthImage, x: u32, y: u32) -> [f32; 4] {
                 } as f32
         } else {
             0.
-        }
+        };
+        (fitted, curvature)
     };
-    [slope(true), slope(false), center, 1.]
+    let (dx, cx) = slope(true);
+    let (dy, cy) = slope(false);
+    // Monocular silhouettes often contain 1–3 intermediate depth texels.
+    // Their small individual steps can pass the range fit above and invent a
+    // steep bevel. Curvature in the fit support marks that orientation as
+    // unreliable. Fade its normal contribution, preserving unfiltered height
+    // and exact linear planes; this is a confidence heuristic, not new depth.
+    let edge = ((cx.max(cy) - 0.004) / 0.016).clamp(0., 1.);
+    let confidence = 1. - edge * edge * (3. - 2. * edge);
+    [dx * confidence, dy * confidence, center, confidence]
 }
 
 #[cfg(test)]
@@ -257,6 +316,49 @@ mod tests {
             [0., 0., 0., 1.]
         );
     }
+    #[test]
+    fn smooth_curvature_retains_surface_direction() {
+        let map = DepthImage::from_fn(96, 64, |x, _| {
+            let offset = x as i32 - 48;
+            image::Luma([(20000 + 3 * offset * offset) as u16])
+        });
+        for x in [24, 48, 72] {
+            let sample = surface_sample(&map, x, 32);
+            let expected = 6. * (x as f32 - 48.) * 96. / 65535.;
+            assert!((sample[0] - expected).abs() < 0.01);
+            assert!(sample[1].abs() < 1e-6);
+        }
+    }
+
+    #[test]
+    fn transitional_depth_edges_do_not_invent_surface_bevels() {
+        // Inferred silhouettes contain intermediate pixels, unlike an ideal
+        // binary depth step. Each increment is below the old 4% range cutoff.
+        for axis in 0..3 {
+            for intermediates in 1..=3 {
+                let map = DepthImage::from_fn(48, 32, |x, y| {
+                    let coordinate = match axis {
+                        0 => x,
+                        1 => y,
+                        _ => x + y,
+                    };
+                    let t = (coordinate as i32 - 12).clamp(0, intermediates + 1);
+                    image::Luma([(18000 + 2000 * t) as u16])
+                });
+                for y in 0..map.height() {
+                    for x in 0..map.width() {
+                        let sample = surface_sample(&map, x, y);
+                        assert!(
+                            sample[0].abs() < 1e-6 && sample[1].abs() < 1e-6,
+                            "false normal at {x},{y}, axis {axis}, transition {intermediates}: {sample:?}"
+                        );
+                        assert_eq!(sample[2], map.get_pixel(x, y)[0] as f32 / 65535.);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn legacy_and_hidden_recipes_are_identity() {
         assert_eq!(gpu_lights(&json!({})), [[0.; 4]; 20]);

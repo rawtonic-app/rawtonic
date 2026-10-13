@@ -63,6 +63,8 @@ it("adds up to four lights, toggles and removes them without altering other edit
 it("stores depth once and preserves it through a recipe reload", async () => {
   const depth = {
     data: "data:image/png;base64,test",
+    version: 2,
+    faces: [[[0.5, 0.5, 0.02, 1]]],
     geometry: {
       transformRotate: 0,
       guidedPerspective: { autoCrop: true, enabled: false, lines: [] },
@@ -71,7 +73,10 @@ it("stores depth once and preserves it through a recipe reload", async () => {
   vi.mocked(invoke).mockResolvedValue(depth);
   mount();
   fireEvent.click(screen.getByRole("button", { name: "Analyze depth" }));
-  await screen.findByText("Depth ready. Light follows the surface.");
+  await screen.findByText(
+    "Estimated depth ready. Reduce surface strength if edges look unnatural.",
+  );
+  expect(screen.getByText("Faces refined: 1")).toBeTruthy();
   const reloaded = normalizeLoadedAdjustments(
     JSON.parse(JSON.stringify(useEditorStore.getState().adjustments)),
   );
@@ -156,7 +161,24 @@ it("analyzes depth on adding a light, then reuses it for subsequent lights", asy
   vi.mocked(invoke).mockResolvedValue({ data: "depth", geometry: {} });
   mount();
   fireEvent.click(screen.getByRole("button", { name: "Add light" }));
-  await screen.findByText("Depth ready. Light follows the surface.");
+  await screen.findByText(
+    "Estimated depth ready. Reduce surface strength if edges look unnatural.",
+  );
   fireEvent.click(screen.getByRole("button", { name: "Add light" }));
   expect(vi.mocked(invoke)).toHaveBeenCalledTimes(1);
+});
+
+it("hides and restores light guides without changing the lighting recipe", () => {
+  mount();
+  const recipe = useEditorStore.getState().adjustments;
+  const checkbox = screen.getByRole("checkbox", {
+    name: "Show light guides",
+  }) as HTMLInputElement;
+  expect(checkbox.checked).toBe(true);
+  fireEvent.click(checkbox);
+  expect(useRelightStore.getState().showHandles).toBe(false);
+  expect(useEditorStore.getState().adjustments).toBe(recipe);
+  fireEvent.click(checkbox);
+  expect(useRelightStore.getState().showHandles).toBe(true);
+  expect(useEditorStore.getState().adjustments).toBe(recipe);
 });

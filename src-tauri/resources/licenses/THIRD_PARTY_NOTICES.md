@@ -34,6 +34,8 @@ The opt-in AI build (`RAWTONIC_BUNDLE_ONNX=1`) bundles Microsoft's [ONNX Runtime
 
 **Camera calibration values.** Per-camera colour matrices (`crates/rawdecode/src/camera_matrices.rs`), baseline exposures (`camera_exposure.rs`) and white-balance references (`unit_calibration_table.rs`) are numerical facts read from DNG files written by Adobe DNG Converter for sample RAW files, the same source dcraw, LibRaw and rawler use, and from Rawtonic's own measurements. Rawtonic claims no copyright in these values. Tone and colour behaviour compared with other editors was measured by observing their output on test files; no code, profiles or look files of those editors are included.
 
+**MediaPipe face topology.** `crates/engine/src/relight_face_topology.rs` contains triangle indices from Google's [canonical face mesh](https://raw.githubusercontent.com/google-ai-edge/mediapipe/a908d668c730da128dfa8d9f6bd25d519d006692/mediapipe/modules/face_geometry/data/canonical_face_model.obj), Copyright 2020 The MediaPipe Authors, Apache-2.0 (`licenses/spdx/Apache-2.0.txt`, included in `THIRD_PARTY_LICENSES.txt`). Indices are converted to zero-based Rust arrays; canonical positions are retained only in `relight_face_fixture.rs` for tests, and textures are not included. Runtime Relight uses locally inferred face geometry.
+
 **AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT or Apache-2.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
 
 **Icons and fonts** come with the inherited frontend; see the dependency inventory below for the npm packages that ship them.

@@ -87,7 +87,10 @@ pub(crate) const FACE_MODELS_MISSING: &str = "face-models-missing";
 /// The face models, loaded once. `download`: fetch missing files from the
 /// model pack (an explicit request, PRIVACY.md); otherwise a missing file
 /// gives `FACE_MODELS_MISSING`.
-async fn models(app_handle: &tauri::AppHandle, download: bool) -> Result<Arc<FaceModels>, String> {
+pub(crate) async fn models(
+    app_handle: &tauri::AppHandle,
+    download: bool,
+) -> Result<Arc<FaceModels>, String> {
     let state = app_handle.state::<AppState>();
     if let Some(models) = state.faces.lock().unwrap().models.clone() {
         return Ok(models);
