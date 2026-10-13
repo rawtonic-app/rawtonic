@@ -2868,6 +2868,14 @@ pub struct GlobalAdjustments {
     pub relight_surface: [f32; 4],
     pub relight_camera: [f32; 4],
     pub relight_geometry: [f32; 4],
+    /// Colour noise reduction on the chroma pyramid (color_noise.rs): x = 1
+    /// for recipes with `colorNoiseVersion` 2; the renderer sets y to the
+    /// finest level's threshold and z to the gain's steepness once the
+    /// pyramid of its source is measured (x is cleared if it has none).
+    pub color_noise: [f32; 4],
+    /// The level-1 window of the renderer's chroma texture (origin xy) and
+    /// level 1's size (zw); set by the renderer.
+    pub color_noise_window: [u32; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3866,6 +3874,17 @@ fn get_global_adjustments_from_json(
         relight_depth: [0; 4],
         relight_camera: crate::relight::Camera::uniforms(js_adjustments).0,
         relight_geometry: crate::relight::Camera::uniforms(js_adjustments).1,
+        color_noise: [
+            if crate::color_noise::multiscale(js_adjustments, is_raw) {
+                1.0
+            } else {
+                0.0
+            },
+            0.0,
+            0.0,
+            0.0,
+        ],
+        color_noise_window: [0; 4],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()

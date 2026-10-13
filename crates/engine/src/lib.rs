@@ -11,6 +11,7 @@ pub mod cache_utils;
 pub mod calibration;
 pub mod camera_profile;
 pub mod color_grading;
+pub mod color_noise;
 pub mod diffraction;
 pub mod embedded_lens;
 pub mod face_retouch;

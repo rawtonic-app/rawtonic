@@ -183,6 +183,11 @@ struct GlobalAdjustments {
     relight_surface: vec4<f32>,
     relight_camera: vec4<f32>,
     relight_geometry: vec4<f32>,
+    // x = 1: colour noise reduction on the chroma pyramid, y its finest
+    // threshold, z the gain's steepness (color_noise.rs).
+    color_noise: vec4<f32>,
+    // Level-1 window of `chroma_pyramid_texture` (origin) and level 1's size.
+    color_noise_window: vec4<u32>,
 }
 
 struct MaskAdjustments {
@@ -277,6 +282,11 @@ struct AllAdjustments {
 @group(0) @binding(20) var relight_scene_texture: texture_2d<f32>;
 // Imported patterns, a 2×2 atlas with one slot per light (relight.rs).
 @group(0) @binding(21) var relight_pattern_texture: texture_2d<f32>;
+// Multi-scale colour noise reduction (color_noise.rs): level 1 of the
+// source's chroma pyramid (xy) and its reconstruction (zw), half resolution.
+@group(0) @binding(22) var chroma_pyramid_texture: texture_2d<f32>;
+// The finest level's local detail energy per input pixel (color_noise.wgsl).
+@group(0) @binding(23) var chroma_energy_texture: texture_2d<f32>;
 
 @group(0) @binding(10) var flare_texture: texture_2d<f32>;
 @group(0) @binding(11) var flare_sampler: sampler;
@@ -2816,6 +2826,101 @@ fn luma_nr_threshold(a: f32) -> f32 {
     return LUMA_NR_DEFAULT_THRESHOLD * sqrt(a / 0.15);
 }
 
+// --- Multi-scale colour noise reduction (rawtonic_engine::color_noise) ---
+// The coarse levels of the chroma pyramid are thresholded on the CPU by the
+// colour noise measured in the source; here the finest level is, per pixel:
+// chroma = expand(rebuilt level 1) + gain · (chroma − expand(level 1)).
+
+// Level 1 (xy) and its reconstruction (zw) expanded to full-resolution
+// position `p`: 1/8, 3/4, 1/8 around even positions, 1/2, 1/2 at odd ones
+// (color_noise.rs `expand_at`).
+fn ms_expand(p: vec2<i32>) -> vec4<f32> {
+    // Photo coordinates; the texture may hold a window of level 1.
+    let n = vec2<i32>(adjustments.global.color_noise_window.zw) - vec2<i32>(1);
+    let origin = vec2<i32>(adjustments.global.color_noise_window.xy);
+    let last = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
+    let k = p / 2;
+    var xs = vec3<i32>(k.x - 1, k.x, k.x + 1);
+    var wx = vec3<f32>(0.125, 0.75, 0.125);
+    if (p.x % 2 == 1) {
+        xs = vec3<i32>(k.x, k.x + 1, k.x + 1);
+        wx = vec3<f32>(0.5, 0.5, 0.0);
+    }
+    var ys = vec3<i32>(k.y - 1, k.y, k.y + 1);
+    var wy = vec3<f32>(0.125, 0.75, 0.125);
+    if (p.y % 2 == 1) {
+        ys = vec3<i32>(k.y, k.y + 1, k.y + 1);
+        wy = vec3<f32>(0.5, 0.5, 0.0);
+    }
+    xs = clamp(xs, vec3<i32>(0), vec3<i32>(n.x));
+    ys = clamp(ys, vec3<i32>(0), vec3<i32>(n.y));
+    var out = vec4<f32>(0.0);
+    for (var j: i32 = 0; j < 3; j = j + 1) {
+        if (wy[j] == 0.0) { continue; }
+        var row = vec4<f32>(0.0);
+        for (var i: i32 = 0; i < 3; i = i + 1) {
+            if (wx[i] == 0.0) { continue; }
+            let q = clamp(vec2<i32>(xs[i], ys[j]) - origin, vec2<i32>(0), last);
+            row += wx[i] * textureLoad(chroma_pyramid_texture, q, 0);
+        }
+        out += wy[j] * row;
+    }
+    return out;
+}
+
+// Share of detail kept: x^s / (1 + x^s), x = size² / threshold².
+fn ms_gain(size2: f32, threshold2: f32, steepness: f32) -> f32 {
+    if (threshold2 <= 0.0) { return 1.0; }
+    if (size2 <= 0.0) { return 0.0; }
+    return 1.0 / (1.0 + pow(threshold2 / size2, steepness));
+}
+
+fn apply_color_noise_multiscale(
+    center_linear: vec3<f32>,
+    coords_i: vec2<i32>,
+    new_luma: f32,
+    luma_a: f32,
+    color_a: f32,
+    is_raw: u32
+) -> vec3<f32> {
+    let center_e = ms_expand(coords_i);
+    let p = nr_encode(center_linear);
+    let lp = get_luma(p);
+    let c0 = vec2<f32>(p.r - p.g, p.b - p.g);
+    // The detail's size is its local energy (3 x 3, weights 1-2-1, computed
+    // once per source): single noisy pixels go, the tails of colour edges
+    // stay.
+    let energy = textureLoad(chroma_energy_texture, coords_i - vec2<i32>(adjustments.source_window.xy), 0).r;
+    let t0 = adjustments.global.color_noise.y;
+    let g0 = ms_gain(energy, t0 * t0, adjustments.global.color_noise.z);
+    var ab = center_e.zw + g0 * (c0 - center_e.xy);
+    // A layer with less colour noise reduction than the photo's returns
+    // part of the pixel's own colour.
+    let global_a = clamp(adjustments.global.color_noise_reduction, 0.0, 1.0);
+    ab = mix(c0, ab, clamp(color_a / max(global_a, 1e-6), 0.0, 1.0));
+    // Built on the (noise-reduced) luminance of the result, as the
+    // cross-bilateral filter does.
+    var base_pl = lp;
+    if (luma_a > 0.001) {
+        let tile_origin = vec2<i32>(i32(adjustments.tile_offset_x), i32(adjustments.tile_offset_y));
+        let blur_max = vec2<i32>(textureDimensions(sharpness_blur_texture)) - vec2<i32>(1);
+        var guide_rgb = textureLoad(sharpness_blur_texture, vec2<u32>(clamp(coords_i - tile_origin, vec2<i32>(0), blur_max)), 0).rgb;
+        if (is_raw == 0u) { guide_rgb = srgb_to_linear(guide_rgb); }
+        let guide_pl = get_luma(nr_encode(guide_rgb));
+        let guide_ratio = clamp(guide_pl / sqrt(max(get_luma(max(guide_rgb, vec3<f32>(0.0))), 1e-10)), 0.3, 1.0);
+        base_pl = sqrt(max(new_luma, 0.0)) * guide_ratio;
+    }
+    // Chroma with zero luminance from the two differences.
+    let pg = -(LUMA_COEFF.r * ab.x + LUMA_COEFF.b * ab.y);
+    var rgb_new = nr_decode(vec3<f32>(base_pl + pg + ab.x, base_pl + pg, base_pl + pg + ab.y));
+    // Keep the linear luminance exactly.
+    let l_new = get_luma(rgb_new);
+    if (l_new > 1e-6) {
+        rgb_new *= new_luma / l_new;
+    }
+    return rgb_new;
+}
+
 fn apply_noise_reduction_default(
     center_linear: vec3<f32>,
     coords_i: vec2<i32>,
@@ -2932,6 +3037,9 @@ fn apply_noise_reduction_default(
     }
 
     if (color_a > 0.001) {
+        if (adjustments.global.color_noise.x > 0.5) {
+            return apply_color_noise_multiscale(center_linear, coords_i, new_luma, luma_a, color_a, is_raw);
+        }
         // Chroma is smoothed in a perceptual (square-root) encoding, where
         // colour noise in the shadows is as large as it looks, over a sparse
         // 5x5 grid reaching up to ~12 px (colour noise forms blotches of
@@ -3161,6 +3269,9 @@ fn apply_noise_reduction_refined(
     }
 
     if (color_a > 0.001) {
+        if (adjustments.global.color_noise.x > 0.5) {
+            return apply_color_noise_multiscale(center_linear, coords_i, new_luma, luma_a, color_a, is_raw);
+        }
         // Chroma is smoothed in a perceptual (square-root) encoding, where
         // colour noise in the shadows is as large as it looks, over a sparse
         // 5x5 grid reaching up to ~12 px (colour noise forms blotches of

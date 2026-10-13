@@ -3740,6 +3740,7 @@ fn readback_pixels(
             false,
             precision,
             shader,
+            None,
         )
         .unwrap()
         .0
@@ -6614,6 +6615,7 @@ fn relight_pixels_and_depth_are_consistent() {
                         false,
                         precision,
                         shader,
+                        None,
                     )
                     .unwrap();
                 match pixels {
@@ -7255,6 +7257,7 @@ fn relight_real_photo_and_timing() {
                 false,
                 RenderOutputPrecision::EightBit,
                 ReadbackShader::Preview,
+                None,
             )
             .unwrap();
         match p {
@@ -7530,6 +7533,13 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
         (
             "relight",
             json!({"relightLights":[{"intensity":65,"pattern":"blinds","elevation":25}]}),
+        ),
+        // The multi-scale colour noise reduction: the pyramid of the whole
+        // photo, its level-1 window and the finest level's neighbourhood.
+        (
+            "multiscale_color_noise",
+            json!({"colorNoiseReduction":90,"colorNoiseVersion":2,"colorNoiseDetail":30,
+                "colorNoiseSmoothness":80,"lumaNoiseReduction":20,"sharpness":40}),
         ),
     ]
 }
@@ -7819,4 +7829,340 @@ fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {
         ReadbackShader::Export,
     );
     assert_eq!(display.unwrap_err(), texture_limit_error(600, 400, 512));
+}
+
+/// A noisy linear frame with colour detail for the multi-scale colour noise
+/// reduction: grey and coloured halves with chroma noise and thin lines.
+fn chroma_noise_frame(width: u32, height: u32) -> DynamicImage {
+    let mut state = 11u32;
+    let mut noise = move || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+    };
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        let base = if x < width / 2 {
+            [0.18, 0.18, 0.18]
+        } else {
+            [0.40, 0.25, 0.15]
+        };
+        let line = (x % 23 == 3 || y % 29 == 5) as u32 as f32;
+        let colour = [0.05 * line, -0.03 * line, 0.06 * line];
+        image::Rgb(std::array::from_fn(|c| {
+            let v: f32 = base[c] + colour[c];
+            (v.sqrt() + 0.02 * noise()).max(0.0).powi(2)
+        }))
+    }))
+}
+
+fn render_source(
+    context: &GpuContext,
+    image: &DynamicImage,
+    profile: serde_json::Value,
+    precision: RenderOutputPrecision,
+) -> DynamicImage {
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "test",
+        precision,
+        false,
+        None,
+        None,
+        ReadbackShader::Export,
+    )
+    .unwrap()
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_matches_its_cpu_reference() {
+    use rawtonic_engine::color_noise;
+    let context = context();
+    // Wider than one tile, so the half-resolution texture is addressed in
+    // image coordinates across tiles.
+    let image = chroma_noise_frame(2300, 300);
+    let gpu = render_source(
+        &context,
+        &image,
+        json!({"colorNoiseReduction": 25, "colorNoiseVersion": 2}),
+        RenderOutputPrecision::SixteenBit,
+    )
+    .to_rgba16();
+    let settings = color_noise::Settings {
+        amount: 0.25,
+        detail: 0.5,
+        smoothness: 0.5,
+    };
+    let filtered = color_noise::apply_to_linear(
+        &image.to_rgb32f(),
+        settings,
+        &color_noise::Tuning::default(),
+    );
+    let cpu = render_source(
+        &context,
+        &DynamicImage::ImageRgb32F(filtered),
+        json!({}),
+        RenderOutputPrecision::SixteenBit,
+    )
+    .to_rgba16();
+    let unfiltered = render_source(
+        &context,
+        &image,
+        json!({}),
+        RenderOutputPrecision::SixteenBit,
+    )
+    .to_rgba16();
+    let (mut worst, mut changed, mut sum) = (0i32, 0i64, 0i64);
+    for ((g, c), u) in gpu.pixels().zip(cpu.pixels()).zip(unfiltered.pixels()) {
+        for k in 0..3 {
+            let d = (g[k] as i32 - c[k] as i32).abs();
+            worst = worst.max(d);
+            sum += d as i64;
+            changed += (c[k] as i32 - u[k] as i32).abs() as i64;
+        }
+    }
+    let n = (gpu.width() * gpu.height() * 3) as f64;
+    println!(
+        "GPU vs CPU reference: max {worst}, mean {:.2}; filter changed mean {:.1} levels",
+        sum as f64 / n,
+        changed as f64 / n
+    );
+    // The renderer reads level 1 as 16-bit floats; the filter itself moves
+    // pixels by far more than that.
+    assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
+    assert!(changed as f64 / n > 40.0 * (sum as f64 / n).max(1.0));
+    assert!(worst < 600, "max {worst}");
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
+    let context = context();
+    let image = chroma_noise_frame(300, 200);
+    let render = |profile| {
+        render_source(&context, &image, profile, RenderOutputPrecision::SixteenBit).into_bytes()
+    };
+    // Color 0: no colour noise reduction with either version.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 2})),
+        render(json!({"colorNoiseReduction": 0}))
+    );
+    // Version 1 is the cross-bilateral filter, as recipes without the key.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 1})),
+        render(json!({"colorNoiseReduction": 25}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 2})),
+        render(json!({"colorNoiseReduction": 25}))
+    );
+}
+
+#[test]
+#[ignore = "native GPU timing probe; multi-scale colour noise reduction at preview size"]
+fn multiscale_color_noise_latency_probe() {
+    use rawtonic_engine::color_noise;
+    let context = context();
+    for (width, height) in [(2304u32, 1536u32), (6000, 4000)] {
+        let image = chroma_noise_frame(width, height);
+        let mut builds = Vec::new();
+        for _ in 0..5 {
+            let start = Instant::now();
+            let pyramid = color_noise::ChromaPyramid::build(&image, true).unwrap();
+            builds.push(start.elapsed().as_secs_f64() * 1000.0);
+            let thresholds = color_noise::Tuning::default().thresholds(
+                color_noise::Settings {
+                    amount: 0.25,
+                    detail: 0.5,
+                    smoothness: 0.5,
+                },
+                &pyramid.noise,
+            );
+            let start = Instant::now();
+            let _ = pyramid.reconstruct(&thresholds, &color_noise::Tuning::default());
+            let first = start.elapsed().as_secs_f64() * 1000.0;
+            // Slider changes: the per-source preparation is kept.
+            let start = Instant::now();
+            let _ = pyramid.reconstruct(&thresholds, &color_noise::Tuning::default());
+            println!(
+                "{}",
+                json!({"probe":"color_noise_cpu","size":[width,height],"build_ms":builds.last(),
+                    "first_reconstruct_ms":first,
+                    "reconstruct_ms":start.elapsed().as_secs_f64()*1000.0})
+            );
+        }
+    }
+    let (width, height) = (2304, 1536);
+    let image = chroma_noise_frame(width, height);
+    {
+        let gpu = GpuProcessor::new(context.clone(), width, height).unwrap();
+        for interactive in [false, true] {
+            let texture =
+                create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+            let mut source = GpuImageCache {
+                texture_view: texture.create_view(&Default::default()),
+                texture,
+                width,
+                height,
+                transform_hash: 0,
+                chroma: None,
+                chroma_gpu: None,
+            };
+            let mut times = Vec::new();
+            for frame in 0..12 {
+                let profile = json!({"colorNoiseReduction": 20 + frame, "colorNoiseVersion": 2});
+                let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                prepare_color_noise(
+                    &context,
+                    &gpu,
+                    &mut source,
+                    Some(&image),
+                    &mut adjustments,
+                    interactive,
+                )
+                .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times.push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            times.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"probe":"color_noise_prepare","on_gpu":interactive,
+                    "median_ms":times[times.len()/2]})
+            );
+        }
+    }
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    // Twice, so the first pass compiles the pipelines and fills the caches.
+    for (pass, version) in [(0, 1), (0, 2), (1, 1), (1, 2), (2, 1), (2, 2)] {
+        for slider in ["exposure", "colorNoiseReduction"] {
+            let mut times = Vec::new();
+            for frame in 0..24 {
+                let mut profile = json!({"colorNoiseReduction": 25, "lumaNoiseReduction": 15,
+                    "sharpness": 40, "colorNoiseVersion": version});
+                profile[slider] = if slider == "exposure" {
+                    json!(0.01 * (frame % 7) as f64)
+                } else {
+                    json!(20 + frame % 9)
+                };
+                let start = Instant::now();
+                process_and_get_dynamic_image_inner(
+                    &context,
+                    &processor,
+                    &cache,
+                    RenderSource::Image {
+                        image: &image,
+                        transform_hash: 7,
+                    },
+                    RenderRequest {
+                        adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                        mask_bitmaps: &[],
+                        lut: None,
+                        roi: None,
+                    },
+                    "apply_adjustments",
+                    RenderOutputPrecision::EightBit,
+                    false,
+                    None,
+                    None,
+                    ReadbackShader::Preview,
+                )
+                .unwrap();
+                if frame >= 4 {
+                    times.push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+            times.sort_by(f64::total_cmp);
+            if pass == 0 {
+                continue;
+            }
+            println!(
+                "{}",
+                json!({"probe":"color_noise_preview","pass":pass,"version":version,"slider":slider,
+                    "median_ms":times[times.len()/2],"p90_ms":times[times.len()*9/10]})
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
+    let context = context();
+    let (width, height) = (1500, 1000);
+    let image = chroma_noise_frame(width, height);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let render = |interactive: bool| {
+        let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+        let mut source = GpuImageCache {
+            texture_view: texture.create_view(&Default::default()),
+            texture,
+            width,
+            height,
+            transform_hash: 0,
+            chroma: None,
+            chroma_gpu: None,
+        };
+        let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": 2});
+        let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let views = prepare_color_noise(
+            &context,
+            &processor,
+            &mut source,
+            Some(&image),
+            &mut adjustments,
+            interactive,
+        )
+        .unwrap();
+        let (pixels, ..) = processor
+            .run_with_shader(
+                &source.texture_view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+                ReadbackShader::Export,
+                Some((&views.0, &views.1)),
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            RenderedPixels::U8(_) => unreachable!(),
+        }
+    };
+    let (cpu, gpu) = (render(false), render(true));
+    let worst = cpu
+        .iter()
+        .zip(&gpu)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap();
+    println!("GPU vs CPU reconstruction: max difference {worst} of 65535");
+    assert!(worst <= 12, "max {worst}");
 }

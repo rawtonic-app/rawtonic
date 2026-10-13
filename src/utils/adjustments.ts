@@ -507,6 +507,10 @@ export interface Adjustments {
   lumaNoiseContrast?: number;
   colorNoiseDetail?: number;
   colorNoiseSmoothness?: number;
+  /** Colour noise reduction filter: 2 = multi-scale, measured per photo
+   * (crates/engine/src/color_noise.rs); 1 or missing on recipes that set
+   * `colorNoiseReduction` = the earlier cross-bilateral filter. */
+  colorNoiseVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1043,9 +1047,20 @@ export const RAW_DETAIL_DEFAULTS = {
   lumaNoiseReduction: 15,
 } as const;
 
+/** The colour noise reduction new edits start with (notes: reference/detail.md). */
+export const COLOR_NOISE_VERSION = 2;
+
 /** Starting adjustments for a photo that has no saved edit. */
 export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
-  isRaw ? { ...INITIAL_ADJUSTMENTS, ...RAW_DETAIL_DEFAULTS } : { ...INITIAL_ADJUSTMENTS };
+  isRaw
+    ? { ...INITIAL_ADJUSTMENTS, ...RAW_DETAIL_DEFAULTS, colorNoiseVersion: COLOR_NOISE_VERSION }
+    : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION };
+
+/** The colour noise filter of a saved recipe: its own, else the earlier
+ * filter when it sets the colour amount, and the current one when it leaves
+ * it to the RAW default (as the backend decides, `color_noise::multiscale`). */
+const loadedColorNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined =>
+  loaded.colorNoiseVersion ?? (isRaw && loaded.colorNoiseReduction === undefined ? COLOR_NOISE_VERSION : undefined);
 
 /** Deep equality of adjustment values regardless of object key order (stored
  * recipes come back with sorted keys, so JSON strings of equal values differ). */
@@ -1145,6 +1160,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
       ...(loadedAdjustments.guidedPerspective?.upright ? { upright: loadedAdjustments.guidedPerspective.upright } : {}),
     },
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
+    colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -1283,6 +1299,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'lumaNoiseContrast',
         'colorNoiseDetail',
         'colorNoiseSmoothness',
+        'colorNoiseVersion',
         'aiDenoise',
       ],
     },
