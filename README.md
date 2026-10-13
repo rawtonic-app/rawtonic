@@ -33,7 +33,7 @@
 </p>
 
 > [!WARNING]
-> **Rawtonic is an early alpha.** It is usable for real work, but features are still missing and you will run into bugs. Keep your originals backed up, as with any new software. Rawtonic never changes your RAW files: edits live beside them, in a session database and XMP sidecars.
+> **Rawtonic is an early alpha.** It is usable for real work, but features are still missing and you will run into bugs. Keep your originals backed up, as with any new software. Rawtonic never changes your RAW files: edits live beside them, in a project database and XMP sidecars.
 
 ## About
 
@@ -61,7 +61,9 @@ Intel Macs, Windows and Linux builds are not available yet. Linux is in progress
 
 ### 1 · Bring the shoot in
 
-Start a **session** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. The card is never changed. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives and can apply a preset or the previous photo's settings straight away.
+Start a **project** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. The card is never changed. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives and can apply a preset or the previous photo's settings straight away.
+
+Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
 Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can import it, with ratings, labels, keywords, albums and translated edits.
 
@@ -110,7 +112,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 
 ## What it does
 
-- **Originals stay yours.** Your RAW files are never modified or deleted. Ingest verifies every copy; edits live in a portable session and XMP sidecars.
+- **Originals stay yours.** Your RAW files are never modified or deleted. Ingest verifies every copy; edits live in a portable project and XMP sidecars.
 - **Fast, on the graphics card.** The photograph is rendered natively on the GPU beneath the interface, so sliders, brushes and masks respond while you drag.
 - **Light.** Exposure, highlights, shadows, whites and blacks, levels, point and region curves, clarity, structure, dehaze.
 - **Colour.** RAW white balance, colour editor, colour grading, vibrance, black-and-white mix, camera profiles, CUBE LUTs, soft proofing for print and web colour spaces.
@@ -184,4 +186,4 @@ Rawtonic's editor started from [RapidRAW](https://github.com/CyberTimon/RapidRAW
 
 Rawtonic is an independent project and is not affiliated with, endorsed or sponsored by Adobe, Capture One, Fujifilm or any camera maker. Their names are trademarks of their owners and appear only to say what Rawtonic imports from or works with ([trademarks](TRADEMARKS.md)).
 
-Screenshots show a demo session with photographs from Pexels ([photography credits](docs/images/CREDITS.md)).
+Screenshots show a demo project with photographs from Pexels ([photography credits](docs/images/CREDITS.md)).

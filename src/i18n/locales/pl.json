@@ -690,7 +690,7 @@
       "day": "Dzień",
       "extension": "Rozszerzenie",
       "hour": "Godzina",
-      "job": "Nazwa sesji",
+      "job": "Nazwa projektu",
       "minute": "Minuta",
       "month": "Miesiąc",
       "original": "Nazwa obrazu",
@@ -778,10 +778,10 @@
       "discardFullDesc": "Podglądy 1:1 pozwalają powiększać zdjęcia offline do 100 %. Są duże, więc nieużywane przez ten czas są usuwane.",
       "never": "Nigdy",
       "noLimit": "Bez limitu",
-      "outsideUsage": "Podglądy zdjęć poza sesjami",
-      "sessionUsage": "Podglądy tej sesji",
+      "outsideUsage": "Podglądy zdjęć poza projektami",
+      "sessionUsage": "Podglądy tego projektu",
       "standardLimit": "Limit rozmiaru podglądów standardowych",
-      "standardLimitDesc": "Na folder podglądów (sesja lub zdjęcia poza sesjami). Powyżej limitu najdawniej używane podglądy standardowe są usuwane i tworzone ponownie przy otwarciu zdjęcia. Podglądy zdjęć offline zostają.",
+      "standardLimitDesc": "Na folder podglądów (projekt lub zdjęcia poza projektami). Powyżej limitu najdawniej używane podglądy standardowe są usuwane i tworzone ponownie przy otwarciu zdjęcia. Podglądy zdjęć offline zostają.",
       "standardSize": "Rozmiar podglądu standardowego",
       "standardSizeDesc": "Dłuższy bok podglądów, na których otwiera się Wywoływanie podczas dekodowania pliku RAW i które pokazują zdjęcia offline. Auto dopasowuje się do widoku Wywoływania.",
       "title": "Podglądy",
@@ -804,16 +804,16 @@
     "bar": {
       "hotFolder": "Obserwuj",
       "hotFolderCount": "Obserwowany · {{imported}}",
-      "hotFolderTitle": "Folder obserwowany: obserwuj folder i kopiuj nowe zdjęcia do tej sesji",
+      "hotFolderTitle": "Folder obserwowany: obserwuj folder i kopiuj nowe zdjęcia do tego projektu",
       "hotFolderWatching_one": "Obserwowanie {{folder}} · zaimportowano: {{count}}",
       "hotFolderWatching_few": "Obserwowanie {{folder}} · zaimportowano: {{count}}",
       "hotFolderWatching_many": "Obserwowanie {{folder}} · zaimportowano: {{count}}",
       "hotFolderWatching_other": "Obserwowanie {{folder}} · zaimportowano: {{count}}",
-      "identityTitle": "Otwórz lub utwórz sesję",
+      "identityTitle": "Otwórz lub utwórz projekt",
       "ingest": "Import",
-      "ingestTitle": "Kopiuj zdjęcia z karty lub folderu do tej sesji",
+      "ingestTitle": "Kopiuj zdjęcia z karty lub folderu do tego projektu",
       "markTitle": "Rawtonic · wersja deweloperska",
-      "noSession": "Brak sesji",
+      "noSession": "Brak projektu",
       "photos_one": "{{formatted}} zdjęcie",
       "photos_few": "{{formatted}} zdjęcia",
       "photos_many": "{{formatted}} zdjęć",
@@ -830,31 +830,34 @@
     },
     "create": {
       "catalog": "Katalog",
+      "catalogDescription": "",
       "catalogHint": "Biblioteka na wiele zleceń",
       "catalogName": "Nazwa katalogu",
       "catalogPlaceholder": "Biblioteka zdjęć",
       "chooseParent": "Wybierz folder nadrzędny…",
       "createCatalog": "Utwórz katalog",
-      "createSession": "Utwórz sesję",
+      "createSession": "Utwórz projekt",
       "importSubtitle": "Nowy katalog dla biblioteki Lightroom lub Capture One. Następnie import.",
       "importTitle": "Katalog dla Twojej biblioteki",
       "location": "Lokalizacja",
-      "name": "Nazwa sesji",
+      "modeLabel": "",
+      "name": "Nazwa projektu",
       "namePlaceholder": "2026-10-01_Klient_Zlecenie",
       "namePreview": "Twoje zlecenie",
       "originalsUntouched": "Oryginalne zdjęcia pozostają nietknięte.",
-      "session": "Sesja",
+      "session": "Projekt",
+      "sessionDescription": "",
       "sessionHint": "Jeden przenośny folder na zlecenie",
-      "subtitle": "Sesja to jeden folder, który możesz zabrać wszędzie.",
+      "subtitle": "Projekt to jeden folder, który możesz zabrać wszędzie.",
       "title": "Rozpocznij nowe zlecenie"
     },
     "dialogs": {
       "close": "Zamknij",
-      "openTitle": "Otwórz sesję lub katalog Rawtonic"
+      "openTitle": "Otwórz projekt lub katalog Rawtonic"
     },
     "drop": {
       "importing": "Trwa import; upuść kolejne zdjęcia, gdy się zakończy.",
-      "noLibrary": "Najpierw otwórz lub utwórz sesję, a potem upuść zdjęcia, aby je zaimportować.",
+      "noLibrary": "Najpierw otwórz lub utwórz projekt, a potem upuść zdjęcia, aby je zaimportować.",
       "overlay": "Upuść, aby zaimportować do {{name}}"
     },
     "fields": {
@@ -980,8 +983,8 @@
     },
     "menu": {
       "importFrom": "Importuj z Lightroom lub Capture One…",
-      "new": "Nowa sesja…",
-      "open": "Otwórz sesję…"
+      "new": "Nowy projekt…",
+      "open": "Otwórz projekt…"
     },
     "progress": {
       "adding_one": "Dodawanie {{current}} z {{count}} pliku",
@@ -1010,7 +1013,7 @@
       "duplicatesSkipped_many": "pominięto {{count}} duplikatów",
       "duplicatesSkipped_other": "pominięto {{count}} duplikatu",
       "flagsFailed": "Nie udało się zapisać flag: {{error}}",
-      "flagsSavedRefreshFailed": "Flagi zapisane; nie udało się odświeżyć podsumowania sesji: {{error}}",
+      "flagsSavedRefreshFailed": "Flagi zapisane; nie udało się odświeżyć podsumowania projektu: {{error}}",
       "hotFolderFailed": "Folder obserwowany: {{file}}: {{error}}",
       "importCopiesSkipped_one": "{{count}} kopia wirtualna niezaimportowana",
       "importCopiesSkipped_few": "{{count}} kopie wirtualne niezaimportowane",
@@ -1036,10 +1039,11 @@
       "watching": "Obserwowanie folderu {{folder}} w poszukiwaniu nowych zdjęć."
     },
     "welcome": {
-      "body": "Utwórz przenośną sesję na następną sesję zdjęciową. Trzymaj ujęcia, edycje i materiały do oddania razem, od pierwszej klatki po ostateczny wybór.",
-      "create": "Utwórz sesję",
+      "body": "Utwórz przenośny projekt na następną sesję zdjęciową. Trzymaj ujęcia, edycje i materiały do oddania razem, od pierwszej klatki po ostateczny wybór.",
+      "create": "Utwórz projekt",
+      "createCatalog": "",
       "importFrom": "Zacznij od Lightroom lub Capture One",
-      "open": "Otwórz sesję",
+      "open": "Otwórz projekt",
       "tagline": "Pliki lokalne. Edycja niedestrukcyjna. Twoje zdjęcia.",
       "title": "Miejsce na każde zlecenie."
     }
@@ -1072,7 +1076,7 @@
     "data": {
       "clearSidecars": "Wyczyść wszystkie pliki poboczne (Sidecar)",
       "clearSidecarsButton": "Wyczyść",
-      "clearSidecarsDesc": "Usuwa pliki .rrdata (edycje) i .rrexif (pamięć podręczna EXIF) w twoich folderach głównych. Nie dotyczy to zdjęć w sesji lub katalogu: ich edycje są zapisane w jego bazie danych. Foldery główne:",
+      "clearSidecarsDesc": "Usuwa pliki .rrdata (edycje) i .rrexif (pamięć podręczna EXIF) w twoich folderach głównych. Nie dotyczy to zdjęć w projekcie lub katalogu: ich edycje są zapisane w jego bazie danych. Foldery główne:",
       "clearThumbnail": "Wyczyść pamięć podręczną miniatur",
       "clearThumbnailButton": "Wyczyść",
       "clearThumbnailDesc": "Zostaną usunięte wszystkie zbuforowane miniatury. Zostaną wygenerowane na nowo w trakcie przeglądania biblioteki.",
@@ -1096,7 +1100,7 @@
         "confirmResetLayoutTitle": "Zresetuj układ obszaru roboczego",
         "confirmTitle": "Potwierdź usunięcie",
         "resetLayoutMessage": "Czy na pewno chcesz zresetować układ obszaru roboczego? Wszystkie przypięte panele, szerokości i pozycje przełączników zostaną przywrócone do wartości domyślnych.",
-        "sidecarMessage": "Czy na pewno chcesz usunąć wszystkie pliki sidecar?\n\nTo trwale usunie edycje zapisane w plikach .rrdata dla wszystkich obrazów wewnątrz wszystkich aktywnych folderów głównych oraz ich podfolderów. Nie dotyczy to zdjęć w sesji lub katalogu: ich edycje są zapisane w jego bazie danych."
+        "sidecarMessage": "Czy na pewno chcesz usunąć wszystkie pliki sidecar?\n\nTo trwale usunie edycje zapisane w plikach .rrdata dla wszystkich obrazów wewnątrz wszystkich aktywnych folderów głównych oraz ich podfolderów. Nie dotyczy to zdjęć w projekcie lub katalogu: ich edycje są zapisane w jego bazie danych."
       },
       "noFolders": "Nie wybrano żadnych folderów",
       "resetLayoutButton": "Zresetuj układ",
@@ -1894,7 +1898,7 @@
         "keepStructure": "Zachowaj strukturę folderów",
         "legend": "Miejsce docelowe",
         "original": "Obok oryginałów",
-        "output": "Folder Output sesji",
+        "output": "Folder Output projektu",
         "subfolder": "W podfolderze",
         "subfolderAria": "Podfolder"
       },
@@ -2340,7 +2344,7 @@
         },
         "noMatch": "Żadna nazwa folderu nie zawiera „{{filter}}”.",
         "reading": "Wczytywanie folderów…",
-        "session": "Sesja",
+        "session": "Projekt",
         "sort": {
           "ascending": "Rosnąco",
           "created": "Data utworzenia",
@@ -2516,8 +2520,8 @@
         "title": "Słowa kluczowe"
       },
       "mixed": "Różne",
-      "notInSession": "Niektóre zaznaczone zdjęcia nie należą do tej sesji.",
-      "outsideSessions": "Poza sesją opis, autor, prawa autorskie i komentarz są zapisywane razem z edycją każdego zdjęcia; tytuł i pola IPTC są zapisywane w sesjach.",
+      "notInSession": "Niektóre zaznaczone zdjęcia nie należą do tego projektu.",
+      "outsideSessions": "Poza projektem opis, autor, prawa autorskie i komentarz są zapisywane razem z edycją każdego zdjęcia; tytuł i pola IPTC są zapisywane w projektach.",
       "selectToSee": "Zaznacz zdjęcia, aby zobaczyć ich metadane.",
       "title": "Metadane",
       "toasts": {

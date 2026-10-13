@@ -67,23 +67,33 @@ beforeEach(() => {
 });
 
 describe("Session workspace keyboard flows", () => {
-  it("creates a session using typed name and chosen folder, then opens Capture", async () => {
+  it.each(["session", "catalog"] as const)("creates a %s from its welcome choice using the typed name and chosen folder", async (mode) => {
     const user = userEvent.setup();
     const navigate = vi.fn(async () => {});
+    const label = mode === "session" ? "project" : "catalog";
+    const directory = `/jobs/Acme${mode === "catalog" ? ".catalog" : ""}`;
+    const created = { ...summary, directory, manifest: { ...summary.manifest, mode } };
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) =>
+      command === "session_create" || command === "session_summary" ? created : base(command, args),
+    );
     render(<SessionWorkspace onNavigate={navigate} />);
-    await user.click(screen.getByRole("button", { name: "Create a session" }));
-    await user.type(screen.getByLabelText("Session name"), "Acme");
+    await user.click(screen.getByRole("button", { name: `Create a ${label}` }));
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
+    const nameField = screen.getByLabelText(mode === "catalog" ? "Catalog name" : "Project name");
+    expect(document.activeElement).toBe(nameField);
+    await user.type(nameField, "Acme");
     await user.click(screen.getByRole("button", { name: "Location" }));
-    await user.click(screen.getByRole("button", { name: "Create session" }));
+    await user.click(screen.getByRole("button", { name: `Create ${label}` }));
     await waitFor(() =>
       expect(invoke).toHaveBeenCalledWith("session_create", {
-        directory: "/jobs/Acme",
+        directory,
         name: "Acme",
-        catalog: false,
+        catalog: mode === "catalog",
       }),
     );
     await waitFor(() =>
-      expect(navigate).toHaveBeenCalledWith("/jobs/Acme/Capture", true),
+      expect(navigate).toHaveBeenCalledWith(`${directory}/Capture`, true),
     );
     expect(screen.getByText("Acme")).toBeTruthy();
   });
@@ -94,25 +104,25 @@ describe("Session workspace keyboard flows", () => {
       new Error("A library already exists here"),
     );
     render(<SessionWorkspace onNavigate={navigate} />);
-    await user.click(screen.getByRole("button", { name: "Create a session" }));
-    await user.type(screen.getByLabelText("Session name"), "Acme");
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Acme");
     await user.click(screen.getByRole("button", { name: "Location" }));
-    await user.click(screen.getByRole("button", { name: "Create session" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toContain("already exists"),
     );
     expect(navigate).not.toHaveBeenCalled();
     expect(
-      (screen.getByLabelText("Session name") as HTMLInputElement).value,
+      (screen.getByLabelText("Project name") as HTMLInputElement).value,
     ).toBe("Acme");
   });
   it("does not treat letters in the session name as culling commands", async () => {
     const user = userEvent.setup();
     render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
-    await user.click(screen.getByRole("button", { name: "Create a session" }));
-    await user.type(screen.getByLabelText("Session name"), "Pixel portraits");
+    await user.click(screen.getByRole("button", { name: "Create a project" }));
+    await user.type(screen.getByLabelText("Project name"), "Pixel portraits");
     expect(
-      (screen.getByLabelText("Session name") as HTMLInputElement).value,
+      (screen.getByLabelText("Project name") as HTMLInputElement).value,
     ).toBe("Pixel portraits");
     expect(invoke).not.toHaveBeenCalledWith(
       "session_set_flag",
@@ -125,10 +135,10 @@ it("owns P in a managed session instead of also invoking the legacy preset short
   const user = userEvent.setup();
   const navigate = vi.fn(async () => {});
   render(<SessionWorkspace onNavigate={navigate} />);
-  await user.click(screen.getByRole("button", { name: "Create a session" }));
-  await user.type(screen.getByLabelText("Session name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
   await user.click(screen.getByRole("button", { name: "Location" }));
-  await user.click(screen.getByRole("button", { name: "Create session" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
   await waitFor(() => expect(navigate).toHaveBeenCalled());
   useLibraryStore.setState({
     multiSelectedPaths: ["/jobs/Acme/Capture/test.jpg"],
@@ -151,10 +161,10 @@ it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
   const user = userEvent.setup();
   const navigate = vi.fn(async () => {});
   render(<SessionWorkspace onNavigate={navigate} />);
-  await user.click(screen.getByRole("button", { name: "Create a session" }));
-  await user.type(screen.getByLabelText("Session name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
   await user.click(screen.getByRole("button", { name: "Location" }));
-  await user.click(screen.getByRole("button", { name: "Create session" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
   await waitFor(() => expect(navigate).toHaveBeenCalled());
   useLibraryStore.setState({
     multiSelectedPaths: ["/jobs/Acme/Capture/test.jpg"],
@@ -178,8 +188,8 @@ it("rejects with ⇧X and leaves plain X to the proof margin", async () => {
 it("contains modal shortcuts and closes with Escape without invoking editor commands", async () => {
   const user = userEvent.setup();
   render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
-  await user.click(screen.getByRole("button", { name: "Create a session" }));
-  expect(document.activeElement).toBe(screen.getByLabelText("Session name"));
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  expect(document.activeElement).toBe(screen.getByLabelText("Project name"));
   const editorKey = vi.fn();
   window.addEventListener("keydown", editorKey);
   await user.keyboard("{Escape}");
@@ -192,10 +202,10 @@ async function createSession() {
   const user = userEvent.setup();
   const navigate = vi.fn(async () => {});
   render(<SessionWorkspace onNavigate={navigate} />);
-  await user.click(screen.getByRole("button", { name: "Create a session" }));
-  await user.type(screen.getByLabelText("Session name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
   await user.click(screen.getByRole("button", { name: "Location" }));
-  await user.click(screen.getByRole("button", { name: "Create session" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
   await waitFor(() => expect(navigate).toHaveBeenCalled());
   return user;
 }
@@ -307,10 +317,10 @@ it("starts a hot folder for the session with a preset as next capture adjustment
         : base(command, args),
   );
   render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
-  await user.click(screen.getByRole("button", { name: "Create a session" }));
-  await user.type(screen.getByLabelText("Session name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
   await user.click(screen.getByRole("button", { name: "Location" }));
-  await user.click(screen.getByRole("button", { name: "Create session" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
   await waitFor(() => expect(screen.getByRole("button", { name: /Hot folder/ })).toHaveProperty("disabled", false));
   await user.click(screen.getByRole("button", { name: /Hot folder/ }));
   await user.type(screen.getByLabelText("Watched folder"), "/tether");
@@ -355,10 +365,10 @@ it("previews and imports a Lightroom catalog into the open catalog", async () =>
       <SessionWorkspace onNavigate={vi.fn(async () => {})} />
     </ContextMenuProvider>,
   );
-  await user.click(screen.getByRole("button", { name: "Create a session" }));
-  await user.type(screen.getByLabelText("Session name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
   await user.click(screen.getByRole("button", { name: "Location" }));
-  await user.click(screen.getByRole("button", { name: "Create session" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
   await waitFor(() => expect(screen.getByTitle("/jobs/Acme")).toBeTruthy());
   await user.click(screen.getByTitle("/jobs/Acme"));
   await user.click(await screen.findByRole("menuitem", { name: /Import from Lightroom/ }));
@@ -392,7 +402,7 @@ it("starts from Lightroom or Capture One on the welcome screen: a catalog first,
       <SessionWorkspace onNavigate={vi.fn(async () => {})} />
     </ContextMenuProvider>,
   );
-  await user.click(screen.getByRole("button", { name: "Start from Lightroom or Capture One" }));
+  await user.click(screen.getByRole("button", { name: "Import from Lightroom or Capture One…" }));
   // The import needs a catalog: no session/catalog choice to get wrong.
   expect(screen.queryByRole("radio")).toBeNull();
   await user.type(screen.getByLabelText("Catalog name"), "Acme");

@@ -1,6 +1,7 @@
 //! Verified ingest: streaming reads, bounded memory and no-clobber publication.
 pub mod batch;
 pub mod hot_folder;
+pub mod transfer;
 
 use anyhow::{Context, Result, bail, ensure};
 use rawtonic_catalog::Library;
@@ -227,15 +228,25 @@ pub fn import_one_with_start(
 
 /// Folders of a session or catalog that hold no photographs of their own:
 /// its Trash and the app's mask bitmaps and previews.
-const RESERVED_FOLDERS: &[&str] = &["Trash", "masks", "previews", "smart-previews"];
+const RESERVED_FOLDERS: &[&str] = &[
+    "Trash",
+    "masks",
+    "resources",
+    "profiles",
+    "previews",
+    "smart-previews",
+];
 
 /// A folder an import may copy into, as `destination_folder` checked it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Destination(PathBuf);
+pub struct Destination {
+    path: PathBuf,
+    sort_by_date: bool,
+}
 
 impl Destination {
     pub fn path(&self) -> &Path {
-        &self.0
+        &self.path
     }
 }
 
@@ -257,6 +268,7 @@ pub fn destination_folder(
     folder: Option<&Path>,
     roots: &[PathBuf],
 ) -> Result<Destination> {
+    let sort_by_date = folder.is_none() && library.manifest.mode == rawtonic_catalog::Mode::Catalog;
     let folder = match folder {
         None => {
             let capture = library.directory.join(&library.manifest.capture);
@@ -284,7 +296,10 @@ pub fn destination_folder(
             "Photographs cannot be copied into {}",
             folder.display()
         );
-        return Ok(Destination(folder));
+        return Ok(Destination {
+            path: folder,
+            sort_by_date,
+        });
     }
     ensure!(
         library.manifest.mode == rawtonic_catalog::Mode::Catalog,
@@ -311,7 +326,10 @@ pub fn destination_folder(
         "Photographs cannot be copied into the hidden folder {}",
         folder.display()
     );
-    Ok(Destination(folder))
+    Ok(Destination {
+        path: folder,
+        sort_by_date,
+    })
 }
 
 /// `import_one_with_start` into `destination` (`destination_folder`).
@@ -345,7 +363,17 @@ pub fn import_one_into(
         context.captured = chrono_from_system(modified);
     }
     let name = render(template, &context)?;
-    let folder = destination.path().to_path_buf();
+    let mut folder = destination.path().to_path_buf();
+    // Catalogs organize their managed originals by capture date. Explicit
+    // folder drops retain the destination the user chose; old manifests keep
+    // their existing capture folder. Projects retain the per-job layout.
+    if destination.sort_by_date {
+        let date = capture_date(source);
+        folder = folder
+            .join(date.format("%Y").to_string())
+            .join(date.format("%Y-%m-%d").to_string());
+        fs::create_dir_all(&folder)?;
+    }
     ensure!(
         folder.is_dir(),
         "The destination folder is gone: {}",
@@ -641,4 +669,35 @@ mod counter_start_tests {
             assert_eq!(fs::read(&source).unwrap(), fs::read(destination).unwrap());
         }
     }
+}
+
+/// EXIF capture date, falling back to the source's modification date.
+fn capture_date(source: &Path) -> chrono::NaiveDate {
+    let exif = fs::File::open(source).ok().and_then(|file| {
+        exif::Reader::new()
+            .read_from_container(&mut std::io::BufReader::new(file))
+            .ok()
+    });
+    if let Some(exif) = exif {
+        for tag in [
+            exif::Tag::DateTimeOriginal,
+            exif::Tag::DateTimeDigitized,
+            exif::Tag::DateTime,
+        ] {
+            if let Some(field) = exif.get_field(tag, exif::In::PRIMARY)
+                && let exif::Value::Ascii(values) = &field.value
+                && let Some(bytes) = values.first()
+                && let Ok(text) = std::str::from_utf8(bytes)
+                && let Some(date) = text.get(..10)
+                && let Ok(date) = chrono::NaiveDate::parse_from_str(date, "%Y:%m:%d")
+            {
+                return date;
+            }
+        }
+    }
+    fs::metadata(source)
+        .and_then(|m| m.modified())
+        .map(chrono_from_system)
+        .unwrap_or_else(|_| chrono::Utc::now().naive_utc())
+        .date()
 }

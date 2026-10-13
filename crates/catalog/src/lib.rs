@@ -1,4 +1,5 @@
 //! Shared portable session/catalog storage, independent of Tauri and rendering.
+pub mod portable;
 use anyhow::{Context, Result, ensure};
 use rawtonic_metadata::{Metadata, atomic_write};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -199,7 +200,12 @@ impl Library {
             id: Uuid::new_v4().to_string(),
             name: name.into(),
             mode,
-            capture: "Capture".into(),
+            capture: if mode == Mode::Catalog {
+                "Photos"
+            } else {
+                "Capture"
+            }
+            .into(),
             output: "Output".into(),
         };
         let conn = Connection::open(directory.join(db_name(mode)))?;
@@ -212,7 +218,7 @@ impl Library {
             [],
         )?;
         for sub in [
-            "Capture",
+            manifest.capture.as_str(),
             "Selects",
             "Output",
             "Trash",
@@ -839,6 +845,9 @@ impl Library {
 
     /// Editor adapter: the DB owns the serialized state; sidecars are derived.
     pub fn save_editor_state(&self, asset: &str, legacy: &Value) -> Result<()> {
+        let mut stored = legacy.clone();
+        rawtonic_metadata::resources::localize(&mut stored, &self.directory);
+        let legacy = &stored;
         let version = self.primary_version(asset)?;
         let payload = json!({"schema_version":1,"process_version":"rapidraw-1.6.4","adjustments":legacy.get("adjustments").cloned().unwrap_or(Value::Null),"editor_state":legacy,"layers":[]});
         let mut meta = self.metadata(asset)?;
@@ -926,6 +935,7 @@ impl Library {
         if let Some(ref mut state) = state {
             let meta = self.metadata(asset)?;
             apply_editor_metadata(state, meta);
+            rawtonic_metadata::resources::resolve(state, &self.directory);
         }
         Ok(state)
     }
@@ -966,6 +976,7 @@ impl Library {
             if let Some(ref mut state) = state {
                 let metadata: String = row.get(4)?;
                 apply_editor_metadata(state, serde_json::from_str(&metadata)?);
+                rawtonic_metadata::resources::resolve(state, &self.directory);
             }
             visit(&path, state);
         }
@@ -1643,7 +1654,9 @@ impl Library {
     /// (`<photo>.<copy>.rrdata`) is derived from it while the file is there.
     pub fn save_copy_state(&self, asset: &str, copy: &str, state: &Value) -> Result<()> {
         ensure!(valid_copy_id(copy), "Not a virtual copy id: {copy}");
-        let text = serde_json::to_string(state)?;
+        let mut state = state.clone();
+        rawtonic_metadata::resources::localize(&mut state, &self.directory);
+        let text = serde_json::to_string(&state)?;
         ensure!(text.len() <= 64 * 1024 * 1024, "Recipe too large");
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
         let updated = tx.execute(
@@ -1671,7 +1684,11 @@ impl Library {
             )
             .optional()?;
         text.flatten()
-            .map(|text| serde_json::from_str(&text).map_err(Into::into))
+            .map(|text| {
+                let mut value = serde_json::from_str(&text)?;
+                rawtonic_metadata::resources::resolve(&mut value, &self.directory);
+                Ok(value)
+            })
             .transpose()
     }
 
@@ -1869,6 +1886,6 @@ fn resolve_moved(path: &Path) -> PathBuf {
 pub fn session_for(path: &Path) -> Option<PathBuf> {
     path.parent()?
         .ancestors()
-        .find(|p| p.join("session.json").is_file())
+        .find(|p| p.join("session.json").is_file() || p.join("catalog.json").is_file())
         .map(Path::to_path_buf)
 }

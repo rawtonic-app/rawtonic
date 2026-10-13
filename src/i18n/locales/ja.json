@@ -648,7 +648,7 @@
       "day": "日",
       "extension": "拡張子",
       "hour": "時",
-      "job": "セッション名",
+      "job": "プロジェクト名",
       "minute": "分",
       "month": "月",
       "original": "画像名",
@@ -718,10 +718,10 @@
       "discardFullDesc": "1:1 プレビューでオフラインの写真を 100 % で表示できます。容量が大きいため、この期間使われなかったものは破棄されます。",
       "never": "しない",
       "noLimit": "制限なし",
-      "outsideUsage": "セッション外の写真のプレビュー",
-      "sessionUsage": "このセッションのプレビュー",
+      "outsideUsage": "プロジェクト外の写真のプレビュー",
+      "sessionUsage": "このプロジェクトのプレビュー",
       "standardLimit": "標準プレビューのサイズ上限",
-      "standardLimitDesc": "プレビューフォルダーごと（セッション、またはセッション外の写真）。上限を超えると、最も長く使われていない標準プレビューが破棄され、その写真を開いたときに再作成されます。オフラインの写真のプレビューは保持されます。",
+      "standardLimitDesc": "プレビューフォルダーごと（プロジェクト、またはプロジェクト外の写真）。上限を超えると、最も長く使われていない標準プレビューが破棄され、その写真を開いたときに再作成されます。オフラインの写真のプレビューは保持されます。",
       "standardSize": "標準プレビューのサイズ",
       "standardSizeDesc": "RAW ファイルのデコード中に現像で表示し、オフラインの写真で表示するプレビューの長辺。自動は現像ビューのサイズに合わせます。",
       "title": "プレビュー",
@@ -744,13 +744,13 @@
     "bar": {
       "hotFolder": "監視フォルダ",
       "hotFolderCount": "監視フォルダ · {{imported}}",
-      "hotFolderTitle": "フォルダを監視し、新しい写真をこのセッションにコピーします",
+      "hotFolderTitle": "フォルダを監視し、新しい写真をこのプロジェクトにコピーします",
       "hotFolderWatching_other": "{{folder}} を監視中 · {{count}} 枚取り込み済み",
-      "identityTitle": "セッションを開くか作成します",
+      "identityTitle": "プロジェクトを開くか作成します",
       "ingest": "取り込み",
-      "ingestTitle": "カードまたはフォルダからこのセッションに写真をコピーします",
+      "ingestTitle": "カードまたはフォルダからこのプロジェクトに写真をコピーします",
       "markTitle": "Rawtonic · 開発ビルド",
-      "noSession": "セッションなし",
+      "noSession": "プロジェクトなし",
       "photos_other": "{{formatted}} 枚",
       "picked_other": "採用 {{count}}",
       "xmpPending_other": "XMP 保留 {{count}}",
@@ -758,31 +758,34 @@
     },
     "create": {
       "catalog": "カタログ",
+      "catalogDescription": "",
       "catalogHint": "多くの仕事のためのライブラリ",
       "catalogName": "カタログ名",
       "catalogPlaceholder": "写真ライブラリ",
       "chooseParent": "親フォルダを選択…",
       "createCatalog": "カタログを作成",
-      "createSession": "セッションを作成",
+      "createSession": "プロジェクトを作成",
       "importSubtitle": "Lightroom または Capture One のライブラリ用に新しいカタログを作成し、続けて読み込みます。",
       "importTitle": "ライブラリ用のカタログ",
       "location": "場所",
-      "name": "セッション名",
+      "modeLabel": "",
+      "name": "プロジェクト名",
       "namePlaceholder": "2026-10-01_クライアント_案件",
       "namePreview": "あなたの仕事",
       "originalsUntouched": "元の写真は変更されません。",
-      "session": "セッション",
+      "session": "プロジェクト",
+      "sessionDescription": "",
       "sessionHint": "仕事ごとに持ち運べるフォルダ",
-      "subtitle": "セッションはどこへでも持ち運べるひとつのフォルダです。",
+      "subtitle": "プロジェクトはどこへでも持ち運べるひとつのフォルダです。",
       "title": "新しい仕事を始める"
     },
     "dialogs": {
       "close": "閉じる",
-      "openTitle": "Rawtonic のセッションまたはカタログを開く"
+      "openTitle": "Rawtonic のプロジェクトまたはカタログを開く"
     },
     "drop": {
       "importing": "読み込み中です。完了してから追加の写真をドロップしてください。",
-      "noLibrary": "まずセッションを開くか作成してから、写真をドロップして読み込んでください。",
+      "noLibrary": "まずプロジェクトを開くか作成してから、写真をドロップして読み込んでください。",
       "overlay": "ドロップして {{name}} に読み込む"
     },
     "fields": {
@@ -875,8 +878,8 @@
     },
     "menu": {
       "importFrom": "Lightroom または Capture One から読み込む…",
-      "new": "新規セッション…",
-      "open": "セッションを開く…"
+      "new": "新規プロジェクト…",
+      "open": "プロジェクトを開く…"
     },
     "progress": {
       "adding_other": "{{count}} 件中 {{current}} 件を追加中",
@@ -893,7 +896,7 @@
       "albumAddFailed": "写真は読み込まれましたが、{{name}} に追加できませんでした: {{error}}",
       "duplicatesSkipped_other": "重複 {{count}} 件をスキップ",
       "flagsFailed": "フラグを保存できませんでした: {{error}}",
-      "flagsSavedRefreshFailed": "フラグを保存しましたが、セッションの概要を更新できませんでした: {{error}}",
+      "flagsSavedRefreshFailed": "フラグを保存しましたが、プロジェクトの概要を更新できませんでした: {{error}}",
       "hotFolderFailed": "監視フォルダ: {{file}}: {{error}}",
       "importCopiesSkipped_other": "仮想コピー {{count}} 件は読み込まれていません",
       "imported_other": "{{count}} 枚の写真を読み込みました（補正あり {{withSettings}} 枚、アルバム {{albums}} 個）",
@@ -904,10 +907,11 @@
       "watching": "{{folder}} で新しい写真を監視しています。"
     },
     "welcome": {
-      "body": "次の撮影のために持ち運べるセッションを作成しましょう。撮影データ、補正、納品物を、最初のコマから最終セレクトまでひとまとめにできます。",
-      "create": "セッションを作成",
+      "body": "次の撮影のために持ち運べるプロジェクトを作成しましょう。撮影データ、補正、納品物を、最初のコマから最終セレクトまでひとまとめにできます。",
+      "create": "プロジェクトを作成",
+      "createCatalog": "",
       "importFrom": "Lightroom または Capture One から始める",
-      "open": "セッションを開く",
+      "open": "プロジェクトを開く",
       "tagline": "ローカルファイル。非破壊編集。あなたの写真。",
       "title": "すべての仕事に、ひとつの場所を。"
     }
@@ -940,7 +944,7 @@
     "data": {
       "clearSidecars": "すべてのサイドカーファイルを削除",
       "clearSidecarsButton": "削除",
-      "clearSidecarsDesc": "ルートフォルダ内の .rrdata ファイル（編集内容）と .rrexif ファイル（EXIF キャッシュ）を削除します。セッションまたはカタログ内の写真は対象外です（編集内容はそのデータベースに保存されています）。ルートフォルダ:",
+      "clearSidecarsDesc": "ルートフォルダ内の .rrdata ファイル（編集内容）と .rrexif ファイル（EXIF キャッシュ）を削除します。プロジェクトまたはカタログ内の写真は対象外です（編集内容はそのデータベースに保存されています）。ルートフォルダ:",
       "clearThumbnail": "サムネイルキャッシュを削除",
       "clearThumbnailButton": "削除",
       "clearThumbnailDesc": "キャッシュされたすべてのサムネイル画像を削除します。ライブラリを閲覧する際に自動的に再生成されます。",
@@ -964,7 +968,7 @@
         "confirmResetLayoutTitle": "ワークスペースレイアウトのリセット",
         "confirmTitle": "削除の確認",
         "resetLayoutMessage": "ワークスペースのレイアウトをリセットしてもよろしいですか？ドッキングされたすべてのパネル、幅、および切り替えボタンの位置がデフォルトに復元されます。",
-        "sidecarMessage": "本当にすべてのサイドカーファイルを削除しますか？\n\nアクティブなルートフォルダとそのサブフォルダ内にあるすべての画像について、.rrdata ファイルに保存された編集内容が完全に削除されます。セッションまたはカタログ内の写真は対象外です（編集内容はそのデータベースに保存されています）。"
+        "sidecarMessage": "本当にすべてのサイドカーファイルを削除しますか？\n\nアクティブなルートフォルダとそのサブフォルダ内にあるすべての画像について、.rrdata ファイルに保存された編集内容が完全に削除されます。プロジェクトまたはカタログ内の写真は対象外です（編集内容はそのデータベースに保存されています）。"
       },
       "noFolders": "フォルダが選択されていません",
       "resetLayoutButton": "レイアウトをリセット",
@@ -1753,7 +1757,7 @@
         "keepStructure": "フォルダ構造を維持",
         "legend": "書き出し先",
         "original": "元ファイルと同じ場所",
-        "output": "セッションの Output フォルダ",
+        "output": "プロジェクトの Output フォルダ",
         "subfolder": "サブフォルダ",
         "subfolderAria": "サブフォルダ"
       },
@@ -2151,7 +2155,7 @@
         },
         "noMatch": "「{{filter}}」を含むフォルダ名はありません。",
         "reading": "フォルダを読み込み中…",
-        "session": "セッション",
+        "session": "プロジェクト",
         "sort": {
           "ascending": "昇順",
           "created": "作成日",
@@ -2318,8 +2322,8 @@
         "title": "キーワード"
       },
       "mixed": "混在",
-      "notInSession": "選択した写真の一部はこのセッションに含まれていません。",
-      "outsideSessions": "セッション外では、説明・作成者・著作権・コメントは各写真の編集内容と一緒に保存されます。タイトルと IPTC フィールドはセッションに保存されます。",
+      "notInSession": "選択した写真の一部はこのプロジェクトに含まれていません。",
+      "outsideSessions": "プロジェクト外では、説明・作成者・著作権・コメントは各写真の編集内容と一緒に保存されます。タイトルと IPTC フィールドはプロジェクトに保存されます。",
       "selectToSee": "写真を選択するとメタデータが表示されます。",
       "title": "メタデータ",
       "toasts": {

@@ -650,7 +650,7 @@
       "day": "Day",
       "extension": "Extension",
       "hour": "Hour",
-      "job": "Session name",
+      "job": "Project name",
       "minute": "Minute",
       "month": "Month",
       "original": "Image name",
@@ -726,10 +726,10 @@
       "discardFullDesc": "1:1 previews let offline photographs zoom to 100 %. They are large, so those not used for this long are discarded.",
       "never": "Never",
       "noLimit": "No limit",
-      "outsideUsage": "Previews of photographs outside sessions",
-      "sessionUsage": "Previews of this session",
+      "outsideUsage": "Previews of photographs outside projects",
+      "sessionUsage": "Previews of this project",
       "standardLimit": "Standard previews size limit",
-      "standardLimitDesc": "Per previews folder (a session, or photographs outside sessions). Beyond it, the Standard previews used longest ago are discarded and made again when their photograph is opened. Previews of offline photographs are kept.",
+      "standardLimitDesc": "Per previews folder (a project, or photographs outside projects). Beyond it, the Standard previews used longest ago are discarded and made again when their photograph is opened. Previews of offline photographs are kept.",
       "standardSize": "Standard preview size",
       "standardSizeDesc": "Long edge of the previews Develop opens on while a RAW file decodes, and that offline photographs show. Auto follows the size of the Develop view.",
       "title": "Previews",
@@ -752,14 +752,14 @@
     "bar": {
       "hotFolder": "Hot folder",
       "hotFolderCount": "Hot folder · {{imported}}",
-      "hotFolderTitle": "Watch a folder and copy new photographs into this session",
+      "hotFolderTitle": "Watch a folder and copy new photographs into this project or catalog",
       "hotFolderWatching_one": "Watching {{folder}} · {{count}} imported",
       "hotFolderWatching_other": "Watching {{folder}} · {{count}} imported",
-      "identityTitle": "Open or create a session",
+      "identityTitle": "Open or create a project or catalog",
       "ingest": "Ingest",
-      "ingestTitle": "Copy photographs from a card or folder into this session",
+      "ingestTitle": "Copy photographs from a card or folder into this project or catalog",
       "markTitle": "Rawtonic · development build",
-      "noSession": "No session",
+      "noSession": "No project",
       "photos_one": "{{formatted}} photo",
       "photos_other": "{{formatted}} photos",
       "picked_one": "{{count}} picked",
@@ -770,31 +770,34 @@
     },
     "create": {
       "catalog": "Catalog",
-      "catalogHint": "A library for many assignments",
+      "catalogDescription": "Organize your collection in one catalog folder. Photos are copied into it by default; linking external folders is optional.",
+      "catalogHint": "For your entire photo collection",
       "catalogName": "Catalog name",
       "catalogPlaceholder": "Photo library",
       "chooseParent": "Choose a parent folder…",
       "createCatalog": "Create catalog",
-      "createSession": "Create session",
+      "createSession": "Create project",
       "importSubtitle": "A new catalog for your Lightroom or Capture One library. The import comes next.",
       "importTitle": "A catalog for your library",
       "location": "Location",
-      "name": "Session name",
+      "modeLabel": "Organization",
+      "name": "Project name",
       "namePlaceholder": "2026-10-01_Client_Job",
       "namePreview": "Your assignment",
       "originalsUntouched": "Original photographs stay untouched.",
-      "session": "Session",
-      "sessionHint": "One portable folder per job",
-      "subtitle": "A session is one folder you can take anywhere.",
-      "title": "Start a new assignment"
+      "session": "Project",
+      "sessionDescription": "Photos, edits and exports stay together in one portable project folder.",
+      "sessionHint": "For a single shoot or assignment",
+      "subtitle": "Choose how to organize your photos. Both use the same editing tools.",
+      "title": "Create a project or catalog"
     },
     "dialogs": {
       "close": "Close",
-      "openTitle": "Open a Rawtonic session or catalog"
+      "openTitle": "Open a Rawtonic project or catalog"
     },
     "drop": {
       "importing": "An import is running; drop more photographs when it has finished.",
-      "noLibrary": "Open or create a session first, then drop photographs to import them.",
+      "noLibrary": "Open or create a project first, then drop photographs to import them.",
       "overlay": "Drop to import into {{name}}"
     },
     "fields": {
@@ -847,7 +850,7 @@
       "addFiles": "Add photographs…",
       "addFolder": "Add folder…",
       "addFromCard": "Photographs on a memory card must be copied off it: the card will be erased and reused.",
-      "addNote": "The photographs stay where they are and are added to the catalog; nothing is copied, renamed or written beside them.",
+      "addNote": "The photos stay where they are. They will not travel with the catalog folder; use Create portable copy or a full backup to include them.",
       "addToAlbum": "Add to album “{{name}}” after import",
       "backToGrid": "Back to the grid (Space)",
       "choose": "Choose photographs…",
@@ -894,12 +897,13 @@
       "title": "Bring your photographs in",
       "truncated": "Only the first {{n}} photographs are listed; import the rest in another pass.",
       "useCapture": "Use {{folder}} instead",
-      "viewLargeHint": "Double-click or press Space to view large"
+      "viewLargeHint": "Double-click or press Space to view large",
+      "dateFolders": "Organized in year/date folders using the capture date, or the file modification date when unavailable."
     },
     "menu": {
       "importFrom": "Import from Lightroom or Capture One…",
-      "new": "New session…",
-      "open": "Open session…"
+      "new": "New project or catalog…",
+      "open": "Open project or catalog…"
     },
     "progress": {
       "adding_one": "Adding {{current}} of {{count}} file",
@@ -920,7 +924,7 @@
       "duplicatesSkipped_one": "{{count}} duplicate skipped",
       "duplicatesSkipped_other": "{{count}} duplicates skipped",
       "flagsFailed": "Could not save flags: {{error}}",
-      "flagsSavedRefreshFailed": "Flags saved; session summary could not refresh: {{error}}",
+      "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
@@ -936,12 +940,39 @@
       "watching": "Watching {{folder}} for new photographs."
     },
     "welcome": {
-      "body": "Create a portable session for your next shoot. Keep captures, edits and deliveries together, from the first frame to the final selection.",
-      "create": "Create a session",
-      "importFrom": "Start from Lightroom or Capture One",
-      "open": "Open a session",
+      "body": "One shoot or your whole collection? Choose how to organize your photos — the editing tools are the same.",
+      "create": "Create a project",
+      "createCatalog": "Create a catalog",
+      "importFrom": "Import from Lightroom or Capture One…",
+      "open": "Open a project or catalog",
       "tagline": "Local files. Non-destructive edits. Your photographs.",
-      "title": "A place for every assignment."
+      "title": "Your photos. Your workflow."
+    },
+    "transfer": {
+      "transfer": "Create portable copy…",
+      "backup": "Create full backup…",
+      "restore": "Restore backup…",
+      "transferHint": "Take this project or catalog to another computer. External originals and required edit resources are collected into the copy.",
+      "backupHint": "Save a complete, verified snapshot on another drive. Earlier backups are kept.",
+      "restoreHint": "Verify a backup and restore it into a new folder. The backup and existing libraries stay unchanged.",
+      "source": "Backup folder",
+      "chooseSource": "Choose a Rawtonic backup…",
+      "destination": "Destination parent folder",
+      "folderName": "New folder name",
+      "includes": "Includes originals, albums, ratings, edit history, virtual copies, masks, LUTs and profiles. Disposable previews are rebuilt. Missing originals or required resources stop the copy.",
+      "unsaved": "Changes could not be saved: {{files}}",
+      "complete_one": "Verified copy created · {{count}} photograph",
+      "complete_other": "Verified copy created · {{count}} photographs",
+      "backupDone": "Use Restore backup to create a working copy. Keep this snapshot unchanged so its checksums remain valid.",
+      "transferDone": "The whole folder can be moved to another computer. Open it in a compatible Rawtonic version. Copies edited separately do not synchronize automatically.",
+      "openCopy": "Open copied library",
+      "cancelling": "Cancelling…",
+      "preparing": "Saving changes and preparing a database snapshot…",
+      "copyProgress_one": "Copying · {{count}} file processed",
+      "copyProgress_other": "Copying · {{count}} files processed",
+      "verifyProgress_one": "Verifying · {{count}} file checked",
+      "verifyProgress_other": "Verifying · {{count}} files checked",
+      "originalUnchanged": "Existing files stay unchanged."
     }
   },
   "settings": {
@@ -972,7 +1003,7 @@
     "data": {
       "clearSidecars": "Clear All Sidecar Files",
       "clearSidecarsButton": "Clear",
-      "clearSidecarsDesc": "Deletes the .rrdata files (edits) and .rrexif files (EXIF cache) within your root folders. Photos in a session or catalog are not affected: their edits are stored in its database. Root folders:",
+      "clearSidecarsDesc": "Deletes the .rrdata files (edits) and .rrexif files (EXIF cache) within your root folders. Photos in a project or catalog are not affected: their edits are stored in its database. Root folders:",
       "clearThumbnail": "Clear Thumbnail Cache",
       "clearThumbnailButton": "Clear",
       "clearThumbnailDesc": "This will delete all cached thumbnail images. They will be regenerated automatically as you browse your library.",
@@ -996,7 +1027,7 @@
         "confirmResetLayoutTitle": "Reset Workspace Layout",
         "confirmTitle": "Confirm Deletion",
         "resetLayoutMessage": "Are you sure you want to reset the workspace layout? All docked panels, widths, and switcher positions will be restored to their defaults.",
-        "sidecarMessage": "Are you sure you want to delete all sidecar files?\n\nThis permanently removes the edits stored in .rrdata files for all images inside all active root folders and their subfolders. Photos in a session or catalog are not affected: their edits are stored in its database."
+        "sidecarMessage": "Are you sure you want to delete all sidecar files?\n\nThis permanently removes the edits stored in .rrdata files for all images inside all active root folders and their subfolders. Photos in a project or catalog are not affected: their edits are stored in its database."
       },
       "noFolders": "No folders selected",
       "resetLayoutButton": "Reset Layout",
@@ -1786,7 +1817,7 @@
         "keepStructure": "Keep the folder structure",
         "legend": "Destination",
         "original": "Next to the originals",
-        "output": "Session Output folder",
+        "output": "Project Output folder",
         "subfolder": "Put in subfolder",
         "subfolderAria": "Subfolder"
       },
@@ -2200,7 +2231,7 @@
         },
         "noMatch": "No folder names contain “{{filter}}”.",
         "reading": "Reading folders…",
-        "session": "Session",
+        "session": "Project",
         "sort": {
           "ascending": "Ascending",
           "created": "Date created",
@@ -2370,8 +2401,8 @@
         "title": "Keywords"
       },
       "mixed": "Mixed",
-      "notInSession": "Some selected photographs are not part of this session.",
-      "outsideSessions": "Outside sessions, description, creator, copyright and comment are saved with each photo's edits; the title and IPTC fields are saved in sessions.",
+      "notInSession": "Some selected photographs are not part of this project.",
+      "outsideSessions": "Outside projects, description, creator, copyright and comment are saved with each photo's edits; the title and IPTC fields are saved in projects.",
       "selectToSee": "Select photographs to see their metadata.",
       "title": "Metadata",
       "toasts": {

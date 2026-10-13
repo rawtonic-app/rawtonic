@@ -5719,9 +5719,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "kamadak-exif",
  "rawtonic-catalog",
+ "rawtonic-fileops",
+ "rawtonic-metadata",
  "rawtonic-naming",
  "serde",
+ "serde_json",
  "sha2 0.11.0",
  "tempfile",
 ]

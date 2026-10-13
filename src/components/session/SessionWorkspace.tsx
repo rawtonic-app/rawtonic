@@ -1,5 +1,6 @@
 import { validNamingTemplate, validSequenceStart } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
+import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import {
   useCallback,
   useEffect,
@@ -14,6 +15,7 @@ import { join } from "@tauri-apps/api/path";
 import { listen } from "@tauri-apps/api/event";
 import {
   ArrowDownToLine,
+  ArrowRight,
   Check,
   ChevronDown,
   Database,
@@ -214,6 +216,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
   const [catalog, setCatalog] = useState(false);
+  const [transfer, setTransfer] = useState<TransferPurpose | null>(null);
   // Coming from Lightroom or Capture One: a new catalog first, then the import.
   const [importAfterCreate, setImportAfterCreate] = useState(false);
   const [sources, setSources] = useState<IngestCandidate[]>([]);
@@ -298,7 +301,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (form) {
       dialog.current?.showModal();
       dialog.current
-        ?.querySelector<HTMLElement>("form input, form button")
+        ?.querySelector<HTMLElement>('form input:not([type="radio"]), form button')
         ?.focus();
       setError("");
     } else dialog.current?.close();
@@ -880,6 +883,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   icon: Import,
                   onClick: startImport,
                 },
+                { label: t("session.transfer.transfer"), icon: FolderOpen, disabled: !session || !!hotFolder,
+                  onClick: () => setTransfer("transfer") },
+                { label: t("session.transfer.backup"), icon: Database, disabled: !session || !!hotFolder,
+                  onClick: () => setTransfer("backup") },
+                { label: t("session.transfer.restore"), icon: FolderOpen, disabled: !!hotFolder,
+                  onClick: () => setTransfer("restore") },
               ]);
             }}
             disabled={busy || importing}
@@ -969,26 +978,53 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           <RawtonicMark size={48} />
           <h1>{t("session.welcome.title")}</h1>
           <p>{t("session.welcome.body")}</p>
-          <div>
+          <div className="session-welcome-modes">
             <button
-              className="session-action session-primary"
+              className="session-welcome-mode"
+              aria-label={t("session.welcome.create")}
+              aria-describedby="welcome-session-description"
               onClick={() => {
+                setCatalog(false);
                 setImportAfterCreate(false);
                 setForm("create");
               }}
             >
-              <FolderPlus size={17} />
-              {t("session.welcome.create")}
+              <FolderOpen size={24} aria-hidden />
+              <strong>{t("session.create.session")}</strong>
+              <span className="session-mode-purpose">{t("session.create.sessionHint")}</span>
+              <span id="welcome-session-description" className="session-mode-description">
+                {t("session.create.sessionDescription")}
+              </span>
+              <span className="session-mode-cta">{t("session.welcome.create")} <ArrowRight size={15} aria-hidden /></span>
             </button>
+            <button
+              className="session-welcome-mode"
+              aria-label={t("session.welcome.createCatalog")}
+              aria-describedby="welcome-catalog-description"
+              onClick={() => {
+                setCatalog(true);
+                setImportAfterCreate(false);
+                setForm("create");
+              }}
+            >
+              <Database size={24} aria-hidden />
+              <strong>{t("session.create.catalog")}</strong>
+              <span className="session-mode-purpose">{t("session.create.catalogHint")}</span>
+              <span id="welcome-catalog-description" className="session-mode-description">
+                {t("session.create.catalogDescription")}
+              </span>
+              <span className="session-mode-cta">{t("session.welcome.createCatalog")} <ArrowRight size={15} aria-hidden /></span>
+            </button>
+          </div>
+          <div className="session-welcome-existing">
             <button
               className="session-action"
               onClick={() => void openSession()}
             >
-              <FolderOpen size={17} />
+              <FolderOpen size={16} aria-hidden />
               {t("session.welcome.open")}
             </button>
-            <button className="session-action" onClick={startImport}>
-              <Import size={17} />
+            <button className="session-welcome-import" onClick={startImport}>
               {t("session.welcome.importFrom")}
             </button>
           </div>
@@ -1019,6 +1055,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           </span>
         </div>
       )}
+      {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
+        onClose={() => setTransfer(null)} onOpen={async (directory) => {
+          await navigate(await invoke<SessionSummary>("session_open", { directory }));
+        }} />}
       <dialog
         ref={dialog}
         className={`session-dialog ${form === "ingest" ? "session-ingest-dialog" : ""}`}
@@ -1259,8 +1299,32 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           </form>
         ) : form === "create" ? (
           <form onSubmit={(e) => void create(e)}>
+            {!importAfterCreate && (
+              <fieldset className="session-mode">
+                <legend>{t("session.create.modeLabel")}</legend>
+                <label>
+                  <input type="radio" name="mode" checked={!catalog} onChange={() => setCatalog(false)} />
+                  <span>
+                    <strong>{t("session.create.session")}</strong>
+                    <small>{t("session.create.sessionHint")}</small>
+                  </span>
+                </label>
+                <label>
+                  <input type="radio" name="mode" checked={catalog} onChange={() => setCatalog(true)} />
+                  <span>
+                    <strong>{t("session.create.catalog")}</strong>
+                    <small>{t("session.create.catalogHint")}</small>
+                  </span>
+                </label>
+              </fieldset>
+            )}
+            <p className="session-create-description">
+              {catalog || importAfterCreate
+                ? t("session.create.catalogDescription")
+                : t("session.create.sessionDescription")}
+            </p>
             <label className="session-field">
-              {importAfterCreate ? t("session.create.catalogName") : t("session.create.name")}
+              {catalog || importAfterCreate ? t("session.create.catalogName") : t("session.create.name")}
               <input
                 autoFocus
                 required
@@ -1269,7 +1333,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 onChange={(e) => setName(e.target.value)}
                 pattern={'[^/\\\\:*?"<>|]+'}
                 placeholder={
-                  importAfterCreate
+                  catalog || importAfterCreate
                     ? t("session.create.catalogPlaceholder")
                     : t("session.create.namePlaceholder")
                 }
@@ -1286,44 +1350,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 <span>{parent || t("session.create.chooseParent")}</span>
               </button>
             </label>
-            {!importAfterCreate && (
-            <div className="session-mode">
-              <label>
-                <input
-                  type="radio"
-                  name="mode"
-                  checked={!catalog}
-                  onChange={() => setCatalog(false)}
-                />
-                <span>
-                  <strong>{t("session.create.session")}</strong>
-                  <small>{t("session.create.sessionHint")}</small>
-                </span>
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="mode"
-                  checked={catalog}
-                  onChange={() => setCatalog(true)}
-                />
-                <span>
-                  <strong>{t("session.create.catalog")}</strong>
-                  <small>{t("session.create.catalogHint")}</small>
-                </span>
-              </label>
-            </div>
-            )}
             <div className="session-folder-preview">
               <FolderOpen size={16} />
               <span>
                 {name.trim() ||
-                  (importAfterCreate
+                  (catalog || importAfterCreate
                     ? t("session.create.catalogPlaceholder")
                     : t("session.create.namePreview"))}
                 {catalog || importAfterCreate ? ".catalog" : ""}
               </span>
-              {!importAfterCreate && <code>Capture / Selects / Output</code>}
+              {catalog || importAfterCreate ? <code>Photos / Output</code> : <code>Capture / Selects / Output</code>}
             </div>
             {error && (
               <p className="session-error" role="alert">
@@ -1413,6 +1449,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               <code className="session-ingest-path" title={destinationPath}>
                 {destinationPath}
               </code>
+              {session?.manifest.mode === "catalog" && !target.folder && <small>{t("session.ingest.dateFolders")}</small>}
               {destinationVolume && (
                 <small className="session-ingest-volume">
                   <HardDrive size={12} />

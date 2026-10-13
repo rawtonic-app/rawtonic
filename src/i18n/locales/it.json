@@ -670,7 +670,7 @@
       "day": "Giorno",
       "extension": "Estensione",
       "hour": "Ora",
-      "job": "Nome della sessione",
+      "job": "Nome del progetto",
       "minute": "Minuto",
       "month": "Mese",
       "original": "Nome immagine",
@@ -752,10 +752,10 @@
       "discardFullDesc": "Le anteprime 1:1 permettono di zoomare al 100 % le foto offline. Sono grandi, perciò quelle non usate per questo periodo vengono eliminate.",
       "never": "Mai",
       "noLimit": "Nessun limite",
-      "outsideUsage": "Anteprime di foto fuori dalle sessioni",
-      "sessionUsage": "Anteprime di questa sessione",
+      "outsideUsage": "Anteprime di foto fuori dai progetti",
+      "sessionUsage": "Anteprime di questo progetto",
       "standardLimit": "Limite di dimensione delle anteprime standard",
-      "standardLimitDesc": "Per cartella di anteprime (una sessione, o le foto fuori dalle sessioni). Oltre il limite, le anteprime standard usate meno di recente vengono eliminate e ricreate all'apertura della foto. Quelle delle foto offline restano.",
+      "standardLimitDesc": "Per cartella di anteprime (un progetto, o le foto fuori dai progetti). Oltre il limite, le anteprime standard usate meno di recente vengono eliminate e ricreate all'apertura della foto. Quelle delle foto offline restano.",
       "standardSize": "Dimensione dell'anteprima standard",
       "standardSizeDesc": "Lato lungo delle anteprime con cui si apre Sviluppo mentre un file RAW viene decodificato, e che mostrano le foto offline. Auto segue la dimensione della vista Sviluppo.",
       "title": "Anteprime",
@@ -778,15 +778,15 @@
     "bar": {
       "hotFolder": "Monitora",
       "hotFolderCount": "Monitorata · {{imported}}",
-      "hotFolderTitle": "Cartella monitorata: monitora una cartella e copia le nuove foto in questa sessione",
+      "hotFolderTitle": "Cartella monitorata: monitora una cartella e copia le nuove foto in questo progetto",
       "hotFolderWatching_one": "Monitoraggio di {{folder}} · {{count}} importata",
       "hotFolderWatching_many": "Monitoraggio di {{folder}} · {{count}} importate",
       "hotFolderWatching_other": "Monitoraggio di {{folder}} · {{count}} importate",
-      "identityTitle": "Apri o crea una sessione",
+      "identityTitle": "Apri o crea un progetto",
       "ingest": "Importa",
-      "ingestTitle": "Copia le foto da una scheda o da una cartella in questa sessione",
+      "ingestTitle": "Copia le foto da una scheda o da una cartella in questo progetto",
       "markTitle": "Rawtonic · versione di sviluppo",
-      "noSession": "Nessuna sessione",
+      "noSession": "Nessun progetto",
       "photos_one": "{{formatted}} foto",
       "photos_many": "{{formatted}} foto",
       "photos_other": "{{formatted}} foto",
@@ -800,31 +800,34 @@
     },
     "create": {
       "catalog": "Catalogo",
+      "catalogDescription": "",
       "catalogHint": "Una libreria per molti incarichi",
       "catalogName": "Nome del catalogo",
       "catalogPlaceholder": "Libreria foto",
       "chooseParent": "Scegli una cartella principale…",
       "createCatalog": "Crea catalogo",
-      "createSession": "Crea sessione",
+      "createSession": "Crea progetto",
       "importSubtitle": "Un nuovo catalogo per la tua libreria Lightroom o Capture One. Poi segue l'importazione.",
       "importTitle": "Un catalogo per la tua libreria",
       "location": "Posizione",
-      "name": "Nome della sessione",
+      "modeLabel": "",
+      "name": "Nome del progetto",
       "namePlaceholder": "2026-10-01_Cliente_Lavoro",
       "namePreview": "Il tuo incarico",
       "originalsUntouched": "Le foto originali restano intatte.",
-      "session": "Sessione",
+      "session": "Progetto",
+      "sessionDescription": "",
       "sessionHint": "Una cartella portatile per lavoro",
-      "subtitle": "Una sessione è un’unica cartella che puoi portare ovunque.",
+      "subtitle": "Un progetto è un’unica cartella che puoi portare ovunque.",
       "title": "Inizia un nuovo incarico"
     },
     "dialogs": {
       "close": "Chiudi",
-      "openTitle": "Apri una sessione o un catalogo Rawtonic"
+      "openTitle": "Apri un progetto o un catalogo Rawtonic"
     },
     "drop": {
       "importing": "È in corso un’importazione; trascina altre foto quando è terminata.",
-      "noLibrary": "Apri o crea prima una sessione, poi trascina le foto per importarle.",
+      "noLibrary": "Apri o crea prima un progetto, poi trascina le foto per importarle.",
       "overlay": "Rilascia per importare in {{name}}"
     },
     "fields": {
@@ -939,8 +942,8 @@
     },
     "menu": {
       "importFrom": "Importa da Lightroom o Capture One…",
-      "new": "Nuova sessione…",
-      "open": "Apri sessione…"
+      "new": "Nuovo progetto…",
+      "open": "Apri progetto…"
     },
     "progress": {
       "adding_one": "Aggiunta di {{current}} di {{count}} file",
@@ -965,7 +968,7 @@
       "duplicatesSkipped_many": "{{count}} duplicati saltati",
       "duplicatesSkipped_other": "{{count}} duplicati saltati",
       "flagsFailed": "Impossibile salvare i contrassegni: {{error}}",
-      "flagsSavedRefreshFailed": "Contrassegni salvati; impossibile aggiornare il riepilogo della sessione: {{error}}",
+      "flagsSavedRefreshFailed": "Contrassegni salvati; impossibile aggiornare il riepilogo del progetto: {{error}}",
       "hotFolderFailed": "Cartella monitorata: {{file}}: {{error}}",
       "importCopiesSkipped_one": "{{count}} copia virtuale non importata",
       "importCopiesSkipped_many": "{{count}} copie virtuali non importate",
@@ -986,10 +989,11 @@
       "watching": "Monitoraggio di {{folder}} per nuove foto."
     },
     "welcome": {
-      "body": "Crea una sessione portatile per il tuo prossimo servizio. Tieni insieme scatti, modifiche e consegne, dal primo fotogramma alla selezione finale.",
-      "create": "Crea una sessione",
+      "body": "Crea un progetto portatile per il tuo prossimo servizio. Tieni insieme scatti, modifiche e consegne, dal primo fotogramma alla selezione finale.",
+      "create": "Crea un progetto",
+      "createCatalog": "",
       "importFrom": "Inizia da Lightroom o Capture One",
-      "open": "Apri una sessione",
+      "open": "Apri un progetto",
       "tagline": "File locali. Modifiche non distruttive. Le tue foto.",
       "title": "Un posto per ogni incarico."
     }
@@ -1022,7 +1026,7 @@
     "data": {
       "clearSidecars": "Cancella Tutti i File Sidecar",
       "clearSidecarsButton": "Cancella",
-      "clearSidecarsDesc": "Elimina i file .rrdata (modifiche) e .rrexif (cache EXIF) all'interno delle cartelle principali. Le foto di una sessione o di un catalogo non sono interessate: le loro modifiche sono salvate nel suo database. Cartelle principali:",
+      "clearSidecarsDesc": "Elimina i file .rrdata (modifiche) e .rrexif (cache EXIF) all'interno delle cartelle principali. Le foto di un progetto o di un catalogo non sono interessate: le loro modifiche sono salvate nel suo database. Cartelle principali:",
       "clearThumbnail": "Cancella Cache Miniature",
       "clearThumbnailButton": "Cancella",
       "clearThumbnailDesc": "Questo eliminerà tutte le immagini miniatura memorizzate nella cache. Verranno rigenerate automaticamente sfogliando la libreria.",
@@ -1046,7 +1050,7 @@
         "confirmResetLayoutTitle": "Ripristina layout spazio di lavoro",
         "confirmTitle": "Conferma Eliminazione",
         "resetLayoutMessage": "Sei sicuro di voler ripristinare il layout dello spazio di lavoro? Tutti i pannelli ancorati, le larghezze e le posizioni dei selettori verranno ripristinati ai valori predefiniti.",
-        "sidecarMessage": "Sei sicuro di voler eliminare tutti i file sidecar?\n\nQuesto rimuoverà permanentemente le modifiche salvate nei file .rrdata per tutte le immagini all'interno di tutte le cartelle principali attive e le relative sottocartelle. Le foto di una sessione o di un catalogo non sono interessate: le loro modifiche sono salvate nel suo database."
+        "sidecarMessage": "Sei sicuro di voler eliminare tutti i file sidecar?\n\nQuesto rimuoverà permanentemente le modifiche salvate nei file .rrdata per tutte le immagini all'interno di tutte le cartelle principali attive e le relative sottocartelle. Le foto di un progetto o di un catalogo non sono interessate: le loro modifiche sono salvate nel suo database."
       },
       "noFolders": "Nessuna cartella selezionata",
       "resetLayoutButton": "Ripristina layout",
@@ -1840,7 +1844,7 @@
         "keepStructure": "Mantieni la struttura delle cartelle",
         "legend": "Destinazione",
         "original": "Accanto agli originali",
-        "output": "Cartella Output della sessione",
+        "output": "Cartella Output del progetto",
         "subfolder": "In sottocartella",
         "subfolderAria": "Sottocartella"
       },
@@ -2270,7 +2274,7 @@
         },
         "noMatch": "Nessun nome di cartella contiene «{{filter}}».",
         "reading": "Lettura delle cartelle…",
-        "session": "Sessione",
+        "session": "Progetto",
         "sort": {
           "ascending": "Crescente",
           "created": "Data di creazione",
@@ -2443,8 +2447,8 @@
         "title": "Parole chiave"
       },
       "mixed": "Diversi",
-      "notInSession": "Alcune foto selezionate non fanno parte di questa sessione.",
-      "outsideSessions": "Fuori da una sessione, descrizione, autore, copyright e commento vengono salvati con le modifiche di ogni foto; il titolo e i campi IPTC vengono salvati nelle sessioni.",
+      "notInSession": "Alcune foto selezionate non fanno parte di questo progetto.",
+      "outsideSessions": "Fuori da un progetto, descrizione, autore, copyright e commento vengono salvati con le modifiche di ogni foto; il titolo e i campi IPTC vengono salvati nei progetti.",
       "selectToSee": "Seleziona delle foto per vederne i metadati.",
       "title": "Metadati",
       "toasts": {

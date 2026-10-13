@@ -670,7 +670,7 @@
       "day": "Dia",
       "extension": "Extensió",
       "hour": "Hora",
-      "job": "Nom de la sessió",
+      "job": "Nom del projecte",
       "minute": "Minut",
       "month": "Mes",
       "original": "Nom de la imatge",
@@ -752,10 +752,10 @@
       "discardFullDesc": "Les previsualitzacions 1:1 permeten ampliar al 100 % les fotos fora de línia. Són grans, així que es descarten les que no s'han fet servir durant aquest temps.",
       "never": "Mai",
       "noLimit": "Sense límit",
-      "outsideUsage": "Previsualitzacions de fotos fora de sessions",
-      "sessionUsage": "Previsualitzacions d'aquesta sessió",
+      "outsideUsage": "Previsualitzacions de fotos fora de projectes",
+      "sessionUsage": "Previsualitzacions d'aquest projecte",
       "standardLimit": "Límit de mida de les previsualitzacions estàndard",
-      "standardLimitDesc": "Per carpeta de previsualitzacions (una sessió, o les fotos fora de sessions). Per sobre, es descarten les previsualitzacions estàndard usades fa més temps i es tornen a crear en obrir la foto. Les de fotos fora de línia es conserven.",
+      "standardLimitDesc": "Per carpeta de previsualitzacions (un projecte, o les fotos fora de projectes). Per sobre, es descarten les previsualitzacions estàndard usades fa més temps i es tornen a crear en obrir la foto. Les de fotos fora de línia es conserven.",
       "standardSize": "Mida de la previsualització estàndard",
       "standardSizeDesc": "Costat llarg de les previsualitzacions amb què s'obre Revelat mentre es descodifica un fitxer RAW, i que mostren les fotos fora de línia. Auto segueix la mida de la vista Revelat.",
       "title": "Previsualitzacions",
@@ -778,15 +778,15 @@
     "bar": {
       "hotFolder": "Vigila",
       "hotFolderCount": "Vigilant · {{imported}}",
-      "hotFolderTitle": "Carpeta vigilada: vigila una carpeta i copia les fotos noves a aquesta sessió",
+      "hotFolderTitle": "Carpeta vigilada: vigila una carpeta i copia les fotos noves a aquest projecte",
       "hotFolderWatching_one": "Vigilant {{folder}} · {{count}} importada",
       "hotFolderWatching_many": "Vigilant {{folder}} · {{count}} importades",
       "hotFolderWatching_other": "Vigilant {{folder}} · {{count}} importades",
-      "identityTitle": "Obre o crea una sessió",
+      "identityTitle": "Obre o crea un projecte",
       "ingest": "Importa",
-      "ingestTitle": "Copia fotos d’una targeta o d’una carpeta a aquesta sessió",
+      "ingestTitle": "Copia fotos d’una targeta o d’una carpeta a aquest projecte",
       "markTitle": "Rawtonic · versió de desenvolupament",
-      "noSession": "Cap sessió",
+      "noSession": "Cap projecte",
       "photos_one": "{{formatted}} foto",
       "photos_many": "{{formatted}} fotos",
       "photos_other": "{{formatted}} fotos",
@@ -800,31 +800,34 @@
     },
     "create": {
       "catalog": "Catàleg",
+      "catalogDescription": "",
       "catalogHint": "Una biblioteca per a molts encàrrecs",
       "catalogName": "Nom del catàleg",
       "catalogPlaceholder": "Biblioteca de fotos",
       "chooseParent": "Tria una carpeta principal…",
       "createCatalog": "Crea el catàleg",
-      "createSession": "Crea la sessió",
+      "createSession": "Crea el projecte",
       "importSubtitle": "Un catàleg nou per a la teva biblioteca de Lightroom o Capture One. Després ve la importació.",
       "importTitle": "Un catàleg per a la teva biblioteca",
       "location": "Ubicació",
-      "name": "Nom de la sessió",
+      "modeLabel": "",
+      "name": "Nom del projecte",
       "namePlaceholder": "2026-10-01_Client_Feina",
       "namePreview": "El teu encàrrec",
       "originalsUntouched": "Les fotos originals no es modifiquen.",
-      "session": "Sessió",
+      "session": "Projecte",
+      "sessionDescription": "",
       "sessionHint": "Una carpeta portàtil per feina",
-      "subtitle": "Una sessió és una sola carpeta que pots portar a qualsevol lloc.",
+      "subtitle": "Un projecte és una sola carpeta que pots portar a qualsevol lloc.",
       "title": "Comença un encàrrec nou"
     },
     "dialogs": {
       "close": "Tanca",
-      "openTitle": "Obre una sessió o un catàleg del Rawtonic"
+      "openTitle": "Obre un projecte o un catàleg del Rawtonic"
     },
     "drop": {
       "importing": "Hi ha una importació en curs; deixa anar més fotografies quan acabi.",
-      "noLibrary": "Primer obre o crea una sessió i després deixa-hi anar fotografies per importar-les.",
+      "noLibrary": "Primer obre o crea un projecte i després deixa-hi anar fotografies per importar-les.",
       "overlay": "Deixa anar per importar a {{name}}"
     },
     "fields": {
@@ -939,8 +942,8 @@
     },
     "menu": {
       "importFrom": "Importa del Lightroom o del Capture One…",
-      "new": "Sessió nova…",
-      "open": "Obre una sessió…"
+      "new": "Projecte nou…",
+      "open": "Obre un projecte…"
     },
     "progress": {
       "adding_one": "S’està afegint {{current}} de {{count}} fitxer",
@@ -965,7 +968,7 @@
       "duplicatesSkipped_many": "{{count}} duplicats omesos",
       "duplicatesSkipped_other": "{{count}} duplicats omesos",
       "flagsFailed": "No s’han pogut desar les marques: {{error}}",
-      "flagsSavedRefreshFailed": "Marques desades; no s’ha pogut actualitzar el resum de la sessió: {{error}}",
+      "flagsSavedRefreshFailed": "Marques desades; no s’ha pogut actualitzar el resum del projecte: {{error}}",
       "hotFolderFailed": "Carpeta vigilada: {{file}}: {{error}}",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
@@ -986,10 +989,11 @@
       "watching": "Vigilant {{folder}} per si arriben fotos noves."
     },
     "welcome": {
-      "body": "Crea una sessió portàtil per a la teva propera sessió de fotos. Mantén juntes les preses, els ajustaments i els lliuraments, des de la primera imatge fins a la selecció final.",
-      "create": "Crea una sessió",
+      "body": "Crea un projecte portàtil per a la teva propera sessió de fotos. Mantén juntes les preses, els ajustaments i els lliuraments, des de la primera imatge fins a la selecció final.",
+      "create": "Crea un projecte",
+      "createCatalog": "",
       "importFrom": "Comença des de Lightroom o Capture One",
-      "open": "Obre una sessió",
+      "open": "Obre un projecte",
       "tagline": "Fitxers locals. Edició no destructiva. Les teves fotos.",
       "title": "Un lloc per a cada encàrrec."
     }
@@ -1022,7 +1026,7 @@
     "data": {
       "clearSidecars": "Esborrar tots els fitxers sidecar",
       "clearSidecarsButton": "Esborrar",
-      "clearSidecarsDesc": "Suprimeix els fitxers .rrdata (edicions) i .rrexif (memòria cau EXIF) dins de les carpetes arrel. Les fotos d'una sessió o d'un catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades. Carpetes arrel:",
+      "clearSidecarsDesc": "Suprimeix els fitxers .rrdata (edicions) i .rrexif (memòria cau EXIF) dins de les carpetes arrel. Les fotos d'un projecte o d'un catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades. Carpetes arrel:",
       "clearThumbnail": "Esborrar memòria cau de miniatures",
       "clearThumbnailButton": "Esborrar",
       "clearThumbnailDesc": "Això eliminarà totes les imatges en miniatura de la memòria cau. Es regeneraran automàticament mentre navegueu per la biblioteca.",
@@ -1046,7 +1050,7 @@
         "confirmResetLayoutTitle": "Restablir el disseny de l'espai de treball",
         "confirmTitle": "Confirmar eliminació",
         "resetLayoutMessage": "Esteu segur que voleu restablir el disseny de l'espai de treball? Tots els panells acoblats, les amplades i les posicions dels commutadors es restauraran als seus valors predeterminats.",
-        "sidecarMessage": "Esteu segur que voleu suprimir tots els fitxers sidecar?\n\nAixò eliminarà permanentment les edicions desades en fitxers .rrdata per a totes les imatges dins de totes les carpetes arrel actives i les seves subcarpetes. Les fotos d'una sessió o d'un catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades."
+        "sidecarMessage": "Esteu segur que voleu suprimir tots els fitxers sidecar?\n\nAixò eliminarà permanentment les edicions desades en fitxers .rrdata per a totes les imatges dins de totes les carpetes arrel actives i les seves subcarpetes. Les fotos d'un projecte o d'un catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades."
       },
       "noFolders": "No s'ha seleccionat cap carpeta",
       "resetLayoutButton": "Restablir disseny",
@@ -1840,7 +1844,7 @@
         "keepStructure": "Mantén l'estructura de carpetes",
         "legend": "Destinació",
         "original": "Al costat dels originals",
-        "output": "Carpeta Output de la sessió",
+        "output": "Carpeta Output del projecte",
         "subfolder": "En una subcarpeta",
         "subfolderAria": "Subcarpeta"
       },
@@ -2270,7 +2274,7 @@
         },
         "noMatch": "Cap nom de carpeta conté «{{filter}}».",
         "reading": "S'estan llegint les carpetes…",
-        "session": "Sessió",
+        "session": "Projecte",
         "sort": {
           "ascending": "Ascendent",
           "created": "Data de creació",
@@ -2443,8 +2447,8 @@
         "title": "Paraules clau"
       },
       "mixed": "Diversos",
-      "notInSession": "Algunes fotos seleccionades no formen part d'aquesta sessió.",
-      "outsideSessions": "Fora d'una sessió, la descripció, l'autor, el copyright i el comentari es desen amb les edicions de cada foto; el títol i els camps IPTC es desen a les sessions.",
+      "notInSession": "Algunes fotos seleccionades no formen part d'aquest projecte.",
+      "outsideSessions": "Fora d'un projecte, la descripció, l'autor, el copyright i el comentari es desen amb les edicions de cada foto; el títol i els camps IPTC es desen als projectes.",
       "selectToSee": "Selecciona fotos per veure les seves metadades.",
       "title": "Metadades",
       "toasts": {

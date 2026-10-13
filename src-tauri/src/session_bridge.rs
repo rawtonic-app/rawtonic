@@ -236,7 +236,16 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
             e.depth() == 0
                 || !matches!(
                     e.file_name().to_str(),
-                    Some(".cache" | "masks" | "Trash" | "Output" | "previews" | "smart-previews")
+                    Some(
+                        ".cache"
+                            | "masks"
+                            | "resources"
+                            | "profiles"
+                            | "Trash"
+                            | "Output"
+                            | "previews"
+                            | "smart-previews"
+                    )
                 )
         })
     {
@@ -2077,4 +2086,43 @@ mod tests {
         assert_eq!(fs::read(&output).unwrap(), b"existing original");
         assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 1);
     }
+}
+
+/// A full snapshot for transfer/backup, or a verified restoration into a new
+/// folder. Shares the ingest gate so originals cannot be imported concurrently.
+#[tauri::command]
+pub async fn library_copy(
+    source: String,
+    destination: String,
+    purpose: String,
+    app: tauri::AppHandle,
+) -> Result<rawtonic_ingest::transfer::Receipt, String> {
+    if crate::hot_folder::hot_folder_status().is_some() {
+        return Err("Stop the watched folder before copying a library".into());
+    }
+    if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
+        return Err("Wait for the current import or library copy to finish".into());
+    }
+    CANCEL_IMPORT.store(false, Ordering::Release);
+    tauri::async_runtime::spawn_blocking(move || {
+        struct Release;
+        impl Drop for Release {
+            fn drop(&mut self) {
+                IMPORT_RUNNING.store(false, Ordering::Release);
+            }
+        }
+        let _release = Release;
+        rawtonic_ingest::transfer::copy_library(
+            Path::new(&source),
+            Path::new(&destination),
+            &purpose,
+            &CANCEL_IMPORT,
+            |progress| {
+                let _ = app.emit("library-copy-progress", progress);
+            },
+        )
+        .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

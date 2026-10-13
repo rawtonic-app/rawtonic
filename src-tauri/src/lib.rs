@@ -654,6 +654,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             session_bridge::session_create,
+            session_bridge::library_copy,
             session_bridge::session_open,
             session_bridge::session_last,
             session_bridge::session_summary,

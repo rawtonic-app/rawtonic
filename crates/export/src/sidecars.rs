@@ -127,7 +127,11 @@ pub fn read_sidecar_file(sidecar_path: &Path) -> (ImageMetadata, bool) {
         return (ImageMetadata::default(), false);
     };
 
-    let mut meta = serde_json::from_str::<ImageMetadata>(&content).unwrap_or_default();
+    let mut value = serde_json::from_str::<serde_json::Value>(&content).unwrap_or_default();
+    if let Some(root) = rawtonic_engine::session_layout::session_root(sidecar_path) {
+        rawtonic_metadata::resources::resolve(&mut value, &root);
+    }
+    let mut meta = serde_json::from_value::<ImageMetadata>(value).unwrap_or_default();
     let mut healed = false;
 
     if let Some(ref mut exif_map) = meta.exif {
@@ -291,5 +295,35 @@ mod tests {
                 .rating,
             0
         );
+    }
+
+    #[test]
+    fn copied_catalog_sidecars_resolve_resources_from_their_current_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("catalog.json"), "{}").unwrap();
+        std::fs::write(dir.path().join("catalog.sqlite"), "fixture").unwrap();
+        let photos = dir.path().join("Photos");
+        std::fs::create_dir(&photos).unwrap();
+        let sidecar = photos.join("a.arw.abcdef.rrdata");
+        let state = r#"{"version":1,"rating":4,"adjustments":{"lutPath":"rawtonic-resource:resources/look.cube","cameraProfile":"rawtonic-resource:resources/camera.dcp"}}"#;
+        std::fs::write(&sidecar, state).unwrap();
+        let (meta, healed) = read_sidecar_file(&sidecar);
+        assert!(!healed);
+        assert_eq!(meta.rating, 4);
+        assert_eq!(
+            meta.adjustments["lutPath"],
+            dir.path()
+                .join("resources/look.cube")
+                .to_string_lossy()
+                .as_ref()
+        );
+        assert_eq!(
+            meta.adjustments["cameraProfile"],
+            dir.path()
+                .join("resources/camera.dcp")
+                .to_string_lossy()
+                .as_ref()
+        );
+        assert_eq!(std::fs::read_to_string(sidecar).unwrap(), state);
     }
 }

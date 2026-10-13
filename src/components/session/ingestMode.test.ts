@@ -21,9 +21,9 @@ describe("ingest mode preselection", () => {
     });
   });
 
-  it("a catalog adds photographs on drives where they are", () => {
+  it("a catalog defaults to portable copies even for photographs on drives", () => {
     expect(preselectIngestMode({ catalog: true, files: [disk, disk], intoFolder: false })).toEqual({
-      mode: "add",
+      mode: "copy",
       showSwitch: true,
       canAdd: true,
     });

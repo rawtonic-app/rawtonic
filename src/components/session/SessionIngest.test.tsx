@@ -339,12 +339,13 @@ describe("Copy or add where they are (catalogs)", () => {
     return navigate;
   }
 
-  it("photographs on a drive are added where they are; nothing is copied", async () => {
+  it("photographs on a drive default to copy; adding externally is an explicit choice", async () => {
     const user = userEvent.setup();
     const navigate = await openCatalog();
     drop(["/Volumes/Archive/2026"]);
-    await waitFor(() => expect(radio(/Add where they are/).checked).toBe(true));
-    expect(screen.getByText(/nothing is copied, renamed or written/)).toBeTruthy();
+    await waitFor(() => expect(radio(/Copy to/).checked).toBe(true));
+    await user.click(radio(/Add where they are/));
+    expect(screen.getByText(/stay where they are/)).toBeTruthy();
     // No naming or second copy for photographs that stay where they are.
     expect(screen.queryByText("Second copy")).toBeNull();
     await user.click(screen.getByRole("button", { name: "Add 2 photographs" }));
@@ -370,7 +371,8 @@ describe("Copy or add where they are (catalogs)", () => {
     const user = userEvent.setup();
     await openCatalog();
     drop(["/Volumes/Archive/2026"]);
-    await waitFor(() => expect(radio(/Add where they are/).checked).toBe(true));
+    await waitFor(() => expect(radio(/Copy to/).checked).toBe(true));
+    await user.click(radio(/Add where they are/));
     drop(["/Volumes/EOS_DIGITAL/DCIM"]);
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
     expect(radio(/Copy to/).checked).toBe(true);
@@ -379,7 +381,7 @@ describe("Copy or add where they are (catalogs)", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     drop(["/Volumes/Archive/2026"]);
     await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(2));
-    expect(radio(/Add where they are/).checked).toBe(true);
+    expect(radio(/Copy to/).checked).toBe(true);
   });
 
   it("a drop onto a folder copies into it", async () => {

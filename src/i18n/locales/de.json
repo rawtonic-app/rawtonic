@@ -726,10 +726,10 @@
       "discardFullDesc": "Mit 1:1-Vorschauen lassen sich Offline-Fotos auf 100 % zoomen. Sie sind groß; solche, die so lange nicht genutzt wurden, werden verworfen.",
       "never": "Nie",
       "noLimit": "Keine Grenze",
-      "outsideUsage": "Vorschauen von Fotos außerhalb von Sessions",
-      "sessionUsage": "Vorschauen dieser Session",
+      "outsideUsage": "Vorschauen von Fotos außerhalb von Projekten",
+      "sessionUsage": "Vorschauen dieses Projekts",
       "standardLimit": "Größengrenze der Standardvorschauen",
-      "standardLimitDesc": "Je Vorschauordner (eine Session oder Fotos außerhalb von Sessions). Darüber werden die am längsten nicht benutzten Standardvorschauen verworfen und beim Öffnen des Fotos neu erstellt. Vorschauen von Offline-Fotos bleiben erhalten.",
+      "standardLimitDesc": "Je Vorschauordner (ein Projekt oder Fotos außerhalb von Projekten). Darüber werden die am längsten nicht benutzten Standardvorschauen verworfen und beim Öffnen des Fotos neu erstellt. Vorschauen von Offline-Fotos bleiben erhalten.",
       "standardSize": "Größe der Standardvorschau",
       "standardSizeDesc": "Lange Kante der Vorschauen, mit denen Entwickeln öffnet, während eine RAW-Datei dekodiert wird, und die Offline-Fotos zeigen. Automatisch folgt der Größe der Entwickeln-Ansicht.",
       "title": "Vorschauen",
@@ -752,14 +752,14 @@
     "bar": {
       "hotFolder": "Überwachen",
       "hotFolderCount": "Überwacht · {{imported}}",
-      "hotFolderTitle": "Überwachter Ordner: einen Ordner überwachen und neue Fotos in diese Session kopieren",
+      "hotFolderTitle": "Einen Ordner überwachen und neue Fotos in dieses Projekt oder diesen Katalog kopieren",
       "hotFolderWatching_one": "{{folder}} wird überwacht · {{count}} importiert",
       "hotFolderWatching_other": "{{folder}} wird überwacht · {{count}} importiert",
-      "identityTitle": "Session öffnen oder erstellen",
+      "identityTitle": "Projekt oder Katalog öffnen oder erstellen",
       "ingest": "Import",
-      "ingestTitle": "Fotos von einer Speicherkarte oder aus einem Ordner in diese Session kopieren",
+      "ingestTitle": "Fotos von einer Speicherkarte oder aus einem Ordner in dieses Projekt oder diesen Katalog kopieren",
       "markTitle": "Rawtonic · Entwicklungsversion",
-      "noSession": "Keine Session",
+      "noSession": "Kein Projekt",
       "photos_one": "{{formatted}} Foto",
       "photos_other": "{{formatted}} Fotos",
       "picked_one": "{{count}} markiert",
@@ -770,31 +770,34 @@
     },
     "create": {
       "catalog": "Katalog",
-      "catalogHint": "Eine Bibliothek für viele Aufträge",
+      "catalogDescription": "Verwalte deine Sammlung in einem Katalogordner. Fotos werden standardmäßig hineinkopiert; externe Ordner kannst du optional verknüpfen.",
+      "catalogHint": "Für deine gesamte Fotosammlung",
       "catalogName": "Katalogname",
       "catalogPlaceholder": "Fotobibliothek",
       "chooseParent": "Übergeordneten Ordner wählen…",
       "createCatalog": "Katalog erstellen",
-      "createSession": "Session erstellen",
+      "createSession": "Projekt erstellen",
       "importSubtitle": "Ein neuer Katalog für deine Lightroom- oder Capture-One-Bibliothek. Danach folgt der Import.",
       "importTitle": "Ein Katalog für deine Bibliothek",
       "location": "Speicherort",
-      "name": "Session-Name",
+      "modeLabel": "Organisation",
+      "name": "Projektname",
       "namePlaceholder": "2026-10-01_Kunde_Auftrag",
-      "namePreview": "Ihr Auftrag",
+      "namePreview": "Dein Auftrag",
       "originalsUntouched": "Originalfotos bleiben unverändert.",
-      "session": "Session",
-      "sessionHint": "Ein portabler Ordner pro Auftrag",
-      "subtitle": "Eine Session ist ein Ordner, den Sie überallhin mitnehmen können.",
-      "title": "Neuen Auftrag beginnen"
+      "session": "Projekt",
+      "sessionDescription": "Fotos, Bearbeitungen und Exporte bleiben zusammen in einem portablen Projektordner.",
+      "sessionHint": "Für ein einzelnes Shooting oder einen Auftrag",
+      "subtitle": "Wähle, wie du deine Fotos organisierst. Die Bearbeitungswerkzeuge sind in beiden gleich.",
+      "title": "Projekt oder Katalog erstellen"
     },
     "dialogs": {
       "close": "Schließen",
-      "openTitle": "Rawtonic-Session oder -Katalog öffnen"
+      "openTitle": "Rawtonic-Projekt oder -Katalog öffnen"
     },
     "drop": {
       "importing": "Ein Import läuft; ziehe weitere Fotos hierher, wenn er fertig ist.",
-      "noLibrary": "Öffne oder erstelle zuerst eine Session und ziehe dann Fotos hierher, um sie zu importieren.",
+      "noLibrary": "Öffne oder erstelle zuerst ein Projekt und ziehe dann Fotos hierher, um sie zu importieren.",
       "overlay": "Ablegen, um in {{name}} zu importieren"
     },
     "fields": {
@@ -847,7 +850,7 @@
       "addFiles": "Fotos hinzufügen …",
       "addFolder": "Ordner hinzufügen …",
       "addFromCard": "Fotos auf einer Speicherkarte müssen von ihr kopiert werden: Die Karte wird wieder gelöscht und neu verwendet.",
-      "addNote": "Die Fotos bleiben, wo sie sind, und werden dem Katalog hinzugefügt; nichts wird kopiert, umbenannt oder daneben geschrieben.",
+      "addNote": "Die Fotos bleiben am bisherigen Speicherort. Sie ziehen nicht mit dem Katalogordner um; eine portable Kopie oder ein vollständiges Backup nimmt sie mit.",
       "addToAlbum": "Nach dem Import zum Album „{{name}}“ hinzufügen",
       "backToGrid": "Zurück zum Raster (Leertaste)",
       "choose": "Fotos wählen…",
@@ -894,12 +897,13 @@
       "title": "Fotos importieren",
       "truncated": "Nur die ersten {{n}} Fotos sind aufgelistet; importiere den Rest in einem weiteren Durchgang.",
       "useCapture": "Stattdessen {{folder}} verwenden",
-      "viewLargeHint": "Doppelklicken oder Leertaste drücken für die große Ansicht"
+      "viewLargeHint": "Doppelklicken oder Leertaste drücken für die große Ansicht",
+      "dateFolders": "Sortiert in Jahres- und Datumsordner nach Aufnahmedatum, ersatzweise nach Änderungsdatum der Datei."
     },
     "menu": {
       "importFrom": "Aus Lightroom oder Capture One importieren…",
-      "new": "Neue Session…",
-      "open": "Session öffnen…"
+      "new": "Neues Projekt oder neuer Katalog…",
+      "open": "Projekt oder Katalog öffnen…"
     },
     "progress": {
       "adding_one": "{{current}} von {{count}} Datei wird hinzugefügt",
@@ -920,7 +924,7 @@
       "duplicatesSkipped_one": "{{count}} Duplikat übersprungen",
       "duplicatesSkipped_other": "{{count}} Duplikate übersprungen",
       "flagsFailed": "Markierungen konnten nicht gespeichert werden: {{error}}",
-      "flagsSavedRefreshFailed": "Markierungen gespeichert; die Session-Übersicht konnte nicht aktualisiert werden: {{error}}",
+      "flagsSavedRefreshFailed": "Markierungen gespeichert; die Projekt-Übersicht konnte nicht aktualisiert werden: {{error}}",
       "hotFolderFailed": "Überwachter Ordner: {{file}}: {{error}}",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
@@ -936,12 +940,39 @@
       "watching": "{{folder}} wird auf neue Fotos überwacht."
     },
     "welcome": {
-      "body": "Erstellen Sie eine portable Session für Ihr nächstes Shooting. Aufnahmen, Bearbeitungen und Lieferungen bleiben zusammen – vom ersten Bild bis zur finalen Auswahl.",
-      "create": "Session erstellen",
-      "importFrom": "Aus Lightroom oder Capture One übernehmen",
-      "open": "Session öffnen",
-      "tagline": "Lokale Dateien. Nicht-destruktive Bearbeitung. Ihre Fotos.",
-      "title": "Ein Ort für jeden Auftrag."
+      "body": "Ein Shooting oder deine ganze Sammlung? Wähle die passende Organisation — die Bearbeitungswerkzeuge sind dieselben.",
+      "create": "Projekt erstellen",
+      "createCatalog": "Katalog erstellen",
+      "importFrom": "Aus Lightroom oder Capture One importieren…",
+      "open": "Projekt oder Katalog öffnen",
+      "tagline": "Lokale Dateien. Nicht-destruktive Bearbeitung. Deine Fotos.",
+      "title": "Deine Fotos. Deine Arbeitsweise."
+    },
+    "transfer": {
+      "transfer": "Portable Kopie erstellen…",
+      "backup": "Vollständiges Backup erstellen…",
+      "restore": "Backup wiederherstellen…",
+      "transferHint": "Nimm dieses Projekt oder diesen Katalog auf einen anderen Computer mit. Externe Originale und benötigte Bearbeitungsdateien werden in der Kopie gesammelt.",
+      "backupHint": "Speichere einen vollständigen, geprüften Stand auf einem anderen Laufwerk. Frühere Backups bleiben erhalten.",
+      "restoreHint": "Prüfe ein Backup und stelle es in einem neuen Ordner wieder her. Das Backup und vorhandene Bibliotheken bleiben unverändert.",
+      "source": "Backupordner",
+      "chooseSource": "Rawtonic-Backup wählen…",
+      "destination": "Übergeordneter Zielordner",
+      "folderName": "Neuer Ordnername",
+      "includes": "Enthält Originale, Alben, Bewertungen, Bearbeitungsverlauf, virtuelle Kopien, Masken, LUTs und Profile. Vorschauen werden bei Bedarf neu erstellt. Fehlende Originale oder benötigte Dateien verhindern die Kopie.",
+      "unsaved": "Änderungen konnten nicht gespeichert werden: {{files}}",
+      "complete_one": "Geprüfte Kopie erstellt · {{count}} Foto",
+      "complete_other": "Geprüfte Kopie erstellt · {{count}} Fotos",
+      "backupDone": "Erstelle über „Backup wiederherstellen“ eine Arbeitskopie. Lass dieses Backup unverändert, damit seine Prüfsummen gültig bleiben.",
+      "transferDone": "Der gesamte Ordner kann auf einen anderen Computer umziehen. Öffne ihn mit einer kompatiblen Rawtonic-Version. Getrennt bearbeitete Kopien synchronisieren sich nicht automatisch.",
+      "openCopy": "Kopierte Bibliothek öffnen",
+      "cancelling": "Wird abgebrochen…",
+      "preparing": "Änderungen werden gespeichert und ein Datenbankstand wird erstellt…",
+      "copyProgress_one": "Kopieren · {{count}} Datei verarbeitet",
+      "copyProgress_other": "Kopieren · {{count}} Dateien verarbeitet",
+      "verifyProgress_one": "Prüfen · {{count}} Datei geprüft",
+      "verifyProgress_other": "Prüfen · {{count}} Dateien geprüft",
+      "originalUnchanged": "Vorhandene Dateien bleiben unverändert."
     }
   },
   "settings": {
@@ -972,7 +1003,7 @@
     "data": {
       "clearSidecars": "Alle Filialdateien löschen",
       "clearSidecarsButton": "Löschen",
-      "clearSidecarsDesc": "Löscht die .rrdata-Dateien (Bearbeitungen) und .rrexif-Dateien (EXIF-Cache) in Ihren Stammordnern. Fotos in einer Session oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert. Stammordner:",
+      "clearSidecarsDesc": "Löscht die .rrdata-Dateien (Bearbeitungen) und .rrexif-Dateien (EXIF-Cache) in Ihren Stammordnern. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert. Stammordner:",
       "clearThumbnail": "Miniaturbild-Cache löschen",
       "clearThumbnailButton": "Löschen",
       "clearThumbnailDesc": "Dies löscht alle zwischengespeicherten Miniaturbilder. Sie werden beim Durchsuchen der Bibliothek automatisch neu generiert.",
@@ -996,7 +1027,7 @@
         "confirmResetLayoutTitle": "Arbeitsbereich-Layout zurücksetzen",
         "confirmTitle": "Löschen bestätigen",
         "resetLayoutMessage": "Möchten Sie das Layout des Arbeitsbereichs wirklich zurücksetzen? Alle angedockten Panels, Breiten und Umschalter-Positionen werden auf ihre Standardwerte zurückgesetzt.",
-        "sidecarMessage": "Sind Sie sicher, dass Sie alle Sidecar-Dateien löschen möchten?\n\nDies entfernt dauerhaft die in .rrdata-Dateien gespeicherten Bearbeitungen aller Bilder in allen aktiven Stammordnern und ihren Unterordnern. Fotos in einer Session oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert."
+        "sidecarMessage": "Sind Sie sicher, dass Sie alle Sidecar-Dateien löschen möchten?\n\nDies entfernt dauerhaft die in .rrdata-Dateien gespeicherten Bearbeitungen aller Bilder in allen aktiven Stammordnern und ihren Unterordnern. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert."
       },
       "noFolders": "Keine Ordner ausgewählt",
       "resetLayoutButton": "Layout zurücksetzen",
@@ -1786,7 +1817,7 @@
         "keepStructure": "Ordnerstruktur beibehalten",
         "legend": "Ziel",
         "original": "Neben den Originalen",
-        "output": "Output-Ordner der Session",
+        "output": "Output-Ordner des Projekts",
         "subfolder": "In Unterordner",
         "subfolderAria": "Unterordner"
       },
@@ -2200,7 +2231,7 @@
         },
         "noMatch": "Kein Ordnername enthält „{{filter}}“.",
         "reading": "Ordner werden gelesen…",
-        "session": "Session",
+        "session": "Projekt",
         "sort": {
           "ascending": "Aufsteigend",
           "created": "Erstellungsdatum",
@@ -2370,8 +2401,8 @@
         "title": "Stichwörter"
       },
       "mixed": "Gemischt",
-      "notInSession": "Einige ausgewählte Fotos gehören nicht zu dieser Session.",
-      "outsideSessions": "Außerhalb von Sessions werden Beschreibung, Urheber, Copyright und Kommentar mit den Bearbeitungen jedes Fotos gespeichert; Titel und IPTC-Felder werden in Sessions gespeichert.",
+      "notInSession": "Einige ausgewählte Fotos gehören nicht zu diesem Projekt.",
+      "outsideSessions": "Außerhalb von Projekten werden Beschreibung, Urheber, Copyright und Kommentar mit den Bearbeitungen jedes Fotos gespeichert; Titel und IPTC-Felder werden in Projekten gespeichert.",
       "selectToSee": "Wählen Sie Fotos aus, um ihre Metadaten zu sehen.",
       "title": "Metadaten",
       "toasts": {

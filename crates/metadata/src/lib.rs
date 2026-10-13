@@ -1,4 +1,5 @@
 //! Atomic sidecar IO. Original image files are never passed to this API.
+pub mod resources;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

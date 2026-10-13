@@ -670,7 +670,7 @@
       "day": "Dia",
       "extension": "Extensão",
       "hour": "Hora",
-      "job": "Nome da sessão",
+      "job": "Nome do projeto",
       "minute": "Minuto",
       "month": "Mês",
       "original": "Nome da imagem",
@@ -752,10 +752,10 @@
       "discardFullDesc": "As pré-visualizações 1:1 permitem ampliar fotos offline a 100 %. São grandes, por isso as não usadas durante este tempo são descartadas.",
       "never": "Nunca",
       "noLimit": "Sem limite",
-      "outsideUsage": "Pré-visualizações de fotos fora de sessões",
-      "sessionUsage": "Pré-visualizações desta sessão",
+      "outsideUsage": "Pré-visualizações de fotos fora de projetos",
+      "sessionUsage": "Pré-visualizações deste projeto",
       "standardLimit": "Limite de tamanho das pré-visualizações padrão",
-      "standardLimitDesc": "Por pasta de pré-visualizações (uma sessão, ou fotos fora de sessões). Acima dele, as pré-visualizações padrão usadas há mais tempo são descartadas e recriadas ao abrir a foto. As de fotos offline são mantidas.",
+      "standardLimitDesc": "Por pasta de pré-visualizações (um projeto, ou fotos fora de projetos). Acima dele, as pré-visualizações padrão usadas há mais tempo são descartadas e recriadas ao abrir a foto. As de fotos offline são mantidas.",
       "standardSize": "Tamanho da pré-visualização padrão",
       "standardSizeDesc": "Lado maior das pré-visualizações com que Revelar abre enquanto um ficheiro RAW é descodificado, e que as fotos offline mostram. Auto segue o tamanho da vista Revelar.",
       "title": "Pré-visualizações",
@@ -778,15 +778,15 @@
     "bar": {
       "hotFolder": "Monitorar",
       "hotFolderCount": "Monitorando · {{imported}}",
-      "hotFolderTitle": "Pasta monitorada: monitore uma pasta e copie as novas fotos para esta sessão",
+      "hotFolderTitle": "Pasta monitorada: monitore uma pasta e copie as novas fotos para este projeto",
       "hotFolderWatching_one": "Monitorando {{folder}} · {{count}} importada",
       "hotFolderWatching_many": "Monitorando {{folder}} · {{count}} importadas",
       "hotFolderWatching_other": "Monitorando {{folder}} · {{count}} importadas",
-      "identityTitle": "Abrir ou criar uma sessão",
+      "identityTitle": "Abrir ou criar um projeto",
       "ingest": "Importar",
-      "ingestTitle": "Copiar fotos de um cartão ou pasta para esta sessão",
+      "ingestTitle": "Copiar fotos de um cartão ou pasta para este projeto",
       "markTitle": "Rawtonic · versão de desenvolvimento",
-      "noSession": "Nenhuma sessão",
+      "noSession": "Nenhum projeto",
       "photos_one": "{{formatted}} foto",
       "photos_many": "{{formatted}} fotos",
       "photos_other": "{{formatted}} fotos",
@@ -800,31 +800,34 @@
     },
     "create": {
       "catalog": "Catálogo",
+      "catalogDescription": "",
       "catalogHint": "Uma biblioteca para muitos trabalhos",
       "catalogName": "Nome do catálogo",
       "catalogPlaceholder": "Biblioteca de fotos",
       "chooseParent": "Escolher uma pasta principal…",
       "createCatalog": "Criar catálogo",
-      "createSession": "Criar sessão",
+      "createSession": "Criar projeto",
       "importSubtitle": "Um novo catálogo para sua biblioteca do Lightroom ou Capture One. Em seguida, a importação.",
       "importTitle": "Um catálogo para sua biblioteca",
       "location": "Local",
-      "name": "Nome da sessão",
+      "modeLabel": "",
+      "name": "Nome do projeto",
       "namePlaceholder": "2026-10-01_Cliente_Trabalho",
       "namePreview": "Seu trabalho",
       "originalsUntouched": "As fotos originais permanecem intactas.",
-      "session": "Sessão",
+      "session": "Projeto",
+      "sessionDescription": "",
       "sessionHint": "Uma pasta portátil por trabalho",
-      "subtitle": "Uma sessão é uma única pasta que você pode levar para qualquer lugar.",
+      "subtitle": "Um projeto é uma única pasta que você pode levar para qualquer lugar.",
       "title": "Começar um novo trabalho"
     },
     "dialogs": {
       "close": "Fechar",
-      "openTitle": "Abrir uma sessão ou um catálogo do Rawtonic"
+      "openTitle": "Abrir um projeto ou um catálogo do Rawtonic"
     },
     "drop": {
       "importing": "Está a decorrer uma importação; largue mais fotografias quando terminar.",
-      "noLibrary": "Abra ou crie primeiro uma sessão e depois largue fotografias para as importar.",
+      "noLibrary": "Abra ou crie primeiro um projeto e depois largue fotografias para as importar.",
       "overlay": "Largue para importar para {{name}}"
     },
     "fields": {
@@ -939,8 +942,8 @@
     },
     "menu": {
       "importFrom": "Importar do Lightroom ou do Capture One…",
-      "new": "Nova sessão…",
-      "open": "Abrir sessão…"
+      "new": "Novo projeto…",
+      "open": "Abrir projeto…"
     },
     "progress": {
       "adding_one": "A adicionar {{current}} de {{count}} ficheiro",
@@ -965,7 +968,7 @@
       "duplicatesSkipped_many": "{{count}} duplicatas ignoradas",
       "duplicatesSkipped_other": "{{count}} duplicatas ignoradas",
       "flagsFailed": "Não foi possível salvar as marcações: {{error}}",
-      "flagsSavedRefreshFailed": "Marcações salvas; não foi possível atualizar o resumo da sessão: {{error}}",
+      "flagsSavedRefreshFailed": "Marcações salvas; não foi possível atualizar o resumo do projeto: {{error}}",
       "hotFolderFailed": "Pasta monitorada: {{file}}: {{error}}",
       "importCopiesSkipped_one": "{{count}} cópia virtual não importada",
       "importCopiesSkipped_many": "{{count}} cópias virtuais não importadas",
@@ -986,10 +989,11 @@
       "watching": "Monitorando {{folder}} em busca de novas fotos."
     },
     "welcome": {
-      "body": "Crie uma sessão portátil para o seu próximo ensaio. Mantenha capturas, ajustes e entregas juntos, do primeiro quadro à seleção final.",
-      "create": "Criar uma sessão",
+      "body": "Crie um projeto portátil para o seu próximo ensaio. Mantenha capturas, ajustes e entregas juntos, do primeiro quadro à seleção final.",
+      "create": "Criar um projeto",
+      "createCatalog": "",
       "importFrom": "Começar pelo Lightroom ou Capture One",
-      "open": "Abrir uma sessão",
+      "open": "Abrir um projeto",
       "tagline": "Arquivos locais. Edição não destrutiva. Suas fotos.",
       "title": "Um lugar para cada trabalho."
     }
@@ -1022,7 +1026,7 @@
     "data": {
       "clearSidecars": "Limpar Todos os Arquivos Sidecar",
       "clearSidecarsButton": "Limpar",
-      "clearSidecarsDesc": "Exclui os arquivos .rrdata (edições) e .rrexif (cache EXIF) em suas pastas raiz. As fotos de uma sessão ou catálogo não são afetadas: suas edições ficam salvas no banco de dados dele. Pastas raiz:",
+      "clearSidecarsDesc": "Exclui os arquivos .rrdata (edições) e .rrexif (cache EXIF) em suas pastas raiz. As fotos de um projeto ou catálogo não são afetadas: suas edições ficam salvas no banco de dados dele. Pastas raiz:",
       "clearThumbnail": "Limpar Cache de Miniaturas",
       "clearThumbnailButton": "Limpar",
       "clearThumbnailDesc": "Isso excluirá todas as imagens em miniatura em cache. Elas serão regeneradas automaticamente conforme você navega em sua biblioteca.",
@@ -1046,7 +1050,7 @@
         "confirmResetLayoutTitle": "Redefinir layout do espaço de trabalho",
         "confirmTitle": "Confirmar Exclusão",
         "resetLayoutMessage": "Tem certeza de que deseja redefinir o layout do espaço de trabalho? Todos os painéis acoplados, larguras e posições dos seletores serão restaurados para os padrões originais.",
-        "sidecarMessage": "Tem certeza de que deseja excluir todos os arquivos sidecar?\n\nIsso removerá permanentemente as edições salvas em arquivos .rrdata para todas as imagens dentro de todas as pastas raiz ativas e suas subpastas. As fotos de uma sessão ou catálogo não são afetadas: suas edições ficam salvas no banco de dados dele."
+        "sidecarMessage": "Tem certeza de que deseja excluir todos os arquivos sidecar?\n\nIsso removerá permanentemente as edições salvas em arquivos .rrdata para todas as imagens dentro de todas as pastas raiz ativas e suas subpastas. As fotos de um projeto ou catálogo não são afetadas: suas edições ficam salvas no banco de dados dele."
       },
       "noFolders": "Nenhuma pasta selecionada",
       "resetLayoutButton": "Redefinir layout",
@@ -1840,7 +1844,7 @@
         "keepStructure": "Manter a estrutura de pastas",
         "legend": "Destino",
         "original": "Junto aos originais",
-        "output": "Pasta Output da sessão",
+        "output": "Pasta Output do projeto",
         "subfolder": "Em subpasta",
         "subfolderAria": "Subpasta"
       },
@@ -2270,7 +2274,7 @@
         },
         "noMatch": "Nenhum nome de pasta contém “{{filter}}”.",
         "reading": "Lendo pastas…",
-        "session": "Sessão",
+        "session": "Projeto",
         "sort": {
           "ascending": "Crescente",
           "created": "Data de criação",
@@ -2443,8 +2447,8 @@
         "title": "Palavras-chave"
       },
       "mixed": "Diversos",
-      "notInSession": "Algumas fotos selecionadas não fazem parte desta sessão.",
-      "outsideSessions": "Fora de uma sessão, descrição, autor, copyright e comentário são salvos com as edições de cada foto; o título e os campos IPTC são salvos nas sessões.",
+      "notInSession": "Algumas fotos selecionadas não fazem parte deste projeto.",
+      "outsideSessions": "Fora de um projeto, descrição, autor, copyright e comentário são salvos com as edições de cada foto; o título e os campos IPTC são salvos nos projetos.",
       "selectToSee": "Selecione fotos para ver os metadados.",
       "title": "Metadados",
       "toasts": {

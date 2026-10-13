@@ -66,7 +66,7 @@ export function namingExample(
   mode: NamingMode,
   original: string,
   extension = "jpg",
-  job = "Session",
+  job = "Project",
   sequence = 1,
   total = 1,
 ): string {

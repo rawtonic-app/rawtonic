@@ -24,12 +24,11 @@ export interface IngestModeChoice {
  * | catalog | any on a card (also mixed)    | copy | disabled |
  * | catalog | into a chosen folder (drop, "Import into this folder…") | copy | allowed |
  * | catalog | none yet                      | copy | allowed  |
- * | catalog | all on drives                 | add  | allowed  |
+ * | catalog | all on drives                 | copy | allowed  |
  */
 export function preselectIngestMode({
   catalog,
   files,
-  intoFolder,
 }: {
   catalog: boolean;
   files: { medium?: Medium }[];
@@ -37,6 +36,5 @@ export function preselectIngestMode({
 }): IngestModeChoice {
   if (!catalog) return { mode: "copy", showSwitch: false, canAdd: false };
   if (files.some((file) => file.medium === "card")) return { mode: "copy", showSwitch: true, canAdd: false };
-  if (intoFolder || !files.length) return { mode: "copy", showSwitch: true, canAdd: true };
-  return { mode: "add", showSwitch: true, canAdd: true };
+  return { mode: "copy", showSwitch: true, canAdd: true };
 }

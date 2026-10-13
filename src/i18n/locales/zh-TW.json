@@ -648,7 +648,7 @@
       "day": "日",
       "extension": "副檔名",
       "hour": "時",
-      "job": "工作階段名稱",
+      "job": "專案名稱",
       "minute": "分",
       "month": "月",
       "original": "影像名稱",
@@ -718,10 +718,10 @@
       "discardFullDesc": "1:1 預覽可將離線照片放大到 100 %。它們很大，因此在此期間未使用的會被捨棄。",
       "never": "永不",
       "noLimit": "無限制",
-      "outsideUsage": "工作階段以外照片的預覽",
-      "sessionUsage": "此工作階段的預覽",
+      "outsideUsage": "專案以外照片的預覽",
+      "sessionUsage": "此專案的預覽",
       "standardLimit": "標準預覽大小上限",
-      "standardLimitDesc": "按預覽資料夾計（一個工作階段，或工作階段外的照片）。超出時，最久未使用的標準預覽會被捨棄，並在開啟照片時重新產生。離線照片的預覽會保留。",
+      "standardLimitDesc": "按預覽資料夾計（一個專案，或專案外的照片）。超出時，最久未使用的標準預覽會被捨棄，並在開啟照片時重新產生。離線照片的預覽會保留。",
       "standardSize": "標準預覽尺寸",
       "standardSizeDesc": "解碼 RAW 檔案時「沖印」開啟所用、離線照片顯示的預覽長邊。自動會跟隨「沖印」檢視的大小。",
       "title": "預覽",
@@ -744,13 +744,13 @@
     "bar": {
       "hotFolder": "監看資料夾",
       "hotFolderCount": "監看資料夾 · {{imported}}",
-      "hotFolderTitle": "監看一個資料夾，並將新照片拷貝到此工作階段",
+      "hotFolderTitle": "監看一個資料夾，並將新照片拷貝到此專案",
       "hotFolderWatching_other": "正在監看 {{folder}} · 已匯入 {{count}} 張",
-      "identityTitle": "開啟或建立工作階段",
+      "identityTitle": "開啟或建立專案",
       "ingest": "匯入",
-      "ingestTitle": "將記憶卡或資料夾中的照片拷貝到此工作階段",
+      "ingestTitle": "將記憶卡或資料夾中的照片拷貝到此專案",
       "markTitle": "Rawtonic · 開發版本",
-      "noSession": "無工作階段",
+      "noSession": "無專案",
       "photos_other": "{{formatted}} 張照片",
       "picked_other": "{{count}} 張留用",
       "xmpPending_other": "{{count}} 個 XMP 待處理",
@@ -758,31 +758,34 @@
     },
     "create": {
       "catalog": "目錄",
+      "catalogDescription": "",
       "catalogHint": "容納眾多案子的圖庫",
       "catalogName": "目錄名稱",
       "catalogPlaceholder": "相片圖庫",
       "chooseParent": "選擇上層資料夾…",
       "createCatalog": "建立目錄",
-      "createSession": "建立工作階段",
+      "createSession": "建立專案",
       "importSubtitle": "為您的 Lightroom 或 Capture One 圖庫建立新目錄，接著匯入。",
       "importTitle": "為您的圖庫建立目錄",
       "location": "位置",
-      "name": "工作階段名稱",
+      "modeLabel": "",
+      "name": "專案名稱",
       "namePlaceholder": "2026-10-01_客戶_案子",
       "namePreview": "你的案子",
       "originalsUntouched": "原始照片保持不變。",
-      "session": "工作階段",
+      "session": "專案",
+      "sessionDescription": "",
       "sessionHint": "每個案子一個可攜式資料夾",
-      "subtitle": "工作階段就是一個可以隨身攜帶的資料夾。",
+      "subtitle": "專案就是一個可以隨身攜帶的資料夾。",
       "title": "開始新案子"
     },
     "dialogs": {
       "close": "關閉",
-      "openTitle": "開啟 Rawtonic 工作階段或目錄"
+      "openTitle": "開啟 Rawtonic 專案或目錄"
     },
     "drop": {
       "importing": "正在匯入；完成後再拖放更多照片。",
-      "noLibrary": "請先開啟或建立一個工作階段，再拖放照片以匯入。",
+      "noLibrary": "請先開啟或建立一個專案，再拖放照片以匯入。",
       "overlay": "拖放以匯入到 {{name}}"
     },
     "fields": {
@@ -875,8 +878,8 @@
     },
     "menu": {
       "importFrom": "從 Lightroom 或 Capture One 匯入…",
-      "new": "新增工作階段…",
-      "open": "開啟工作階段…"
+      "new": "新增專案…",
+      "open": "開啟專案…"
     },
     "progress": {
       "adding_other": "正在加入第 {{current}} 個，共 {{count}} 個檔案",
@@ -893,7 +896,7 @@
       "albumAddFailed": "照片已匯入，但未加入 {{name}}：{{error}}",
       "duplicatesSkipped_other": "已略過 {{count}} 個重複項目",
       "flagsFailed": "無法儲存旗標：{{error}}",
-      "flagsSavedRefreshFailed": "旗標已儲存；無法重新整理工作階段摘要：{{error}}",
+      "flagsSavedRefreshFailed": "旗標已儲存；無法重新整理專案摘要：{{error}}",
       "hotFolderFailed": "監看資料夾：{{file}}：{{error}}",
       "importCopiesSkipped_other": "{{count}} 個虛擬副本未匯入",
       "imported_other": "已匯入 {{count}} 張照片（{{withSettings}} 張有調整，{{albums}} 個相簿）",
@@ -904,10 +907,11 @@
       "watching": "正在監看 {{folder}} 中的新照片。"
     },
     "welcome": {
-      "body": "為下一次拍攝建立一個可攜式工作階段。從第一張到最終精選，拍攝素材、調整與交付成果都放在一起。",
-      "create": "建立工作階段",
+      "body": "為下一次拍攝建立一個可攜式專案。從第一張到最終精選，拍攝素材、調整與交付成果都放在一起。",
+      "create": "建立專案",
+      "createCatalog": "",
       "importFrom": "從 Lightroom 或 Capture One 開始",
-      "open": "開啟工作階段",
+      "open": "開啟專案",
       "tagline": "本機檔案。非破壞性編輯。你的照片。",
       "title": "每個案子，都有歸處。"
     }
@@ -940,7 +944,7 @@
     "data": {
       "clearSidecars": "清除所有附屬檔案",
       "clearSidecarsButton": "清除",
-      "clearSidecarsDesc": "這將刪除根資料夾中的 .rrdata 檔案（編輯資料）和 .rrexif 檔案（EXIF 快取）。工作階段或目錄中的相片不受影響：其編輯資料儲存在該資料庫中。根資料夾：",
+      "clearSidecarsDesc": "這將刪除根資料夾中的 .rrdata 檔案（編輯資料）和 .rrexif 檔案（EXIF 快取）。專案或目錄中的相片不受影響：其編輯資料儲存在該資料庫中。根資料夾：",
       "clearThumbnail": "清除縮圖快取",
       "clearThumbnailButton": "清除",
       "clearThumbnailDesc": "這將刪除所有快取的縮圖。在您瀏覽相簿時，它們會自動重新生成。",
@@ -964,7 +968,7 @@
         "confirmResetLayoutTitle": "重設工作區版面配置",
         "confirmTitle": "確認刪除",
         "resetLayoutMessage": "確定要重設工作區版面配置嗎？所有停靠的面板、寬度和切換器位置都將還原為預設值。",
-        "sidecarMessage": "您確定要刪除所有附屬檔案嗎？\n\n這將永久刪除所有活動根資料夾及其子資料夾中所有影像儲存在 .rrdata 檔案中的編輯資料。工作階段或目錄中的相片不受影響：其編輯資料儲存在該資料庫中。"
+        "sidecarMessage": "您確定要刪除所有附屬檔案嗎？\n\n這將永久刪除所有活動根資料夾及其子資料夾中所有影像儲存在 .rrdata 檔案中的編輯資料。專案或目錄中的相片不受影響：其編輯資料儲存在該資料庫中。"
       },
       "noFolders": "未選擇資料夾",
       "resetLayoutButton": "重設版面配置",
@@ -1753,7 +1757,7 @@
         "keepStructure": "保留資料夾結構",
         "legend": "目標位置",
         "original": "原始檔案旁",
-        "output": "工作階段的 Output 資料夾",
+        "output": "專案的 Output 資料夾",
         "subfolder": "放入子資料夾",
         "subfolderAria": "子資料夾"
       },
@@ -2151,7 +2155,7 @@
         },
         "noMatch": "沒有資料夾名稱包含「{{filter}}」。",
         "reading": "正在讀取資料夾…",
-        "session": "工作階段",
+        "session": "專案",
         "sort": {
           "ascending": "遞增",
           "created": "建立日期",
@@ -2318,8 +2322,8 @@
         "title": "關鍵字"
       },
       "mixed": "多個值",
-      "notInSession": "部分選取的照片不屬於此工作階段。",
-      "outsideSessions": "在工作階段之外，描述、創作者、版權和註解會隨每張照片的編輯一起儲存；標題和 IPTC 欄位儲存在工作階段中。",
+      "notInSession": "部分選取的照片不屬於此專案。",
+      "outsideSessions": "在專案之外，描述、創作者、版權和註解會隨每張照片的編輯一起儲存；標題和 IPTC 欄位儲存在專案中。",
       "selectToSee": "選取照片以檢視其後設資料。",
       "title": "後設資料",
       "toasts": {

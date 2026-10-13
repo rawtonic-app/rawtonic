@@ -60,9 +60,17 @@ npm run tauri -- build --debug --bundles app
 './target/debug/bundle/macos/Rawtonic.app/Contents/MacOS/rawtonic-app' export /path/Job/Capture/photo.ARW --output /path/Job/Output/photo.jpg --format jpeg --quality 100
 ```
 
-## Session files and recovery
+## Project and catalog files, transfer and recovery
 
-A session contains `session.json`, `session.sqlite`, `Capture/`, `Selects/`, `Output/`, `Trash/`, `masks/` and `.cache/`. SQLite is authoritative for primary-version metadata and edits. Asset paths are relative; close the app before moving or copying the entire folder, including SQLite WAL files if present. Keep all sidecars and support folders. Virtual copies still use inherited sidecars and are not fully integrated into SQLite versions; inherited mask/cache portability is not yet certified.
+A project contains `session.json`, `session.sqlite`, `Capture/`, `Selects/`, `Output/`, `Trash/`, `masks/` and `.cache/`. A new catalog uses `catalog.json`, `catalog.sqlite` and `Photos/`. Existing manifests keep their capture-folder name. SQLite is authoritative for metadata, primary edit history and registered virtual-copy states; sidecars remain an editor compatibility layer.
+
+Catalog ingest defaults to verified copies under `Photos/YYYY/YYYY-MM-DD/`, using EXIF capture date (then digitized/image date, then file modification time). An explicitly selected folder keeps its exact destination. **Add where they are** is optional for disk sources and keeps external references. Albums are virtual collections and do not move files.
+
+The library menu offers **Create portable copy**, **Create full backup** and **Restore backup**. Copy/backup flushes pending editor saves and takes a consistent SQLite snapshot including committed WAL edits. It gathers all registered originals, sidecars, albums, metadata, full primary history, virtual copies, embedded masks, and file dependencies named by `lutPath`, `cameraProfile` or `raster_path`. External originals are collected under `Photos/Imported/<asset-id>/`; dependencies are stored in `resources/<SHA-256>/` and recipe paths are made relative. This works for both projects and catalogs. Generated previews/caches are omitted and rebuilt. Machine-specific queued tasks and filesystem undo operations are not replayed in the copy.
+
+Each copy is created in a temporary sibling folder, checked for database integrity and verified with SHA-256, then published without overwriting an existing destination. Missing/changed originals, missing edit resources, unsupported symlinks, failures and cancellation abort publication. `rawtonic-copy.json` records hashes. Full backups get timestamped folder names; they are independent full snapshots, not incremental backups. Restore verifies the snapshot before opening any database and writes a new working folder; the backup is not migrated or modified. Keep backup folders unchanged and use Restore to work from them.
+
+Managed original paths and collected resources resolve relative to the current library folder. Close Rawtonic before manually moving a working library; move the entire folder, including SQLite WAL files if present, sidecars and support folders. A library with external originals/resources needs **Create portable copy** to gather those dependencies. Independently edited copies do not synchronize. Use a compatible Rawtonic version; cross-platform rendering parity and every inherited mask format are not yet certified.
 
 Derived `filename.ext.rrdata` files bridge the inherited editor. Standard metadata and the Rawtonic recipe are also written to `filename.xmp`. Preserve both until the engine migration is complete.
 
@@ -77,7 +85,7 @@ An **XMP pending** count means library edits are saved but sidecar synchronizati
 ./target/debug/rawtonic sync /path/Job
 ```
 
-RAW/JPEG files sharing a sidecar stem require pair-ownership resolution and are refused. The conflict-resolution UI and full interoperability certification remain open. Sessions remain the recommended working path; disconnected editing, smart previews and session/catalog conversions are unfinished.
+RAW/JPEG files sharing a sidecar stem require pair-ownership resolution and are refused. The conflict-resolution UI and full interoperability certification remain open. Session/catalog conversion is not implemented. Catalogs already support external originals, adding or copying photographs, albums, metadata, edits, volume tracking and relinking missing files. Offline RAW editing uses previously generated Standard or 1:1 preview proxies; without a cached proxy the original must be available. This is implemented in `preview_proxy.rs` and `image_loader.rs`, rather than through the catalog's reserved `smart-previews/` directory. Full verified transfer/backup/restore is implemented and tested with moved mixed libraries, edit history, virtual copies and resources. Catalog mode is functional, not feature-complete; automatic/incremental backups and project/catalog conversion remain open.
 
 ## Build and verify
 

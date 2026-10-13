@@ -648,7 +648,7 @@
       "day": "日",
       "extension": "扩展名",
       "hour": "时",
-      "job": "会话名称",
+      "job": "项目名称",
       "minute": "分",
       "month": "月",
       "original": "图像名称",
@@ -718,10 +718,10 @@
       "discardFullDesc": "1:1 预览可将离线照片放大到 100 %。它们很大，因此在此期限内未使用的会被丢弃。",
       "never": "从不",
       "noLimit": "无限制",
-      "outsideUsage": "会话以外照片的预览",
-      "sessionUsage": "此会话的预览",
+      "outsideUsage": "项目以外照片的预览",
+      "sessionUsage": "此项目的预览",
       "standardLimit": "标准预览大小上限",
-      "standardLimitDesc": "按预览文件夹计（一个会话，或会话外的照片）。超出时，最久未使用的标准预览会被丢弃，并在打开照片时重新生成。离线照片的预览会保留。",
+      "standardLimitDesc": "按预览文件夹计（一个项目，或项目外的照片）。超出时，最久未使用的标准预览会被丢弃，并在打开照片时重新生成。离线照片的预览会保留。",
       "standardSize": "标准预览尺寸",
       "standardSizeDesc": "解码 RAW 文件时“冲印”打开所用、离线照片显示的预览的长边。自动会跟随“冲印”视图的大小。",
       "title": "预览",
@@ -744,13 +744,13 @@
     "bar": {
       "hotFolder": "监视文件夹",
       "hotFolderCount": "监视文件夹 · {{imported}}",
-      "hotFolderTitle": "监视一个文件夹，并将新照片复制到此会话",
+      "hotFolderTitle": "监视一个文件夹，并将新照片复制到此项目",
       "hotFolderWatching_other": "正在监视 {{folder}} · 已导入 {{count}} 张",
-      "identityTitle": "打开或创建会话",
+      "identityTitle": "打开或创建项目",
       "ingest": "导入",
-      "ingestTitle": "将存储卡或文件夹中的照片复制到此会话",
+      "ingestTitle": "将存储卡或文件夹中的照片复制到此项目",
       "markTitle": "Rawtonic · 开发版本",
-      "noSession": "无会话",
+      "noSession": "无项目",
       "photos_other": "{{formatted}} 张照片",
       "picked_other": "{{count}} 张留用",
       "xmpPending_other": "{{count}} 个 XMP 待处理",
@@ -758,31 +758,34 @@
     },
     "create": {
       "catalog": "目录",
+      "catalogDescription": "",
       "catalogHint": "容纳众多项目的图库",
       "catalogName": "目录名称",
       "catalogPlaceholder": "照片图库",
       "chooseParent": "选择上级文件夹…",
       "createCatalog": "创建目录",
-      "createSession": "创建会话",
+      "createSession": "创建项目",
       "importSubtitle": "为您的 Lightroom 或 Capture One 图库新建目录，随后导入。",
       "importTitle": "为您的图库新建目录",
       "location": "位置",
-      "name": "会话名称",
+      "modeLabel": "",
+      "name": "项目名称",
       "namePlaceholder": "2026-10-01_客户_项目",
       "namePreview": "你的项目",
       "originalsUntouched": "原始照片保持不变。",
-      "session": "会话",
+      "session": "项目",
+      "sessionDescription": "",
       "sessionHint": "每个项目一个可携带的文件夹",
-      "subtitle": "会话就是一个可以随身携带的文件夹。",
+      "subtitle": "项目就是一个可以随身携带的文件夹。",
       "title": "开始新项目"
     },
     "dialogs": {
       "close": "关闭",
-      "openTitle": "打开 Rawtonic 会话或目录"
+      "openTitle": "打开 Rawtonic 项目或目录"
     },
     "drop": {
       "importing": "正在导入；完成后再拖放更多照片。",
-      "noLibrary": "请先打开或创建一个会话，再拖放照片以导入。",
+      "noLibrary": "请先打开或创建一个项目，再拖放照片以导入。",
       "overlay": "拖放以导入到 {{name}}"
     },
     "fields": {
@@ -875,8 +878,8 @@
     },
     "menu": {
       "importFrom": "从 Lightroom 或 Capture One 导入…",
-      "new": "新建会话…",
-      "open": "打开会话…"
+      "new": "新建项目…",
+      "open": "打开项目…"
     },
     "progress": {
       "adding_other": "正在添加第 {{current}} 个，共 {{count}} 个文件",
@@ -893,7 +896,7 @@
       "albumAddFailed": "照片已导入，但未添加到 {{name}}：{{error}}",
       "duplicatesSkipped_other": "已跳过 {{count}} 个重复项",
       "flagsFailed": "无法保存旗标：{{error}}",
-      "flagsSavedRefreshFailed": "旗标已保存；无法刷新会话摘要：{{error}}",
+      "flagsSavedRefreshFailed": "旗标已保存；无法刷新项目摘要：{{error}}",
       "hotFolderFailed": "监视文件夹：{{file}}：{{error}}",
       "importCopiesSkipped_other": "{{count}} 个虚拟副本未导入",
       "imported_other": "已导入 {{count}} 张照片（{{withSettings}} 张有调整，{{albums}} 个相册）",
@@ -904,10 +907,11 @@
       "watching": "正在监视 {{folder}} 中的新照片。"
     },
     "welcome": {
-      "body": "为下一次拍摄创建一个可携带的会话。从第一张到最终精选，拍摄素材、调整和交付成果都放在一起。",
-      "create": "创建会话",
+      "body": "为下一次拍摄创建一个可携带的项目。从第一张到最终精选，拍摄素材、调整和交付成果都放在一起。",
+      "create": "创建项目",
+      "createCatalog": "",
       "importFrom": "从 Lightroom 或 Capture One 开始",
-      "open": "打开会话",
+      "open": "打开项目",
       "tagline": "本地文件。无损编辑。你的照片。",
       "title": "每个项目，都有归处。"
     }
@@ -940,7 +944,7 @@
     "data": {
       "clearSidecars": "清除所有附属文件",
       "clearSidecarsButton": "清除",
-      "clearSidecarsDesc": "这将删除根文件夹中的 .rrdata 文件（编辑数据）和 .rrexif 文件（EXIF 缓存）。会话或目录中的照片不受影响：其编辑数据保存在该数据库中。根文件夹：",
+      "clearSidecarsDesc": "这将删除根文件夹中的 .rrdata 文件（编辑数据）和 .rrexif 文件（EXIF 缓存）。项目或目录中的照片不受影响：其编辑数据保存在该数据库中。根文件夹：",
       "clearThumbnail": "清除缩略图缓存",
       "clearThumbnailButton": "清除",
       "clearThumbnailDesc": "这将删除所有缓存的缩略图。在您浏览图库时，它们会自动重新生成。",
@@ -964,7 +968,7 @@
         "confirmResetLayoutTitle": "重置工作区布局",
         "confirmTitle": "确认删除",
         "resetLayoutMessage": "是否确定要重置工作区布局？所有停靠的面板、宽度和切换器位置都将恢复为默认值。",
-        "sidecarMessage": "您确定要删除所有附属文件吗？\n\n这将永久删除所有活动根文件夹及其子文件夹中所有图像保存在 .rrdata 文件中的编辑数据。会话或目录中的照片不受影响：其编辑数据保存在该数据库中。"
+        "sidecarMessage": "您确定要删除所有附属文件吗？\n\n这将永久删除所有活动根文件夹及其子文件夹中所有图像保存在 .rrdata 文件中的编辑数据。项目或目录中的照片不受影响：其编辑数据保存在该数据库中。"
       },
       "noFolders": "未选择文件夹",
       "resetLayoutButton": "重置布局",
@@ -1753,7 +1757,7 @@
         "keepStructure": "保留文件夹结构",
         "legend": "目标位置",
         "original": "原始文件旁",
-        "output": "会话的 Output 文件夹",
+        "output": "项目的 Output 文件夹",
         "subfolder": "放入子文件夹",
         "subfolderAria": "子文件夹"
       },
@@ -2151,7 +2155,7 @@
         },
         "noMatch": "没有文件夹名称包含“{{filter}}”。",
         "reading": "正在读取文件夹…",
-        "session": "会话",
+        "session": "项目",
         "sort": {
           "ascending": "升序",
           "created": "创建日期",
@@ -2318,8 +2322,8 @@
         "title": "关键字"
       },
       "mixed": "多个值",
-      "notInSession": "部分所选照片不属于此会话。",
-      "outsideSessions": "在会话之外，描述、创作者、版权和注释随每张照片的编辑一起保存；标题和 IPTC 字段保存在会话中。",
+      "notInSession": "部分所选照片不属于此项目。",
+      "outsideSessions": "在项目之外，描述、创作者、版权和注释随每张照片的编辑一起保存；标题和 IPTC 字段保存在项目中。",
       "selectToSee": "选择照片以查看其元数据。",
       "title": "元数据",
       "toasts": {

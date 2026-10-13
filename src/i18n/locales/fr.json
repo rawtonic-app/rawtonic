@@ -670,7 +670,7 @@
       "day": "Jour",
       "extension": "Extension",
       "hour": "Heure",
-      "job": "Nom de la session",
+      "job": "Nom du projet",
       "minute": "Minute",
       "month": "Mois",
       "original": "Nom de l’image",
@@ -752,10 +752,10 @@
       "discardFullDesc": "Les aperçus 1:1 permettent de zoomer à 100 % sur les photos hors ligne. Ils sont volumineux : ceux qui n'ont pas servi depuis ce délai sont supprimés.",
       "never": "Jamais",
       "noLimit": "Sans limite",
-      "outsideUsage": "Aperçus des photos hors des sessions",
-      "sessionUsage": "Aperçus de cette session",
+      "outsideUsage": "Aperçus des photos hors des projets",
+      "sessionUsage": "Aperçus de ce projet",
       "standardLimit": "Limite de taille des aperçus standard",
-      "standardLimitDesc": "Par dossier d'aperçus (une session, ou les photos hors sessions). Au-delà, les aperçus standard utilisés il y a le plus longtemps sont supprimés et recréés à l'ouverture de la photo. Ceux des photos hors ligne sont conservés.",
+      "standardLimitDesc": "Par dossier d'aperçus (un projet, ou les photos hors projets). Au-delà, les aperçus standard utilisés il y a le plus longtemps sont supprimés et recréés à l'ouverture de la photo. Ceux des photos hors ligne sont conservés.",
       "standardSize": "Taille de l'aperçu standard",
       "standardSizeDesc": "Grand côté des aperçus sur lesquels Développement s'ouvre pendant le décodage d'un fichier RAW, et que montrent les photos hors ligne. Auto suit la taille de la vue Développement.",
       "title": "Aperçus",
@@ -778,15 +778,15 @@
     "bar": {
       "hotFolder": "Surveiller",
       "hotFolderCount": "Surveillé · {{imported}}",
-      "hotFolderTitle": "Dossier surveillé : surveiller un dossier et copier les nouvelles photos dans cette session",
+      "hotFolderTitle": "Dossier surveillé : surveiller un dossier et copier les nouvelles photos dans ce projet",
       "hotFolderWatching_one": "Surveillance de {{folder}} · {{count}} importée",
       "hotFolderWatching_many": "Surveillance de {{folder}} · {{count}} importées",
       "hotFolderWatching_other": "Surveillance de {{folder}} · {{count}} importées",
-      "identityTitle": "Ouvrir ou créer une session",
+      "identityTitle": "Ouvrir ou créer un projet",
       "ingest": "Importer",
-      "ingestTitle": "Copier des photos d’une carte ou d’un dossier dans cette session",
+      "ingestTitle": "Copier des photos d’une carte ou d’un dossier dans ce projet",
       "markTitle": "Rawtonic · version de développement",
-      "noSession": "Aucune session",
+      "noSession": "Aucun projet",
       "photos_one": "{{formatted}} photo",
       "photos_many": "{{formatted}} photos",
       "photos_other": "{{formatted}} photos",
@@ -800,31 +800,34 @@
     },
     "create": {
       "catalog": "Catalogue",
+      "catalogDescription": "",
       "catalogHint": "Une bibliothèque pour de nombreuses missions",
       "catalogName": "Nom du catalogue",
       "catalogPlaceholder": "Photothèque",
       "chooseParent": "Choisir un dossier parent…",
       "createCatalog": "Créer le catalogue",
-      "createSession": "Créer la session",
+      "createSession": "Créer le projet",
       "importSubtitle": "Un nouveau catalogue pour votre bibliothèque Lightroom ou Capture One. L'import suit.",
       "importTitle": "Un catalogue pour votre bibliothèque",
       "location": "Emplacement",
-      "name": "Nom de la session",
+      "modeLabel": "",
+      "name": "Nom du projet",
       "namePlaceholder": "2026-10-01_Client_Projet",
       "namePreview": "Votre mission",
       "originalsUntouched": "Les photos originales restent intactes.",
-      "session": "Session",
+      "session": "Projet",
+      "sessionDescription": "",
       "sessionHint": "Un dossier portable par projet",
-      "subtitle": "Une session est un seul dossier que vous pouvez emporter partout.",
+      "subtitle": "Un projet est un seul dossier que vous pouvez emporter partout.",
       "title": "Commencer une nouvelle mission"
     },
     "dialogs": {
       "close": "Fermer",
-      "openTitle": "Ouvrir une session ou un catalogue Rawtonic"
+      "openTitle": "Ouvrir un projet ou un catalogue Rawtonic"
     },
     "drop": {
       "importing": "Un import est en cours ; déposez d’autres photos une fois terminé.",
-      "noLibrary": "Ouvrez ou créez d’abord une session, puis déposez des photos pour les importer.",
+      "noLibrary": "Ouvrez ou créez d’abord un projet, puis déposez des photos pour les importer.",
       "overlay": "Déposer pour importer dans {{name}}"
     },
     "fields": {
@@ -939,8 +942,8 @@
     },
     "menu": {
       "importFrom": "Importer depuis Lightroom ou Capture One…",
-      "new": "Nouvelle session…",
-      "open": "Ouvrir une session…"
+      "new": "Nouveau projet…",
+      "open": "Ouvrir un projet…"
     },
     "progress": {
       "adding_one": "Ajout de {{current}} sur {{count}} fichier",
@@ -965,7 +968,7 @@
       "duplicatesSkipped_many": "{{count}} doublons ignorés",
       "duplicatesSkipped_other": "{{count}} doublons ignorés",
       "flagsFailed": "Impossible d’enregistrer les marques : {{error}}",
-      "flagsSavedRefreshFailed": "Marques enregistrées ; impossible d’actualiser le résumé de la session : {{error}}",
+      "flagsSavedRefreshFailed": "Marques enregistrées ; impossible d’actualiser le résumé du projet : {{error}}",
       "hotFolderFailed": "Dossier surveillé : {{file}} : {{error}}",
       "importCopiesSkipped_one": "{{count}} copie virtuelle non importée",
       "importCopiesSkipped_many": "{{count}} copies virtuelles non importées",
@@ -986,10 +989,11 @@
       "watching": "Surveillance de {{folder}} pour les nouvelles photos."
     },
     "welcome": {
-      "body": "Créez une session portable pour votre prochaine prise de vue. Gardez ensemble prises de vue, retouches et livrables, de la première image à la sélection finale.",
-      "create": "Créer une session",
+      "body": "Créez un projet portable pour votre prochaine prise de vue. Gardez ensemble prises de vue, retouches et livrables, de la première image à la sélection finale.",
+      "create": "Créer un projet",
+      "createCatalog": "",
       "importFrom": "Commencer depuis Lightroom ou Capture One",
-      "open": "Ouvrir une session",
+      "open": "Ouvrir un projet",
       "tagline": "Fichiers locaux. Retouches non destructives. Vos photos.",
       "title": "Un lieu pour chaque mission."
     }
@@ -1022,7 +1026,7 @@
     "data": {
       "clearSidecars": "Effacer tous les fichiers annexes",
       "clearSidecarsButton": "Effacer",
-      "clearSidecarsDesc": "Supprime les fichiers .rrdata (retouches) et .rrexif (cache EXIF) dans vos dossiers racine. Les photos d'une session ou d'un catalogue ne sont pas concernées : leurs retouches sont enregistrées dans sa base de données. Dossiers racine :",
+      "clearSidecarsDesc": "Supprime les fichiers .rrdata (retouches) et .rrexif (cache EXIF) dans vos dossiers racine. Les photos d'un projet ou d'un catalogue ne sont pas concernées : leurs retouches sont enregistrées dans sa base de données. Dossiers racine :",
       "clearThumbnail": "Effacer le cache des miniatures",
       "clearThumbnailButton": "Effacer",
       "clearThumbnailDesc": "Ceci supprimera toutes les images miniatures en cache. Elles seront régénérées automatiquement lors de votre navigation dans la bibliothèque.",
@@ -1046,7 +1050,7 @@
         "confirmResetLayoutTitle": "Réinitialiser la disposition de l'espace de travail",
         "confirmTitle": "Confirmer la suppression",
         "resetLayoutMessage": "Êtes-vous sûr de vouloir réinitialiser la disposition de l'espace de travail ? Tous les panneaux ancrés, les largeurs et les positions des sélecteurs seront restaurés à leurs valeurs par défaut.",
-        "sidecarMessage": "Êtes-vous sûr de vouloir supprimer tous les fichiers annexes ?\n\nCeci supprimera définitivement les retouches enregistrées dans les fichiers .rrdata pour toutes les images à l'intérieur de tous les dossiers racine actifs et de leurs sous-dossiers. Les photos d'une session ou d'un catalogue ne sont pas concernées : leurs retouches sont enregistrées dans sa base de données."
+        "sidecarMessage": "Êtes-vous sûr de vouloir supprimer tous les fichiers annexes ?\n\nCeci supprimera définitivement les retouches enregistrées dans les fichiers .rrdata pour toutes les images à l'intérieur de tous les dossiers racine actifs et de leurs sous-dossiers. Les photos d'un projet ou d'un catalogue ne sont pas concernées : leurs retouches sont enregistrées dans sa base de données."
       },
       "noFolders": "Aucun dossier sélectionné",
       "resetLayoutButton": "Réinitialiser la disposition",
@@ -1840,7 +1844,7 @@
         "keepStructure": "Conserver l'arborescence des dossiers",
         "legend": "Destination",
         "original": "À côté des originaux",
-        "output": "Dossier Output de la session",
+        "output": "Dossier Output du projet",
         "subfolder": "Dans un sous-dossier",
         "subfolderAria": "Sous-dossier"
       },
@@ -2270,7 +2274,7 @@
         },
         "noMatch": "Aucun nom de dossier ne contient « {{filter}} ».",
         "reading": "Lecture des dossiers…",
-        "session": "Session",
+        "session": "Projet",
         "sort": {
           "ascending": "Croissant",
           "created": "Date de création",
@@ -2443,8 +2447,8 @@
         "title": "Mots-clés"
       },
       "mixed": "Différents",
-      "notInSession": "Certaines photos sélectionnées ne font pas partie de cette session.",
-      "outsideSessions": "Hors session, la description, le créateur, le copyright et le commentaire sont enregistrés avec les retouches de chaque photo ; le titre et les champs IPTC sont enregistrés dans les sessions.",
+      "notInSession": "Certaines photos sélectionnées ne font pas partie de ce projet.",
+      "outsideSessions": "Hors projet, la description, le créateur, le copyright et le commentaire sont enregistrés avec les retouches de chaque photo ; le titre et les champs IPTC sont enregistrés dans les projets.",
       "selectToSee": "Sélectionnez des photos pour voir leurs métadonnées.",
       "title": "Métadonnées",
       "toasts": {
