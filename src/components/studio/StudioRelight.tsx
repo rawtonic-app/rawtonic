@@ -26,6 +26,7 @@ import {
   RELIGHT_TEMPERATURES,
   relightPatternRotation,
   relightPresetLight,
+  relightSource,
   type RelightLight,
   type RelightDepth,
   type RelightPreset,
@@ -138,11 +139,11 @@ export default function StudioRelight({
       [80, 80, -45],
     ].find(
       ([x, y]) =>
-        !lights.some(
-          (l) =>
-            Math.abs((l.sourceX ?? l.x) - x) < 5 &&
-            Math.abs((l.sourceY ?? l.y) - y) < 5,
-        ),
+        // Presets and drags leave sources near, not on, a corner.
+        !lights.some((l) => {
+          const source = relightSource(l, 1, 1);
+          return Math.hypot(source.x - x, source.y - y) < 15;
+        }),
     );
     if (position) [next.sourceX, next.sourceY, next.rotation] = position;
     next.patternRotation = 0;

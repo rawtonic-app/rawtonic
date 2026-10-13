@@ -225,6 +225,16 @@ it("applies a preset, a color temperature and a mask limit", () => {
   expect(screen.getByText("This mask layer is hidden or empty, so the light is off.")).toBeTruthy();
 });
 
+it("places a new light in a corner no existing source is near", () => {
+  mount();
+  fireEvent.change(screen.getByRole("combobox", { name: "Lighting preset" }), { target: { value: "rembrandt" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add light" }));
+  const [preset, added] = useEditorStore.getState().adjustments.relightLights!;
+  // The preset's source sits near the top-left corner; the new light avoids it.
+  expect(preset.sourceX).toBeLessThan(30);
+  expect([added.sourceX, added.sourceY]).toEqual([80, 20]);
+});
+
 it("imports an image pattern through the backend", async () => {
   vi.mocked(invoke).mockResolvedValue("data:image/png;base64,PATTERN");
   vi.mocked(open).mockResolvedValue("/qa/leaves.png");

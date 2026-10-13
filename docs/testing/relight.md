@@ -277,9 +277,35 @@ and tiled rendering still agree within U8 ≤1 and U16 exactly.
   layer's bitmap). Custom patterns: an imported image, stored in the recipe.
 - Native GPU test `relight_masks_and_imported_patterns`: no pixel changes
   outside the mask, a hidden layer is identity, the imported pattern differs
-  from unpatterned and inverted light and renders deterministically. Existing
-  parity tests still pass (preview/export max difference 0 at 8 and 16 bit).
-  Native-app QA of the new panel and pattern import is still open.
+  from unpatterned and inverted light and renders deterministically. The
+  imported atlas is retained per render like the depth surface (engine test
+  with cache eviction). The full GPU preview/export suite passes (53 tests;
+  only the fixture-gated real-photo timing test needs `RELIGHT_PHOTO`).
+- Native QA (debug QA build, isolated identity, scratch session with copies of
+  the public NASA portrait and an own sphere; sources' SHA-256 unchanged):
+  - Add light → camera-aware analysis ready in 1.26 s including model load;
+    one face refined.
+  - Per preview frame the recipe previously carried about 475 KB of Relight
+    data (depth PNG data URL 433 KB, landmarks 32 KB, imported pattern 9.5 KB);
+    after the first frame only their names are sent. This is payload size, not
+    a latency measurement. No render errors were logged across the session.
+  - Rembrandt preset on the portrait: lit cheek +16 red / shadow cheek −24
+    codes versus Relight off (screen capture means); depth analysis reused.
+  - Solo of one light is pixel-identical to the recipe with only that light
+    enabled; recipe and history unchanged; switching solo off restores exactly.
+  - Native Alt-drag on a sun source: 60 px up → elevation 40° → 50.9°, source
+    unchanged, one history step; ⌘Z/⇧⌘Z restore and redo it.
+  - Pattern import through the open dialog: 65 ms to a stored 512×512 pattern;
+    tiled shape visible in the render.
+  - Limit to an AI Subject layer: face pixels identical, background loses that
+    light (red −40) while other lights remain.
+  - After an app restart the imported pattern, mask limit and depth analysis
+    are restored.
+  - Found and fixed: a new light's free-corner check (5 % box) placed it on a
+    preset light's source; a 15 % distance now picks the next corner (UI test
+    and native check).
+  - Not covered: physical mouse/keyboard (native synthetic events), the colour
+    picker dialog, other platforms, pointer-to-photon latency.
 
 ## Reproduce
 
