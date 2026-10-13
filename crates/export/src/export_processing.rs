@@ -1184,7 +1184,14 @@ pub fn process_image_for_export_pipeline(
         roi: None,
     };
 
-    let Some(uploaded) = upload_render_source(context, &transformed_image, unique_hash)? else {
+    // The multi-scale colour noise reduction measures the full-resolution
+    // source while its CPU pixels exist.
+    let global = &request.adjustments.global;
+    let color_noise =
+        (global.color_noise[0] > 0.0 && global.color_noise_reduction > 0.0).then_some(is_raw);
+    let Some(uploaded) =
+        upload_render_source(context, &transformed_image, unique_hash, color_noise)?
+    else {
         return process_and_get_dynamic_image_inner(
             context,
             env.processor,

@@ -35,6 +35,21 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(partial, true).sharpness).toBe(40);
     expect(normalizeLoadedAdjustments(partial, false).sharpness).toBe(0);
   });
+
+  it('keep the colour noise filter a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).colorNoiseVersion).toBe(2);
+    expect(initialAdjustmentsFor(false).colorNoiseVersion).toBe(2);
+    // Saved colour amount without a version: the earlier filter.
+    const saved = { colorNoiseReduction: 25 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(saved, true).colorNoiseVersion).toBeUndefined();
+    expect('colorNoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
+    // Left to the RAW default: the current one, as the backend renders it.
+    const partial = { exposure: 0.5 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(partial, true).colorNoiseVersion).toBe(2);
+    expect(normalizeLoadedAdjustments(partial, false).colorNoiseVersion).toBeUndefined();
+    const versioned = { colorNoiseReduction: 25, colorNoiseVersion: 2 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(versioned, true).colorNoiseVersion).toBe(2);
+  });
 });
 
 describe('sameAdjustmentValue', () => {
