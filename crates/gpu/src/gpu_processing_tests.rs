@@ -6687,7 +6687,7 @@ fn relight_face_reflections_follow_light() {
     .unwrap();
     let mut recipe = json!({"relightLights":[{"type":"sun","intensity":55,"color":"#ffffff","pattern":"none","rotation":90,"elevation":45,"diffusion":10,"softness":30,"shadows":0}],"relightOriginalLight":0,"relightDepthAmount":100});
     recipe["relightDepth"] = json!({"data":base64::engine::general_purpose::STANDARD.encode(png.into_inner()),"geometry":rawtonic_engine::relight::geometry(&recipe),"version":2});
-    let render = |recipe: &serde_json::Value, general: bool| {
+    let render_source = |recipe: &serde_json::Value, general: bool, is_raw: bool| {
         processor
             .force_general_pipeline
             .store(general, Ordering::Relaxed);
@@ -6697,7 +6697,7 @@ fn relight_face_reflections_follow_light() {
                 128,
                 128,
                 RenderRequest {
-                    adjustments: get_all_adjustments_from_json(recipe, false, Some(0)),
+                    adjustments: get_all_adjustments_from_json(recipe, is_raw, Some(0)),
                     mask_bitmaps: &[],
                     lut: None,
                     roi: None,
@@ -6711,6 +6711,7 @@ fn relight_face_reflections_follow_light() {
             _ => unreachable!(),
         }
     };
+    let render = |recipe: &serde_json::Value, general: bool| render_source(recipe, general, false);
     recipe["relightDepth"]["faces"] = json!([rawtonic_engine::relight::test_face_geometry()]);
     let old = render(&recipe, false);
     assert!(old.as_chunks::<4>().0.iter().all(|p| p[..3] == [0, 0, 0]));
@@ -6728,6 +6729,35 @@ fn relight_face_reflections_follow_light() {
         render(&recipe, true),
         "reflection preview/export parity"
     );
+    // On a black dielectric, doubling exposure and doubling emitter radiance
+    // must give the same reflection; there is no diffuse signal to hide a bug.
+    for ev in [-2.0_f64, -1.0, 1.0, 2.0] {
+        let mut exposed = recipe.clone();
+        exposed["relightLights"][0]["intensity"] = json!(20);
+        exposed["exposure"] = json!(ev * 0.8);
+        let mut brighter_light = exposed.clone();
+        brighter_light["exposure"] = json!(0);
+        brighter_light["relightLights"][0]["intensity"] = json!(20.0 * ev.exp2());
+        for is_raw in [false, true] {
+            let actual = render_source(&exposed, false, is_raw);
+            let expected = render_source(&brighter_light, false, is_raw);
+            let worst = actual
+                .iter()
+                .zip(&expected)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap();
+            assert!(
+                worst <= 1,
+                "reflection exposure {ev} EV (raw={is_raw}) differs from emitter radiance by {worst}"
+            );
+            assert_eq!(
+                actual,
+                render_source(&exposed, true, is_raw),
+                "exposed reflection preview/export parity"
+            );
+        }
+    }
     let centroid = |pixels: &[u8]| {
         let mut weight = 0.;
         let mut xsum = 0.;
