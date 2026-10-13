@@ -891,6 +891,57 @@
       "failed": "無法開啟上次的圖庫：{{error}}",
       "opening": "正在開啟 {{name}}（{{directory}}）… 如果 macOS 要求存取此卷宗，請允許。"
     },
+    "sync": {
+      "applied": "已移動 {{moved}} · 已加入 {{added}} · 已移除 {{removed}}",
+      "apply": "套用（{{n}}）",
+      "cancel": "取消",
+      "cancelling": "正在取消…",
+      "checking": "正在檢查圖庫不認識的檔案 · {{done}} / {{total}}",
+      "choice": {
+        "add": "一張新照片",
+        "addCopy": "一張新照片（{{of}} 的副本）",
+        "moved": "是 {{path}}，已移動（可能）",
+        "movedVerified": "是 {{path}}，已移動（已驗證）",
+        "skip": "暫時不處理"
+      },
+      "chooseFirst": "請先為每個有爭議的檔案做出選擇（剩餘：{{n}}）。",
+      "chooseFolder": "要同步哪個資料夾？",
+      "copyOf": "{{path}}（與 {{of}} 相同）",
+      "counted": "{{selected}} / {{total}}",
+      "filesUnchanged": "磁碟上的檔案不會被變更。",
+      "found": "已檢查 {{n}} 個照片檔案。只會套用勾選的變更。",
+      "groups": {
+        "contested": "需要你選擇",
+        "copies": "圖庫中照片的副本",
+        "errors": "無法讀取",
+        "newFiles": "新照片",
+        "probableMoves": "可能已移動或重新命名",
+        "removed": "遺失的照片",
+        "unavailable": "無法使用",
+        "verifiedMoves": "已移動或重新命名（已驗證）"
+      },
+      "hints": {
+        "contested": "此檔案可能是幾張照片之一，或是副本。請選擇它是什麼。",
+        "copies": "與仍然存在的照片位元組相同。僅在勾選時作為個別照片加入。",
+        "errors": "已略過。",
+        "newFiles": "連同其 XMP 或編輯附屬檔案的內容一起加入。",
+        "probableMoves": "大小和內容抽樣相符，但沒有完整的總和檢查碼記錄可證明。請勾選你認得的。",
+        "removed": "其檔案已不在，也找不到對應檔案。勾選的照片會連同編輯、評等和相簿一起從圖庫移除。檔案永遠不會被刪除。",
+        "unavailable": "位於未連接的磁碟機上或無法讀取的資料夾中。保持原狀。",
+        "verifiedMoves": "與照片檔案逐位元組相同：在新位置保留編輯、評等、關鍵字和相簿。"
+      },
+      "inSync": "一切皆已同步：已檢查 {{n}} 個照片檔案，無需變更。",
+      "listing": "正在尋找照片… 已找到 {{n}} 張",
+      "menu": "同步資料夾…",
+      "more": "… 另有 {{n}} 個",
+      "onVolume": "位於「{{volume}}」",
+      "readOnly": "掃描只會讀取檔案。",
+      "selectGroup": "全選：{{group}}",
+      "skipped": "因掃描後有變化而略過：{{n}}",
+      "title": "同步資料夾",
+      "toChoose": "待選擇：{{n}}",
+      "wholeLibrary": "整個圖庫"
+    },
     "toasts": {
       "added_other": "已加入 {{count}} 張照片",
       "addedToAlbum": "已加入 {{name}}",
@@ -2089,6 +2140,8 @@
         "newAlbumName": "新相簿名稱",
         "newGroupName": "新群組名稱",
         "newTitle": "新增相簿或群組",
+        "previousImport": "上次匯入",
+        "previousImportTitle": "最近一次匯入、加入或同步資料夾所加入的照片",
         "renameLabel": "重新命名 {{name}}",
         "title": "相簿",
         "toasts": {

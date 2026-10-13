@@ -959,6 +959,57 @@
       "failed": "Não foi possível abrir a última biblioteca: {{error}}",
       "opening": "Abrindo {{name}} ({{directory}})… Se o macOS pedir acesso a este volume, permita."
     },
+    "sync": {
+      "applied": "Movidas {{moved}} · Adicionadas {{added}} · Removidas {{removed}}",
+      "apply": "Aplicar ({{n}})",
+      "cancel": "Cancelar",
+      "cancelling": "Cancelando…",
+      "checking": "Verificando arquivos que a biblioteca não conhece · {{done}} de {{total}}",
+      "choice": {
+        "add": "Uma foto nova",
+        "addCopy": "Uma foto nova (cópia de {{of}})",
+        "moved": "É {{path}}, movida (provável)",
+        "movedVerified": "É {{path}}, movida (verificado)",
+        "skip": "Deixar por agora"
+      },
+      "chooseFirst": "Escolha primeiro para cada arquivo em conflito (faltam: {{n}}).",
+      "chooseFolder": "Sincronizar qual pasta?",
+      "copyOf": "{{path}} (igual a {{of}})",
+      "counted": "{{selected}} de {{total}}",
+      "filesUnchanged": "Os arquivos no disco não são alterados.",
+      "found": "{{n}} arquivos de foto examinados. Só as alterações marcadas são aplicadas.",
+      "groups": {
+        "contested": "Precisa da sua escolha",
+        "copies": "Cópias de fotos da biblioteca",
+        "errors": "Não foi possível ler",
+        "newFiles": "Fotos novas",
+        "probableMoves": "Provavelmente movidas ou renomeadas",
+        "removed": "Fotos ausentes",
+        "unavailable": "Indisponíveis",
+        "verifiedMoves": "Movidas ou renomeadas (verificado)"
+      },
+      "hints": {
+        "contested": "Este arquivo pode ser uma de várias fotos, ou uma cópia. Escolha o que ele é.",
+        "copies": "Os mesmos bytes de uma foto que ainda existe. Adicionadas como fotos separadas só se marcadas.",
+        "errors": "Ignorados.",
+        "newFiles": "Adicionadas com o conteúdo dos seus arquivos XMP ou de edição.",
+        "probableMoves": "Tamanho e amostras do conteúdo coincidem, mas nenhuma soma de verificação completa o comprova. Marque as que reconhecer.",
+        "removed": "Os arquivos sumiram e nada foi encontrado para elas. As marcadas são removidas da biblioteca com ajustes, classificações e álbuns. Arquivos nunca são apagados.",
+        "unavailable": "Num disco desconectado ou numa pasta ilegível. Ficam como estão.",
+        "verifiedMoves": "Byte a byte o arquivo da foto: ela mantém ajustes, classificações, palavras-chave e álbuns no novo local."
+      },
+      "inSync": "Tudo sincronizado: {{n}} arquivos de foto examinados, nada a mudar.",
+      "listing": "Procurando fotos… {{n}} encontradas",
+      "menu": "Sincronizar pasta…",
+      "more": "… e mais {{n}}",
+      "onVolume": "em “{{volume}}”",
+      "readOnly": "A verificação apenas lê arquivos.",
+      "selectGroup": "Selecionar tudo: {{group}}",
+      "skipped": "Ignoradas porque algo mudou desde a verificação: {{n}}",
+      "title": "Sincronizar pasta",
+      "toChoose": "Falta escolher: {{n}}",
+      "wholeLibrary": "A biblioteca inteira"
+    },
     "toasts": {
       "added_one": "{{count}} fotografia adicionada",
       "added_many": "{{count}} fotografias adicionadas",
@@ -2196,6 +2247,8 @@
         "newAlbumName": "Nome do novo álbum",
         "newGroupName": "Nome do novo grupo",
         "newTitle": "Novo álbum ou grupo",
+        "previousImport": "Importação anterior",
+        "previousImportTitle": "As fotos que a última importação, Adicionar ou Sincronizar pasta adicionou",
         "renameLabel": "Renomear {{name}}",
         "title": "Álbuns",
         "toasts": {

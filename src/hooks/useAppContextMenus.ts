@@ -71,6 +71,7 @@ import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
+import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
 
 type TaggingSubMenuProps = Omit<ComponentProps<typeof TaggingSubMenu>, 'hideContextMenu'>;
 
@@ -829,7 +830,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               ? buildAddToAlbumMenu(albumTree, finalSelection)
               : [{ label: t('contextMenus.thumbnail.noAlbums'), disabled: true }],
         },
-        ...(activeAlbumId && activeAlbumId !== MISSING_VIEW_ID
+        ...(activeAlbumId && activeAlbumId !== MISSING_VIEW_ID && activeAlbumId !== PREVIOUS_IMPORT_VIEW_ID
           ? [
               {
                 label: t('contextMenus.thumbnail.removeFromAlbum', { count: selectionCount }),

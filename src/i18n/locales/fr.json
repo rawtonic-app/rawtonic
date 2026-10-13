@@ -959,6 +959,57 @@
       "failed": "Impossible d’ouvrir la dernière bibliothèque : {{error}}",
       "opening": "Ouverture de {{name}} ({{directory}})… Si macOS demande l’accès à ce volume, autorisez-le."
     },
+    "sync": {
+      "applied": "Déplacées {{moved}} · Ajoutées {{added}} · Retirées {{removed}}",
+      "apply": "Appliquer ({{n}})",
+      "cancel": "Annuler",
+      "cancelling": "Annulation…",
+      "checking": "Vérification des fichiers inconnus de la bibliothèque · {{done}} sur {{total}}",
+      "choice": {
+        "add": "Une nouvelle photo",
+        "addCopy": "Une nouvelle photo (copie de {{of}})",
+        "moved": "C’est {{path}}, déplacée (probable)",
+        "movedVerified": "C’est {{path}}, déplacée (vérifié)",
+        "skip": "Laisser pour l’instant"
+      },
+      "chooseFirst": "Choisissez d’abord pour chaque fichier en conflit (reste : {{n}}).",
+      "chooseFolder": "Quel dossier synchroniser ?",
+      "copyOf": "{{path}} (identique à {{of}})",
+      "counted": "{{selected}} sur {{total}}",
+      "filesUnchanged": "Les fichiers sur le disque ne sont pas modifiés.",
+      "found": "{{n}} fichiers photo examinés. Seules les modifications cochées sont appliquées.",
+      "groups": {
+        "contested": "Votre choix est requis",
+        "copies": "Copies de photos de la bibliothèque",
+        "errors": "Illisibles",
+        "newFiles": "Nouvelles photos",
+        "probableMoves": "Probablement déplacées ou renommées",
+        "removed": "Photos manquantes",
+        "unavailable": "Non disponibles",
+        "verifiedMoves": "Déplacées ou renommées (vérifié)"
+      },
+      "hints": {
+        "contested": "Ce fichier pourrait être l’une de plusieurs photos, ou une copie. Choisissez ce qu’il est.",
+        "copies": "Les mêmes octets qu’une photo toujours présente. Ajoutées comme photos distinctes seulement si cochées.",
+        "errors": "Ignorés.",
+        "newFiles": "Ajoutées avec le contenu de leurs fichiers annexes XMP ou d’édition.",
+        "probableMoves": "La taille et des échantillons du contenu concordent, mais aucune somme de contrôle complète ne le prouve. Cochez celles que vous reconnaissez.",
+        "removed": "Leurs fichiers ont disparu et rien n’a été trouvé pour elles. Les photos cochées sont retirées de la bibliothèque avec leurs réglages, notes et albums. Les fichiers ne sont jamais supprimés.",
+        "unavailable": "Sur un disque déconnecté ou dans un dossier illisible. Elles restent telles quelles.",
+        "verifiedMoves": "Octet pour octet le fichier de la photo : elle garde ses réglages, notes, mots-clés et albums au nouvel emplacement."
+      },
+      "inSync": "Tout est synchronisé : {{n}} fichiers photo examinés, rien à changer.",
+      "listing": "Recherche des photos… {{n}} trouvées",
+      "menu": "Synchroniser le dossier…",
+      "more": "… et {{n}} de plus",
+      "onVolume": "sur « {{volume}} »",
+      "readOnly": "L’analyse ne fait que lire les fichiers.",
+      "selectGroup": "Tout sélectionner : {{group}}",
+      "skipped": "Ignorées car quelque chose a changé depuis l’analyse : {{n}}",
+      "title": "Synchroniser le dossier",
+      "toChoose": "Reste à choisir : {{n}}",
+      "wholeLibrary": "Toute la bibliothèque"
+    },
     "toasts": {
       "added_one": "{{count}} photo ajoutée",
       "added_many": "{{count}} photos ajoutées",
@@ -2196,6 +2247,8 @@
         "newAlbumName": "Nom du nouvel album",
         "newGroupName": "Nom du nouveau groupe",
         "newTitle": "Nouvel album ou groupe",
+        "previousImport": "Importation précédente",
+        "previousImportTitle": "Les photos ajoutées par la dernière importation, l’ajout ou la synchronisation de dossier",
         "renameLabel": "Renommer {{name}}",
         "title": "Albums",
         "toasts": {

@@ -1,4 +1,5 @@
 import StudioWorkspace from './components/studio/StudioWorkspace';
+import { PREVIOUS_IMPORT_VIEW_ID, openPreviousImport } from './utils/folderSync';
 import { openSessionAlbum, SESSION_ALBUM_PREFIX } from './components/studio/StudioAlbums';
 import {
   DRIVES_CHANGED,
@@ -237,7 +238,14 @@ function App() {
     if (currentFolderPath) {
       if (currentFolderPath.startsWith('Album: ')) {
         const { activeAlbumId, albumTree, sessionDirectory } = useLibraryStore.getState();
-        if (activeAlbumId === MISSING_VIEW_ID && sessionDirectory) {
+        if (activeAlbumId === PREVIOUS_IMPORT_VIEW_ID && sessionDirectory) {
+          await openPreviousImport(
+            sessionDirectory,
+            currentFolderPath.slice('Album: '.length),
+            handleSelectAlbum,
+            true,
+          ).catch((e) => toast.error(String(e)));
+        } else if (activeAlbumId === MISSING_VIEW_ID && sessionDirectory) {
           await openMissingView(
             sessionDirectory,
             currentFolderPath.slice('Album: '.length),
