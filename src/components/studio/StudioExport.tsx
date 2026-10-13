@@ -8,6 +8,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useProcessStore, type ExportJob } from "../../store/useProcessStore";
+import { renderErrorMessage } from "../../utils/renderErrors";
 import { toast } from "react-toastify";
 import { Invokes } from "../ui/AppProperties";
 import {
@@ -1222,7 +1223,7 @@ export default function StudioExport() {
       )}
       {state.status === Status.Error && (
         <p className="studio-export-error" role="alert">
-          {state.errorMessage}
+          {renderErrorMessage(state.errorMessage)}
         </p>
       )}
       {state.status === Status.Success && (

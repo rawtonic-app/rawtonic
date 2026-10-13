@@ -427,7 +427,7 @@ pub fn import_one_into(
         });
     }
     if let Some(earlier) = earlier {
-        return Ok(register(library, source, earlier, backup_result));
+        return Ok(register(library, source, earlier, backup_result, None));
     }
     let destination =
         choose_destination(&folder, &name, CollisionPolicy::Suffix)?.context("No destination")?;
@@ -449,6 +449,7 @@ pub fn import_one_into(
         source,
         receipt.destination,
         backup_result,
+        Some(&receipt.sha256),
     ))
 }
 
@@ -472,18 +473,34 @@ pub fn record_earlier_copy(
     {
         return Ok(None);
     }
-    Ok(Some(register(library, source, copy.to_path_buf(), None)))
+    Ok(Some(register(
+        library,
+        source,
+        copy.to_path_buf(),
+        None,
+        None,
+    )))
 }
 
-/// Records the verified copy `destination` of `source` in the library.
+/// Records the verified copy `destination` of `source` in the library,
+/// with the content hash the copy was verified with (Synchronize Folder
+/// proves moves with it).
 fn register(
     library: &Library,
     source: &Path,
     destination: PathBuf,
     backup: Option<PathBuf>,
+    sha256: Option<&str>,
 ) -> ImportResult {
     let (asset_id, error) = match library.add_asset(&destination) {
-        Ok(asset) => (Some(asset.id), None),
+        Ok(asset) => {
+            // Not recorded (the file changed meanwhile): the background
+            // pass hashes it later; moves are only unverified until then.
+            if let Some(hash) = sha256 {
+                let _ = library.record_checksum(&asset.id, hash);
+            }
+            (Some(asset.id), None)
+        }
         Err(error) => (
             None,
             Some(format!(

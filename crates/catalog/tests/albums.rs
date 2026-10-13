@@ -134,10 +134,11 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     let album = lib.create_collection("Kept", None).unwrap();
     drop(lib);
     // Turn the database back into schema 1 (no kind/position columns, no
-    // volume columns of schema 3).
+    // volume columns of schema 3, no import batches of schema 4).
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
     db.execute_batch(
-        "ALTER TABLE roots DROP COLUMN volume_name; ALTER TABLE roots DROP COLUMN volume_path;
+        "ALTER TABLE assets DROP COLUMN sha256; DROP TABLE asset_imports; DROP TABLE import_batches;
+         ALTER TABLE roots DROP COLUMN volume_name; ALTER TABLE roots DROP COLUMN volume_path;
          CREATE TABLE c1(id TEXT PRIMARY KEY, name TEXT NOT NULL, parent TEXT REFERENCES collections(id));
          INSERT INTO c1 SELECT id,name,parent FROM collections;
          PRAGMA foreign_keys=OFF; DROP TABLE collections; ALTER TABLE c1 RENAME TO collections;

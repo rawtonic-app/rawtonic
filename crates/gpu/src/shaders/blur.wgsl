@@ -4,6 +4,12 @@ struct BlurParams {
     tile_offset_y: u32,
     input_width: u32,
     input_height: u32,
+    // Origin of the photo window the input texture holds, and the photo's
+    // size: coordinates are photo pixels (see `source_window` in shader.wgsl).
+    source_x: u32,
+    source_y: u32,
+    full_width: u32,
+    full_height: u32,
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
@@ -35,9 +41,8 @@ fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     let sigma = f32(radius) / 2.0;
 
     let absolute_coord = vec2<u32>(id.x + params.tile_offset_x, id.y + params.tile_offset_y);
-    let full_dims = vec2<i32>(textureDimensions(input_texture));
-
-    let center_color = sample_range(textureLoad(input_texture, absolute_coord, 0).rgb);
+    let full_dims = vec2<i32>(i32(params.full_width), i32(params.full_height));
+    let window_origin = vec2<i32>(i32(params.source_x), i32(params.source_y));
 
     var total_color = vec3<f32>(0.0);
     var total_weight = 0.0;
@@ -46,7 +51,7 @@ fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
         let sample_x = clamp(i32(absolute_coord.x) + offset, 0, full_dims.x - 1);
         let sample_coord = vec2<i32>(sample_x, i32(absolute_coord.y));
 
-        let sample_color = sample_range(textureLoad(input_texture, vec2<u32>(sample_coord), 0).rgb);
+        let sample_color = sample_range(textureLoad(input_texture, sample_coord - window_origin, 0).rgb);
         let weight = gaussian(f32(offset), sigma);
 
         total_color += sample_color * weight;

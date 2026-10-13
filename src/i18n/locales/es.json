@@ -959,6 +959,57 @@
       "failed": "No se pudo abrir la última biblioteca: {{error}}",
       "opening": "Abriendo {{name}} ({{directory}})… Si macOS pide acceso a este volumen, permítelo."
     },
+    "sync": {
+      "applied": "Movidas {{moved}} · Añadidas {{added}} · Quitadas {{removed}}",
+      "apply": "Aplicar ({{n}})",
+      "cancel": "Cancelar",
+      "cancelling": "Cancelando…",
+      "checking": "Comprobando archivos que la biblioteca no conoce · {{done}} de {{total}}",
+      "choice": {
+        "add": "Una foto nueva",
+        "addCopy": "Una foto nueva (copia de {{of}})",
+        "moved": "Es {{path}}, movida (probable)",
+        "movedVerified": "Es {{path}}, movida (verificado)",
+        "skip": "Dejarlo por ahora"
+      },
+      "chooseFirst": "Elija primero para cada archivo en conflicto (quedan: {{n}}).",
+      "chooseFolder": "¿Qué carpeta sincronizar?",
+      "copyOf": "{{path}} (igual que {{of}})",
+      "counted": "{{selected}} de {{total}}",
+      "filesUnchanged": "Los archivos del disco no cambian.",
+      "found": "{{n}} archivos de foto examinados. Solo se aplican los cambios marcados.",
+      "groups": {
+        "contested": "Requiere su elección",
+        "copies": "Copias de fotos de la biblioteca",
+        "errors": "No se pudieron leer",
+        "newFiles": "Fotos nuevas",
+        "probableMoves": "Probablemente movidas o renombradas",
+        "removed": "Fotos que faltan",
+        "unavailable": "No disponibles",
+        "verifiedMoves": "Movidas o renombradas (verificado)"
+      },
+      "hints": {
+        "contested": "Este archivo podría ser una de varias fotos, o una copia. Elija qué es.",
+        "copies": "Los mismos bytes que una foto que sigue ahí. Se añaden como fotos aparte solo si se marcan.",
+        "errors": "Omitidos.",
+        "newFiles": "Se añaden con lo que contienen sus archivos XMP o de edición.",
+        "probableMoves": "El tamaño y muestras del contenido coinciden, pero no hay una suma de comprobación completa que lo demuestre. Marque las que reconozca.",
+        "removed": "Sus archivos ya no están y no se encontró nada para ellas. Las marcadas se quitan de la biblioteca con sus ajustes, valoraciones y álbumes. Los archivos nunca se borran.",
+        "unavailable": "En un disco desconectado o en una carpeta ilegible. Se quedan como están.",
+        "verifiedMoves": "Byte a byte el archivo de la foto: conserva sus ajustes, valoraciones, palabras clave y álbumes en el nuevo lugar."
+      },
+      "inSync": "Todo está sincronizado: {{n}} archivos de foto examinados, nada que cambiar.",
+      "listing": "Buscando fotos… {{n}} encontradas",
+      "menu": "Sincronizar carpeta…",
+      "more": "… y {{n}} más",
+      "onVolume": "en «{{volume}}»",
+      "readOnly": "El análisis solo lee archivos.",
+      "selectGroup": "Seleccionar todo: {{group}}",
+      "skipped": "Omitidas porque algo cambió desde el análisis: {{n}}",
+      "title": "Sincronizar carpeta",
+      "toChoose": "Por elegir: {{n}}",
+      "wholeLibrary": "Toda la biblioteca"
+    },
     "toasts": {
       "added_one": "{{count}} foto añadida",
       "added_many": "{{count}} fotos añadidas",
@@ -1881,6 +1932,10 @@
         "imageFilter": "Imagen",
         "watermarkTitle": "Elige una imagen de marca de agua"
       },
+      "errors": {
+        "flareTextureLimit": "El destello de luz no se puede procesar en una imagen de {{width}} × {{height}} px, mayor que el límite de esta tarjeta gráfica ({{limit}} px por lado). Desactiva Destello de luz para exportarla.",
+        "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado)."
+      },
       "estimate": "Tamaño estimado: unos {{size}}",
       "estimatePerFile": "Tamaño estimado: unos {{size}} ({{perFile}} por archivo)",
       "file": {
@@ -2196,6 +2251,8 @@
         "newAlbumName": "Nombre del nuevo álbum",
         "newGroupName": "Nombre del nuevo grupo",
         "newTitle": "Nuevo álbum o grupo",
+        "previousImport": "Importación anterior",
+        "previousImportTitle": "Las fotos que añadió la última importación, Añadir o Sincronizar carpeta",
         "renameLabel": "Renombrar {{name}}",
         "title": "Álbumes",
         "toasts": {

@@ -959,6 +959,57 @@
       "failed": "Impossibile aprire l’ultima libreria: {{error}}",
       "opening": "Apertura di {{name}} ({{directory}})… Se macOS chiede l’accesso a questo volume, consentilo."
     },
+    "sync": {
+      "applied": "Spostate {{moved}} · Aggiunte {{added}} · Rimosse {{removed}}",
+      "apply": "Applica ({{n}})",
+      "cancel": "Annulla",
+      "cancelling": "Annullamento…",
+      "checking": "Controllo dei file sconosciuti alla libreria · {{done}} di {{total}}",
+      "choice": {
+        "add": "Una nuova foto",
+        "addCopy": "Una nuova foto (copia di {{of}})",
+        "moved": "È {{path}}, spostata (probabile)",
+        "movedVerified": "È {{path}}, spostata (verificato)",
+        "skip": "Lascia per ora"
+      },
+      "chooseFirst": "Scegli prima per ogni file conteso (rimasti: {{n}}).",
+      "chooseFolder": "Quale cartella sincronizzare?",
+      "copyOf": "{{path}} (uguale a {{of}})",
+      "counted": "{{selected}} di {{total}}",
+      "filesUnchanged": "I file sul disco non vengono modificati.",
+      "found": "{{n}} file foto esaminati. Vengono applicate solo le modifiche selezionate.",
+      "groups": {
+        "contested": "Serve la tua scelta",
+        "copies": "Copie di foto della libreria",
+        "errors": "Illeggibili",
+        "newFiles": "Nuove foto",
+        "probableMoves": "Probabilmente spostate o rinominate",
+        "removed": "Foto mancanti",
+        "unavailable": "Non disponibili",
+        "verifiedMoves": "Spostate o rinominate (verificato)"
+      },
+      "hints": {
+        "contested": "Questo file potrebbe essere una di più foto, o una copia. Scegli cos’è.",
+        "copies": "Gli stessi byte di una foto ancora presente. Aggiunte come foto separate solo se selezionate.",
+        "errors": "Saltati.",
+        "newFiles": "Aggiunte con il contenuto dei loro file XMP o di modifica.",
+        "probableMoves": "Dimensione e campioni del contenuto coincidono, ma nessun checksum completo lo dimostra. Seleziona quelle che riconosci.",
+        "removed": "I loro file non ci sono più e non è stato trovato nulla. Quelle selezionate vengono rimosse dalla libreria con modifiche, valutazioni e album. I file non vengono mai eliminati.",
+        "unavailable": "Su un disco scollegato o in una cartella illeggibile. Restano come sono.",
+        "verifiedMoves": "Byte per byte il file della foto: mantiene modifiche, valutazioni, parole chiave e album nella nuova posizione."
+      },
+      "inSync": "Tutto è sincronizzato: {{n}} file foto esaminati, niente da cambiare.",
+      "listing": "Ricerca delle foto… {{n}} trovate",
+      "menu": "Sincronizza cartella…",
+      "more": "… e altri {{n}}",
+      "onVolume": "su «{{volume}}»",
+      "readOnly": "La scansione legge soltanto i file.",
+      "selectGroup": "Seleziona tutto: {{group}}",
+      "skipped": "Saltate perché qualcosa è cambiato dopo la scansione: {{n}}",
+      "title": "Sincronizza cartella",
+      "toChoose": "Da scegliere: {{n}}",
+      "wholeLibrary": "L’intera libreria"
+    },
     "toasts": {
       "added_one": "{{count}} foto aggiunta",
       "added_many": "{{count}} foto aggiunte",
@@ -1881,6 +1932,10 @@
         "imageFilter": "Immagine",
         "watermarkTitle": "Scegli un'immagine per la filigrana"
       },
+      "errors": {
+        "flareTextureLimit": "Il riflesso di luce non può essere elaborato su un'immagine di {{width}} × {{height}} px, oltre il limite di questa scheda grafica ({{limit}} px per lato). Disattiva Riflesso di luce per esportarla.",
+        "textureLimit": "L'immagine ({{width}} × {{height}} px) è più grande di quanto questa scheda grafica possa elaborare ({{limit}} px per lato)."
+      },
       "estimate": "Dimensione stimata: circa {{size}}",
       "estimatePerFile": "Dimensione stimata: circa {{size}} ({{perFile}} per file)",
       "file": {
@@ -2196,6 +2251,8 @@
         "newAlbumName": "Nome del nuovo album",
         "newGroupName": "Nome del nuovo gruppo",
         "newTitle": "Nuovo album o gruppo",
+        "previousImport": "Importazione precedente",
+        "previousImportTitle": "Le foto aggiunte dall’ultima importazione, Aggiungi o Sincronizza cartella",
         "renameLabel": "Rinomina {{name}}",
         "title": "Album",
         "toasts": {

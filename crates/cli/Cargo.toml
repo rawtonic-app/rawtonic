@@ -26,6 +26,7 @@ rawtonic-merge = { path = "../merge", version = "0.1.0" }
 
 [dev-dependencies]
 tempfile.workspace = true
+rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0", features = ["test-support"] }
 
 [[bin]]
 name = "rawtonic"

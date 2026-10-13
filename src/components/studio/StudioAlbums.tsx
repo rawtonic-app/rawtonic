@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { BookImage, ChevronRight, Folder, Plus, Unlink } from "lucide-react";
+import { BookImage, ChevronRight, Folder, History, Plus, Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "react-toastify";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -20,6 +20,7 @@ import { ToolGroup } from "./StudioDevelop";
 import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
+import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
 import {
   changeLibraryAlbums,
   findAlbumItem,
@@ -246,6 +247,41 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       window.removeEventListener(OFFLINE_COUNTED, counted);
     };
   }, [showMissing, recountMissing]);
+
+  /** Photographs of the newest import batch (Previous Import, shown when any). */
+  const [imported, setImported] = useState(0);
+  const recountImported = useCallback(async () => {
+    if (!session) return setImported(0);
+    try {
+      setImported((await previousImport(session)).paths.length);
+    } catch {
+      setImported(0);
+    }
+  }, [session]);
+  useEffect(() => {
+    void recountImported();
+  }, [recountImported]);
+  const showImported = useCallback(
+    (preserveEditor = false) => {
+      if (!session) return Promise.resolve(0);
+      return openPreviousImport(session, t("studio.library.albums.previousImport"), onSelectAlbum, preserveEditor).then(
+        (count) => {
+          setImported(count);
+          return count;
+        },
+      );
+    },
+    [session, t, onSelectAlbum],
+  );
+  // An ingest or a synchronization added photographs: a new batch.
+  useEffect(() => {
+    const changed = () => {
+      if (activeAlbumRef.current === PREVIOUS_IMPORT_VIEW_ID) void showImported(true).catch(() => {});
+      else void recountImported();
+    };
+    window.addEventListener(IMPORTS_CHANGED, changed);
+    return () => window.removeEventListener(IMPORTS_CHANGED, changed);
+  }, [showImported, recountImported]);
 
   /** Shows `album` in the grid (`preserveEditor` refreshes it in place). */
   const show = async (album: SessionAlbum, preserveEditor = false) => {
@@ -530,6 +566,21 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
         role="list"
         aria-label={t("studio.library.albums.title")}
       >
+        {session && imported > 0 && (
+          // Lightroom's Previous Import: the newest ingest, Add or Synchronize Folder.
+          <button
+            key={PREVIOUS_IMPORT_VIEW_ID}
+            role="listitem"
+            className={`studio-preset studio-album is-smart ${activeAlbumId === PREVIOUS_IMPORT_VIEW_ID ? "is-applied" : ""}`}
+            style={{ paddingLeft: 22 }}
+            title={t("studio.library.albums.previousImportTitle")}
+            onClick={() => void showImported().catch((e) => toast.error(String(e)))}
+          >
+            <History size={12} />
+            <span>{t("studio.library.albums.previousImport")}</span>
+            <small>{imported}</small>
+          </button>
+        )}
         {session && missing > 0 && (
           // Lightroom's Missing Photographs collection: only while there are any.
           <button

@@ -4,7 +4,7 @@
 //! each reported as soon as it is in the library so the app shows it while
 //! the rest still copy.
 use crate::{ImportResult, destination_folder, import_one_into};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use rawtonic_catalog::Library;
 use std::{
     collections::HashSet,
@@ -161,6 +161,7 @@ pub fn import_batch(
     mut on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
     let destination = destination_folder(library, options.folder, options.roots)?;
+    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
     let total = sources.len();
     let mut results = Vec::with_capacity(total);
     let mut bytes = 0u64;
@@ -244,8 +245,8 @@ pub fn source_medium(path: &Path) -> Medium {
 /// Adds `sources` to a catalog where they are (Lightroom's "Add"), one
 /// after the other, each reported through `on_file` as `import_batch`
 /// does. Nothing is written into or beside the files: each is registered
-/// (`Library::add_asset`), and an XMP sidecar beside it is read into the
-/// catalog. A file already registered, or whose content the catalog holds
+/// with what its sidecars hold (`Library::add_files`: editor sidecar, else
+/// XMP), in one transaction. All form one import batch. A file already registered, or whose content the catalog holds
 /// already (fingerprint, then SHA-256), is skipped (`destination` is the
 /// registered one). Refused for a session (it keeps its photographs inside
 /// it) and for photographs on a card (they must be copied off it first,
@@ -275,6 +276,7 @@ pub fn add_batch(
             .or_default()
             .push(asset.path);
     }
+    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
     let total = sources.len();
     let mut results = Vec::with_capacity(total);
     for (index, source) in sources.iter().enumerate() {
@@ -332,12 +334,19 @@ fn add_one(
             }
         }
     }
-    let asset = library.add_asset(source)?;
-    known.entry(key).or_default().push(asset.path.clone());
-    // Its XMP sidecar (rating, label, keywords) is read, never written.
-    if asset.path.with_extension("xmp").is_file() && !library.metadata_initialized(&asset.id)? {
-        let _ = library.adopt_xmp(&asset.id);
+    // Registered with what its sidecars hold (editor sidecar, else XMP
+    // rating, label and keywords) in one transaction; they are read, never
+    // written. An unreadable sidecar keeps the file out.
+    let mut report = library.add_files(&[source.to_path_buf()])?;
+    if let Some((_, error)) = report.failed.pop() {
+        anyhow::bail!(error);
     }
+    let asset = report
+        .added
+        .pop()
+        .or_else(|| report.known.pop())
+        .context("Nothing was registered")?;
+    known.entry(key).or_default().push(asset.path.clone());
     Ok(ImportResult {
         source: source.into(),
         destination: Some(asset.path),
@@ -672,6 +681,61 @@ mod tests {
         assert_eq!(b_asset.rating, 4, "XMP sidecar read");
         // Not a byte, name or timestamp changed, nothing added beside them.
         assert_eq!(tree(d.path().join("Archive").as_path()), before);
+        // The two added photographs are Previous Import.
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!(
+            (batch.kind, batch.count),
+            (rawtonic_catalog::ImportKind::Ingest, 2)
+        );
+        // A photograph whose sidecar cannot be read fails alone, unregistered.
+        let c = drive.join("C.NEF");
+        fs::write(&c, vec![3u8; 220_000]).unwrap();
+        fs::write(drive.join("C.xmp"), "<x:xmpmeta").unwrap();
+        let results = add_batch(
+            &lib,
+            std::slice::from_ref(&c),
+            |_| Medium::Disk,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert!(results[0].error.as_deref().unwrap().contains("C.xmp"));
+        assert!(lib.asset_at(&c).unwrap().is_none());
+        assert_eq!(lib.previous_import().unwrap().unwrap().id, batch.id);
+    }
+
+    /// A verified copy batch is one import batch: Previous Import.
+    #[test]
+    fn an_ingest_is_one_import_batch() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let sources = photos(d.path(), 3);
+        import_batch(
+            &lib,
+            &sources,
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!(
+            (batch.kind, batch.count),
+            (rawtonic_catalog::ImportKind::Ingest, 3)
+        );
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 3);
+        // The verified copies' hashes are on record for Synchronize Folder.
+        assert_eq!(lib.checksum_backlog().unwrap(), 0);
+        // Again: all duplicates, nothing added, no new batch.
+        import_batch(
+            &lib,
+            &sources,
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(lib.previous_import().unwrap().unwrap().id, batch.id);
     }
 
     #[test]

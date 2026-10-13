@@ -113,27 +113,188 @@ pub struct GpuImageCache {
     /// The source's chroma pyramid for the multi-scale colour noise
     /// reduction, built on first use (rawtonic_engine::color_noise).
     pub chroma: Option<Arc<ChromaPyramid>>,
-    /// Level 1 of `chroma` and its reconstruction for the last thresholds,
-    /// as the renderer reads them.
-    chroma_texture: Option<Box<(ChromaKey, wgpu::Texture, wgpu::TextureView)>>,
+    /// The renderer's textures for `chroma` (level 1 and its reconstruction,
+    /// the finest level's energy).
+    chroma_gpu: Option<Box<ChromaGpu>>,
 }
 
 /// Thresholds and steepness a packed chroma texture was rebuilt with.
 type ChromaKey = [u32; color_noise::LEVELS + 1];
 
-/// Readies the multi-scale colour noise reduction of a render: builds the
-/// source's chroma pyramid if needed (from `source`, the CPU pixels of the
-/// uploaded texture), rebuilds its packed level-1 texture for the recipe's
-/// thresholds and sets the finest threshold in the uniforms. Without a
-/// pyramid, or at Color 0, the recipe falls back to the cross-bilateral
-/// filter (masks with colour noise reduction use it too).
-fn prepare_color_noise(
+/// Level-1 pixels up to which display frames rebuild level 1 on the GPU
+/// (a 2304 px preview has 1.3 M); larger sources rebuild it on the CPU.
+const GPU_RECONSTRUCTION_MAX_PIXELS: usize = 4 << 20;
+
+/// The multi-scale colour noise reduction's textures for one input texture
+/// (the whole photo, or one window of it).
+pub struct ChromaGpu {
+    /// The thresholds the packed reconstruction holds (None: not yet built).
+    key: Option<ChromaKey>,
+    /// Level-1 window: origin and size in level-1 samples.
+    window: [u32; 4],
+    /// Level 1 (xy) and its reconstruction (zw), Rgba16Float.
+    packed: wgpu::Texture,
+    packed_view: wgpu::TextureView,
+    /// The finest level's local energy per input pixel, R32Float.
+    energy_view: wgpu::TextureView,
+    /// Display frames: the coarse levels, rebuilt on the GPU.
+    reconstruction: Option<ChromaReconstruction>,
+}
+
+struct ChromaReconstruction {
+    /// Prepared levels 1…4 (detail xy, local energy z, guard w).
+    levels: Vec<wgpu::TextureView>,
+    /// Rebuilt levels 1…4.
+    rebuilt: Vec<wgpu::TextureView>,
+    /// Level 5, kept as it is.
+    coarsest: wgpu::TextureView,
+    /// Level 1 (xy).
+    level1: wgpu::TextureView,
+}
+
+/// Compute pipelines of color_noise.wgsl.
+pub struct ChromaPipelines {
+    energy: wgpu::ComputePipeline,
+    reconstruct: wgpu::ComputePipeline,
+    pack: wgpu::ComputePipeline,
+}
+
+impl ChromaPipelines {
+    fn new(device: &wgpu::Device) -> Result<Self, String> {
+        let module = create_shader(
+            device,
+            "Colour Noise Shader",
+            include_str!("shaders/color_noise.wgsl"),
+        )?;
+        let pipeline = |entry: &str| {
+            create_compute_pipeline(
+                device,
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some(entry),
+                    layout: None,
+                    module: &module,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            )
+        };
+        Ok(Self {
+            energy: pipeline("finest_energy")?,
+            reconstruct: pipeline("reconstruct_level")?,
+            pack: pipeline("pack_finest")?,
+        })
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ColorNoiseParams {
+    source: [u32; 4],
+    level: [u32; 4],
+    is_raw: u32,
+    threshold2: f32,
+    steepness: f32,
+    _pad: u32,
+}
+
+fn float_texture(
     context: &GpuContext,
-    cache: &mut GpuImageCache,
-    source: Option<&DynamicImage>,
-    adjustments: &mut crate::image_processing::PreparedAdjustments,
-) -> Option<wgpu::TextureView> {
-    let global = &mut adjustments.uniforms.global;
+    label: &str,
+    width: usize,
+    height: usize,
+    format: wgpu::TextureFormat,
+    data: Option<&[u8]>,
+) -> wgpu::Texture {
+    let texture = context.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: width as u32,
+            height: height as u32,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::STORAGE_BINDING
+            | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    if let Some(data) = data {
+        write_whole_texture(context, &texture, data);
+    }
+    texture
+}
+
+fn write_whole_texture(context: &GpuContext, texture: &wgpu::Texture, data: &[u8]) {
+    let size = texture.size();
+    let bytes_per_texel = data.len() as u32 / (size.width * size.height);
+    context.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(size.width * bytes_per_texel),
+            rows_per_image: Some(size.height),
+        },
+        size,
+    );
+}
+
+/// The window of level 1 a photo window's finest level reads: one sample
+/// beyond the expansion taps of its pixels on each side.
+fn chroma_level_window(window: Roi, level_width: usize, level_height: usize) -> [u32; 4] {
+    let span = |start: u32, size: u32, n: usize| {
+        let first = (start / 2).saturating_sub(2);
+        let end = ((start + size).saturating_sub(1) / 2 + 3).min(n as u32);
+        (first, end - first)
+    };
+    let (x, w) = span(window.x, window.width, level_width);
+    let (y, h) = span(window.y, window.height, level_height);
+    [x, y, w, h]
+}
+
+/// Level 1 and `rebuilt` as the renderer reads them (Rgba16Float), for the
+/// level-1 `window`.
+fn pack_chroma(
+    level1: &color_noise::Plane,
+    rebuilt: &color_noise::Plane,
+    window: [u32; 4],
+) -> Vec<f16> {
+    let [x0, y0, w, h] = window.map(|v| v as usize);
+    let mut texels = vec![f16::ZERO; w * h * 4];
+    texels
+        .par_chunks_mut(4 * w)
+        .enumerate()
+        .for_each(|(row, out)| {
+            let start = (y0 + row) * level1.width + x0;
+            let level = &level1.data[start..start + w];
+            let rebuilt = &rebuilt.data[start..start + w];
+            for ((texel, g), r) in out
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(level)
+                .zip(rebuilt)
+            {
+                *texel = [g[0], g[1], r[0], r[1]].map(f16::from_f32);
+            }
+        });
+    texels
+}
+
+/// The recipe's colour noise settings, or None (and the cross-bilateral
+/// filter) when the multi-scale filter does not apply.
+fn color_noise_settings(
+    global: &mut crate::image_processing::GlobalAdjustments,
+) -> Option<color_noise::Settings> {
     if global.color_noise[0] <= 0.0 {
         return None;
     }
@@ -146,6 +307,311 @@ fn prepare_color_noise(
         global.color_noise[0] = 0.0;
         return None;
     }
+    Some(settings)
+}
+
+/// The thresholds for `settings`, set in the uniforms, and their key.
+fn color_noise_thresholds(
+    global: &mut crate::image_processing::GlobalAdjustments,
+    settings: color_noise::Settings,
+    pyramid: &ChromaPyramid,
+    tuning: &color_noise::Tuning,
+) -> ([f32; color_noise::LEVELS], ChromaKey) {
+    let thresholds = tuning.thresholds(settings, &pyramid.noise);
+    let mut key: ChromaKey = [0; color_noise::LEVELS + 1];
+    for (k, t) in key.iter_mut().zip(thresholds) {
+        *k = t.to_bits();
+    }
+    key[color_noise::LEVELS] = tuning.steepness.to_bits();
+    global.color_noise[1] = thresholds[0];
+    global.color_noise[2] = tuning.steepness;
+    (thresholds, key)
+}
+
+impl ChromaGpu {
+    /// Textures for an input texture holding `source` of a `width` x
+    /// `height` photo, with level 1 and `rebuilt` (or level 1 again) for
+    /// the level-1 `window`; computes the finest level's energy.
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        input: &wgpu::TextureView,
+        source: Roi,
+        width: u32,
+        height: u32,
+        is_raw: bool,
+        pyramid: &ChromaPyramid,
+        rebuilt: Option<&color_noise::Plane>,
+        window: [u32; 4],
+    ) -> Self {
+        let level1 = &pyramid.levels[0];
+        let texels = pack_chroma(level1, rebuilt.unwrap_or(level1), window);
+        let packed = float_texture(
+            context,
+            "Chroma level 1",
+            window[2] as usize,
+            window[3] as usize,
+            wgpu::TextureFormat::Rgba16Float,
+            Some(bytemuck::cast_slice(&texels)),
+        );
+        let packed_view = packed.create_view(&Default::default());
+        let energy = float_texture(
+            context,
+            "Chroma finest energy",
+            source.width as usize,
+            source.height as usize,
+            wgpu::TextureFormat::R32Float,
+            None,
+        );
+        let energy_view = energy.create_view(&Default::default());
+        let params = ColorNoiseParams {
+            source: [source.x, source.y, width, height],
+            level: [
+                window[0],
+                window[1],
+                level1.width as u32,
+                level1.height as u32,
+            ],
+            is_raw: u32::from(is_raw),
+            threshold2: 0.0,
+            steepness: 0.0,
+            _pad: 0,
+        };
+        let device = &context.device;
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Colour noise params"),
+            contents: bytemuck::bytes_of(&params),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chroma energy BG0"),
+            layout: &pipelines.energy.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(input),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&packed_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let group1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chroma energy BG1"),
+            layout: &pipelines.energy.get_bind_group_layout(1),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&energy_view),
+            }],
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipelines.energy);
+            pass.set_bind_group(0, &group0, &[]);
+            pass.set_bind_group(1, &group1, &[]);
+            pass.dispatch_workgroups(source.width.div_ceil(16), source.height.div_ceil(16), 1);
+        }
+        context.queue.submit(Some(encoder.finish()));
+        Self {
+            key: None,
+            window,
+            packed,
+            packed_view,
+            energy_view,
+            reconstruction: None,
+        }
+    }
+
+    /// Rebuilds level 1 for `thresholds` on the CPU.
+    fn rebuild_on_cpu(
+        &mut self,
+        context: &GpuContext,
+        pyramid: &ChromaPyramid,
+        thresholds: &[f32; color_noise::LEVELS],
+        tuning: &color_noise::Tuning,
+    ) {
+        let rebuilt = pyramid.reconstruct(thresholds, tuning);
+        let texels = pack_chroma(&pyramid.levels[0], &rebuilt, self.window);
+        write_whole_texture(context, &self.packed, bytemuck::cast_slice(&texels));
+    }
+
+    /// Rebuilds level 1 for `thresholds` on the GPU (whole photos only).
+    fn rebuild_on_gpu(
+        &mut self,
+        context: &GpuContext,
+        pipelines: &ChromaPipelines,
+        pyramid: &ChromaPyramid,
+        thresholds: &[f32; color_noise::LEVELS],
+        tuning: &color_noise::Tuning,
+    ) {
+        let device = &context.device;
+        let reconstruction = self.reconstruction.get_or_insert_with(|| {
+            let prepared = pyramid.prepared(tuning);
+            let rgba = |data: Vec<[f32; 4]>, width: usize, height: usize, label: &str| {
+                float_texture(
+                    context,
+                    label,
+                    width,
+                    height,
+                    wgpu::TextureFormat::Rgba32Float,
+                    Some(bytemuck::cast_slice(&data)),
+                )
+                .create_view(&Default::default())
+            };
+            let levels = prepared
+                .levels
+                .iter()
+                .map(|level| {
+                    let data = (0..level.width * level.height)
+                        .map(|i| {
+                            let d = level.detail[i];
+                            [d[0], d[1], level.size2[i], level.guard[i]]
+                        })
+                        .collect();
+                    rgba(data, level.width, level.height, "Chroma prepared level")
+                })
+                .collect();
+            let rebuilt = prepared
+                .levels
+                .iter()
+                .map(|level| {
+                    float_texture(
+                        context,
+                        "Chroma rebuilt level",
+                        level.width,
+                        level.height,
+                        wgpu::TextureFormat::Rgba32Float,
+                        None,
+                    )
+                    .create_view(&Default::default())
+                })
+                .collect();
+            let plane = |plane: &color_noise::Plane, label: &str| {
+                rgba(
+                    plane.data.iter().map(|v| [v[0], v[1], 0.0, 0.0]).collect(),
+                    plane.width,
+                    plane.height,
+                    label,
+                )
+            };
+            ChromaReconstruction {
+                levels,
+                rebuilt,
+                coarsest: plane(&pyramid.levels[color_noise::LEVELS - 1], "Chroma level 5"),
+                level1: plane(&pyramid.levels[0], "Chroma level 1 (f32)"),
+            }
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        for l in (1..color_noise::LEVELS).rev() {
+            let params = ColorNoiseParams {
+                source: [0; 4],
+                level: [0; 4],
+                is_raw: 0,
+                threshold2: thresholds[l] * thresholds[l],
+                steepness: tuning.steepness,
+                _pad: 0,
+            };
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Colour noise level params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let coarser = if l == color_noise::LEVELS - 1 {
+                &reconstruction.coarsest
+            } else {
+                &reconstruction.rebuilt[l]
+            };
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Chroma reconstruct BG"),
+                layout: &pipelines.reconstruct.get_bind_group_layout(0),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&reconstruction.levels[l - 1]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(coarser),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(
+                            &reconstruction.rebuilt[l - 1],
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: buffer.as_entire_binding(),
+                    },
+                ],
+            });
+            let size = pyramid.levels[l - 1].width.max(1) as u32;
+            let rows = pyramid.levels[l - 1].height.max(1) as u32;
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipelines.reconstruct);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(size.div_ceil(16), rows.div_ceil(16), 1);
+        }
+        let group0 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chroma pack BG0"),
+            layout: &pipelines.pack.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&reconstruction.level1),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&reconstruction.rebuilt[0]),
+                },
+            ],
+        });
+        let packed_storage = self.packed.create_view(&Default::default());
+        let group1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Chroma pack BG1"),
+            layout: &pipelines.pack.get_bind_group_layout(1),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&packed_storage),
+            }],
+        });
+        {
+            let size = self.packed.size();
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipelines.pack);
+            pass.set_bind_group(0, &group0, &[]);
+            pass.set_bind_group(1, &group1, &[]);
+            pass.dispatch_workgroups(size.width.div_ceil(16), size.height.div_ceil(16), 1);
+        }
+        context.queue.submit(Some(encoder.finish()));
+    }
+}
+
+/// Readies the multi-scale colour noise reduction of a whole-photo render:
+/// builds the source's chroma pyramid if needed (from `source`, the CPU
+/// pixels of the uploaded texture), rebuilds level 1 for the recipe's
+/// thresholds (on the GPU for display frames of sources up to
+/// [`GPU_RECONSTRUCTION_MAX_PIXELS`], else on the CPU) and sets the finest
+/// threshold in the uniforms. Without a pyramid, or at Color 0, the recipe
+/// falls back to the cross-bilateral filter (masks with colour noise
+/// reduction use it too).
+fn prepare_color_noise(
+    context: &GpuContext,
+    processor: &GpuProcessor,
+    cache: &mut GpuImageCache,
+    source: Option<&DynamicImage>,
+    adjustments: &mut crate::image_processing::PreparedAdjustments,
+    interactive: bool,
+) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
+    let global = &mut adjustments.uniforms.global;
+    let settings = color_noise_settings(global)?;
     if cache.chroma.is_none() {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_pyramid");
@@ -158,83 +624,43 @@ fn prepare_color_noise(
         global.color_noise[0] = 0.0;
         return None;
     };
+    let pipelines = processor.chroma_pipelines.as_ref()?;
     let tuning = color_noise::Tuning::default();
-    let thresholds = tuning.thresholds(settings, &pyramid.noise);
-    let mut key: ChromaKey = [0; color_noise::LEVELS + 1];
-    for (k, t) in key.iter_mut().zip(thresholds) {
-        *k = t.to_bits();
-    }
-    key[color_noise::LEVELS] = tuning.steepness.to_bits();
-    global.color_noise[1] = thresholds[0];
-    global.color_noise[2] = tuning.steepness;
-    if let Some((cached, _, view)) = cache.chroma_texture.as_deref()
-        && *cached == key
-    {
-        return Some(view.clone());
-    }
-    #[cfg(feature = "performance-profiling")]
-    let _stage = crate::performance::PerformanceStage::new("color_noise_reconstruct");
-    let rebuilt = pyramid.reconstruct(&thresholds, &tuning);
+    let (thresholds, key) = color_noise_thresholds(global, settings, &pyramid, &tuning);
     let level1 = &pyramid.levels[0];
-    let mut texels = vec![f16::ZERO; level1.data.len() * 4];
-    texels
-        .par_chunks_mut(4 * level1.width)
-        .zip(level1.data.par_chunks(level1.width))
-        .zip(rebuilt.data.par_chunks(level1.width))
-        .for_each(|((out, level), rebuilt)| {
-            for ((texel, g), r) in out
-                .as_chunks_mut::<4>()
-                .0
-                .iter_mut()
-                .zip(level)
-                .zip(rebuilt)
-            {
-                texel[0] = f16::from_f32(g[0]);
-                texel[1] = f16::from_f32(g[1]);
-                texel[2] = f16::from_f32(r[0]);
-                texel[3] = f16::from_f32(r[1]);
-            }
-        });
-    let size = wgpu::Extent3d {
-        width: level1.width as u32,
-        height: level1.height as u32,
-        depth_or_array_layers: 1,
-    };
-    // Slider changes rewrite the texture they made before.
-    let (texture, view) = match cache.chroma_texture.take().map(|cached| *cached) {
-        Some((_, texture, view)) if texture.size() == size => (texture, view),
-        _ => {
-            let texture = context.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("Chroma pyramid level 1"),
-                size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba16Float,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            });
-            let view = texture.create_view(&Default::default());
-            (texture, view)
+    let window = [0, 0, level1.width as u32, level1.height as u32];
+    global.color_noise_window = window;
+    let on_gpu = interactive && level1.data.len() <= GPU_RECONSTRUCTION_MAX_PIXELS;
+    let chroma = cache.chroma_gpu.get_or_insert_with(|| {
+        Box::new(ChromaGpu::new(
+            context,
+            pipelines,
+            &cache.texture_view,
+            Roi {
+                x: 0,
+                y: 0,
+                width: cache.width,
+                height: cache.height,
+            },
+            cache.width,
+            cache.height,
+            global.is_raw_image != 0,
+            &pyramid,
+            None,
+            window,
+        ))
+    });
+    if chroma.key != Some(key) {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("color_noise_reconstruct");
+        if on_gpu {
+            chroma.rebuild_on_gpu(context, pipelines, &pyramid, &thresholds, &tuning);
+        } else {
+            chroma.rebuild_on_cpu(context, &pyramid, &thresholds, &tuning);
         }
-    };
-    context.queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        bytemuck::cast_slice(&texels),
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(size.width * 8),
-            rows_per_image: Some(size.height),
-        },
-        size,
-    );
-    cache.chroma_texture = Some(Box::new((key, texture, view.clone())));
-    Some(view)
+        chroma.key = Some(key);
+    }
+    Some((chroma.packed_view.clone(), chroma.energy_view.clone()))
 }
 
 pub struct GpuProcessorState {
@@ -1329,15 +1755,17 @@ fn store_tile(final_pixels: &mut RenderedPixels, tile: TilePlacement, out_width:
     }
 }
 
-/// Converts row `y` into the Rgba16Float upload layout (`width * 4` texels).
-fn rgba_f16_row(img: &DynamicImage, y: u32, destination: &mut [f16]) {
+/// Converts the pixels of row `y` from column `x` on into the Rgba16Float
+/// upload layout (`destination` holds 4 texels per pixel).
+fn rgba_f16_row(img: &DynamicImage, x: u32, y: u32, destination: &mut [f16]) {
     let width = img.width() as usize;
-    let row = y as usize;
+    let first = y as usize * width + x as usize;
+    let pixels = destination.len() / 4;
     // RAWs already contain linear RGB floats. Expanding them to an owned RGBA
     // float image first costs another 16 bytes per pixel (800 MB at 50 MP).
     // Convert directly into the upload payload, preserving the same f16 values.
     if let Some(rgb) = img.as_rgb32f() {
-        let source = &rgb.as_raw()[row * width * 3..(row + 1) * width * 3];
+        let source = &rgb.as_raw()[first * 3..(first + pixels) * 3];
         for (rgba, rgb) in destination
             .as_chunks_mut::<4>()
             .0
@@ -1350,13 +1778,13 @@ fn rgba_f16_row(img: &DynamicImage, y: u32, destination: &mut [f16]) {
             rgba[3] = f16::ONE;
         }
     } else if let Some(rgba) = img.as_rgba32f() {
-        let source = &rgba.as_raw()[row * width * 4..(row + 1) * width * 4];
+        let source = &rgba.as_raw()[first * 4..(first + pixels) * 4];
         for (texel, value) in destination.iter_mut().zip(source) {
             *texel = f16::from_f32(*value);
         }
     } else {
         // Conversion is per pixel, so converting a copy of the row is exact.
-        let source = img.crop_imm(0, y, img.width(), 1).to_rgba32f();
+        let source = img.crop_imm(x, y, pixels as u32, 1).to_rgba32f();
         for (texel, value) in destination.iter_mut().zip(source.as_raw()) {
             *texel = f16::from_f32(*value);
         }
@@ -1368,7 +1796,7 @@ fn to_rgba_f16(img: &DynamicImage) -> Vec<f16> {
     let row_texels = (img.width() as usize * 4).max(1);
     let mut output = vec![f16::ZERO; img.width() as usize * 4 * img.height() as usize];
     for (y, row) in output.chunks_exact_mut(row_texels).enumerate() {
-        rgba_f16_row(img, y as u32, row);
+        rgba_f16_row(img, 0, y as u32, row);
     }
     output
 }
@@ -1402,9 +1830,37 @@ fn create_input_texture(
     image: &DynamicImage,
     band_rows: u32,
 ) -> Result<wgpu::Texture, String> {
+    let (width, height) = image.dimensions();
+    create_window_texture(
+        device,
+        queue,
+        image,
+        Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        },
+        band_rows,
+    )
+}
+
+/// [`create_input_texture`] of `window` of `image` only.
+fn create_window_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &DynamicImage,
+    window: Roi,
+    band_rows: u32,
+) -> Result<wgpu::Texture, String> {
     use rayon::prelude::*;
 
-    let (width, height) = image.dimensions();
+    let Roi {
+        x: window_x,
+        y: window_y,
+        width,
+        height,
+    } = window;
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("Input Texture"),
         size: wgpu::Extent3d {
@@ -1436,14 +1892,16 @@ fn create_input_texture(
             texels
                 .par_chunks_mut(row_texels)
                 .enumerate()
-                .for_each(|(row, texels)| rgba_f16_row(image, y + row as u32, texels));
+                .for_each(|(row, texels)| {
+                    rgba_f16_row(image, window_x, window_y + y + row as u32, texels)
+                });
         };
         if rayon::current_thread_index().is_some() {
             // A rayon worker (thumbnails, batch work) may hold the GPU
             // processor lock here: waiting for rayon jobs could run another
             // task of the pool on this thread that waits for the same lock.
             for (row, texels) in texels.chunks_mut(row_texels).enumerate() {
-                rgba_f16_row(image, y + row as u32, texels);
+                rgba_f16_row(image, window_x, window_y + y + row as u32, texels);
             }
         } else {
             // Not the global pool: its threads may all be waiting for the
@@ -1494,6 +1952,10 @@ struct BlurParams {
     tile_offset_y: u32,
     input_width: u32,
     input_height: u32,
+    source_x: u32,
+    source_y: u32,
+    full_width: u32,
+    full_height: u32,
     _pad1: u32,
     _pad2: u32,
     _pad3: u32,
@@ -1643,6 +2105,9 @@ pub struct GpuProcessor {
     empty_mask_view: wgpu::TextureView,
     mask_cache: Mutex<Option<MaskTextureCache>>,
     blur_cache: Mutex<BlurCache>,
+    /// The multi-scale colour noise reduction's passes (None if they failed
+    /// to compile: the cross-bilateral filter runs).
+    chroma_pipelines: Option<ChromaPipelines>,
     #[cfg(test)]
     force_mask_upload: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -2281,6 +2746,11 @@ fn create_preview_pipeline(
 
 const FLARE_MAP_SIZE: u32 = 512;
 
+/// Renders run in tiles of this size (photo pixels, aligned to the photo's
+/// origin); each tile's blurs cover the tile and `TILE_OVERLAP` around it.
+const TILE_SIZE: u32 = 2048;
+const TILE_OVERLAP: u32 = 128;
+
 impl GpuProcessor {
     pub fn new(context: GpuContext, max_width: u32, max_height: u32) -> Result<Self, String> {
         Self::with_shader_source(
@@ -2524,6 +2994,9 @@ impl GpuProcessor {
             ..Default::default()
         });
 
+        let chroma_pipelines = ChromaPipelines::new(device)
+            .inspect_err(|e| log::error!("Colour noise passes failed: {e}"))
+            .ok();
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
 
         let mut bind_group_layout_entries = vec![
@@ -2677,16 +3150,18 @@ impl GpuProcessor {
             },
             count: None,
         });
-        bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
-            binding: 22,
-            visibility: wgpu::ShaderStages::COMPUTE,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        });
+        for binding in [22, 23] {
+            bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
+                binding,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            });
+        }
 
         bind_group_layout_entries.push(wgpu::BindGroupLayoutEntry {
             binding: 9 + MAX_MASK_BINDINGS,
@@ -2916,9 +3391,6 @@ impl GpuProcessor {
         let dummy_lut_view = dummy_lut_texture.create_view(&Default::default());
         let dummy_lut_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-        const TILE_SIZE: u32 = 2048;
-        const TILE_OVERLAP: u32 = 128;
-
         let clamped_tile_width = max_width.min(TILE_SIZE + TILE_OVERLAP * 2);
         let clamped_tile_height = max_height.min(TILE_SIZE + TILE_OVERLAP * 2);
 
@@ -3004,6 +3476,7 @@ impl GpuProcessor {
             empty_mask_view,
             mask_cache: Mutex::new(None),
             blur_cache: Mutex::new(BlurCache::default()),
+            chroma_pipelines,
             #[cfg(test)]
             force_mask_upload: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -3816,13 +4289,63 @@ impl GpuProcessor {
         output_to_display: bool,
         output_precision: RenderOutputPrecision,
         readback_shader: ReadbackShader,
-        chroma_view: Option<&wgpu::TextureView>,
+        chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
+    ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
+        self.run_in_window(
+            input_texture_view,
+            width,
+            height,
+            Roi {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+            request,
+            output_to_display,
+            output_precision,
+            readback_shader,
+            chroma,
+        )
+    }
+
+    /// Renders a `width` x `height` photo whose input texture (and mask
+    /// bitmaps) hold only `window` of it. The output is `request.roi`, which
+    /// must lie in the window far enough from its edges that every read stays
+    /// inside it (see [`plan_render_windows`]); the pixels then equal those of
+    /// a render from the whole photo.
+    #[allow(clippy::too_many_arguments)]
+    fn run_in_window(
+        &self,
+        input_texture_view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+        window: Roi,
+        request: RenderRequest,
+        output_to_display: bool,
+        output_precision: RenderOutputPrecision,
+        readback_shader: ReadbackShader,
+        chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
     ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
         let mut request = request;
-        if chroma_view.is_none() {
+        if chroma.is_none() {
             // No chroma pyramid: the cross-bilateral colour noise reduction.
             request.adjustments.uniforms.global.color_noise[0] = 0.0;
         }
+        let whole_photo = window
+            == Roi {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            };
+        if !whole_photo && (output_to_display || request.roi.is_none()) {
+            return Err("A render from a photo window needs a CPU readback region.".to_string());
+        }
+        if !whole_photo && request.adjustments.global.flare_amount > 0.0 {
+            return Err(FLARE_WINDOW_ERROR.to_string());
+        }
+        let source_window = [window.x, window.y, width, height];
         let display_shader = output_to_display
             || (matches!(
                 readback_shader,
@@ -3934,8 +4457,8 @@ impl GpuProcessor {
             request.adjustments.relight_patterns.as_deref(),
         )?;
         let (mask_texture_view, mask_update) = self.prepare_mask_texture(
-            width,
-            height,
+            window.width,
+            window.height,
             request.mask_bitmaps,
             retain_intermediates,
             force_full_preparation,
@@ -4166,8 +4689,6 @@ impl GpuProcessor {
             queue.submit(Some(encoder.finish()));
         }
 
-        const TILE_SIZE: u32 = 2048;
-        const TILE_OVERLAP: u32 = 128;
         // Display frames cache the detail stage with the blurs when every tile
         // of the frame fits the cache budget together.
         let detail_fits = display_cache_bytes(
@@ -4304,6 +4825,10 @@ impl GpuProcessor {
                         tile_offset_y: input_y_start,
                         input_width,
                         input_height,
+                        source_x: window.x,
+                        source_y: window.y,
+                        full_width: width,
+                        full_height: height,
                         _pad1: 0,
                         _pad2: 0,
                         _pad3: 0,
@@ -4528,7 +5053,13 @@ impl GpuProcessor {
                 bind_group_entries.push(wgpu::BindGroupEntry {
                     binding: 22,
                     resource: wgpu::BindingResource::TextureView(
-                        chroma_view.unwrap_or(&self.dummy_blur_view),
+                        chroma.map_or(&self.dummy_blur_view, |(packed, _)| packed),
+                    ),
+                });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 23,
+                    resource: wgpu::BindingResource::TextureView(
+                        chroma.map_or(&self.dummy_blur_view, |(_, energy)| energy),
                     ),
                 });
                 let use_flare = adjustments.global.flare_amount > 0.0;
@@ -4568,6 +5099,7 @@ impl GpuProcessor {
                     detail_adjustments.render_region =
                         [crop_x_start, crop_y_start, tile_width, tile_height];
                     detail_adjustments.detail_cache = [0; 4];
+                    detail_adjustments.source_window = source_window;
                     queue.write_buffer(
                         &self.adjustments_buffer,
                         0,
@@ -4661,6 +5193,7 @@ impl GpuProcessor {
                 tile_adjustments.tile_offset_y = input_y_start;
                 tile_adjustments.render_region = regions[0];
                 tile_adjustments.detail_cache = [u32::from(detail_view.is_some()), 0, 0, 0];
+                tile_adjustments.source_window = source_window;
                 queue.write_buffer(
                     &self.adjustments_buffer,
                     0,
@@ -4770,9 +5303,9 @@ impl GpuProcessor {
 /// caller can release its CPU pixels before rendering.
 pub struct UploadedImage(GpuImageCache);
 
-/// Uploads a CPU-readback source for [`process_uploaded_image_with_precision`].
-/// `None` means the image exceeds the GPU's texture limits; render it with
-/// [`process_and_get_dynamic_image_with_precision`] instead.
+/// Uploads a CPU-readback source for [`process_and_get_dynamic_image_inner`].
+/// `None` means the image exceeds the GPU's texture limits; render it from
+/// [`RenderSource::Image`] instead, which renders it in windows.
 /// `color_noise` (Some(linear)) also builds the chroma pyramid the
 /// multi-scale colour noise reduction needs, while the CPU pixels exist.
 pub fn upload_render_source(
@@ -4805,65 +5338,341 @@ pub fn upload_render_source(
         height,
         transform_hash,
         chroma,
-        chroma_texture: None,
+        chroma_gpu: None,
     })))
 }
 
-pub enum RenderSource<'a> {
-    /// Uploaded unless the image cache already holds `transform_hash`.
-    Image {
-        image: &'a DynamicImage,
-        transform_hash: u64,
-    },
-    Uploaded(UploadedImage),
+/// The error of a render this GPU cannot do because the photo exceeds its
+/// texture size limit. The app translates it (`src/utils/renderErrors.ts`
+/// matches this wording).
+pub fn texture_limit_error(width: u32, height: u32, max_dim: u32) -> String {
+    format!(
+        "The image ({width} × {height} px) is larger than this graphics card can render ({max_dim} px per side)."
+    )
 }
 
-/// Renders on the GPU with the caller's processor slot and uploaded-source
-/// cache (the app keeps both in its state), creating or resizing the
-/// processor as needed.
-#[allow(clippy::too_many_arguments)]
-pub fn process_and_get_dynamic_image_inner(
+/// The error of an export with Light flare from a photo larger than the GPU's
+/// texture limit: the flare is built from the whole photo at once. The app
+/// translates it (`src/utils/renderErrors.ts` matches this wording).
+pub fn flare_texture_limit_error(width: u32, height: u32, max_dim: u32) -> String {
+    format!(
+        "Light flare cannot be rendered on an image of {width} × {height} px, larger than this graphics card's limit ({max_dim} px per side). Turn Light flare off to export it."
+    )
+}
+
+const FLARE_WINDOW_ERROR: &str = "Light flare needs the whole photo on the GPU.";
+
+/// Photo pixels around a rendered pixel that its render may read, for the
+/// renders of photos larger than the GPU's texture limit.
+///
+/// Every input read of the shaders, by the photo's size and the recipe:
+/// - blurs (`run_blur`): each tile's blur covers the tile and `TILE_OVERLAP`
+///   around it, the horizontal pass reads its radius further (largest base
+///   radius 40, Structure);
+/// - Highlights' local contrast (`apply_highlights_adjustment`): 7.5 x scale;
+/// - Defringe (`apply_defringe`): up to 18 detail-scaled pixels;
+/// - Moiré (`apply_moire`): two pattern steps, at most 8 detail-scaled pixels
+///   each (`moire_settings`), for the photo and every layer;
+/// - chromatic aberration (`apply_ca_correction`): the shift, at most the
+///   amount times the distance from the centre;
+/// - sharpening (6), luminance noise reduction (4) and diffraction
+///   correction (3); the cross-bilateral colour noise reduction reads the
+///   blurs only, the multi-scale one (`colorNoiseVersion` 2) the finest
+///   level's energy, which reads 1 pixel around each pixel (color_noise.wgsl
+///   `finest_energy`), and level 1 of the chroma pyramid, which is built
+///   from the whole photo and given to each window with the samples its
+///   pixels expand from (`chroma_level_window`).
+///
+/// Masks are read at the rendered pixel itself. Flare reads the whole photo
+/// and is not rendered from windows.
+fn render_window_margin(adjustments: &AllAdjustments, width: u32, height: u32) -> u32 {
+    let global = &adjustments.global;
+    let short_side = width.min(height) as f32;
+    // As in `run_in_window` and the shader's `scale`.
+    let blur_scale = short_side / 1080.0;
+    let shader_scale = (short_side / 1080.0).max(0.1);
+    let blur = TILE_OVERLAP + (40.0 * blur_scale).ceil().max(1.0) as u32;
+    // Full-resolution renders have detail scale 0 (1), previews less.
+    let detail = global.detail_scale.max(1.0);
+    let highlights = (7.5 * shader_scale).round().max(2.0) as u32;
+    let defringe = (18.0 * detail).ceil() as u32 + 1;
+    let moire = (2.0 * 8.0 * detail).ceil() as u32 + 1;
+    let aberration = global
+        .chromatic_aberration_red_cyan
+        .abs()
+        .max(global.chromatic_aberration_blue_yellow.abs());
+    let half_diagonal = (width as f32 / 2.0).hypot(height as f32 / 2.0);
+    let aberration = (aberration * half_diagonal)
+        .ceil()
+        .min(u32::MAX as f32 / 4.0) as u32
+        + 1;
+    let kernels = 6;
+    // Two more pixels for rounding.
+    blur.max(highlights)
+        .max(defringe)
+        .max(moire)
+        .max(aberration)
+        .max(kernels)
+        .saturating_add(2)
+}
+
+/// Splits `bounds` of a `width` x `height` photo into regions to render, each
+/// with the window of the photo it reads: the region and `margin` around it,
+/// at most `max_dim` pixels per side. Regions follow the render tiles
+/// (multiples of [`TILE_SIZE`] from the photo's origin), so every tile keeps
+/// the geometry of a render from the whole photo. `None` when a tile and its
+/// margins do not fit `max_dim`.
+fn plan_render_windows(
+    width: u32,
+    height: u32,
+    bounds: Roi,
+    max_dim: u32,
+    margin: u32,
+) -> Option<Vec<(Roi, Roi)>> {
+    let step = max_dim.checked_sub(margin.checked_mul(2)?)? / TILE_SIZE * TILE_SIZE;
+    if step == 0 {
+        return None;
+    }
+    let mut plan = Vec::new();
+    for y in (0..height).step_by(step as usize) {
+        for x in (0..width).step_by(step as usize) {
+            let cell = Roi {
+                x,
+                y,
+                width: step.min(width - x),
+                height: step.min(height - y),
+            };
+            let Some(region) = intersect_roi(cell, bounds) else {
+                continue;
+            };
+            let left = region.x.saturating_sub(margin);
+            let top = region.y.saturating_sub(margin);
+            let right = (region.x + region.width).saturating_add(margin).min(width);
+            let bottom = (region.y + region.height)
+                .saturating_add(margin)
+                .min(height);
+            plan.push((
+                region,
+                Roi {
+                    x: left,
+                    y: top,
+                    width: right - left,
+                    height: bottom - top,
+                },
+            ));
+        }
+    }
+    Some(plan)
+}
+
+/// Renders a photo larger than the GPU's texture limit for CPU readback,
+/// region by region from windows of it (see [`plan_render_windows`]). The
+/// pixels equal those of a render from the whole photo (compared byte for
+/// byte by `renders_over_the_texture_limit_match_whole_renders`); recipes that need the whole photo at once (Light flare) fail.
+fn render_in_windows(
     context: &GpuContext,
     processor_slot: &Mutex<Option<GpuProcessorState>>,
-    image_cache: &Mutex<Option<GpuImageCache>>,
-    source: RenderSource,
+    image: &DynamicImage,
     request: RenderRequest,
     caller_id: &str,
     output_precision: RenderOutputPrecision,
-    output_to_display: bool,
-    analytics_config: Option<AnalyticsConfig>,
-    display_identity: Option<DisplayFrameIdentity>,
     readback_shader: ReadbackShader,
 ) -> Result<DynamicImage, String> {
-    let mut request = request;
-    if output_to_display {
-        let space = context.display_space;
-        request.adjustments.global.output_space[0] = space.shader_code();
-        request.adjustments.global.output_matrix =
-            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
-    }
     let start_time = Instant::now();
-    let (width, height) = match &source {
-        RenderSource::Image { image, .. } => image.dimensions(),
-        RenderSource::Uploaded(UploadedImage(input)) => (input.width, input.height),
-    };
-    let device = &context.device;
-    let queue = &context.queue;
-
+    let (width, height) = image.dimensions();
     let max_dim = context.limits.max_texture_dimension_2d;
-    if width > max_dim || height > max_dim {
-        log::warn!(
-            "Image dimensions ({}x{}) exceed GPU limits ({}). Bypassing GPU processing and returning unprocessed image to prevent a crash. Try upgrading your GPU :)",
+    if request.adjustments.global.flare_amount > 0.0 {
+        return Err(flare_texture_limit_error(width, height, max_dim));
+    }
+    let bounds = request.roi.unwrap_or(Roi {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    });
+    if bounds.width == 0
+        || bounds.height == 0
+        || bounds
+            .x
+            .checked_add(bounds.width)
+            .is_none_or(|right| right > width)
+        || bounds
+            .y
+            .checked_add(bounds.height)
+            .is_none_or(|bottom| bottom > height)
+    {
+        return Err("Render region lies outside the image.".to_string());
+    }
+    let masks = &request.mask_bitmaps[..request.mask_bitmaps.len().min(MAX_MASKS)];
+    if let Some(mask) = masks
+        .iter()
+        .find(|mask| mask.dimensions() != (width, height))
+    {
+        return Err(format!(
+            "Mask dimensions ({}x{}) do not match render dimensions ({width}x{height}).",
+            mask.width(),
+            mask.height()
+        ));
+    }
+    let margin = render_window_margin(&request.adjustments.uniforms, width, height);
+    let plan = plan_render_windows(width, height, bounds, max_dim, margin)
+        .ok_or_else(|| texture_limit_error(width, height, max_dim))?;
+
+    let processor_lock = lock_processor(context, processor_slot, max_dim, max_dim)?;
+    let processor = &processor_lock.as_ref().unwrap().processor;
+    // The multi-scale colour noise reduction measures and rebuilds the whole
+    // photo; each window gets its part of level 1 (rebuilt on the CPU, as a
+    // whole render's export does).
+    let mut request = request;
+    let is_raw = request.adjustments.global.is_raw_image != 0;
+    let tuning = color_noise::Tuning::default();
+    let chroma =
+        color_noise_settings(&mut request.adjustments.uniforms.global).and_then(|settings| {
+            let pyramid = ChromaPyramid::build(image, is_raw)?;
+            let pipelines = processor.chroma_pipelines.as_ref()?;
+            let (thresholds, _) = color_noise_thresholds(
+                &mut request.adjustments.uniforms.global,
+                settings,
+                &pyramid,
+                &tuning,
+            );
+            let rebuilt = pyramid.reconstruct(&thresholds, &tuning);
+            let level1 = &pyramid.levels[0];
+            request.adjustments.uniforms.global.color_noise_window =
+                [0, 0, level1.width as u32, level1.height as u32];
+            Some((pyramid, rebuilt, pipelines))
+        });
+    if chroma.is_none() {
+        request.adjustments.uniforms.global.color_noise[0] = 0.0;
+    }
+    let output_len = bounds.width as usize * bounds.height as usize * 4;
+    let mut output = match output_precision {
+        RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0; output_len]),
+        RenderOutputPrecision::SixteenBit => RenderedPixels::U16(vec![0; output_len]),
+    };
+    for (region, window) in &plan {
+        let texture = create_window_texture(
+            &context.device,
+            &context.queue,
+            image,
+            *window,
+            INPUT_UPLOAD_BAND_ROWS,
+        )?;
+        let window_masks: Vec<Arc<GrayImage>> = masks
+            .iter()
+            .map(|mask| {
+                Arc::new(
+                    image::imageops::crop_imm(
+                        mask.as_ref(),
+                        window.x,
+                        window.y,
+                        window.width,
+                        window.height,
+                    )
+                    .to_image(),
+                )
+            })
+            .collect();
+        let input_view = texture.create_view(&Default::default());
+        let mut adjustments = request.adjustments.clone();
+        let window_chroma = chroma.as_ref().map(|(pyramid, rebuilt, pipelines)| {
+            let level1 = &pyramid.levels[0];
+            let level_window = chroma_level_window(*window, level1.width, level1.height);
+            let global = &mut adjustments.uniforms.global;
+            global.color_noise_window[0] = level_window[0];
+            global.color_noise_window[1] = level_window[1];
+            ChromaGpu::new(
+                context,
+                pipelines,
+                &input_view,
+                *window,
+                width,
+                height,
+                is_raw,
+                pyramid,
+                Some(rebuilt),
+                level_window,
+            )
+        });
+        let (pixels, region_width, region_height, x, y) = processor.run_in_window(
+            &input_view,
             width,
             height,
-            max_dim
+            *window,
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &window_masks,
+                lut: request.lut.clone(),
+                roi: Some(*region),
+            },
+            false,
+            output_precision,
+            readback_shader,
+            window_chroma
+                .as_ref()
+                .map(|chroma| (&chroma.packed_view, &chroma.energy_view)),
+        )?;
+        place_region(
+            &mut output,
+            bounds.width,
+            Roi {
+                x: x - bounds.x,
+                y: y - bounds.y,
+                width: region_width,
+                height: region_height,
+            },
+            &pixels,
         );
-        return match source {
-            RenderSource::Image { image, .. } => Ok(image.clone()),
-            RenderSource::Uploaded(_) => Err("Uploaded image exceeds GPU limits.".to_string()),
-        };
     }
+    log::info!(
+        "[{}] {}x{} processed (ROI: {}x{}) on GPU in {} windows of at most {} px in {:?}",
+        caller_id,
+        width,
+        height,
+        bounds.width,
+        bounds.height,
+        plan.len(),
+        max_dim,
+        start_time.elapsed()
+    );
+    rendered_image(output, bounds.width, bounds.height)
+}
 
+/// Copies a rendered region (RGBA rows) into the output at `placement`.
+fn place_region(
+    output: &mut RenderedPixels,
+    output_width: u32,
+    placement: Roi,
+    region: &RenderedPixels,
+) {
+    fn copy<T: Copy>(output: &mut [T], output_width: u32, placement: Roi, region: &[T]) {
+        let row_len = placement.width as usize * 4;
+        for (row, source) in region.chunks_exact(row_len).enumerate() {
+            let start =
+                ((placement.y as usize + row) * output_width as usize + placement.x as usize) * 4;
+            output[start..start + row_len].copy_from_slice(source);
+        }
+    }
+    match (output, region) {
+        (RenderedPixels::U8(output), RenderedPixels::U8(region)) => {
+            copy(output, output_width, placement, region)
+        }
+        (RenderedPixels::U16(output), RenderedPixels::U16(region)) => {
+            copy(output, output_width, placement, region)
+        }
+        _ => unreachable!("regions share the render's precision"),
+    }
+}
+
+/// The caller's processor, created (or replaced by a larger one) for a
+/// `width` x `height` input texture.
+fn lock_processor<'a>(
+    context: &GpuContext,
+    processor_slot: &'a Mutex<Option<GpuProcessorState>>,
+    width: u32,
+    height: u32,
+) -> Result<std::sync::MutexGuard<'a, Option<GpuProcessorState>>, String> {
+    let max_dim = context.limits.max_texture_dimension_2d;
     let mut processor_lock = match processor_slot.lock() {
         Ok(guard) => guard,
         Err(poisoned) => {
@@ -4917,6 +5726,67 @@ pub fn process_and_get_dynamic_image_inner(
         });
     }
 
+    Ok(processor_lock)
+}
+
+pub enum RenderSource<'a> {
+    /// Uploaded unless the image cache already holds `transform_hash`.
+    Image {
+        image: &'a DynamicImage,
+        transform_hash: u64,
+    },
+    Uploaded(UploadedImage),
+}
+
+/// Renders on the GPU with the caller's processor slot and uploaded-source
+/// cache (the app keeps both in its state), creating or resizing the
+/// processor as needed.
+#[allow(clippy::too_many_arguments)]
+pub fn process_and_get_dynamic_image_inner(
+    context: &GpuContext,
+    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    source: RenderSource,
+    request: RenderRequest,
+    caller_id: &str,
+    output_precision: RenderOutputPrecision,
+    output_to_display: bool,
+    analytics_config: Option<AnalyticsConfig>,
+    display_identity: Option<DisplayFrameIdentity>,
+    readback_shader: ReadbackShader,
+) -> Result<DynamicImage, String> {
+    let mut request = request;
+    if output_to_display {
+        let space = context.display_space;
+        request.adjustments.global.output_space[0] = space.shader_code();
+        request.adjustments.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+    }
+    let start_time = Instant::now();
+    let (width, height) = match &source {
+        RenderSource::Image { image, .. } => image.dimensions(),
+        RenderSource::Uploaded(UploadedImage(input)) => (input.width, input.height),
+    };
+    let device = &context.device;
+    let queue = &context.queue;
+
+    let max_dim = context.limits.max_texture_dimension_2d;
+    if width > max_dim || height > max_dim {
+        return match source {
+            RenderSource::Image { image, .. } if !output_to_display => render_in_windows(
+                context,
+                processor_slot,
+                image,
+                request,
+                caller_id,
+                output_precision,
+                readback_shader,
+            ),
+            _ => Err(texture_limit_error(width, height, max_dim)),
+        };
+    }
+
+    let processor_lock = lock_processor(context, processor_slot, width, height)?;
     let processor_state = processor_lock.as_ref().unwrap();
     let processor = &processor_state.processor;
 
@@ -4985,17 +5855,19 @@ pub fn process_and_get_dynamic_image_inner(
             height,
             transform_hash,
             chroma: None,
-            chroma_texture: None,
+            chroma_gpu: None,
         });
     }
 
-    let chroma_view = prepare_color_noise(
+    let cache = cache_lock.as_mut().unwrap();
+    let chroma = prepare_color_noise(
         context,
-        cache_lock.as_mut().unwrap(),
+        processor,
+        cache,
         base_image,
         &mut request.adjustments,
+        output_to_display || readback_shader != ReadbackShader::Export,
     );
-    let cache = cache_lock.as_ref().unwrap();
 
     let skip_readback = output_to_display;
     let display_targets = output_to_display.then(|| processor.display_targets(width, height));
@@ -5010,7 +5882,7 @@ pub fn process_and_get_dynamic_image_inner(
         output_to_display,
         output_precision,
         readback_shader,
-        chroma_view.as_ref(),
+        chroma.as_ref().map(|(packed, energy)| (packed, energy)),
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(run_stage);
@@ -5245,14 +6117,18 @@ pub fn process_and_get_dynamic_image_inner(
         fps
     );
 
-    match processed_pixels {
+    rendered_image(processed_pixels, out_w, out_h)
+}
+
+fn rendered_image(pixels: RenderedPixels, width: u32, height: u32) -> Result<DynamicImage, String> {
+    match pixels {
         RenderedPixels::U8(pixels) => {
-            let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(out_w, out_h, pixels)
+            let img_buf = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width, height, pixels)
                 .ok_or("Failed to create 8-bit image buffer from GPU data")?;
             Ok(DynamicImage::ImageRgba8(img_buf))
         }
         RenderedPixels::U16(pixels) => {
-            let img_buf = ImageBuffer::<Rgba<u16>, Vec<u16>>::from_raw(out_w, out_h, pixels)
+            let img_buf = ImageBuffer::<Rgba<u16>, Vec<u16>>::from_raw(width, height, pixels)
                 .ok_or("Failed to create 16-bit image buffer from GPU data")?;
             Ok(DynamicImage::ImageRgba16(img_buf))
         }

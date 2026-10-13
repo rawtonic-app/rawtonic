@@ -1420,6 +1420,7 @@ pub fn build_single_mask_adjustments(
         mask_atlas_cols: all.mask_atlas_cols,
         render_region: all.render_region,
         detail_cache: all.detail_cache,
+        source_window: all.source_window,
     };
     single.mask_adjustments[0] = all.mask_adjustments[mask_index];
     for i in 1..single.mask_adjustments.len() {

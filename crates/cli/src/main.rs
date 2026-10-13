@@ -3,6 +3,8 @@ use clap::{Parser, Subcommand};
 use rawtonic_catalog::{Library, Mode};
 use std::{path::PathBuf, sync::atomic::AtomicBool, time::Instant};
 
+mod fingerprint;
+
 #[derive(Parser)]
 #[command(
     name = "rawtonic",
@@ -56,7 +58,8 @@ enum Command {
         flag: i8,
     },
     /// Register files where they are (catalogs; session files must be inside
-    /// the session). Reads only.
+    /// the session), each with its sidecar edits or XMP metadata, all in one
+    /// transaction and one import batch. Reads only.
     Add {
         library: PathBuf,
         #[arg(required = true)]
@@ -83,6 +86,30 @@ enum Command {
         from: PathBuf,
         to: PathBuf,
     },
+    /// Find photographs moved, renamed, added or deleted outside Rawtonic in
+    /// FOLDER (default: the whole library) and print what was found. With
+    /// --apply, verified moves and new files are applied (each checked
+    /// again first); probable moves, copies and removals only with their
+    /// flags, contested files never (use the app). Files are only read; a
+    /// removal removes the library entry, never a file.
+    SyncFolder {
+        library: PathBuf,
+        folder: Option<PathBuf>,
+        #[arg(long)]
+        apply: bool,
+        /// Also apply moves matched by size and fingerprint only.
+        #[arg(long)]
+        include_probable: bool,
+        /// Also add copies of photographs in the library.
+        #[arg(long)]
+        include_copies: bool,
+        /// Also remove photographs whose file is gone from the library.
+        #[arg(long)]
+        remove_missing: bool,
+    },
+    /// Record the content hash (SHA-256) of every photograph that has none,
+    /// so Synchronize Folder can verify moves. Reads the photographs only.
+    Checksums { library: PathBuf },
     /// Explicitly replace stored metadata with an external XMP sidecar. Keeps our recipe.
     AdoptXmp { library: PathBuf, asset: String },
     /// Sync sidecars, reporting conflicts without replacing external edits.
@@ -113,6 +140,10 @@ enum Command {
     /// 1.24.4 or later in `ORT_DYLIB_PATH` and the provider's plugin library
     /// beside it, in --plugins or the model folder. Reads only the models.
     AiBench(AiBenchArgs),
+    /// Record what each RAW file decodes to (camera, levels, crop, colour,
+    /// lens, raw data and development hashes), keyed by file content, or
+    /// compare with a baseline (--check) after a decoder change. Reads only.
+    Fingerprint(fingerprint::FingerprintArgs),
 }
 #[derive(clap::Args)]
 struct AiBenchArgs {
@@ -368,6 +399,7 @@ fn run() -> Result<()> {
             backup,
         } => {
             let lib = Library::open(&library)?;
+            let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Ingest);
             let cancel = AtomicBool::new(false);
             let mut failed = 0;
             for (i, path) in sources.iter().enumerate() {
@@ -421,9 +453,14 @@ fn run() -> Result<()> {
         }
         Command::Add { library, paths } => {
             let l = Library::open(&library)?;
-            for path in paths {
-                print(l.add_asset(&path)?)?;
-            }
+            let _batch = l.import_batch(rawtonic_catalog::ImportKind::Add);
+            let report = l.add_files(&paths)?;
+            print(&report)?;
+            anyhow::ensure!(
+                report.failed.is_empty(),
+                "{} file(s) not added; the others are in the library",
+                report.failed.len()
+            );
             Ok(())
         }
         Command::Missing { library } => {
@@ -439,6 +476,55 @@ fn run() -> Result<()> {
         } => print(Library::open(&library)?.relink(&asset, &to, nearby)?),
         Command::RelinkFolder { library, from, to } => {
             print(Library::open(&library)?.relink_folder(&from, &to)?)
+        }
+        Command::SyncFolder {
+            library,
+            folder,
+            apply,
+            include_probable,
+            include_copies,
+            remove_missing,
+        } => {
+            use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions, is_photo};
+            let l = Library::open(&library)?;
+            let cancel = AtomicBool::new(false);
+            let plan = l.scan_folder_sync(
+                folder.as_deref(),
+                &SyncOptions {
+                    accept: &is_photo,
+                    cancel: &cancel,
+                    progress: &|_| {},
+                },
+            )?;
+            if !apply {
+                return print(&plan);
+            }
+            let add = |f: &rawtonic_catalog::folder_sync::SyncNewFile| SyncAction::Add {
+                path: f.path.clone(),
+                identity: f.identity.clone(),
+            };
+            let mut actions: Vec<SyncAction> =
+                plan.verified_moves.iter().map(SyncAction::from).collect();
+            if include_probable {
+                actions.extend(plan.probable_moves.iter().map(SyncAction::from));
+            }
+            actions.extend(plan.new_files.iter().map(add));
+            if include_copies {
+                actions.extend(plan.copies.iter().map(add));
+            }
+            if remove_missing {
+                actions.extend(plan.removed.iter().map(|m| SyncAction::Remove {
+                    asset_id: m.asset_id.clone(),
+                    path: m.path.clone(),
+                }));
+            }
+            let applied = l.apply_folder_sync(&actions)?;
+            print(serde_json::json!({ "plan": plan, "applied": applied }))
+        }
+        Command::Checksums { library } => {
+            let l = Library::open(&library)?;
+            let recorded = l.fill_all_checksums(&AtomicBool::new(false))?;
+            print(serde_json::json!({ "recorded": recorded, "without": l.checksum_backlog()? }))
         }
         Command::AdoptXmp { library, asset } => print(Library::open(&library)?.adopt_xmp(&asset)?),
         Command::Sync { library } => {
@@ -486,6 +572,7 @@ fn run() -> Result<()> {
         Command::Export(args) => export(args),
         Command::Merge(args) => merge(args),
         Command::AiBench(args) => ai_bench(args),
+        Command::Fingerprint(args) => fingerprint::run(args),
     }
 }
 fn ai_bench(args: AiBenchArgs) -> Result<()> {

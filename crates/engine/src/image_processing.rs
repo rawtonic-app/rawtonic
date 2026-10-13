@@ -2873,6 +2873,9 @@ pub struct GlobalAdjustments {
     /// finest level's threshold and z to the gain's steepness once the
     /// pyramid of its source is measured (x is cleared if it has none).
     pub color_noise: [f32; 4],
+    /// The level-1 window of the renderer's chroma texture (origin xy) and
+    /// level 1's size (zw); set by the renderer.
+    pub color_noise_window: [u32; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -2954,6 +2957,9 @@ pub struct AllAdjustments {
     /// x != 0: the bound detail texture holds the detail stage (noise
     /// reduction and sharpening at the global amounts) for this tile.
     pub detail_cache: [u32; 4],
+    /// Origin (x, y) of the photo window the input texture holds and the
+    /// photo's size (width, height); the renderer sets it for every tile.
+    pub source_window: [u32; 4],
 }
 
 /// CPU-owned render inputs. Uniforms remain POD; the geometry allocation stays
@@ -3878,6 +3884,7 @@ fn get_global_adjustments_from_json(
             0.0,
             0.0,
         ],
+        color_noise_window: [0; 4],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -4421,6 +4428,7 @@ pub fn get_all_adjustments_from_json(
             mask_atlas_cols: 1,
             render_region: [0; 4],
             detail_cache: [0; 4],
+            source_window: [0; 4],
         },
     }
 }

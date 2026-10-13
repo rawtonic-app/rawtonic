@@ -18,13 +18,14 @@
 //! above the noise stay, blotches of every size within it go. Luminance is
 //! kept exactly.
 //!
-//! The coarse levels are computed here on the CPU when a render source is
-//! uploaded (`ChromaPyramid::build`, once per source) and rebuilt for new
-//! slider values (`reconstruct`, a third of the source's pixels); the
-//! renderer does the finest level per pixel (shader.wgsl,
-//! `apply_color_noise_multiscale`) from level 1 of the pyramid and its
-//! reconstruction. `apply_to_linear` is the same filter entirely on the CPU,
-//! for tests and the measurement harness
+//! The pyramid is built and measured here on the CPU when a render source
+//! is uploaded (`ChromaPyramid::build`, once per source, from the whole
+//! photo). Level 1 is rebuilt for new slider values from the coarse levels
+//! (`reconstruct`; display frames do the same on the GPU from `prepared`,
+//! crates/gpu/src/shaders/color_noise.wgsl); the renderer does the finest
+//! level per pixel (shader.wgsl, `apply_color_noise_multiscale`) from level 1
+//! and its reconstruction. `apply_to_linear` is the same filter entirely on
+//! the CPU, for tests and the measurement harness
 //! (crates/gpu/examples/color_nr_harness.rs).
 //!
 //! The idea (a chroma pyramid thresholded by noise measured per level) was
@@ -598,18 +599,7 @@ impl ChromaPyramid {
         if thresholds[1..].iter().all(|t| *t <= 0.0) {
             return self.levels[0].clone();
         }
-        // What does not depend on the sliders is prepared once per source.
-        let computed;
-        let prepared = match self.prepared.get() {
-            Some(prepared) if prepared.tuning == *tuning => prepared,
-            _ => {
-                computed = Arc::new(self.prepare(tuning));
-                if self.prepared.get().is_none() {
-                    let _ = self.prepared.set(Arc::clone(&computed));
-                }
-                &computed
-            }
-        };
+        let prepared = self.prepared(tuning);
         let steepness = tuning.steepness;
         // The coarsest level stays; levels LEVELS − 1 … 1 are rebuilt.
         let mut rebuilt = self.levels[LEVELS - 1].clone();
@@ -636,6 +626,21 @@ impl ChromaPyramid {
             };
         }
         rebuilt
+    }
+
+    /// What does not depend on the sliders, prepared once per source (and
+    /// tuning): each coarse level's detail, local energy and guard.
+    pub fn prepared(&self, tuning: &Tuning) -> Arc<Prepared> {
+        match self.prepared.get() {
+            Some(prepared) if prepared.tuning == *tuning => Arc::clone(prepared),
+            _ => {
+                let computed = Arc::new(self.prepare(tuning));
+                if self.prepared.get().is_none() {
+                    let _ = self.prepared.set(Arc::clone(&computed));
+                }
+                computed
+            }
+        }
     }
 
     /// Each coarse level's detail, its local energy and the share its
@@ -676,6 +681,8 @@ impl ChromaPyramid {
                 // 1-2-1), so isolated noise peaks go and an edge's tails stay.
                 let size2 = local_energy(&detail, fine.width, fine.height);
                 PreparedLevel {
+                    width: fine.width,
+                    height: fine.height,
                     detail,
                     size2,
                     guard,
@@ -689,18 +696,25 @@ impl ChromaPyramid {
     }
 }
 
-/// A pyramid's coarse levels ready for new thresholds (levels 1…LEVELS − 1).
+/// A pyramid's coarse levels ready for new thresholds (levels 1…LEVELS − 1,
+/// index 0 = level 1). Rebuilding level l: expand(rebuilt l + 1) + gain ·
+/// detail with gain = max(gain(size2, threshold², steepness), guard).
 #[derive(Debug)]
-struct Prepared {
-    tuning: Tuning,
-    levels: Vec<PreparedLevel>,
+pub struct Prepared {
+    pub tuning: Tuning,
+    pub levels: Vec<PreparedLevel>,
 }
 
 #[derive(Debug)]
-struct PreparedLevel {
-    detail: Vec<[f32; 2]>,
-    size2: Vec<f32>,
-    guard: Vec<f32>,
+pub struct PreparedLevel {
+    pub width: usize,
+    pub height: usize,
+    /// The level's chroma detail (level minus the coarser one expanded).
+    pub detail: Vec<[f32; 2]>,
+    /// Its local energy (3 × 3, weights 1-2-1).
+    pub size2: Vec<f32>,
+    /// The share kept by the luminance and chroma-edge guards.
+    pub guard: Vec<f32>,
 }
 
 /// Squared chroma gradient (central differences) of a level, in channel 0.

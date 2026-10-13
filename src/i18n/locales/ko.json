@@ -891,6 +891,57 @@
       "failed": "마지막 라이브러리를 열 수 없습니다: {{error}}",
       "opening": "{{name}} 여는 중({{directory}})… macOS에서 이 볼륨에 대한 접근을 요청하면 허용하세요."
     },
+    "sync": {
+      "applied": "이동 {{moved}} · 추가 {{added}} · 제거 {{removed}}",
+      "apply": "적용 ({{n}})",
+      "cancel": "취소",
+      "cancelling": "취소 중…",
+      "checking": "라이브러리에 없는 파일 확인 중 · {{done}} / {{total}}",
+      "choice": {
+        "add": "새 사진",
+        "addCopy": "새 사진 ({{of}}의 사본)",
+        "moved": "{{path}}의 이동 (가능성)",
+        "movedVerified": "{{path}}의 이동 (확인됨)",
+        "skip": "지금은 그대로 두기"
+      },
+      "chooseFirst": "먼저 충돌하는 파일마다 선택하세요 (남음: {{n}}).",
+      "chooseFolder": "어느 폴더를 동기화할까요?",
+      "copyOf": "{{path}} ({{of}}와 동일)",
+      "counted": "{{selected}} / {{total}}",
+      "filesUnchanged": "디스크의 파일은 변경되지 않습니다.",
+      "found": "사진 파일 {{n}}개를 확인했습니다. 선택한 변경만 적용됩니다.",
+      "groups": {
+        "contested": "선택 필요",
+        "copies": "라이브러리 사진의 사본",
+        "errors": "읽을 수 없음",
+        "newFiles": "새 사진",
+        "probableMoves": "이동 또는 이름 변경 가능성",
+        "removed": "없는 사진",
+        "unavailable": "사용할 수 없음",
+        "verifiedMoves": "이동 또는 이름 변경 (확인됨)"
+      },
+      "hints": {
+        "contested": "이 파일은 여러 사진 중 하나이거나 사본일 수 있습니다. 무엇인지 선택하세요.",
+        "copies": "아직 있는 사진과 같은 바이트입니다. 선택한 경우에만 별도 사진으로 추가됩니다.",
+        "errors": "건너뛰었습니다.",
+        "newFiles": "XMP 또는 편집 사이드카의 내용과 함께 추가됩니다.",
+        "probableMoves": "크기와 내용 표본은 일치하지만 이를 증명할 전체 체크섬 기록이 없습니다. 알아보는 것만 선택하세요.",
+        "removed": "파일이 없어졌고 대응하는 것도 찾지 못했습니다. 선택한 것은 편집, 별점, 앨범과 함께 라이브러리에서 제거됩니다. 파일은 삭제되지 않습니다.",
+        "unavailable": "연결되지 않은 드라이브나 읽을 수 없는 폴더에 있습니다. 그대로 유지됩니다.",
+        "verifiedMoves": "사진 파일과 바이트 단위로 같습니다. 새 위치에서도 편집, 별점, 키워드, 앨범이 유지됩니다."
+      },
+      "inSync": "모두 동기화되었습니다: 사진 파일 {{n}}개를 확인했고 바꿀 것이 없습니다.",
+      "listing": "사진 찾는 중… {{n}}개 찾음",
+      "menu": "폴더 동기화…",
+      "more": "… 외 {{n}}개",
+      "onVolume": "“{{volume}}”에 있음",
+      "readOnly": "검사는 파일을 읽기만 합니다.",
+      "selectGroup": "모두 선택: {{group}}",
+      "skipped": "검사 후 변경되어 건너뜀: {{n}}",
+      "title": "폴더 동기화",
+      "toChoose": "선택 남음: {{n}}",
+      "wholeLibrary": "전체 라이브러리"
+    },
     "toasts": {
       "added_other": "사진 {{count}}장 추가됨",
       "addedToAlbum": "{{name}}에 추가됨",
@@ -1790,6 +1841,10 @@
         "imageFilter": "이미지",
         "watermarkTitle": "워터마크 이미지 선택"
       },
+      "errors": {
+        "flareTextureLimit": "{{width}} × {{height}} px 이미지는 이 그래픽 카드의 한도(한 변 {{limit}} px)를 넘어 빛 번짐을 렌더링할 수 없습니다. 내보내려면 빛 번짐을 끄세요.",
+        "textureLimit": "이미지({{width}} × {{height}} px)가 이 그래픽 카드가 처리할 수 있는 크기(한 변 {{limit}} px)보다 큽니다."
+      },
       "estimate": "예상 크기: 약 {{size}}",
       "estimatePerFile": "예상 크기: 약 {{size}} (파일당 {{perFile}})",
       "file": {
@@ -2089,6 +2144,8 @@
         "newAlbumName": "새 앨범 이름",
         "newGroupName": "새 그룹 이름",
         "newTitle": "새 앨범 또는 그룹",
+        "previousImport": "이전 가져오기",
+        "previousImportTitle": "마지막 가져오기, 추가 또는 폴더 동기화로 추가된 사진",
         "renameLabel": "{{name}} 이름 변경",
         "title": "앨범",
         "toasts": {

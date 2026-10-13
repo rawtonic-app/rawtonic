@@ -277,9 +277,9 @@ fn an_older_database_is_migrated_with_its_photographs() {
     drop(lib);
     let db = tmp.path().join("Main.catalog/catalog.sqlite");
     let conn = rusqlite::Connection::open(&db).unwrap();
-    // Back to schema 2 (no volume columns).
+    // Back to schema 2 (no volume columns, no import batches).
     conn.execute_batch(
-        "ALTER TABLE roots DROP COLUMN volume_name; ALTER TABLE roots DROP COLUMN volume_path; PRAGMA user_version=2;",
+        "ALTER TABLE assets DROP COLUMN sha256; DROP TABLE asset_imports; DROP TABLE import_batches; ALTER TABLE roots DROP COLUMN volume_name; ALTER TABLE roots DROP COLUMN volume_path; PRAGMA user_version=2;",
     )
     .unwrap();
     drop(conn);

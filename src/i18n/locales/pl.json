@@ -1002,6 +1002,57 @@
       "failed": "Nie udało się otworzyć ostatniej biblioteki: {{error}}",
       "opening": "Otwieranie {{name}} ({{directory}})… Jeśli macOS poprosi o dostęp do tego woluminu, zezwól na niego."
     },
+    "sync": {
+      "applied": "Przeniesione: {{moved}} · Dodane: {{added}} · Usunięte: {{removed}}",
+      "apply": "Zastosuj ({{n}})",
+      "cancel": "Anuluj",
+      "cancelling": "Anulowanie…",
+      "checking": "Sprawdzanie plików nieznanych bibliotece · {{done}} z {{total}}",
+      "choice": {
+        "add": "Nowe zdjęcie",
+        "addCopy": "Nowe zdjęcie (kopia {{of}})",
+        "moved": "To {{path}}, przeniesione (prawdopodobnie)",
+        "movedVerified": "To {{path}}, przeniesione (sprawdzone)",
+        "skip": "Na razie zostaw"
+      },
+      "chooseFirst": "Najpierw wybierz dla każdego spornego pliku (pozostało: {{n}}).",
+      "chooseFolder": "Który folder zsynchronizować?",
+      "copyOf": "{{path}} (to samo co {{of}})",
+      "counted": "{{selected}} z {{total}}",
+      "filesUnchanged": "Pliki na dysku nie są zmieniane.",
+      "found": "Sprawdzone pliki zdjęć: {{n}}. Zastosowane zostaną tylko zaznaczone zmiany.",
+      "groups": {
+        "contested": "Wymaga Twojego wyboru",
+        "copies": "Kopie zdjęć z biblioteki",
+        "errors": "Nie można odczytać",
+        "newFiles": "Nowe zdjęcia",
+        "probableMoves": "Prawdopodobnie przeniesione lub przemianowane",
+        "removed": "Brakujące zdjęcia",
+        "unavailable": "Niedostępne",
+        "verifiedMoves": "Przeniesione lub przemianowane (sprawdzone)"
+      },
+      "hints": {
+        "contested": "Ten plik może być jednym z kilku zdjęć albo kopią. Wybierz, czym jest.",
+        "copies": "Te same bajty co zdjęcie, które nadal istnieje. Dodawane jako osobne zdjęcia tylko po zaznaczeniu.",
+        "errors": "Pominięte.",
+        "newFiles": "Dodawane z zawartością plików XMP lub plików edycji.",
+        "probableMoves": "Rozmiar i próbki zawartości się zgadzają, ale brak pełnej sumy kontrolnej, która by to potwierdziła. Zaznacz te, które rozpoznajesz.",
+        "removed": "Ich pliki zniknęły i nic dla nich nie znaleziono. Zaznaczone zostaną usunięte z biblioteki wraz z edycjami, ocenami i albumami. Pliki nigdy nie są kasowane.",
+        "unavailable": "Na odłączonym dysku lub w nieczytelnym folderze. Pozostają bez zmian.",
+        "verifiedMoves": "Bajt w bajt plik tego zdjęcia: zachowuje edycje, oceny, słowa kluczowe i albumy w nowym miejscu."
+      },
+      "inSync": "Wszystko jest zsynchronizowane: sprawdzone pliki zdjęć: {{n}}, nic do zmiany.",
+      "listing": "Szukanie zdjęć… znaleziono: {{n}}",
+      "menu": "Synchronizuj folder…",
+      "more": "… i jeszcze: {{n}}",
+      "onVolume": "na „{{volume}}”",
+      "readOnly": "Skanowanie tylko odczytuje pliki.",
+      "selectGroup": "Zaznacz wszystko: {{group}}",
+      "skipped": "Pominięte, bo od skanowania coś się zmieniło: {{n}}",
+      "title": "Synchronizuj folder",
+      "toChoose": "Do wyboru: {{n}}",
+      "wholeLibrary": "Cała biblioteka"
+    },
     "toasts": {
       "added_one": "Dodano {{count}} zdjęcie",
       "added_few": "Dodano {{count}} zdjęcia",
@@ -1937,6 +1988,10 @@
         "imageFilter": "Obraz",
         "watermarkTitle": "Wybierz obraz znaku wodnego"
       },
+      "errors": {
+        "flareTextureLimit": "Flary świetlnej nie można wyrenderować na obrazie {{width}} × {{height}} px, większym niż limit tej karty graficznej ({{limit}} px na bok). Wyłącz Flarę świetlną, aby go wyeksportować.",
+        "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok)."
+      },
       "estimate": "Szacowany rozmiar: około {{size}}",
       "estimatePerFile": "Szacowany rozmiar: około {{size}} ({{perFile}} na plik)",
       "file": {
@@ -2260,6 +2315,8 @@
         "newAlbumName": "Nazwa nowego albumu",
         "newGroupName": "Nazwa nowej grupy",
         "newTitle": "Nowy album lub grupa",
+        "previousImport": "Poprzedni import",
+        "previousImportTitle": "Zdjęcia dodane przez ostatni import, Dodaj lub Synchronizuj folder",
         "renameLabel": "Zmień nazwę {{name}}",
         "title": "Albumy",
         "toasts": {

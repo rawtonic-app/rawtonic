@@ -604,3 +604,28 @@
 .session-transfer-result p { font-size: 13px; line-height: 1.6; }
 .session-transfer-progress code { flex-basis: 100%; }
 .session-transfer-dialog .session-error { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Synchronize Folder review: one section per group, rows with checkboxes
+   (contested files with a choice), what could not be checked below. */
+.session-sync-dialog { width: min(760px, calc(100vw - 40px)); }
+.session-sync-dialog .session-dialog-header p { overflow-wrap: anywhere; }
+.session-sync-review { display: grid; gap: 14px; }
+.session-sync-summary { color: var(--app-text-secondary); line-height: 1.6; }
+.session-sync-group { border: 1px solid var(--app-border-color); border-radius: 6px; padding: 10px 12px; }
+.session-sync-group > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.session-sync-group > header label { display: flex; align-items: center; gap: 8px; }
+.session-sync-group > header strong { font-weight: 600; }
+.session-sync-group > header small { color: var(--app-text-secondary); font-variant-numeric: tabular-nums; }
+.session-sync-group > p { margin: 4px 0 8px; font-size: 11px; line-height: 1.6; color: var(--app-text-secondary); }
+.session-sync-group ul { display: grid; gap: 2px; max-height: 180px; overflow: auto; font-size: 11px; }
+.session-sync-group li, .session-sync-skipped li { display: flex; gap: 8px; min-width: 0; }
+.session-sync-group li label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.session-sync-group li span, .session-sync-skipped li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-sync-group li small, .session-sync-skipped li small { color: var(--app-text-secondary); white-space: nowrap; }
+.session-sync-group input { accent-color: #b4c8d3; flex: none; }
+.session-sync-group.is-info { border-style: dashed; }
+.session-sync-more { color: var(--app-text-secondary); }
+.session-sync-contested fieldset { display: grid; gap: 3px; min-width: 0; padding: 4px 0; }
+.session-sync-contested legend { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-weight: 500; }
+.session-sync-buttons { display: flex; gap: 10px; }
+.session-sync-skipped { display: grid; gap: 2px; max-height: 160px; overflow: auto; font-size: 11px; width: 100%; }

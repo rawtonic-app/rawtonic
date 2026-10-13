@@ -4304,7 +4304,7 @@ fn input_upload_band_timing_probe() {
                 let mut data = vec![f16::ZERO; width as usize * 4 * height as usize];
                 data.par_chunks_mut(width as usize * 4)
                     .enumerate()
-                    .for_each(|(row, texels)| rgba_f16_row(&image, row as u32, texels));
+                    .for_each(|(row, texels)| rgba_f16_row(&image, 0, row as u32, texels));
                 context.device.create_texture_with_data(
                     &context.queue,
                     &wgpu::TextureDescriptor {
@@ -5995,6 +5995,300 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     );
 }
 
+/// An opaque grey `Rgba16Float` texture of scene luminances, row by row.
+fn grey_texture(
+    context: &GpuContext,
+    width: u32,
+    height: u32,
+    levels: &[f32],
+) -> wgpu::TextureView {
+    assert_eq!(levels.len(), (width * height) as usize);
+    let data: Vec<f16> = levels
+        .iter()
+        .flat_map(|&level| {
+            let v = f16::from_f32(level);
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Grey test scene"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default())
+}
+
+/// The base looks a RAW renders with, as (name, tonemapper mode, curve
+/// flag): Classic (0), AgX (1), Standard (2) and the Camera Raw look (3)
+/// with neutral colour (flag 2) and through the own-curve path given the
+/// default curve's points (flag 1, no roll-off).
+const RAW_LOOKS: [(&str, u32, f32); 5] = [
+    ("classic", 0, 0.0),
+    ("agx", 1, 0.0),
+    ("standard", 2, 0.0),
+    ("camera-raw", 3, 2.0),
+    ("camera-raw-own-curve", 3, 1.0),
+];
+
+/// 16-bit RGB codes of a RAW render of `view` in one of `RAW_LOOKS`.
+fn render_raw_look(
+    processor: &GpuProcessor,
+    view: &wgpu::TextureView,
+    (width, height): (u32, u32),
+    recipe: &serde_json::Value,
+    (mode, flag): (u32, f32),
+) -> Vec<[u16; 3]> {
+    let mut adjustments = get_all_adjustments_from_json(recipe, true, Some(mode.min(2)));
+    adjustments.global.tonemapper_mode = mode;
+    if mode == 3 {
+        if flag < 1.5 || flag > 2.5 {
+            let default_curve: Vec<f32> = include_str!("shaders/shader.wgsl")
+                .split("const DEFAULT_TONE_CURVE = array<f32, 49>(")
+                .nth(1)
+                .and_then(|rest| rest.split(')').next())
+                .unwrap()
+                .split(',')
+                .map(|v| v.trim().parse().unwrap())
+                .collect();
+            for (i, v) in default_curve.iter().enumerate() {
+                adjustments.global.profile_curve[i / 4][i % 4] = *v;
+            }
+        }
+        adjustments.global.profile_curve[15][3] = flag;
+    }
+    let (pixels, ..) = processor
+        .run(
+            view,
+            width,
+            height,
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            false,
+            RenderOutputPrecision::SixteenBit,
+        )
+        .unwrap();
+    let RenderedPixels::U16(pixels) = pixels else {
+        unreachable!()
+    };
+    pixels.chunks(4).map(|p| [p[0], p[1], p[2]]).collect()
+}
+
+fn srgb_code_to_linear(v: u16) -> f64 {
+    let e = v as f64 / 65535.0;
+    if e <= 0.04045 {
+        e / 12.92
+    } else {
+        ((e + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+/// The worst fall of any channel along `row` (input rising left to right)
+/// within `columns`, over up to `reach` steps, in units of the limit: 0.01 EV
+/// or two 16-bit codes, whichever is more (as in
+/// `camera_raw_tone_sliders_keep_tones_in_order`). Returns (excess, column,
+/// steps, channel, EV fallen) for an excess above 1.
+fn worst_tone_reversal(
+    row: &[[u16; 3]],
+    columns: std::ops::Range<usize>,
+    reach: usize,
+) -> Option<(f64, usize, usize, usize, f64)> {
+    let mut worst: Option<(f64, usize, usize, usize, f64)> = None;
+    for x in columns.clone().skip(reach) {
+        for k in 1..=reach {
+            for (c, (&before, &after)) in row[x - k].iter().zip(&row[x]).enumerate() {
+                if after >= before {
+                    continue;
+                }
+                let ev =
+                    (srgb_code_to_linear(before) / srgb_code_to_linear(after).max(1e-12)).log2();
+                let excess = (ev / 0.01).min((before - after) as f64 / 2.0);
+                if excess > 1.0 && worst.is_none_or(|w| excess > w.0) {
+                    worst = Some((excess, x, k, c, ev));
+                }
+            }
+        }
+    }
+    worst
+}
+
+#[test]
+#[ignore = "requires a native GPU; every tone slider step on a ramp from black to past white, every base look"]
+fn tone_sliders_keep_tones_in_order_at_every_step() {
+    let context = context();
+    let (width, height) = (4096u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    // Scene luminance from 2^-14 to 2^4, evenly in EV across the columns.
+    let (low_ev, span_ev) = (-14.0f32, 18.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    // Every tone slider from −100 to +100 in steps of 10, Exposure from −5
+    // to +5 EV in half stops, and all five sliders at ±100 together in every
+    // sign combination, alone and at Exposure ±2.
+    let sliders = ["contrast", "highlights", "shadows", "whites", "blacks"];
+    let mut recipes = Vec::new();
+    for slider in sliders {
+        for amount in (-100..=100).step_by(10).filter(|a| *a != 0) {
+            recipes.push(json!({ slider: amount }));
+        }
+    }
+    for half_stops in -10..=10 {
+        if half_stops != 0 {
+            recipes.push(json!({ "exposure": half_stops as f64 * 0.5 }));
+        }
+    }
+    for signs in 0..32u32 {
+        for exposure in [0.0, -2.0, 2.0] {
+            let mut recipe = json!({ "exposure": exposure });
+            for (i, slider) in sliders.iter().enumerate() {
+                recipe[*slider] = json!(if signs & (1 << i) != 0 { 100 } else { -100 });
+            }
+            recipes.push(recipe);
+        }
+    }
+    let columns = 64..(width - 64) as usize;
+    let row = (height / 2 * width) as usize;
+    let mut failures = Vec::new();
+    for (look, mode, flag) in RAW_LOOKS {
+        for recipe in &recipes {
+            let pixels = render_raw_look(&processor, &view, (width, height), recipe, (mode, flag));
+            let toned = &pixels[row..row + width as usize];
+            if let Some((excess, x, k, c, ev)) = worst_tone_reversal(toned, columns.clone(), 24) {
+                let scene = low_ev + span_ev * x as f32 / (width - 1) as f32;
+                let line = format!(
+                    "{look} {recipe}: channel {c} falls {ev:.3} EV ({} → {}) over {k} steps to scene {scene:.2} EV ({excess:.1}× the limit)",
+                    toned[x - k][c],
+                    toned[x][c]
+                );
+                // Known under the Camera Raw look, up to 1.5× the limit: the
+                // ordering floors rise only 0.1 EV per EV, so the blurred
+                // luminance's interpolation wobble (Shadows and Blacks act
+                // on it) shows as a fall of up to 4 codes there (Blacks −40:
+                // 0.013 EV near display −6.6 EV), and all five sliders at
+                // their extremes fall up to 0.012 EV below display −1 EV.
+                if mode == 3 && excess <= 1.5 {
+                    eprintln!("tolerated: {line}");
+                } else {
+                    failures.push(line);
+                }
+            }
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "{} of {} renders out of order:\n{}",
+        failures.len(),
+        recipes.len() * RAW_LOOKS.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; Highlights on a clipped bright disc with a soft rim on a dark background"]
+fn highlights_keep_a_clipped_plateau_above_its_rim() {
+    let context = context();
+    let (width, height) = (384u32, 384u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let centre = (width / 2) as f32;
+    let plateau_radius = 64.0f32;
+    let mut failures = Vec::new();
+    let mut worst_ratio = 0.0f64;
+    // Plateaus from white to three stops past it (clipped, reconstructed
+    // highlights), rims from hard to soft, dark and mid backgrounds.
+    for plateau in [1.0f32, 2.0, 4.0, 8.0] {
+        for rim in [4.0f32, 16.0, 48.0] {
+            for background in [0.01f32, 0.1] {
+                let levels: Vec<f32> = (0..height)
+                    .flat_map(|y| (0..width).map(move |x| (x, y)))
+                    .map(|(x, y)| {
+                        let r = ((x as f32 + 0.5 - centre).powi(2)
+                            + (y as f32 + 0.5 - centre).powi(2))
+                        .sqrt();
+                        let t = ((plateau_radius + rim - r) / rim).clamp(0.0, 1.0);
+                        let t = t * t * (3.0 - 2.0 * t);
+                        // Mixed in EV, so the rim covers every level between.
+                        background * (plateau / background).powf(t)
+                    })
+                    .collect();
+                let view = grey_texture(&context, width, height, &levels);
+                for (look, mode, flag) in RAW_LOOKS {
+                    for amount in [-100, -50, 50, 100] {
+                        let recipe = json!({ "highlights": amount });
+                        let pixels = render_raw_look(
+                            &processor,
+                            &view,
+                            (width, height),
+                            &recipe,
+                            (mode, flag),
+                        );
+                        // The centre row from the left edge to the centre:
+                        // background, rim, plateau.
+                        let row = (height / 2 * width) as usize;
+                        let half = &pixels[row..row + (width / 2) as usize];
+                        let luma = |p: &[u16; 3]| {
+                            0.2126 * srgb_code_to_linear(p[0])
+                                + 0.7152 * srgb_code_to_linear(p[1])
+                                + 0.0722 * srgb_code_to_linear(p[2])
+                        };
+                        let centre_luma = luma(&half[half.len() - 1]);
+                        let brightest = half.iter().map(luma).fold(0.0f64, f64::max);
+                        let ratio = brightest / centre_luma.max(1e-12);
+                        worst_ratio = worst_ratio.max(ratio);
+                        // No solarization: nothing on the way in is brighter
+                        // than the centre. Lowering keeps a slight bright
+                        // ring at the plateau's edge (its detail lift against
+                        // the darker surround), up to 2.8 % (0.04 EV) above
+                        // the centre for a plateau at white with a 16 px rim;
+                        // 4 % fails.
+                        if ratio > 1.04 {
+                            failures.push(format!(
+                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
+                            ));
+                        }
+                        // Anything darker than the background-to-plateau
+                        // gradient beyond the edge ring would be a reversal.
+                        let edge = (centre - plateau_radius - 4.0) as usize;
+                        if let Some((excess, x, k, c, ev)) = worst_tone_reversal(half, 8..edge, 4) {
+                            failures.push(format!(
+                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: channel {c} falls {ev:.3} EV over {k} px in the rim at x {x} ({excess:.1}× the limit)"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    eprintln!("largest brightest / centre luminance: {worst_ratio:.4}");
+    assert!(
+        failures.is_empty(),
+        "{} renders reverse towards the plateau:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
 /// A `width` × `height` texture of one opaque colour for the display pipeline.
 fn solid_display_texture(
     context: &GpuContext,
@@ -7185,6 +7479,358 @@ fn relight_queued_depth_survives_cache_eviction() {
     }
 }
 
+/// A CPU source with gradients, edges, fine texture and highlights, so every
+/// neighbourhood operation changes pixels near chunk borders.
+fn chunk_test_source(width: u32, height: u32) -> DynamicImage {
+    let mut seed = 0x9e37_79b9_u32;
+    DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        let noise = (seed % 1000) as f32 / 1000.0 - 0.5;
+        let gradient = x as f32 / width as f32 * 0.6 + y as f32 / height as f32 * 0.3;
+        let edge = if (x / 97 + y / 61) % 2 == 0 {
+            0.25
+        } else {
+            0.0
+        };
+        let stripes = if (x / 3) % 2 == 0 { 0.04 } else { -0.04 };
+        let highlight = if ((x as i32 - 1500).pow(2) + (y as i32 - 900).pow(2)) < 160_000 {
+            1.4
+        } else {
+            0.0
+        };
+        let base = gradient + edge + stripes + highlight + noise * 0.08;
+        image::Rgb([
+            (base * 1.1).max(0.0),
+            base.max(0.0),
+            (base * 0.8 + noise * 0.05).max(0.0),
+        ])
+    }))
+}
+
+fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
+    let neighbourhood = json!({
+        "exposure":0.3,"contrast":25,"highlights":-80,"shadows":40,"whites":10,"blacks":-10,
+        "clarity":60,"structure":50,"dehaze":30,"centré":40,
+        "sharpness":70,"sharpenRadius":3,"sharpnessFalloff":80,
+        "lumaNoiseReduction":40,"colorNoiseReduction":50,
+        "moireAmount":100,"moirePattern":100,
+        "chromaticAberrationRedCyan":100,"chromaticAberrationBlueYellow":-100,
+        "defringePurpleAmount":20,"defringeGreenAmount":20,
+        "vignetteAmount":-50,"grainAmount":40,"glowAmount":50,"halationAmount":50
+    });
+    let mut masked = neighbourhood.clone();
+    masked["masks"] = json!([local_mask(
+        "local",
+        json!({"exposure":0.5,"clarity":-40,"structure":30,"sharpness":40,
+            "highlights":-30,"lumaNoiseReduction":20,"moireAmount":60,"moirePattern":80})
+    )]);
+    vec![
+        ("plain", json!({})),
+        ("neighbourhood", neighbourhood),
+        ("masked", masked),
+        (
+            "relight",
+            json!({"relightLights":[{"intensity":65,"pattern":"blinds","elevation":25}]}),
+        ),
+        // The multi-scale colour noise reduction: the pyramid of the whole
+        // photo, its level-1 window and the finest level's neighbourhood.
+        (
+            "multiscale_color_noise",
+            json!({"colorNoiseReduction":90,"colorNoiseVersion":2,"colorNoiseDetail":30,
+                "colorNoiseSmoothness":80,"lumaNoiseReduction":20,"sharpness":40}),
+        ),
+    ]
+}
+
+fn chunk_test_render(
+    context: &GpuContext,
+    source: &DynamicImage,
+    profile: &serde_json::Value,
+    raw: bool,
+    precision: RenderOutputPrecision,
+    roi: Option<Roi>,
+) -> Result<DynamicImage, String> {
+    let (width, height) = source.dimensions();
+    let adjustments = get_all_adjustments_from_json(profile, raw, Some(2));
+    let mask = Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+        Luma([((x * 3 + y * 7) % 256) as u8])
+    }));
+    let masks = if adjustments.mask_count > 0 {
+        vec![mask]
+    } else {
+        Vec::new()
+    };
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    process_and_get_dynamic_image_inner(
+        context,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: source,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments,
+            mask_bitmaps: &masks,
+            lut: None,
+            roi,
+        },
+        "chunk_test",
+        precision,
+        false,
+        None,
+        None,
+        ReadbackShader::Export,
+    )
+}
+
+#[test]
+#[ignore = "requires a native GPU; prints whole-render hashes to compare across commits"]
+fn whole_render_hash_probe() {
+    use std::hash::{Hash, Hasher};
+    let context = context();
+    let source = chunk_test_source(3100, 2300);
+    let mut profiles = chunk_test_profiles();
+    profiles.push(("flare", json!({"flareAmount":60,"exposure":1.5})));
+    for (key, value) in [
+        ("highlights", -80.0),
+        ("clarity", 60.0),
+        ("structure", 50.0),
+        ("dehaze", 30.0),
+        ("centré", 40.0),
+        ("sharpness", 70.0),
+        ("lumaNoiseReduction", 40.0),
+        ("colorNoiseReduction", 50.0),
+        ("moireAmount", 100.0),
+        ("chromaticAberrationRedCyan", 100.0),
+        ("defringePurpleAmount", 20.0),
+        ("vignetteAmount", -50.0),
+        ("grainAmount", 40.0),
+        ("glowAmount", 50.0),
+        ("halationAmount", 50.0),
+        ("sharpnessFalloff", 80.0),
+    ] {
+        profiles.push((key, json!({ key: value })));
+    }
+    for (name, profile) in profiles {
+        for raw in [true, false] {
+            for precision in [
+                RenderOutputPrecision::EightBit,
+                RenderOutputPrecision::SixteenBit,
+            ] {
+                let image =
+                    chunk_test_render(&context, &source, &profile, raw, precision, None).unwrap();
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                image.as_bytes().hash(&mut hasher);
+                println!(
+                    "HASH {name} raw={raw} {precision:?} {:016x}",
+                    hasher.finish()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn render_windows_cover_the_region_in_tiles_within_the_limit() {
+    for (width, height, bounds, max_dim, margin) in [
+        (3100, 2300, None, 2600, 216),
+        (40_000, 9000, None, 16_384, 500),
+        (
+            9000,
+            5000,
+            Some(Roi {
+                x: 1500,
+                y: 700,
+                width: 6000,
+                height: 3000,
+            }),
+            4096,
+            300,
+        ),
+    ] {
+        let bounds = bounds.unwrap_or(Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        });
+        let plan = plan_render_windows(width, height, bounds, max_dim, margin).unwrap();
+        let mut covered = 0u64;
+        for (region, window) in &plan {
+            assert!(window.width <= max_dim && window.height <= max_dim);
+            assert!(intersect_roi(*region, bounds) == Some(*region));
+            // Regions start on tile boundaries or the requested region's edge,
+            // and end on one or at its edge, as the tiles of a whole render.
+            assert!(region.x % TILE_SIZE == 0 || region.x == bounds.x);
+            assert!(region.y % TILE_SIZE == 0 || region.y == bounds.y);
+            let right = region.x + region.width;
+            let bottom = region.y + region.height;
+            assert!(right % TILE_SIZE == 0 || right == bounds.x + bounds.width);
+            assert!(bottom % TILE_SIZE == 0 || bottom == bounds.y + bounds.height);
+            // The window holds the region and the margin, up to the photo's edges.
+            assert_eq!(window.x, region.x.saturating_sub(margin));
+            assert_eq!(window.y, region.y.saturating_sub(margin));
+            assert_eq!(window.x + window.width, (right + margin).min(width));
+            assert_eq!(window.y + window.height, (bottom + margin).min(height));
+            covered += area(*region);
+        }
+        assert_eq!(covered, area(bounds), "regions must tile the bounds");
+        for (i, (a, _)) in plan.iter().enumerate() {
+            for (b, _) in &plan[i + 1..] {
+                assert!(intersect_roi(*a, *b).is_none(), "regions overlap");
+            }
+        }
+    }
+    // A tile with its margins must fit the limit.
+    let whole = Roi {
+        x: 0,
+        y: 0,
+        width: 20_000,
+        height: 20_000,
+    };
+    assert!(plan_render_windows(20_000, 20_000, whole, 2048 + 2 * 300 - 1, 300).is_none());
+    assert!(plan_render_windows(20_000, 20_000, whole, 2048 + 2 * 300, 300).is_some());
+    assert!(plan_render_windows(20_000, 20_000, whole, 500, 300).is_none());
+}
+
+#[test]
+fn render_window_margin_covers_the_widest_read() {
+    let plain = get_all_adjustments_from_json(&json!({}), true, Some(2));
+    // Structure's blur at the photo's scale plus the tile overlap.
+    let margin = render_window_margin(&plain.uniforms, 3100, 2300);
+    assert!(margin >= TILE_OVERLAP + (40.0_f32 * 2300.0 / 1080.0).ceil() as u32);
+    let shifted = get_all_adjustments_from_json(
+        &json!({"chromaticAberrationRedCyan": 100, "chromaticAberrationBlueYellow": -100}),
+        true,
+        Some(2),
+    );
+    // 1 % of the half diagonal of a 60 000 x 2000 px panorama: 300 px.
+    let wide = render_window_margin(&shifted.uniforms, 60_000, 2000);
+    assert!(wide > 300, "{wide}");
+    assert!(wide > render_window_margin(&plain.uniforms, 60_000, 2000));
+}
+
+/// A context whose texture limit is lowered to `max_dim`.
+fn limited_context(context: &GpuContext, max_dim: u32) -> GpuContext {
+    let mut limited = context.clone();
+    limited.limits.max_texture_dimension_2d = max_dim;
+    limited
+}
+
+#[test]
+#[ignore = "requires a native GPU; renders over the texture limit from windows"]
+fn renders_over_the_texture_limit_match_whole_renders() {
+    let context = context();
+    let (width, height) = (3100, 2300);
+    let source = chunk_test_source(width, height);
+    let limited = limited_context(&context, 2600);
+    let mut comparisons = 0;
+    for (name, profile) in chunk_test_profiles() {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(2));
+        let margin = render_window_margin(&adjustments.uniforms, width, height);
+        let whole_photo = Roi {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        };
+        let windows = plan_render_windows(width, height, whole_photo, 2600, margin).unwrap();
+        assert!(windows.len() >= 4, "{name}: {} windows", windows.len());
+        for raw in [true, false] {
+            for precision in [
+                RenderOutputPrecision::EightBit,
+                RenderOutputPrecision::SixteenBit,
+            ] {
+                for roi in [
+                    None,
+                    Some(Roi {
+                        x: 1001,
+                        y: 1500,
+                        width: 2003,
+                        height: 701,
+                    }),
+                ] {
+                    let whole = chunk_test_render(&context, &source, &profile, raw, precision, roi)
+                        .unwrap();
+                    let windowed =
+                        chunk_test_render(&limited, &source, &profile, raw, precision, roi)
+                            .unwrap();
+                    assert_eq!(windowed.dimensions(), whole.dimensions());
+                    let differing = whole
+                        .as_bytes()
+                        .iter()
+                        .zip(windowed.as_bytes())
+                        .filter(|(a, b)| a != b)
+                        .count();
+                    assert!(
+                        differing == 0,
+                        "{name} raw={raw} {precision:?} roi={roi:?}: {differing} bytes differ"
+                    );
+                    comparisons += 1;
+                }
+            }
+        }
+    }
+    println!("{comparisons} windowed renders matched whole renders byte for byte");
+}
+
+#[test]
+#[ignore = "requires a native GPU; renders over the texture limit never return the source"]
+fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {
+    let context = context();
+    let source = chunk_test_source(600, 400);
+    let limited = limited_context(&context, 512);
+    // Lens flare is built from the whole photo: a clear error.
+    let flare = chunk_test_render(
+        &limited,
+        &source,
+        &json!({"flareAmount": 60}),
+        true,
+        RenderOutputPrecision::EightBit,
+        None,
+    );
+    assert_eq!(flare.unwrap_err(), flare_texture_limit_error(600, 400, 512));
+    // A tile with its margins does not fit 512 px: no windows either.
+    let edited = chunk_test_render(
+        &limited,
+        &source,
+        &json!({"exposure": 1}),
+        true,
+        RenderOutputPrecision::EightBit,
+        None,
+    );
+    assert_eq!(edited.unwrap_err(), texture_limit_error(600, 400, 512));
+    // Display frames are never rendered from windows.
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    let display = process_and_get_dynamic_image_inner(
+        &limited,
+        &processor,
+        &cache,
+        RenderSource::Image {
+            image: &source,
+            transform_hash: 1,
+        },
+        RenderRequest {
+            adjustments: get_all_adjustments_from_json(&json!({}), true, Some(2)),
+            mask_bitmaps: &[],
+            lut: None,
+            roi: None,
+        },
+        "chunk_test",
+        RenderOutputPrecision::EightBit,
+        true,
+        None,
+        None,
+        ReadbackShader::Export,
+    );
+    assert_eq!(display.unwrap_err(), texture_limit_error(600, 400, 512));
+}
+
 /// A noisy linear frame with colour detail for the multi-scale colour noise
 /// reduction: grey and coloured halves with chroma noise and thin lines.
 fn chroma_noise_frame(width: u32, height: u32) -> DynamicImage {
@@ -7362,31 +8008,48 @@ fn multiscale_color_noise_latency_probe() {
     let (width, height) = (2304, 1536);
     let image = chroma_noise_frame(width, height);
     {
-        let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
-        let mut source = GpuImageCache {
-            texture_view: texture.create_view(&Default::default()),
-            texture,
-            width,
-            height,
-            transform_hash: 0,
-            chroma: None,
-            chroma_texture: None,
-        };
-        let mut times = Vec::new();
-        for frame in 0..12 {
-            let profile = json!({"colorNoiseReduction": 20 + frame, "colorNoiseVersion": 2});
-            let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
-            let start = Instant::now();
-            prepare_color_noise(&context, &mut source, Some(&image), &mut adjustments).unwrap();
-            if frame >= 2 {
-                times.push(start.elapsed().as_secs_f64() * 1000.0);
+        let gpu = GpuProcessor::new(context.clone(), width, height).unwrap();
+        for interactive in [false, true] {
+            let texture =
+                create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+            let mut source = GpuImageCache {
+                texture_view: texture.create_view(&Default::default()),
+                texture,
+                width,
+                height,
+                transform_hash: 0,
+                chroma: None,
+                chroma_gpu: None,
+            };
+            let mut times = Vec::new();
+            for frame in 0..12 {
+                let profile = json!({"colorNoiseReduction": 20 + frame, "colorNoiseVersion": 2});
+                let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                let start = Instant::now();
+                prepare_color_noise(
+                    &context,
+                    &gpu,
+                    &mut source,
+                    Some(&image),
+                    &mut adjustments,
+                    interactive,
+                )
+                .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                if frame >= 2 {
+                    times.push(start.elapsed().as_secs_f64() * 1000.0);
+                }
             }
+            times.sort_by(f64::total_cmp);
+            println!(
+                "{}",
+                json!({"probe":"color_noise_prepare","on_gpu":interactive,
+                    "median_ms":times[times.len()/2]})
+            );
         }
-        times.sort_by(f64::total_cmp);
-        println!(
-            "{}",
-            json!({"probe":"color_noise_prepare","median_ms":times[times.len()/2]})
-        );
     }
     let processor = Mutex::new(None);
     let cache = Mutex::new(None);
@@ -7440,4 +8103,66 @@ fn multiscale_color_noise_latency_probe() {
             );
         }
     }
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
+    let context = context();
+    let (width, height) = (1500, 1000);
+    let image = chroma_noise_frame(width, height);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let render = |interactive: bool| {
+        let texture = create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
+        let mut source = GpuImageCache {
+            texture_view: texture.create_view(&Default::default()),
+            texture,
+            width,
+            height,
+            transform_hash: 0,
+            chroma: None,
+            chroma_gpu: None,
+        };
+        let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": 2});
+        let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let views = prepare_color_noise(
+            &context,
+            &processor,
+            &mut source,
+            Some(&image),
+            &mut adjustments,
+            interactive,
+        )
+        .unwrap();
+        let (pixels, ..) = processor
+            .run_with_shader(
+                &source.texture_view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+                ReadbackShader::Export,
+                Some((&views.0, &views.1)),
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            RenderedPixels::U8(_) => unreachable!(),
+        }
+    };
+    let (cpu, gpu) = (render(false), render(true));
+    let worst = cpu
+        .iter()
+        .zip(&gpu)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .max()
+        .unwrap();
+    println!("GPU vs CPU reconstruction: max difference {worst} of 65535");
+    assert!(worst <= 12, "max {worst}");
 }

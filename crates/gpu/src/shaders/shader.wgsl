@@ -186,6 +186,8 @@ struct GlobalAdjustments {
     // x = 1: colour noise reduction on the chroma pyramid, y its finest
     // threshold, z the gain's steepness (color_noise.rs).
     color_noise: vec4<f32>,
+    // Level-1 window of `chroma_pyramid_texture` (origin) and level 1's size.
+    color_noise_window: vec4<u32>,
 }
 
 struct MaskAdjustments {
@@ -254,6 +256,10 @@ struct AllAdjustments {
     // x != 0: detail_texture holds this tile's detail stage at the global
     // noise-reduction and sharpening amounts (display frames only).
     detail_cache: vec4<u32>,
+    // Origin (xy) of the photo window the input and mask textures hold, and
+    // the photo's size (zw). Renders larger than the GPU's texture limit go
+    // through in windows; coordinates stay in photo pixels.
+    source_window: vec4<u32>,
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
@@ -279,6 +285,8 @@ struct AllAdjustments {
 // Multi-scale colour noise reduction (color_noise.rs): level 1 of the
 // source's chroma pyramid (xy) and its reconstruction (zw), half resolution.
 @group(0) @binding(22) var chroma_pyramid_texture: texture_2d<f32>;
+// The finest level's local detail energy per input pixel (color_noise.wgsl).
+@group(0) @binding(23) var chroma_energy_texture: texture_2d<f32>;
 
 @group(0) @binding(10) var flare_texture: texture_2d<f32>;
 @group(0) @binding(11) var flare_sampler: sampler;
@@ -293,6 +301,23 @@ struct AllAdjustments {
 // size) one dispatch renders. Workgroups are numbered flat, row by row of a
 // RENDER_REGION_GROUPS_X-wide grid, and assigned to the regions in order.
 @group(0) @binding(16) var<storage, read> render_regions: array<vec4<u32>>;
+
+/// The photo's size; the input texture may hold only a window of it. Taken
+/// from the texture otherwise: Metal compiled neighbouring arithmetic
+/// differently from the uniform alone, and exports with Centré and other
+/// tools changed by one level in a few pixels.
+fn input_dims() -> vec2<u32> {
+    var dims = textureDimensions(input_texture);
+    if (any(adjustments.source_window.zw != dims)) {
+        dims = adjustments.source_window.zw;
+    }
+    return dims;
+}
+
+/// The input at a photo pixel, which must lie inside the uploaded window.
+fn load_input(coord: vec2<i32>) -> vec4<f32> {
+    return textureLoad(input_texture, coord - vec2<i32>(adjustments.source_window.xy), 0);
+}
 
 override HIGH_PRECISION_OUTPUT: u32 = 0u;
 
@@ -1362,7 +1387,18 @@ fn apply_tonal_adjustments(
         let t = clamp(pow(max(get_luma(max(rgb, vec3<f32>(0.0))), 0.0), 0.4545), 0.0, 1.0);
         let gain = select(WHITES_LOWER, WHITES_RAISE, w > 0.0);
         let reach = select(WHITES_REACH_LOWER, WHITES_REACH_RAISE, w > 0.0);
-        let ratio = pow(max(1.0 + gain * w * pow(t, reach), 0.05), 2.2);
+        // The result is (t · (1 + k · t^reach))^2.2, which turns down where
+        // 1 + k · (1 + reach) · t^reach < 0: Whites below about −75 under
+        // Standard darkened the tones from −0.37 EV up to white (−100: 0.09
+        // scene EV, the brightest grey lower than one 0.37 EV darker). From
+        // that level on the gain stays the level's, so brighter stays
+        // brighter; tones below it are unchanged.
+        let k = gain * w;
+        var t_gain = t;
+        if (k * (1.0 + reach) < -1.0) {
+            t_gain = min(t, pow(-1.0 / (k * (1.0 + reach)), 1.0 / reach));
+        }
+        let ratio = pow(max(1.0 + k * pow(t_gain, reach), 0.05), 2.2);
         rgb *= ratio;
         blurred_linear *= ratio;
     }
@@ -1495,10 +1531,10 @@ fn apply_highlights_adjustment(
         return color_in;
     }
 
-    let dims = vec2<i32>(textureDimensions(input_texture));
+    let dims = vec2<i32>(input_dims());
     let max_idx = dims - vec2<i32>(1);
 
-    var center_tex = textureLoad(input_texture, clamp(coords_i, vec2<i32>(0), max_idx), 0).rgb;
+    var center_tex = load_input(clamp(coords_i, vec2<i32>(0), max_idx)).rgb;
     if (is_raw == 0u) {
         center_tex = srgb_to_linear(center_tex);
     }
@@ -1531,7 +1567,7 @@ fn apply_highlights_adjustment(
 
     for (var i = 0u; i < 12u; i = i + 1u) {
         let coord = clamp(coords_i + offsets[i], vec2<i32>(0), max_idx);
-        var s_rgb = textureLoad(input_texture, coord, 0).rgb;
+        var s_rgb = load_input(coord).rgb;
         if (is_raw == 0u) {
             s_rgb = srgb_to_linear(s_rgb);
         }
@@ -1980,7 +2016,7 @@ fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
     // and 10 pixels (following the preview scale; detail_scale 0 = full
     // resolution).
     let pixel_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
-    let dims = vec2<i32>(textureDimensions(input_texture));
+    let dims = vec2<i32>(input_dims());
     var stops = 0.0;
     for (var ring = 0; ring < 2; ring = ring + 1) {
         let radius = max(1, i32(round(select(10.0, 2.0, ring == 0) * pixel_scale)));
@@ -1989,7 +2025,7 @@ fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
         for (var dy = -radius; dy <= radius; dy = dy + radius) {
             for (var dx = -radius; dx <= radius; dx = dx + radius) {
                 let p = clamp(coord + vec2<i32>(dx, dy), vec2<i32>(0), dims - 1);
-                let y = get_luma(max(textureLoad(input_texture, vec2<u32>(p), 0).rgb, vec3<f32>(0.0)));
+                let y = get_luma(max(load_input(p).rgb, vec3<f32>(0.0)));
                 lo = min(lo, y);
                 hi = max(hi, y);
             }
@@ -2004,10 +2040,10 @@ fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
     var fringe = 0.0;
     if (local_amount > 0.0 && edge > 0.0) {
         let step = max(1, i32(round(2.0 * pixel_scale)));
-        let gx = get_luma(max(textureLoad(input_texture, vec2<u32>(clamp(coord + vec2<i32>(step, 0), vec2<i32>(0), dims - 1)), 0).rgb, vec3<f32>(0.0)))
-            - get_luma(max(textureLoad(input_texture, vec2<u32>(clamp(coord - vec2<i32>(step, 0), vec2<i32>(0), dims - 1)), 0).rgb, vec3<f32>(0.0)));
-        let gy = get_luma(max(textureLoad(input_texture, vec2<u32>(clamp(coord + vec2<i32>(0, step), vec2<i32>(0), dims - 1)), 0).rgb, vec3<f32>(0.0)))
-            - get_luma(max(textureLoad(input_texture, vec2<u32>(clamp(coord - vec2<i32>(0, step), vec2<i32>(0), dims - 1)), 0).rgb, vec3<f32>(0.0)));
+        let gx = get_luma(max(load_input(clamp(coord + vec2<i32>(step, 0), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)))
+            - get_luma(max(load_input(clamp(coord - vec2<i32>(step, 0), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)));
+        let gy = get_luma(max(load_input(clamp(coord + vec2<i32>(0, step), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)))
+            - get_luma(max(load_input(clamp(coord - vec2<i32>(0, step), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)));
         let g = length(vec2<f32>(gx, gy));
         let dir = select(vec2<f32>(1.0, 0.0), vec2<f32>(gx, gy) / g, g > 1.0e-6);
         // A blend of the two sides (green leaf on blue sky gives cyan) is
@@ -2019,8 +2055,8 @@ fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
             let distance = select(10.0, 18.0, k == 1) * pixel_scale;
             let p1 = clamp(coord + vec2<i32>(round(dir * distance)), vec2<i32>(0), dims - 1);
             let p2 = clamp(coord - vec2<i32>(round(dir * distance)), vec2<i32>(0), dims - 1);
-            let a1 = linear_srgb_to_oklab(max(textureLoad(input_texture, vec2<u32>(p1), 0).rgb, vec3<f32>(0.0))).yz;
-            let a2 = linear_srgb_to_oklab(max(textureLoad(input_texture, vec2<u32>(p2), 0).rgb, vec3<f32>(0.0))).yz;
+            let a1 = linear_srgb_to_oklab(max(load_input(p1).rgb, vec3<f32>(0.0))).yz;
+            let a2 = linear_srgb_to_oklab(max(load_input(p2).rgb, vec3<f32>(0.0))).yz;
             let seg = a2 - a1;
             let t = clamp(dot(lab.yz - a1, seg) / max(dot(seg, seg), 1.0e-8), 0.0, 1.0);
             nearest = min(nearest, length(lab.yz - (a1 + seg * t)));
@@ -2447,14 +2483,14 @@ fn apply_sharpen(
     // pixels, so scaled-down previews show it smaller, as in Lightroom.
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let sigma = max(SHARPEN_RADIUS * detail_scale, 0.25);
-    let dims_s = vec2<i32>(textureDimensions(input_texture)) - vec2<i32>(1);
+    let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
     var blur_w = 0.0;
     for (var sy = -2; sy <= 2; sy = sy + 1) {
         for (var sx = -2; sx <= 2; sx = sx + 1) {
             let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
-            blur_sum += sharpen_perc(textureLoad(input_texture, vec2<u32>(c), 0).rgb, is_raw) * w;
+            blur_sum += sharpen_perc(load_input(c).rgb, is_raw) * w;
             blur_w += w;
         }
     }
@@ -2537,7 +2573,7 @@ fn apply_sharpen_extended(
     var wide_sum = 0.0;
     var wide_w = 0.0;
 
-    let dims_s = vec2<i32>(textureDimensions(input_texture)) - vec2<i32>(1);
+    let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
     var blur_sum = 0.0;
     var blur_sq = 0.0;
     var blur_w = 0.0;
@@ -2545,7 +2581,7 @@ fn apply_sharpen_extended(
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
             let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
-            let p = sharpen_perc(textureLoad(input_texture, vec2<u32>(c), 0).rgb, is_raw);
+            let p = sharpen_perc(load_input(c).rgb, is_raw);
             blur_sum += p * w;
             blur_sq += p * p * w;
             blur_w += w;
@@ -2613,7 +2649,7 @@ fn apply_centre_local_contrast(
     if (centre_amount == 0.0) {
         return color_in;
     }
-    let full_dims_f = vec2<f32>(textureDimensions(input_texture));
+    let full_dims_f = vec2<f32>(input_dims());
     let coord_f = vec2<f32>(coords_i);
     let midpoint = 0.4;
     let feather = 0.375;
@@ -2642,7 +2678,7 @@ fn apply_centre_tonal_and_color(
     if (centre_amount == 0.0) {
         return color_in;
     }
-    let full_dims_f = vec2<f32>(textureDimensions(input_texture));
+    let full_dims_f = vec2<f32>(input_dims());
     let coord_f = vec2<f32>(coords_i);
     let midpoint = 0.4;
     let feather = 0.375;
@@ -2799,7 +2835,10 @@ fn luma_nr_threshold(a: f32) -> f32 {
 // position `p`: 1/8, 3/4, 1/8 around even positions, 1/2, 1/2 at odd ones
 // (color_noise.rs `expand_at`).
 fn ms_expand(p: vec2<i32>) -> vec4<f32> {
-    let n = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
+    // Photo coordinates; the texture may hold a window of level 1.
+    let n = vec2<i32>(adjustments.global.color_noise_window.zw) - vec2<i32>(1);
+    let origin = vec2<i32>(adjustments.global.color_noise_window.xy);
+    let last = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
     let k = p / 2;
     var xs = vec3<i32>(k.x - 1, k.x, k.x + 1);
     var wx = vec3<f32>(0.125, 0.75, 0.125);
@@ -2821,16 +2860,12 @@ fn ms_expand(p: vec2<i32>) -> vec4<f32> {
         var row = vec4<f32>(0.0);
         for (var i: i32 = 0; i < 3; i = i + 1) {
             if (wx[i] == 0.0) { continue; }
-            row += wx[i] * textureLoad(chroma_pyramid_texture, vec2<i32>(xs[i], ys[j]), 0);
+            let q = clamp(vec2<i32>(xs[i], ys[j]) - origin, vec2<i32>(0), last);
+            row += wx[i] * textureLoad(chroma_pyramid_texture, q, 0);
         }
         out += wy[j] * row;
     }
     return out;
-}
-
-fn ms_chroma(rgb: vec3<f32>) -> vec2<f32> {
-    let p = nr_encode(rgb);
-    return vec2<f32>(p.r - p.g, p.b - p.g);
 }
 
 // Share of detail kept: x^s / (1 + x^s), x = size² / threshold².
@@ -2848,27 +2883,14 @@ fn apply_color_noise_multiscale(
     color_a: f32,
     is_raw: u32
 ) -> vec3<f32> {
-    let max_idx = vec2<i32>(textureDimensions(input_texture)) - vec2<i32>(1);
     let center_e = ms_expand(coords_i);
     let p = nr_encode(center_linear);
     let lp = get_luma(p);
     let c0 = vec2<f32>(p.r - p.g, p.b - p.g);
-    // The detail's size is its local energy (3 x 3, weights 1-2-1): single
-    // noisy pixels go, the tails of colour edges stay.
-    var energy: f32 = 0.0;
-    for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
-        for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
-            var d: vec2<f32>;
-            if (dx == 0 && dy == 0) {
-                d = c0 - center_e.xy;
-            } else {
-                let q = clamp(coords_i + vec2<i32>(dx, dy), vec2<i32>(0), max_idx);
-                d = ms_chroma(initial_linear_at(vec2<u32>(q), is_raw)) - ms_expand(q).xy;
-            }
-            let w = select(0.25, 0.5, dx == 0) * select(0.25, 0.5, dy == 0);
-            energy += w * dot(d, d);
-        }
-    }
+    // The detail's size is its local energy (3 x 3, weights 1-2-1, computed
+    // once per source): single noisy pixels go, the tails of colour edges
+    // stay.
+    let energy = textureLoad(chroma_energy_texture, coords_i - vec2<i32>(adjustments.source_window.xy), 0).r;
     let t0 = adjustments.global.color_noise.y;
     let g0 = ms_gain(energy, t0 * t0, adjustments.global.color_noise.z);
     var ab = center_e.zw + g0 * (c0 - center_e.xy);
@@ -2913,7 +2935,7 @@ fn apply_noise_reduction_default(
         return center_linear;
     }
 
-    let dims = vec2<i32>(textureDimensions(input_texture));
+    let dims = vec2<i32>(input_dims());
     let max_idx = dims - vec2<i32>(1);
     let center_safe   = gamut_floor(center_linear);
     let center_luma   = get_luma(center_safe);
@@ -2953,7 +2975,7 @@ fn apply_noise_reduction_default(
         let tile_origin = vec2<i32>(i32(adjustments.tile_offset_x), i32(adjustments.tile_offset_y));
         let blur_max = vec2<i32>(textureDimensions(nr_blur_texture)) - vec2<i32>(1);
         let qc = vec2<u32>(clamp(coords_i - tile_origin, vec2<i32>(0), blur_max));
-        var v_c = textureLoad(input_texture, vec2<u32>(clamp(coords_i, vec2<i32>(0), max_idx)), 0).rgb;
+        var v_c = load_input(clamp(coords_i, vec2<i32>(0), max_idx)).rgb;
         var g1_c = textureLoad(nr_blur_texture, qc, 0).rgb;
         var g2_c = textureLoad(tonal_blur_texture, qc, 0).rgb;
         if (is_raw == 0u) {
@@ -2971,7 +2993,7 @@ fn apply_noise_reduction_default(
             for (var dx: i32 = -2; dx <= 2; dx = dx + 1) {
                 let p = coords_i + vec2<i32>(dx, dy) * LUMA_NR_FINE_SPACING;
                 let q = vec2<u32>(clamp(p - tile_origin, vec2<i32>(0), blur_max));
-                var fine = textureLoad(input_texture, vec2<u32>(clamp(p, vec2<i32>(0), max_idx)), 0).rgb;
+                var fine = load_input(clamp(p, vec2<i32>(0), max_idx)).rgb;
                 var coarse = textureLoad(nr_blur_texture, q, 0).rgb;
                 if (is_raw == 0u) {
                     fine = srgb_to_linear(fine);
@@ -3135,7 +3157,7 @@ fn apply_noise_reduction_refined(
         return center_linear;
     }
 
-    let dims = vec2<i32>(textureDimensions(input_texture));
+    let dims = vec2<i32>(input_dims());
     let max_idx = dims - vec2<i32>(1);
     let center_safe   = gamut_floor(center_linear);
     let center_luma   = get_luma(center_safe);
@@ -3181,7 +3203,7 @@ fn apply_noise_reduction_refined(
         let tile_origin = vec2<i32>(i32(adjustments.tile_offset_x), i32(adjustments.tile_offset_y));
         let blur_max = vec2<i32>(textureDimensions(nr_blur_texture)) - vec2<i32>(1);
         let qc = vec2<u32>(clamp(coords_i - tile_origin, vec2<i32>(0), blur_max));
-        var v_c = textureLoad(input_texture, vec2<u32>(clamp(coords_i, vec2<i32>(0), max_idx)), 0).rgb;
+        var v_c = load_input(clamp(coords_i, vec2<i32>(0), max_idx)).rgb;
         var g1_c = textureLoad(nr_blur_texture, qc, 0).rgb;
         var g2_c = textureLoad(tonal_blur_texture, qc, 0).rgb;
         if (is_raw == 0u) {
@@ -3199,7 +3221,7 @@ fn apply_noise_reduction_refined(
             for (var dx: i32 = -2; dx <= 2; dx = dx + 1) {
                 let p = coords_i + vec2<i32>(dx, dy) * LUMA_NR_FINE_SPACING;
                 let q = vec2<u32>(clamp(p - tile_origin, vec2<i32>(0), blur_max));
-                var fine = textureLoad(input_texture, vec2<u32>(clamp(p, vec2<i32>(0), max_idx)), 0).rgb;
+                var fine = load_input(clamp(p, vec2<i32>(0), max_idx)).rgb;
                 var coarse = textureLoad(nr_blur_texture, q, 0).rgb;
                 if (is_raw == 0u) {
                     fine = srgb_to_linear(fine);
@@ -3387,7 +3409,7 @@ fn apply_noise_reduction(
 }
 
 fn apply_ca_correction(coords: vec2<u32>, ca_rc: f32, ca_by: f32) -> vec3<f32> {
-    let dims = vec2<f32>(textureDimensions(input_texture));
+    let dims = vec2<f32>(input_dims());
     let center = dims / 2.0;
     let current_pos = vec2<f32>(coords);
 
@@ -3395,7 +3417,7 @@ fn apply_ca_correction(coords: vec2<u32>, ca_rc: f32, ca_by: f32) -> vec3<f32> {
     let dist = length(to_center);
 
     if (dist == 0.0) {
-        return textureLoad(input_texture, coords, 0).rgb;
+        return load_input(vec2<i32>(coords)).rgb;
     }
 
     let dir = to_center / dist;
@@ -3409,9 +3431,9 @@ fn apply_ca_correction(coords: vec2<u32>, ca_rc: f32, ca_by: f32) -> vec3<f32> {
 
     let max_coords = vec2<i32>(dims - 1.0);
 
-    let r = textureLoad(input_texture, vec2<u32>(clamp(red_coords, vec2<i32>(0), max_coords)), 0).r;
-    let g = textureLoad(input_texture, vec2<u32>(clamp(green_coords, vec2<i32>(0), max_coords)), 0).g;
-    let b = textureLoad(input_texture, vec2<u32>(clamp(blue_coords, vec2<i32>(0), max_coords)), 0).b;
+    let r = load_input(clamp(red_coords, vec2<i32>(0), max_coords)).r;
+    let g = load_input(clamp(green_coords, vec2<i32>(0), max_coords)).g;
+    let b = load_input(clamp(blue_coords, vec2<i32>(0), max_coords)).b;
 
     return vec3<f32>(r, g, b);
 }
@@ -4141,7 +4163,7 @@ fn apply_curve_lut(color: vec3<f32>, layer: u32) -> vec3<f32> {
 }
 
 fn get_mask_influence(mask_index: u32, coords: vec2<u32>) -> f32 {
-    return textureLoad(mask_textures, vec2<i32>(coords), i32(mask_index), 0).r;
+    return textureLoad(mask_textures, vec2<i32>(coords) - vec2<i32>(adjustments.source_window.xy), i32(mask_index), 0).r;
 }
 
 fn sample_lut_tetrahedral(uv: vec3<f32>) -> vec3<f32> {
@@ -4817,7 +4839,7 @@ fn moire_chroma(c: vec3<f32>) -> vec3<f32> {
 fn apply_moire(color: vec3<f32>, coords_i: vec2<i32>, amount: f32, pattern_step: f32) -> vec3<f32> {
     let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
     let step = max(pattern_step * detail_scale, 0.5);
-    let dims = vec2<i32>(textureDimensions(input_texture)) - vec2<i32>(1);
+    let dims = vec2<i32>(input_dims()) - vec2<i32>(1);
     var mean = vec3<f32>(0.0);
     var energy = 0.0;
     var weight = 0.0;
@@ -4825,7 +4847,7 @@ fn apply_moire(color: vec3<f32>, coords_i: vec2<i32>, amount: f32, pattern_step:
         for (var dx = -2; dx <= 2; dx = dx + 1) {
             let offset = vec2<f32>(f32(dx), f32(dy)) * step;
             let p = clamp(coords_i + vec2<i32>(round(offset)), vec2<i32>(0), dims);
-            let q = moire_chroma(max(textureLoad(input_texture, vec2<u32>(p), 0).rgb, vec3<f32>(0.0)));
+            let q = moire_chroma(max(load_input(p).rgb, vec3<f32>(0.0)));
             let w = exp(-f32(dx * dx + dy * dy) / 4.5);
             mean += q * w;
             energy += dot(q, q) * w;
@@ -4860,14 +4882,14 @@ fn apply_diffraction_correction(color: vec3<f32>, coords_i: vec2<i32>, is_raw: u
         return color;
     }
     let reach = i32(min(ceil(2.0 * sigma), 3.0));
-    let dims = vec2<i32>(textureDimensions(input_texture)) - vec2<i32>(1);
+    let dims = vec2<i32>(input_dims()) - vec2<i32>(1);
     var sum = 0.0;
     var weight = 0.0;
     for (var sy = -reach; sy <= reach; sy = sy + 1) {
         for (var sx = -reach; sx <= reach; sx = sx + 1) {
             let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
             let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims);
-            sum += sharpen_perc(textureLoad(input_texture, vec2<u32>(c), 0).rgb, is_raw) * w;
+            sum += sharpen_perc(load_input(c).rgb, is_raw) * w;
             weight += w;
         }
     }
@@ -4919,7 +4941,7 @@ fn detail_stage(
             // corners, where lenses are softer; fitted to its frequency gain
             // (notes: reference/diffraction.md): quadratic in the slider,
             // ×1.44 at a corner at 100.
-            let dims = vec2<f32>(textureDimensions(input_texture));
+            let dims = vec2<f32>(input_dims());
             let uv = (vec2<f32>(absolute_coord_i) / dims - 0.5) * 2.0;
             amount *= 1.0 + FALLOFF_GAIN * falloff * falloff * dot(uv, uv);
         }
@@ -4935,7 +4957,7 @@ fn detail_stage(
 fn initial_linear_at(absolute_coord: vec2<u32>, is_raw: u32) -> vec3<f32> {
     let ca_rc = adjustments.global.chromatic_aberration_red_cyan;
     let ca_by = adjustments.global.chromatic_aberration_blue_yellow;
-    var color_from_texture = textureLoad(input_texture, absolute_coord, 0).rgb;
+    var color_from_texture = load_input(vec2<i32>(absolute_coord)).rgb;
     if (abs(ca_rc) > 0.000001 || abs(ca_by) > 0.000001) {
         color_from_texture = apply_ca_correction(absolute_coord, ca_rc, ca_by);
     }
@@ -4954,7 +4976,7 @@ fn detail_main(@builtin(global_invocation_id) invocation: vec3<u32>) {
     if (id.x >= out_dims.x || id.y >= out_dims.y) { return; }
 
     const REFERENCE_DIMENSION: f32 = 1080.0;
-    let full_dims = vec2<f32>(textureDimensions(input_texture));
+    let full_dims = vec2<f32>(input_dims());
     let scale = max(0.1, min(full_dims.x, full_dims.y) / REFERENCE_DIMENSION);
     let absolute_coord = id + vec2<u32>(adjustments.tile_offset_x, adjustments.tile_offset_y);
     let is_raw = adjustments.global.is_raw_image;
@@ -4999,14 +5021,14 @@ fn main(
     if (id.x >= out_dims.x || id.y >= out_dims.y) { return; }
 
     const REFERENCE_DIMENSION: f32 = 1080.0;
-    let full_dims = vec2<f32>(textureDimensions(input_texture));
+    let full_dims = vec2<f32>(input_dims());
     let current_ref_dim = min(full_dims.x, full_dims.y);
     let scale = max(0.1, current_ref_dim / REFERENCE_DIMENSION);
 
     let absolute_coord = id.xy + vec2<u32>(adjustments.tile_offset_x, adjustments.tile_offset_y);
     let absolute_coord_i = vec2<i32>(absolute_coord);
 
-    let original_alpha = textureLoad(input_texture, absolute_coord, 0).a;
+    let original_alpha = load_input(vec2<i32>(absolute_coord)).a;
     let is_raw = adjustments.global.is_raw_image;
     let initial_linear_rgb = initial_linear_at(absolute_coord, is_raw);
 
@@ -5253,7 +5275,7 @@ fn main(
     }
 
     if (adjustments.global.vignette_amount != 0.0 && adjustments.global.tonemapper_mode < 2u) {
-        let full_dims_f = vec2<f32>(textureDimensions(input_texture));
+        let full_dims_f = vec2<f32>(input_dims());
         let coord_f = vec2<f32>(absolute_coord);
         let v_amount = adjustments.global.vignette_amount;
         let v_mid = adjustments.global.vignette_midpoint;
@@ -5320,7 +5342,7 @@ fn main(
         default_tonemapped = apply_grading(default_tonemapped, 0u);
     }
     if (adjustments.global.vignette_amount != 0.0 && adjustments.global.tonemapper_mode >= 2u) {
-        default_tonemapped = apply_vignette(default_tonemapped, vec2<f32>(absolute_coord), vec2<f32>(textureDimensions(input_texture)));
+        default_tonemapped = apply_vignette(default_tonemapped, vec2<f32>(absolute_coord), vec2<f32>(input_dims()));
     }
     for (var i = 0u; ENABLE_MASKS && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 16u) == 0u) { continue; }
