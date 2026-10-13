@@ -10,6 +10,7 @@ pub mod color_calibration;
 pub mod demosaic;
 pub mod dng_color;
 pub mod dng_opcodes;
+pub mod fingerprint;
 pub mod gamut;
 pub mod gpu_demosaic;
 pub mod highlight_reconstruction;

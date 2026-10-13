@@ -9,6 +9,7 @@ description = "RAW decode for Rawtonic: rawler front end, demosaic, DNG opcodes,
 [features]
 default = []
 performance-profiling = ["rawtonic-runtime/performance-profiling"]
+test-support = []
 
 [dependencies]
 rawtonic-runtime = { path = "../runtime", version = "0.1.0" }
@@ -20,6 +21,8 @@ bytemuck = { version = "1.25", features = ["derive"] }
 anyhow = "1.0.104"
 kamadak-exif = "0.6.1"
 log = "0.4"
+serde.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 pollster = "1.0"
