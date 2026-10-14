@@ -4000,12 +4000,6 @@ impl_apply_grading!(GlobalAdjustments);
 impl_apply_grading!(MaskAdjustments);
 
 impl GlobalAdjustments {
-    /// EXPERIMENT (remove before commit).
-    pub fn set_exp_residual(&mut self, v: [f32; 2]) {
-        self._pad_cg3 = v[0];
-        self._pad_cg4 = v[1];
-    }
-
     /// `levels`: {rgb, red, green, blue} each {inBlack, inWhite, gamma,
     /// outBlack, outWhite} with levels in 0–255 and gamma 0.1–10 (Capture
     /// One's Levels; Photoshop's semantics).
@@ -4402,11 +4396,7 @@ pub fn get_all_adjustments_from_json(
     let ([pattern_low, pattern_high], relight_patterns) =
         crate::relight::prepare_patterns(js_adjustments);
     global.relight_depth = [depth_key[0], depth_key[1], pattern_low, pattern_high];
-    // EXPERIMENT (remove before commit)
-    if let Ok(v) = std::env::var("RT_EXP_RES") {
-        let v: Vec<f32> = v.split(',').map(|x| x.parse().unwrap()).collect();
-        global.set_exp_residual([v[0], v[1]]);
-    }
+
     // The inherited Exposure slider applies 1/0.8 EV per unit. With the
     // Standard base look one unit is one stop, as in Capture One and
     // Lightroom (notes: reference/tone-controls.md); Classic and AgX edits keep

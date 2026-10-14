@@ -1589,6 +1589,30 @@ mod tests {
     }
 
     #[test]
+    fn the_luminance_profile_follows_luminance_noise_by_brightness() {
+        // Dark top half with three times the luminance noise (the same noise
+        // in all channels) of the bright bottom half.
+        let mut rng = Rng(23);
+        let image = Rgb32FImage::from_fn(384, 384, |_, y| {
+            let (level, sigma) = if y < 192 {
+                (0.09f32, 0.03f32)
+            } else {
+                (0.64, 0.01)
+            };
+            let p = level.sqrt() + sigma * rng.gaussian();
+            image::Rgb([p * p; 3])
+        });
+        let pyramid = ChromaPyramid::build(&DynamicImage::ImageRgb32F(image), true).unwrap();
+        let dark = profile_at(&pyramid.luma_profile, 0.3);
+        let bright = profile_at(&pyramid.luma_profile, 0.8);
+        assert!((dark / bright - 3.0).abs() < 0.6, "{dark} {bright}");
+        // Relative to its median: the bins around 1.
+        let mut sorted = pyramid.luma_profile;
+        sorted.sort_by(f32::total_cmp);
+        assert!((0.5 * (sorted[3] + sorted[4]) - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
     fn clipped_and_black_areas_are_not_measured() {
         let mut image = noisy(256, 256, 0.01, false, 5);
         // A clipped half with huge differences between channels.
