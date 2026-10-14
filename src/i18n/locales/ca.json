@@ -1933,8 +1933,12 @@
         "watermarkTitle": "Tria una imatge de marca d'aigua"
       },
       "errors": {
-        "flareTextureLimit": "L'esclat de llum no es pot processar en una imatge de {{width}} × {{height}} px, més gran que el límit d'aquesta targeta gràfica ({{limit}} px per costat). Desactiva Esclat de llum per exportar-la.",
-        "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat)."
+        "batchFailed": "{{failed}} de {{total}} exportacions han fallat",
+        "offline": "{{file}} està fora de línia: per exportar cal el fitxer RAW.",
+        "terminated": "L'exportació s'ha aturat inesperadament.",
+        "textureLimit": "La imatge ({{width}} × {{height}} px) és més gran del que aquesta targeta gràfica pot processar ({{limit}} px per costat).",
+        "unreadableRequest": "No s'han pogut llegir els ajustos desats d'aquesta exportació.",
+        "writeFailed": "No s'ha pogut escriure {{file}}: {{error}}"
       },
       "estimate": "Mida estimada: uns {{size}}",
       "estimatePerFile": "Mida estimada: uns {{size}} ({{perFile}} per fitxer)",
@@ -1980,6 +1984,7 @@
         "cancelled": "Cancel·lada ({{done}} de {{total}} exportades)",
         "done": "Fet",
         "failed": "{{failed}} de {{total}} han fallat",
+        "failures": "Fotos que no s'han exportat",
         "interrupted": "Interrompuda ({{done}} de {{total}} exportades)",
         "remove": "Treu",
         "resume": "Reprèn",
@@ -2252,7 +2257,7 @@
         "newGroupName": "Nom del grup nou",
         "newTitle": "Àlbum o grup nou",
         "previousImport": "Importació anterior",
-        "previousImportTitle": "Les fotos que ha afegit l’última importació, Afegeix o Sincronitza la carpeta",
+        "previousImportTitle": "Les fotos que ha afegit l’última importació, Afegeix, Sincronitza la carpeta o la carpeta vigilada",
         "renameLabel": "Canvia el nom de {{name}}",
         "title": "Àlbums",
         "toasts": {

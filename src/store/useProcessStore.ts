@@ -18,6 +18,13 @@ export interface ExportJob {
   total: number;
   done: number;
   failed: number;
+  /** The photos that did not export and the reasons (export_queue.rs). */
+  failures: ExportFailure[];
+}
+
+export interface ExportFailure {
+  path: string;
+  error: string;
 }
 
 export interface AiTask {

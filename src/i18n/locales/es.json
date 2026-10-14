@@ -1933,8 +1933,12 @@
         "watermarkTitle": "Elige una imagen de marca de agua"
       },
       "errors": {
-        "flareTextureLimit": "El destello de luz no se puede procesar en una imagen de {{width}} × {{height}} px, mayor que el límite de esta tarjeta gráfica ({{limit}} px por lado). Desactiva Destello de luz para exportarla.",
-        "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado)."
+        "batchFailed": "{{failed}} de {{total}} exportaciones fallaron",
+        "offline": "{{file}} está sin conexión: para exportar se necesita el archivo RAW.",
+        "terminated": "La exportación se detuvo de forma inesperada.",
+        "textureLimit": "La imagen ({{width}} × {{height}} px) es más grande de lo que esta tarjeta gráfica puede procesar ({{limit}} px por lado).",
+        "unreadableRequest": "No se pudieron leer los ajustes guardados de esta exportación.",
+        "writeFailed": "No se pudo escribir {{file}}: {{error}}"
       },
       "estimate": "Tamaño estimado: unos {{size}}",
       "estimatePerFile": "Tamaño estimado: unos {{size}} ({{perFile}} por archivo)",
@@ -1980,6 +1984,7 @@
         "cancelled": "Cancelada ({{done}} de {{total}} exportadas)",
         "done": "Listo",
         "failed": "{{failed}} de {{total}} fallidas",
+        "failures": "Fotos que no se exportaron",
         "interrupted": "Interrumpida ({{done}} de {{total}} exportadas)",
         "remove": "Quitar",
         "resume": "Reanudar",
@@ -2252,7 +2257,7 @@
         "newGroupName": "Nombre del nuevo grupo",
         "newTitle": "Nuevo álbum o grupo",
         "previousImport": "Importación anterior",
-        "previousImportTitle": "Las fotos que añadió la última importación, Añadir o Sincronizar carpeta",
+        "previousImportTitle": "Las fotos que añadió la última importación, Añadir, Sincronizar carpeta o la carpeta vigilada",
         "renameLabel": "Renombrar {{name}}",
         "title": "Álbumes",
         "toasts": {

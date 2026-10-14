@@ -94,6 +94,14 @@ pub struct Item {
     pub attempts: u32,
 }
 
+/// A photo of a job that did not export, and why.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Failure {
+    pub path: String,
+    pub error: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Job {
@@ -108,6 +116,8 @@ pub struct Job {
     pub total: usize,
     pub done: usize,
     pub failed: usize,
+    /// The failed photos in job order, for the interface to list.
+    pub failures: Vec<Failure>,
 }
 
 const QUEUE_VERSION: u32 = 1;
@@ -342,6 +352,17 @@ impl ExportQueue {
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
+        let mut q = self.conn.prepare_cached(
+            "SELECT path, coalesce(error,'') FROM items WHERE job_id=? AND state='failed' ORDER BY idx",
+        )?;
+        let failures = q
+            .query_map([id], |r| {
+                Ok(Failure {
+                    path: r.get(0)?,
+                    error: r.get(1)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
         Ok(Job {
             id: id.to_string(),
             label,
@@ -351,6 +372,7 @@ impl ExportQueue {
             total: total as usize,
             done: done as usize,
             failed: failed as usize,
+            failures,
         })
     }
 
@@ -432,6 +454,13 @@ mod tests {
             (job.state, job.done, job.failed, job.total),
             (JobState::Failed, 1, 1, 2)
         );
+        assert_eq!(
+            job.failures,
+            vec![Failure {
+                path: "/photos/1.RAF".to_string(),
+                error: "decode failed".to_string()
+            }]
+        );
         let items = q.items(&first).unwrap();
         assert_eq!(items[1].error.as_deref(), Some("decode failed"));
         assert_eq!(items[1].attempts, 1);
@@ -448,7 +477,9 @@ mod tests {
         q.item_failed(&job, 1, "x").unwrap();
         q.finish(&job, false).unwrap();
         let other = q.enqueue("Other", &json!({}), &paths(1)).unwrap();
+        assert_eq!(q.job(&job).unwrap().failures.len(), 1);
         assert_eq!(q.retry(&job).unwrap(), 2);
+        assert!(q.job(&job).unwrap().failures.is_empty());
         let order: Vec<String> = q.jobs().unwrap().into_iter().map(|j| j.id).collect();
         assert_eq!(order, vec![other.clone(), job.clone()]);
         assert_eq!(q.start_next().unwrap().unwrap().id, other);

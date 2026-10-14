@@ -1842,8 +1842,12 @@
         "watermarkTitle": "워터마크 이미지 선택"
       },
       "errors": {
-        "flareTextureLimit": "{{width}} × {{height}} px 이미지는 이 그래픽 카드의 한도(한 변 {{limit}} px)를 넘어 빛 번짐을 렌더링할 수 없습니다. 내보내려면 빛 번짐을 끄세요.",
-        "textureLimit": "이미지({{width}} × {{height}} px)가 이 그래픽 카드가 처리할 수 있는 크기(한 변 {{limit}} px)보다 큽니다."
+        "batchFailed": "{{total}}개 중 {{failed}}개 내보내기 실패",
+        "offline": "{{file}}이(가) 오프라인입니다. 내보내려면 RAW 파일이 필요합니다.",
+        "terminated": "내보내기가 예기치 않게 중단되었습니다.",
+        "textureLimit": "이미지({{width}} × {{height}} px)가 이 그래픽 카드가 처리할 수 있는 크기(한 변 {{limit}} px)보다 큽니다.",
+        "unreadableRequest": "이 내보내기의 저장된 설정을 읽을 수 없습니다.",
+        "writeFailed": "{{file}}을(를) 쓸 수 없습니다: {{error}}"
       },
       "estimate": "예상 크기: 약 {{size}}",
       "estimatePerFile": "예상 크기: 약 {{size}} (파일당 {{perFile}})",
@@ -1889,6 +1893,7 @@
         "cancelled": "취소됨 ({{total}}장 중 {{done}}장 내보냄)",
         "done": "완료",
         "failed": "{{total}}장 중 {{failed}}장 실패",
+        "failures": "내보내지 못한 사진",
         "interrupted": "중단됨 ({{total}}장 중 {{done}}장 내보냄)",
         "remove": "제거",
         "resume": "재개",
@@ -2145,7 +2150,7 @@
         "newGroupName": "새 그룹 이름",
         "newTitle": "새 앨범 또는 그룹",
         "previousImport": "이전 가져오기",
-        "previousImportTitle": "마지막 가져오기, 추가 또는 폴더 동기화로 추가된 사진",
+        "previousImportTitle": "마지막 가져오기, 추가, 폴더 동기화 또는 감시 폴더로 추가된 사진",
         "renameLabel": "{{name}} 이름 변경",
         "title": "앨범",
         "toasts": {

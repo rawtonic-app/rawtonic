@@ -1989,8 +1989,12 @@
         "watermarkTitle": "Wybierz obraz znaku wodnego"
       },
       "errors": {
-        "flareTextureLimit": "Flary świetlnej nie można wyrenderować na obrazie {{width}} × {{height}} px, większym niż limit tej karty graficznej ({{limit}} px na bok). Wyłącz Flarę świetlną, aby go wyeksportować.",
-        "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok)."
+        "batchFailed": "Nieudane eksporty: {{failed}} z {{total}}",
+        "offline": "{{file}} jest offline: eksport wymaga pliku RAW.",
+        "terminated": "Eksport został nieoczekiwanie przerwany.",
+        "textureLimit": "Obraz ({{width}} × {{height}} px) jest większy, niż ta karta graficzna może wyrenderować ({{limit}} px na bok).",
+        "unreadableRequest": "Nie można odczytać zapisanych ustawień tego eksportu.",
+        "writeFailed": "Nie można zapisać {{file}}: {{error}}"
       },
       "estimate": "Szacowany rozmiar: około {{size}}",
       "estimatePerFile": "Szacowany rozmiar: około {{size}} ({{perFile}} na plik)",
@@ -2036,6 +2040,7 @@
         "cancelled": "Anulowano (wyeksportowano {{done}} z {{total}})",
         "done": "Gotowe",
         "failed": "Niepowodzenie: {{failed}} z {{total}}",
+        "failures": "Zdjęcia, których nie wyeksportowano",
         "interrupted": "Przerwano (wyeksportowano {{done}} z {{total}})",
         "remove": "Usuń",
         "resume": "Wznów",
@@ -2316,7 +2321,7 @@
         "newGroupName": "Nazwa nowej grupy",
         "newTitle": "Nowy album lub grupa",
         "previousImport": "Poprzedni import",
-        "previousImportTitle": "Zdjęcia dodane przez ostatni import, Dodaj lub Synchronizuj folder",
+        "previousImportTitle": "Zdjęcia dodane przez ostatni import, Dodaj, Synchronizuj folder lub folder obserwowany",
         "renameLabel": "Zmień nazwę {{name}}",
         "title": "Albumy",
         "toasts": {

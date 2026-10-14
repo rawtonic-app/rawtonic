@@ -192,6 +192,26 @@ it("reads the list again and recounts offline photographs when the catalog caugh
   useLibraryStore.setState({ sessionDirectory: null });
 });
 
+it("tells Previous Import about each new hot folder capture", async () => {
+  const imported = vi.fn();
+  window.addEventListener("rawtonic:imports-changed", imported);
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  await vi.waitFor(() => expect(callbacks.has("hot-folder-imported")).toBe(true));
+  const capture = (payload: object) =>
+    act(() => callbacks.get("hot-folder-imported")!({
+      payload: { destination: "/job/Capture/A.ARW", skipped: false, error: null, ...payload },
+    }));
+  capture({ skipped: true });
+  capture({ error: "Disk full" });
+  expect(imported).not.toHaveBeenCalled();
+  capture({});
+  expect(imported).toHaveBeenCalledTimes(1);
+  window.removeEventListener("rawtonic:imports-changed", imported);
+});
+
 it("takes merge events only from the run the dialog waits for", () => {
   renderHook(() => useTauriListeners({
     refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),

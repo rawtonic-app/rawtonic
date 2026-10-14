@@ -2,10 +2,12 @@
 //! Import): photos that appear in a watched folder — written by tethering
 //! software, a card reader or another app — are copied into the session's
 //! Capture folder through the verified ingest once they are complete, and
-//! get the next-capture adjustments. The watched files are never moved or
-//! deleted; verified duplicates are skipped.
+//! get the next-capture adjustments, stored with the photograph in one
+//! transaction. While a hot folder runs, its captures form an import batch
+//! (Previous Import). The watched files are never moved or deleted;
+//! verified duplicates are skipped.
 use crate::formats::is_supported_image_file;
-use rawtonic_catalog::Library;
+use rawtonic_catalog::{Contents, ImportKind, Library};
 use rawtonic_ingest::hot_folder::{DEFAULT_SETTLE, HotFolder};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -77,10 +79,24 @@ fn next_state(lib: &Library, next: &NextCapture, previous: Option<&str>) -> Opti
     Some(adjustments)
 }
 
-/// Ingests one complete file and applies the next-capture adjustments.
-/// `earlier` is the copy an earlier try left unrecorded; it is recorded
-/// instead of copying again when it still holds the file. Returns the
-/// asset id of a new photo.
+/// What a new capture is stored with: its next-capture adjustments.
+fn next_contents(lib: &Library, next: &NextCapture, previous: Option<&str>) -> Option<Contents> {
+    let adjustments = next_state(lib, next, previous)?;
+    Some(Contents {
+        editor_state: Some(json!({
+            "version": crate::image_processing::ImageMetadata::default().version,
+            "rating": 0,
+            "adjustments": adjustments,
+        })),
+        ..Contents::default()
+    })
+}
+
+/// Ingests one complete file with its next-capture adjustments (one
+/// transaction: a capture is never registered without them). `earlier` is
+/// the copy an earlier try left unrecorded; it is recorded instead of
+/// copying again when it still holds the file. Returns the asset id of a
+/// new photo.
 #[allow(clippy::too_many_arguments)]
 pub fn ingest_capture(
     lib: &Library,
@@ -92,10 +108,12 @@ pub fn ingest_capture(
     earlier: Option<&Path>,
     cancel: &AtomicBool,
 ) -> (Imported, Option<String>) {
-    let recorded = earlier
-        .and_then(|copy| rawtonic_ingest::record_earlier_copy(lib, source, copy).transpose());
+    let contents = next_contents(lib, next, previous);
+    let recorded = earlier.and_then(|copy| {
+        rawtonic_ingest::record_earlier_copy(lib, source, copy, contents.as_ref()).transpose()
+    });
     let result = match recorded.unwrap_or_else(|| {
-        rawtonic_ingest::import_one(lib, source, template, sequence, None, cancel)
+        rawtonic_ingest::import_capture(lib, source, template, sequence, contents.as_ref(), cancel)
     }) {
         Ok(result) => result,
         Err(e) => {
@@ -110,7 +128,7 @@ pub fn ingest_capture(
             );
         }
     };
-    let mut imported = Imported {
+    let imported = Imported {
         source: source.into(),
         destination: result.destination.clone(),
         skipped: result.skipped,
@@ -119,31 +137,13 @@ pub fn ingest_capture(
     if result.skipped || result.error.is_some() {
         return (imported, None);
     }
-    let (Some(asset), Some(destination)) = (result.asset_id, result.destination) else {
+    let Some(asset) = result.asset_id else {
         return (imported, None);
     };
-    if let Some(adjustments) = next_state(lib, next, previous) {
-        let rating = lib.metadata(&asset).map(|m| m.rating).unwrap_or(0);
-        let state = json!({
-            "version": crate::image_processing::ImageMetadata::default().version,
-            "rating": rating,
-            "adjustments": adjustments,
-        });
-        let sidecar = destination.with_file_name(format!(
-            "{}.rrdata",
-            destination
-                .file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-        ));
-        if let Err(e) = crate::session_bridge::write_editor_sidecar(
-            &sidecar,
-            serde_json::to_vec(&state).unwrap_or_default(),
-        ) {
-            imported.error = Some(format!(
-                "Copied and verified; next-capture adjustments not applied: {e}"
-            ));
-        }
+    if contents.is_some() {
+        // The derived editor sidecar and XMP, as after an edit; the library
+        // already holds the adjustments.
+        crate::session_bridge::rederive(lib, &asset);
     }
     (imported, Some(asset))
 }
@@ -196,6 +196,8 @@ pub fn hot_folder_start(
                         return;
                     }
                 };
+                // The captures of this run are one import batch.
+                let _batch = lib.import_batch(ImportKind::HotFolder);
                 let mut hot = HotFolder::new(&folder, DEFAULT_SETTLE);
                 let mut previous: Option<String> = None;
                 // Copies made but not recorded, by source, for the retry.
@@ -467,6 +469,92 @@ mod tests {
             b"another capture"
         );
         assert_eq!(fs::read(&earlier).unwrap(), b"capture");
+    }
+
+    /// The next-capture adjustments go into the library with the capture:
+    /// when that write fails the capture is not registered at all (its
+    /// verified copy stays for the retry), and the retry stores both, in
+    /// the hot folder's import batch.
+    #[test]
+    fn a_capture_is_never_registered_without_its_adjustments() {
+        for table in ["recipes", "metadata", "asset_imports"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let lib = session(tmp.path());
+            let _batch = lib.import_batch(ImportKind::HotFolder);
+            let hot = tmp.path().join("Hot");
+            fs::create_dir(&hot).unwrap();
+            let source = hot.join("A.ARW");
+            fs::write(&source, b"capture").unwrap();
+            let preset = NextCapture::Preset {
+                name: "Studio".into(),
+                adjustments: json!({"contrast": 12}),
+            };
+            let cancel = AtomicBool::new(false);
+            lib.inject_write_failure(table).unwrap();
+            let (failed, none) =
+                ingest_capture(&lib, &source, "{orig}", 1, &preset, None, None, &cancel);
+            assert!(none.is_none(), "{table}: {failed:?}");
+            assert!(
+                failed.error.as_deref().unwrap().contains("injected"),
+                "{table}"
+            );
+            let copy = failed.destination.unwrap();
+            assert!(lib.asset_at(&copy).unwrap().is_none(), "{table}");
+            assert_eq!(lib.previous_import().unwrap(), None, "{table}");
+            lib.clear_write_failures().unwrap();
+            let (retried, asset) = ingest_capture(
+                &lib,
+                &source,
+                "{orig}",
+                2,
+                &preset,
+                None,
+                Some(&copy),
+                &cancel,
+            );
+            assert!(retried.error.is_none(), "{table}: {retried:?}");
+            assert_eq!(retried.destination.as_deref(), Some(copy.as_path()));
+            let asset = asset.unwrap();
+            assert_eq!(
+                lib.editor_state(&asset).unwrap().unwrap()["adjustments"]["contrast"],
+                12,
+                "{table}"
+            );
+            // The derived editor sidecar follows the library.
+            let sidecar: Value =
+                serde_json::from_slice(&fs::read(copy.with_file_name("A.ARW.rrdata")).unwrap())
+                    .unwrap();
+            assert_eq!(sidecar["adjustments"]["contrast"], 12, "{table}");
+            let batch = lib.previous_import().unwrap().unwrap();
+            assert_eq!((batch.kind, batch.count), (ImportKind::HotFolder, 1));
+        }
+    }
+
+    #[test]
+    fn captures_of_one_run_are_one_import_batch() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = session(tmp.path());
+        let hot = tmp.path().join("Hot");
+        fs::create_dir(&hot).unwrap();
+        let cancel = AtomicBool::new(false);
+        let _batch = lib.import_batch(ImportKind::HotFolder);
+        for (i, name) in ["A.ARW", "B.ARW", "C.ARW"].into_iter().enumerate() {
+            fs::write(hot.join(name), name).unwrap();
+            let (result, asset) = ingest_capture(
+                &lib,
+                &hot.join(name),
+                "{orig}",
+                i as u64 + 1,
+                &NextCapture::Defaults,
+                None,
+                None,
+                &cancel,
+            );
+            assert!(asset.is_some(), "{result:?}");
+        }
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!((batch.kind, batch.count), (ImportKind::HotFolder, 3));
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 3);
     }
 
     #[test]

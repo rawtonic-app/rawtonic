@@ -6,13 +6,18 @@ struct FlareParams {
     contrast: f32,
     whites: f32,
     aspect_ratio: f32,
-    _pad: f32,
+    // 1: `input_texture` holds the gathered samples of a windowed render
+    // (`flare_samples` in gpu_processing.rs), not the photo.
+    gathered: u32,
+    source_width: u32,
+    source_height: u32,
+    _pad0: u32,
+    _pad1: u32,
 }
 
 @group(0) @binding(0) var input_texture: texture_2d<f32>;
 @group(0) @binding(1) var threshold_texture: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(2) var<uniform> params: FlareParams;
-@group(0) @binding(3) var input_sampler: sampler;
 
 fn get_luma(c: vec3<f32>) -> f32 {
     return dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
@@ -70,14 +75,46 @@ fn apply_tonal_adjustments(color: vec3<f32>, con: f32, wh: f32) -> vec3<f32> {
     return rgb;
 }
 
+struct FlareTap {
+    first: i32,
+    second: i32,
+    weight: f32,
+}
+
+// The two photo pixels (clamped to the edge) and the bilinear weight of the
+// second one at the centre of map texel `i` of `map_size` along a photo side
+// of `size`. Integer arithmetic, so `flare_tap` in gpu_processing.rs picks
+// the same pixels for windowed renders.
+fn flare_tap(i: u32, map_size: u32, size: u32) -> FlareTap {
+    let denominator = i32(2u * map_size);
+    let numerator = i32(2u * i + 1u) * i32(size) - i32(map_size);
+    var base = numerator / denominator;
+    if (base * denominator > numerator) {
+        base -= 1;
+    }
+    let weight = f32(numerator - base * denominator) / f32(denominator);
+    let last = i32(size) - 1;
+    return FlareTap(clamp(base, 0, last), clamp(base + 1, 0, last), weight);
+}
+
 @compute @workgroup_size(16, 16, 1)
 fn threshold_main(@builtin(global_invocation_id) id: vec3<u32>) {
     let out_dims = vec2<u32>(textureDimensions(threshold_texture));
     if (id.x >= out_dims.x || id.y >= out_dims.y) { return; }
 
-    let uv = (vec2<f32>(id.xy) + 0.5) / vec2<f32>(out_dims);
-
-    let raw_sample = textureSampleLevel(input_texture, input_sampler, uv, 0.0).rgb;
+    let tap_x = flare_tap(id.x, out_dims.x, params.source_width);
+    let tap_y = flare_tap(id.y, out_dims.y, params.source_height);
+    var columns = vec2<i32>(tap_x.first, tap_x.second);
+    var rows = vec2<i32>(tap_y.first, tap_y.second);
+    if (params.gathered != 0u) {
+        columns = vec2<i32>(2 * i32(id.x), 2 * i32(id.x) + 1);
+        rows = vec2<i32>(2 * i32(id.y), 2 * i32(id.y) + 1);
+    }
+    let c00 = textureLoad(input_texture, vec2<i32>(columns.x, rows.x), 0).rgb;
+    let c10 = textureLoad(input_texture, vec2<i32>(columns.y, rows.x), 0).rgb;
+    let c01 = textureLoad(input_texture, vec2<i32>(columns.x, rows.y), 0).rgb;
+    let c11 = textureLoad(input_texture, vec2<i32>(columns.y, rows.y), 0).rgb;
+    let raw_sample = mix(mix(c00, c10, tap_x.weight), mix(c01, c11, tap_x.weight), tap_y.weight);
 
     var linear_color: vec3<f32>;
     if (params.is_raw == 1u) {

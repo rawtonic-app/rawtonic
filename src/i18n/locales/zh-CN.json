@@ -1842,8 +1842,12 @@
         "watermarkTitle": "选择水印图像"
       },
       "errors": {
-        "flareTextureLimit": "{{width}} × {{height}} px 的图像超出此显卡的上限（每边 {{limit}} px），无法渲染光线耀斑。请关闭光线耀斑后再导出。",
-        "textureLimit": "图像（{{width}} × {{height}} px）超出了此显卡可渲染的尺寸（每边 {{limit}} px）。"
+        "batchFailed": "{{total}} 个导出中有 {{failed}} 个失败",
+        "offline": "{{file}} 处于离线状态：导出需要 RAW 文件。",
+        "terminated": "导出意外停止。",
+        "textureLimit": "图像（{{width}} × {{height}} px）超出了此显卡可渲染的尺寸（每边 {{limit}} px）。",
+        "unreadableRequest": "无法读取此导出已保存的设置。",
+        "writeFailed": "无法写入 {{file}}：{{error}}"
       },
       "estimate": "预计大小：约 {{size}}",
       "estimatePerFile": "预计大小：约 {{size}}（每个文件 {{perFile}}）",
@@ -1889,6 +1893,7 @@
         "cancelled": "已取消（已导出 {{done}}/{{total}}）",
         "done": "完成",
         "failed": "{{failed}}/{{total}} 失败",
+        "failures": "未导出的照片",
         "interrupted": "已中断（已导出 {{done}}/{{total}}）",
         "remove": "移除",
         "resume": "继续",
@@ -2145,7 +2150,7 @@
         "newGroupName": "新组名称",
         "newTitle": "新建相册或组",
         "previousImport": "上次导入",
-        "previousImportTitle": "最近一次导入、添加或同步文件夹所添加的照片",
+        "previousImportTitle": "最近一次导入、添加、同步文件夹或监视文件夹所添加的照片",
         "renameLabel": "重命名 {{name}}",
         "title": "相册",
         "toasts": {

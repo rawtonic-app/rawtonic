@@ -1881,8 +1881,12 @@
         "watermarkTitle": "Choose a watermark image"
       },
       "errors": {
-        "flareTextureLimit": "Light flare cannot be rendered on an image of {{width}} × {{height}} px, larger than this graphics card's limit ({{limit}} px per side). Turn Light flare off to export it.",
-        "textureLimit": "The image ({{width}} × {{height}} px) is larger than this graphics card can render ({{limit}} px per side)."
+        "batchFailed": "{{failed}} of {{total}} exports failed",
+        "offline": "{{file}} is offline: exporting needs the RAW file.",
+        "terminated": "The export stopped unexpectedly.",
+        "textureLimit": "The image ({{width}} × {{height}} px) is larger than this graphics card can render ({{limit}} px per side).",
+        "unreadableRequest": "This export's saved settings could not be read.",
+        "writeFailed": "{{file}} could not be written: {{error}}"
       },
       "estimate": "Estimated size: about {{size}}",
       "estimatePerFile": "Estimated size: about {{size}} ({{perFile}} per file)",
@@ -1928,6 +1932,7 @@
         "cancelled": "Cancelled ({{done}} of {{total}} exported)",
         "done": "Done",
         "failed": "{{failed}} of {{total}} failed",
+        "failures": "Photos that did not export",
         "interrupted": "Interrupted ({{done}} of {{total}} exported)",
         "remove": "Remove",
         "resume": "Resume",
@@ -2192,7 +2197,7 @@
         "newGroupName": "New group name",
         "newTitle": "New album or group",
         "previousImport": "Previous Import",
-        "previousImportTitle": "The photographs the latest ingest, Add or Synchronize Folder added",
+        "previousImportTitle": "The photographs the latest ingest, Add, Synchronize Folder or hot folder added",
         "renameLabel": "Rename {{name}}",
         "title": "Albums",
         "toasts": {

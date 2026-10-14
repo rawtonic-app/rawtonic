@@ -2503,6 +2503,22 @@
 .studio-export-queue button {
   font-size: 10px;
 }
+.studio-export-queue .studio-export-failures {
+  max-height: 160px;
+  margin-top: 4px;
+  overflow-y: auto;
+}
+.studio-export-queue .studio-export-failures li {
+  display: block;
+  padding: 2px 0;
+  border-top: 0;
+  color: #e0a0a0;
+}
+.studio-export-queue .studio-export-failures strong {
+  margin-right: 6px;
+  color: #d6d8db;
+  font-weight: 600;
+}
 .studio-workspace.is-image-fullscreen .studio-primary-panel,
 .studio-workspace.is-image-fullscreen .studio-secondary-panel,
 .studio-workspace.is-image-fullscreen .studio-module-bar,

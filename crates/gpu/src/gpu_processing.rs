@@ -1976,7 +1976,10 @@ struct FlareParams {
     contrast: f32,
     whites: f32,
     aspect_ratio: f32,
-    _pad: f32,
+    gathered: u32,
+    source_width: u32,
+    source_height: u32,
+    _pad: [u32; 2],
 }
 
 const PREVIEW_PIPELINE_COUNT: usize = 32;
@@ -4311,6 +4314,7 @@ impl GpuProcessor {
             output_precision,
             readback_shader,
             chroma,
+            None,
         )
     }
 
@@ -4318,7 +4322,8 @@ impl GpuProcessor {
     /// bitmaps) hold only `window` of it. The output is `request.roi`, which
     /// must lie in the window far enough from its edges that every read stays
     /// inside it (see [`plan_render_windows`]); the pixels then equal those of
-    /// a render from the whole photo.
+    /// a render from the whole photo. Light flare needs the photo's
+    /// `flare_samples` ([`create_flare_samples_texture`]) then.
     #[allow(clippy::too_many_arguments)]
     fn run_in_window(
         &self,
@@ -4331,6 +4336,7 @@ impl GpuProcessor {
         output_precision: RenderOutputPrecision,
         readback_shader: ReadbackShader,
         chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
+        flare_samples: Option<&wgpu::TextureView>,
     ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
         let mut request = request;
         if chroma.is_none() {
@@ -4347,7 +4353,13 @@ impl GpuProcessor {
         if !whole_photo && (output_to_display || request.roi.is_none()) {
             return Err("A render from a photo window needs a CPU readback region.".to_string());
         }
-        if !whole_photo && request.adjustments.global.flare_amount > 0.0 {
+        // The flare map reads the whole photo: windows bring its samples.
+        let flare_source = if whole_photo {
+            Some(input_texture_view)
+        } else {
+            flare_samples
+        };
+        if request.adjustments.global.flare_amount > 0.0 && flare_source.is_none() {
             return Err(FLARE_WINDOW_ERROR.to_string());
         }
         let source_window = [window.x, window.y, width, height];
@@ -4595,7 +4607,7 @@ impl GpuProcessor {
         } else {
             required_blurs(&adjustments)
         };
-        if adjustments.global.flare_amount > 0.0 {
+        if let Some(flare_source) = flare_source.filter(|_| adjustments.global.flare_amount > 0.0) {
             let mut encoder = device.create_command_encoder(&Default::default());
 
             let aspect_ratio = if height > 0 {
@@ -4611,7 +4623,10 @@ impl GpuProcessor {
                 contrast: adjustments.global.contrast,
                 whites: adjustments.global.whites,
                 aspect_ratio,
-                _pad: 0.0,
+                gathered: u32::from(!whole_photo),
+                source_width: width,
+                source_height: height,
+                _pad: [0; 2],
             };
             queue.write_buffer(&self.flare_params_buffer, 0, bytemuck::bytes_of(&f_params));
 
@@ -4621,7 +4636,7 @@ impl GpuProcessor {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_texture_view),
+                        resource: wgpu::BindingResource::TextureView(flare_source),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -4651,7 +4666,7 @@ impl GpuProcessor {
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(input_texture_view),
+                        resource: wgpu::BindingResource::TextureView(flare_source),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -5356,12 +5371,70 @@ pub fn texture_limit_error(width: u32, height: u32, max_dim: u32) -> String {
     )
 }
 
-/// The error of an export with Light flare from a photo larger than the GPU's
-/// texture limit: the flare is built from the whole photo at once. The app
-/// translates it (`src/utils/renderErrors.ts` matches this wording).
-pub fn flare_texture_limit_error(width: u32, height: u32, max_dim: u32) -> String {
-    format!(
-        "Light flare cannot be rendered on an image of {width} × {height} px, larger than this graphics card's limit ({max_dim} px per side). Turn Light flare off to export it."
+/// The two photo pixels and the second one's weight (in 1/(2 x `map_size`))
+/// of map texel `i` along a photo side of `size`, as `flare_tap` in
+/// flare.wgsl.
+fn flare_tap(i: u32, map_size: u32, size: u32) -> (u32, u32) {
+    let denominator = 2 * i64::from(map_size);
+    let numerator = (2 * i64::from(i) + 1) * i64::from(size) - i64::from(map_size);
+    let base = numerator.div_euclid(denominator);
+    let last = i64::from(size) - 1;
+    (base.clamp(0, last) as u32, (base + 1).clamp(0, last) as u32)
+}
+
+/// The photo pixels Light flare's threshold pass reads, gathered for a render
+/// from windows: the 2 x 2 pixels of map texel (x, y) at (2x, 2y), with the
+/// texels of the input texture (`rgba_f16_row`).
+fn create_flare_samples_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &DynamicImage,
+) -> wgpu::Texture {
+    use rayon::prelude::*;
+
+    let (width, height) = image.dimensions();
+    let side = 2 * FLARE_MAP_SIZE;
+    let columns: Vec<u32> = (0..FLARE_MAP_SIZE)
+        .flat_map(|i| {
+            let (first, second) = flare_tap(i, FLARE_MAP_SIZE, width);
+            [first, second]
+        })
+        .collect();
+    let mut texels = vec![f16::ZERO; side as usize * side as usize * 4];
+    upload_pool().install(|| {
+        texels
+            .par_chunks_mut(side as usize * 8)
+            .enumerate()
+            .for_each(|(i, rows)| {
+                let (first, second) = flare_tap(i as u32, FLARE_MAP_SIZE, height);
+                for (row, y) in rows
+                    .chunks_exact_mut(side as usize * 4)
+                    .zip([first, second])
+                {
+                    for (texel, &x) in row.as_chunks_mut::<4>().0.iter_mut().zip(&columns) {
+                        rgba_f16_row(image, x, y, texel.as_mut_slice());
+                    }
+                }
+            });
+    });
+    device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("Flare Samples"),
+            size: wgpu::Extent3d {
+                width: side,
+                height: side,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        TextureDataOrder::LayerMajor,
+        bytemuck::cast_slice(&texels),
     )
 }
 
@@ -5388,8 +5461,9 @@ const FLARE_WINDOW_ERROR: &str = "Light flare needs the whole photo on the GPU."
 ///   from the whole photo and given to each window with the samples its
 ///   pixels expand from (`chroma_level_window`).
 ///
-/// Masks are read at the rendered pixel itself. Flare reads the whole photo
-/// and is not rendered from windows.
+/// Masks are read at the rendered pixel itself. Light flare's map reads the
+/// whole photo, from samples gathered before the windows
+/// (`create_flare_samples_texture`).
 fn render_window_margin(adjustments: &AllAdjustments, width: u32, height: u32) -> u32 {
     let global = &adjustments.global;
     let short_side = width.min(height) as f32;
@@ -5473,7 +5547,7 @@ fn plan_render_windows(
 /// Renders a photo larger than the GPU's texture limit for CPU readback,
 /// region by region from windows of it (see [`plan_render_windows`]). The
 /// pixels equal those of a render from the whole photo (compared byte for
-/// byte by `renders_over_the_texture_limit_match_whole_renders`); recipes that need the whole photo at once (Light flare) fail.
+/// byte by `renders_over_the_texture_limit_match_whole_renders`).
 fn render_in_windows(
     context: &GpuContext,
     processor_slot: &Mutex<Option<GpuProcessorState>>,
@@ -5486,9 +5560,6 @@ fn render_in_windows(
     let start_time = Instant::now();
     let (width, height) = image.dimensions();
     let max_dim = context.limits.max_texture_dimension_2d;
-    if request.adjustments.global.flare_amount > 0.0 {
-        return Err(flare_texture_limit_error(width, height, max_dim));
-    }
     let bounds = request.roi.unwrap_or(Roi {
         x: 0,
         y: 0,
@@ -5550,6 +5621,10 @@ fn render_in_windows(
     if chroma.is_none() {
         request.adjustments.uniforms.global.color_noise[0] = 0.0;
     }
+    // Light flare's map is built from samples of the whole photo.
+    let flare_samples = (request.adjustments.global.flare_amount > 0.0)
+        .then(|| create_flare_samples_texture(&context.device, &context.queue, image))
+        .map(|texture| texture.create_view(&Default::default()));
     let output_len = bounds.width as usize * bounds.height as usize * 4;
     let mut output = match output_precision {
         RenderOutputPrecision::EightBit => RenderedPixels::U8(vec![0; output_len]),
@@ -5616,6 +5691,7 @@ fn render_in_windows(
             window_chroma
                 .as_ref()
                 .map(|chroma| (&chroma.packed_view, &chroma.energy_view)),
+            flare_samples.as_ref(),
         )?;
         place_region(
             &mut output,

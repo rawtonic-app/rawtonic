@@ -1340,7 +1340,7 @@ pub(crate) fn after_relink(lib: &Library, report: &rawtonic_catalog::RelinkRepor
 /// derived editor sidecar beside it is brought up to the library's state
 /// (edits made while it was offline; written only when it differs) and its
 /// XMP follows, as after an edit. The original is not touched.
-fn rederive(lib: &Library, id: &str) {
+pub(crate) fn rederive(lib: &Library, id: &str) {
     let Ok(asset) = lib.asset(id) else { return };
     let Ok(Some(state)) = lib.editor_state(id) else {
         return;
