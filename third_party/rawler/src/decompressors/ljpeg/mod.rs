@@ -175,7 +175,11 @@ impl<'a> LjpegDecompressor<'a> {
         // Should never be reached as we stop at SOS
         return Err("ljpeg: reached EOI before SOS".to_string());
       } else if marker == m(Marker::DQT) {
-        return Err("ljpeg: not a valid raw file, found DQT".to_string());
+        // RAWTONIC: say what the data is. Blackmagic's lossy DNGs (BMPCC 4K
+        // "3:1"/"4:1", Micro Cinema Camera) store 12-bit DCT JPEG tiles
+        // under Compression 7, which the DNG specification reserves for
+        // lossless JPEG.
+        return Err("ljpeg: lossy DCT JPEG data (quantisation table found), not lossless JPEG; unsupported".to_string());
       } else if marker == m(Marker::DRI) {
         if input.get_u16() != 4 {
           return Err("ljpeg: DRI segment with unexpected length".to_string());

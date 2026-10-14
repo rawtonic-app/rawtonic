@@ -114,6 +114,20 @@ impl Entry {
       return Err(TiffError::Overflow(format!("Offset {} is invalid for tag 0x{:X}", offset, tag)));
     }
 
+    // RAWTONIC: a value that would run past the end of the file is refused
+    // before its buffer is allocated. Corrupt counts in maker notes (Sony
+    // DSLR-A100, Xiaomi HM NOTE 1LTE DNG) allocated and zero-filled up to
+    // 5.4 GB per tag, the bulk of the fingerprint run's 14.8 GB peak.
+    let stream_len = reader.stream_len()?;
+    if (base as u64 + offset as u64).saturating_add(bytesize as u64) > stream_len {
+      // Leave the reader at the end, where the failed read used to leave
+      // it: a truncated IFD then ends its chain as before.
+      reader.goto(stream_len.min(u32::MAX as u64) as u32)?;
+      return Err(TiffError::Overflow(format!(
+        "Tag 0x{:X}: {} values at offset {} run past the end of the file",
+        tag, count, offset
+      )));
+    }
     reader.goto(base + offset)?;
     let entry = match typ {
       TYPE_BYTE => {
@@ -275,5 +289,23 @@ mod rawtonic_tests {
     let tag = reader.read_u16().unwrap();
     let entry = Entry::parse(&mut reader, 0, 0, tag).unwrap();
     assert_eq!(entry.value, Value::Long(vec![1000, 2000]));
+  }
+
+  /// A BYTE entry claiming 4 G values past the end of a 20-byte file is
+  /// refused without allocating them, and the reader is left at the end.
+  #[test]
+  fn values_past_the_end_are_refused() {
+    let mut data = Vec::new();
+    data.extend_from_slice(&0x927c_u16.to_le_bytes());
+    data.extend_from_slice(&1_u16.to_le_bytes());
+    data.extend_from_slice(&u32::MAX.to_le_bytes());
+    data.extend_from_slice(&12_u32.to_le_bytes());
+    data.extend_from_slice(&[0; 8]);
+    let len = data.len() as u32;
+    let mut cursor = Cursor::new(data);
+    let mut reader = EndianReader::new(&mut cursor, Endian::Little);
+    let tag = reader.read_u16().unwrap();
+    assert!(Entry::parse(&mut reader, 0, 0, tag).is_err());
+    assert_eq!(reader.position().unwrap(), len);
   }
 }

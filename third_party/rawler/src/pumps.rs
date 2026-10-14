@@ -109,14 +109,19 @@ impl<'a> BitPumpMSB32<'a> {
         let bits: u32 = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         (bits, u32::BITS)
       } else {
-        // Slow refill
-        chunk
-          .into_iter()
-          .rev()
-          .fold((0, 0), |(bits, bit_cnt), x| ((bits << 8) | *x as u32, bit_cnt + 8))
+        // RAWTONIC: the last, partial word is read as a whole word padded
+        // with zero bytes. `peek_bits` always shifts by 32 bits, so the old
+        // short count left stale bits above the valid ones (garbage codes and
+        // an out-of-bounds Huffman lookup at the end of Hasselblad X1D II
+        // streams whose length is not a multiple of 4).
+        let mut word = [0_u8; 4];
+        word[..chunk.len()].copy_from_slice(chunk);
+        (u32::from_le_bytes(word), u32::BITS)
       }
     } else {
-      panic!("Can't refill bitpump, buffer exhausted");
+      // RAWTONIC: reading past the end yields zero bits instead of a panic
+      // (a truncated stream decodes to wrong pixels at its end, not a crash).
+      (0, u32::BITS)
     }
   }
 
@@ -514,5 +519,22 @@ impl<'a> BitPump for BitPumpReverseBitsMSB<'a> {
   fn consume_bits(&mut self, num: u32) {
     self.nbits -= num;
     self.bits &= (1 << self.nbits) - 1;
+  }
+}
+
+#[cfg(test)]
+mod rawtonic_tests {
+  use super::*;
+
+  /// A stream whose length is not a multiple of 4: the last two bytes are
+  /// read as a word padded with zeros, then zero bits follow.
+  #[test]
+  fn msb32_partial_last_word_and_end() {
+    let data = [0x78, 0x56, 0x34, 0x12, 0xcd, 0xab];
+    let mut pump = BitPumpMSB32::new(&data);
+    assert_eq!(pump.get_bits(32), 0x1234_5678);
+    assert_eq!(pump.get_bits(16), 0x0000);
+    assert_eq!(pump.get_bits(16), 0xabcd);
+    assert_eq!(pump.get_bits(16), 0);
   }
 }

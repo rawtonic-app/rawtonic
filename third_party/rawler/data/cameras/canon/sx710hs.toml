@@ -1,13 +1,18 @@
+# CRW (CHDK)
 make = "Canon"
 model = "Canon PowerShot SX710 HS"
 clean_make = "Canon"
 clean_model = "PowerShot SX710 HS"
 whitepoint = 4095
 color_pattern = "RGGB"
-filesize = 31663200 # todo
-raw_width = 4176
-raw_height = 3060
+# RAWTONIC: CHDK raw geometry and colour matrix from LibRaw's tables
+# (identify.cpp CHDK file-size table, colordata.cpp); the placeholder size
+# (4176 x 3060) gave 19 bits per sample.
+filesize = 31663200
+raw_width = 5344
+raw_height = 3950
+active_area = [96, 18, 0, 0]
 blackareav = [0, 94]
 
 [cameras.color_matrix]
-D65 = [1.2432, -0.4753, -0.1247, -0.2110, 1.0691, 0.1629, -0.0412, 0.1623, 0.4926]
+D65 = [1.3161, -0.5451, -0.1344, -0.1989, 1.0654, 0.1531, -0.0047, 0.1271, 0.4955]

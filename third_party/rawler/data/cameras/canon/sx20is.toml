@@ -1,0 +1,17 @@
+# CRW (CHDK)
+make = "Canon"
+model = "Canon PowerShot SX20 IS"
+clean_make = "Canon"
+clean_model = "PowerShot SX20 IS"
+whitepoint = 4095
+color_pattern = "RGGB"
+# RAWTONIC: CHDK raw geometry and colour matrix from LibRaw's tables
+# (identify.cpp CHDK file-size table, colordata.cpp).
+filesize = 18653760
+raw_width = 4080
+raw_height = 3048
+active_area = [24, 12, 24, 12]
+blackareav = [0, 22]
+
+[cameras.color_matrix]
+D65 = [0.8275, -0.2904, -0.1260, -0.0128, 0.5305, 0.0505, 0.0051, 0.0481, 0.2450]
