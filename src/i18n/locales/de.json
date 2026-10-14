@@ -1881,8 +1881,12 @@
         "watermarkTitle": "Wasserzeichenbild auswählen"
       },
       "errors": {
-        "flareTextureLimit": "Lichtreflex kann auf einem Bild mit {{width}} × {{height}} px nicht gerendert werden, es überschreitet die Grenze dieser Grafikkarte ({{limit}} px pro Seite). Schalte Lichtreflex aus, um es zu exportieren.",
-        "textureLimit": "Das Bild ({{width}} × {{height}} px) ist größer, als diese Grafikkarte rendern kann ({{limit}} px pro Seite)."
+        "batchFailed": "{{failed}} von {{total}} Exporten fehlgeschlagen",
+        "offline": "{{file}} ist offline: Zum Exportieren wird die RAW-Datei benötigt.",
+        "terminated": "Der Export wurde unerwartet beendet.",
+        "textureLimit": "Das Bild ({{width}} × {{height}} px) ist größer, als diese Grafikkarte rendern kann ({{limit}} px pro Seite).",
+        "unreadableRequest": "Die gespeicherten Einstellungen dieses Exports konnten nicht gelesen werden.",
+        "writeFailed": "{{file}} konnte nicht geschrieben werden: {{error}}"
       },
       "estimate": "Geschätzte Größe: etwa {{size}}",
       "estimatePerFile": "Geschätzte Größe: etwa {{size}} ({{perFile}} pro Datei)",
@@ -1928,6 +1932,7 @@
         "cancelled": "Abgebrochen ({{done}} von {{total}} exportiert)",
         "done": "Fertig",
         "failed": "{{failed}} von {{total}} fehlgeschlagen",
+        "failures": "Nicht exportierte Fotos",
         "interrupted": "Unterbrochen ({{done}} von {{total}} exportiert)",
         "remove": "Entfernen",
         "resume": "Fortsetzen",
@@ -2192,7 +2197,7 @@
         "newGroupName": "Name der neuen Gruppe",
         "newTitle": "Neues Album oder neue Gruppe",
         "previousImport": "Letzter Import",
-        "previousImportTitle": "Die Fotos, die der letzte Import, „Hinzufügen“ oder „Ordner synchronisieren“ aufgenommen hat",
+        "previousImportTitle": "Die Fotos, die der letzte Import, „Hinzufügen“, „Ordner synchronisieren“ oder der überwachte Ordner aufgenommen hat",
         "renameLabel": "{{name}} umbenennen",
         "title": "Alben",
         "toasts": {

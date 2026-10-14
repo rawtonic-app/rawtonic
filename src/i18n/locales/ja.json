@@ -1842,8 +1842,12 @@
         "watermarkTitle": "透かし画像を選択"
       },
       "errors": {
-        "flareTextureLimit": "{{width}} × {{height}} px の画像は、このグラフィックカードの上限 (1 辺 {{limit}} px) を超えるため、ライトフレアを描画できません。書き出すにはライトフレアをオフにしてください。",
-        "textureLimit": "画像 ({{width}} × {{height}} px) は、このグラフィックカードで処理できるサイズ (1 辺 {{limit}} px) を超えています。"
+        "batchFailed": "{{total}} 件中 {{failed}} 件の書き出しに失敗しました",
+        "offline": "{{file}} はオフラインです。書き出しには RAW ファイルが必要です。",
+        "terminated": "書き出しが予期せず停止しました。",
+        "textureLimit": "画像 ({{width}} × {{height}} px) は、このグラフィックカードで処理できるサイズ (1 辺 {{limit}} px) を超えています。",
+        "unreadableRequest": "この書き出しの保存済み設定を読み込めませんでした。",
+        "writeFailed": "{{file}} を書き込めませんでした: {{error}}"
       },
       "estimate": "推定サイズ: 約 {{size}}",
       "estimatePerFile": "推定サイズ: 約 {{size}}（1 ファイルあたり {{perFile}}）",
@@ -1889,6 +1893,7 @@
         "cancelled": "キャンセル済み（{{total}} 枚中 {{done}} 枚書き出し済み）",
         "done": "完了",
         "failed": "{{total}} 枚中 {{failed}} 枚が失敗",
+        "failures": "書き出されなかった写真",
         "interrupted": "中断（{{total}} 枚中 {{done}} 枚書き出し済み）",
         "remove": "削除",
         "resume": "再開",
@@ -2145,7 +2150,7 @@
         "newGroupName": "新しいグループ名",
         "newTitle": "新規アルバムまたはグループ",
         "previousImport": "前回の読み込み",
-        "previousImportTitle": "最後の読み込み、追加、フォルダ同期で加わった写真",
+        "previousImportTitle": "最後の読み込み、追加、フォルダ同期、監視フォルダで加わった写真",
         "renameLabel": "{{name}} の名前を変更",
         "title": "アルバム",
         "toasts": {

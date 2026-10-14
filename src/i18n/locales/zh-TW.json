@@ -1842,8 +1842,12 @@
         "watermarkTitle": "選擇浮水印影像"
       },
       "errors": {
-        "flareTextureLimit": "{{width}} × {{height}} px 的影像超出此顯示卡的上限（每邊 {{limit}} px），無法算繪光線耀斑。請關閉光線耀斑後再匯出。",
-        "textureLimit": "影像（{{width}} × {{height}} px）超出此顯示卡可算繪的尺寸（每邊 {{limit}} px）。"
+        "batchFailed": "{{total}} 個輸出中有 {{failed}} 個失敗",
+        "offline": "{{file}} 處於離線狀態：輸出需要 RAW 檔案。",
+        "terminated": "輸出意外停止。",
+        "textureLimit": "影像（{{width}} × {{height}} px）超出此顯示卡可算繪的尺寸（每邊 {{limit}} px）。",
+        "unreadableRequest": "無法讀取此輸出已儲存的設定。",
+        "writeFailed": "無法寫入 {{file}}：{{error}}"
       },
       "estimate": "預估大小：約 {{size}}",
       "estimatePerFile": "預估大小：約 {{size}}（每個檔案 {{perFile}}）",
@@ -1889,6 +1893,7 @@
         "cancelled": "已取消（已匯出 {{done}}/{{total}}）",
         "done": "完成",
         "failed": "{{failed}}/{{total}} 失敗",
+        "failures": "未輸出的照片",
         "interrupted": "已中斷（已匯出 {{done}}/{{total}}）",
         "remove": "移除",
         "resume": "繼續",
@@ -2145,7 +2150,7 @@
         "newGroupName": "新群組名稱",
         "newTitle": "新增相簿或群組",
         "previousImport": "上次匯入",
-        "previousImportTitle": "最近一次匯入、加入或同步資料夾所加入的照片",
+        "previousImportTitle": "最近一次匯入、加入、同步資料夾或監看資料夾所加入的照片",
         "renameLabel": "重新命名 {{name}}",
         "title": "相簿",
         "toasts": {

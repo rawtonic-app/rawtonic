@@ -1311,6 +1311,12 @@ export function describeExportJob(job: ExportJob): string {
   }
 }
 
+/** The file name of an export source (a virtual copy's path ends in `?vc=…`). */
+function exportFileName(path: string): string {
+  const file = path.split("?vc=")[0];
+  return file.slice(Math.max(file.lastIndexOf("/"), file.lastIndexOf("\\")) + 1);
+}
+
 /** Waiting, interrupted, cancelled and failed exports (the persistent queue). */
 function ExportQueueList() {
   // Re-renders the list (and describeExportJob) when the language changes.
@@ -1336,6 +1342,19 @@ function ExportQueueList() {
             <span>
               {job.label}
               <small>{describeExportJob(job)}</small>
+              {job.failures.length > 0 && (
+                <ul
+                  className="studio-export-failures"
+                  aria-label={t("studio.export.queue.failures")}
+                >
+                  {job.failures.map((failure, index) => (
+                    <li key={index}>
+                      <strong>{exportFileName(failure.path)}</strong>
+                      {renderErrorMessage(failure.error)}
+                    </li>
+                  ))}
+                </ul>
+              )}
             </span>
             {(job.state !== "queued" || idle) && (
               <button

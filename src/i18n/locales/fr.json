@@ -1933,8 +1933,12 @@
         "watermarkTitle": "Choisir une image de filigrane"
       },
       "errors": {
-        "flareTextureLimit": "Le reflet lumineux ne peut pas être rendu sur une image de {{width}} × {{height}} px, au-delà de la limite de cette carte graphique ({{limit}} px par côté). Désactivez Reflet lumineux pour l'exporter.",
-        "textureLimit": "L'image ({{width}} × {{height}} px) dépasse ce que cette carte graphique peut rendre ({{limit}} px par côté)."
+        "batchFailed": "{{failed}} exportations sur {{total}} ont échoué",
+        "offline": "{{file}} est hors ligne : l'exportation nécessite le fichier RAW.",
+        "terminated": "L'exportation s'est arrêtée de façon inattendue.",
+        "textureLimit": "L'image ({{width}} × {{height}} px) dépasse ce que cette carte graphique peut rendre ({{limit}} px par côté).",
+        "unreadableRequest": "Les réglages enregistrés de cette exportation sont illisibles.",
+        "writeFailed": "Impossible d'écrire {{file}} : {{error}}"
       },
       "estimate": "Taille estimée : environ {{size}}",
       "estimatePerFile": "Taille estimée : environ {{size}} ({{perFile}} par fichier)",
@@ -1980,6 +1984,7 @@
         "cancelled": "Annulée ({{done}} sur {{total}} exportées)",
         "done": "Terminé",
         "failed": "{{failed}} sur {{total}} en échec",
+        "failures": "Photos non exportées",
         "interrupted": "Interrompue ({{done}} sur {{total}} exportées)",
         "remove": "Retirer",
         "resume": "Reprendre",
@@ -2252,7 +2257,7 @@
         "newGroupName": "Nom du nouveau groupe",
         "newTitle": "Nouvel album ou groupe",
         "previousImport": "Importation précédente",
-        "previousImportTitle": "Les photos ajoutées par la dernière importation, l’ajout ou la synchronisation de dossier",
+        "previousImportTitle": "Les photos ajoutées par la dernière importation, l’ajout, la synchronisation de dossier ou le dossier surveillé",
         "renameLabel": "Renommer {{name}}",
         "title": "Albums",
         "toasts": {

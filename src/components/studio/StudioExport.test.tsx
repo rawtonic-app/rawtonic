@@ -38,6 +38,7 @@ const job = (part: Partial<ExportJob>): ExportJob => ({
   total: 30,
   done: 12,
   failed: 0,
+  failures: [],
   ...part,
 });
 
@@ -69,6 +70,45 @@ it("describes what each queued export is waiting for", () => {
   expect(describeExportJob(job({ state: "cancelled" }))).toBe(
     "Cancelled (12 of 30 exported)",
   );
+});
+
+it("lists why each photo of a failed export did not export", async () => {
+  useProcessStore.setState({
+    exportQueue: [
+      job({
+        state: "failed",
+        failed: 2,
+        failures: [
+          {
+            path: "/p/big.RAF?vc=2",
+            error:
+              "The image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
+          },
+          { path: "/p/b.RAF", error: "Decoder said no" },
+        ],
+      }),
+    ],
+  });
+  render(<StudioExport />);
+  const failures = screen.getByRole("list", {
+    name: "Photos that did not export",
+  });
+  const items = within(failures).getAllByRole("listitem");
+  expect(items.map((item) => item.textContent)).toEqual([
+    "big.RAFThe image (40000 × 9000 px) is larger than this graphics card can render (16384 px per side).",
+    "b.RAFDecoder said no",
+  ]);
+  const i18n = (await import("i18next")).default;
+  await i18n.changeLanguage("de");
+  try {
+    await vi.waitFor(() =>
+      expect(within(failures).getAllByRole("listitem")[0].textContent).toBe(
+        "big.RAFDas Bild (40000 × 9000 px) ist größer, als diese Grafikkarte rendern kann (16384 px pro Seite).",
+      ),
+    );
+  } finally {
+    await i18n.changeLanguage("en");
+  }
 });
 
 it("resumes and removes interrupted exports", () => {
