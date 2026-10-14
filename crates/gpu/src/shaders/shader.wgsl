@@ -9,6 +9,11 @@ override ENABLE_CURVES: bool = true;
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
 override EDGE_NR: bool = true;
+// The luminance noise reduction's brightness noise profile and even residual
+// (recipes of the multi-scale colour noise reduction); exports of earlier
+// recipes use pipelines without it, so Metal compiles their arithmetic as
+// before (gpu_processing.rs `profile_pipelines`).
+override LUMA_PROFILE: bool = true;
 // Preview variants read curve control points directly from storage. Keep the
 // original path as the default for export and as a pixel-parity reference.
 override DIRECT_CURVES: bool = false;
@@ -195,6 +200,9 @@ struct GlobalAdjustments {
     color_noise: vec4<f32>,
     // Level-1 window of `chroma_pyramid_texture` (origin) and level 1's size.
     color_noise_window: vec4<u32>,
+    // Luminance noise by brightness relative to its median (8 bins of
+    // square-root luminance; color_noise.rs `luma_profile`); 0 = none.
+    luma_noise_profile: array<vec4<f32>, 2>,
 }
 
 struct MaskAdjustments {
@@ -2876,6 +2884,33 @@ const COLOR_NR_DETAIL_SHARE: f32 = 0.5;
 const COLOR_NR_SMOOTHNESS_LOWER: f32 = 2.1;
 const COLOR_NR_SMOOTHNESS_RAISE: f32 = 0.8;
 
+// The luminance noise at square-root luminance `y` relative to the photo's
+// (color_noise.rs `profile_at` over `luma_profile`); 1 without a profile.
+fn luma_noise_at(y: f32) -> f32 {
+    let p = adjustments.global.luma_noise_profile;
+    if (!LUMA_PROFILE || p[0].x <= 0.0) { return 1.0; }
+    let t = clamp(y * 8.0 - 0.5, 0.0, 7.0);
+    let i = min(i32(t), 6);
+    let f = t - f32(i);
+    let a = p[i / 4][i % 4];
+    let b = p[(i + 1) / 4][(i + 1) % 4];
+    return a + f * (b - a);
+}
+
+// The uniform share of each band that stays. With the photo's luminance
+// noise profile (recipes of the multi-scale colour noise reduction) the low
+// end of the slider keeps more even grain: removing nearly all of it in flat
+// areas while texture and edges kept theirs left smooth patches next to
+// grainy ones (notes: reference/luma-noise-reference.md); from 50 up the
+// share is the earlier one.
+const LUMA_NR_EVEN_RESIDUAL: vec2<f32> = vec2<f32>(0.30, 0.36);
+
+fn luma_nr_residual(a: f32) -> vec2<f32> {
+    if (!LUMA_PROFILE || adjustments.global.luma_noise_profile[0].x <= 0.0) { return LUMA_NR_RESIDUAL; }
+    let t = clamp((0.5 - a) / 0.35, 0.0, 1.0);
+    return mix(LUMA_NR_RESIDUAL, LUMA_NR_EVEN_RESIDUAL, t);
+}
+
 fn luma_nr_threshold(a: f32) -> f32 {
     return LUMA_NR_DEFAULT_THRESHOLD * sqrt(a / 0.15);
 }
@@ -3204,6 +3239,9 @@ fn apply_noise_reduction_default(
         }
         let l1_c = get_luma(g1_c);
         let l2_c = get_luma(g2_c);
+        // The photo's luminance noise at this brightness (shadows carry
+        // read noise beyond the shot-noise model the units assume).
+        let prof = luma_noise_at(get_luma(nr_encode(g2_c)));
         let c_bands = vec2<f32>(get_luma(v_c) - l1_c, l1_c - l2_c);
         // One brightness unit for the whole neighbourhood.
         let unit = 2.0 * sqrt(max(l2_c, floor));
@@ -3236,7 +3274,8 @@ fn apply_noise_reduction_default(
             }
         }
         let energy = e0 / vec2<f32>(25.0, 9.0);
-        let noise2 = noise * noise;
+        var noise2 = noise * noise;
+        if (prof != 1.0) { noise2 = noise2 * (prof * prof); }
         let signal = max(energy - noise2, vec2<f32>(0.0));
         let keep_own = signal / (signal + noise2 + vec2<f32>(1e-12));
         // Edges carry energy at every scale, noise mostly at the finest:
@@ -3244,14 +3283,15 @@ fn apply_noise_reduction_default(
         let keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
         // A uniform share of every band stays: switching between kept and
         // removed grain left smooth patches next to grainy ones.
-        let keep = LUMA_NR_RESIDUAL + (vec2<f32>(1.0) - LUMA_NR_RESIDUAL) * keep_edges;
+        let residual = luma_nr_residual(luma_a);
+        let keep = residual + (vec2<f32>(1.0) - residual) * keep_edges;
         // The bands describe the input; the centre passed in may already
         // differ (no earlier stage changes it today).
-        let edge_share = (1.0 - LUMA_NR_RESIDUAL.x) * keep_edges.x
+        let edge_share = (1.0 - residual.x) * keep_edges.x
             * smoothstep(LUMA_NR_EDGE_NOISE.x, LUMA_NR_EDGE_NOISE.y, measured);
         var edge_removed = 0.0;
         if (EDGE_NR && edge_share > 0.0) {
-            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, k * LUMA_NR_EDGE_RANGE, floor);
+            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, select(k, k * prof, prof != 1.0) * LUMA_NR_EDGE_RANGE, floor);
             edge_removed = edge_share * smoothstep(LUMA_NR_EDGE_FLAT.x, LUMA_NR_EDGE_FLAT.y, smoothed.y)
                 * (get_luma(v_c) - smoothed.x);
         }
@@ -3441,6 +3481,9 @@ fn apply_noise_reduction_refined(
         }
         let l1_c = get_luma(g1_c);
         let l2_c = get_luma(g2_c);
+        // The photo's luminance noise at this brightness (as the default
+        // path).
+        let prof = luma_noise_at(get_luma(nr_encode(g2_c)));
         let c_bands = vec2<f32>(get_luma(v_c) - l1_c, l1_c - l2_c);
         // One brightness unit for the whole neighbourhood.
         let unit = 2.0 * sqrt(max(l2_c, floor));
@@ -3473,7 +3516,8 @@ fn apply_noise_reduction_refined(
             }
         }
         let energy = e0 / vec2<f32>(25.0, 9.0);
-        let noise2 = noise * noise;
+        var noise2 = noise * noise;
+        if (prof != 1.0) { noise2 = noise2 * (prof * prof); }
         let signal = max(energy - noise2, vec2<f32>(0.0));
         let keep_own = signal / (signal + noise2 + vec2<f32>(1e-12));
         // Edges carry energy at every scale, noise mostly at the finest:
@@ -3481,7 +3525,7 @@ fn apply_noise_reduction_refined(
         let keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
         // A uniform share of every band stays: switching between kept and
         // removed grain left smooth patches next to grainy ones.
-        var residual = LUMA_NR_RESIDUAL;
+        var residual = luma_nr_residual(luma_a);
         if (refine.y > 0.0) {
             residual += refine.y * LUMA_NR_CONTRAST_RESIDUAL;
         }
@@ -3492,7 +3536,7 @@ fn apply_noise_reduction_refined(
             * smoothstep(LUMA_NR_EDGE_NOISE.x, LUMA_NR_EDGE_NOISE.y, measured);
         var edge_removed = 0.0;
         if (EDGE_NR && edge_share > 0.0) {
-            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, k * LUMA_NR_EDGE_RANGE, floor);
+            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, select(k, k * prof, prof != 1.0) * LUMA_NR_EDGE_RANGE, floor);
             edge_removed = edge_share * smoothstep(LUMA_NR_EDGE_FLAT.x, LUMA_NR_EDGE_FLAT.y, smoothed.y)
                 * (get_luma(v_c) - smoothed.x);
         }

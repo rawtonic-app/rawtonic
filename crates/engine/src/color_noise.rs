@@ -865,6 +865,11 @@ pub struct ChromaPyramid {
     /// and the smoothest blocks the photo's noise is measured in are its
     /// cleanest brightness, so midtones would get too low thresholds.
     pub profile: [f32; PROFILE_BINS],
+    /// The finest level's luminance noise by brightness (same bins),
+    /// relative to its median over the bins: where the photo's luminance
+    /// noise departs from the shot-noise model the renderer's luminance
+    /// noise reduction assumes (read noise in the shadows).
+    pub luma_profile: [f32; PROFILE_BINS],
     prepared: OnceLock<Arc<Prepared>>,
 }
 
@@ -955,6 +960,23 @@ impl ChromaPyramid {
             },
             |bx, by| block_covered(&masks[0], g1.width, g1.height, bx, by),
         );
+        let mut luma_profile = noise_profile(
+            w,
+            h,
+            block_stride(w, h),
+            luma_noise[0],
+            |x, y| {
+                let c = chroma_luma(source.pixel(x, y));
+                ([c[2] - expand_at(g1, x, y)[2], 0.0], c[2])
+            },
+            |bx, by| block_covered(&masks[0], g1.width, g1.height, bx, by),
+        );
+        let mut sorted = luma_profile;
+        sorted.sort_by(f32::total_cmp);
+        let middle = 0.5 * (sorted[PROFILE_BINS / 2 - 1] + sorted[PROFILE_BINS / 2]);
+        if middle > 0.0 {
+            luma_profile.iter_mut().for_each(|v| *v /= middle);
+        }
         Some(Self {
             width: w,
             height: h,
@@ -962,6 +984,7 @@ impl ChromaPyramid {
             noise,
             luma_noise,
             profile,
+            luma_profile,
             prepared: OnceLock::new(),
         })
     }
@@ -1563,6 +1586,30 @@ mod tests {
             "{:?}",
             flat.profile
         );
+    }
+
+    #[test]
+    fn the_luminance_profile_follows_luminance_noise_by_brightness() {
+        // Dark top half with three times the luminance noise (the same noise
+        // in all channels) of the bright bottom half.
+        let mut rng = Rng(23);
+        let image = Rgb32FImage::from_fn(384, 384, |_, y| {
+            let (level, sigma) = if y < 192 {
+                (0.09f32, 0.03f32)
+            } else {
+                (0.64, 0.01)
+            };
+            let p = level.sqrt() + sigma * rng.gaussian();
+            image::Rgb([p * p; 3])
+        });
+        let pyramid = ChromaPyramid::build(&DynamicImage::ImageRgb32F(image), true).unwrap();
+        let dark = profile_at(&pyramid.luma_profile, 0.3);
+        let bright = profile_at(&pyramid.luma_profile, 0.8);
+        assert!((dark / bright - 3.0).abs() < 0.6, "{dark} {bright}");
+        // Relative to its median: the bins around 1.
+        let mut sorted = pyramid.luma_profile;
+        sorted.sort_by(f32::total_cmp);
+        assert!((0.5 * (sorted[3] + sorted[4]) - 1.0).abs() < 1e-5);
     }
 
     #[test]

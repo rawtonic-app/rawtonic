@@ -2881,6 +2881,10 @@ pub struct GlobalAdjustments {
     /// The level-1 window of the renderer's chroma texture (origin xy) and
     /// level 1's size (zw); set by the renderer.
     pub color_noise_window: [u32; 4],
+    /// The luminance noise by brightness relative to its median
+    /// (`ChromaPyramid::luma_profile`, 8 bins of square-root luminance); set
+    /// by the renderer with the colour noise pyramid, all 0 without it.
+    pub luma_noise_profile: [[f32; 4]; 2],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3890,6 +3894,7 @@ fn get_global_adjustments_from_json(
             0.0,
         ],
         color_noise_window: [0; 4],
+        luma_noise_profile: [[0.0; 4]; 2],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -4391,6 +4396,7 @@ pub fn get_all_adjustments_from_json(
     let ([pattern_low, pattern_high], relight_patterns) =
         crate::relight::prepare_patterns(js_adjustments);
     global.relight_depth = [depth_key[0], depth_key[1], pattern_low, pattern_high];
+
     // The inherited Exposure slider applies 1/0.8 EV per unit. With the
     // Standard base look one unit is one stop, as in Capture One and
     // Lightroom (notes: reference/tone-controls.md); Classic and AgX edits keep

@@ -344,6 +344,24 @@ fn color_noise_settings(
     Some(settings)
 }
 
+/// Whether the recipe's luminance noise reduction uses the photo's
+/// luminance noise by brightness: recipes of the multi-scale colour noise
+/// reduction (`colorNoiseVersion` 2, also at Color 0) with luminance noise
+/// reduction; earlier recipes render as before.
+fn luma_profile_wanted(global: &crate::image_processing::GlobalAdjustments) -> bool {
+    global.color_noise[0] > 0.0 && global.luma_noise_reduction > 0.0
+}
+
+/// Sets the luminance noise profile (`ChromaPyramid::luma_profile`) in the
+/// uniforms.
+fn set_luma_profile(
+    global: &mut crate::image_processing::GlobalAdjustments,
+    pyramid: &ChromaPyramid,
+) {
+    let p = pyramid.luma_profile;
+    global.luma_noise_profile = [[p[0], p[1], p[2], p[3]], [p[4], p[5], p[6], p[7]]];
+}
+
 /// The thresholds for `settings`, set in the uniforms, the coarsest
 /// level's smoothing (`Tuning::base_sigma`) and their key.
 fn color_noise_thresholds(
@@ -704,7 +722,11 @@ fn prepare_color_noise(
     interactive: bool,
 ) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
     let global = &mut adjustments.uniforms.global;
-    let settings = color_noise_settings(global)?;
+    let luma_profile = luma_profile_wanted(global);
+    let settings = color_noise_settings(global);
+    if settings.is_none() && !luma_profile {
+        return None;
+    }
     if cache.chroma.is_none() {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_pyramid");
@@ -717,6 +739,10 @@ fn prepare_color_noise(
         global.color_noise[0] = 0.0;
         return None;
     };
+    if luma_profile {
+        set_luma_profile(global, &pyramid);
+    }
+    let settings = settings?;
     let pipelines = processor.chroma_pipelines.as_ref()?;
     let tuning = color_noise::Tuning::default();
     let (thresholds, base_sigma, key) = color_noise_thresholds(global, settings, &pyramid, &tuning);
@@ -2187,6 +2213,11 @@ pub struct GpuProcessor {
     /// The general pipelines (8-bit, high precision) with the luminance
     /// noise reduction's edge-preserving pass, compiled on first use.
     edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2],
+    /// General pipelines with the luminance noise profile (recipes of the
+    /// multi-scale colour noise reduction), by [high precision][edge pass];
+    /// the others are compiled without it (`LUMA_PROFILE` false) so earlier
+    /// recipes' exports stay bit-exact.
+    profile_pipelines: [[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2],
     detail_bgl: wgpu::BindGroupLayout,
     detail_layout: wgpu::PipelineLayout,
     /// Compiled off the render worker on first use; `None` if it failed.
@@ -3393,7 +3424,7 @@ impl GpuProcessor {
                 module: &shader_module,
                 entry_point: Some("main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("EDGE_NR", 0.0)],
+                    constants: &[("EDGE_NR", 0.0), ("LUMA_PROFILE", 0.0)],
                     ..Default::default()
                 },
                 cache: None,
@@ -3447,7 +3478,11 @@ impl GpuProcessor {
                 module: &high_precision_shader,
                 entry_point: Some("main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("HIGH_PRECISION_OUTPUT", 1.0), ("EDGE_NR", 0.0)],
+                    constants: &[
+                        ("HIGH_PRECISION_OUTPUT", 1.0),
+                        ("EDGE_NR", 0.0),
+                        ("LUMA_PROFILE", 0.0),
+                    ],
                     ..Default::default()
                 },
                 cache: None,
@@ -3585,6 +3620,7 @@ impl GpuProcessor {
             main_bgl,
             main_pipeline,
             edge_pipelines: Default::default(),
+            profile_pipelines: Default::default(),
             detail_bgl,
             detail_layout,
             detail_pipeline: Arc::new(std::sync::OnceLock::new()),
@@ -4409,7 +4445,48 @@ impl GpuProcessor {
         {
             return plain;
         }
-        if !edge_noise_reduction(adjustments) {
+        let edge = edge_noise_reduction(adjustments);
+        if adjustments.global.luma_noise_profile[0][0] > 0.0 {
+            return self.profile_pipelines[usize::from(high_precision)][usize::from(edge)]
+                .get_or_init(|| {
+                    let (shader, layout) = if high_precision {
+                        (&self.high_precision_shader, &self.high_precision_layout)
+                    } else {
+                        (&self.preview_shader, &self.preview_layout)
+                    };
+                    let edge_nr = if edge { 1.0 } else { 0.0 };
+                    let constants: &[(&str, f64)] = if high_precision {
+                        &[
+                            ("HIGH_PRECISION_OUTPUT", 1.0),
+                            ("EDGE_NR", edge_nr),
+                            ("LUMA_PROFILE", 1.0),
+                        ]
+                    } else {
+                        &[("EDGE_NR", edge_nr), ("LUMA_PROFILE", 1.0)]
+                    };
+                    create_compute_pipeline(
+                        &self.context.device,
+                        &wgpu::ComputePipelineDescriptor {
+                            label: Some("Compute Pipeline (luminance noise profile)"),
+                            layout: Some(layout),
+                            module: shader,
+                            entry_point: Some("main"),
+                            compilation_options: wgpu::PipelineCompilationOptions {
+                                constants,
+                                ..Default::default()
+                            },
+                            cache: None,
+                        },
+                    )
+                    .inspect_err(|error| {
+                        log::error!("Luminance noise profile pipeline unavailable: {error}")
+                    })
+                    .ok()
+                })
+                .as_ref()
+                .unwrap_or(plain);
+        }
+        if !edge {
             return plain;
         }
         self.edge_pipelines[usize::from(high_precision)]
@@ -4420,9 +4497,13 @@ impl GpuProcessor {
                     (&self.preview_shader, &self.preview_layout)
                 };
                 let constants: &[(&str, f64)] = if high_precision {
-                    &[("HIGH_PRECISION_OUTPUT", 1.0), ("EDGE_NR", 1.0)]
+                    &[
+                        ("HIGH_PRECISION_OUTPUT", 1.0),
+                        ("EDGE_NR", 1.0),
+                        ("LUMA_PROFILE", 0.0),
+                    ]
                 } else {
-                    &[("EDGE_NR", 1.0)]
+                    &[("EDGE_NR", 1.0), ("LUMA_PROFILE", 0.0)]
                 };
                 create_compute_pipeline(
                     &self.context.device,
@@ -5786,22 +5867,28 @@ fn render_in_windows(
     let mut request = request;
     let is_raw = request.adjustments.global.is_raw_image != 0;
     let tuning = color_noise::Tuning::default();
-    let chroma =
-        color_noise_settings(&mut request.adjustments.uniforms.global).and_then(|settings| {
-            let pyramid = ChromaPyramid::build(image, is_raw)?;
-            let pipelines = processor.chroma_pipelines.as_ref()?;
-            let (thresholds, base_sigma, _) = color_noise_thresholds(
-                &mut request.adjustments.uniforms.global,
-                settings,
-                &pyramid,
-                &tuning,
-            );
-            let rebuilt = pyramid.reconstruct(&thresholds, base_sigma, &tuning);
-            let level1 = &pyramid.levels[0];
-            request.adjustments.uniforms.global.color_noise_window =
-                [0, 0, level1.width as u32, level1.height as u32];
-            Some((pyramid, rebuilt, pipelines))
-        });
+    let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
+    let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
+    let pyramid = (settings.is_some() || luma_profile)
+        .then(|| ChromaPyramid::build(image, is_raw))
+        .flatten();
+    if luma_profile && let Some(pyramid) = &pyramid {
+        set_luma_profile(&mut request.adjustments.uniforms.global, pyramid);
+    }
+    let chroma = settings.zip(pyramid).and_then(|(settings, pyramid)| {
+        let pipelines = processor.chroma_pipelines.as_ref()?;
+        let (thresholds, base_sigma, _) = color_noise_thresholds(
+            &mut request.adjustments.uniforms.global,
+            settings,
+            &pyramid,
+            &tuning,
+        );
+        let rebuilt = pyramid.reconstruct(&thresholds, base_sigma, &tuning);
+        let level1 = &pyramid.levels[0];
+        request.adjustments.uniforms.global.color_noise_window =
+            [0, 0, level1.width as u32, level1.height as u32];
+        Some((pyramid, rebuilt, pipelines))
+    });
     if chroma.is_none() {
         request.adjustments.uniforms.global.color_noise[0] = 0.0;
     }
