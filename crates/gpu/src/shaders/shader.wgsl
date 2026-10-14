@@ -195,6 +195,9 @@ struct GlobalAdjustments {
     color_noise: vec4<f32>,
     // Level-1 window of `chroma_pyramid_texture` (origin) and level 1's size.
     color_noise_window: vec4<u32>,
+    // Luminance noise by brightness relative to its median (8 bins of
+    // square-root luminance; color_noise.rs `luma_profile`); 0 = none.
+    luma_noise_profile: array<vec4<f32>, 2>,
 }
 
 struct MaskAdjustments {
@@ -2853,6 +2856,8 @@ const LUMA_NR_RESIDUAL: vec2<f32> = vec2<f32>(0.15, 0.25);
 // How much the coarser band's signal share (squared) also keeps the finest
 // band.
 const LUMA_NR_CROSS_SCALE: f32 = 1.0;
+// EXPERIMENT
+const LUMA_NR_KEEP_CAP: f32 = 1.0;
 // Threshold in noise levels at the default amount (15 %).
 const LUMA_NR_DEFAULT_THRESHOLD: f32 = 2.2;
 // Lightroom's refinements (noise_detail, 0–1), fitted to Camera Raw's
@@ -2876,6 +2881,19 @@ const COLOR_NR_DETAIL_SHARE: f32 = 0.5;
 const COLOR_NR_SMOOTHNESS_LOWER: f32 = 2.1;
 const COLOR_NR_SMOOTHNESS_RAISE: f32 = 0.8;
 
+// The luminance noise at square-root luminance `y` relative to the photo's
+// (color_noise.rs `profile_at` over `luma_profile`); 1 without a profile.
+fn luma_noise_at(y: f32) -> f32 {
+    let p = adjustments.global.luma_noise_profile;
+    if (p[0].x <= 0.0) { return 1.0; }
+    let t = clamp(y * 8.0 - 0.5, 0.0, 7.0);
+    let i = min(i32(t), 6);
+    let f = t - f32(i);
+    let a = p[i / 4][i % 4];
+    let b = p[(i + 1) / 4][(i + 1) % 4];
+    return a + f * (b - a);
+}
+
 fn luma_nr_threshold(a: f32) -> f32 {
     return LUMA_NR_DEFAULT_THRESHOLD * sqrt(a / 0.15);
 }
@@ -2894,7 +2912,7 @@ fn luma_nr_threshold(a: f32) -> f32 {
 // (LUMA_NR_EDGE_NOISE): below it photos render as before.
 const LUMA_NR_EDGE_RANGE: f32 = 0.9;
 const LUMA_NR_EDGE_SPATIAL: f32 = 1.5;
-const LUMA_NR_EDGE_NOISE: vec2<f32> = vec2<f32>(0.005, 0.008);
+const LUMA_NR_EDGE_NOISE: vec2<f32> = vec2<f32>(0.0, 0.0005);
 // Texture is kept: the pass fades out where the eight nearest pixels' mean
 // range weight falls from y to x (pure noise ~0.7 at ISO 6400-12800,
 // textured stone and foliage at base ISO ~0.3).
@@ -3204,6 +3222,9 @@ fn apply_noise_reduction_default(
         }
         let l1_c = get_luma(g1_c);
         let l2_c = get_luma(g2_c);
+        // The photo's luminance noise at this brightness (shadows carry
+        // read noise beyond the shot-noise model the units assume).
+        let prof = luma_noise_at(get_luma(nr_encode(g2_c)));
         let c_bands = vec2<f32>(get_luma(v_c) - l1_c, l1_c - l2_c);
         // One brightness unit for the whole neighbourhood.
         let unit = 2.0 * sqrt(max(l2_c, floor));
@@ -3236,7 +3257,7 @@ fn apply_noise_reduction_default(
             }
         }
         let energy = e0 / vec2<f32>(25.0, 9.0);
-        let noise2 = noise * noise;
+        let noise2 = noise * noise * (prof * prof);
         let signal = max(energy - noise2, vec2<f32>(0.0));
         let keep_own = signal / (signal + noise2 + vec2<f32>(1e-12));
         // Edges carry energy at every scale, noise mostly at the finest:
@@ -3244,14 +3265,17 @@ fn apply_noise_reduction_default(
         let keep_edges = vec2<f32>(max(keep_own.x, keep_own.y * keep_own.y * LUMA_NR_CROSS_SCALE), keep_own.y);
         // A uniform share of every band stays: switching between kept and
         // removed grain left smooth patches next to grainy ones.
-        let keep = LUMA_NR_RESIDUAL + (vec2<f32>(1.0) - LUMA_NR_RESIDUAL) * keep_edges;
+        // EXPERIMENT: residual override (_pad_cg3/_pad_cg4).
+        var residual = LUMA_NR_RESIDUAL;
+        if (adjustments.global._pad_cg3 > 0.0) { residual = vec2<f32>(adjustments.global._pad_cg3, adjustments.global._pad_cg4); }
+        let keep = residual + (vec2<f32>(1.0) - residual) * keep_edges * LUMA_NR_KEEP_CAP;
         // The bands describe the input; the centre passed in may already
         // differ (no earlier stage changes it today).
-        let edge_share = (1.0 - LUMA_NR_RESIDUAL.x) * keep_edges.x
+        let edge_share = (1.0 - residual.x) * keep_edges.x
             * smoothstep(LUMA_NR_EDGE_NOISE.x, LUMA_NR_EDGE_NOISE.y, measured);
         var edge_removed = 0.0;
         if (EDGE_NR && edge_share > 0.0) {
-            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, k * LUMA_NR_EDGE_RANGE, floor);
+            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, k * prof * LUMA_NR_EDGE_RANGE, floor);
             edge_removed = edge_share * smoothstep(LUMA_NR_EDGE_FLAT.x, LUMA_NR_EDGE_FLAT.y, smoothed.y)
                 * (get_luma(v_c) - smoothed.x);
         }

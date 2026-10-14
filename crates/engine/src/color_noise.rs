@@ -865,6 +865,11 @@ pub struct ChromaPyramid {
     /// and the smoothest blocks the photo's noise is measured in are its
     /// cleanest brightness, so midtones would get too low thresholds.
     pub profile: [f32; PROFILE_BINS],
+    /// The finest level's luminance noise by brightness (same bins),
+    /// relative to its median over the bins: where the photo's luminance
+    /// noise departs from the shot-noise model the renderer's luminance
+    /// noise reduction assumes (read noise in the shadows).
+    pub luma_profile: [f32; PROFILE_BINS],
     prepared: OnceLock<Arc<Prepared>>,
 }
 
@@ -955,6 +960,23 @@ impl ChromaPyramid {
             },
             |bx, by| block_covered(&masks[0], g1.width, g1.height, bx, by),
         );
+        let mut luma_profile = noise_profile(
+            w,
+            h,
+            block_stride(w, h),
+            luma_noise[0],
+            |x, y| {
+                let c = chroma_luma(source.pixel(x, y));
+                ([c[2] - expand_at(g1, x, y)[2], 0.0], c[2])
+            },
+            |bx, by| block_covered(&masks[0], g1.width, g1.height, bx, by),
+        );
+        let mut sorted = luma_profile;
+        sorted.sort_by(f32::total_cmp);
+        let middle = 0.5 * (sorted[PROFILE_BINS / 2 - 1] + sorted[PROFILE_BINS / 2]);
+        if middle > 0.0 {
+            luma_profile.iter_mut().for_each(|v| *v /= middle);
+        }
         Some(Self {
             width: w,
             height: h,
@@ -962,6 +984,7 @@ impl ChromaPyramid {
             noise,
             luma_noise,
             profile,
+            luma_profile,
             prepared: OnceLock::new(),
         })
     }

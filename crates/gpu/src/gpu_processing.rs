@@ -364,6 +364,14 @@ fn color_noise_thresholds(
     global.color_noise[3] = tuning.finest_edge2(&thresholds, &pyramid.noise);
     global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &pyramid.noise);
     global.color_noise_aware_far = tuning.aware_far;
+    // EXPERIMENT (remove before commit): luminance noise profile.
+    if std::env::var("RT_EXP_LPROF").is_ok() {
+        let p = pyramid.luma_profile;
+        global.luma_noise_profile = [[p[0], p[1], p[2], p[3]], [p[4], p[5], p[6], p[7]]];
+        if std::env::var("RT_EXP_LPROF_LOG").is_ok() {
+            eprintln!("EXP luma profile {p:?}");
+        }
+    }
     (thresholds, base_sigma, key)
 }
 
@@ -2084,7 +2092,7 @@ const PREVIEW_PIPELINE_COUNT: usize = 32;
 /// reduction, use pipelines compiled without it (`EDGE_NR` false): with the
 /// pass present but idle, Metal compiled neighbouring arithmetic differently
 /// and changed a few deep-shadow values by one 16-bit step.
-const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
+const LUMA_NR_EDGE_NOISE_START: f32 = 0.0; // EXPERIMENT (was 0.005)
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
 /// highlights 2, curves 4, masks 8, noise reduction 16.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
