@@ -329,7 +329,14 @@ pub fn gain(size2: f32, threshold2: f32, steepness: f32) -> f32 {
     if size2 <= 0.0 {
         return 0.0;
     }
-    1.0 / (1.0 + (threshold2 / size2).powf(steepness))
+    let x = threshold2 / size2;
+    // The default steepness without powf (a third of the rebuild's time).
+    let p = if steepness == 3.0 {
+        x * x * x
+    } else {
+        x.powf(steepness)
+    };
+    1.0 / (1.0 + p)
 }
 
 /// Channels of the pyramid: red − green, blue − green and luminance, all in
@@ -455,9 +462,11 @@ fn mirror(i: isize, n: usize) -> usize {
 /// the expansion keeps to the guide's side of a colour edge. The distances
 /// are taken relative to the nearest sample's, so the weights cannot all
 /// vanish (renderer `ms_expand_aware`, color_noise.wgsl
-/// `reconstruct_level`).
+/// `reconstruct_level`). Per position, as the reference of
+/// [`expand_aware_row`].
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
-pub fn expand_aware(
+fn expand_aware(
     rebuilt: &Plane,
     coarse: &Plane,
     x: usize,
@@ -525,16 +534,13 @@ pub fn expand_aware(
     (r.map(|v| v / sw), c.map(|v| v / sw))
 }
 
-/// e^−x for x ≥ 0 (relative error below 3e-5; 0 beyond 30, where the
+/// e^−x for x ≥ 0 (relative error below 3e-5; at least e^−87, where the
 /// weights it makes no longer count): 2^−x·log2 e from the exponent bits and
-/// the Taylor polynomial of 2^−f for the fraction. The renderer's `exp` is
-/// the GPU's.
-#[inline]
+/// the Taylor polynomial of 2^−f for the fraction, without branches so the
+/// aware weights vectorize. The renderer's `exp` is the GPU's.
+#[inline(always)]
 fn exp_neg(x: f32) -> f32 {
-    if x >= 30.0 {
-        return 0.0;
-    }
-    let t = x * std::f32::consts::LOG2_E;
+    let t = x.clamp(0.0, 87.0) * std::f32::consts::LOG2_E;
     let n = t.floor();
     let f = t - n;
     // 2^−f on [0, 1): minimax-style polynomial of 2^−f = e^(−f ln 2).
@@ -544,6 +550,211 @@ fn exp_neg(x: f32) -> f32 {
                 + f * (-0.055_504_11
                     + f * (0.009_618_129 + f * (-0.001_333_355 + f * 0.000_154_035_3)))));
     p * f32::from_bits(((127 - n as i32) as u32) << 23)
+}
+
+/// Reusable buffers of [`expand_aware_row`] (one per worker).
+#[derive(Default)]
+pub struct AwareRow {
+    /// The coarse rows of the taps as padded columns (index m = column
+    /// m − 1, clamped): rebuilt chroma, coarse chroma and luminance.
+    rows: [Vec<f32>; 5],
+    guide: [Vec<f32>; 2],
+    out: [Vec<f32>; 4],
+    /// [`expand_aware`]'s reconstruction (`.0`) and coarse (`.1`) chroma
+    /// at each position of the row.
+    pub rebuilt: Vec<[f32; 2]>,
+    pub coarse: Vec<[f32; 2]>,
+}
+
+/// Positions of one parity taken together by [`aware_pass`].
+const AWARE_BLOCK: usize = 8;
+
+/// [`expand_aware`] for the whole finer row `y` (`width` positions, guide
+/// chroma `guide(x)`), into `scratch.rebuilt` and `scratch.coarse`. Even
+/// and odd positions are taken apart, so each tap is a run of columns, and
+/// in blocks of fixed size: the passes vectorize across positions.
+#[allow(clippy::too_many_arguments)]
+pub fn expand_aware_row(
+    rebuilt: &Plane,
+    coarse: &Plane,
+    y: usize,
+    width: usize,
+    guide: impl Fn(usize) -> [f32; 2],
+    inv2: f32,
+    far: f32,
+    profile: Option<&[f32; PROFILE_BINS]>,
+    scratch: &mut AwareRow,
+) {
+    let (ys, wy) = expand_taps(y, coarse.height);
+    let cw = coarse.width;
+    // Room for the last block's taps beyond the clamped edge column.
+    let stride = cw + 3 + AWARE_BLOCK;
+    let ny = if y.is_multiple_of(2) { 3 } else { 2 };
+    for row in scratch.rows.iter_mut() {
+        row.resize(3 * stride, 0.0);
+    }
+    for (j, &yy) in ys.iter().take(ny).enumerate() {
+        let r = &rebuilt.data[yy * cw..(yy + 1) * cw];
+        let c = &coarse.data[yy * cw..(yy + 1) * cw];
+        for m in 0..stride {
+            let col = m.saturating_sub(1).min(cw - 1);
+            let at = j * stride + m;
+            scratch.rows[0][at] = r[col][0];
+            scratch.rows[1][at] = r[col][1];
+            scratch.rows[2][at] = c[col][0];
+            scratch.rows[3][at] = c[col][1];
+            scratch.rows[4][at] = c[col][2];
+        }
+    }
+    scratch.rebuilt.resize(width, [0.0; 2]);
+    scratch.coarse.resize(width, [0.0; 2]);
+    for parity in 0..2 {
+        let n = (width + 1 - parity) / 2;
+        if n == 0 {
+            continue;
+        }
+        let total = n.div_ceil(AWARE_BLOCK) * AWARE_BLOCK;
+        for g in scratch.guide.iter_mut() {
+            g.clear();
+            g.resize(total, 0.0);
+        }
+        for k in 0..n {
+            let [a, b] = guide(2 * k + parity);
+            scratch.guide[0][k] = a;
+            scratch.guide[1][k] = b;
+        }
+        for o in scratch.out.iter_mut() {
+            o.resize(total, 0.0);
+        }
+        // Even positions take columns k − 1, k, k + 1 (padded k … k + 2),
+        // odd ones k, k + 1 (padded k + 1, k + 2).
+        let even = [0.125, 0.75, 0.125];
+        let odd = [0.5, 0.5, 0.0];
+        let args = (stride, total, wy, inv2, far, profile);
+        match (parity, ny) {
+            (0, 3) => aware_pass::<3, 3>(scratch, 0, even, args),
+            (0, _) => aware_pass::<3, 2>(scratch, 0, even, args),
+            (_, 3) => aware_pass::<2, 3>(scratch, 1, odd, args),
+            _ => aware_pass::<2, 2>(scratch, 1, odd, args),
+        }
+        for k in 0..n {
+            let x = 2 * k + parity;
+            scratch.rebuilt[x] = [scratch.out[0][k], scratch.out[1][k]];
+            scratch.coarse[x] = [scratch.out[2][k], scratch.out[3][k]];
+        }
+    }
+}
+
+type PassArgs<'a> = (
+    usize,
+    usize,
+    [f32; 3],
+    f32,
+    f32,
+    Option<&'a [f32; PROFILE_BINS]>,
+);
+
+#[inline(always)]
+fn aware_pass<const NX: usize, const NY: usize>(
+    scratch: &mut AwareRow,
+    m0: usize,
+    wx: [f32; 3],
+    (stride, total, wy, inv2, far, profile): PassArgs,
+) {
+    const B: usize = AWARE_BLOCK;
+    const W: usize = AWARE_BLOCK + 2;
+    let AwareRow {
+        rows, guide, out, ..
+    } = scratch;
+    for k0 in (0..total).step_by(B) {
+        // Tap (i, j) of position k0 + b is element b + i of `taps[j]`.
+        let taps = |row: &[f32]| -> [[f32; W]; NY] {
+            std::array::from_fn(|j| {
+                let at = j * stride + m0 + k0;
+                row[at..at + W].try_into().unwrap()
+            })
+        };
+        let (ra, rb, ca, cb) = (
+            taps(&rows[0]),
+            taps(&rows[1]),
+            taps(&rows[2]),
+            taps(&rows[3]),
+        );
+        let g0: [f32; B] = guide[0][k0..k0 + B].try_into().unwrap();
+        let g1: [f32; B] = guide[1][k0..k0 + B].try_into().unwrap();
+        // With a noise profile the range follows the colour noise at the
+        // brightness of the plain expansion.
+        let mut inv2s = [inv2; B];
+        if let Some(profile) = profile {
+            let cl = taps(&rows[4]);
+            let mut l = [0.0f32; B];
+            for j in 0..NY {
+                for i in 0..NX {
+                    let ws = wx[i] * wy[j];
+                    for b in 0..B {
+                        l[b] += ws * cl[j][b + i];
+                    }
+                }
+            }
+            for b in 0..B {
+                let p = profile_at(profile, l[b]);
+                inv2s[b] = inv2 / (p * p);
+            }
+        }
+        // Tap by tap, each over the block's positions (the inner loops
+        // vectorize; per position the sums keep the order of
+        // `expand_aware`).
+        let mut d2 = [[[0.0f32; B]; NX]; NY];
+        let mut nearest = [f32::INFINITY; B];
+        let mut farthest = [0.0f32; B];
+        let mut p = [[0.0f32; B]; 4];
+        for j in 0..NY {
+            for i in 0..NX {
+                let ws = wx[i] * wy[j];
+                for b in 0..B {
+                    let (a, c) = (ra[j][b + i], rb[j][b + i]);
+                    let (da, dc) = (a - g0[b], c - g1[b]);
+                    let d = da * da + dc * dc;
+                    d2[j][i][b] = d;
+                    nearest[b] = nearest[b].min(d);
+                    farthest[b] = farthest[b].max(d);
+                    p[0][b] += ws * a;
+                    p[1][b] += ws * c;
+                    p[2][b] += ws * ca[j][b + i];
+                    p[3][b] += ws * cb[j][b + i];
+                }
+            }
+        }
+        let mut q = [[0.0f32; B]; 4];
+        let mut sw = [0.0f32; B];
+        for j in 0..NY {
+            for i in 0..NX {
+                let ws = wx[i] * wy[j];
+                for b in 0..B {
+                    let w = ws * exp_neg((d2[j][i][b] - nearest[b]) * inv2s[b]);
+                    q[0][b] += w * ra[j][b + i];
+                    q[1][b] += w * rb[j][b + i];
+                    q[2][b] += w * ca[j][b + i];
+                    q[3][b] += w * cb[j][b + i];
+                    sw[b] += w;
+                }
+            }
+        }
+        let mut o = [[0.0f32; B]; 4];
+        for b in 0..B {
+            // A sample far from every coarser one is taken for noise;
+            // where the weights would differ by less than AWARE_FLAT (flat
+            // areas) the plain expansion is the same.
+            let plain =
+                nearest[b] * inv2s[b] > far || (farthest[b] - nearest[b]) * inv2s[b] < AWARE_FLAT;
+            for c in 0..4 {
+                o[c][b] = if plain { p[c][b] } else { q[c][b] / sw[b] };
+            }
+        }
+        for (dst, src) in out.iter_mut().zip(&o) {
+            dst[k0..k0 + B].copy_from_slice(src);
+        }
+    }
 }
 
 /// Below this spread of the aware exponents (weights within 0.1 % of
@@ -1014,27 +1225,36 @@ impl ChromaPyramid {
             let edge2 = tuning.edge_scale2(l, thresholds[l], &self.noise);
             let aware_inv2 = tuning.aware_inv2(l, thresholds, &self.noise);
             let mut data = vec![[0.0f32; CH]; fine.width * fine.height];
-            data.par_chunks_mut(fine.width)
-                .enumerate()
-                .for_each(|(y, row)| {
+            data.par_chunks_mut(fine.width).enumerate().for_each_init(
+                AwareRow::default,
+                |scratch, (y, row)| {
+                    let line = &fine.data[y * fine.width..(y + 1) * fine.width];
+                    if aware_inv2 > 0.0 {
+                        // The detail against the same weighted expansion
+                        // of the unfiltered coarser level.
+                        expand_aware_row(
+                            &rebuilt,
+                            coarse,
+                            y,
+                            fine.width,
+                            |x| [line[x][0], line[x][1]],
+                            aware_inv2,
+                            tuning.aware_far,
+                            Some(&self.profile),
+                            scratch,
+                        );
+                    }
                     for (x, v) in row.iter_mut().enumerate() {
                         let i = y * fine.width + x;
                         let k = level_keep(level.size2[i], t2, level.edge[i], edge2, steepness);
                         *v = if aware_inv2 > 0.0 {
-                            // The detail against the same weighted expansion
-                            // of the unfiltered coarser level.
-                            let f = fine.at(x, y);
-                            let (r, c) = expand_aware(
-                                &rebuilt,
-                                coarse,
-                                x,
-                                y,
-                                [f[0], f[1]],
-                                aware_inv2,
-                                tuning.aware_far,
-                                Some(&self.profile),
-                            );
-                            rebuilt_detail(r, [f[0] - c[0], f[1] - c[1]], level.follow[i], k)
+                            let (r, c, f) = (scratch.rebuilt[x], scratch.coarse[x], line[x]);
+                            rebuilt_detail(
+                                [r[0], r[1], 0.0],
+                                [f[0] - c[0], f[1] - c[1]],
+                                level.follow[i],
+                                k,
+                            )
                         } else {
                             rebuilt_detail(
                                 expand_at(&rebuilt, x, y),
@@ -1044,7 +1264,8 @@ impl ChromaPyramid {
                             )
                         };
                     }
-                });
+                },
+            );
             rebuilt = Plane {
                 width: fine.width,
                 height: fine.height,
@@ -1412,46 +1633,52 @@ pub fn apply_with(
     let t2 = thresholds[0] * thresholds[0];
     let edge2 = tuning.finest_edge2(thresholds, &pyramid.noise);
     let mut out = vec![0.0f32; w * h * 3];
-    out.par_chunks_mut(w * 3).enumerate().for_each(|(y, row)| {
-        for x in 0..w {
-            let i = y * w + x;
-            let rgb = pixel(i);
+    out.par_chunks_mut(w * 3)
+        .enumerate()
+        .for_each_init(AwareRow::default, |scratch, (y, row)| {
             // Only the reconstruction expanded aware (renderer
             // `ms_expand_aware`); the detail stays against level 1's plain
             // expansion.
-            let rebuilt_at = if aware2 > 0.0 {
-                expand_aware(
+            if aware2 > 0.0 {
+                expand_aware_row(
                     &rebuilt,
                     level1,
-                    x,
                     y,
-                    chroma(rgb),
+                    w,
+                    |x| chroma(pixel(y * w + x)),
                     1.0 / aware2,
                     tuning.aware_far,
                     None,
-                )
-                .0
-            } else {
-                expand_at(&rebuilt, x, y)
-            };
-            let level1_at = expand_at(level1, x, y);
-            let v = filtered_pixel(
-                rgb,
-                level1_at,
-                rebuilt_at,
-                if edge2 > 0.0 {
-                    gain(size2[i], t2, steepness).max(gain(
-                        level1_gradient2(&rebuilt, x, y),
-                        edge2,
-                        steepness,
-                    ))
+                    scratch,
+                );
+            }
+            for x in 0..w {
+                let i = y * w + x;
+                let rgb = pixel(i);
+                let rebuilt_at = if aware2 > 0.0 {
+                    let r = scratch.rebuilt[x];
+                    [r[0], r[1], 0.0]
                 } else {
-                    gain(size2[i], t2, steepness)
-                },
-            );
-            row[x * 3..x * 3 + 3].copy_from_slice(&v);
-        }
-    });
+                    expand_at(&rebuilt, x, y)
+                };
+                let level1_at = expand_at(level1, x, y);
+                let v = filtered_pixel(
+                    rgb,
+                    level1_at,
+                    rebuilt_at,
+                    if edge2 > 0.0 {
+                        gain(size2[i], t2, steepness).max(gain(
+                            level1_gradient2(&rebuilt, x, y),
+                            edge2,
+                            steepness,
+                        ))
+                    } else {
+                        gain(size2[i], t2, steepness)
+                    },
+                );
+                row[x * 3..x * 3 + 3].copy_from_slice(&v);
+            }
+        });
     image::Rgb32FImage::from_raw(w as u32, h as u32, out).unwrap()
 }
 
@@ -1900,7 +2127,68 @@ mod tests {
             let (fast, exact) = (exp_neg(x), (-x).exp());
             assert!((fast - exact).abs() <= 3e-5 * exact, "{x} {fast} {exact}");
         }
-        assert_eq!(exp_neg(30.0), 0.0);
+        assert!(exp_neg(1000.0) < 1e-37);
+        assert_eq!(exp_neg(-1.0), 1.0);
+    }
+
+    #[test]
+    fn the_row_expansion_matches_each_position() {
+        let mut rng = Rng(11);
+        let mut plane = |w: usize, h: usize| Plane {
+            width: w,
+            height: h,
+            data: (0..w * h)
+                .map(|_| {
+                    let step = if rng.next() < 0.3 { 0.2 } else { 0.0 };
+                    [
+                        0.05 * rng.gaussian() + step,
+                        0.05 * rng.gaussian() - step,
+                        rng.next(),
+                    ]
+                })
+                .collect(),
+        };
+        let profile = std::array::from_fn(|b| 0.5 + 0.1 * b as f32);
+        let mut scratch = AwareRow::default();
+        for (cw, ch) in [(1, 1), (2, 3), (5, 4), (13, 9)] {
+            let (rebuilt, coarse) = (plane(cw, ch), plane(cw, ch));
+            for (width, height) in [(2 * cw, 2 * ch), (2 * cw - 1, 2 * ch - 1)] {
+                let fine = plane(width, height);
+                let guide = |x: usize, y: usize| {
+                    let f = fine.at(x, y);
+                    [f[0], f[1]]
+                };
+                for (inv2, profile) in [(400.0, None), (40.0, Some(&profile)), (1e5, None)] {
+                    for y in 0..height {
+                        expand_aware_row(
+                            &rebuilt,
+                            &coarse,
+                            y,
+                            width,
+                            |x| guide(x, y),
+                            inv2,
+                            AWARE_FAR,
+                            profile,
+                            &mut scratch,
+                        );
+                        for x in 0..width {
+                            let (r, c) = expand_aware(
+                                &rebuilt,
+                                &coarse,
+                                x,
+                                y,
+                                guide(x, y),
+                                inv2,
+                                AWARE_FAR,
+                                profile,
+                            );
+                            assert_eq!(scratch.rebuilt[x], [r[0], r[1]], "{cw} {width} {x} {y}");
+                            assert_eq!(scratch.coarse[x], [c[0], c[1]], "{cw} {width} {x} {y}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]
