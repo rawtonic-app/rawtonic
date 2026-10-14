@@ -792,9 +792,12 @@ pub(crate) fn generate_single_thumbnail_and_cache(
     force_regenerate: bool,
     app_handle: &AppHandle,
     settings: &AppSettings,
-) -> Option<(String, String, u8, bool)> {
+) -> Option<(String, String, Option<u8>, Option<bool>)> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
 
+    // Rating and edit state only when a sidecar was read: without one they
+    // are unknown here (the listing has them), and an event saying 0 could
+    // arrive after the photograph was registered with its rating.
     let (rating, is_edited, adjustments_bytes) = if is_cloud_placeholder(&sidecar_path) {
         enqueue_metadata(
             app_handle,
@@ -802,19 +805,23 @@ pub(crate) fn generate_single_thumbnail_and_cache(
             source_path.clone(),
             sidecar_path.clone(),
         );
-        (0, false, Vec::new())
+        (None, None, Vec::new())
     } else if let Some(meta) = thumbnail_metadata(&source_path, &sidecar_path) {
         {
             let is_raw = crate::formats::is_raw_file(path_str);
             let tm = crate::image_processing::resolve_tonemapper_override(settings, is_raw);
             (
-                meta.rating,
-                crate::image_processing::is_image_edited(&meta.adjustments, is_raw, tm),
+                Some(meta.rating),
+                Some(crate::image_processing::is_image_edited(
+                    &meta.adjustments,
+                    is_raw,
+                    tm,
+                )),
                 serde_json::to_vec(&meta.adjustments).unwrap_or_default(),
             )
         }
     } else {
-        (0, false, Vec::new())
+        (None, None, Vec::new())
     };
 
     let cache_hash = compute_thumbnail_cache_hash(path_str, &adjustments_bytes)?;
@@ -1073,8 +1080,8 @@ pub(crate) fn emit_thumbnail_generated(
     path: &str,
     small_thumbnail_path: &str,
     medium_thumbnail_path: &str,
-    rating: u8,
-    is_edited: bool,
+    rating: Option<u8>,
+    is_edited: Option<bool>,
 ) {
     let _ = app_handle.emit(
         "thumbnail-generated",

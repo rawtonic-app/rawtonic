@@ -54,6 +54,7 @@ it("needs a choice for every contested file before it applies, then sends exactl
   render(<FolderSyncDialog directory="/lib" folder={null} onClose={vi.fn()} onApplied={onApplied} />);
   await screen.findByText("Needs your choice");
   expect(screen.getByText("The whole library")).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Synchronize Library" })).toBeTruthy();
   const apply = screen.getByRole("button", { name: /Apply/ }) as HTMLButtonElement;
   expect(apply.disabled).toBe(true);
   await user.click(screen.getByRole("radio", { name: "It is old/X.ARW, moved (verified)" }));
@@ -116,9 +117,32 @@ it("offers only Close when everything is in sync", async () => {
   const onClose = vi.fn();
   const user = userEvent.setup();
   render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={onClose} onApplied={vi.fn()} />);
-  await screen.findByRole("status");
+  await screen.findByText(/^Everything is in sync/);
   expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();
   const close = screen.getAllByRole("button", { name: "Close" });
   await user.click(close[close.length - 1]);
   expect(onClose).toHaveBeenCalled();
+});
+
+it("lists the rows of a group in natural order", async () => {
+  const plan = samplePlan();
+  const file = (name: string) => ({ path: `/lib/Capture/${name}`, identity: plan.newFiles[0].identity, copyOf: [] });
+  vi.mocked(invoke).mockResolvedValueOnce({ ...plan, newFiles: ["copy_10.ARW", "copy_2.ARW", "copy_1.ARW"].map(file) });
+  render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={vi.fn()} onApplied={vi.fn()} />);
+  const added = await screen.findByRole("region", { name: "New photographs" });
+  expect(within(added).getAllByRole("listitem").map((row) => row.textContent)).toEqual([
+    "copy_1.ARW",
+    "copy_2.ARW",
+    "copy_10.ARW",
+  ]);
+});
+
+it("does not call a folder on a disconnected drive in sync", async () => {
+  const offline = { ...samplePlan(), files: 0, verifiedMoves: [], probableMoves: [], newFiles: [], copies: [], contested: [], removed: [] };
+  vi.mocked(invoke).mockResolvedValueOnce(offline);
+  render(<FolderSyncDialog directory="/lib" folder="/Volumes/Photos" onClose={vi.fn()} onApplied={vi.fn()} />);
+  await screen.findByText("Nothing to change: 0 photograph files looked at. The photographs below could not be checked.");
+  expect(screen.queryByText(/in sync/)).toBeNull();
+  expect(within(screen.getByRole("region", { name: "Not available" })).getByText("on “Photos”")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();
 });

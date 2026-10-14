@@ -311,6 +311,20 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
     if new.is_empty() {
         return Ok(());
     }
+    // Renamed (or moved and renamed) while the session was closed: a file
+    // with the content hash on record for a missing photograph is that
+    // photograph (Synchronize Folder's verified move), followed with its
+    // edits instead of registered again unedited beside the missing one.
+    // Files that may be a missing photograph without proof (probable or
+    // contested matches) are not registered: Synchronize Folder settles
+    // them (they are listed meanwhile, as every file of the folder).
+    match follow_verified_moves(lib, &new) {
+        Ok(taken) => new.retain(|photo| !taken.contains(photo)),
+        Err(e) => log::warn!("Renamed photographs not followed: {e:#}"),
+    }
+    if new.is_empty() {
+        return Ok(());
+    }
     let _batch = lib.import_batch(rawtonic_catalog::ImportKind::Add);
     // A relink above may already have taken some of them.
     let report = lib.add_files(&new)?;
@@ -318,6 +332,40 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
         log::warn!("{} not added to the session: {error}", path.display());
     }
     Ok(())
+}
+
+/// Applies the verified moves of a Synchronize Folder scan of the session
+/// whose new place is one of `new`; returns the places taken by them and
+/// the places of `new` left for the user (probable and contested moves).
+fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashSet<PathBuf>> {
+    use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions};
+    let never = std::sync::atomic::AtomicBool::new(false);
+    let plan = lib.scan_folder_sync(
+        None,
+        &SyncOptions {
+            accept: &|path| crate::formats::is_supported_image_file(path),
+            cancel: &never,
+            progress: &|_| {},
+        },
+    )?;
+    let mut taken: HashSet<PathBuf> = plan
+        .probable_moves
+        .iter()
+        .map(|change| change.to.clone())
+        .chain(plan.contested.iter().map(|file| file.path.clone()))
+        .collect();
+    let actions: Vec<SyncAction> = plan
+        .verified_moves
+        .iter()
+        .filter(|change| new.contains(&change.to))
+        .map(SyncAction::from)
+        .collect();
+    if !actions.is_empty() {
+        let applied = lib.apply_folder_sync(&actions)?;
+        after_relink(lib, &applied.relinked());
+        taken.extend(applied.moved.into_iter().map(|(_, to)| to));
+    }
+    Ok(taken)
 }
 
 fn remember(app: &tauri::AppHandle, dir: &Path) -> Result<(), String> {
@@ -1474,6 +1522,70 @@ mod tests {
                 .rating,
             4
         );
+    }
+
+    /// A photograph renamed while the session was closed is followed with
+    /// its edits when the session opens (its content hash is on record), not
+    /// registered again unedited beside the missing original. Two files
+    /// that both may be a missing photograph wait for Synchronize Folder; a
+    /// copy of a photograph that is there is a photograph of the folder.
+    #[test]
+    fn a_photograph_renamed_while_closed_is_followed_by_its_content_hash() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Renamed", Mode::Session).unwrap();
+        let capture = lib.directory.join("Capture");
+        for (name, seed) in [("A.ARW", 1u8), ("B.ARW", 2), ("C.ARW", 3)] {
+            let mut bytes = vec![seed; 300_000];
+            bytes[150_000] = seed + 1;
+            fs::write(capture.join(name), bytes).unwrap();
+        }
+        index_folder(&lib).unwrap();
+        let id = |name: &str| lib.asset_at(&capture.join(name)).unwrap().unwrap().id;
+        let (a, b, c) = (id("A.ARW"), id("B.ARW"), id("C.ARW"));
+        for id in [&a, &b] {
+            let mut meta = lib.metadata(id).unwrap();
+            meta.rating = 4;
+            lib.set_metadata(id, &meta).unwrap();
+        }
+        lib.fill_all_checksums(&std::sync::atomic::AtomicBool::new(false))
+            .unwrap();
+        // While closed: A renamed and moved; B renamed with a copy beside
+        // it (either may be B); C copied.
+        fs::create_dir(capture.join("Day 2")).unwrap();
+        fs::rename(capture.join("A.ARW"), capture.join("Day 2/A final.ARW")).unwrap();
+        fs::rename(capture.join("B.ARW"), capture.join("B renamed.ARW")).unwrap();
+        fs::copy(capture.join("B renamed.ARW"), capture.join("B copy.ARW")).unwrap();
+        fs::copy(capture.join("C.ARW"), capture.join("C copy.ARW")).unwrap();
+
+        index_folder(&lib).unwrap();
+        let moved = lib
+            .asset_at(&capture.join("Day 2/A final.ARW"))
+            .unwrap()
+            .unwrap();
+        assert_eq!((moved.id.as_str(), moved.rating), (a.as_str(), 4));
+        for name in ["B renamed.ARW", "B copy.ARW"] {
+            assert!(
+                lib.asset_at(&capture.join(name)).unwrap().is_none(),
+                "{name}"
+            );
+        }
+        assert_eq!(check_files(&lib).unwrap(), 1, "B waits for the user");
+        assert_eq!(lib.asset(&b).unwrap().rating, 4);
+        assert_ne!(id("C copy.ARW"), c);
+        assert_eq!(lib.summary().unwrap().assets, 4);
+        // Synchronize Folder offers B's choice.
+        let plan = lib
+            .scan_folder_sync(
+                None,
+                &rawtonic_catalog::folder_sync::SyncOptions {
+                    accept: &|p| crate::formats::is_supported_image_file(p),
+                    cancel: &std::sync::atomic::AtomicBool::new(false),
+                    progress: &|_| {},
+                },
+            )
+            .unwrap();
+        assert_eq!(plan.contested.len(), 2, "{plan:#?}");
+        assert!(plan.contested.iter().all(|f| f.moves[0].asset_id == b));
     }
 
     /// A crash or full disk while a session indexes new photographs leaves

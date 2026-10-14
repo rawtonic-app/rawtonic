@@ -548,3 +548,76 @@ fn a_hard_link_to_a_photograph_that_is_still_there_is_a_copy_not_a_move() {
     lib.apply_folder_sync(&defaults(&plan)).unwrap();
     assert_eq!(lib.asset(&a).unwrap().path, capture.join("A.ARW"));
 }
+
+/// A session keeps its photographs inside its folder with relative paths:
+/// moves between its own folders are followed, its working folders (Trash,
+/// Output, caches) and libraries inside it are not scanned, a photograph
+/// moved out of it is only missing (never followed outside), and a session
+/// moved as a whole is still in sync.
+#[test]
+fn a_session_follows_moves_between_its_folders_and_stays_inside_itself() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonicalize().unwrap();
+    let lib = session(&root);
+    let capture = lib.directory.join("Capture");
+    let selects = lib.directory.join("Selects");
+    photo(&capture.join("A.ARW"), 1);
+    photo(&capture.join("B.ARW"), 2);
+    let a = lib.add_asset(&capture.join("A.ARW")).unwrap().id;
+    let b = lib.add_asset(&capture.join("B.ARW")).unwrap().id;
+    let mut meta = lib.metadata(&a).unwrap();
+    meta.rating = 5;
+    lib.set_metadata(&a, &meta).unwrap();
+    fill(&lib);
+    // Outside Rawtonic: A into Selects, B out of the session; files that
+    // belong to no photograph in the session's working folders and in
+    // another session inside this one.
+    fs::rename(capture.join("A.ARW"), selects.join("A pick.ARW")).unwrap();
+    fs::rename(capture.join("B.ARW"), root.join("B.ARW")).unwrap();
+    for working in ["Trash", "Output", ".cache", "masks"] {
+        photo(&lib.directory.join(working).join("W.ARW"), 7);
+    }
+    let inner = Library::create(&lib.directory.join("Inner"), "Inner", Mode::Session).unwrap();
+    photo(&inner.directory.join("Capture/I.ARW"), 8);
+
+    let plan = scan(&lib, None);
+    assert_eq!(plan.folders, std::slice::from_ref(&lib.directory));
+    assert_eq!(plan.verified_moves.len(), 1, "{plan:#?}");
+    assert_eq!(plan.verified_moves[0].to, selects.join("A pick.ARW"));
+    assert!(
+        plan.new_files.is_empty() && plan.copies.is_empty(),
+        "{plan:#?}"
+    );
+    assert_eq!(plan.removed.len(), 1);
+    assert_eq!(plan.removed[0].asset_id, b);
+    // A scan of a folder outside the session is refused.
+    assert!(lib.sync_scope(Some(&root)).is_err());
+    lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    let moved = lib.asset(&a).unwrap();
+    assert_eq!(moved.rel_path, "Selects/A pick.ARW");
+    assert_eq!(moved.rating, 5);
+    // A move out of the session sent anyway is refused.
+    let identity = rawtonic_catalog::folder_sync::FileIdentity::read(&root.join("B.ARW")).unwrap();
+    let applied = lib
+        .apply_folder_sync(&[SyncAction::Move {
+            asset_id: b.clone(),
+            from: capture.join("B.ARW"),
+            to: root.join("B.ARW"),
+            identity,
+        }])
+        .unwrap();
+    assert!(applied.moved.is_empty());
+    assert_eq!(applied.skipped.len(), 1, "{:?}", applied.skipped);
+    assert_eq!(lib.asset(&b).unwrap().path, capture.join("B.ARW"));
+    fs::rename(root.join("B.ARW"), capture.join("B.ARW")).unwrap();
+    // The whole session moved elsewhere: its relative paths still hold.
+    drop(lib);
+    drop(inner);
+    fs::rename(root.join("Job"), root.join("Job moved")).unwrap();
+    let lib = Library::open(&root.join("Job moved")).unwrap();
+    assert!(scan(&lib, None).is_empty(), "{:#?}", scan(&lib, None));
+    assert_eq!(
+        lib.asset(&a).unwrap().path,
+        lib.directory.join("Selects/A pick.ARW")
+    );
+}

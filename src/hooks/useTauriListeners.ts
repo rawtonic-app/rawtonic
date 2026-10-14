@@ -29,8 +29,9 @@ interface ThumbnailGeneratedPayload {
   path: string;
   thumbnailPath: string;
   previewPath: string;
-  rating: number;
-  is_edited: boolean;
+  /** Null when no sidecar was read (the listing knows them). */
+  rating: number | null;
+  is_edited: boolean | null;
   // Inline thumbnail data URL; the current backend sends file paths instead.
   data?: string;
 }
@@ -157,9 +158,15 @@ export function useTauriListeners({
           const indices = libraryImageIndex(state.imageList);
           // Most thumbnail events repeat the existing 0/false metadata. Keep
           // references stable so a 20k-image library is not sorted again per tile.
+          // A thumbnail's rating was read from the sidecar when its generation
+          // began, so it only fills a rating the listing did not bring: a
+          // later listing or rating (a photograph followed by Synchronize
+          // Folder, rated meanwhile) is newer and stays.
           const changedRatings = Object.entries(pendingRatings).filter(
             ([path, rating]) =>
-              (state.imageRatings[path] ?? state.imageList[indices.get(path) ?? -1]?.rating ?? 0) !== rating,
+              state.imageRatings[path] === undefined &&
+              state.imageList[indices.get(path) ?? -1]?.rating === undefined &&
+              rating !== 0,
           );
           const changedEdits = Object.entries(pendingEdits).filter(([path, edited]) => {
             const image = state.imageList[indices.get(path) ?? -1];
@@ -254,13 +261,13 @@ export function useTauriListeners({
           mediumThumbnailBuffer.current[path] = data;
           refs.current.markGenerated(path);
         }
-        if (rating !== undefined) {
+        if (rating != null) {
           ratingBuffer.current[path] = rating;
         }
-        if (is_edited !== undefined) {
+        if (is_edited != null) {
           editStatusBuffer.current[path] = is_edited;
         }
-        if (thumbnailPath || data || rating !== undefined || is_edited !== undefined) {
+        if (thumbnailPath || data || rating != null || is_edited != null) {
           scheduleFlush();
         }
       }),

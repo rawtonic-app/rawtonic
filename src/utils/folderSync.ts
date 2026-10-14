@@ -176,6 +176,27 @@ export function shownPath(folders: readonly string[], path: string): string {
   return best ? path.slice(best.length + 1) : path;
 }
 
+// Natural order, as the folder list sorts names: copy_2 before copy_10.
+const naturalOrder = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const byPath = (a: string, b: string) => naturalOrder.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
+
+/** `plan` with every group's rows in natural order of the paths the review
+ * shows (a move by where its file is now). */
+export function sortPlan(plan: SyncPlan): SyncPlan {
+  const sorted = <T>(rows: T[], path: (row: T) => string) => [...rows].sort((a, b) => byPath(path(a), path(b)));
+  return {
+    ...plan,
+    verifiedMoves: sorted(plan.verifiedMoves, (m) => m.to),
+    probableMoves: sorted(plan.probableMoves, (m) => m.to),
+    newFiles: sorted(plan.newFiles, (f) => f.path),
+    copies: sorted(plan.copies, (f) => f.path),
+    contested: sorted(plan.contested, (c) => c.path),
+    removed: sorted(plan.removed, (m) => m.path),
+    unavailable: sorted(plan.unavailable, (m) => m.path),
+    errors: sorted(plan.errors, (e) => e.path),
+  };
+}
+
 /** Whether a scan found anything to act on. */
 export function planIsEmpty(plan: SyncPlan): boolean {
   return SYNC_GROUPS.every((group) => plan[group].length === 0) && plan.contested.length === 0;
