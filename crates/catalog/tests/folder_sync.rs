@@ -581,7 +581,7 @@ fn a_session_follows_moves_between_its_folders_and_stays_inside_itself() {
     photo(&inner.directory.join("Capture/I.ARW"), 8);
 
     let plan = scan(&lib, None);
-    assert_eq!(plan.folders, [lib.directory.clone()]);
+    assert_eq!(plan.folders, std::slice::from_ref(&lib.directory));
     assert_eq!(plan.verified_moves.len(), 1, "{plan:#?}");
     assert_eq!(plan.verified_moves[0].to, selects.join("A pick.ARW"));
     assert!(
