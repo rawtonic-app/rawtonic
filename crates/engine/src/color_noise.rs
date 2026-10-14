@@ -193,6 +193,9 @@ pub struct Tuning {
     /// below `gate_noise[0]` (smoothly between): only very noisy photos
     /// showed the crisp blotches, and the gate costs colour-edge crispness.
     pub gate_noise: [f32; 2],
+    /// EXPERIMENT: brightness-step evidence for the gate, in multiples of
+    /// the coarser level's luminance noise (0: none).
+    pub luma_gate: f32,
     /// The same for the finest level, expanding the rebuilt level 1 to full
     /// resolution, in multiples of the finest level's noise (renderer
     /// `ms_expand_aware`).
@@ -231,6 +234,7 @@ impl Default for Tuning {
                 std::env::var("RT_EXP_GLO").ok().and_then(|v| v.parse().ok()).unwrap_or(0.03),
                 std::env::var("RT_EXP_GHI").ok().and_then(|v| v.parse().ok()).unwrap_or(0.05),
             ],
+            luma_gate: std::env::var("RT_EXP_LGATE").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0),
             finest_aware: 1.0,
             base_blur: 2.0,
             base_range: 10.0,
@@ -491,6 +495,7 @@ pub fn expand_aware(
     inv2: f32,
     far: f32,
     gate: f32,
+    luma_gate: f32,
     profile: Option<&[f32; PROFILE_BINS]>,
 ) -> (Px, Px) {
     let (xs, wx) = expand_taps(x, coarse.width);
@@ -502,6 +507,7 @@ pub fn expand_aware(
     let (mut plain_r, mut plain_c) = ([0.0f32; CH], [0.0f32; CH]);
     let mut nearest = f32::INFINITY;
     let mut farthest = 0.0f32;
+    let (mut lmin, mut lmax) = (f32::INFINITY, f32::NEG_INFINITY);
     for j in 0..3 {
         for i in 0..3 {
             let ws = wx[i] * wy[j];
@@ -510,6 +516,8 @@ pub fn expand_aware(
             }
             let rv = rebuilt.at(xs[i], ys[j]);
             let cv = coarse.at(xs[i], ys[j]);
+            lmin = lmin.min(cv[2]);
+            lmax = lmax.max(cv[2]);
             let (da, db) = (rv[0] - guide[0], rv[1] - guide[1]);
             let d2 = da * da + db * db;
             nearest = nearest.min(d2);
@@ -535,7 +543,14 @@ pub fn expand_aware(
     // weights would differ by less than AWARE_FLAT (flat areas) the plain
     // expansion is the same.
     let share = if gate > 0.0 {
-        smoothstep(0.5 * gate, 1.5 * gate, (farthest - nearest) * inv2)
+        let chroma = smoothstep(0.5 * gate, 1.5 * gate, (farthest - nearest) * inv2);
+        // A brightness step under the samples is evidence of a real edge.
+        let luma = if luma_gate > 0.0 {
+            smoothstep(0.5, 1.5, (lmax - lmin) / luma_gate)
+        } else {
+            0.0
+        };
+        chroma.max(luma)
     } else {
         1.0
     };
@@ -1077,6 +1092,7 @@ impl ChromaPyramid {
                                 aware_inv2,
                                 tuning.aware_far,
                                 tuning.gate_for(&self.noise),
+                                tuning.luma_gate * self.luma_noise[l],
                                 Some(&self.profile),
                             );
                             rebuilt_detail(r, [f[0] - c[0], f[1] - c[1]], level.follow[i], k)
@@ -1474,6 +1490,7 @@ pub fn apply_with(
                     1.0 / aware2,
                     tuning.aware_far,
                     tuning.gate_for(&pyramid.noise),
+                    0.0,
                     None,
                 )
                 .0

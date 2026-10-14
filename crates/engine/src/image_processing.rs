@@ -4001,6 +4001,11 @@ impl_apply_grading!(GlobalAdjustments);
 impl_apply_grading!(MaskAdjustments);
 
 impl GlobalAdjustments {
+    /// EXPERIMENT (remove before commit).
+    pub fn set_exp_luma_gate(&mut self, v: f32) {
+        self._pad_cg4 = v;
+    }
+
     /// `levels`: {rgb, red, green, blue} each {inBlack, inWhite, gamma,
     /// outBlack, outWhite} with levels in 0–255 and gamma 0.1–10 (Capture
     /// One's Levels; Photoshop's semantics).

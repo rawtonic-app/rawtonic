@@ -3030,7 +3030,7 @@ fn ms_expand(p: vec2<i32>) -> vec4<f32> {
 // of its rebuilt chroma from `guide` (the pixel's chroma), so the
 // reconstruction keeps to the pixel's side of a colour edge (color_noise.rs
 // `expand_aware`).
-fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
+fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32, luma_share: f32) -> vec4<f32> {
     let n = vec2<i32>(adjustments.global.color_noise_window.zw) - vec2<i32>(1);
     let origin = vec2<i32>(adjustments.global.color_noise_window.xy);
     let last = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
@@ -3075,7 +3075,7 @@ fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
     // `Tuning::aware_gate`), blended in smoothly.
     let gate = adjustments.global.color_noise_aware_gate;
     var share = 1.0;
-    if (gate > 0.0) { share = smoothstep(0.5 * gate, 1.5 * gate, (farthest - nearest) * inv2); }
+    if (gate > 0.0) { share = max(smoothstep(0.5 * gate, 1.5 * gate, (farthest - nearest) * inv2), luma_share); }
     if (nearest * inv2 > adjustments.global.color_noise_aware_far || (farthest - nearest) * inv2 < 1e-3 || share <= 0.0) { return plain; }
     var out = vec4<f32>(0.0);
     var sw = 0.0;
@@ -3137,7 +3137,22 @@ fn apply_color_noise_multiscale(
     let aware2 = adjustments.global.color_noise_aware2;
     var center_e: vec4<f32>;
     if (aware2 > 0.0) {
-        center_e = ms_expand_aware(coords_i, c0, aware2);
+        // EXPERIMENT: brightness-step evidence from the 2 px blur (_pad_cg4
+        // = multiple of the luminance noise; 0 = none).
+        var luma_share = 0.0;
+        let lg = adjustments.global._pad_cg4;
+        if (lg > 0.0) {
+            let tile_origin = vec2<i32>(i32(adjustments.tile_offset_x), i32(adjustments.tile_offset_y));
+            let tb_max = vec2<i32>(textureDimensions(tonal_blur_texture)) - vec2<i32>(1);
+            let q = coords_i - tile_origin;
+            let lx = sqrt(max(get_luma(textureLoad(tonal_blur_texture, vec2<u32>(clamp(q + vec2<i32>(2, 0), vec2<i32>(0), tb_max)), 0).rgb), 0.0))
+                - sqrt(max(get_luma(textureLoad(tonal_blur_texture, vec2<u32>(clamp(q - vec2<i32>(2, 0), vec2<i32>(0), tb_max)), 0).rgb), 0.0));
+            let ly = sqrt(max(get_luma(textureLoad(tonal_blur_texture, vec2<u32>(clamp(q + vec2<i32>(0, 2), vec2<i32>(0), tb_max)), 0).rgb), 0.0))
+                - sqrt(max(get_luma(textureLoad(tonal_blur_texture, vec2<u32>(clamp(q - vec2<i32>(0, 2), vec2<i32>(0), tb_max)), 0).rgb), 0.0));
+            let sigma_l = max(select(LUMA_NR_DEFAULT_NOISE, adjustments.global.noise_level, adjustments.global.noise_level > 0.0), 1e-4);
+            luma_share = smoothstep(0.5, 1.5, sqrt(lx * lx + ly * ly) / (lg * sigma_l));
+        }
+        center_e = ms_expand_aware(coords_i, c0, aware2, luma_share);
     } else {
         center_e = ms_expand(coords_i);
     }

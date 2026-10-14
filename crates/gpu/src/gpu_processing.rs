@@ -384,7 +384,9 @@ fn color_noise_thresholds(
     global.color_noise[3] = tuning.finest_edge2(&thresholds, &pyramid.noise);
     global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &pyramid.noise);
     global.color_noise_aware_far = tuning.aware_far;
-    global.color_noise_aware_gate = tuning.gate_for(&pyramid.noise);
+    global.color_noise_aware_gate = tuning.gate_for(&pyramid.noise)
+        * std::env::var("RT_EXP_FGATE").ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.0);
+    global.set_exp_luma_gate(std::env::var("RT_EXP_FLGATE").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0));
     if std::env::var("RT_EXP_NOISELOG").is_ok() {
         eprintln!("EXP noise {:?} luma {:?}", pyramid.noise, pyramid.luma_noise);
     }
