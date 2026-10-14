@@ -16,12 +16,24 @@
 //! the recipe's Color amount, Detail and Smoothness, and applied to the
 //! detail's local energy (3 × 3), so single noisy pixels go and the tails of
 //! edges stay.
-//! Two guards keep a level's detail where it belongs to an edge: a
-//! luminance detail at that level well above the luminance noise, and a
-//! chroma gradient of the coarser level well above the level's colour noise
-//! (colour edges without a luminance step). Colour edges and colour texture
-//! above the noise stay, blotches of every size within it go. Luminance is
-//! kept exactly.
+//! Two guards keep detail of the coarse levels where it belongs to an edge:
+//! - where the level's luminance detail stands well above the luminance
+//!   noise, the part of its chroma detail that follows the luminance detail
+//!   (a local regression over 5 × 5) stays, the rest is thresholded like
+//!   anywhere else; colour edges along brightness edges stay crisp, colour
+//!   noise next to brightness texture goes;
+//! - where the coarser level has a colour edge (its chroma gradient, weighted
+//!   by how much the gradients around it share one direction, well above
+//!   the level's colour noise), the whole detail stays: colour edges without
+//!   a luminance step. Round noise blotches have gradients in every direction
+//!   and do not count as edges. This guard's threshold follows the level's
+//!   own threshold, so more Color or Smoothness (or less Detail) also
+//!   smooths more next to weak colour edges.
+//!
+//! The finest level keeps its detail next to colour edges of the rebuilt
+//! level 1 (edges that survived the coarse levels, not noise blotches).
+//! Colour edges and colour texture above the noise stay, blotches of every
+//! size within it go. Luminance is kept exactly.
 //!
 //! The pyramid is built and measured here on the CPU when a render source
 //! is uploaded (`ChromaPyramid::build`, once per source, from the whole
@@ -116,24 +128,36 @@ pub struct Tuning {
     pub detail_exponents: [f32; LEVELS],
     /// Smoothness scales level `l`'s threshold by 2^((smoothness − 0.5) · exp).
     pub smoothness_exponents: [f32; LEVELS],
-    /// A level's chroma detail is kept where its luminance detail exceeds
-    /// this multiple of the level's luminance noise (0: off).
+    /// The part of a level's chroma detail that follows its luminance
+    /// detail is kept where the luminance detail exceeds this multiple of
+    /// the level's luminance noise (0: off).
     pub luma_guard: f32,
-    /// A level's detail is kept where the coarser level's chroma gradient
-    /// exceeds this multiple of the level's noise (0: off).
+    /// A level's detail is kept where the coarser level's coherent chroma
+    /// gradient exceeds this multiple of the level's noise (0: off), at
+    /// Amount 25, Detail and Smoothness 50.
     pub edge_guard: f32,
+    /// The chroma-edge guard's threshold grows with the level's threshold
+    /// relative to its value at Amount 25, Detail and Smoothness 50, to this
+    /// power.
+    pub edge_follow: f32,
+    /// The finest level's detail is kept where the rebuilt level 1's chroma
+    /// gradient exceeds this multiple of the finest level's noise (0: off);
+    /// its threshold follows the finest threshold like the coarse levels'.
+    pub finest_edge_guard: f32,
 }
 
 impl Default for Tuning {
     fn default() -> Self {
         Self {
-            multiples: [5.0, 5.0, 5.0, 5.0, 5.0],
+            multiples: [7.0, 8.0, 8.0, 6.0, 5.0],
             steepness: 3.0,
-            amount_growth: 1.0,
-            detail_exponents: [6.0, 4.0, 2.0, 0.5, 0.0],
+            amount_growth: 2.0,
+            detail_exponents: [8.0, 5.0, 2.0, 0.5, 0.0],
             smoothness_exponents: [0.0, 1.0, 3.0, 5.0, 6.0],
             luma_guard: 4.5,
-            edge_guard: 5.0,
+            edge_guard: 4.0,
+            edge_follow: 0.25,
+            finest_edge_guard: 4.0,
         }
     }
 }
@@ -162,6 +186,42 @@ impl Tuning {
                     .exp2()
         })
     }
+
+    /// The squared factor on level `l`'s chroma-edge guard threshold when
+    /// the level's threshold is `threshold` (`edge_follow`); 1 at Amount 25,
+    /// Detail and Smoothness 50.
+    pub fn edge_scale2(&self, l: usize, threshold: f32, noise: &[f32; LEVELS]) -> f32 {
+        let base = noise[l] * self.multiples[l];
+        if base <= 0.0 || threshold <= 0.0 {
+            return 1.0;
+        }
+        (threshold / base).powf(2.0 * self.edge_follow)
+    }
+
+    /// The finest level's squared chroma-edge guard threshold for the
+    /// finest threshold `thresholds[0]`; 0 without the guard.
+    pub fn finest_edge2(&self, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
+        (self.finest_edge_guard * noise[0]).powi(2) * self.edge_scale2(0, thresholds[0], noise)
+    }
+}
+
+/// The squared chroma gradient of a level-1 plane (central differences,
+/// borders clamped) at its sample nearest to finest position (x, y), as the
+/// renderer's `ms_level1_gradient2` (on the rebuilt level 1: colour edges
+/// that survived the coarse levels, not noise blotches).
+#[inline]
+pub fn level1_gradient2(level1: &Plane, x: usize, y: usize) -> f32 {
+    let (k, j) = (
+        (x / 2).min(level1.width - 1),
+        (y / 2).min(level1.height - 1),
+    );
+    let l = level1.at(k.saturating_sub(1), j);
+    let r = level1.at((k + 1).min(level1.width - 1), j);
+    let u = level1.at(k, j.saturating_sub(1));
+    let d = level1.at(k, (j + 1).min(level1.height - 1));
+    let gx = [0.5 * (r[0] - l[0]), 0.5 * (r[1] - l[1])];
+    let gy = [0.5 * (d[0] - u[0]), 0.5 * (d[1] - u[1])];
+    gx[0] * gx[0] + gx[1] * gx[1] + gy[0] * gy[0] + gy[1] * gy[1]
 }
 
 /// Share of a level's detail that is kept: x^s / (1 + x^s) with x =
@@ -719,16 +779,16 @@ impl ChromaPyramid {
             let fine = &self.levels[l - 1];
             let level = &prepared.levels[l - 1];
             let t2 = thresholds[l] * thresholds[l];
+            let edge2 = tuning.edge_scale2(l, thresholds[l], &self.noise);
             let mut data = vec![[0.0f32; CH]; fine.width * fine.height];
             data.par_chunks_mut(fine.width)
                 .enumerate()
                 .for_each(|(y, row)| {
                     for (x, v) in row.iter_mut().enumerate() {
                         let i = y * fine.width + x;
-                        let d = level.detail[i];
-                        let g = gain(level.size2[i], t2, steepness).max(level.guard[i]);
                         let r = expand_at(&rebuilt, x, y);
-                        *v = [r[0] + g * d[0], r[1] + g * d[1], 0.0];
+                        let k = level_keep(level.size2[i], t2, level.edge[i], edge2, steepness);
+                        *v = rebuilt_detail(r, level.detail[i], level.follow[i], k);
                     }
                 });
             rebuilt = Plane {
@@ -741,7 +801,7 @@ impl ChromaPyramid {
     }
 
     /// What does not depend on the sliders, prepared once per source (and
-    /// tuning): each coarse level's detail, local energy and guard.
+    /// tuning): each coarse level's detail, local energy and guards.
     pub fn prepared(&self, tuning: &Tuning) -> Arc<Prepared> {
         match self.prepared.get() {
             Some(prepared) if prepared.tuning == *tuning => Arc::clone(prepared),
@@ -755,58 +815,83 @@ impl ChromaPyramid {
         }
     }
 
-    /// Each coarse level's detail, its local energy and the share its
-    /// guards keep.
+    /// Each coarse level's detail, its local energy and its guards.
     fn prepare(&self, tuning: &Tuning) -> Prepared {
         let levels = (1..LEVELS)
             .map(|l| {
                 let fine = &self.levels[l - 1];
                 let coarse = &self.levels[l];
-                // Colour edges mostly come with a luminance edge: where the
-                // level's luminance detail stands out of its noise, its
-                // chroma detail stays.
+                let (w, h) = (fine.width, fine.height);
                 let luma2 = (tuning.luma_guard * self.luma_noise[l]).powi(2);
-                // Colour edges of the coarser level (its chroma gradient
-                // well above this level's noise) keep this level's detail
-                // around them, also where the luminance does not change.
                 let edge2 = (tuning.edge_guard * self.noise[l]).powi(2);
-                let gradient = (edge2 > 0.0).then(|| chroma_gradient(coarse));
+                let gradient = (edge2 > 0.0).then(|| coherent_gradient(coarse));
                 let steepness = tuning.steepness;
-                let (detail, guard): (Vec<[f32; 2]>, Vec<f32>) = (0..fine.width * fine.height)
-                    .into_par_iter()
-                    .map(|i| {
-                        let (x, y) = (i % fine.width, i / fine.width);
+                let mut detail = vec![[0.0f32; 2]; w * h];
+                let mut luma = vec![0.0f32; w * h];
+                let mut edge = vec![0.0f32; w * h];
+                let mut relative2 = vec![1.0f32; w * h];
+                detail
+                    .par_iter_mut()
+                    .zip(luma.par_iter_mut())
+                    .zip(edge.par_iter_mut())
+                    .zip(relative2.par_iter_mut())
+                    .enumerate()
+                    .for_each(|(i, (((d, dl), e), p2))| {
+                        let (x, y) = (i % w, i / w);
                         let f = fine.at(x, y);
-                        let e = expand_at(coarse, x, y);
-                        let mut guard = 0.0f32;
-                        if luma2 > 0.0 {
-                            let dl = f[2] - e[2];
-                            guard = guard.max(gain(dl * dl, luma2, steepness));
-                        }
+                        let c = expand_at(coarse, x, y);
+                        *d = [f[0] - c[0], f[1] - c[1]];
+                        *dl = f[2] - c[2];
                         if let Some(gradient) = &gradient {
-                            guard = guard.max(gain(expand_at(gradient, x, y)[0], edge2, steepness));
+                            *e = expand_at(gradient, x, y)[0] / edge2;
                         }
-                        ([f[0] - e[0], f[1] - e[1]], guard)
-                    })
-                    .unzip();
+                        // The colour noise at the coarser level's brightness.
+                        let p = profile_at(&self.profile, c[2]);
+                        *p2 = p * p;
+                    });
                 // The size of the detail: its local energy (3 × 3, weights
                 // 1-2-1), so isolated noise peaks go and an edge's tails stay;
-                // in units of the colour noise at the pixel's brightness (the
-                // profile at the coarser level's brightness).
-                let mut size2 = local_energy(&detail, fine.width, fine.height);
-                size2.par_iter_mut().enumerate().for_each(|(i, s)| {
-                    let p = profile_at(
-                        &self.profile,
-                        expand_at(coarse, i % fine.width, i / fine.width)[2],
-                    );
-                    *s /= p * p;
-                });
+                // in units of the colour noise at the pixel's brightness.
+                let mut size2 = local_energy(&detail, w, h);
+                size2
+                    .par_iter_mut()
+                    .zip(relative2.par_iter())
+                    .for_each(|(s, p2)| *s /= p2);
+                // Colour edges mostly come with a luminance edge: where the
+                // level's luminance detail stands out of its noise, the
+                // chroma detail that follows it (a local regression of the
+                // chroma on the luminance detail, regularised by the
+                // luminance noise) stays.
+                let regular = 25.0 * self.luma_noise[l].powi(2);
+                let follow = (0..w * h)
+                    .into_par_iter()
+                    .map(|i| {
+                        if luma2 <= 0.0 {
+                            return [0.0; 2];
+                        }
+                        let (x, y) = (i % w, i / w);
+                        let (mut sa, mut sb, mut sl) = (0.0f32, 0.0f32, 0.0f32);
+                        for yy in y.saturating_sub(2)..(y + 3).min(h) {
+                            for xx in x.saturating_sub(2)..(x + 3).min(w) {
+                                let j = yy * w + xx;
+                                sa += detail[j][0] * luma[j];
+                                sb += detail[j][1] * luma[j];
+                                sl += luma[j] * luma[j];
+                            }
+                        }
+                        let dl = luma[i];
+                        let share =
+                            gain(dl * dl, luma2, steepness) * dl / (sl + regular).max(1e-30);
+                        [sa * share, sb * share]
+                    })
+                    .collect();
                 PreparedLevel {
-                    width: fine.width,
-                    height: fine.height,
+                    width: w,
+                    height: h,
                     detail,
                     size2,
-                    guard,
+                    edge,
+                    follow,
                 }
             })
             .collect();
@@ -817,9 +902,29 @@ impl ChromaPyramid {
     }
 }
 
+/// The share of a coarse level's detail kept whole: by its threshold or
+/// by the chroma-edge guard (`edge` and `edge2` from [`PreparedLevel::edge`]
+/// and [`Tuning::edge_scale2`]).
+#[inline]
+pub fn level_keep(size2: f32, threshold2: f32, edge: f32, edge2: f32, steepness: f32) -> f32 {
+    gain(size2, threshold2, steepness).max(gain(edge, edge2, steepness))
+}
+
+/// A rebuilt level's pixel: the coarser level expanded (`r`), the share
+/// `keep` of the detail and the rest of the luminance-following part.
+#[inline]
+pub fn rebuilt_detail(r: Px, detail: [f32; 2], follow: [f32; 2], keep: f32) -> Px {
+    let rest = 1.0 - keep;
+    [
+        r[0] + keep * detail[0] + rest * follow[0],
+        r[1] + keep * detail[1] + rest * follow[1],
+        0.0,
+    ]
+}
+
 /// A pyramid's coarse levels ready for new thresholds (levels 1…LEVELS − 1,
-/// index 0 = level 1). Rebuilding level l: expand(rebuilt l + 1) + gain ·
-/// detail with gain = max(gain(size2, threshold², steepness), guard).
+/// index 0 = level 1). Rebuilding level l: expand(rebuilt l + 1) + k ·
+/// detail + (1 − k) · follow, k = [`level_keep`].
 #[derive(Debug)]
 pub struct Prepared {
     pub tuning: Tuning,
@@ -835,14 +940,22 @@ pub struct PreparedLevel {
     /// Its local energy (3 × 3, weights 1-2-1) over the squared noise
     /// profile at the pixel's brightness.
     pub size2: Vec<f32>,
-    /// The share kept by the luminance and chroma-edge guards.
-    pub guard: Vec<f32>,
+    /// The coarser level's coherent squared chroma gradient over the
+    /// squared chroma-edge guard threshold at Amount 25.
+    pub edge: Vec<f32>,
+    /// The part of the detail that follows the luminance detail, where the
+    /// luminance guard holds (zero elsewhere).
+    pub follow: Vec<[f32; 2]>,
 }
 
-/// Squared chroma gradient (central differences) of a level, in channel 0.
-fn chroma_gradient(plane: &Plane) -> Plane {
+/// The squared chroma gradient (central differences) of a level times the
+/// coherence of the chroma structure tensor over 5 × 5 (1 where all
+/// gradients share one direction, 0 where they point every way): edges
+/// count, round blotches do not.
+fn coherent_gradient(plane: &Plane) -> Plane {
+    const RADIUS: usize = 2;
     let (w, h) = (plane.width, plane.height);
-    let data = (0..w * h)
+    let tensor: Vec<[f32; 3]> = (0..w * h)
         .into_par_iter()
         .map(|i| {
             let (x, y) = (i % w, i / w);
@@ -853,10 +966,32 @@ fn chroma_gradient(plane: &Plane) -> Plane {
             let gx = [0.5 * (r[0] - l[0]), 0.5 * (r[1] - l[1])];
             let gy = [0.5 * (d[0] - u[0]), 0.5 * (d[1] - u[1])];
             [
-                gx[0] * gx[0] + gx[1] * gx[1] + gy[0] * gy[0] + gy[1] * gy[1],
-                0.0,
-                0.0,
+                gx[0] * gx[0] + gx[1] * gx[1],
+                gx[0] * gy[0] + gx[1] * gy[1],
+                gy[0] * gy[0] + gy[1] * gy[1],
             ]
+        })
+        .collect();
+    let data = (0..w * h)
+        .into_par_iter()
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            let (mut xx, mut xy, mut yy) = (0.0f32, 0.0f32, 0.0f32);
+            for ty in y.saturating_sub(RADIUS)..(y + RADIUS + 1).min(h) {
+                for tx in x.saturating_sub(RADIUS)..(x + RADIUS + 1).min(w) {
+                    let t = tensor[ty * w + tx];
+                    xx += t[0];
+                    xy += t[1];
+                    yy += t[2];
+                }
+            }
+            let trace = xx + yy;
+            let coherence = if trace > 0.0 {
+                ((xx - yy).powi(2) + 4.0 * xy * xy) / (trace * trace)
+            } else {
+                0.0
+            };
+            [(tensor[i][0] + tensor[i][2]) * coherence, 0.0, 0.0]
         })
         .collect();
     Plane {
@@ -974,6 +1109,7 @@ pub fn apply_with(
         *s /= finest_relative2(&pyramid.profile, pixel(i));
     });
     let t2 = thresholds[0] * thresholds[0];
+    let edge2 = tuning.finest_edge2(thresholds, &pyramid.noise);
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3).enumerate().for_each(|(y, row)| {
         for x in 0..w {
@@ -982,7 +1118,15 @@ pub fn apply_with(
                 pixel(i),
                 expand_at(level1, x, y),
                 expand_at(&rebuilt, x, y),
-                gain(size2[i], t2, steepness),
+                if edge2 > 0.0 {
+                    gain(size2[i], t2, steepness).max(gain(
+                        level1_gradient2(&rebuilt, x, y),
+                        edge2,
+                        steepness,
+                    ))
+                } else {
+                    gain(size2[i], t2, steepness)
+                },
             );
             row[x * 3..x * 3 + 3].copy_from_slice(&v);
         }
@@ -1237,5 +1381,89 @@ mod tests {
         // the coarsest.
         assert!(at(0.25, 1.0, 0.5)[0] < default[0]);
         assert!(at(0.25, 0.5, 1.0)[LEVELS - 1] > default[LEVELS - 1]);
+        // The chroma-edge guard follows the thresholds.
+        let strong = at(1.0, 0.5, 0.5);
+        for (l, (&base, &more)) in default.iter().zip(&strong).enumerate() {
+            assert!((tuning.edge_scale2(l, base, &noise) - 1.0).abs() < 1e-5);
+            assert!(tuning.edge_scale2(l, more, &noise) > 1.0);
+        }
+        assert!(tuning.edge_scale2(LEVELS - 1, at(0.25, 0.5, 1.0)[LEVELS - 1], &noise) > 1.0);
+    }
+
+    #[test]
+    fn edges_are_coherent_and_blotches_are_not() {
+        // A straight colour step and a round blotch of the same contrast.
+        let plane = |f: &dyn Fn(f32, f32) -> f32| Plane {
+            width: 40,
+            height: 40,
+            data: (0..1600)
+                .map(|i| {
+                    let v = f((i % 40) as f32, (i / 40) as f32);
+                    [v, -v, 0.5]
+                })
+                .collect(),
+        };
+        let edge = coherent_gradient(&plane(&|x, _| if x < 20.0 { 0.0 } else { 0.1 }));
+        let blotch = coherent_gradient(&plane(&|x, y| {
+            if (x - 20.0).powi(2) + (y - 20.0).powi(2) < 4.0 {
+                0.1
+            } else {
+                0.0
+            }
+        }));
+        let peak = |p: &Plane| p.data.iter().map(|v| v[0]).fold(0.0f32, f32::max);
+        let plain = 2.0 * 0.05f32.powi(2);
+        assert!(peak(&edge) > 0.9 * plain, "{}", peak(&edge));
+        assert!(peak(&blotch) < 0.5 * peak(&edge), "{}", peak(&blotch));
+    }
+
+    #[test]
+    fn colour_steps_along_brightness_steps_stay() {
+        // Noisy grey with a step in brightness and colour at x = 64: the
+        // step's colour stays crisp while the noise beside it goes.
+        let mut rng = Rng(31);
+        let image = Rgb32FImage::from_fn(128, 128, |x, _| {
+            let base: [f32; 3] = if x < 64 {
+                [0.10, 0.10, 0.10]
+            } else {
+                [0.55, 0.40, 0.30]
+            };
+            image::Rgb(base.map(|v| {
+                let p = v.sqrt() + 0.02 * rng.gaussian();
+                p * p
+            }))
+        });
+        let settings = Settings {
+            amount: 0.25,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let out = apply_to_linear(&image, settings, &Tuning::default());
+        let red_minus_green = |img: &Rgb32FImage, x: u32| -> f32 {
+            (0..128)
+                .map(|y| {
+                    let p = img.get_pixel(x, y).0;
+                    encode(p[0]) - encode(p[1])
+                })
+                .sum::<f32>()
+                / 128.0
+        };
+        let step = |img: &Rgb32FImage| red_minus_green(img, 65) - red_minus_green(img, 62);
+        let truth = encode(0.55) - encode(0.40);
+        let unguarded = apply_to_linear(
+            &image,
+            settings,
+            &Tuning {
+                luma_guard: 0.0,
+                edge_guard: 0.0,
+                ..Tuning::default()
+            },
+        );
+        // Most of the step stays (0.72 of it); without the guards the
+        // colour bleeds across it (0.2).
+        assert!(step(&out) > 0.6 * truth, "{} {}", step(&out), truth);
+        assert!(step(&out) > 3.0 * step(&unguarded), "{}", step(&unguarded));
+        let spread = |img: &Rgb32FImage| level0_rms(img);
+        assert!(spread(&out) < 0.5 * spread(&image));
     }
 }

@@ -142,8 +142,10 @@ pub struct ChromaGpu {
 }
 
 struct ChromaReconstruction {
-    /// Prepared levels 1…4 (detail xy, local energy z, guard w).
+    /// Prepared levels 1…4 (detail xy, local energy z, chroma-edge ratio w).
     levels: Vec<wgpu::TextureView>,
+    /// The luminance-following part of each prepared level's detail (xy).
+    follow: Vec<wgpu::TextureView>,
     /// Rebuilt levels 1…4.
     rebuilt: Vec<wgpu::TextureView>,
     /// Level 5, kept as it is.
@@ -195,7 +197,9 @@ struct ColorNoiseParams {
     is_raw: u32,
     threshold2: f32,
     steepness: f32,
-    _pad: u32,
+    /// Squared factor of the chroma-edge guard of the level being rebuilt
+    /// (`Tuning::edge_scale2`).
+    edge2: f32,
     /// The colour noise profile by brightness (`ChromaPyramid::profile`),
     /// for the finest level's energy.
     profile: [f32; color_noise::PROFILE_BINS],
@@ -328,6 +332,7 @@ fn color_noise_thresholds(
     key[color_noise::LEVELS] = tuning.steepness.to_bits();
     global.color_noise[1] = thresholds[0];
     global.color_noise[2] = tuning.steepness;
+    global.color_noise[3] = tuning.finest_edge2(&thresholds, &pyramid.noise);
     (thresholds, key)
 }
 
@@ -379,7 +384,7 @@ impl ChromaGpu {
             is_raw: u32::from(is_raw),
             threshold2: 0.0,
             steepness: 0.0,
-            _pad: 0,
+            edge2: 0.0,
             profile: pyramid.profile,
         };
         let device = &context.device;
@@ -476,10 +481,27 @@ impl ChromaGpu {
                     let data = (0..level.width * level.height)
                         .map(|i| {
                             let d = level.detail[i];
-                            [d[0], d[1], level.size2[i], level.guard[i]]
+                            [d[0], d[1], level.size2[i], level.edge[i]]
                         })
                         .collect();
                     rgba(data, level.width, level.height, "Chroma prepared level")
+                })
+                .collect();
+            let follow = prepared
+                .levels
+                .iter()
+                .map(|level| {
+                    let data = level
+                        .follow
+                        .iter()
+                        .map(|f| [f[0], f[1], 0.0, 0.0])
+                        .collect();
+                    rgba(
+                        data,
+                        level.width,
+                        level.height,
+                        "Chroma luminance-following detail",
+                    )
                 })
                 .collect();
             let rebuilt = prepared
@@ -507,6 +529,7 @@ impl ChromaGpu {
             };
             ChromaReconstruction {
                 levels,
+                follow,
                 rebuilt,
                 coarsest: plane(&pyramid.levels[color_noise::LEVELS - 1], "Chroma level 5"),
                 level1: plane(&pyramid.levels[0], "Chroma level 1 (f32)"),
@@ -520,7 +543,7 @@ impl ChromaGpu {
                 is_raw: 0,
                 threshold2: thresholds[l] * thresholds[l],
                 steepness: tuning.steepness,
-                _pad: 0,
+                edge2: tuning.edge_scale2(l, thresholds[l], &pyramid.noise),
                 profile: [1.0; color_noise::PROFILE_BINS],
             };
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -554,6 +577,10 @@ impl ChromaGpu {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&reconstruction.follow[l - 1]),
                     },
                 ],
             });
@@ -2537,7 +2564,7 @@ struct BlurTile {
 /// tile: the global noise-reduction and sharpening settings, the preview
 /// scale of the sharpening radius and the chromatic aberration correction.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct DetailKey([u32; 25]);
+struct DetailKey([u32; 26]);
 
 impl DetailKey {
     fn of(global: &crate::image_processing::GlobalAdjustments) -> Self {
@@ -2567,6 +2594,7 @@ impl DetailKey {
             global.color_noise[0].to_bits(),
             global.color_noise[1].to_bits(),
             global.color_noise[2].to_bits(),
+            global.color_noise[3].to_bits(),
         ])
     }
 
