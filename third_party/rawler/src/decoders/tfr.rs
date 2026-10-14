@@ -68,7 +68,25 @@ impl<'a> Decoder for TfrDecoder<'a> {
 
     let src = file.subview_until_eof(offset as u64)?;
 
-    let mut image = if self.camera.find_hint("uncompressed") {
+    // RAWTONIC: the raw IFD's Compression tag decides (1 = 16-bit LE
+    // samples, 7 = Hasselblad lossless JPEG); the camera hint only applies
+    // when the tag is missing. The X2D 100C writes compressed data although
+    // the X-series hint says "uncompressed".
+    let uncompressed = match raw.get_entry(TiffCommonTag::Compression).map(|tag| tag.force_usize(0)) {
+      Some(1) => true,
+      Some(7) => false,
+      Some(other) => return Err(RawlerError::DecoderFailed(format!("3FR: unsupported compression {}", other))),
+      None => self.camera.find_hint("uncompressed"),
+    };
+    let mut image = if uncompressed {
+      if src.len() < width * height * 2 {
+        return Err(RawlerError::DecoderFailed(format!(
+          "3FR: uncompressed raw data is truncated ({} bytes for {}x{} samples)",
+          src.len(),
+          width,
+          height
+        )));
+      }
       decode_16le(src, width, height, dummy)
     } else {
       self.decode_compressed(src, width, height, dummy)?

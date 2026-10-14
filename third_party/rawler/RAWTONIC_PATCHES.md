@@ -325,3 +325,37 @@ Converter 18.7 (white/black levels from the DNG's raw IFD, AsShotNeutral):
   0–255) is Rawtonic's own one-line implementation with `leading_zeros`; the
   upstream version said its logic was copied from the Adobe DNG SDK. Same
   table, same output.
+
+## raw.pixls.us fingerprint follow-ups (2026-10-14)
+
+- `src/decoders/tfr.rs`: the raw IFD's Compression tag chooses between
+  16-bit samples (1) and Hasselblad lossless JPEG (7); the camera's
+  `uncompressed` hint only applies without the tag. The X2D 100C (and the
+  X1D II's Phocus FFF) are compressed despite the X-series hint and
+  panicked reading past the strip; truncated uncompressed data is an error.
+- `src/pumps.rs` (`BitPumpMSB32`): the last partial word is padded with
+  zero bytes and reading past the end yields zero bits. `peek_bits` always
+  shifts by 32, so a short refill left stale bits and an out-of-bounds
+  Huffman lookup at the end of the X1D II stream.
+- `data/cameras/hasselblad/x1d2.toml`: alias `Hasselblad X1DM2-50c` (IFD0
+  Model of the X1D II).
+- `src/formats/tiff/entry.rs`, `src/formats/tiff/reader.rs`
+  (`EndianReader::stream_len`): a tag value that would run past the end of
+  the file is refused before its buffer is allocated (the reader is left at
+  the end, as the failed read left it). Corrupt counts allocated up to
+  5.4 GB per tag (Sony DSLR-A100, Xiaomi HM NOTE 1LTE DNG); the corpus
+  fingerprint run peaked at 14.8 GB, now 5.2 GB, with identical facts.
+- `src/decompressors/ljpeg/mod.rs`: a quantisation table (DCT JPEG) says
+  so: Blackmagic's lossy DNGs store 12-bit DCT tiles under Compression 7.
+  They stay unsupported.
+- `data/cameras/canon/sx710hs.toml` (geometry 5344 x 3950, margins, matrix),
+  `sx20is.toml`, `ixus160_chdk.toml` (new CHDK file sizes): raw geometry
+  and colour matrices from LibRaw's tables (`identify.cpp` CHDK file-size
+  table, `colordata.cpp`). CHDK files are identified by size only; the
+  IXUS 160 entry also matches the IXUS 175 / ELPH 180, which writes the
+  same size.
+- `data/cameras/canon/pro70.toml` (was `.unsupp`): the PowerShot Pro70's
+  8 x 2 CMYG mosaic, plane order, levels and crop as Adobe DNG Converter
+  18.7 writes them for the sample; rawler's existing Pro70 unpacking. The
+  4-colour 8 x 2 demosaic leaves horizontal line artefacts (also on Adobe's
+  DNG of the file).

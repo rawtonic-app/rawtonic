@@ -7,6 +7,11 @@ clean_model = "X1D II 50C"
 color_pattern = "RGGB"
 hints = ["uncompressed"]
 
+# RAWTONIC: X1D II files name the body "Hasselblad X1DM2-50c" in IFD0 Model.
+model_aliases = [
+  ["Hasselblad X1DM2-50c", "X1D II 50C"],
+]
+
 active_area = [46, 96, 58, 0]
 
 [cameras.color_matrix]
