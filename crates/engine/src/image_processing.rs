@@ -2870,8 +2870,9 @@ pub struct GlobalAdjustments {
     pub relight_geometry: [f32; 4],
     /// Colour noise reduction on the chroma pyramid (color_noise.rs): x = 1
     /// for recipes with `colorNoiseVersion` 2; the renderer sets y to the
-    /// finest level's threshold and z to the gain's steepness once the
-    /// pyramid of its source is measured (x is cleared if it has none).
+    /// finest level's threshold, z to the gain's steepness and w to the
+    /// finest level's squared chroma-edge guard threshold once the pyramid
+    /// of its source is measured (x is cleared if it has none).
     pub color_noise: [f32; 4],
     /// The level-1 window of the renderer's chroma texture (origin xy) and
     /// level 1's size (zw); set by the renderer.

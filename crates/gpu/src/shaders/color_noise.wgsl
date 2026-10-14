@@ -21,10 +21,12 @@ struct ColorNoiseParams {
     level_width: u32,
     level_height: u32,
     is_raw: u32,
-    // Squared threshold and steepness of the level being rebuilt.
+    // Squared threshold and steepness of the level being rebuilt, and the
+    // squared factor of its chroma-edge guard (color_noise.rs
+    // `Tuning::edge_scale2`).
     threshold2: f32,
     steepness: f32,
-    _pad: u32,
+    edge2: f32,
     // Colour noise by brightness relative to the photo's (8 bins of
     // square-root luminance, color_noise.rs `profile_at`).
     profile: array<vec4<f32>, 2>,
@@ -34,6 +36,7 @@ struct ColorNoiseParams {
 @group(0) @binding(1) var second_texture: texture_2d<f32>;
 @group(0) @binding(2) var output_f32: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(3) var<uniform> params: ColorNoiseParams;
+@group(0) @binding(4) var third_texture: texture_2d<f32>;
 
 @group(1) @binding(0) var output_packed: texture_storage_2d<rgba16float, write>;
 @group(1) @binding(1) var output_energy: texture_storage_2d<r32float, write>;
@@ -135,16 +138,19 @@ fn finest_energy(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 
 // first_texture: the level's prepared detail (xy), local energy (z) and
-// guard (w); second_texture: the coarser level rebuilt (xy).
+// chroma-edge ratio (w); second_texture: the coarser level rebuilt (xy);
+// third_texture: the detail's luminance-following part (xy). As
+// color_noise.rs `level_keep` and `rebuilt_detail`.
 @compute @workgroup_size(16, 16, 1)
 fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
     let dims = vec2<i32>(textureDimensions(first_texture));
     if (i32(id.x) >= dims.x || i32(id.y) >= dims.y) { return; }
     let level = textureLoad(first_texture, vec2<i32>(id.xy), 0);
+    let follow = textureLoad(third_texture, vec2<i32>(id.xy), 0).xy;
     let n = vec2<i32>(textureDimensions(second_texture)) - vec2<i32>(1);
     let r = expand(second_texture, vec2<i32>(id.xy), n, vec2<i32>(0));
-    let g = max(gain(level.z, params.threshold2, params.steepness), level.w);
-    textureStore(output_f32, id.xy, vec4<f32>(r.xy + g * level.xy, 0.0, 0.0));
+    let k = max(gain(level.z, params.threshold2, params.steepness), gain(level.w, params.edge2, params.steepness));
+    textureStore(output_f32, id.xy, vec4<f32>(r.xy + k * level.xy + (1.0 - k) * follow, 0.0, 0.0));
 }
 
 // first_texture: level 1 (xy); second_texture: level 1 rebuilt (xy).

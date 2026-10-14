@@ -2986,6 +2986,25 @@ fn ms_expand(p: vec2<i32>) -> vec4<f32> {
     return out;
 }
 
+// The squared chroma gradient of the rebuilt level 1 (zw; central
+// differences, clamped) at its sample nearest to full-resolution position
+// `p` (color_noise.rs `level1_gradient2`).
+fn ms_level1_gradient2(p: vec2<i32>) -> f32 {
+    let n = vec2<i32>(adjustments.global.color_noise_window.zw) - vec2<i32>(1);
+    let origin = vec2<i32>(adjustments.global.color_noise_window.xy);
+    let last = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
+    let k = min(p / 2, n);
+    let xs = clamp(vec2<i32>(k.x - 1, k.x + 1), vec2<i32>(0), vec2<i32>(n.x));
+    let ys = clamp(vec2<i32>(k.y - 1, k.y + 1), vec2<i32>(0), vec2<i32>(n.y));
+    let l4 = textureLoad(chroma_pyramid_texture, clamp(vec2<i32>(xs.x, k.y) - origin, vec2<i32>(0), last), 0);
+    let r4 = textureLoad(chroma_pyramid_texture, clamp(vec2<i32>(xs.y, k.y) - origin, vec2<i32>(0), last), 0);
+    let u4 = textureLoad(chroma_pyramid_texture, clamp(vec2<i32>(k.x, ys.x) - origin, vec2<i32>(0), last), 0);
+    let d4 = textureLoad(chroma_pyramid_texture, clamp(vec2<i32>(k.x, ys.y) - origin, vec2<i32>(0), last), 0);
+    let gx = 0.5 * (r4.zw - l4.zw);
+    let gy = 0.5 * (d4.zw - u4.zw);
+    return dot(gx, gx) + dot(gy, gy);
+}
+
 // Share of detail kept: x^s / (1 + x^s), x = size² / threshold².
 fn ms_gain(size2: f32, threshold2: f32, steepness: f32) -> f32 {
     if (threshold2 <= 0.0) { return 1.0; }
@@ -3010,7 +3029,13 @@ fn apply_color_noise_multiscale(
     // stay.
     let energy = textureLoad(chroma_energy_texture, coords_i - vec2<i32>(adjustments.source_window.xy), 0).r;
     let t0 = adjustments.global.color_noise.y;
-    let g0 = ms_gain(energy, t0 * t0, adjustments.global.color_noise.z);
+    var g0 = ms_gain(energy, t0 * t0, adjustments.global.color_noise.z);
+    // Next to colour edges that survived the coarse levels the finest
+    // detail stays.
+    let edge2 = adjustments.global.color_noise.w;
+    if (edge2 > 0.0) {
+        g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
+    }
     var ab = center_e.zw + g0 * (c0 - center_e.xy);
     // A layer with less colour noise reduction than the photo's returns
     // part of the pixel's own colour.
