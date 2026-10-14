@@ -1062,6 +1062,17 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
 const loadedColorNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined =>
   loaded.colorNoiseVersion ?? (isRaw && loaded.colorNoiseReduction === undefined ? COLOR_NOISE_VERSION : undefined);
 
+/** Whether a recipe develops colour noise with the multi-scale filter, as
+ * the backend decides (`color_noise::multiscale`); the base image of such a
+ * recipe is developed without the decode-time chroma clean-up. */
+export const colorNoiseMultiscale = (
+  adjustments: Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction'>,
+  isRaw: boolean,
+): boolean =>
+  adjustments.colorNoiseVersion !== undefined && adjustments.colorNoiseVersion !== null
+    ? adjustments.colorNoiseVersion >= COLOR_NOISE_VERSION
+    : isRaw && adjustments.colorNoiseReduction === undefined;
+
 /** Deep equality of adjustment values regardless of object key order (stored
  * recipes come back with sorted keys, so JSON strings of equal values differ). */
 export function sameAdjustmentValue(a: unknown, b: unknown): boolean {

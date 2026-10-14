@@ -121,8 +121,11 @@ struct GlobalAdjustments {
     agx_pipe_to_rendering_matrix: mat3x3<f32>,
     agx_rendering_to_pipe_matrix: mat3x3<f32>,
 
-    _pad_cg1: f32,
-    _pad_cg2: f32,
+    // Squared range of the aware expansion of the rebuilt level 1
+    // (color_noise.rs `Tuning::finest_aware2`); 0 = plain expansion.
+    color_noise_aware2: f32,
+    // color_noise.rs `Tuning::aware_far`.
+    color_noise_aware_far: f32,
     _pad_cg3: f32,
     _pad_cg4: f32,
     color_grading_shadows: ColorGradeSettings,
@@ -2986,6 +2989,70 @@ fn ms_expand(p: vec2<i32>) -> vec4<f32> {
     return out;
 }
 
+// ms_expand with level 1 (xy) plain and its reconstruction (zw) aware: each
+// level-1 sample's weight also scaled by exp(-d^2 / aware2), d the distance
+// of its rebuilt chroma from `guide` (the pixel's chroma), so the
+// reconstruction keeps to the pixel's side of a colour edge (color_noise.rs
+// `expand_aware`).
+fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
+    let n = vec2<i32>(adjustments.global.color_noise_window.zw) - vec2<i32>(1);
+    let origin = vec2<i32>(adjustments.global.color_noise_window.xy);
+    let last = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
+    let k = p / 2;
+    var xs = vec3<i32>(k.x - 1, k.x, k.x + 1);
+    var wx = vec3<f32>(0.125, 0.75, 0.125);
+    if (p.x % 2 == 1) {
+        xs = vec3<i32>(k.x, k.x + 1, k.x + 1);
+        wx = vec3<f32>(0.5, 0.5, 0.0);
+    }
+    var ys = vec3<i32>(k.y - 1, k.y, k.y + 1);
+    var wy = vec3<f32>(0.125, 0.75, 0.125);
+    if (p.y % 2 == 1) {
+        ys = vec3<i32>(k.y, k.y + 1, k.y + 1);
+        wy = vec3<f32>(0.5, 0.5, 0.0);
+    }
+    xs = clamp(xs, vec3<i32>(0), vec3<i32>(n.x));
+    ys = clamp(ys, vec3<i32>(0), vec3<i32>(n.y));
+    let inv2 = 1.0 / aware2;
+    // Distances relative to the nearest sample's, so the weights cannot all
+    // vanish.
+    var nearest = 3.0e38;
+    var farthest = 0.0;
+    // The plain expansion (ms_expand) from the same samples.
+    var plain = vec4<f32>(0.0);
+    for (var j: i32 = 0; j < 3; j = j + 1) {
+        for (var i: i32 = 0; i < 3; i = i + 1) {
+            let ws = wx[i] * wy[j];
+            if (ws == 0.0) { continue; }
+            let t = textureLoad(chroma_pyramid_texture, clamp(vec2<i32>(xs[i], ys[j]) - origin, vec2<i32>(0), last), 0);
+            plain += ws * t;
+            let d = t.zw - guide;
+            let dd = dot(d, d);
+            nearest = min(nearest, dd);
+            farthest = max(farthest, dd);
+        }
+    }
+    // A pixel far from every sample is taken for noise (color_noise.rs
+    // `Tuning::aware_far`); where the weights would be within 0.1 % of each
+    // other (`AWARE_FLAT`) the plain expansion is the same.
+    if (nearest * inv2 > adjustments.global.color_noise_aware_far || (farthest - nearest) * inv2 < 1e-3) { return plain; }
+    var out = vec4<f32>(0.0);
+    var sw = 0.0;
+    for (var j: i32 = 0; j < 3; j = j + 1) {
+        for (var i: i32 = 0; i < 3; i = i + 1) {
+            let ws = wx[i] * wy[j];
+            if (ws == 0.0) { continue; }
+            let t = textureLoad(chroma_pyramid_texture, clamp(vec2<i32>(xs[i], ys[j]) - origin, vec2<i32>(0), last), 0);
+            let d = t.zw - guide;
+            let w = ws * exp(-(dot(d, d) - nearest) * inv2);
+            out += w * t;
+            sw += w;
+        }
+    }
+    // Level 1 (xy) plainly, its reconstruction (zw) aware.
+    return vec4<f32>(plain.xy, out.zw / sw);
+}
+
 // The squared chroma gradient of the rebuilt level 1 (zw; central
 // differences, clamped) at its sample nearest to full-resolution position
 // `p` (color_noise.rs `level1_gradient2`).
@@ -3020,10 +3087,19 @@ fn apply_color_noise_multiscale(
     color_a: f32,
     is_raw: u32
 ) -> vec3<f32> {
-    let center_e = ms_expand(coords_i);
     let p = nr_encode(center_linear);
     let lp = get_luma(p);
     let c0 = vec2<f32>(p.r - p.g, p.b - p.g);
+    // Only the reconstruction expands aware: the detail stays the pixel
+    // against the plain expansion of level 1 (crisper colour edges than
+    // expanding both alike, measured on real files).
+    let aware2 = adjustments.global.color_noise_aware2;
+    var center_e: vec4<f32>;
+    if (aware2 > 0.0) {
+        center_e = ms_expand_aware(coords_i, c0, aware2);
+    } else {
+        center_e = ms_expand(coords_i);
+    }
     // The detail's size is its local energy (3 x 3, weights 1-2-1, computed
     // once per source): single noisy pixels go, the tails of colour edges
     // stay.

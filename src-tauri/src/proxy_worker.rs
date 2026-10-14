@@ -320,10 +320,10 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str) {
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("preview_proxy_prefetch");
-    let Some(image) = decode(app_handle, &source, &settings, None) else {
+    let Some((image, multiscale)) = decode(app_handle, &source, &settings, None) else {
         return;
     };
-    match preview_proxy::write(&source, &image, size, &settings) {
+    match preview_proxy::write(&source, &image, size, &settings, multiscale) {
         // The thumbnail is now developed from the proxy.
         Ok(proxy) => {
             drop(image);
@@ -339,32 +339,42 @@ fn prepare(app_handle: &tauri::AppHandle, path: &str) {
     }
 }
 
-/// The full decode of `source`: the open photograph's when it is in memory,
+/// The full decode of `source` for the colour noise filter of its stored
+/// recipe (returned with it): the open photograph's when it is in memory,
 /// else decoded now (cancelled when `cancel` is raised past its value).
 fn decode(
     app_handle: &tauri::AppHandle,
     source: &Path,
     settings: &crate::app_settings::AppSettings,
     cancel: Option<(Arc<AtomicUsize>, usize)>,
-) -> Option<Arc<image::DynamicImage>> {
+) -> Option<(Arc<image::DynamicImage>, bool)> {
     let state = app_handle.state::<AppState>();
+    let source_str = source.to_string_lossy();
+    let multiscale = crate::image_loader::stored_multiscale(&source_str);
     let cached = state
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&source.to_string_lossy());
+        .get(&crate::image_loader::decoded_cache_key(
+            &source_str,
+            None,
+            multiscale,
+        ));
     if let Some((image, _)) = cached {
-        return Some(image);
+        return Some((image, multiscale));
     }
     let bytes = crate::file_management::read_file_mapped(source).ok()?;
-    match crate::image_loader::load_base_image_from_bytes(
+    match crate::image_loader::load_base_image_from_bytes_for(
         &bytes,
-        &source.to_string_lossy(),
+        &source_str,
         false,
         settings,
         cancel,
+        None,
+        None,
+        Some(multiscale),
     ) {
-        Ok(image) => Some(Arc::new(image)),
+        Ok(image) => Some((Arc::new(image), multiscale)),
         Err(e) => {
             log::warn!(
                 "Preview proxy for {}: decode failed: {}",
@@ -406,7 +416,7 @@ fn build(app_handle: &tauri::AppHandle, worker: &Worker, item: &BuildItem) -> Ou
         return Outcome::Current;
     }
     let cancel = Some((Arc::clone(&worker.cancel), item.generation));
-    let Some(image) = decode(app_handle, &source, &settings, cancel) else {
+    let Some((image, multiscale)) = decode(app_handle, &source, &settings, cancel) else {
         return if worker.cancel.load(Ordering::SeqCst) != item.generation {
             Outcome::Cancelled
         } else {
@@ -417,13 +427,14 @@ fn build(app_handle: &tauri::AppHandle, worker: &Worker, item: &BuildItem) -> Ou
         return Outcome::Cancelled;
     }
     if needs_standard {
-        if let Err(e) = preview_proxy::write(&source, &image, size, &settings) {
+        if let Err(e) = preview_proxy::write(&source, &image, size, &settings, multiscale) {
             return Outcome::Failed(format!("Standard preview not written: {e}"));
         }
         // The thumbnail is now developed from the proxy.
         crate::file_management::refresh_thumbnail(app_handle, &item.path);
     }
-    if needs_full && let Err(e) = preview_proxy::write_full(&source, &image, &settings) {
+    if needs_full && let Err(e) = preview_proxy::write_full(&source, &image, &settings, multiscale)
+    {
         return Outcome::Failed(format!("1:1 preview not written: {e}"));
     }
     Outcome::Built

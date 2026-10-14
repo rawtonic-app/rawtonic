@@ -27,6 +27,13 @@ struct ColorNoiseParams {
     threshold2: f32,
     steepness: f32,
     edge2: f32,
+    // Inverse squared range of the level's aware expansion (color_noise.rs
+    // `Tuning::aware_inv2`, before the noise profile); 0 = plain.
+    aware_inv2: f32,
+    // color_noise.rs `Tuning::aware_far`.
+    aware_far: f32,
+    _pad1: f32,
+    _pad2: f32,
     // Colour noise by brightness relative to the photo's (8 bins of
     // square-root luminance, color_noise.rs `profile_at`).
     profile: array<vec4<f32>, 2>,
@@ -37,6 +44,8 @@ struct ColorNoiseParams {
 @group(0) @binding(2) var output_f32: texture_storage_2d<rgba32float, write>;
 @group(0) @binding(3) var<uniform> params: ColorNoiseParams;
 @group(0) @binding(4) var third_texture: texture_2d<f32>;
+@group(0) @binding(5) var fourth_texture: texture_2d<f32>;
+@group(0) @binding(6) var fifth_texture: texture_2d<f32>;
 
 @group(1) @binding(0) var output_packed: texture_storage_2d<rgba16float, write>;
 @group(1) @binding(1) var output_energy: texture_storage_2d<r32float, write>;
@@ -139,18 +148,82 @@ fn finest_energy(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // first_texture: the level's prepared detail (xy), local energy (z) and
 // chroma-edge ratio (w); second_texture: the coarser level rebuilt (xy);
-// third_texture: the detail's luminance-following part (xy). As
-// color_noise.rs `level_keep` and `rebuilt_detail`.
+// third_texture: the detail's luminance-following part (xy);
+// fourth_texture: the coarser level unfiltered (chroma xy, luminance z);
+// fifth_texture: the level itself unfiltered (chroma xy). As
+// color_noise.rs `ChromaPyramid::reconstruct` (`level_keep`,
+// `rebuilt_detail`, `expand_aware`).
 @compute @workgroup_size(16, 16, 1)
 fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
     let dims = vec2<i32>(textureDimensions(first_texture));
     if (i32(id.x) >= dims.x || i32(id.y) >= dims.y) { return; }
-    let level = textureLoad(first_texture, vec2<i32>(id.xy), 0);
-    let follow = textureLoad(third_texture, vec2<i32>(id.xy), 0).xy;
+    let p = vec2<i32>(id.xy);
+    let level = textureLoad(first_texture, p, 0);
+    let follow = textureLoad(third_texture, p, 0).xy;
     let n = vec2<i32>(textureDimensions(second_texture)) - vec2<i32>(1);
-    let r = expand(second_texture, vec2<i32>(id.xy), n, vec2<i32>(0));
     let k = max(gain(level.z, params.threshold2, params.steepness), gain(level.w, params.edge2, params.steepness));
-    textureStore(output_f32, id.xy, vec4<f32>(r.xy + k * level.xy + (1.0 - k) * follow, 0.0, 0.0));
+    var r = expand(second_texture, p, n, vec2<i32>(0)).xy;
+    var detail = level.xy;
+    if (params.aware_inv2 > 0.0) {
+        // The finer sample's own chroma guides the weights; the detail is
+        // taken against the same weighted expansion of the unfiltered level.
+        let plain = expand(fourth_texture, p, n, vec2<i32>(0));
+        let f = textureLoad(fifth_texture, p, 0).xy;
+        let rel = profile_at(plain.z);
+        let inv2 = params.aware_inv2 / (rel * rel);
+        let kp = p / 2;
+        var xs = vec3<i32>(kp.x - 1, kp.x, kp.x + 1);
+        var wx = vec3<f32>(0.125, 0.75, 0.125);
+        if (p.x % 2 == 1) {
+            xs = vec3<i32>(kp.x, kp.x + 1, kp.x + 1);
+            wx = vec3<f32>(0.5, 0.5, 0.0);
+        }
+        var ys = vec3<i32>(kp.y - 1, kp.y, kp.y + 1);
+        var wy = vec3<f32>(0.125, 0.75, 0.125);
+        if (p.y % 2 == 1) {
+            ys = vec3<i32>(kp.y, kp.y + 1, kp.y + 1);
+            wy = vec3<f32>(0.5, 0.5, 0.0);
+        }
+        xs = clamp(xs, vec3<i32>(0), vec3<i32>(n.x));
+        ys = clamp(ys, vec3<i32>(0), vec3<i32>(n.y));
+        // Distances relative to the nearest sample's, so the weights
+        // cannot all vanish (color_noise.rs `expand_aware`).
+        var nearest = 3.0e38;
+        var farthest = 0.0;
+        for (var j: i32 = 0; j < 3; j = j + 1) {
+            for (var i: i32 = 0; i < 3; i = i + 1) {
+                if (wx[i] * wy[j] == 0.0) { continue; }
+                let d = textureLoad(second_texture, vec2<i32>(xs[i], ys[j]), 0).xy - f;
+                let dd = dot(d, d);
+                nearest = min(nearest, dd);
+                farthest = max(farthest, dd);
+            }
+        }
+        // Far from every sample: taken for noise (color_noise.rs
+        // `Tuning::aware_far`); the plain expansion too where the weights
+        // would be within 0.1 % of each other (`AWARE_FLAT`).
+        let use_plain = nearest * inv2 > params.aware_far || (farthest - nearest) * inv2 < 1e-3;
+        var ra = vec2<f32>(0.0);
+        var ca = vec2<f32>(0.0);
+        var sw = 0.0;
+        for (var j: i32 = 0; j < 3; j = j + 1) {
+            for (var i: i32 = 0; i < 3; i = i + 1) {
+                let ws = wx[i] * wy[j];
+                if (ws == 0.0 || use_plain) { continue; }
+                let q = vec2<i32>(xs[i], ys[j]);
+                let dq = textureLoad(second_texture, q, 0).xy - f;
+                let w = ws * exp(-(dot(dq, dq) - nearest) * inv2);
+                ra += w * textureLoad(second_texture, q, 0).xy;
+                ca += w * textureLoad(fourth_texture, q, 0).xy;
+                sw += w;
+            }
+        }
+        if (!use_plain) {
+            r = ra / sw;
+            detail = f - ca / sw;
+        }
+    }
+    textureStore(output_f32, id.xy, vec4<f32>(r + k * detail + (1.0 - k) * follow, 0.0, 0.0));
 }
 
 // first_texture: level 1 (xy); second_texture: level 1 rebuilt (xy).

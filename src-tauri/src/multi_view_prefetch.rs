@@ -300,13 +300,20 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
         return Outcome::Skipped;
     }
     let source_str = source.to_string_lossy().to_string();
+    // For the colour noise filter of the stored recipe, as the previews
+    // stand for it (preview_proxy::header_is_current).
+    let multiscale = crate::image_loader::stored_multiscale(&source_str);
     // The open photograph's decode in memory serves as it is.
     let cached = app_handle
         .state::<AppState>()
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&source_str)
+        .get(&crate::image_loader::decoded_cache_key(
+            &source_str,
+            None,
+            multiscale,
+        ))
         .map(|(image, _)| image);
     let start = Instant::now();
     let image = match cached {
@@ -316,12 +323,15 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
                 return Outcome::Skipped;
             };
             let (tracker, token) = (&cancel.0, cancel.1);
-            match crate::image_loader::load_base_image_from_bytes(
+            match crate::image_loader::load_base_image_from_bytes_for(
                 &bytes,
                 &source_str,
                 false,
                 &settings,
                 Some(cancel.clone()),
+                None,
+                None,
+                Some(multiscale),
             ) {
                 Ok(image) => Arc::new(image),
                 Err(_) if tracker.load(Ordering::SeqCst) != token => return Outcome::Cancelled,
@@ -337,7 +347,7 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
     }
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;
     if needs_standard {
-        match preview_proxy::write(&source, &image, standard, &settings) {
+        match preview_proxy::write(&source, &image, standard, &settings, multiscale) {
             // The thumbnail is then developed from it (as proxy_worker does).
             Ok(_) => crate::file_management::refresh_thumbnail(app_handle, path),
             Err(e) => log::warn!("[multi_view] Standard preview of {path} not written: {e}"),
@@ -346,7 +356,7 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
     if preview_proxy::has_full(&source, &settings) {
         return Outcome::Ready;
     }
-    match preview_proxy::write_full(&source, &image, &settings) {
+    match preview_proxy::write_full(&source, &image, &settings, multiscale) {
         Ok(()) => {
             log::info!(
                 "[multi_view] 1:1 preview of {path} ready in the background: decoded {decoded_ms:.0} ms, written {:.0} ms",

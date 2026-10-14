@@ -84,7 +84,9 @@ impl FileExporter {
         rawtonic_engine::embedded_lens::apply_default(&mut js_adjustments, job.source);
         let is_raw = is_raw_file(&source_path_str);
 
-        let mut base = job.base.clone();
+        // The recipe's colour noise filter decides the decode-time chroma
+        // clean-up (skipped for the multi-scale filter).
+        let mut base = job.base.clone().for_recipe(&js_adjustments, is_raw);
         let amount = ai_denoise_amount(&js_adjustments);
         if amount > 0.0 && is_raw {
             let denoiser = self.mosaic_denoiser.clone().ok_or_else(|| {

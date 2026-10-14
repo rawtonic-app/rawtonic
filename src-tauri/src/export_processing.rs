@@ -175,24 +175,26 @@ pub(crate) fn load_export_base_image(
         None
     };
     match read_file_mapped(Path::new(source_path)) {
-        Ok(mmap) => crate::image_loader::load_base_image_from_bytes_with(
+        Ok(mmap) => crate::image_loader::load_base_image_for_recipe(
             &mmap,
             source_path,
             false,
             settings,
             None,
             denoise,
+            adjustments,
         )
         .map_err(|e| format!("Failed to load from mmap: {}", e)),
         Err(_) => {
             let bytes = fs::read(source_path).map_err(|e| e.to_string())?;
-            crate::image_loader::load_base_image_from_bytes_with(
+            crate::image_loader::load_base_image_for_recipe(
                 &bytes,
                 source_path,
                 false,
                 settings,
                 None,
                 denoise,
+                adjustments,
             )
             .map_err(|e| format!("Failed to load from bytes: {}", e))
         }
@@ -720,6 +722,14 @@ pub(crate) async fn export_images_impl(
                             .filter(|loaded| parse_virtual_path(&loaded.path).0 == source_path)
                             .filter(|loaded| {
                                 offline_source.as_deref() != Some(loaded.path.as_str())
+                            })
+                            // Developed for the colour noise filter exported.
+                            .filter(|loaded| {
+                                loaded.multiscale
+                                    == Some(rawtonic_engine::color_noise::multiscale(
+                                        &js_adjustments,
+                                        is_raw,
+                                    ))
                             })
                             .map(|loaded| Arc::clone(&loaded.image))
                     } else {

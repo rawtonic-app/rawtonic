@@ -5,7 +5,7 @@ import i18next from 'i18next';
 import { toast } from 'react-toastify';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
-import { useLibraryStore } from '../store/useLibraryStore';
+import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -412,7 +412,7 @@ export function useEditorActions() {
             && isCurrentEditorImage(selectedImage.path)) {
             const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
             if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
-              const normalized = normalizeLoadedAdjustments(meta.adjustments);
+              const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
               setEditor({ adjustments: normalized });
               resetHistory(normalized);
             }
@@ -422,7 +422,9 @@ export function useEditorActions() {
             const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
             if (useLibraryStore.getState().libraryActivePath === libraryActivePath
               && meta.adjustments && !meta.adjustments.is_null) {
-              setLibrary({ libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments) });
+              setLibrary({
+                libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+              });
             }
           }
         })
@@ -446,9 +448,9 @@ export function useEditorActions() {
       try {
         const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: pathToCopyFrom });
         if (meta?.adjustments && !meta.adjustments.is_null) {
-          sourceAdjustments = normalizeLoadedAdjustments(meta.adjustments);
+          sourceAdjustments = normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(pathToCopyFrom));
         } else {
-          sourceAdjustments = INITIAL_ADJUSTMENTS;
+          sourceAdjustments = initialAdjustmentsFor(isRawInLibrary(pathToCopyFrom));
         }
       } catch (err) {
         toast.error(`Failed to load metadata for copying: ${err}`);

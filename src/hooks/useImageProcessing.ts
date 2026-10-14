@@ -18,7 +18,7 @@ import { saveFailure } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
-import { aiDenoiseToApply } from '../utils/aiDenoise';
+import { sourceDevelopToApply } from '../utils/aiDenoise';
 import { originalPreviewAdjustments } from '../utils/beforeAfter';
 import { toastAiError } from '../utils/aiErrors';
 
@@ -476,20 +476,32 @@ export function useImageProcessing(
     [previewQueue, currentResRef],
   );
 
-  // AI Denoise lives in the decode: develop the RAW again when the recipe's
-  // amount differs from the source's (src/utils/aiDenoise.ts), then render.
-  const aiDenoiseTarget = aiDenoiseToApply(selectedImage, adjustments, isSliderDragging);
+  // AI Denoise and the colour noise filter's base live in the decode:
+  // develop the RAW again when the recipe's AI Denoise amount or colour noise
+  // filter differs from the source's (src/utils/aiDenoise.ts), then render.
+  const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
+  const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
+  const developMultiscale = sourceDevelop?.multiscale;
   useEffect(() => {
     const path = useEditorStore.getState().selectedImage?.path;
-    if (aiDenoiseTarget === null || !path) return;
-    setEditor({ aiDenoiseBusy: true });
-    invoke<number>(Invokes.ApplyAiDenoise, { path, amount: aiDenoiseTarget })
+    if (developAiDenoise === null || !path) return;
+    const amount = developAiDenoise;
+    const multiscale = developMultiscale;
+    const current = useEditorStore.getState().selectedImage;
+    const changesAiDenoise = amount !== Math.round(current?.aiDenoise ?? 0);
+    const changesFilter = multiscale !== current?.colorNoiseMultiscale;
+    if (changesAiDenoise) setEditor({ aiDenoiseBusy: true });
+    invoke<number>(Invokes.ApplyAiDenoise, { path, amount, multiscale })
       .then((applied) => {
         const editor = useEditorStore.getState();
         if (editor.selectedImage?.path !== path) return;
         editor.setEditor({
           aiDenoiseBusy: false,
-          selectedImage: { ...editor.selectedImage, aiDenoise: Math.round(applied) },
+          selectedImage: {
+            ...editor.selectedImage,
+            aiDenoise: Math.round(applied),
+            ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
+          },
         });
         const targetRes = currentResRef.current;
         if (targetRes) {
@@ -508,12 +520,20 @@ export function useImageProcessing(
         editor.setEditor({
           aiDenoiseBusy: false,
           ...(editor.selectedImage?.path === path
-            ? { selectedImage: { ...editor.selectedImage, aiDenoiseFailed: aiDenoiseTarget } }
+            ? {
+                // Not retried: the source stays as it is.
+                selectedImage: {
+                  ...editor.selectedImage,
+                  ...(changesAiDenoise ? { aiDenoiseFailed: amount } : {}),
+                  ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
+                },
+              }
             : {}),
         });
-        toastAiError(err, `AI Denoise failed: ${err}`);
+        if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${err}`);
+        else console.error('Developing the source again failed:', err);
       });
-  }, [aiDenoiseTarget, setEditor, previewQueue, currentResRef]);
+  }, [developAiDenoise, developMultiscale, setEditor, previewQueue, currentResRef]);
 
   const applyAdjustments = useCallback(
     (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {

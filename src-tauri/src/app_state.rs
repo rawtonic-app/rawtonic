@@ -115,6 +115,10 @@ pub struct LoadedImage {
     pub path: String,
     pub image: Arc<DynamicImage>,
     pub is_raw: bool,
+    /// The decode was developed for the multi-scale colour noise filter
+    /// (without the decode-time chroma clean-up,
+    /// `image_loader::load_base_image_from_bytes_for`); None for preview data.
+    pub multiscale: Option<bool>,
 }
 
 /// The open photograph's preview proxy (preview_proxy.rs) while its full

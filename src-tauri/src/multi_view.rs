@@ -337,6 +337,15 @@ fn render_key(recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64
     hash.finish() | 1
 }
 
+/// The decoded-image cache key of the full decode a cell at `path` with
+/// `recipe` uses: one for its colour noise filter (without AI Denoise).
+fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
+    let (source_path, _) = parse_virtual_path(path);
+    let source = source_path.to_string_lossy();
+    let multiscale = rawtonic_engine::color_noise::multiscale(recipe, is_raw_file(&source_path));
+    crate::image_loader::decoded_cache_key(&source, None, multiscale)
+}
+
 /// A photograph's source for its cell: the preview proxy kept in memory, a
 /// decode still cached from Develop, the proxy on disk, else a fast decode
 /// (as thumbnails). Returns the image, its pixels per full-resolution pixel
@@ -344,6 +353,7 @@ fn render_key(recipe: &serde_json::Value, dim: u32, context: &GpuContext) -> u64
 fn load_source(
     app_handle: &tauri::AppHandle,
     path: &str,
+    recipe: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
@@ -353,7 +363,7 @@ fn load_source(
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&source_str)
+        .get(&decoded_key(path, recipe))
     {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
@@ -387,7 +397,7 @@ fn load_source(
         };
         return Ok((Arc::new(proxy.image), scale, facts, "proxy-disk"));
     }
-    decode(&source_path, &source_str, is_raw, &settings)
+    decode(&source_path, &source_str, is_raw, &settings, recipe)
 }
 
 fn decode(
@@ -395,11 +405,13 @@ fn decode(
     source_str: &str,
     is_raw: bool,
     settings: &crate::app_settings::AppSettings,
+    recipe: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
     let bytes = read_file_mapped(source_path).map_err(|e| e.to_string())?;
-    let image =
-        crate::image_loader::load_base_image_from_bytes(&bytes, source_str, is_raw, settings, None)
-            .map_err(|e| e.to_string())?;
+    let image = crate::image_loader::load_base_image_for_recipe(
+        &bytes, source_str, is_raw, settings, None, None, recipe,
+    )
+    .map_err(|e| e.to_string())?;
     let (width, height) = image.dimensions();
     let scale = if is_raw {
         crate::raw_processing::get_fast_demosaic_scale_factor(&bytes, width, height)
@@ -454,14 +466,13 @@ fn prepare(
     // A full decode arriving after a proxy invalidates its prepared base.
     let preparation_key = {
         let state = app_handle.state::<AppState>();
-        let (source, _) = parse_virtual_path(&todo.path);
         let mut hash = DefaultHasher::new();
         crate::preview_cache::preparation_key(&todo.recipe).hash(&mut hash);
         if let Some((image, _)) = state
             .decoded_image_cache
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .get(source.to_string_lossy().as_ref())
+            .get(&decoded_key(&todo.path, &todo.recipe))
         {
             (Arc::as_ptr(&image) as usize).hash(&mut hash);
         }
@@ -478,7 +489,7 @@ fn prepare(
     let facts = match known {
         Some(facts) => facts,
         None => {
-            let source = load_source(app_handle, &todo.path)?;
+            let source = load_source(app_handle, &todo.path, &todo.recipe)?;
             let facts = source.2;
             loaded = Some(source);
             worker
@@ -510,7 +521,7 @@ fn prepare(
         None => {
             let (source, source_scale, facts, kind) = match loaded {
                 Some(loaded) => loaded,
-                None => load_source(app_handle, &todo.path)?,
+                None => load_source(app_handle, &todo.path, &todo.recipe)?,
             };
             let scale =
                 reduced_preview_scale(facts.full_width, facts.full_height, &todo.recipe, dim)
@@ -1054,6 +1065,7 @@ pub(crate) async fn set_multi_view_zoom(
 fn load_full_source(
     app_handle: &tauri::AppHandle,
     path: &str,
+    recipe: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
@@ -1063,7 +1075,7 @@ fn load_full_source(
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&source_str)
+        .get(&decoded_key(path, recipe))
     {
         let (full_width, full_height) = image.dimensions();
         let facts = Facts {
@@ -1090,12 +1102,14 @@ fn load_full_source(
         return Ok((Arc::new(proxy.image), scale, facts, "proxy-1:1"));
     }
     let bytes = read_file_mapped(&source_path).map_err(|e| e.to_string())?;
-    let image = crate::image_loader::load_base_image_from_bytes(
+    let image = crate::image_loader::load_base_image_for_recipe(
         &bytes,
         &source_str,
         false,
         &settings,
         None,
+        None,
+        recipe,
     )
     .map_err(|e| e.to_string())?;
     let (full_width, full_height) = image.dimensions();
@@ -1160,7 +1174,7 @@ fn prepare_region(
             log::info!("[multi_view] {path}: region from the whole photograph ({reason})")
         }
     }
-    let (source, source_scale, facts, source_kind) = load_full_source(app_handle, path)?;
+    let (source, source_scale, facts, source_kind) = load_full_source(app_handle, path, recipe)?;
     if let Some(base) = region_from_full_decode(&source, source_scale, facts, area, zoom, recipe) {
         let kind = match source_kind {
             "full-decode" => "full-decode-rows",
@@ -1272,7 +1286,6 @@ fn prepare_region_from_rows(
     let start = Instant::now();
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
-    let source_str = source_path.to_string_lossy().to_string();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     // The source and its true size (the cells' facts may come from a fast
     // decode, whose size is rounded).
@@ -1280,7 +1293,7 @@ fn prepare_region_from_rows(
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&source_str)
+        .get(&decoded_key(path, recipe))
         .map(|(image, _)| image)
         .filter(|image| image.as_rgb32f().is_some());
     let (full_w, full_h) = match &decoded {
@@ -1432,14 +1445,19 @@ fn whole_pixels(wanted: [f32; 4]) -> [u32; 4] {
 
 /// Whether the region of `path` can be developed from a source that is
 /// ready (the decode in memory or a 1:1 preview), not a RAW decoded now.
-fn region_source_ready(app_handle: &tauri::AppHandle, path: &str, zoom: CellZoom) -> bool {
+fn region_source_ready(
+    app_handle: &tauri::AppHandle,
+    path: &str,
+    zoom: CellZoom,
+    recipe: &serde_json::Value,
+) -> bool {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
     let in_memory = state
         .decoded_image_cache
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&source_path.to_string_lossy())
+        .get(&decoded_key(path, recipe))
         .is_some();
     in_memory
         || (zoom.scale >= 1.0 && {
@@ -1616,7 +1634,8 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     // decoded now one at a time beside them.
     let (ready, heavy): (Vec<_>, Vec<_>) =
         todo.into_iter().partition(|(path, _, zoom, recipe, _)| {
-            region_from_rows_possible(recipe) && region_source_ready(app_handle, path, *zoom)
+            region_from_rows_possible(recipe)
+                && region_source_ready(app_handle, path, *zoom, recipe)
         });
     let ready_count = ready.len();
     let ready = Mutex::new(ready.into_iter());
