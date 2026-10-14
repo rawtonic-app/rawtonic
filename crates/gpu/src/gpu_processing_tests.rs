@@ -7541,6 +7541,11 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
             json!({"colorNoiseReduction":90,"colorNoiseVersion":2,"colorNoiseDetail":30,
                 "colorNoiseSmoothness":80,"lumaNoiseReduction":20,"sharpness":40}),
         ),
+        // Light flare: its map is built from samples of the whole photo.
+        (
+            "flare",
+            json!({"flareAmount":60,"exposure":1.5,"contrast":20}),
+        ),
     ]
 }
 
@@ -7594,7 +7599,7 @@ fn whole_render_hash_probe() {
     let context = context();
     let source = chunk_test_source(3100, 2300);
     let mut profiles = chunk_test_profiles();
-    profiles.push(("flare", json!({"flareAmount":60,"exposure":1.5})));
+    profiles.push(("flare_only", json!({"flareAmount":60,"exposure":1.5})));
     for (key, value) in [
         ("highlights", -80.0),
         ("clarity", 60.0),
@@ -7784,16 +7789,6 @@ fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {
     let context = context();
     let source = chunk_test_source(600, 400);
     let limited = limited_context(&context, 512);
-    // Lens flare is built from the whole photo: a clear error.
-    let flare = chunk_test_render(
-        &limited,
-        &source,
-        &json!({"flareAmount": 60}),
-        true,
-        RenderOutputPrecision::EightBit,
-        None,
-    );
-    assert_eq!(flare.unwrap_err(), flare_texture_limit_error(600, 400, 512));
     // A tile with its margins does not fit 512 px: no windows either.
     let edited = chunk_test_render(
         &limited,
