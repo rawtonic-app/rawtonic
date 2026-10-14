@@ -7516,10 +7516,19 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
         json!({"exposure":0.5,"clarity":-40,"structure":30,"sharpness":40,
             "highlights":-30,"lumaNoiseReduction":20,"moireAmount":60,"moirePattern":80})
     )]);
+    // A noisy photo: the luminance noise reduction's edge-preserving pass.
+    let mut noisy_masked = masked.clone();
+    noisy_masked["testNoiseLevel"] = json!(0.02);
     vec![
         ("plain", json!({})),
         ("neighbourhood", neighbourhood),
         ("masked", masked),
+        ("noisy_masked", noisy_masked),
+        (
+            "noisy_defaults",
+            json!({"sharpness":40,"lumaNoiseReduction":15,"colorNoiseReduction":25,
+                "testNoiseLevel":0.012}),
+        ),
         (
             "relight",
             json!({"relightLights":[{"intensity":65,"pattern":"blinds","elevation":25}]}),
@@ -7548,7 +7557,11 @@ fn chunk_test_render(
     roi: Option<Roi>,
 ) -> Result<DynamicImage, String> {
     let (width, height) = source.dimensions();
-    let adjustments = get_all_adjustments_from_json(profile, raw, Some(2));
+    let mut adjustments = get_all_adjustments_from_json(profile, raw, Some(2));
+    // A measured noise level as the photo's (not a recipe key).
+    if let Some(level) = profile["testNoiseLevel"].as_f64() {
+        adjustments.uniforms.global.noise_level = level as f32;
+    }
     let mask = Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
         Luma([((x * 3 + y * 7) % 256) as u8])
     }));
@@ -8150,4 +8163,331 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
         .unwrap();
     println!("GPU vs CPU reconstruction: max difference {worst} of 65535");
     assert!(worst <= 12, "max {worst}");
+}
+
+#[test]
+fn edge_noise_reduction_follows_the_noise_level_and_the_luminance_amount() {
+    // The start is the shader's (exports below it use the pipeline without
+    // the pass).
+    let start: f32 = include_str!("shaders/shader.wgsl")
+        .split("const LUMA_NR_EDGE_NOISE: vec2<f32> = vec2<f32>(")
+        .nth(1)
+        .and_then(|rest| rest.split(',').next())
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert_eq!(start, LUMA_NR_EDGE_NOISE_START);
+    let with = |recipe: serde_json::Value, noise: f32| {
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, None);
+        adjustments.global.noise_level = noise;
+        edge_noise_reduction(&adjustments)
+    };
+    let luma = json!({"lumaNoiseReduction": 15});
+    assert!(!with(luma.clone(), 0.0));
+    assert!(!with(luma.clone(), LUMA_NR_EDGE_NOISE_START));
+    assert!(with(luma, 0.02));
+    assert!(!with(json!({"colorNoiseReduction": 25}), 0.02));
+    let local = json!({"masks": [local_mask("m", json!({"lumaNoiseReduction": 30}))]});
+    assert!(with(local, 0.02));
+}
+
+/// A dark scene with bright discs and point lights at high-ISO noise,
+/// developed as a RAW (Bayer mosaic, demosaic, decode-time preprocessing),
+/// and the noise-free development of the same mosaic.
+struct SpeckleScene {
+    noisy: Vec<[f32; 3]>,
+    clean: Vec<[f32; 3]>,
+    /// Dark pixels 3–16 px from a bright object.
+    near: Vec<bool>,
+    /// Bright pixels on the objects' outline.
+    edge: Vec<bool>,
+}
+
+fn speckle_scene(size: usize) -> SpeckleScene {
+    let mut scene = vec![[0.012f32, 0.012, 0.011]; size * size];
+    let mut bright = vec![false; size * size];
+    let cell = 128;
+    for cy in 0..size / cell {
+        for cx in 0..size / cell {
+            let (ox, oy) = ((cx * cell + cell / 2) as i32, (cy * cell + cell / 2) as i32);
+            if (cx + cy) % 2 == 0 {
+                let r = 6 + ((cx * 7 + cy * 3) % 14) as i32;
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        if dx * dx + dy * dy <= r * r {
+                            let i = (oy + dy) as usize * size + (ox + dx) as usize;
+                            scene[i] = [0.7, 0.6, 0.45];
+                            bright[i] = true;
+                        }
+                    }
+                }
+            } else {
+                for k in 0..5i32 {
+                    let (x, y) = (ox - 40 + k * 19, oy - 30 + (k * 23) % 60);
+                    for (dx, dy, w) in [
+                        (0, 0, 1.0),
+                        (1, 0, 0.4),
+                        (-1, 0, 0.4),
+                        (0, 1, 0.4),
+                        (0, -1, 0.4),
+                    ] {
+                        let i = (y + dy) as usize * size + (x + dx) as usize;
+                        scene[i] = [0.9 * w; 3];
+                        bright[i] = true;
+                    }
+                }
+            }
+        }
+    }
+    // Dark pixels 3..16 px from the bright objects.
+    let mut near = vec![false; size * size];
+    for y in 16..size - 16 {
+        for x in 16..size - 16 {
+            if bright[y * size + x] {
+                continue;
+            }
+            let mut d2 = i32::MAX;
+            for dy in -16i32..=16 {
+                for dx in -16i32..=16 {
+                    if bright[(y as i32 + dy) as usize * size + (x as i32 + dx) as usize] {
+                        d2 = d2.min(dx * dx + dy * dy);
+                    }
+                }
+            }
+            near[y * size + x] = (9..=256).contains(&d2);
+        }
+    }
+    let pattern = rawtonic_rawdecode::demosaic::CfaPattern::new(2, 2, vec![0, 1, 1, 2]).unwrap();
+    let develop = |noise: bool| {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut gaussian = || {
+            let mut uniform = || {
+                state = state
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                ((state >> 40) as f32 + 0.5) / (1u64 << 24) as f32
+            };
+            let (u1, u2) = (uniform(), uniform());
+            (-2.0 * u1.ln()).sqrt() * (std::f32::consts::TAU * u2).cos()
+        };
+        // ISO 12800-like: 300 electrons at white, 3 electrons read noise.
+        let full = 300.0f32;
+        let mosaic: Vec<f32> = (0..size * size)
+            .map(|i| {
+                let c = pattern.color((i / size) as isize, (i % size) as isize);
+                let v = scene[i][c];
+                if noise {
+                    let e = v * full;
+                    ((e + (e + 9.0).sqrt() * gaussian()) / full).min(1.0)
+                } else {
+                    v
+                }
+            })
+            .collect();
+        let rgb = rawtonic_rawdecode::demosaic::demosaic(&mosaic, size, size, &pattern);
+        let mut image = image::DynamicImage::ImageRgb32F(
+            image::Rgb32FImage::from_raw(size as u32, size as u32, rgb.into_flattened()).unwrap(),
+        );
+        let defaults = rawtonic_engine::image_loader::BaseImageOptions::default();
+        rawtonic_engine::image_processing::remove_raw_artifacts_and_enhance(
+            &mut image,
+            defaults.color_nr_amount,
+            defaults.sharpening_amount,
+        );
+        image
+            .into_rgb32f()
+            .pixels()
+            .map(|p| p.0)
+            .collect::<Vec<[f32; 3]>>()
+    };
+    let edge: Vec<bool> = (0..size * size)
+        .map(|i| {
+            let (x, y) = (i % size, i / size);
+            x > 0
+                && y > 0
+                && x + 1 < size
+                && y + 1 < size
+                && bright[i]
+                && [i - 1, i + 1, i - size, i + size]
+                    .iter()
+                    .any(|&j| !bright[j])
+        })
+        .collect();
+    SpeckleScene {
+        noisy: develop(true),
+        clean: develop(false),
+        near,
+        edge,
+    }
+}
+
+fn linear_texture(
+    context: &GpuContext,
+    rgb: &[[f32; 3]],
+    width: u32,
+    height: u32,
+) -> wgpu::TextureView {
+    let data: Vec<f16> = rgb
+        .iter()
+        .flat_map(|p| [p[0], p[1], p[2], 1.0].map(f16::from_f32))
+        .collect();
+    context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Speckle regression input"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&data),
+        )
+        .create_view(&Default::default())
+}
+
+#[test]
+#[ignore = "requires a native GPU; speckles near bright objects at high ISO"]
+#[allow(clippy::excessive_precision)] // Oklab constants as published.
+fn high_iso_noise_reduction_leaves_no_speckles_near_bright_objects() {
+    const SIZE: usize = 1024;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), SIZE as u32, SIZE as u32).unwrap();
+    let SpeckleScene {
+        noisy,
+        clean,
+        near,
+        edge,
+    } = speckle_scene(SIZE);
+    let level = rawtonic_rawdecode::noise_level::measure(&image::DynamicImage::ImageRgb32F(
+        image::Rgb32FImage::from_raw(SIZE as u32, SIZE as u32, noisy.as_flattened().to_vec())
+            .unwrap(),
+    ))
+    .unwrap();
+    assert!(
+        level > LUMA_NR_EDGE_NOISE_START * 2.0,
+        "noise level {level}"
+    );
+    let render = |rgb: &[[f32; 3]], recipe: serde_json::Value, noise: f32| -> Vec<f32> {
+        let view = linear_texture(&context, rgb, SIZE as u32, SIZE as u32);
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, None);
+        adjustments.global.noise_level = noise;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                SIZE as u32,
+                SIZE as u32,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(words) = pixels else {
+            unreachable!()
+        };
+        let channels = words.len() / (SIZE * SIZE);
+        // Oklab lightness ×100 of the sRGB output.
+        words
+            .chunks(channels)
+            .map(|p| {
+                let lin = |v: u16| {
+                    let c = v as f32 / 65535.0;
+                    if c <= 0.04045 {
+                        c / 12.92
+                    } else {
+                        ((c + 0.055) / 1.055).powf(2.4)
+                    }
+                };
+                let [r, g, b] = [lin(p[0]), lin(p[1]), lin(p[2])];
+                let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+                let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+                let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+                100.0 * (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s)
+            })
+            .collect()
+    };
+    let defaults = json!({"sharpness": 40, "lumaNoiseReduction": 15, "colorNoiseReduction": 25});
+    let truth = render(
+        &clean,
+        json!({"sharpness": 0, "lumaNoiseReduction": 0, "colorNoiseReduction": 0}),
+        0.0,
+    );
+    let fixed = render(&noisy, defaults.clone(), level);
+    processor
+        .force_plain_noise_reduction
+        .store(true, Ordering::Relaxed);
+    let plain = render(&noisy, defaults, level);
+    processor
+        .force_plain_noise_reduction
+        .store(false, Ordering::Relaxed);
+    // Speckles: near-zone pixels whose error differs from the median error
+    // of their 5 x 5 neighbourhood by more than 8 (Oklab ×100).
+    let speckles = |out: &[f32]| {
+        let error: Vec<f32> = out.iter().zip(&truth).map(|(o, t)| o - t).collect();
+        let (mut count, mut total) = (0usize, 0usize);
+        let mut window = [0.0f32; 25];
+        for y in 2..SIZE - 2 {
+            for x in 2..SIZE - 2 {
+                if !near[y * SIZE + x] {
+                    continue;
+                }
+                for (k, w) in window.iter_mut().enumerate() {
+                    *w = error[(y + k / 5 - 2) * SIZE + x + k % 5 - 2];
+                }
+                window.sort_unstable_by(f32::total_cmp);
+                if (error[y * SIZE + x] - window[12]).abs() > 8.0 {
+                    count += 1;
+                }
+                total += 1;
+            }
+        }
+        1000.0 * count as f64 / total as f64
+    };
+    // Edges of the bright objects: mean lightness step to the outside.
+    let sharpness = |out: &[f32]| {
+        let (mut step, mut n) = (0.0f64, 0usize);
+        for i in 0..SIZE * SIZE {
+            if edge[i] {
+                let outside = [i - 1, i + 1, i - SIZE, i + SIZE]
+                    .iter()
+                    .map(|&j| out[j])
+                    .fold(f32::INFINITY, f32::min);
+                step += f64::from(out[i] - outside);
+                n += 1;
+            }
+        }
+        step / n as f64
+    };
+    let (s_plain, s_fixed) = (speckles(&plain), speckles(&fixed));
+    let (e_plain, e_fixed, e_truth) = (sharpness(&plain), sharpness(&fixed), sharpness(&truth));
+    println!(
+        "speckles per 1000 near bright objects: {s_plain:.1} -> {s_fixed:.1}; edge step {e_plain:.2} -> {e_fixed:.2} (noise-free {e_truth:.2})"
+    );
+    assert!(
+        s_plain > 20.0,
+        "the scene shows no speckles to remove: {s_plain:.1}"
+    );
+    assert!(
+        s_fixed < 0.25 * s_plain,
+        "speckles {s_plain:.1} -> {s_fixed:.1}"
+    );
+    assert!(
+        e_fixed > 0.93 * e_plain,
+        "edges softened: {e_plain:.2} -> {e_fixed:.2}"
+    );
 }
