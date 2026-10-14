@@ -960,6 +960,7 @@
       "menu": "Ordner synchronisieren…",
       "menuLibrary": "Bibliothek synchronisieren…",
       "more": "… und {{n}} weitere",
+      "nothingToChange": "Nichts zu ändern: {{n}} Fotodateien geprüft. Die Fotos unten konnten nicht geprüft werden.",
       "onVolume": "auf „{{volume}}“",
       "readOnly": "Die Suche liest Dateien nur.",
       "selectGroup": "Alle auswählen: {{group}}",

@@ -117,7 +117,7 @@ it("offers only Close when everything is in sync", async () => {
   const onClose = vi.fn();
   const user = userEvent.setup();
   render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={onClose} onApplied={vi.fn()} />);
-  await screen.findByRole("status");
+  await screen.findByText(/^Everything is in sync/);
   expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();
   const close = screen.getAllByRole("button", { name: "Close" });
   await user.click(close[close.length - 1]);
@@ -135,4 +135,14 @@ it("lists the rows of a group in natural order", async () => {
     "copy_2.ARW",
     "copy_10.ARW",
   ]);
+});
+
+it("does not call a folder on a disconnected drive in sync", async () => {
+  const offline = { ...samplePlan(), files: 0, verifiedMoves: [], probableMoves: [], newFiles: [], copies: [], contested: [], removed: [] };
+  vi.mocked(invoke).mockResolvedValueOnce(offline);
+  render(<FolderSyncDialog directory="/lib" folder="/Volumes/Photos" onClose={vi.fn()} onApplied={vi.fn()} />);
+  await screen.findByText("Nothing to change: 0 photograph files looked at. The photographs below could not be checked.");
+  expect(screen.queryByText(/in sync/)).toBeNull();
+  expect(within(screen.getByRole("region", { name: "Not available" })).getByText("on “Photos”")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();
 });

@@ -1003,6 +1003,7 @@
       "menu": "Sincronizza cartella…",
       "menuLibrary": "Sincronizza libreria…",
       "more": "… e altri {{n}}",
+      "nothingToChange": "Niente da cambiare: {{n}} file foto esaminati. Le foto qui sotto non sono state verificate.",
       "onVolume": "su «{{volume}}»",
       "readOnly": "La scansione legge soltanto i file.",
       "selectGroup": "Seleziona tutto: {{group}}",

@@ -1003,6 +1003,7 @@
       "menu": "Sincronitza la carpeta…",
       "menuLibrary": "Sincronitza la biblioteca…",
       "more": "… i {{n}} més",
+      "nothingToChange": "Res a canviar: {{n}} fitxers de foto examinats. Les fotos de sota no s'han pogut comprovar.",
       "onVolume": "a «{{volume}}»",
       "readOnly": "L’anàlisi només llegeix fitxers.",
       "selectGroup": "Selecciona-ho tot: {{group}}",

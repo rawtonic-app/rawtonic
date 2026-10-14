@@ -110,6 +110,49 @@ it("publishes completed thumbnails without replacing unchanged large-library met
   expect(markGenerated).toHaveBeenCalledWith("/image-5.RAF");
 });
 
+it("keeps newer listed ratings over a thumbnail's rating read when its generation began", () => {
+  vi.useFakeTimers();
+  vi.stubGlobal("requestAnimationFrame", (fn: () => void) => setTimeout(fn, 16));
+  vi.stubGlobal("cancelAnimationFrame", clearTimeout);
+  // C2 was listed unrated (not yet registered), its thumbnail began then;
+  // Synchronize Folder followed the photograph to it and the list came back
+  // with its rating before the thumbnail finished.
+  const images = [
+    { path: "/Shoot/C2.ORF", rating: 3, is_edited: true },
+    { path: "/Shoot/D.ORF", rating: 2, is_edited: false },
+  ] as ImageFile[];
+  useLibraryStore.getState().setLibrary({ imageList: images, imageRatings: { "/Shoot/C2.ORF": 3 } });
+  renderHook(() =>
+    useTauriListeners({
+      refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+      refreshImageList: vi.fn(), markGenerated: vi.fn(),
+    }),
+  );
+  const thumbnail = (path: string, rating: number | null, is_edited: boolean | null = false) =>
+    callbacks.get("thumbnail-generated")!({
+      payload: { path, thumbnailPath: "/small.jpg", previewPath: "/medium.jpg", rating, is_edited },
+    });
+  act(() => {
+    // Generated before C2 had a sidecar: nothing known about it.
+    thumbnail("/Shoot/C2.ORF", null, null);
+    thumbnail("/Shoot/D.ORF", 0);
+    thumbnail("/Elsewhere/E.ORF", 4);
+    vi.advanceTimersByTime(20);
+  });
+  const ratings = useLibraryStore.getState().imageRatings;
+  expect(ratings["/Shoot/C2.ORF"]).toBe(3);
+  expect(ratings["/Shoot/D.ORF"]).toBeUndefined();
+  // A rating the listing did not bring is filled in.
+  expect(ratings["/Elsewhere/E.ORF"]).toBe(4);
+  expect(useLibraryStore.getState().imageList[0].is_edited).toBe(true);
+  // A thumbnail generated after an edit still updates the edit state.
+  act(() => {
+    thumbnail("/Shoot/D.ORF", 2, true);
+    vi.advanceTimersByTime(20);
+  });
+  expect(useLibraryStore.getState().imageList[1].is_edited).toBe(true);
+});
+
 it("does not re-query the library when selecting a photo with unchanged metadata, but publishes real changes", () => {
   const images = Array.from({ length: 20596 }, (_, i) => ({
     path: `/image-${i}.RAF`,

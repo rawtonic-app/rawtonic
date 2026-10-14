@@ -1046,6 +1046,7 @@
       "menu": "Synchronizuj folder…",
       "menuLibrary": "Synchronizuj bibliotekę…",
       "more": "… i jeszcze: {{n}}",
+      "nothingToChange": "Nic do zmiany: sprawdzone pliki zdjęć: {{n}}. Zdjęć poniżej nie udało się sprawdzić.",
       "onVolume": "na „{{volume}}”",
       "readOnly": "Skanowanie tylko odczytuje pliki.",
       "selectGroup": "Zaznacz wszystko: {{group}}",

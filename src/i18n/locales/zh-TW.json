@@ -935,6 +935,7 @@
       "menu": "同步資料夾…",
       "menuLibrary": "同步圖庫…",
       "more": "… 另有 {{n}} 個",
+      "nothingToChange": "無需變更：已檢查 {{n}} 個照片檔案。下方的照片無法檢查。",
       "onVolume": "位於「{{volume}}」",
       "readOnly": "掃描只會讀取檔案。",
       "selectGroup": "全選：{{group}}",

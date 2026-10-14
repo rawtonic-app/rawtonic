@@ -1003,6 +1003,7 @@
       "menu": "Sincronizar carpeta…",
       "menuLibrary": "Sincronizar biblioteca…",
       "more": "… y {{n}} más",
+      "nothingToChange": "Nada que cambiar: {{n}} archivos de foto examinados. Las fotos de abajo no se pudieron comprobar.",
       "onVolume": "en «{{volume}}»",
       "readOnly": "El análisis solo lee archivos.",
       "selectGroup": "Seleccionar todo: {{group}}",

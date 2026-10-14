@@ -960,6 +960,7 @@
       "menu": "Synchronize Folder…",
       "menuLibrary": "Synchronize Library…",
       "more": "… and {{n}} more",
+      "nothingToChange": "Nothing to change: {{n}} photograph files looked at. The photographs below could not be checked.",
       "onVolume": "on “{{volume}}”",
       "readOnly": "The scan only reads files.",
       "selectGroup": "Select all: {{group}}",

@@ -1003,6 +1003,7 @@
       "menu": "Synchroniser le dossier…",
       "menuLibrary": "Synchroniser la bibliothèque…",
       "more": "… et {{n}} de plus",
+      "nothingToChange": "Rien à changer : {{n}} fichiers photo examinés. Les photos ci-dessous n’ont pas pu être vérifiées.",
       "onVolume": "sur « {{volume}} »",
       "readOnly": "L’analyse ne fait que lire les fichiers.",
       "selectGroup": "Tout sélectionner : {{group}}",

@@ -935,6 +935,7 @@
       "menu": "フォルダを同期…",
       "menuLibrary": "ライブラリを同期…",
       "more": "… ほか {{n}} 件",
+      "nothingToChange": "変更はありません：{{n}} 個の写真ファイルを確認しました。下の写真は確認できませんでした。",
       "onVolume": "「{{volume}}」上",
       "readOnly": "スキャンはファイルを読み取るだけです。",
       "selectGroup": "すべて選択：{{group}}",

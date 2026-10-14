@@ -296,7 +296,10 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
     <div className="session-sync-review">
       {planIsEmpty(current) ? (
         <p className="session-sync-summary" role="status">
-          {t("session.sync.inSync", { n: current.files })}
+          {/* Photographs on a disconnected drive are no proof that all is in sync. */}
+          {t(current.unavailable.length || current.errors.length ? "session.sync.nothingToChange" : "session.sync.inSync", {
+            n: current.files,
+          })}
         </p>
       ) : (
         <p className="session-sync-summary">{t("session.sync.found", { n: current.files })}</p>
