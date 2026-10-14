@@ -171,7 +171,10 @@ pub struct Tuning {
     pub aware_levels: usize,
     /// The aware ranges (rebuild and finest) grow with the level's threshold
     /// relative to its value at Amount 25, Detail and Smoothness 50, to this
-    /// power: more Color prefers smoothness to crisp edges.
+    /// power. 0 by default: growing them at more Color only bought colour
+    /// noise far below one 8-bit step (below the noise visibility floor) at
+    /// the cost of visibly softer colour edges (notes:
+    /// reference/color-noise-reference.md, Round 4).
     pub aware_follow: f32,
     /// A finer sample whose chroma is farther than this from every coarser
     /// sample's (squared distance times the aware range's inverse square)
@@ -201,12 +204,12 @@ impl Default for Tuning {
             smoothness_exponents: [0.0, 1.0, 3.0, 5.0, 6.0],
             luma_guard: 10.0,
             edge_guard: 12.0,
-            edge_follow: 1.0,
+            edge_follow: 0.25,
             finest_edge_guard: 1.0,
-            finest_follow: 1.0,
+            finest_follow: 0.25,
             aware: 0.3,
             aware_levels: 2,
-            aware_follow: 1.0,
+            aware_follow: 0.0,
             aware_far: AWARE_FAR,
             finest_aware: 1.0,
             base_blur: 2.0,
