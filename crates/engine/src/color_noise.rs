@@ -29,6 +29,7 @@
 //!   and do not count as edges. This guard's threshold follows the level's
 //!   own threshold, so more Color or Smoothness (or less Detail) also
 //!   smooths more next to weak colour edges.
+//!
 //! The finest level keeps its detail next to colour edges of the rebuilt
 //! level 1 (edges that survived the coarse levels, not noise blotches).
 //! Colour edges and colour texture above the noise stay, blotches of every
@@ -1381,9 +1382,10 @@ mod tests {
         assert!(at(0.25, 1.0, 0.5)[0] < default[0]);
         assert!(at(0.25, 0.5, 1.0)[LEVELS - 1] > default[LEVELS - 1]);
         // The chroma-edge guard follows the thresholds.
-        for l in 0..LEVELS {
-            assert!((tuning.edge_scale2(l, default[l], &noise) - 1.0).abs() < 1e-5);
-            assert!(tuning.edge_scale2(l, at(1.0, 0.5, 0.5)[l], &noise) > 1.0);
+        let strong = at(1.0, 0.5, 0.5);
+        for (l, (&base, &more)) in default.iter().zip(&strong).enumerate() {
+            assert!((tuning.edge_scale2(l, base, &noise) - 1.0).abs() < 1e-5);
+            assert!(tuning.edge_scale2(l, more, &noise) > 1.0);
         }
         assert!(tuning.edge_scale2(LEVELS - 1, at(0.25, 0.5, 1.0)[LEVELS - 1], &noise) > 1.0);
     }
