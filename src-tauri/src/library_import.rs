@@ -120,7 +120,7 @@ pub fn import_into(catalog: &Library, source: &Source) -> Result<ImportReport, S
     }
     let mut report = ImportReport::default();
     let mut assets: HashMap<&str, String> = HashMap::new();
-    let _batch = catalog.import_batch(rawtonic_catalog::ImportKind::Ingest);
+    let _batch = catalog.import_batch(rawtonic_catalog::ImportKind::Add);
     for photo in &source.photos {
         if photo.copy_of.is_some() {
             report.copies_skipped += 1;

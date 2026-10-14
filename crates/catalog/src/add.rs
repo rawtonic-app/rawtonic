@@ -25,9 +25,10 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImportKind {
-    /// Copied in (verified ingest), or added where they are by an import.
+    /// Copied in (verified ingest).
     Ingest,
-    /// Found in a folder the library added or opened.
+    /// Registered where they are: an import's "Add where they are", a
+    /// folder the library added or opened, another program's catalog.
     Add,
     /// New files a Synchronize Folder found.
     Sync,

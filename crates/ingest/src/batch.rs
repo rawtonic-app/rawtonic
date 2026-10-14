@@ -276,7 +276,7 @@ pub fn add_batch(
             .or_default()
             .push(asset.path);
     }
-    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
+    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Add);
     let total = sources.len();
     let mut results = Vec::with_capacity(total);
     for (index, source) in sources.iter().enumerate() {
@@ -681,11 +681,11 @@ mod tests {
         assert_eq!(b_asset.rating, 4, "XMP sidecar read");
         // Not a byte, name or timestamp changed, nothing added beside them.
         assert_eq!(tree(d.path().join("Archive").as_path()), before);
-        // The two added photographs are Previous Import.
+        // The two added photographs are Previous Import, an "add" batch.
         let batch = lib.previous_import().unwrap().unwrap();
         assert_eq!(
             (batch.kind, batch.count),
-            (rawtonic_catalog::ImportKind::Ingest, 2)
+            (rawtonic_catalog::ImportKind::Add, 2)
         );
         // A photograph whose sidecar cannot be read fails alone, unregistered.
         let c = drive.join("C.NEF");

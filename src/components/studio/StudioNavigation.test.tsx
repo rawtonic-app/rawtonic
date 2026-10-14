@@ -318,11 +318,18 @@ describe("offline photographs in the Folders tool", () => {
     expect(missing.closest(".studio-folder")!.className).toContain("is-offline");
     fireEvent.click(missing);
     expect(navigate).toHaveBeenCalledWith("/job/Day 2");
-    // Its menu offers to locate it, nothing that would touch disk.
+    // Its menu offers to locate it or synchronize it, nothing that would touch disk.
     fireEvent.contextMenu(missing);
     expect(screen.queryByText("Rename Folder…")).toBeNull();
     fireEvent.click(screen.getByText("Locate Folder…"));
     expect(locate).toHaveBeenCalledWith("/job/Day 2");
+    const requested = vi.fn();
+    const listener = (e: Event) => requested((e as CustomEvent).detail);
+    window.addEventListener("rawtonic:open-folder-sync", listener);
+    fireEvent.contextMenu(missing);
+    fireEvent.click(item("Synchronize Folder…"));
+    expect(requested).toHaveBeenCalledWith({ folder: "/job/Day 2" });
+    window.removeEventListener("rawtonic:open-folder-sync", listener);
     // A folder outside every listed one is listed under Missing.
     expect(screen.getByText("Missing")).toBeTruthy();
     expect(screen.getByText("elsewhere")).toBeTruthy();
@@ -387,6 +394,14 @@ describe("a catalog's folders by drive", () => {
     expect(offlineFolder.textContent).toContain("?1");
     fireEvent.click(offlineFolder);
     expect(navigate).toHaveBeenCalledWith("/Volumes/Card/2026");
+    // Synchronizing it lists its photographs as not available.
+    const requested = vi.fn();
+    const listener = (e: Event) => requested((e as CustomEvent).detail);
+    window.addEventListener("rawtonic:open-folder-sync", listener);
+    fireEvent.contextMenu(offlineFolder);
+    fireEvent.click(item("Synchronize Folder…"));
+    expect(requested).toHaveBeenCalledWith({ folder: "/Volumes/Card/2026" });
+    window.removeEventListener("rawtonic:open-folder-sync", listener);
     // The connected drive: free space, the library folder and the folder a
     // photograph was relinked to.
     const system = document.querySelector('[data-volume="id:SYS"]')!;

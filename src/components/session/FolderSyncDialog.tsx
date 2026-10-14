@@ -12,6 +12,7 @@ import {
   planIsEmpty,
   rowKey,
   shownPath,
+  sortPlan,
   syncActions,
   unresolved,
   type ContestedChoice,
@@ -92,8 +93,9 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
     if (started.current) return;
     started.current = true;
     invoke<SyncPlan>(Invokes.FolderSyncScan, { directory, folder })
-      .then((plan) => {
+      .then((scannedPlan) => {
         if (!mounted.current) return;
+        const plan = sortPlan(scannedPlan);
         setScanned(plan.folders);
         setSelected(defaultSelection(plan));
         setChoices(new Map());
@@ -375,7 +377,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
     >
       <div className="session-dialog-header">
         <div>
-          <h2 id="sync-title">{t("session.sync.title")}</h2>
+          <h2 id="sync-title">{t(folder ? "session.sync.title" : "session.sync.titleLibrary")}</h2>
           <p>{folder ?? t("session.sync.wholeLibrary")}</p>
         </div>
         <button

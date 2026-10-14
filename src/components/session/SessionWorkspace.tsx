@@ -918,6 +918,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   disabled: !session,
                   onClick: () => void chooseFolderToSync(),
                 },
+                {
+                  // Every folder of the library, drives not connected included
+                  // (their photographs are listed as not available).
+                  label: t("session.sync.menuLibrary"),
+                  icon: RefreshCcw,
+                  disabled: !session,
+                  onClick: () => setSyncing({ folder: null }),
+                },
                 { label: t("session.transfer.transfer"), icon: FolderOpen, disabled: !session || !!hotFolder,
                   onClick: () => setTransfer("transfer") },
                 { label: t("session.transfer.backup"), icon: Database, disabled: !session || !!hotFolder,

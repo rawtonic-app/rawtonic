@@ -153,12 +153,19 @@ function FolderRow({
   const menu = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    // A folder of the open library (a catalog reaches any folder) can be
+    // synchronized with what happened to it on disk.
+    const syncable = !!sessionRoot && (catalog || path === sessionRoot || isBelow(path, sessionRoot));
     if (missing) {
-      // Nothing on disk to move, rename or show; it can be located.
+      // Nothing on disk to move, rename or show; it can be located. Its
+      // synchronization lists the photographs of a disconnected drive as
+      // not available (never moved or removed) and sends a folder gone from
+      // disk to Locate Folder.
       showContextMenu(e.clientX, e.clientY, [
         ...(actions?.locateFolder
           ? [{ label: t("offline.menu.locateFolder"), icon: FolderSearch, onClick: () => actions.locateFolder?.(path) }]
           : []),
+        ...(syncable ? [{ label: t("session.sync.menu"), icon: RefreshCcw, onClick: () => requestFolderSync(path) }] : []),
         {
           label: t("studio.library.folders.menu.refresh"),
           icon: RefreshCw,
@@ -227,9 +234,6 @@ function FolderRow({
           { type: OPTION_SEPARATOR },
         ]
       : [];
-    // A folder of the open library (a catalog reaches any folder) can be
-    // synchronized with what happened to it on disk.
-    const syncable = !!sessionRoot && (catalog || path === sessionRoot || isBelow(path, sessionRoot));
     showContextMenu(e.clientX, e.clientY, [
       ...(importable
         ? [
