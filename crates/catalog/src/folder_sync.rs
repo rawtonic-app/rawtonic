@@ -322,6 +322,11 @@ fn same_file(a: &Path, b: &Path) -> bool {
     }
 }
 
+/// `a` and `b` differ in letter case only.
+fn case_only_rename(a: &Path, b: &Path) -> bool {
+    a != b && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
+}
+
 /// `path` is `folder` or below it.
 fn below(path: &Path, folder: &Path) -> bool {
     path.starts_with(folder)
@@ -540,11 +545,14 @@ impl Library {
                 found.push((file, identity, Found::New));
                 continue;
             }
-            // Renamed only in letter case: the photograph's own file.
-            if let Some(&alias) = candidates
-                .iter()
-                .find(|&&i| states[i] == State::Present && same_file(&known[i].path, &file))
-            {
+            // Renamed only in letter case: the photograph's own file. A hard
+            // link under another name is the same file too, but the
+            // photograph is still at its place: a copy (below), not a move.
+            if let Some(&alias) = candidates.iter().find(|&&i| {
+                states[i] == State::Present
+                    && case_only_rename(&known[i].path, &file)
+                    && same_file(&known[i].path, &file)
+            }) {
                 found.push((file, identity, Found::Moved(vec![(alias, true)])));
                 continue;
             }

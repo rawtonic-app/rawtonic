@@ -11,6 +11,7 @@ import {
   groupRows,
   planIsEmpty,
   rowKey,
+  shownPath,
   syncActions,
   unresolved,
   type ContestedChoice,
@@ -93,6 +94,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
     invoke<SyncPlan>(Invokes.FolderSyncScan, { directory, folder })
       .then((plan) => {
         if (!mounted.current) return;
+        setScanned(plan.folders);
         setSelected(defaultSelection(plan));
         setChoices(new Map());
         setPhase({ kind: "review", plan });
@@ -105,6 +107,9 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
   }, [directory, folder]);
 
   const plan = phase.kind === "review" || phase.kind === "applying" ? phase.plan : null;
+  // The folders the last scan covered; paths show relative to them.
+  const [scanned, setScanned] = useState<string[]>(folder ? [folder] : []);
+  const shown = (path: string) => shownPath(scanned, path);
   const actions = useMemo(() => (plan ? syncActions(plan, selected, choices) : []), [plan, selected, choices]);
   const open = plan ? unresolved(plan, choices) : 0;
   const busy = phase.kind === "scanning" || phase.kind === "applying";
@@ -146,22 +151,22 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
       const move = row as SyncMove;
       return (
         <>
-          <span title={move.from}>{move.from}</span>
+          <span title={move.from}>{shown(move.from)}</span>
           <span aria-hidden> → </span>
-          <span title={move.to}>{move.to}</span>
+          <span title={move.to}>{shown(move.to)}</span>
         </>
       );
     }
     if (group === "copies") {
       const file = row as SyncNewFile;
       return (
-        <span title={file.copyOf.join("\n")}>
-          {t("session.sync.copyOf", { path: file.path, of: file.copyOf.map(fileName).join(", ") })}
+        <span title={[file.path, ...file.copyOf].join("\n")}>
+          {t("session.sync.copyOf", { path: shown(file.path), of: file.copyOf.map(fileName).join(", ") })}
         </span>
       );
     }
     const path = "path" in row ? row.path : "";
-    return <span title={path}>{path}</span>;
+    return <span title={path}>{shown(path)}</span>;
   };
 
   const groupSection = (current: SyncPlan, group: SyncGroup) => {
@@ -228,7 +233,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
             return (
               <li key={contested.path} className="session-sync-contested">
                 <fieldset disabled={busy}>
-                  <legend title={contested.path}>{contested.path}</legend>
+                  <legend title={contested.path}>{shown(contested.path)}</legend>
                   {contested.moves.map((move) => (
                     <label key={move.assetId}>
                       <input
@@ -239,7 +244,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
                       />
                       <span title={move.from}>
                         {t(move.verified ? "session.sync.choice.movedVerified" : "session.sync.choice.moved", {
-                          path: move.from,
+                          path: shown(move.from),
                         })}
                       </span>
                     </label>
@@ -276,7 +281,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
         <ul>
           {rows.slice(0, SHOWN).map((row) => (
             <li key={row.path} title={row.path}>
-              <span>{row.path}</span>
+              <span>{shown(row.path)}</span>
               {row.detail && <small>{row.detail}</small>}
             </li>
           ))}
@@ -346,7 +351,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
           <ul className="session-sync-skipped">
             {applied.skipped.map((skip) => (
               <li key={`${skip.path}:${skip.reason}`} title={skip.path}>
-                <span>{skip.path}</span>
+                <span>{shown(skip.path)}</span>
                 <small>{skip.reason}</small>
               </li>
             ))}
@@ -410,7 +415,7 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
                 {t("session.progress.cancel")}
               </button>
             </>
-          ) : plan ? (
+          ) : plan && !planIsEmpty(plan) ? (
             <>
               <span>{open ? t("session.sync.chooseFirst", { n: open }) : t("session.sync.filesUnchanged")}</span>
               <span className="session-sync-buttons">

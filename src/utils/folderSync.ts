@@ -164,6 +164,18 @@ export function syncActions(
   return actions;
 }
 
+/** `path` as the review shows it: relative to the scanned folder that holds
+ * it (the dialog's header names that folder), so names and subfolders stay
+ * readable in a narrow row; the whole path when no scanned folder holds it. */
+export function shownPath(folders: readonly string[], path: string): string {
+  let best = '';
+  for (const folder of folders) {
+    const base = folder.replace(/[\\/]+$/, '');
+    if (base.length > best.length && (path.startsWith(`${base}/`) || path.startsWith(`${base}\\`))) best = base;
+  }
+  return best ? path.slice(best.length + 1) : path;
+}
+
 /** Whether a scan found anything to act on. */
 export function planIsEmpty(plan: SyncPlan): boolean {
   return SYNC_GROUPS.every((group) => plan[group].length === 0) && plan.contested.length === 0;
@@ -178,6 +190,11 @@ export interface OpenFolderSyncDetail {
 export function requestFolderSync(folder: string | null) {
   window.dispatchEvent(new CustomEvent<OpenFolderSyncDetail>(OPEN_FOLDER_SYNC_EVENT, { detail: { folder } }));
 }
+
+/** Fired after a synchronization applied changes (`detail`: the
+ * `SyncApplied`), so the folders, the shown photographs, the selection and a
+ * photograph open in Develop follow moved ones as after Locate Folder. */
+export const FOLDER_SYNC_APPLIED = 'rawtonic:folder-sync-applied';
 
 /** `activeAlbumId` of the Previous Import view. */
 export const PREVIOUS_IMPORT_VIEW_ID = 'session-previous-import';

@@ -42,8 +42,8 @@ import { withGrainStructure } from "../../utils/adjustments";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
-import { DRIVES_CHANGED, OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
-import { IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
+import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
 import {
   OPEN_INGEST_EVENT,
@@ -492,11 +492,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const chooseFolderToSync = async () => {
     if (!session) return;
     try {
+      // An album view's "folder" is its name ("Album: …"), not a place.
+      const shown = useLibraryStore.getState().currentFolderPath;
       const picked = await open({
         title: t("session.sync.chooseFolder"),
         directory: true,
         multiple: false,
-        defaultPath: useLibraryStore.getState().currentFolderPath ?? session.directory,
+        defaultPath: shown && !shown.startsWith("Album: ") ? shown : session.directory,
       });
       if (typeof picked === "string") setSyncing({ folder: picked });
     } catch (e) {
@@ -1093,12 +1095,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           directory={session.directory}
           folder={syncing.folder}
           onClose={() => setSyncing(null)}
-          onApplied={() => {
+          onApplied={(applied) => {
             // Moved, added and removed photographs: counts, folders, the
             // grid, Missing Photographs and Previous Import follow.
             void refresh().catch(() => {});
             window.dispatchEvent(new Event(OFFLINE_CHANGED));
-            window.dispatchEvent(new Event(DRIVES_CHANGED));
+            window.dispatchEvent(new CustomEvent(FOLDER_SYNC_APPLIED, { detail: applied }));
             window.dispatchEvent(new Event(IMPORTS_CHANGED));
           }}
         />
