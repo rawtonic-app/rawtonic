@@ -529,3 +529,22 @@ fn a_case_only_rename_is_followed_on_a_case_insensitive_volume() {
     assert_eq!(listed, [capture.join("A.ARW")]);
     assert_eq!(lib.asset(&a).unwrap().path, capture.join("A.ARW"));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_hard_link_to_a_photograph_that_is_still_there_is_a_copy_not_a_move() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = session(d.path());
+    let capture = lib.directory.join("Capture");
+    photo(&capture.join("A.ARW"), 1);
+    let a = lib.add_asset(&capture.join("A.ARW")).unwrap().id;
+    fill(&lib);
+    fs::hard_link(capture.join("A.ARW"), capture.join("A link.ARW")).unwrap();
+    let plan = scan(&lib, None);
+    assert!(plan.verified_moves.is_empty(), "{plan:#?}");
+    assert_eq!(plan.copies.len(), 1);
+    assert_eq!(plan.copies[0].path, capture.join("A link.ARW"));
+    assert_eq!(plan.copies[0].copy_of, [capture.join("A.ARW")]);
+    lib.apply_folder_sync(&defaults(&plan)).unwrap();
+    assert_eq!(lib.asset(&a).unwrap().path, capture.join("A.ARW"));
+}

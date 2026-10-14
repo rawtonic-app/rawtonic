@@ -617,7 +617,7 @@
 .session-sync-group > header strong { font-weight: 600; }
 .session-sync-group > header small { color: var(--app-text-secondary); font-variant-numeric: tabular-nums; }
 .session-sync-group > p { margin: 4px 0 8px; font-size: 11px; line-height: 1.6; color: var(--app-text-secondary); }
-.session-sync-group ul { display: grid; gap: 2px; max-height: 180px; overflow: auto; font-size: 11px; }
+.session-sync-group ul { display: grid; gap: 2px; max-height: 180px; overflow: auto; font-size: 11px; padding: 3px; margin: -3px; }
 .session-sync-group li, .session-sync-skipped li { display: flex; gap: 8px; min-width: 0; }
 .session-sync-group li label { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .session-sync-group li span, .session-sync-skipped li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -628,4 +628,11 @@
 .session-sync-contested fieldset { display: grid; gap: 3px; min-width: 0; padding: 4px 0; }
 .session-sync-contested legend { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; font-weight: 500; }
 .session-sync-buttons { display: flex; gap: 10px; }
+/* A long review scrolls under Apply instead of pushing it out of sight. */
+.session-sync-dialog .session-dialog-footer { position: sticky; bottom: -18px; margin-bottom: -18px; padding: 14px 0 18px; background: var(--app-bg-secondary, #242628); border-top: 1px solid var(--app-border-color); }
+/* The global `*:focus { outline: none !important }` hides outlines of focused
+   elements: a ring shows where the keyboard is. */
+.session-sync-dialog button:focus-visible { box-shadow: 0 0 0 2px var(--app-bg-secondary, #242628), 0 0 0 4px #b4c8d3; }
+/* Native checkboxes draw no shadow; the row around the focused one shows it. */
+.session-sync-dialog label:has(> input:focus-visible) { outline: 2px solid #b4c8d3; outline-offset: 1px; border-radius: 3px; }
 .session-sync-skipped { display: grid; gap: 2px; max-height: 160px; overflow: auto; font-size: 11px; width: 100%; }

@@ -1,5 +1,5 @@
 import StudioWorkspace from './components/studio/StudioWorkspace';
-import { PREVIOUS_IMPORT_VIEW_ID, openPreviousImport } from './utils/folderSync';
+import { FOLDER_SYNC_APPLIED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, type SyncApplied } from './utils/folderSync';
 import { openSessionAlbum, SESSION_ALBUM_PREFIX } from './components/studio/StudioAlbums';
 import {
   DRIVES_CHANGED,
@@ -325,6 +325,19 @@ function App() {
     },
     [refreshAllFolderTrees, handleLibraryRefresh, handleSelectSubfolder, handleImageSelect],
   );
+
+  // Synchronize Folder applied: moved photographs are followed as after a
+  // relink; new and removed ones show once the folders and the view reload.
+  const relinkedRef = useRef(handleRelinked);
+  relinkedRef.current = handleRelinked;
+  useEffect(() => {
+    const applied = (e: Event) => {
+      const { moved } = (e as CustomEvent<SyncApplied>).detail;
+      void relinkedRef.current({ relinked: moved, mismatched: [], taken: [], not_found: 0 }).catch(() => {});
+    };
+    window.addEventListener(FOLDER_SYNC_APPLIED, applied);
+    return () => window.removeEventListener(FOLDER_SYNC_APPLIED, applied);
+  }, []);
 
   const {
     executeDelete,

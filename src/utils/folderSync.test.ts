@@ -3,6 +3,7 @@ import {
   defaultSelection,
   planIsEmpty,
   rowKey,
+  shownPath,
   syncActions,
   unresolved,
   type ContestedChoice,
@@ -65,5 +66,15 @@ describe('Synchronize Folder review', () => {
         removed: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe('shownPath', () => {
+  it('shows a path relative to the innermost scanned folder that holds it', () => {
+    expect(shownPath(['/lib/Capture'], '/lib/Capture/Day 2/A.ARW')).toBe('Day 2/A.ARW');
+    expect(shownPath(['/lib', '/lib/Capture/'], '/lib/Capture/A.ARW')).toBe('A.ARW');
+    expect(shownPath(['/lib/Capture'], '/lib/Captured/A.ARW')).toBe('/lib/Captured/A.ARW');
+    expect(shownPath([], '/Volumes/Photos/U.ARW')).toBe('/Volumes/Photos/U.ARW');
+    expect(shownPath(['C:\\Photos'], 'C:\\Photos\\Day\\A.ARW')).toBe('Day\\A.ARW');
   });
 });

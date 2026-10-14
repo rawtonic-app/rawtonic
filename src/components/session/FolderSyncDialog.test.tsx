@@ -56,7 +56,7 @@ it("needs a choice for every contested file before it applies, then sends exactl
   expect(screen.getByText("The whole library")).toBeTruthy();
   const apply = screen.getByRole("button", { name: /Apply/ }) as HTMLButtonElement;
   expect(apply.disabled).toBe(true);
-  await user.click(screen.getByRole("radio", { name: "It is /lib/Capture/old/X.ARW, moved (verified)" }));
+  await user.click(screen.getByRole("radio", { name: "It is old/X.ARW, moved (verified)" }));
   expect(apply.disabled).toBe(false);
   expect(apply.textContent).toBe("Apply (3)");
   // The removal only when the user ticks it.
@@ -97,4 +97,28 @@ it("closes when the scan is cancelled and shows a failed scan", async () => {
   vi.mocked(invoke).mockRejectedValueOnce("/lib/Gone is not there.");
   render(<FolderSyncDialog directory="/lib" folder="/lib/Gone" onClose={vi.fn()} onApplied={vi.fn()} />);
   expect((await screen.findByRole("alert")).textContent).toContain("is not there");
+});
+
+it("shows paths relative to the scanned folder, whole paths elsewhere and in tooltips", async () => {
+  mockInvoke();
+  render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={vi.fn()} onApplied={vi.fn()} />);
+  const moved = await screen.findByRole("region", { name: "Moved or renamed (verified)" });
+  expect(within(moved).getByText("A.ARW").getAttribute("title")).toBe("/lib/Capture/A.ARW");
+  expect(within(moved).getByText("Day 2/A.ARW").getAttribute("title")).toBe("/lib/Capture/Day 2/A.ARW");
+  expect(screen.getByText("X.ARW", { selector: "legend" })).toBeTruthy();
+  // Outside the scanned folder: the whole path.
+  expect(within(screen.getByRole("region", { name: "Not available" })).getByText("/Volumes/Photos/U.ARW")).toBeTruthy();
+});
+
+it("offers only Close when everything is in sync", async () => {
+  const empty = { ...samplePlan(), verifiedMoves: [], probableMoves: [], newFiles: [], copies: [], contested: [], removed: [], unavailable: [] };
+  vi.mocked(invoke).mockResolvedValueOnce(empty);
+  const onClose = vi.fn();
+  const user = userEvent.setup();
+  render(<FolderSyncDialog directory="/lib" folder="/lib/Capture" onClose={onClose} onApplied={vi.fn()} />);
+  await screen.findByRole("status");
+  expect(screen.queryByRole("button", { name: /Apply/ })).toBeNull();
+  const close = screen.getAllByRole("button", { name: "Close" });
+  await user.click(close[close.length - 1]);
+  expect(onClose).toHaveBeenCalled();
 });
