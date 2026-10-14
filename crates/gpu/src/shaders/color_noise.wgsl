@@ -2,8 +2,9 @@
 // Multi-scale colour noise reduction (rawtonic_engine::color_noise), the
 // passes outside the main shader:
 // - `finest_energy`: the local energy (3 x 3, weights 1-2-1) of the finest
-//   level's chroma detail, per input pixel. It depends on the source only,
-//   so it is computed once per input texture (or photo window).
+//   level's chroma detail, per input pixel, in units of the colour noise at
+//   the pixel's brightness. It depends on the source only, so it is
+//   computed once per input texture (or photo window).
 // - `reconstruct_level` / `pack_finest`: level 1 rebuilt from the coarse
 //   levels prepared on the CPU (`ChromaPyramid::prepared`), for a new
 //   threshold set while a slider moves (display frames).
@@ -24,6 +25,9 @@ struct ColorNoiseParams {
     threshold2: f32,
     steepness: f32,
     _pad: u32,
+    // Colour noise by brightness relative to the photo's (8 bins of
+    // square-root luminance, color_noise.rs `profile_at`).
+    profile: array<vec4<f32>, 2>,
 }
 
 @group(0) @binding(0) var first_texture: texture_2d<f32>;
@@ -45,6 +49,18 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
 fn chroma(rgb: vec3<f32>) -> vec2<f32> {
     let p = sign(rgb) * sqrt(abs(rgb));
     return vec2<f32>(p.r - p.g, p.b - p.g);
+}
+
+fn profile_bin(i: i32) -> f32 {
+    return params.profile[i / 4][i % 4];
+}
+
+fn profile_at(y: f32) -> f32 {
+    let t = clamp(y * 8.0 - 0.5, 0.0, 7.0);
+    let i = min(i32(t), 6);
+    let f = t - f32(i);
+    let a = profile_bin(i);
+    return a + f * (profile_bin(i + 1) - a);
 }
 
 fn gain(size2: f32, threshold2: f32, steepness: f32) -> f32 {
@@ -99,18 +115,23 @@ fn finest_energy(@builtin(global_invocation_id) id: vec3<u32>) {
     let level_origin = vec2<i32>(i32(params.level_x), i32(params.level_y));
     let p = vec2<i32>(id.xy) + source;
     var energy: f32 = 0.0;
+    var center = vec3<f32>(0.0);
     for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
         for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
             let q = clamp(p + vec2<i32>(dx, dy), vec2<i32>(0), full_last);
             // Outside the window only at its edges, which are never rendered.
             var rgb = textureLoad(first_texture, clamp(q - source, vec2<i32>(0), dims - vec2<i32>(1)), 0).rgb;
             if (params.is_raw == 0u) { rgb = srgb_to_linear(rgb); }
+            if (dx == 0 && dy == 0) { center = rgb; }
             let d = chroma(rgb) - expand(second_texture, q, level_n, level_origin).xy;
             let w = select(0.25, 0.5, dx == 0) * select(0.25, 0.5, dy == 0);
             energy += w * dot(d, d);
         }
     }
-    textureStore(output_energy, id.xy, vec4<f32>(energy, 0.0, 0.0, 0.0));
+    // color_noise.rs `finest_relative2`.
+    let pc = sign(center) * sqrt(abs(center));
+    let relative = profile_at(dot(pc, vec3<f32>(0.2126, 0.7152, 0.0722)));
+    textureStore(output_energy, id.xy, vec4<f32>(energy / (relative * relative), 0.0, 0.0, 0.0));
 }
 
 // first_texture: the level's prepared detail (xy), local energy (z) and

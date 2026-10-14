@@ -795,6 +795,7 @@ fn synthetic() {
                 // The noisy photo's settings: its measured luminance noise too.
                 clean_pyramid.luma_noise = pyramid.luma_noise;
                 clean_pyramid.noise = pyramid.noise;
+                clean_pyramid.profile = pyramid.profile;
                 for &amount in &amounts {
                     let recipe = json!({"colorNoiseReduction": amount});
                     let old = renderer.render(&noisy, recipe.clone(), level);
