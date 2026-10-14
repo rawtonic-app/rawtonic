@@ -1159,8 +1159,26 @@ fn cr_whites_gain_unordered(x: f32, amount: f32) -> f32 {
     return cr_gain(cr_whites_delta(amount, cr_grid(ls.x)), ls.y);
 }
 
+// Display level of the Whites + tables' peak (grid 11): above it the raise
+// falls faster than the level rises (+100: 1.331 → 0.562 EV over 0.5 EV),
+// which dipped the tones from scene −1.28 to −1.03 EV by 0.002 EV, and by
+// 0.011 EV once Highlights −100 and Contrast −100 spread them out.
+const CR_WHITES_RAISE_PEAK_DISPLAY: f32 = -1.0;
+// The floor above it rises 0.2 EV per EV: 0.1 left the five sliders at
+// their extremes 0.011 EV out of order at Exposure +2, and the shoulder's
+// 0.25 moves Lightroom's measured +100 response more (display −0.5 EV:
+// +0.39 with 0.2, +0.40 with 0.25, +0.37 before; Lightroom +0.27).
+const CR_ORDER_RISE_WHITES_RAISE: f32 = 0.2;
+
 fn cr_whites_gain(x: f32, amount: f32) -> f32 {
     let gain = cr_whites_gain_unordered(x, amount);
+    if (amount > 0.0) {
+        let peak = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
+        if (x <= peak) {
+            return gain;
+        }
+        return max(gain, cr_order_gain(x, peak, cr_whites_gain_unordered(peak, amount), CR_ORDER_RISE_WHITES_RAISE));
+    }
     let knee = cr_knee_level();
     if (amount >= 0.0 || knee <= 0.0 || x <= knee) {
         return gain;
@@ -1412,7 +1430,15 @@ fn apply_tonal_adjustments(
     if ((sh != 0.0 || bl != 0.0) && base_look_is_camera_raw()) {
         // Lightroom's measured response by display level, applied as a
         // gain from the blurred (exposed) luminance so detail is kept.
-        let gain = camera_raw_shadows_blacks_gain(safe_blurred_luma * exposure_gain, sh, bl);
+        // Where the blur differs from the pixel by no more than its 16-bit
+        // float storage rounds (≤ 0.05 %), the pixel's own luminance is
+        // used: near the black point the black subtraction magnified that
+        // rounding into ±3-code wobble on smooth gradients (Blacks −40 fell
+        // 0.013 EV at display −6.6 EV). Detail keeps the blurred level.
+        let level_ratio = safe_blurred_luma / safe_pixel_luma;
+        let level_snap = smoothstep(0.001, 0.004, abs(log(level_ratio)));
+        let level_luma = safe_pixel_luma * pow(level_ratio, level_snap);
+        let gain = camera_raw_shadows_blacks_gain(level_luma * exposure_gain, sh, bl);
         rgb *= gain;
     } else if (sh != 0.0 || bl != 0.0) {
         let t_pixel = pow(safe_pixel_luma, 0.4545);
@@ -1564,6 +1590,8 @@ fn apply_highlights_adjustment(
 
     var sum_luma: f32 = pixel_luma;
     var sum_w: f32 = 1.0;
+    var brightest_neighbour: f32 = 0.0;
+    var flat_weight: f32 = 0.0;
 
     for (var i = 0u; i < 12u; i = i + 1u) {
         let coord = clamp(coords_i + offsets[i], vec2<i32>(0), max_idx);
@@ -1574,6 +1602,9 @@ fn apply_highlights_adjustment(
         let s_luma_raw = max(get_luma(s_rgb), 0.0);
         let s_luma = pixel_luma * (s_luma_raw / center_tex_luma);
 
+        brightest_neighbour = max(brightest_neighbour, s_luma);
+        let relative = (s_luma - pixel_luma) / (pixel_luma * 0.02);
+        flat_weight += exp(-relative * relative) * spatial_weights[i];
         let diff = abs(s_luma - pixel_luma);
         let w = exp(- (diff * diff) * inv_two_range_sq) * spatial_weights[i];
 
@@ -1603,7 +1634,20 @@ fn apply_highlights_adjustment(
         let restoration_gain = 1.0 + k * 0.55;
         let recovered_detail = exp2(soft_log_detail * restoration_gain);
 
-        let recovered_target = target_base * recovered_detail;
+        var recovered_target = target_base * recovered_detail;
+        // Flat bright areas next to a darker surround: the local base sits
+        // below the area's level there, which lifted its edge into a bright
+        // ring up to 2.8 % (0.04 EV) above the inside of clipped plateaus.
+        // Where many neighbours share the pixel's level (within about 2 %),
+        // the lift is limited to the pixel's own compressed level unless it
+        // is a peak over all of them; texture keeps its lift.
+        let delta_pixel = pixel_luma - l_pivot;
+        let target_pixel = l_pivot + delta_pixel / (1.0 + compression_strength * (delta_pixel / (1.0 + delta_pixel * shape)));
+        let peak = max(pixel_luma / max(brightest_neighbour, 1e-4), 1.0);
+        let capped = min(recovered_target, max(target_pixel * pow(peak, restoration_gain), target_base));
+        // 7.4: the sum of the spatial weights.
+        let flatness = smoothstep(0.15, 0.35, flat_weight / 7.4);
+        recovered_target = mix(recovered_target, capped, flatness);
 
         let blend_width = select(0.35, CR_HIGHLIGHTS_BLEND, base_look_is_camera_raw());
         let blend = smoothstep(l_pivot, l_pivot + blend_width, pixel_luma);

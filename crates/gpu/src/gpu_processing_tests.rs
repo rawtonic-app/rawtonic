@@ -6182,17 +6182,7 @@ fn tone_sliders_keep_tones_in_order_at_every_step() {
                     toned[x - k][c],
                     toned[x][c]
                 );
-                // Known under the Camera Raw look, up to 1.5× the limit: the
-                // ordering floors rise only 0.1 EV per EV, so the blurred
-                // luminance's interpolation wobble (Shadows and Blacks act
-                // on it) shows as a fall of up to 4 codes there (Blacks −40:
-                // 0.013 EV near display −6.6 EV), and all five sliders at
-                // their extremes fall up to 0.012 EV below display −1 EV.
-                if mode == 3 && excess <= 1.5 {
-                    eprintln!("tolerated: {line}");
-                } else {
-                    failures.push(line);
-                }
+                failures.push(line);
             }
         }
     }
@@ -6256,13 +6246,13 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         let brightest = half.iter().map(luma).fold(0.0f64, f64::max);
                         let ratio = brightest / centre_luma.max(1e-12);
                         worst_ratio = worst_ratio.max(ratio);
-                        // No solarization: nothing on the way in is brighter
-                        // than the centre. Lowering keeps a slight bright
-                        // ring at the plateau's edge (its detail lift against
-                        // the darker surround), up to 2.8 % (0.04 EV) above
-                        // the centre for a plateau at white with a 16 px rim;
-                        // 4 % fails.
-                        if ratio > 1.04 {
+                        // No solarization and no bright ring: nothing on the
+                        // way in is brighter than the centre. Lowering left a
+                        // ring at the plateau's edge (the detail lift against
+                        // the darker surround) up to 2.8 % (0.04 EV) above
+                        // the centre before its lift was limited to peaks;
+                        // now at most 0.11 %.
+                        if ratio > 1.005 {
                             failures.push(format!(
                                 "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
                             ));
