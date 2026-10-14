@@ -32,8 +32,22 @@
 //!
 //! The finest level keeps its detail next to colour edges of the rebuilt
 //! level 1 (edges that survived the coarse levels, not noise blotches).
+//!
+//! Rebuilding the two finest coarse levels and the full resolution, each
+//! coarser sample's share of a finer sample is also weighted by how close
+//! its rebuilt chroma is to the finer sample's own (an edge-aware, joint
+//! bilateral expansion): a colour edge stays on its side instead of spreading
+//! over the expansion's reach (about 2 px at each level), and in flat areas
+//! the rebuilt samples agree, so the weights are even. Above Amount 25 the
+//! coarsest level (1/32 of the resolution) is smoothed too, by a bilateral
+//! filter that keeps strong colour edges, so Color 100 also removes colour
+//! variation larger than the detail levels reach.
 //! Colour edges and colour texture above the noise stay, blotches of every
-//! size within it go. Luminance is kept exactly.
+//! size within it go. Luminance is kept exactly. The photo's base image is
+//! developed without the decode-time chroma clean-up for this filter
+//! (`image_loader::BaseImageOptions::for_color_noise`): that clean-up spread
+//! colour edges over about 4.5 px before any of this (notes:
+//! reference/color-noise-reference.md).
 //!
 //! The pyramid is built and measured here on the CPU when a render source
 //! is uploaded (`ChromaPyramid::build`, once per source, from the whole
@@ -142,22 +156,61 @@ pub struct Tuning {
     pub edge_follow: f32,
     /// The finest level's detail is kept where the rebuilt level 1's chroma
     /// gradient exceeds this multiple of the finest level's noise (0: off);
-    /// its threshold follows the finest threshold like the coarse levels'.
+    /// its threshold grows with the finest threshold relative to its value
+    /// at Amount 25, Detail and Smoothness 50, to the power `finest_follow`.
     pub finest_edge_guard: f32,
+    pub finest_follow: f32,
+    /// Rebuilding the levels finer than `aware_levels` + 1 (1/2 and 1/4 of
+    /// the resolution by default), each coarser sample's share of a finer
+    /// sample is weighted by how close its rebuilt chroma is to the finer
+    /// sample's own: exp(−d² / (aware · noise · profile)²), d the chroma
+    /// distance, noise the finer level's (0: plain expansion). A colour edge
+    /// stays on its side instead of spreading over the expansion's reach;
+    /// in flat areas the rebuilt samples agree and the weights are even.
+    pub aware: f32,
+    pub aware_levels: usize,
+    /// The aware ranges (rebuild and finest) grow with the level's threshold
+    /// relative to its value at Amount 25, Detail and Smoothness 50, to this
+    /// power: more Color prefers smoothness to crisp edges.
+    pub aware_follow: f32,
+    /// A finer sample whose chroma is farther than this from every coarser
+    /// sample's (squared distance times the aware range's inverse square)
+    /// is taken for noise and expanded plainly: a lone noisy sample would
+    /// otherwise pick the coarser samples nearest to its noise.
+    pub aware_far: f32,
+    /// The same for the finest level, expanding the rebuilt level 1 to full
+    /// resolution, in multiples of the finest level's noise (renderer
+    /// `ms_expand_aware`).
+    pub finest_aware: f32,
+    /// Above Amount 25 the coarsest level (1/32 of the resolution) is
+    /// smoothed too: a bilateral filter of `base_blur` samples' spread at
+    /// Amount 100 (growing linearly from 25) and a range of `base_range`
+    /// times the coarsest level's noise; colour variation larger than the
+    /// detail levels reach goes, strong colour edges stay.
+    pub base_blur: f32,
+    pub base_range: f32,
 }
 
 impl Default for Tuning {
     fn default() -> Self {
         Self {
-            multiples: [7.0, 8.0, 8.0, 6.0, 5.0],
+            multiples: [7.0, 8.0, 10.0, 8.0, 7.0],
             steepness: 3.0,
             amount_growth: 2.0,
             detail_exponents: [8.0, 5.0, 2.0, 0.5, 0.0],
             smoothness_exponents: [0.0, 1.0, 3.0, 5.0, 6.0],
-            luma_guard: 4.5,
-            edge_guard: 4.0,
-            edge_follow: 0.25,
-            finest_edge_guard: 4.0,
+            luma_guard: 10.0,
+            edge_guard: 12.0,
+            edge_follow: 1.0,
+            finest_edge_guard: 1.0,
+            finest_follow: 1.0,
+            aware: 0.3,
+            aware_levels: 2,
+            aware_follow: 1.0,
+            aware_far: AWARE_FAR,
+            finest_aware: 1.0,
+            base_blur: 2.0,
+            base_range: 10.0,
         }
     }
 }
@@ -198,10 +251,49 @@ impl Tuning {
         (threshold / base).powf(2.0 * self.edge_follow)
     }
 
+    /// The spread (in samples) of the coarsest level's smoothing for
+    /// `settings`: 0 up to Amount 25, `base_blur` at 100.
+    pub fn base_sigma(&self, settings: Settings) -> f32 {
+        self.base_blur * ((settings.amount.clamp(0.0, 1.0) - 0.25).max(0.0) / 0.75)
+    }
+
+    /// The inverse squared range of the aware expansion rebuilding level
+    /// `l` − 1 from level `l` (before the noise profile at the sample's
+    /// brightness); 0 where the plain expansion is used.
+    pub fn aware_inv2(&self, l: usize, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
+        let sigma = self.aware * noise[l - 1] * self.aware_scale(l - 1, thresholds, noise);
+        if l > self.aware_levels || sigma <= 0.0 {
+            return 0.0;
+        }
+        1.0 / (sigma * sigma)
+    }
+
+    /// The factor on level `l`'s aware range: its threshold relative to
+    /// the one at Amount 25, Detail and Smoothness 50, to `aware_follow`.
+    fn aware_scale(&self, l: usize, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
+        let base = noise[l] * self.multiples[l];
+        if base <= 0.0 || thresholds[l] <= 0.0 {
+            return 1.0;
+        }
+        (thresholds[l] / base).powf(self.aware_follow)
+    }
+
+    /// The renderer's squared range of the finest level's aware expansion;
+    /// 0 for the plain expansion.
+    pub fn finest_aware2(&self, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
+        (self.finest_aware * noise[0] * self.aware_scale(0, thresholds, noise)).powi(2)
+    }
+
     /// The finest level's squared chroma-edge guard threshold for the
     /// finest threshold `thresholds[0]`; 0 without the guard.
     pub fn finest_edge2(&self, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
-        (self.finest_edge_guard * noise[0]).powi(2) * self.edge_scale2(0, thresholds[0], noise)
+        let base = noise[0] * self.multiples[0];
+        let scale2 = if base > 0.0 && thresholds[0] > 0.0 {
+            (thresholds[0] / base).powf(2.0 * self.finest_follow)
+        } else {
+            1.0
+        };
+        (self.finest_edge_guard * noise[0]).powi(2) * scale2
     }
 }
 
@@ -353,6 +445,113 @@ fn mirror(i: isize, n: usize) -> usize {
     let i = if i >= n { 2 * n - 2 - i } else { i };
     i.clamp(0, n - 1) as usize
 }
+
+/// [`expand_at`] of `rebuilt` and of `coarse` (same size) at finer position
+/// (x, y), each sample's weight also scaled by exp(−d² · `inv2`), d the
+/// distance of its rebuilt chroma from `guide` (the finer sample's chroma):
+/// the expansion keeps to the guide's side of a colour edge. The distances
+/// are taken relative to the nearest sample's, so the weights cannot all
+/// vanish (renderer `ms_expand_aware`, color_noise.wgsl
+/// `reconstruct_level`).
+#[allow(clippy::too_many_arguments)]
+pub fn expand_aware(
+    rebuilt: &Plane,
+    coarse: &Plane,
+    x: usize,
+    y: usize,
+    guide: [f32; 2],
+    inv2: f32,
+    far: f32,
+    profile: Option<&[f32; PROFILE_BINS]>,
+) -> (Px, Px) {
+    let (xs, wx) = expand_taps(x, coarse.width);
+    let (ys, wy) = expand_taps(y, coarse.height);
+    // One pass over the taps: their values, distances and the plain
+    // expansions.
+    let mut taps = [(0.0f32, [0.0f32; CH], [0.0f32; CH], 0.0f32); 9];
+    let mut count = 0;
+    let (mut plain_r, mut plain_c) = ([0.0f32; CH], [0.0f32; CH]);
+    let mut nearest = f32::INFINITY;
+    let mut farthest = 0.0f32;
+    for j in 0..3 {
+        for i in 0..3 {
+            let ws = wx[i] * wy[j];
+            if ws == 0.0 {
+                continue;
+            }
+            let rv = rebuilt.at(xs[i], ys[j]);
+            let cv = coarse.at(xs[i], ys[j]);
+            let (da, db) = (rv[0] - guide[0], rv[1] - guide[1]);
+            let d2 = da * da + db * db;
+            nearest = nearest.min(d2);
+            farthest = farthest.max(d2);
+            for ch in 0..CH {
+                plain_r[ch] += ws * rv[ch];
+                plain_c[ch] += ws * cv[ch];
+            }
+            taps[count] = (ws, rv, cv, d2);
+            count += 1;
+        }
+    }
+    // With a noise profile the range follows the colour noise at the
+    // brightness of the plain expansion.
+    let inv2 = match profile {
+        Some(profile) => {
+            let p = profile_at(profile, plain_c[2]);
+            inv2 / (p * p)
+        }
+        None => inv2,
+    };
+    // A sample far from every coarser one is taken for noise; where the
+    // weights would differ by less than AWARE_FLAT (flat areas) the plain
+    // expansion is the same.
+    if nearest * inv2 > far || (farthest - nearest) * inv2 < AWARE_FLAT {
+        return (plain_r, plain_c);
+    }
+    let mut r = [0.0f32; CH];
+    let mut c = [0.0f32; CH];
+    let mut sw = 0.0f32;
+    for &(ws, rv, cv, d2) in &taps[..count] {
+        let w = ws * exp_neg((d2 - nearest) * inv2);
+        for ch in 0..CH {
+            r[ch] += w * rv[ch];
+            c[ch] += w * cv[ch];
+        }
+        sw += w;
+    }
+    (r.map(|v| v / sw), c.map(|v| v / sw))
+}
+
+/// e^−x for x ≥ 0 (relative error below 3e-5; 0 beyond 30, where the
+/// weights it makes no longer count): 2^−x·log2 e from the exponent bits and
+/// the Taylor polynomial of 2^−f for the fraction. The renderer's `exp` is
+/// the GPU's.
+#[inline]
+fn exp_neg(x: f32) -> f32 {
+    if x >= 30.0 {
+        return 0.0;
+    }
+    let t = x * std::f32::consts::LOG2_E;
+    let n = t.floor();
+    let f = t - n;
+    // 2^−f on [0, 1): minimax-style polynomial of 2^−f = e^(−f ln 2).
+    let p = 1.0
+        + f * (-std::f32::consts::LN_2
+            + f * (0.240_226_5
+                + f * (-0.055_504_11
+                    + f * (0.009_618_129 + f * (-0.001_333_355 + f * 0.000_154_035_3)))));
+    p * f32::from_bits(((127 - n as i32) as u32) << 23)
+}
+
+/// Below this spread of the aware exponents (weights within 0.1 % of
+/// each other) the aware expansion is taken as the plain one.
+pub const AWARE_FLAT: f32 = 1e-3;
+
+/// Default of [`Tuning::aware_far`]: a sample 5 aware ranges from every
+/// coarser one (chosen on the reference files between 14 and 40: lower
+/// leaves colour edges softer, higher more 1–4 px mottling; notes:
+/// reference/color-noise-reference.md).
+pub const AWARE_FAR: f32 = 25.0;
 
 /// Taps and weights of the expansion of a coarser level at finer position
 /// `x` (`n` coarser samples): 1/8, 3/4, 1/8 around an even position, 1/2,
@@ -765,30 +964,59 @@ impl ChromaPyramid {
     }
 
     /// Level 1 rebuilt with each level's detail kept by its threshold
-    /// (`thresholds` from [`Tuning::thresholds`]); level 1 itself when all
-    /// thresholds of the coarse levels are zero.
-    pub fn reconstruct(&self, thresholds: &[f32; LEVELS], tuning: &Tuning) -> Plane {
+    /// (`thresholds` from [`Tuning::thresholds`]) on the coarsest level
+    /// smoothed by `base_sigma` ([`Tuning::base_sigma`]); level 1 itself
+    /// when all thresholds of the coarse levels are zero.
+    pub fn reconstruct(
+        &self,
+        thresholds: &[f32; LEVELS],
+        base_sigma: f32,
+        tuning: &Tuning,
+    ) -> Plane {
         if thresholds[1..].iter().all(|t| *t <= 0.0) {
             return self.levels[0].clone();
         }
         let prepared = self.prepared(tuning);
         let steepness = tuning.steepness;
-        // The coarsest level stays; levels LEVELS − 1 … 1 are rebuilt.
-        let mut rebuilt = self.levels[LEVELS - 1].clone();
+        // Levels LEVELS − 1 … 1 are rebuilt on the coarsest one.
+        let mut rebuilt = self.coarsest(base_sigma, tuning);
         for l in (1..LEVELS).rev() {
             let fine = &self.levels[l - 1];
+            let coarse = &self.levels[l];
             let level = &prepared.levels[l - 1];
             let t2 = thresholds[l] * thresholds[l];
             let edge2 = tuning.edge_scale2(l, thresholds[l], &self.noise);
+            let aware_inv2 = tuning.aware_inv2(l, thresholds, &self.noise);
             let mut data = vec![[0.0f32; CH]; fine.width * fine.height];
             data.par_chunks_mut(fine.width)
                 .enumerate()
                 .for_each(|(y, row)| {
                     for (x, v) in row.iter_mut().enumerate() {
                         let i = y * fine.width + x;
-                        let r = expand_at(&rebuilt, x, y);
                         let k = level_keep(level.size2[i], t2, level.edge[i], edge2, steepness);
-                        *v = rebuilt_detail(r, level.detail[i], level.follow[i], k);
+                        *v = if aware_inv2 > 0.0 {
+                            // The detail against the same weighted expansion
+                            // of the unfiltered coarser level.
+                            let f = fine.at(x, y);
+                            let (r, c) = expand_aware(
+                                &rebuilt,
+                                coarse,
+                                x,
+                                y,
+                                [f[0], f[1]],
+                                aware_inv2,
+                                tuning.aware_far,
+                                Some(&self.profile),
+                            );
+                            rebuilt_detail(r, [f[0] - c[0], f[1] - c[1]], level.follow[i], k)
+                        } else {
+                            rebuilt_detail(
+                                expand_at(&rebuilt, x, y),
+                                level.detail[i],
+                                level.follow[i],
+                                k,
+                            )
+                        };
                     }
                 });
             rebuilt = Plane {
@@ -798,6 +1026,45 @@ impl ChromaPyramid {
             };
         }
         rebuilt
+    }
+
+    /// The coarsest level, smoothed by a bilateral filter of `sigma`
+    /// samples (none at 0) whose range is `base_range` times its noise.
+    pub fn coarsest(&self, sigma: f32, tuning: &Tuning) -> Plane {
+        let base = &self.levels[LEVELS - 1];
+        let range = tuning.base_range * self.noise[LEVELS - 1];
+        if sigma <= 0.0 || range <= 0.0 {
+            return base.clone();
+        }
+        let r = (2.0 * sigma).ceil() as isize;
+        let (w, h) = (base.width, base.height);
+        let inv_s = 1.0 / (2.0 * sigma * sigma);
+        let inv_r = 1.0 / (2.0 * range * range);
+        let mut data = vec![[0.0f32; CH]; w * h];
+        data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            for (x, v) in row.iter_mut().enumerate() {
+                let c = base.at(x, y);
+                let (mut sa, mut sb, mut sw) = (0.0f32, 0.0f32, 0.0f32);
+                for dy in -r..=r {
+                    for dx in -r..=r {
+                        let q = base.at(mirror(x as isize + dx, w), mirror(y as isize + dy, h));
+                        let (da, db) = (q[0] - c[0], q[1] - c[1]);
+                        let wq = (-((dx * dx + dy * dy) as f32) * inv_s
+                            - (da * da + db * db) * inv_r)
+                            .exp();
+                        sa += wq * q[0];
+                        sb += wq * q[1];
+                        sw += wq;
+                    }
+                }
+                *v = [sa / sw, sb / sw, c[2]];
+            }
+        });
+        Plane {
+            width: w,
+            height: h,
+            data,
+        }
     }
 
     /// What does not depend on the sliders, prepared once per source (and
@@ -1080,7 +1347,13 @@ pub fn apply_to_linear(
     if thresholds.iter().all(|t| *t <= 0.0) {
         return image.clone();
     }
-    apply_with(image, &pyramid, &thresholds, tuning)
+    apply_with(
+        image,
+        &pyramid,
+        &thresholds,
+        tuning.base_sigma(settings),
+        tuning,
+    )
 }
 
 /// [`apply_to_linear`] with a built pyramid and thresholds.
@@ -1088,10 +1361,12 @@ pub fn apply_with(
     image: &image::Rgb32FImage,
     pyramid: &ChromaPyramid,
     thresholds: &[f32; LEVELS],
+    base_sigma: f32,
     tuning: &Tuning,
 ) -> image::Rgb32FImage {
     let steepness = tuning.steepness;
-    let rebuilt = pyramid.reconstruct(thresholds, tuning);
+    let rebuilt = pyramid.reconstruct(thresholds, base_sigma, tuning);
+    let aware2 = tuning.finest_aware2(thresholds, &pyramid.noise);
     let level1 = &pyramid.levels[0];
     let (w, h) = (image.width() as usize, image.height() as usize);
     let src = image.as_raw();
@@ -1114,10 +1389,30 @@ pub fn apply_with(
     out.par_chunks_mut(w * 3).enumerate().for_each(|(y, row)| {
         for x in 0..w {
             let i = y * w + x;
+            let rgb = pixel(i);
+            // Only the reconstruction expanded aware (renderer
+            // `ms_expand_aware`); the detail stays against level 1's plain
+            // expansion.
+            let rebuilt_at = if aware2 > 0.0 {
+                expand_aware(
+                    &rebuilt,
+                    level1,
+                    x,
+                    y,
+                    chroma(rgb),
+                    1.0 / aware2,
+                    tuning.aware_far,
+                    None,
+                )
+                .0
+            } else {
+                expand_at(&rebuilt, x, y)
+            };
+            let level1_at = expand_at(level1, x, y);
             let v = filtered_pixel(
-                pixel(i),
-                expand_at(level1, x, y),
-                expand_at(&rebuilt, x, y),
+                rgb,
+                level1_at,
+                rebuilt_at,
                 if edge2 > 0.0 {
                     gain(size2[i], t2, steepness).max(gain(
                         level1_gradient2(&rebuilt, x, y),
@@ -1301,7 +1596,7 @@ mod tests {
         assert_eq!(out.as_raw(), image.as_raw());
         let pyramid = ChromaPyramid::build(&DynamicImage::ImageRgb32F(image), true).unwrap();
         assert_eq!(
-            pyramid.reconstruct(&[0.0; LEVELS], &Tuning::default()),
+            pyramid.reconstruct(&[0.0; LEVELS], 0.0, &Tuning::default()),
             pyramid.levels[0]
         );
     }
@@ -1314,11 +1609,17 @@ mod tests {
         let pyramid =
             ChromaPyramid::build(&DynamicImage::ImageRgb32F(image.clone()), true).unwrap();
         let tiny = [1e-12; LEVELS];
-        let rebuilt = pyramid.reconstruct(&tiny, &Tuning::default());
+        let rebuilt = pyramid.reconstruct(&tiny, 0.0, &Tuning::default());
         for (a, b) in rebuilt.data.iter().zip(&pyramid.levels[0].data) {
             assert!((a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5);
         }
-        let out = apply_with(&image, &pyramid, &tiny, &Tuning::default());
+        // Without the finest aware expansion (which moves the smooth part
+        // towards the pixel's side of an edge) each pixel is its own.
+        let plain = Tuning {
+            finest_aware: 0.0,
+            ..Tuning::default()
+        };
+        let out = apply_with(&image, &pyramid, &tiny, 0.0, &plain);
         for (a, b) in out.as_raw().iter().zip(image.as_raw()) {
             assert!((a - b).abs() < 1e-4 * b.abs().max(1e-3), "{a} {b}");
         }
@@ -1450,20 +1751,165 @@ mod tests {
         };
         let step = |img: &Rgb32FImage| red_minus_green(img, 65) - red_minus_green(img, 62);
         let truth = encode(0.55) - encode(0.40);
-        let unguarded = apply_to_linear(
+        let plain = Tuning {
+            luma_guard: 0.0,
+            edge_guard: 0.0,
+            finest_edge_guard: 0.0,
+            aware: 0.0,
+            finest_aware: 0.0,
+            ..Tuning::default()
+        };
+        let unguarded = apply_to_linear(&image, settings, &plain);
+        // Each of the guards and the aware expansions keeps the step.
+        let aware_only = apply_to_linear(
             &image,
             settings,
             &Tuning {
-                luma_guard: 0.0,
-                edge_guard: 0.0,
-                ..Tuning::default()
+                aware: Tuning::default().aware,
+                finest_aware: Tuning::default().finest_aware,
+                ..plain
             },
         );
-        // Most of the step stays (0.72 of it); without the guards the
-        // colour bleeds across it (0.2).
+        // Most of the step stays; with neither guards nor aware expansion
+        // the colour bleeds across it.
         assert!(step(&out) > 0.6 * truth, "{} {}", step(&out), truth);
         assert!(step(&out) > 3.0 * step(&unguarded), "{}", step(&unguarded));
+        assert!(
+            step(&aware_only) > 2.0 * step(&unguarded),
+            "{}",
+            step(&aware_only)
+        );
         let spread = |img: &Rgb32FImage| level0_rms(img);
         assert!(spread(&out) < 0.5 * spread(&image));
+    }
+
+    #[test]
+    fn aware_expansion_keeps_an_iso_luminant_colour_step() {
+        // Two flat colours of the same brightness side by side, noise on
+        // both: without the aware expansions the rebuild spreads the step
+        // over several pixels, with them it stays nearly as crisp as the
+        // truth, and the flats are as clean.
+        let mut rng = Rng(5);
+        let left = [0.30f32, 0.22, 0.12];
+        let right = [0.16f32, 0.24, 0.30];
+        let truth = |x: u32| if x < 61 { left } else { right };
+        let image = Rgb32FImage::from_fn(128, 96, |x, _| {
+            image::Rgb(truth(x).map(|v| {
+                let p = v.sqrt() + 0.02 * rng.gaussian();
+                p * p
+            }))
+        });
+        let settings = Settings {
+            amount: 0.25,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let plain = Tuning {
+            aware: 0.0,
+            finest_aware: 0.0,
+            ..Tuning::default()
+        };
+        let aware = apply_to_linear(&image, settings, &Tuning::default());
+        let flat = apply_to_linear(&image, settings, &plain);
+        let column = |img: &Rgb32FImage, x: u32| -> f32 {
+            (0..96)
+                .map(|y| encode(img.get_pixel(x, y).0[0]) - encode(img.get_pixel(x, y).0[1]))
+                .sum::<f32>()
+                / 96.0
+        };
+        // The share of the step between the two pixels next to it.
+        let truth_step = (left[0].sqrt() - left[1].sqrt()) - (right[0].sqrt() - right[1].sqrt());
+        let crisp = |img: &Rgb32FImage| (column(img, 60) - column(img, 61)) / truth_step;
+        assert!(
+            crisp(&aware) > crisp(&flat) + 0.05,
+            "{} {}",
+            crisp(&aware),
+            crisp(&flat)
+        );
+        // The flats away from the step are as clean as without.
+        let flat_noise = |img: &Rgb32FImage| {
+            let values: Vec<f32> = (0..96)
+                .flat_map(|y| (8..40).chain(88..120).map(move |x| (x, y)))
+                .map(|(x, y)| encode(img.get_pixel(x, y).0[0]) - encode(img.get_pixel(x, y).0[1]))
+                .collect();
+            let mean = values.iter().sum::<f32>() / values.len() as f32;
+            (values.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / values.len() as f32).sqrt()
+        };
+        assert!(
+            flat_noise(&aware) < 1.1 * flat_noise(&flat),
+            "{} {}",
+            flat_noise(&aware),
+            flat_noise(&flat)
+        );
+    }
+
+    #[test]
+    fn the_fast_exponential_is_close() {
+        for i in 0..3000 {
+            let x = i as f32 * 0.01;
+            let (fast, exact) = (exp_neg(x), (-x).exp());
+            assert!((fast - exact).abs() <= 3e-5 * exact, "{x} {fast} {exact}");
+        }
+        assert_eq!(exp_neg(30.0), 0.0);
+    }
+
+    #[test]
+    fn the_coarsest_level_is_smoothed_only_above_amount_25() {
+        let tuning = Tuning::default();
+        let at = |amount: f32| Settings {
+            amount,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        assert_eq!(tuning.base_sigma(at(0.25)), 0.0);
+        assert_eq!(tuning.base_sigma(at(0.1)), 0.0);
+        assert!((tuning.base_sigma(at(1.0)) - tuning.base_blur).abs() < 1e-6);
+        let image = noisy(256, 256, 0.02, true, 21);
+        let pyramid = ChromaPyramid::build(&DynamicImage::ImageRgb32F(image), true).unwrap();
+        assert_eq!(pyramid.coarsest(0.0, &tuning), pyramid.levels[LEVELS - 1]);
+        let smoothed = pyramid.coarsest(2.0, &tuning);
+        let spread = |p: &Plane| {
+            let n = p.data.len() as f32;
+            let mean = p.data.iter().map(|v| v[0]).sum::<f32>() / n;
+            (p.data.iter().map(|v| (v[0] - mean).powi(2)).sum::<f32>() / n).sqrt()
+        };
+        assert!(spread(&smoothed) < spread(&pyramid.levels[LEVELS - 1]));
+        // Luminance is kept.
+        for (a, b) in smoothed.data.iter().zip(&pyramid.levels[LEVELS - 1].data) {
+            assert_eq!(a[2], b[2]);
+        }
+    }
+
+    #[test]
+    fn aware_ranges_and_guards_follow_the_amount() {
+        let tuning = Tuning {
+            aware_follow: 1.0,
+            finest_follow: 1.0,
+            ..Tuning::default()
+        };
+        let noise = [0.01; LEVELS];
+        let at = |amount: f32| {
+            tuning.thresholds(
+                Settings {
+                    amount,
+                    detail: 0.5,
+                    smoothness: 0.5,
+                },
+                &noise,
+            )
+        };
+        let (t25, t100) = (at(0.25), at(1.0));
+        assert!(
+            (tuning.finest_aware2(&t25, &noise) - (tuning.finest_aware * 0.01).powi(2)).abs()
+                < 1e-12
+        );
+        assert!(tuning.finest_aware2(&t100, &noise) > tuning.finest_aware2(&t25, &noise));
+        assert!(tuning.aware_inv2(1, &t100, &noise) < tuning.aware_inv2(1, &t25, &noise));
+        assert!(tuning.finest_edge2(&t100, &noise) > tuning.finest_edge2(&t25, &noise));
+        // No aware expansion beyond `aware_levels`.
+        assert_eq!(
+            tuning.aware_inv2(tuning.aware_levels + 1, &t25, &noise),
+            0.0
+        );
     }
 }

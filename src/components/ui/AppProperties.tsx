@@ -528,6 +528,9 @@ export interface LoadImageResult {
   ai_denoise_error?: string | null;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */
   offline?: OfflinePreview | null;
+  /** The source was developed for the multi-scale colour noise filter (no
+   * decode-time chroma clean-up); null for preview data. */
+  color_noise_multiscale?: boolean | null;
 }
 
 /** Which preview an offline photograph shows: its 1:1 preview (full
@@ -576,6 +579,12 @@ export interface SelectedImage {
   aiDenoise?: number;
   /** An AI Denoise amount that failed for this source (not retried). */
   aiDenoiseFailed?: number;
+  /** The decoded source was developed for the multi-scale colour noise
+   * filter (`colorNoiseMultiscale` in src/utils/adjustments.ts); unknown for
+   * preview data. */
+  colorNoiseMultiscale?: boolean;
+  /** A colour noise filter the source failed to develop for (not retried). */
+  colorNoiseMultiscaleFailed?: boolean;
   /** The RAW is offline: the photograph shows (and is edited on) this preview. */
   offline?: OfflinePreview | null;
   metadata?: ImageMetadata | null;

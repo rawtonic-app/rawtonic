@@ -283,16 +283,18 @@ fn with_face_retouch(
 ) -> Result<serde_json::Value> {
     let bytes = std::fs::read(source).with_context(|| format!("Read {source}"))?;
     let is_raw = rawtonic_engine::formats::is_raw_file(source);
+    if !recipe.is_object() {
+        recipe = serde_json::json!({});
+    }
+    // The base the export develops (its colour noise filter decides the
+    // decode-time chroma clean-up), so the faces are found on the same pixels.
     let base = rawtonic_engine::image_loader::load_base_image(
         &bytes,
         source,
         false,
-        &rawtonic_engine::image_loader::BaseImageOptions::default(),
+        &rawtonic_engine::image_loader::BaseImageOptions::default().for_recipe(&recipe, is_raw),
         None,
     )?;
-    if !recipe.is_object() {
-        recipe = serde_json::json!({});
-    }
     // The geometry as the export renders it (the camera's lens correction
     // filled in), so the faces' frame matches the render's.
     rawtonic_engine::embedded_lens::apply_default(&mut recipe, std::path::Path::new(source));

@@ -110,6 +110,23 @@ impl BaseImageOptions {
             draft: None,
         }
     }
+
+    /// The options for a photo whose recipe develops colour noise with
+    /// `multiscale` (`color_noise::multiscale`): the multi-scale filter
+    /// measures and removes colour noise itself, so the decode-time chroma
+    /// clean-up (which blurs colour edges over about 4.5 px before it) is
+    /// skipped; sharpening stays. The old filter keeps the clean-up.
+    pub fn for_color_noise(mut self, multiscale: bool) -> Self {
+        if multiscale {
+            self.color_nr_amount = 0.0;
+        }
+        self
+    }
+
+    /// `for_color_noise` with the decision taken from the recipe rendered.
+    pub fn for_recipe(self, adjustments: &Value, is_raw: bool) -> Self {
+        self.for_color_noise(crate::color_noise::multiscale(adjustments, is_raw))
+    }
 }
 
 impl Default for BaseImageOptions {
@@ -1711,5 +1728,57 @@ mod ai_denoise_tests {
         assert_eq!(ai_denoise_amount(&off), 0.0);
         let details_off = json!({ "aiDenoise": 60, "sectionVisibility": { "details": false } });
         assert_eq!(ai_denoise_amount(&details_off), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod color_noise_option_tests {
+    use super::BaseImageOptions;
+    use serde_json::{Value, json};
+
+    fn preferences() -> BaseImageOptions {
+        BaseImageOptions::from_preferences(
+            Some(2.5),
+            "auto".to_string(),
+            Some(0.5),
+            Some(0.35),
+            Some(false),
+        )
+    }
+
+    #[test]
+    fn the_multiscale_filter_skips_only_the_decode_time_chroma_clean_up() {
+        let today = preferences();
+        assert!(today.color_nr_amount > 0.0);
+        let multiscale = preferences().for_color_noise(true);
+        assert_eq!(multiscale.color_nr_amount, 0.0);
+        assert_eq!(multiscale.sharpening_amount, today.sharpening_amount);
+        let highlights = today.highlight_compression;
+        assert_eq!(multiscale.highlight_compression, highlights);
+        let old = preferences().for_color_noise(false);
+        assert_eq!(old.color_nr_amount, today.color_nr_amount);
+        assert_eq!(old.sharpening_amount, today.sharpening_amount);
+    }
+
+    /// The chroma clean-up amount for `recipe`.
+    fn amount(recipe: &Value, is_raw: bool) -> f32 {
+        preferences().for_recipe(recipe, is_raw).color_nr_amount
+    }
+
+    #[test]
+    fn a_v1_recipe_keeps_todays_base_and_a_v2_recipe_skips_the_clean_up() {
+        let today = preferences().color_nr_amount;
+        let v1 = json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 1 });
+        let legacy = json!({ "colorNoiseReduction": 25 });
+        let v2 = json!({ "colorNoiseReduction": 25, "colorNoiseVersion": 2 });
+        for recipe in [&v1, &legacy] {
+            assert_eq!(amount(recipe, true), today);
+        }
+        assert_eq!(amount(&v2, true), 0.0);
+        // Never-edited RAWs develop with the multi-scale filter.
+        assert_eq!(amount(&Value::Null, true), 0.0);
+        assert_eq!(amount(&json!({}), true), 0.0);
+        // Non-RAW files without a version keep the old filter.
+        assert_eq!(amount(&json!({}), false), today);
     }
 }

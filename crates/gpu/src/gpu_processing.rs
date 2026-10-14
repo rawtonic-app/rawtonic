@@ -148,8 +148,11 @@ struct ChromaReconstruction {
     follow: Vec<wgpu::TextureView>,
     /// Rebuilt levels 1…4.
     rebuilt: Vec<wgpu::TextureView>,
-    /// Level 5, kept as it is.
+    /// Level 5 as it is (smoothed per threshold set above Amount 25).
     coarsest: wgpu::TextureView,
+    /// Levels 2…5 unfiltered (chroma xy, luminance z), for the aware
+    /// expansion of the finer level.
+    originals: Vec<wgpu::TextureView>,
     /// Level 1 (xy).
     level1: wgpu::TextureView,
 }
@@ -200,9 +203,33 @@ struct ColorNoiseParams {
     /// Squared factor of the chroma-edge guard of the level being rebuilt
     /// (`Tuning::edge_scale2`).
     edge2: f32,
+    /// Inverse squared range of the level's aware expansion
+    /// (`Tuning::aware_inv2`); 0 = plain expansion.
+    aware_inv2: f32,
+    /// `Tuning::aware_far`.
+    aware_far: f32,
+    _pad: [f32; 2],
     /// The colour noise profile by brightness (`ChromaPyramid::profile`),
-    /// for the finest level's energy.
+    /// for the finest level's energy and the aware expansion.
     profile: [f32; color_noise::PROFILE_BINS],
+}
+
+/// A pyramid level as an Rgba32Float texture: chroma (xy), luminance (z).
+fn chroma_plane_texture(
+    context: &GpuContext,
+    plane: &color_noise::Plane,
+    label: &str,
+) -> wgpu::TextureView {
+    let data: Vec<[f32; 4]> = plane.data.iter().map(|v| [v[0], v[1], v[2], 0.0]).collect();
+    float_texture(
+        context,
+        label,
+        plane.width,
+        plane.height,
+        wgpu::TextureFormat::Rgba32Float,
+        Some(bytemuck::cast_slice(&data)),
+    )
+    .create_view(&Default::default())
 }
 
 fn float_texture(
@@ -317,14 +344,16 @@ fn color_noise_settings(
     Some(settings)
 }
 
-/// The thresholds for `settings`, set in the uniforms, and their key.
+/// The thresholds for `settings`, set in the uniforms, the coarsest
+/// level's smoothing (`Tuning::base_sigma`) and their key.
 fn color_noise_thresholds(
     global: &mut crate::image_processing::GlobalAdjustments,
     settings: color_noise::Settings,
     pyramid: &ChromaPyramid,
     tuning: &color_noise::Tuning,
-) -> ([f32; color_noise::LEVELS], ChromaKey) {
+) -> ([f32; color_noise::LEVELS], f32, ChromaKey) {
     let thresholds = tuning.thresholds(settings, &pyramid.noise);
+    let base_sigma = tuning.base_sigma(settings);
     let mut key: ChromaKey = [0; color_noise::LEVELS + 1];
     for (k, t) in key.iter_mut().zip(thresholds) {
         *k = t.to_bits();
@@ -333,7 +362,9 @@ fn color_noise_thresholds(
     global.color_noise[1] = thresholds[0];
     global.color_noise[2] = tuning.steepness;
     global.color_noise[3] = tuning.finest_edge2(&thresholds, &pyramid.noise);
-    (thresholds, key)
+    global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &pyramid.noise);
+    global.color_noise_aware_far = tuning.aware_far;
+    (thresholds, base_sigma, key)
 }
 
 impl ChromaGpu {
@@ -385,6 +416,9 @@ impl ChromaGpu {
             threshold2: 0.0,
             steepness: 0.0,
             edge2: 0.0,
+            aware_inv2: 0.0,
+            aware_far: 0.0,
+            _pad: [0.0; 2],
             profile: pyramid.profile,
         };
         let device = &context.device;
@@ -444,9 +478,10 @@ impl ChromaGpu {
         context: &GpuContext,
         pyramid: &ChromaPyramid,
         thresholds: &[f32; color_noise::LEVELS],
+        base_sigma: f32,
         tuning: &color_noise::Tuning,
     ) {
-        let rebuilt = pyramid.reconstruct(thresholds, tuning);
+        let rebuilt = pyramid.reconstruct(thresholds, base_sigma, tuning);
         let texels = pack_chroma(&pyramid.levels[0], &rebuilt, self.window);
         write_whole_texture(context, &self.packed, bytemuck::cast_slice(&texels));
     }
@@ -458,6 +493,7 @@ impl ChromaGpu {
         pipelines: &ChromaPipelines,
         pyramid: &ChromaPyramid,
         thresholds: &[f32; color_noise::LEVELS],
+        base_sigma: f32,
         tuning: &color_noise::Tuning,
     ) {
         let device = &context.device;
@@ -519,21 +555,29 @@ impl ChromaGpu {
                     .create_view(&Default::default())
                 })
                 .collect();
-            let plane = |plane: &color_noise::Plane, label: &str| {
-                rgba(
-                    plane.data.iter().map(|v| [v[0], v[1], 0.0, 0.0]).collect(),
-                    plane.width,
-                    plane.height,
-                    label,
-                )
-            };
+            let originals = pyramid.levels[1..]
+                .iter()
+                .map(|level| chroma_plane_texture(context, level, "Chroma level (unfiltered)"))
+                .collect();
             ChromaReconstruction {
                 levels,
                 follow,
                 rebuilt,
-                coarsest: plane(&pyramid.levels[color_noise::LEVELS - 1], "Chroma level 5"),
-                level1: plane(&pyramid.levels[0], "Chroma level 1 (f32)"),
+                coarsest: chroma_plane_texture(
+                    context,
+                    &pyramid.levels[color_noise::LEVELS - 1],
+                    "Chroma level 5",
+                ),
+                originals,
+                level1: chroma_plane_texture(context, &pyramid.levels[0], "Chroma level 1 (f32)"),
             }
+        });
+        let smoothed = (base_sigma > 0.0).then(|| {
+            chroma_plane_texture(
+                context,
+                &pyramid.coarsest(base_sigma, tuning),
+                "Chroma level 5 (smoothed)",
+            )
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         for l in (1..color_noise::LEVELS).rev() {
@@ -544,7 +588,10 @@ impl ChromaGpu {
                 threshold2: thresholds[l] * thresholds[l],
                 steepness: tuning.steepness,
                 edge2: tuning.edge_scale2(l, thresholds[l], &pyramid.noise),
-                profile: [1.0; color_noise::PROFILE_BINS],
+                aware_inv2: tuning.aware_inv2(l, thresholds, &pyramid.noise),
+                aware_far: tuning.aware_far,
+                _pad: [0.0; 2],
+                profile: pyramid.profile,
             };
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Colour noise level params"),
@@ -552,7 +599,7 @@ impl ChromaGpu {
                 usage: wgpu::BufferUsages::UNIFORM,
             });
             let coarser = if l == color_noise::LEVELS - 1 {
-                &reconstruction.coarsest
+                smoothed.as_ref().unwrap_or(&reconstruction.coarsest)
             } else {
                 &reconstruction.rebuilt[l]
             };
@@ -581,6 +628,20 @@ impl ChromaGpu {
                     wgpu::BindGroupEntry {
                         binding: 4,
                         resource: wgpu::BindingResource::TextureView(&reconstruction.follow[l - 1]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(
+                            &reconstruction.originals[l - 1],
+                        ),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(if l == 1 {
+                            &reconstruction.level1
+                        } else {
+                            &reconstruction.originals[l - 2]
+                        }),
                     },
                 ],
             });
@@ -658,7 +719,7 @@ fn prepare_color_noise(
     };
     let pipelines = processor.chroma_pipelines.as_ref()?;
     let tuning = color_noise::Tuning::default();
-    let (thresholds, key) = color_noise_thresholds(global, settings, &pyramid, &tuning);
+    let (thresholds, base_sigma, key) = color_noise_thresholds(global, settings, &pyramid, &tuning);
     let level1 = &pyramid.levels[0];
     let window = [0, 0, level1.width as u32, level1.height as u32];
     global.color_noise_window = window;
@@ -686,9 +747,16 @@ fn prepare_color_noise(
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_reconstruct");
         if on_gpu {
-            chroma.rebuild_on_gpu(context, pipelines, &pyramid, &thresholds, &tuning);
+            chroma.rebuild_on_gpu(
+                context,
+                pipelines,
+                &pyramid,
+                &thresholds,
+                base_sigma,
+                &tuning,
+            );
         } else {
-            chroma.rebuild_on_cpu(context, &pyramid, &thresholds, &tuning);
+            chroma.rebuild_on_cpu(context, &pyramid, &thresholds, base_sigma, &tuning);
         }
         chroma.key = Some(key);
     }
@@ -5722,13 +5790,13 @@ fn render_in_windows(
         color_noise_settings(&mut request.adjustments.uniforms.global).and_then(|settings| {
             let pyramid = ChromaPyramid::build(image, is_raw)?;
             let pipelines = processor.chroma_pipelines.as_ref()?;
-            let (thresholds, _) = color_noise_thresholds(
+            let (thresholds, base_sigma, _) = color_noise_thresholds(
                 &mut request.adjustments.uniforms.global,
                 settings,
                 &pyramid,
                 &tuning,
             );
-            let rebuilt = pyramid.reconstruct(&thresholds, &tuning);
+            let rebuilt = pyramid.reconstruct(&thresholds, base_sigma, &tuning);
             let level1 = &pyramid.levels[0];
             request.adjustments.uniforms.global.color_noise_window =
                 [0, 0, level1.width as u32, level1.height as u32];

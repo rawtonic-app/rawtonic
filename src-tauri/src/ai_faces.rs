@@ -386,12 +386,14 @@ pub async fn apply_face_retouch_to_paths(
                 let bytes = std::fs::read(&source_path).map_err(|e| e.to_string())?;
                 let name = source_path.to_string_lossy();
                 let is_raw = rawtonic_engine::formats::is_raw_file(&source_path);
-                let base = crate::image_loader::load_base_image_from_bytes(
+                let base = crate::image_loader::load_base_image_for_recipe(
                     &bytes,
                     &name,
                     false,
                     &app_settings,
                     None,
+                    None,
+                    &recipe,
                 )
                 .map_err(|e| e.to_string())?;
                 let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(

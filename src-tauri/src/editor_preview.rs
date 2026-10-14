@@ -631,6 +631,7 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
                     path: proxy.path,
                     image: proxy.image,
                     is_raw: proxy.is_raw,
+                    multiscale: None,
                 },
                 scale,
                 (proxy.full_width, proxy.full_height),
@@ -1902,12 +1903,14 @@ pub(crate) async fn generate_preview_for_path(
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
 
         let pristine_source = match read_file_mapped(&source_path) {
-            Ok(mmap) => crate::image_loader::load_base_image_from_bytes(
+            Ok(mmap) => crate::image_loader::load_base_image_for_recipe(
                 &mmap,
                 &source_path_str,
                 false,
                 &settings,
                 None,
+                None,
+                &js_adjustments,
             )
             .map_err(|e| e.to_string())?,
             Err(e) => {
@@ -1917,12 +1920,14 @@ pub(crate) async fn generate_preview_for_path(
                     e
                 );
                 let bytes = fs::read(&source_path).map_err(|io_err| io_err.to_string())?;
-                crate::image_loader::load_base_image_from_bytes(
+                crate::image_loader::load_base_image_for_recipe(
                     &bytes,
                     &source_path_str,
                     false,
                     &settings,
                     None,
+                    None,
+                    &js_adjustments,
                 )
                 .map_err(|e| e.to_string())?
             }
@@ -2246,6 +2251,7 @@ mod preview_memory_tests {
             path: "memory-fixture".into(),
             image: Arc::new(DynamicImage::ImageRgb32F(image::Rgb32FImage::new(12, 8))),
             is_raw: true,
+            multiscale: None,
         };
         let result = compute_patched_and_warped(&loaded, &serde_json::json!({})).unwrap();
         assert!(Arc::ptr_eq(&loaded.image, &result));

@@ -47,7 +47,7 @@ import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets
 import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
 import { useEditorStore } from '../store/useEditorStore';
-import { useLibraryStore } from '../store/useLibraryStore';
+import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -523,7 +523,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             if (selectedImage && applied.includes(selectedImage.path)) {
               const metadata = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
               if (metadata.adjustments && !metadata.adjustments.is_null) {
-                const normalized = normalizeLoadedAdjustments(metadata.adjustments);
+                const normalized = normalizeLoadedAdjustments(metadata.adjustments, selectedImage.isRaw);
                 setEditor({ adjustments: normalized });
                 useEditorStore.getState().resetHistory(normalized);
               }
@@ -531,7 +531,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
             if (libraryActivePath && applied.includes(libraryActivePath)) {
               const metadata = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
               if (metadata.adjustments && !metadata.adjustments.is_null) {
-                const normalized = normalizeLoadedAdjustments(metadata.adjustments);
+                const normalized = normalizeLoadedAdjustments(metadata.adjustments, isRawInLibrary(libraryActivePath));
                 setLibrary({ libraryActiveAdjustments: normalized });
               }
             }

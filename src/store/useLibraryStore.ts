@@ -139,3 +139,8 @@ export const useLibraryStore = create<LibraryState>((set) => ({
       return { navHistory: newHistory, navIndex: newHistory.length - 1 };
     }),
 }));
+
+/** Whether the library lists the photo at `path` as a RAW (its recipe then
+ * normalizes with the RAW defaults, as the backend reads it). */
+export const isRawInLibrary = (path: string): boolean =>
+  useLibraryStore.getState().imageList.find((image) => image.path === path)?.is_raw ?? false;

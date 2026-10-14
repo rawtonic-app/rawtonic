@@ -2742,8 +2742,12 @@ pub struct GlobalAdjustments {
     pub agx_pipe_to_rendering_matrix: GpuMat3,
     pub agx_rendering_to_pipe_matrix: GpuMat3,
 
-    _pad_cg1: f32,
-    _pad_cg2: f32,
+    /// Squared range of the multi-scale colour noise reduction's aware
+    /// expansion of the rebuilt level 1 (`Tuning::finest_aware2`), set by
+    /// the renderer with `color_noise`; 0 = plain expansion.
+    pub color_noise_aware2: f32,
+    /// `Tuning::aware_far` for that expansion.
+    pub color_noise_aware_far: f32,
     _pad_cg3: f32,
     _pad_cg4: f32,
     pub color_grading_shadows: ColorGradeSettings,
@@ -3723,8 +3727,8 @@ fn get_global_adjustments_from_json(
         agx_pipe_to_rendering_matrix: pipe_to_rendering,
         agx_rendering_to_pipe_matrix: rendering_to_pipe,
 
-        _pad_cg1: 0.0,
-        _pad_cg2: 0.0,
+        color_noise_aware2: 0.0,
+        color_noise_aware_far: 0.0,
         _pad_cg3: 0.0,
         _pad_cg4: 0.0,
         color_grading_shadows: if is_visible("color") {

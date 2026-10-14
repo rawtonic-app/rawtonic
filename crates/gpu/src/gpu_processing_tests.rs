@@ -7990,11 +7990,11 @@ fn multiscale_color_noise_latency_probe() {
                 &pyramid.noise,
             );
             let start = Instant::now();
-            let _ = pyramid.reconstruct(&thresholds, &color_noise::Tuning::default());
+            let _ = pyramid.reconstruct(&thresholds, 0.0, &color_noise::Tuning::default());
             let first = start.elapsed().as_secs_f64() * 1000.0;
             // Slider changes: the per-source preparation is kept.
             let start = Instant::now();
-            let _ = pyramid.reconstruct(&thresholds, &color_noise::Tuning::default());
+            let _ = pyramid.reconstruct(&thresholds, 0.0, &color_noise::Tuning::default());
             println!(
                 "{}",
                 json!({"probe":"color_noise_cpu","size":[width,height],"build_ms":builds.last(),
@@ -8161,8 +8161,31 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
         .map(|(a, b)| (*a as i32 - *b as i32).abs())
         .max()
         .unwrap();
-    println!("GPU vs CPU reconstruction: max difference {worst} of 65535");
-    assert!(worst <= 12, "max {worst}");
+    let over = cpu
+        .iter()
+        .zip(&gpu)
+        .filter(|(a, b)| (**a as i32 - **b as i32).abs() > 4)
+        .count();
+    let mut diffs: Vec<i32> = cpu
+        .iter()
+        .zip(&gpu)
+        .map(|(a, b)| (*a as i32 - *b as i32).abs())
+        .collect();
+    diffs.sort_unstable();
+    let pct = |p: f64| diffs[((diffs.len() - 1) as f64 * p) as usize];
+    println!(
+        "GPU vs CPU reconstruction: max difference {worst} of 65535, {over} of {} values above 4; p99 {} p99.9 {} p99.99 {}",
+        cpu.len(),
+        pct(0.99),
+        pct(0.999),
+        pct(0.9999)
+    );
+    // Level 1 rebuilds alike on both (within one f16 step of the packed
+    // texture); the aware expansions' steep weights turn that step into rare
+    // larger differences at colour edges: 99.9 % within 6 of 65535, at most
+    // 85 (a third of an 8-bit step) in this frame.
+    assert!(worst <= 128, "max {worst}");
+    assert!(pct(0.999) <= 8, "p99.9 {}", pct(0.999));
 }
 
 #[test]

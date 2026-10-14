@@ -815,6 +815,7 @@ fn synthetic() {
                             &truth_lin,
                             &clean_pyramid,
                             &thresholds,
+                            tuning.base_sigma(settings),
                             &tuning,
                         );
                         let amp = |img: &Rgb32FImage| {
@@ -837,7 +838,13 @@ fn synthetic() {
                         );
                     }
                     let new_clean = renderer.render(
-                        &color_noise::apply_with(&truth_lin, &clean_pyramid, &thresholds, &tuning),
+                        &color_noise::apply_with(
+                            &truth_lin,
+                            &clean_pyramid,
+                            &thresholds,
+                            tuning.base_sigma(settings),
+                            &tuning,
+                        ),
                         json!({}),
                         level,
                     );
@@ -848,8 +855,13 @@ fn synthetic() {
                             level,
                         )
                     } else {
-                        let filtered =
-                            color_noise::apply_with(&noisy, &pyramid, &thresholds, &tuning);
+                        let filtered = color_noise::apply_with(
+                            &noisy,
+                            &pyramid,
+                            &thresholds,
+                            tuning.base_sigma(settings),
+                            &tuning,
+                        );
                         renderer.render(&filtered, json!({}), level)
                     };
                     row(
