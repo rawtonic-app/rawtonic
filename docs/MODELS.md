@@ -981,6 +981,7 @@ which keeps older builds working. Check SAM with the ignored tests
 | Slot | Candidate | License | Notes |
 |---|---|---|---|
 | Generative fill | FLUX.2 [klein] 4B + Qwen3-4B text encoder | Apache-2.0 | Measured 2026-10-10 (Object removal): clean removals with a prompt naming the object, Lightroom-Generative level at junctions; 22 GB bf16, ~13 GB memory, 135-670 s per removal on a loaded M5 Pro; needs a quantised ONNX export |
+| Object removal (generative) | LensErase (Microsoft and universities; github.com/LensFamily/LensErase, arXiv 2610.18072) on the Lens 3.8B diffusion model | Repository and Lens code MIT; the weights are not yet published (checked 2026-10-14), their license is unknown | Mask-only removal (no prompt) that also removes shadows and reflections, which is what Remove lacks at junctions. Once released, check: the weight license on its model card, the FLUX.2 VAE it uses (Apache-2.0 in [klein] 4B), whether the GPT-OSS text encoder can be left out (precomputed empty prompt), size and speed on Apple Silicon (bf16 ~7.6 GB for the denoiser), crop-and-blend into full-resolution RAWs; then measure against MI-GAN, the patch fill and FLUX.2 [klein] 4B |
 | Object removal | HiFill (Huawei) | BSD-3 (weights in the authors' repository) | Measured: weaker than MI-GAN; not used |
 | AI denoise | RawNIND weights (Brummer) | GPL-3.0 + CC BY 4.0 (stated) | Bayer and linear-RGB denoisers; no ONNX yet |
 
