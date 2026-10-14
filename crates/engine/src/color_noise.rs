@@ -181,6 +181,18 @@ pub struct Tuning {
     /// is taken for noise and expanded plainly: a lone noisy sample would
     /// otherwise pick the coarser samples nearest to its noise.
     pub aware_far: f32,
+    /// The aware expansion only where the coarser samples' rebuilt chroma
+    /// spreads beyond the noise: its share rises smoothly from 0 to 1 as
+    /// the spread of their squared distances (times the aware range's
+    /// inverse square) goes from `aware_gate` / 2 to 3 `aware_gate` / 2. At
+    /// very high ISO, residual colour blotches in textured areas otherwise
+    /// got crisp edges from it (red and dark islands). 0: everywhere.
+    pub aware_gate: f32,
+    /// `aware_gate` applies in full to photos whose finest colour noise
+    /// (`ChromaPyramid::noise[0]`) is `gate_noise[1]` or more, not at all
+    /// below `gate_noise[0]` (smoothly between): only very noisy photos
+    /// showed the crisp blotches, and the gate costs colour-edge crispness.
+    pub gate_noise: [f32; 2],
     /// The same for the finest level, expanding the rebuilt level 1 to full
     /// resolution, in multiples of the finest level's noise (renderer
     /// `ms_expand_aware`).
@@ -211,6 +223,14 @@ impl Default for Tuning {
             aware_levels: 2,
             aware_follow: 0.0,
             aware_far: AWARE_FAR,
+            aware_gate: std::env::var("RT_EXP_GATE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0),
+            gate_noise: [
+                std::env::var("RT_EXP_GLO").ok().and_then(|v| v.parse().ok()).unwrap_or(0.03),
+                std::env::var("RT_EXP_GHI").ok().and_then(|v| v.parse().ok()).unwrap_or(0.05),
+            ],
             finest_aware: 1.0,
             base_blur: 2.0,
             base_range: 10.0,
@@ -279,6 +299,11 @@ impl Tuning {
             return 1.0;
         }
         (thresholds[l] / base).powf(self.aware_follow)
+    }
+
+    /// The aware gate for a photo with finest colour noise `noise[0]`.
+    pub fn gate_for(&self, noise: &[f32; LEVELS]) -> f32 {
+        self.aware_gate * smoothstep(self.gate_noise[0], self.gate_noise[1], noise[0])
     }
 
     /// The renderer's squared range of the finest level's aware expansion;
@@ -465,6 +490,7 @@ pub fn expand_aware(
     guide: [f32; 2],
     inv2: f32,
     far: f32,
+    gate: f32,
     profile: Option<&[f32; PROFILE_BINS]>,
 ) -> (Px, Px) {
     let (xs, wx) = expand_taps(x, coarse.width);
@@ -508,7 +534,12 @@ pub fn expand_aware(
     // A sample far from every coarser one is taken for noise; where the
     // weights would differ by less than AWARE_FLAT (flat areas) the plain
     // expansion is the same.
-    if nearest * inv2 > far || (farthest - nearest) * inv2 < AWARE_FLAT {
+    let share = if gate > 0.0 {
+        smoothstep(0.5 * gate, 1.5 * gate, (farthest - nearest) * inv2)
+    } else {
+        1.0
+    };
+    if nearest * inv2 > far || (farthest - nearest) * inv2 < AWARE_FLAT || share <= 0.0 {
         return (plain_r, plain_c);
     }
     let mut r = [0.0f32; CH];
@@ -522,7 +553,20 @@ pub fn expand_aware(
         }
         sw += w;
     }
-    (r.map(|v| v / sw), c.map(|v| v / sw))
+    let (r, c) = (r.map(|v| v / sw), c.map(|v| v / sw));
+    if share >= 1.0 {
+        return (r, c);
+    }
+    let mix = |a: Px, b: Px| std::array::from_fn(|ch| b[ch] + share * (a[ch] - b[ch]));
+    (mix(r, plain_r), mix(c, plain_c))
+}
+
+/// 0 below `a`, 1 above `b`, the cubic Hermite step between (WGSL's
+/// `smoothstep`).
+#[inline]
+fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// e^−x for x ≥ 0 (relative error below 3e-5; 0 beyond 30, where the
@@ -1032,6 +1076,7 @@ impl ChromaPyramid {
                                 [f[0], f[1]],
                                 aware_inv2,
                                 tuning.aware_far,
+                                tuning.gate_for(&self.noise),
                                 Some(&self.profile),
                             );
                             rebuilt_detail(r, [f[0] - c[0], f[1] - c[1]], level.follow[i], k)
@@ -1428,6 +1473,7 @@ pub fn apply_with(
                     chroma(rgb),
                     1.0 / aware2,
                     tuning.aware_far,
+                    tuning.gate_for(&pyramid.noise),
                     None,
                 )
                 .0

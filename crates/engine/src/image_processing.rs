@@ -2748,7 +2748,8 @@ pub struct GlobalAdjustments {
     pub color_noise_aware2: f32,
     /// `Tuning::aware_far` for that expansion.
     pub color_noise_aware_far: f32,
-    _pad_cg3: f32,
+    /// `Tuning::aware_gate` for that expansion.
+    pub color_noise_aware_gate: f32,
     _pad_cg4: f32,
     pub color_grading_shadows: ColorGradeSettings,
     pub color_grading_midtones: ColorGradeSettings,
@@ -3733,7 +3734,7 @@ fn get_global_adjustments_from_json(
 
         color_noise_aware2: 0.0,
         color_noise_aware_far: 0.0,
-        _pad_cg3: 0.0,
+        color_noise_aware_gate: 0.0,
         _pad_cg4: 0.0,
         color_grading_shadows: if is_visible("color") {
             parse_color_grade_settings(&cg_obj["shadows"])

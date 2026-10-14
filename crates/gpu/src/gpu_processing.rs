@@ -208,7 +208,9 @@ struct ColorNoiseParams {
     aware_inv2: f32,
     /// `Tuning::aware_far`.
     aware_far: f32,
-    _pad: [f32; 2],
+    /// `Tuning::aware_gate`.
+    aware_gate: f32,
+    _pad: f32,
     /// The colour noise profile by brightness (`ChromaPyramid::profile`),
     /// for the finest level's energy and the aware expansion.
     profile: [f32; color_noise::PROFILE_BINS],
@@ -382,6 +384,10 @@ fn color_noise_thresholds(
     global.color_noise[3] = tuning.finest_edge2(&thresholds, &pyramid.noise);
     global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &pyramid.noise);
     global.color_noise_aware_far = tuning.aware_far;
+    global.color_noise_aware_gate = tuning.gate_for(&pyramid.noise);
+    if std::env::var("RT_EXP_NOISELOG").is_ok() {
+        eprintln!("EXP noise {:?} luma {:?}", pyramid.noise, pyramid.luma_noise);
+    }
     (thresholds, base_sigma, key)
 }
 
@@ -436,7 +442,8 @@ impl ChromaGpu {
             edge2: 0.0,
             aware_inv2: 0.0,
             aware_far: 0.0,
-            _pad: [0.0; 2],
+            aware_gate: 0.0,
+            _pad: 0.0,
             profile: pyramid.profile,
         };
         let device = &context.device;
@@ -608,7 +615,8 @@ impl ChromaGpu {
                 edge2: tuning.edge_scale2(l, thresholds[l], &pyramid.noise),
                 aware_inv2: tuning.aware_inv2(l, thresholds, &pyramid.noise),
                 aware_far: tuning.aware_far,
-                _pad: [0.0; 2],
+                aware_gate: tuning.gate_for(&pyramid.noise),
+                _pad: 0.0,
                 profile: pyramid.profile,
             };
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

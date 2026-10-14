@@ -131,7 +131,8 @@ struct GlobalAdjustments {
     color_noise_aware2: f32,
     // color_noise.rs `Tuning::aware_far`.
     color_noise_aware_far: f32,
-    _pad_cg3: f32,
+    // color_noise.rs `Tuning::aware_gate`.
+    color_noise_aware_gate: f32,
     _pad_cg4: f32,
     color_grading_shadows: ColorGradeSettings,
     color_grading_midtones: ColorGradeSettings,
@@ -3070,7 +3071,12 @@ fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
     // A pixel far from every sample is taken for noise (color_noise.rs
     // `Tuning::aware_far`); where the weights would be within 0.1 % of each
     // other (`AWARE_FLAT`) the plain expansion is the same.
-    if (nearest * inv2 > adjustments.global.color_noise_aware_far || (farthest - nearest) * inv2 < 1e-3) { return plain; }
+    // Only where the samples spread beyond the noise (color_noise.rs
+    // `Tuning::aware_gate`), blended in smoothly.
+    let gate = adjustments.global.color_noise_aware_gate;
+    var share = 1.0;
+    if (gate > 0.0) { share = smoothstep(0.5 * gate, 1.5 * gate, (farthest - nearest) * inv2); }
+    if (nearest * inv2 > adjustments.global.color_noise_aware_far || (farthest - nearest) * inv2 < 1e-3 || share <= 0.0) { return plain; }
     var out = vec4<f32>(0.0);
     var sw = 0.0;
     for (var j: i32 = 0; j < 3; j = j + 1) {
@@ -3085,7 +3091,7 @@ fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
         }
     }
     // Level 1 (xy) plainly, its reconstruction (zw) aware.
-    return vec4<f32>(plain.xy, out.zw / sw);
+    return vec4<f32>(plain.xy, mix(plain.zw, out.zw / sw, share));
 }
 
 // The squared chroma gradient of the rebuilt level 1 (zw; central

@@ -32,7 +32,8 @@ struct ColorNoiseParams {
     aware_inv2: f32,
     // color_noise.rs `Tuning::aware_far`.
     aware_far: f32,
-    _pad1: f32,
+    // color_noise.rs `Tuning::aware_gate`.
+    aware_gate: f32,
     _pad2: f32,
     // Colour noise by brightness relative to the photo's (8 bins of
     // square-root luminance, color_noise.rs `profile_at`).
@@ -202,7 +203,11 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
         // Far from every sample: taken for noise (color_noise.rs
         // `Tuning::aware_far`); the plain expansion too where the weights
         // would be within 0.1 % of each other (`AWARE_FLAT`).
-        let use_plain = nearest * inv2 > params.aware_far || (farthest - nearest) * inv2 < 1e-3;
+        var share = 1.0;
+        if (params.aware_gate > 0.0) {
+            share = smoothstep(0.5 * params.aware_gate, 1.5 * params.aware_gate, (farthest - nearest) * inv2);
+        }
+        let use_plain = nearest * inv2 > params.aware_far || (farthest - nearest) * inv2 < 1e-3 || share <= 0.0;
         var ra = vec2<f32>(0.0);
         var ca = vec2<f32>(0.0);
         var sw = 0.0;
@@ -219,8 +224,8 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         }
         if (!use_plain) {
-            r = ra / sw;
-            detail = f - ca / sw;
+            r = mix(r, ra / sw, share);
+            detail = mix(detail, f - ca / sw, share);
         }
     }
     textureStore(output_f32, id.xy, vec4<f32>(r + k * detail + (1.0 - k) * follow, 0.0, 0.0));
