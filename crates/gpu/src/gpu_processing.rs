@@ -196,6 +196,9 @@ struct ColorNoiseParams {
     threshold2: f32,
     steepness: f32,
     _pad: u32,
+    /// The colour noise profile by brightness (`ChromaPyramid::profile`),
+    /// for the finest level's energy.
+    profile: [f32; color_noise::PROFILE_BINS],
 }
 
 fn float_texture(
@@ -377,6 +380,7 @@ impl ChromaGpu {
             threshold2: 0.0,
             steepness: 0.0,
             _pad: 0,
+            profile: pyramid.profile,
         };
         let device = &context.device;
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -517,6 +521,7 @@ impl ChromaGpu {
                 threshold2: thresholds[l] * thresholds[l],
                 steepness: tuning.steepness,
                 _pad: 0,
+                profile: [1.0; color_noise::PROFILE_BINS],
             };
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Colour noise level params"),

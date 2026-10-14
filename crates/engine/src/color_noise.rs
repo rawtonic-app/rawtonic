@@ -7,10 +7,15 @@
 //! green) is split into a Laplacian pyramid. At each level the colour noise
 //! is measured: the RMS of the level's detail in its smoothest blocks, where
 //! the photo has no colour detail of its own (clipped and black blocks have
-//! no noise to measure and are skipped). Each level's detail is then kept by
-//! a soft threshold at a multiple of that level's noise, set by the recipe's
-//! Color amount, Detail and Smoothness, and applied to the detail's local
-//! energy (3 × 3), so single noisy pixels go and the tails of edges stay.
+//! no noise to measure and are skipped). Demosaiced noise is not even in
+//! that encoding (read noise lifts the shadows and midtones), so the colour
+//! noise is also measured per brightness band at the finest level (a noise
+//! profile relative to the photo's noise) and each pixel's detail is
+//! compared with the noise at its own brightness. Each level's detail is
+//! then kept by a soft threshold at a multiple of that level's noise, set by
+//! the recipe's Color amount, Detail and Smoothness, and applied to the
+//! detail's local energy (3 × 3), so single noisy pixels go and the tails of
+//! edges stay.
 //! Two guards keep a level's detail where it belongs to an edge: a
 //! luminance detail at that level well above the luminance noise, and a
 //! chroma gradient of the coarser level well above the level's colour noise
@@ -31,7 +36,11 @@
 //! The idea (a chroma pyramid thresholded by noise measured per level) was
 //! described for RAWmakase's adaptive colour noise reduction; the
 //! implementation, the measurement and every constant here are Rawtonic's
-//! own, chosen on the synthetic harness (notes: reference/detail.md).
+//! own: the guards and the profile were chosen on the synthetic harness
+//! (edge bleed, colour texture) together with Rawtonic's own measurements of
+//! colour noise on a training split of public high-ISO RAW files, and
+//! checked on held-out files and harness seeds (notes:
+//! reference/color-noise-reference.md).
 
 use image::DynamicImage;
 use rayon::prelude::*;
@@ -74,6 +83,12 @@ const COARSER_FALLBACK: f32 = 0.6;
 /// channel above `MEASURABLE_PEAK` (clipping) are not measured.
 const MEASURABLE_BLACK: f32 = 0.0005;
 const MEASURABLE_PEAK: f32 = 0.9;
+/// Brightness bins of the noise profile (square-root luminance 0–1).
+pub const PROFILE_BINS: usize = 8;
+/// The fewest measurable blocks a profile bin is measured from.
+const MIN_PROFILE_BLOCKS: usize = 64;
+/// Limits of a bin's noise relative to the photo's noise.
+const PROFILE_RANGE: (f32, f32) = (0.5, 4.0);
 /// Luminance weights of the renderer (shader.wgsl `LUMA_COEFF`).
 const LUMA: [f32; 3] = [0.2126, 0.7152, 0.0722];
 
@@ -115,10 +130,10 @@ impl Default for Tuning {
             multiples: [5.0, 5.0, 5.0, 5.0, 5.0],
             steepness: 3.0,
             amount_growth: 1.0,
-            detail_exponents: [3.0, 1.5, 0.5, 0.0, 0.0],
-            smoothness_exponents: [0.0, 0.0, 0.5, 1.5, 2.0],
-            luma_guard: 3.0,
-            edge_guard: 7.0,
+            detail_exponents: [6.0, 4.0, 2.0, 0.5, 0.0],
+            smoothness_exponents: [0.0, 1.0, 3.0, 5.0, 6.0],
+            luma_guard: 4.5,
+            edge_guard: 5.0,
         }
     }
 }
@@ -480,6 +495,83 @@ fn smoothest_rms(
     Some(e.sqrt())
 }
 
+/// The noise in each brightness bin relative to the photo's noise `global`:
+/// the smoothest-blocks RMS (as [`smoothest_rms`]) of the blocks whose mean
+/// square-root luminance (from `detail_luma`) falls into the bin, divided by
+/// `global`. Bins with too few blocks take the nearest measured bin's
+/// value; all 1 when no bin could be measured.
+fn noise_profile(
+    width: usize,
+    height: usize,
+    stride: usize,
+    global: f32,
+    detail_luma: impl Fn(usize, usize) -> ([f32; 2], f32) + Sync,
+    block_measurable: impl Fn(usize, usize) -> bool + Sync,
+) -> [f32; PROFILE_BINS] {
+    let mut profile = [1.0f32; PROFILE_BINS];
+    if global <= 0.0 {
+        return profile;
+    }
+    let (bw, bh) = (width / BLOCK, height / BLOCK);
+    let (sw, sh) = (bw.div_ceil(stride), bh.div_ceil(stride));
+    let blocks: Vec<(usize, f32)> = (0..sw * sh)
+        .into_par_iter()
+        .filter_map(|i| {
+            let (bx, by) = ((i % sw) * stride, (i / sw) * stride);
+            if !block_measurable(bx, by) {
+                return None;
+            }
+            let (mut sum, mut y) = (0.0f32, 0.0f32);
+            for yy in by * BLOCK..(by + 1) * BLOCK {
+                for xx in bx * BLOCK..(bx + 1) * BLOCK {
+                    let (d, l) = detail_luma(xx, yy);
+                    sum += d[0] * d[0] + d[1] * d[1];
+                    y += l;
+                }
+            }
+            let n = (BLOCK * BLOCK) as f32;
+            let bin = ((y / n).clamp(0.0, 0.999_999) * PROFILE_BINS as f32) as usize;
+            Some((bin, sum / n))
+        })
+        .collect();
+    let mut measured = [None; PROFILE_BINS];
+    for (bin, slot) in measured.iter_mut().enumerate() {
+        let mut energies: Vec<f32> = blocks
+            .iter()
+            .filter(|(b, _)| *b == bin)
+            .map(|(_, e)| *e)
+            .collect();
+        if energies.len() < MIN_PROFILE_BLOCKS {
+            continue;
+        }
+        let k = ((energies.len() as f32 * SMOOTHEST) as usize).min(energies.len() - 1);
+        let (_, e, _) = energies.select_nth_unstable_by(k, f32::total_cmp);
+        *slot = Some((e.sqrt() / global).clamp(PROFILE_RANGE.0, PROFILE_RANGE.1));
+    }
+    if measured.iter().all(Option::is_none) {
+        return profile;
+    }
+    for (bin, value) in profile.iter_mut().enumerate() {
+        // The nearest measured bin (the darker one on a tie).
+        *value = (0..PROFILE_BINS)
+            .filter_map(|b| measured[b].map(|v| (b.abs_diff(bin), v)))
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, v)| v)
+            .unwrap();
+    }
+    profile
+}
+
+/// A noise profile's value at square-root luminance `y`: linear between
+/// the bin centres, constant beyond the outer ones.
+#[inline]
+pub fn profile_at(profile: &[f32; PROFILE_BINS], y: f32) -> f32 {
+    let t = (y * PROFILE_BINS as f32 - 0.5).clamp(0.0, (PROFILE_BINS - 1) as f32);
+    let i = (t as usize).min(PROFILE_BINS - 2);
+    let f = t - i as f32;
+    profile[i] + f * (profile[i + 1] - profile[i])
+}
+
 /// Block stride keeping the measured blocks of a level near this count.
 const MEASURED_BLOCKS: usize = 60_000;
 
@@ -505,6 +597,12 @@ pub struct ChromaPyramid {
     pub noise: [f32; LEVELS],
     /// Luminance noise measured the same way.
     pub luma_noise: [f32; LEVELS],
+    /// Colour noise by brightness relative to `noise` (measured at the
+    /// finest level, used at every level): demosaiced noise is not even in
+    /// square-root encoding (read noise lifts the shadows and midtones),
+    /// and the smoothest blocks the photo's noise is measured in are its
+    /// cleanest brightness, so midtones would get too low thresholds.
+    pub profile: [f32; PROFILE_BINS],
     prepared: OnceLock<Arc<Prepared>>,
 }
 
@@ -582,12 +680,26 @@ impl ChromaPyramid {
         };
         let noise = measure(0..2);
         let luma_noise = measure(2..3);
+        let g1 = &levels[0];
+        let profile = noise_profile(
+            w,
+            h,
+            block_stride(w, h),
+            noise[0],
+            |x, y| {
+                let c = chroma_luma(source.pixel(x, y));
+                let e = expand_at(g1, x, y);
+                ([c[0] - e[0], c[1] - e[1]], c[2])
+            },
+            |bx, by| block_covered(&masks[0], g1.width, g1.height, bx, by),
+        );
         Some(Self {
             width: w,
             height: h,
             levels,
             noise,
             luma_noise,
+            profile,
             prepared: OnceLock::new(),
         })
     }
@@ -646,7 +758,6 @@ impl ChromaPyramid {
     /// Each coarse level's detail, its local energy and the share its
     /// guards keep.
     fn prepare(&self, tuning: &Tuning) -> Prepared {
-        let steepness = tuning.steepness;
         let levels = (1..LEVELS)
             .map(|l| {
                 let fine = &self.levels[l - 1];
@@ -660,6 +771,7 @@ impl ChromaPyramid {
                 // around them, also where the luminance does not change.
                 let edge2 = (tuning.edge_guard * self.noise[l]).powi(2);
                 let gradient = (edge2 > 0.0).then(|| chroma_gradient(coarse));
+                let steepness = tuning.steepness;
                 let (detail, guard): (Vec<[f32; 2]>, Vec<f32>) = (0..fine.width * fine.height)
                     .into_par_iter()
                     .map(|i| {
@@ -678,8 +790,17 @@ impl ChromaPyramid {
                     })
                     .unzip();
                 // The size of the detail: its local energy (3 × 3, weights
-                // 1-2-1), so isolated noise peaks go and an edge's tails stay.
-                let size2 = local_energy(&detail, fine.width, fine.height);
+                // 1-2-1), so isolated noise peaks go and an edge's tails stay;
+                // in units of the colour noise at the pixel's brightness (the
+                // profile at the coarser level's brightness).
+                let mut size2 = local_energy(&detail, fine.width, fine.height);
+                size2.par_iter_mut().enumerate().for_each(|(i, s)| {
+                    let p = profile_at(
+                        &self.profile,
+                        expand_at(coarse, i % fine.width, i / fine.width)[2],
+                    );
+                    *s /= p * p;
+                });
                 PreparedLevel {
                     width: fine.width,
                     height: fine.height,
@@ -711,7 +832,8 @@ pub struct PreparedLevel {
     pub height: usize,
     /// The level's chroma detail (level minus the coarser one expanded).
     pub detail: Vec<[f32; 2]>,
-    /// Its local energy (3 × 3, weights 1-2-1).
+    /// Its local energy (3 × 3, weights 1-2-1) over the squared noise
+    /// profile at the pixel's brightness.
     pub size2: Vec<f32>,
     /// The share kept by the luminance and chroma-edge guards.
     pub guard: Vec<f32>,
@@ -773,6 +895,15 @@ fn block_covered(mask: &[bool], width: usize, height: usize, bx: usize, by: usiz
     let half = BLOCK / 2;
     (by * half..((by + 1) * half).min(height))
         .all(|y| (bx * half..((bx + 1) * half).min(width)).all(|x| mask[y * width + x]))
+}
+
+/// The squared noise of a finest-level pixel relative to the photo's: the
+/// colour profile at the pixel's own square-root luminance (the renderer's
+/// `finest_energy` does the same).
+#[inline]
+pub fn finest_relative2(profile: &[f32; PROFILE_BINS], rgb: [f32; 3]) -> f32 {
+    let p = profile_at(profile, chroma_luma(rgb)[2]);
+    p * p
 }
 
 /// The filtered colour of one linear pixel: its chroma `c0` is replaced by
@@ -838,7 +969,10 @@ pub fn apply_with(
             [c[0] - e[0], c[1] - e[1]]
         })
         .collect();
-    let size2 = local_energy(&detail, w, h);
+    let mut size2 = local_energy(&detail, w, h);
+    size2.par_iter_mut().enumerate().for_each(|(i, s)| {
+        *s /= finest_relative2(&pyramid.profile, pixel(i));
+    });
     let t2 = thresholds[0] * thresholds[0];
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3).enumerate().for_each(|(y, row)| {
@@ -956,6 +1090,37 @@ mod tests {
             // Coarser levels of white noise are much smaller.
             assert!(pyramid.noise[1] < 0.5 * pyramid.noise[0]);
         }
+    }
+
+    #[test]
+    fn the_profile_follows_noise_by_brightness() {
+        // Dark top half (square-root luminance about 0.3) with three times
+        // the colour noise of the bright bottom half (about 0.8).
+        let mut rng = Rng(21);
+        let image = Rgb32FImage::from_fn(384, 384, |_, y| {
+            let (level, sigma) = if y < 192 { (0.09, 0.03) } else { (0.64, 0.01) };
+            image::Rgb([level; 3].map(|v: f32| {
+                let p = v.sqrt() + sigma * rng.gaussian();
+                p * p
+            }))
+        });
+        let pyramid = ChromaPyramid::build(&DynamicImage::ImageRgb32F(image), true).unwrap();
+        let dark = profile_at(&pyramid.profile, 0.3);
+        let bright = profile_at(&pyramid.profile, 0.8);
+        assert!((dark / bright - 3.0).abs() < 0.6, "{dark} {bright}");
+        // The photo's noise is the cleaner brightness's.
+        assert!((bright - 1.0).abs() < 0.2, "{bright}");
+        // Flat noise everywhere: a flat profile.
+        let flat = ChromaPyramid::build(
+            &DynamicImage::ImageRgb32F(noisy(256, 256, 0.01, false, 5)),
+            true,
+        )
+        .unwrap();
+        assert!(
+            flat.profile.iter().all(|p| (p - 1.0).abs() < 0.2),
+            "{:?}",
+            flat.profile
+        );
     }
 
     #[test]
