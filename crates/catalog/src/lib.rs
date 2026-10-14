@@ -25,7 +25,7 @@ pub use volume::Volume;
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 5;
+pub const DB_SCHEMA_VERSION: u32 = 6;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -222,6 +222,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0003.sql"))?;
         conn.execute_batch(include_str!("../migrations/0004.sql"))?;
         conn.execute_batch(include_str!("../migrations/0005.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0006.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -315,6 +316,9 @@ impl Library {
         }
         if version < 5 {
             tx.execute_batch(include_str!("../migrations/0005.sql"))?;
+        }
+        if version < 6 {
+            tx.execute_batch(include_str!("../migrations/0006.sql"))?;
         }
         tx.commit()?;
         Ok(())

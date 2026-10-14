@@ -13,6 +13,7 @@ import { setMergeStateFor } from './useProductivityActions';
 import { confirmQuitWithUnsaved, handleQuitRequest } from '../utils/quit';
 import { recountAfterFileOperation } from '../utils/offline';
 import { throttleAsync } from '../utils/throttle';
+import { IMPORTS_CHANGED } from '../utils/folderSync';
 
 type EditorState = ReturnType<typeof useEditorStore.getState>;
 
@@ -326,6 +327,8 @@ export function useTauriListeners({
         if (!isEffectActive) return;
         const { destination, skipped, error } = event.payload;
         if (!destination || skipped || error) return;
+        // The capture joined the hot folder's import batch (Previous Import).
+        window.dispatchEvent(new Event(IMPORTS_CHANGED));
         const { currentFolderPath, setLibrary } = useLibraryStore.getState();
         const folder = destination.slice(0, Math.max(destination.lastIndexOf('/'), destination.lastIndexOf('\\')));
         void refs.current.refreshAllFolderTrees();

@@ -4,7 +4,7 @@ pub mod hot_folder;
 pub mod transfer;
 
 use anyhow::{Context, Result, bail, ensure};
-use rawtonic_catalog::Library;
+use rawtonic_catalog::{Contents, Library};
 use rawtonic_naming::{Context as NamingContext, render};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -203,6 +203,31 @@ pub fn import_one(
     import_one_with_start(library, source, template, sequence, 1, backup, cancel)
 }
 
+/// `import_one` of a capture (the hot folder) whose new photograph is
+/// stored with `contents` (its next-capture adjustments) in the same
+/// transaction: it is never registered without them.
+pub fn import_capture(
+    library: &Library,
+    source: &Path,
+    template: &str,
+    sequence: u64,
+    contents: Option<&Contents>,
+    cancel: &AtomicBool,
+) -> Result<ImportResult> {
+    let destination = destination_folder(library, None, &[])?;
+    import_one_into_with(
+        library,
+        source,
+        &destination,
+        template,
+        sequence,
+        1,
+        None,
+        contents,
+        cancel,
+    )
+}
+
 /// Import using an explicit counter and its initial value for `{seq_start}`.
 pub fn import_one_with_start(
     library: &Library,
@@ -344,6 +369,31 @@ pub fn import_one_into(
     backup: Option<&Path>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult> {
+    import_one_into_with(
+        library,
+        source,
+        destination,
+        template,
+        sequence,
+        sequence_start,
+        backup,
+        None,
+        cancel,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn import_one_into_with(
+    library: &Library,
+    source: &Path,
+    destination: &Destination,
+    template: &str,
+    sequence: u64,
+    sequence_start: u64,
+    backup: Option<&Path>,
+    contents: Option<&Contents>,
+    cancel: &AtomicBool,
+) -> Result<ImportResult> {
     let mut context = NamingContext::new(
         source
             .file_name()
@@ -427,7 +477,14 @@ pub fn import_one_into(
         });
     }
     if let Some(earlier) = earlier {
-        return Ok(register(library, source, earlier, backup_result, None));
+        return Ok(register(
+            library,
+            source,
+            earlier,
+            backup_result,
+            None,
+            contents,
+        ));
     }
     let destination =
         choose_destination(&folder, &name, CollisionPolicy::Suffix)?.context("No destination")?;
@@ -450,6 +507,7 @@ pub fn import_one_into(
         receipt.destination,
         backup_result,
         Some(&receipt.sha256),
+        contents,
     ))
 }
 
@@ -457,11 +515,13 @@ pub fn import_one_into(
 /// verified but could not record (its `destination` with an `error`), when
 /// it is still a file with the bytes of `source` and no record. `None`
 /// otherwise: then import `source` as usual. For callers that retry (the
-/// hot folder) when a template's name changed meanwhile (`{seq}`).
+/// hot folder) when a template's name changed meanwhile (`{seq}`); the
+/// photograph is stored with `contents` as by `import_capture`.
 pub fn record_earlier_copy(
     library: &Library,
     source: &Path,
     copy: &Path,
+    contents: Option<&Contents>,
 ) -> Result<Option<ImportResult>> {
     let Ok(meta) = fs::symlink_metadata(copy) else {
         return Ok(None);
@@ -479,20 +539,32 @@ pub fn record_earlier_copy(
         copy.to_path_buf(),
         None,
         None,
+        contents,
     )))
 }
 
 /// Records the verified copy `destination` of `source` in the library,
 /// with the content hash the copy was verified with (Synchronize Folder
-/// proves moves with it).
+/// proves moves with it) and, in the same transaction, `contents`.
 fn register(
     library: &Library,
     source: &Path,
     destination: PathBuf,
     backup: Option<PathBuf>,
     sha256: Option<&str>,
+    contents: Option<&Contents>,
 ) -> ImportResult {
-    let (asset_id, error) = match library.add_asset(&destination) {
+    let registered = match contents {
+        None => library.add_asset(&destination),
+        Some(contents) => library
+            .plan_add(&destination, contents.clone())
+            .and_then(|planned| library.insert_planned(vec![planned]))
+            .and_then(|ids| {
+                let (id, _) = ids.into_iter().next().context("Nothing was registered")?;
+                library.asset(&id)
+            }),
+    };
+    let (asset_id, error) = match registered {
         Ok(asset) => {
             // Not recorded (the file changed meanwhile): the background
             // pass hashes it later; moves are only unverified until then.
@@ -599,6 +671,61 @@ mod tests {
         );
         assert_eq!(lib.assets(None).unwrap().len(), 1);
         assert_eq!(fs::read(source).unwrap(), b"original data");
+    }
+    /// A capture is registered with its contents (next-capture
+    /// adjustments) in one transaction: a failed write keeps neither, the
+    /// verified copy stays, and recording it on the retry stores both.
+    #[test]
+    fn a_capture_is_registered_with_its_contents_or_not_at_all() {
+        for table in ["recipes", "metadata", "asset_imports"] {
+            let d = tempfile::tempdir().unwrap();
+            let lib = Library::create(
+                &d.path().join("job"),
+                "Portraits",
+                rawtonic_catalog::Mode::Session,
+            )
+            .unwrap();
+            let _batch = lib.import_batch(rawtonic_catalog::ImportKind::HotFolder);
+            let source = d.path().join("A.ARW");
+            fs::write(&source, b"capture").unwrap();
+            let contents = Contents {
+                editor_state: Some(
+                    serde_json::json!({"version":1,"rating":0,"adjustments":{"contrast":12}}),
+                ),
+                ..Contents::default()
+            };
+            lib.inject_write_failure(table).unwrap();
+            let failed = import_capture(
+                &lib,
+                &source,
+                "{orig}",
+                1,
+                Some(&contents),
+                &AtomicBool::new(false),
+            )
+            .unwrap();
+            assert!(failed.asset_id.is_none(), "{table}: {failed:?}");
+            assert!(failed.error.unwrap().contains("injected"), "{table}");
+            let copy = failed.destination.unwrap();
+            assert_eq!(fs::read(&copy).unwrap(), b"capture", "{table}");
+            assert!(lib.assets(None).unwrap().is_empty(), "{table}");
+            assert_eq!(lib.previous_import().unwrap(), None, "{table}");
+            lib.clear_write_failures().unwrap();
+            let r = record_earlier_copy(&lib, &source, &copy, Some(&contents))
+                .unwrap()
+                .unwrap();
+            let id = r.asset_id.unwrap();
+            assert_eq!(
+                lib.editor_state(&id).unwrap().unwrap()["adjustments"]["contrast"],
+                12,
+                "{table}"
+            );
+            let batch = lib.previous_import().unwrap().unwrap();
+            assert_eq!(
+                (batch.kind, batch.count),
+                (rawtonic_catalog::ImportKind::HotFolder, 1)
+            );
+        }
     }
     /// A copy that an earlier import verified but could not record (the
     /// library was locked) is recorded on the next try, not copied again;

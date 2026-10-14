@@ -31,6 +31,10 @@ pub enum ImportKind {
     Add,
     /// New files a Synchronize Folder found.
     Sync,
+    /// Captures a session's hot folder brought in, one after another: they
+    /// keep joining the batch while it is the newest, so Previous Import
+    /// shows the latest captures; after another import they start a new one.
+    HotFolder,
 }
 
 impl ImportKind {
@@ -39,6 +43,7 @@ impl ImportKind {
             Self::Ingest => "ingest",
             Self::Add => "add",
             Self::Sync => "sync",
+            Self::HotFolder => "hotfolder",
         }
     }
 
@@ -47,6 +52,7 @@ impl ImportKind {
             "ingest" => Self::Ingest,
             "add" => Self::Add,
             "sync" => Self::Sync,
+            "hotfolder" => Self::HotFolder,
             _ => return None,
         })
     }
@@ -335,6 +341,15 @@ impl Library {
                 write_recipe(&tx, &version, recipe)?;
             }
             if let Some((kind, batch_id)) = &mut batch {
+                if *kind == ImportKind::HotFolder
+                    && let Some(id) = *batch_id
+                {
+                    let newest: i64 =
+                        tx.query_row("SELECT max(id) FROM import_batches", [], |r| r.get(0))?;
+                    if newest != id {
+                        *batch_id = None;
+                    }
+                }
                 let batch_id = match batch_id {
                     Some(batch_id) => *batch_id,
                     None => {
@@ -623,6 +638,104 @@ mod tests {
             assert_complete(&lib, &paths);
             assert_eq!(lib.previous_import().unwrap().unwrap().count, 3);
         }
+    }
+
+    #[test]
+    fn hot_folder_captures_join_one_batch_until_another_import() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        let other = Library::open(&lib.directory).unwrap();
+        let _captures = lib.import_batch(ImportKind::HotFolder);
+        lib.add_files(&paths[..1]).unwrap();
+        lib.add_files(&paths[1..2]).unwrap();
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!((batch.kind, batch.count), (ImportKind::HotFolder, 2));
+        // An Add in another window becomes Previous Import...
+        let added = capture_file(&lib, "D.ARW");
+        {
+            let _add = other.import_batch(ImportKind::Add);
+            other.add_files(&[added]).unwrap();
+        }
+        assert_eq!(
+            lib.previous_import().unwrap().unwrap().kind,
+            ImportKind::Add
+        );
+        // ...and the next capture starts a new batch that shows it.
+        lib.add_files(&paths[2..]).unwrap();
+        let next = lib.previous_import().unwrap().unwrap();
+        assert_eq!((next.kind, next.count), (ImportKind::HotFolder, 1));
+        assert_ne!(next.id, batch.id);
+        assert_eq!(lib.previous_import_assets().unwrap()[0].path, paths[2]);
+    }
+
+    fn capture_file(lib: &Library, name: &str) -> PathBuf {
+        let path = lib.directory.join("Capture").join(name);
+        fs::write(&path, format!("fixture {name}")).unwrap();
+        path
+    }
+
+    #[test]
+    fn schema_5_batches_survive_the_migration_to_hot_folder_batches() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        {
+            let _batch = lib.import_batch(ImportKind::Ingest);
+            lib.add_files(&paths).unwrap();
+        }
+        let before = lib.previous_import().unwrap().unwrap();
+        // Back to schema 5: batches limited to ingest, add and sync.
+        lib.conn
+            .execute_batch(
+                "CREATE TABLE b5(id INTEGER PRIMARY KEY,
+                   kind TEXT NOT NULL CHECK(kind IN ('ingest','add','sync')),
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO b5 SELECT * FROM import_batches;
+                 CREATE TABLE a5(asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+                   batch_id INTEGER NOT NULL REFERENCES b5(id) ON DELETE CASCADE);
+                 INSERT INTO a5 SELECT * FROM asset_imports;
+                 DROP TABLE asset_imports; DROP TABLE import_batches;
+                 ALTER TABLE b5 RENAME TO import_batches; ALTER TABLE a5 RENAME TO asset_imports;
+                 CREATE INDEX asset_imports_batch ON asset_imports(batch_id);
+                 PRAGMA user_version=5;",
+            )
+            .unwrap();
+        assert!(
+            lib.conn
+                .execute("INSERT INTO import_batches(kind) VALUES('hotfolder')", [])
+                .is_err()
+        );
+        drop(lib);
+        let lib = Library::open(&d.path().join("Job")).unwrap();
+        let version: u32 = lib
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, crate::DB_SCHEMA_VERSION);
+        assert_eq!(lib.previous_import().unwrap().unwrap(), before);
+        assert_eq!(lib.previous_import_assets().unwrap().len(), 3);
+        let broken: Vec<String> = lib
+            .conn
+            .prepare("PRAGMA foreign_key_check")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert!(broken.is_empty(), "{broken:?}");
+        // Batches still go with their photographs.
+        let a = lib.asset_at(&paths[0]).unwrap().unwrap();
+        lib.conn
+            .execute("DELETE FROM assets WHERE id=?", [&a.id])
+            .unwrap();
+        assert_eq!(lib.previous_import().unwrap().unwrap().count, 2);
+        let _captures = lib.import_batch(ImportKind::HotFolder);
+        lib.add_files(&[capture_file(&lib, "D.ARW")]).unwrap();
+        assert_eq!(
+            lib.previous_import().unwrap().unwrap().kind,
+            ImportKind::HotFolder
+        );
     }
 
     #[test]

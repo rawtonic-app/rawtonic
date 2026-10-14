@@ -198,13 +198,13 @@ export const FOLDER_SYNC_APPLIED = 'rawtonic:folder-sync-applied';
 
 /** `activeAlbumId` of the Previous Import view. */
 export const PREVIOUS_IMPORT_VIEW_ID = 'session-previous-import';
-/** Fired after an ingest or a synchronization added photographs, so
- * Previous Import counts and shows them. */
+/** Fired after an ingest, a synchronization or a hot folder capture added
+ * photographs, so Previous Import counts and shows them. */
 export const IMPORTS_CHANGED = 'rawtonic:imports-changed';
 
 export interface ImportBatchInfo {
   id: number;
-  kind: 'ingest' | 'add' | 'sync';
+  kind: 'ingest' | 'add' | 'sync' | 'hotfolder';
   created_at: string;
   count: number;
 }
