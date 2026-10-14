@@ -5,6 +5,10 @@ override ENABLE_NOISE_REDUCTION: bool = true;
 override ENABLE_SHARPEN: bool = true;
 override ENABLE_HIGHLIGHTS: bool = true;
 override ENABLE_CURVES: bool = true;
+// The luminance noise reduction's edge-preserving pass (LUMA_NR_EDGE_NOISE);
+// exports of quieter photos use pipelines without it (gpu_processing.rs
+// `LUMA_NR_EDGE_NOISE_START`).
+override EDGE_NR: bool = true;
 // Preview variants read curve control points directly from storage. Keep the
 // original path as the default for export and as a pixel-parity reference.
 override DIRECT_CURVES: bool = false;
@@ -2378,6 +2382,9 @@ fn sharpen_perc(c: vec3<f32>, is_raw: u32) -> f32 {
 var<private> nr_active: bool = false;
 var<private> nr_input: vec3<f32> = vec3<f32>(0.0);
 var<private> nr_fine_keep: f32 = 1.0;
+// Luminance the edge-preserving average took out of the kept finest band
+// (luma_nr_edge_smooth): the sharpening does not lift that grain again.
+var<private> nr_edge_removed: f32 = 0.0;
 
 /// The sharpening high-pass of `l` against `blur`, after noise reduction
 /// from the input it started from.
@@ -2387,7 +2394,7 @@ fn sharpen_detail(l: f32, blur: f32, is_raw: u32) -> f32 {
     }
     var l_in: f32;
     if (is_raw == 1u) {
-        l_in = sqrt(max(get_luma(nr_input), 0.0));
+        l_in = sqrt(max(get_luma(nr_input) - nr_edge_removed, 0.0));
     } else {
         l_in = get_luma(linear_to_srgb_extended(nr_input));
     }
@@ -2826,6 +2833,73 @@ fn luma_nr_threshold(a: f32) -> f32 {
     return LUMA_NR_DEFAULT_THRESHOLD * sqrt(a / 0.15);
 }
 
+// Where the finest band is kept (edges, texture, the surroundings of
+// bright objects) its grain stayed in full and the sharpening lifted it:
+// at high ISO the dark side of a bright edge and busy areas showed dark and
+// coloured speckles next to smooth flats. There the kept band comes from an
+// edge-preserving average instead: 5 x 5 pixels weighted by distance and by
+// their difference from a robust centre (median of the pixel and its four
+// neighbours, so a single noisy pixel cannot keep itself), in square-root
+// units of the centre's brightness, within LUMA_NR_EDGE_RANGE thresholds.
+// Steps larger than that (edges, real texture) stay, and the pass fades out
+// where the nearest pixels differ by more than noise (LUMA_NR_EDGE_FLAT);
+// the uniform residual of the grain stays too. It fades in with the photo's measured noise
+// (LUMA_NR_EDGE_NOISE): below it photos render as before.
+const LUMA_NR_EDGE_RANGE: f32 = 0.9;
+const LUMA_NR_EDGE_SPATIAL: f32 = 1.5;
+const LUMA_NR_EDGE_NOISE: vec2<f32> = vec2<f32>(0.005, 0.008);
+// Texture is kept: the pass fades out where the eight nearest pixels' mean
+// range weight falls from y to x (pure noise ~0.7 at ISO 6400-12800,
+// textured stone and foliage at base ISO ~0.3).
+const LUMA_NR_EDGE_FLAT: vec2<f32> = vec2<f32>(0.3, 0.6);
+
+fn median3(a: f32, b: f32, c: f32) -> f32 {
+    return max(min(a, b), min(max(a, b), c));
+}
+
+/// Median of five values.
+fn median5(a: f32, b: f32, c: f32, d: f32, e: f32) -> f32 {
+    return median3(e, max(min(a, b), min(c, d)), min(max(a, b), max(c, d)));
+}
+
+/// Edge-preserving average of the input luminance around `coords_i`
+/// (linear; x) and the mean range weight of the eight nearest pixels (y:
+/// near 1 where they differ from the centre by noise only, low in texture
+/// that stands out of it); `range` is in square-root units.
+fn luma_nr_edge_smooth(coords_i: vec2<i32>, max_idx: vec2<i32>, is_raw: u32, range: f32, floor: f32) -> vec2<f32> {
+    var l: array<f32, 25>;
+    for (var dy: i32 = -2; dy <= 2; dy = dy + 1) {
+        for (var dx: i32 = -2; dx <= 2; dx = dx + 1) {
+            var c = load_input(clamp(coords_i + vec2<i32>(dx, dy), vec2<i32>(0), max_idx)).rgb;
+            if (is_raw == 0u) {
+                c = srgb_to_linear(c);
+            }
+            l[(dy + 2) * 5 + dx + 2] = get_luma(c);
+        }
+    }
+    let guide = median5(l[7], l[11], l[13], l[17], l[12]);
+    let unit = 2.0 * sqrt(max(guide, floor));
+    let range_n = -0.5 / (range * range * unit * unit);
+    let spatial_n = -0.5 / (LUMA_NR_EDGE_SPATIAL * LUMA_NR_EDGE_SPATIAL);
+    var sum = 0.0;
+    var weight = 0.0;
+    var near = 0.0;
+    for (var dy: i32 = -2; dy <= 2; dy = dy + 1) {
+        for (var dx: i32 = -2; dx <= 2; dx = dx + 1) {
+            let v = l[(dy + 2) * 5 + dx + 2];
+            let d = v - guide;
+            let similar = exp(d * d * range_n);
+            let w = exp(f32(dx * dx + dy * dy) * spatial_n) * similar;
+            sum += v * w;
+            weight += w;
+            if (max(abs(dx), abs(dy)) == 1) {
+                near += similar;
+            }
+        }
+    }
+    return vec2<f32>(sum / max(weight, 1e-12), near / 8.0);
+}
+
 // --- Multi-scale colour noise reduction (rawtonic_engine::color_noise) ---
 // The coarse levels of the chroma pyramid are thresholded on the CPU by the
 // colour noise measured in the source; here the finest level is, per pixel:
@@ -3028,10 +3102,19 @@ fn apply_noise_reduction_default(
         let keep = LUMA_NR_RESIDUAL + (vec2<f32>(1.0) - LUMA_NR_RESIDUAL) * keep_edges;
         // The bands describe the input; the centre passed in may already
         // differ (no earlier stage changes it today).
+        let edge_share = (1.0 - LUMA_NR_RESIDUAL.x) * keep_edges.x
+            * smoothstep(LUMA_NR_EDGE_NOISE.x, LUMA_NR_EDGE_NOISE.y, measured);
+        var edge_removed = 0.0;
+        if (EDGE_NR && edge_share > 0.0) {
+            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, k * LUMA_NR_EDGE_RANGE, floor);
+            edge_removed = edge_share * smoothstep(LUMA_NR_EDGE_FLAT.x, LUMA_NR_EDGE_FLAT.y, smoothed.y)
+                * (get_luma(v_c) - smoothed.x);
+        }
         let removed = dot(c_bands, vec2<f32>(1.0) - keep);
-        new_luma = max(center_luma - removed, 0.0);
+        new_luma = max(center_luma - removed - edge_removed, 0.0);
         nr_active = true;
         nr_input = v_c;
+        nr_edge_removed = edge_removed;
         // Sharpening follows the detail decision, not the residual grain.
         nr_fine_keep = keep_edges.x;
     }
@@ -3260,10 +3343,19 @@ fn apply_noise_reduction_refined(
         let keep = residual + (vec2<f32>(1.0) - residual) * keep_edges;
         // The bands describe the input; the centre passed in may already
         // differ (no earlier stage changes it today).
+        let edge_share = (1.0 - residual.x) * keep_edges.x
+            * smoothstep(LUMA_NR_EDGE_NOISE.x, LUMA_NR_EDGE_NOISE.y, measured);
+        var edge_removed = 0.0;
+        if (EDGE_NR && edge_share > 0.0) {
+            let smoothed = luma_nr_edge_smooth(coords_i, max_idx, is_raw, k * LUMA_NR_EDGE_RANGE, floor);
+            edge_removed = edge_share * smoothstep(LUMA_NR_EDGE_FLAT.x, LUMA_NR_EDGE_FLAT.y, smoothed.y)
+                * (get_luma(v_c) - smoothed.x);
+        }
         let removed = dot(c_bands, vec2<f32>(1.0) - keep);
-        new_luma = max(center_luma - removed, 0.0);
+        new_luma = max(center_luma - removed - edge_removed, 0.0);
         nr_active = true;
         nr_input = v_c;
+        nr_edge_removed = edge_removed;
         // Sharpening follows the detail decision, not the residual grain.
         nr_fine_keep = keep_edges.x;
     }

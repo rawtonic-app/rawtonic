@@ -1980,6 +1980,13 @@ struct FlareParams {
 }
 
 const PREVIEW_PIPELINE_COUNT: usize = 32;
+/// The measured noise level above which the luminance noise reduction's
+/// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
+/// Exports of quieter photos, and of recipes without luminance noise
+/// reduction, use pipelines compiled without it (`EDGE_NR` false): with the
+/// pass present but idle, Metal compiled neighbouring arithmetic differently
+/// and changed a few deep-shadow values by one 16-bit step.
+const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
 /// highlights 2, curves 4, masks 8, noise reduction 16.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
@@ -2079,6 +2086,9 @@ pub struct GpuProcessor {
 
     main_bgl: wgpu::BindGroupLayout,
     main_pipeline: wgpu::ComputePipeline,
+    /// The general pipelines (8-bit, high precision) with the luminance
+    /// noise reduction's edge-preserving pass, compiled on first use.
+    edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2],
     detail_bgl: wgpu::BindGroupLayout,
     detail_layout: wgpu::PipelineLayout,
     /// Compiled off the render worker on first use; `None` if it failed.
@@ -2133,6 +2143,9 @@ pub struct GpuProcessor {
     force_general_pipeline: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_legacy_curves: std::sync::atomic::AtomicBool,
+    /// Renders as if the luminance noise reduction had no edge-preserving pass.
+    #[cfg(test)]
+    force_plain_noise_reduction: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_unprepared_layers: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -2617,6 +2630,20 @@ fn curves_are_identity(curves: [(&[Point; 16], u32); 4]) -> bool {
                 && points[1].x == 255.0
                 && points[1].y == 255.0)
     })
+}
+
+/// Whether a render needs the luminance noise reduction's edge-preserving
+/// pass: a measured noise level above its start and luminance noise
+/// reduction anywhere in the recipe.
+fn edge_noise_reduction(adjustments: &AllAdjustments) -> bool {
+    let g = &adjustments.global;
+    let luma = g.luma_noise_reduction != 0.0
+        || adjustments
+            .mask_adjustments
+            .iter()
+            .take(adjustments.mask_count as usize)
+            .any(|m| m.luma_noise_reduction != 0.0);
+    luma && g.noise_level > LUMA_NR_EDGE_NOISE_START
 }
 
 /// Bits: sharpening, highlights, curves, masks, noise reduction. An operation
@@ -3266,7 +3293,10 @@ impl GpuProcessor {
                 layout: Some(&pipeline_layout),
                 module: &shader_module,
                 entry_point: Some("main"),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("EDGE_NR", 0.0)],
+                    ..Default::default()
+                },
                 cache: None,
             },
         )?;
@@ -3318,7 +3348,7 @@ impl GpuProcessor {
                 module: &high_precision_shader,
                 entry_point: Some("main"),
                 compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("HIGH_PRECISION_OUTPUT", 1.0)],
+                    constants: &[("HIGH_PRECISION_OUTPUT", 1.0), ("EDGE_NR", 0.0)],
                     ..Default::default()
                 },
                 cache: None,
@@ -3455,6 +3485,7 @@ impl GpuProcessor {
             relight_pattern_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
+            edge_pipelines: Default::default(),
             detail_bgl,
             detail_layout,
             detail_pipeline: Arc::new(std::sync::OnceLock::new()),
@@ -3502,6 +3533,8 @@ impl GpuProcessor {
             force_general_pipeline: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_legacy_curves: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_plain_noise_reduction: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_unprepared_layers: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -4223,11 +4256,7 @@ impl GpuProcessor {
         // branches are removed. Their full general pipeline preserves exact
         // 8/16-bit exports; specialize only recipes without those operations.
         if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0 {
-            return if high_precision {
-                &self.high_precision_pipeline
-            } else {
-                &self.main_pipeline
-            };
+            return self.general_pipeline(adjustments, high_precision);
         }
         let (pipelines, shader, layout) = if high_precision {
             (
@@ -4259,6 +4288,64 @@ impl GpuProcessor {
             })
             .as_ref()
             .unwrap_or(general)
+    }
+
+    /// The general pipeline for `adjustments`: with the luminance noise
+    /// reduction's edge-preserving pass for noisy photos (see
+    /// `LUMA_NR_EDGE_NOISE_START`), else the one compiled without it.
+    fn general_pipeline(
+        &self,
+        adjustments: &AllAdjustments,
+        high_precision: bool,
+    ) -> &wgpu::ComputePipeline {
+        let plain = if high_precision {
+            &self.high_precision_pipeline
+        } else {
+            &self.main_pipeline
+        };
+        #[cfg(test)]
+        if self
+            .force_plain_noise_reduction
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return plain;
+        }
+        if !edge_noise_reduction(adjustments) {
+            return plain;
+        }
+        self.edge_pipelines[usize::from(high_precision)]
+            .get_or_init(|| {
+                let (shader, layout) = if high_precision {
+                    (&self.high_precision_shader, &self.high_precision_layout)
+                } else {
+                    (&self.preview_shader, &self.preview_layout)
+                };
+                let constants: &[(&str, f64)] = if high_precision {
+                    &[("HIGH_PRECISION_OUTPUT", 1.0), ("EDGE_NR", 1.0)]
+                } else {
+                    &[("EDGE_NR", 1.0)]
+                };
+                create_compute_pipeline(
+                    &self.context.device,
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline (edge-preserving noise reduction)"),
+                        layout: Some(layout),
+                        module: shader,
+                        entry_point: Some("main"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants,
+                            ..Default::default()
+                        },
+                        cache: None,
+                    },
+                )
+                .inspect_err(|error| {
+                    log::error!("Edge-preserving noise reduction unavailable: {error}")
+                })
+                .ok()
+            })
+            .as_ref()
+            .unwrap_or(plain)
     }
 
     /// Test shorthand for the exact export shader on readback jobs.
@@ -4395,7 +4482,7 @@ impl GpuProcessor {
         {
             self.export_pipeline(&request.adjustments, false)
         } else {
-            &self.main_pipeline
+            self.general_pipeline(&request.adjustments, false)
         };
 
         if output_precision == RenderOutputPrecision::SixteenBit && output_to_display {
@@ -4413,7 +4500,7 @@ impl GpuProcessor {
             if let Some(high_precision_tile) = high_precision_tile {
                 (
                     if force_full_preparation || force_general_pipeline {
-                        &self.high_precision_pipeline
+                        self.general_pipeline(&request.adjustments, true)
                     } else {
                         self.export_pipeline(&request.adjustments, true)
                     },
@@ -4479,6 +4566,7 @@ impl GpuProcessor {
                 &self.force_legacy_curves,
                 &self.force_unprepared_layers,
                 &self.force_full_display_render,
+                &self.force_plain_noise_reduction,
             ]
             .iter()
             .any(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
