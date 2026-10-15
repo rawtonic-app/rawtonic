@@ -1394,6 +1394,8 @@ export default function StudioDevelop() {
                   "lumaNoiseContrast",
                   "colorNoiseDetail",
                   "colorNoiseSmoothness",
+                  // The photo's colour noise filter goes back to a new edit's.
+                  ...(layer ? [] : ["colorNoiseVersion"]),
                 ])
               }
             >

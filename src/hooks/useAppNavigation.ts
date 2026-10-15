@@ -106,7 +106,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     });
 
     debouncedSave.flush();
-    debouncedSetHistory.cancel();
+    debouncedSetHistory.flush();
 
     const lastActivePath = selectedImage?.path ?? null;
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorActions";
 import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
@@ -115,6 +115,14 @@ export default function StudioLensCorrection() {
     if (camera) return applyCamera(camera);
     if (!exif.Make || !(exif.LensModel || exif.Model))
       return setStatus("not_found");
+    // The detected lens belongs to the photograph it was detected for.
+    const path = selectedImage?.path;
+    if (!path) return;
+    const stillOpen = () => {
+      if (isCurrentEditorImage(path)) return true;
+      setStatus("idle");
+      return false;
+    };
     setStatus("detecting");
     try {
       const found = await invoke<[string, string] | null>(
@@ -125,9 +133,11 @@ export default function StudioLensCorrection() {
           cameraModel: exif.Model ?? "",
         },
       );
+      if (!stillOpen()) return;
       if (!found) return setStatus("not_found");
       const [maker, model] = found;
       const distortion = await params(maker, model);
+      if (!stillOpen()) return;
       setAdjustments((prev) => ({
         ...prev,
         lensMaker: maker,
@@ -137,7 +147,7 @@ export default function StudioLensCorrection() {
       }));
       setStatus("idle");
     } catch {
-      setStatus("not_found");
+      if (stillOpen()) setStatus("not_found");
     }
   };
   const chooseMaker = (maker: string) =>
@@ -150,8 +160,10 @@ export default function StudioLensCorrection() {
     }));
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
-    if (!maker) return;
+    const path = selectedImage?.path;
+    if (!maker || !path) return;
     const distortion = model ? await params(maker, model) : null;
+    if (!isCurrentEditorImage(path)) return;
     setAdjustments((prev) => ({
       ...prev,
       lensModel: model || null,

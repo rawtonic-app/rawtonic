@@ -105,3 +105,32 @@ it('can still select the oldest snapshot evicted by flushing pending history', (
   state().undo();
   expect(state().adjustments.relightSkinReflections).toBe(80);
 });
+
+it('makes a drag one step however long it pauses, pushed when it ends', () => {
+  edit(10);
+  state().setEditor({ isSliderDragging: true });
+  edit(20);
+  vi.advanceTimersByTime(800);
+  edit(30);
+  vi.advanceTimersByTime(800);
+  // The edit before the drag is its own step; nothing of the drag yet.
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 10]);
+  expect(state().historyPending).toBe(true);
+  state().setEditor({ isSliderDragging: false });
+  vi.advanceTimersByTime(500);
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 10, 30]);
+  expect(state().historyPending).toBe(false);
+});
+
+it('settles a drag in progress on undo and drops it on a photo switch', () => {
+  state().setEditor({ isSliderDragging: true });
+  edit(40);
+  state().undo();
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);
+  expect(state().adjustments.relightSkinReflections).toBe(0);
+  edit(50);
+  state().setEditor({ selectedImage: { path: '/fixture/other.jpg' } as NonNullable<ReturnType<typeof state>['selectedImage']> });
+  state().setEditor({ isSliderDragging: false });
+  vi.advanceTimersByTime(1000);
+  expect(state().history.map((r) => r.relightSkinReflections)).toEqual([0, 40]);
+});

@@ -454,6 +454,9 @@ export function useImageProcessing(
           targetRes,
           live: native,
         });
+        // Live frames leave the split's before alone: it shows the view
+        // states too (clipping, soft proof, colour range), so it follows here.
+        if (viewChanged && native) requestSplitBefore(targetRes);
       }),
     [previewQueue, currentResRef],
   );
@@ -482,6 +485,9 @@ export function useImageProcessing(
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
   const developMultiscale = sourceDevelop?.multiscale;
+  // The newest develop request: it alone clears the busy note, on every way
+  // it ends (done, failed, cancelled, photograph switched).
+  const sourceDevelopRequestRef = useRef(0);
   useEffect(() => {
     const path = useEditorStore.getState().selectedImage?.path;
     if (developAiDenoise === null || !path) return;
@@ -490,13 +496,18 @@ export function useImageProcessing(
     const current = useEditorStore.getState().selectedImage;
     const changesAiDenoise = amount !== Math.round(current?.aiDenoise ?? 0);
     const changesFilter = multiscale !== current?.colorNoiseMultiscale;
+    const request = ++sourceDevelopRequestRef.current;
+    const settleBusy = () => {
+      if (request === sourceDevelopRequestRef.current && useEditorStore.getState().aiDenoiseBusy)
+        setEditor({ aiDenoiseBusy: false });
+    };
     if (changesAiDenoise) setEditor({ aiDenoiseBusy: true });
     invoke<number>(Invokes.ApplyAiDenoise, { path, amount, multiscale })
       .then((applied) => {
         const editor = useEditorStore.getState();
-        if (editor.selectedImage?.path !== path) return;
+        if (editor.selectedImage?.path !== path) return settleBusy();
+        settleBusy();
         editor.setEditor({
-          aiDenoiseBusy: false,
           selectedImage: {
             ...editor.selectedImage,
             aiDenoise: Math.round(applied),
@@ -515,10 +526,10 @@ export function useImageProcessing(
       })
       .catch((err) => {
         const editor = useEditorStore.getState();
+        settleBusy();
         // A newer request or another photograph replaced this one.
         if (String(err).includes('Load cancelled')) return;
         editor.setEditor({
-          aiDenoiseBusy: false,
           ...(editor.selectedImage?.path === path
             ? {
                 // Not retried: the source stays as it is.
