@@ -10,6 +10,7 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useUIStore } from "../../store/useUIStore";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import type { AppSettings } from "../ui/AppProperties";
+import { requestFolderSync } from "../../utils/folderSync";
 
 type DragDropPayload =
   | { type: "enter"; paths: string[]; position: { x: number; y: number } }
@@ -287,6 +288,38 @@ describe("Dropping photographs onto the window", () => {
     expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
     expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
     expect(screen.getByText(/Drop photographs or folders here/)).toBeTruthy();
+  });
+
+  it("does not open the ingest dialog over Synchronize Folder", async () => {
+    await open();
+    act(() => requestFolderSync(null));
+    act(() => {
+      drag.handler!({ payload: { type: "enter", paths: ["/Volumes/CARD/DCIM"], position: { x: 10, y: 10 } } });
+    });
+    expect(document.querySelector(".session-drop-overlay")).toBeNull();
+    drop(["/Volumes/CARD/DCIM"]);
+    expect(invoke).not.toHaveBeenCalledWith("session_ingest_scan", expect.anything());
+  });
+
+  it("a Cancel pressed before the ingest reached the backend copies nothing", async () => {
+    const user = userEvent.setup();
+    let arrive!: () => void;
+    let hold = false;
+    await open(vi.fn(() => (hold ? new Promise<void>((resolve) => { arrive = resolve; }) : Promise.resolve())));
+    drop(["/Volumes/CARD/DCIM"]);
+    await waitFor(() => expect(screen.getAllByRole("checkbox")).toHaveLength(3));
+    hold = true;
+    await user.click(screen.getByRole("button", { name: "Copy 2 photographs" }));
+    const cancel = await waitFor(() => {
+      const button = document.querySelector<HTMLButtonElement>(".session-progress button");
+      expect(button).not.toBeNull();
+      return button!;
+    });
+    await user.click(cancel);
+    expect(invoke).toHaveBeenCalledWith("session_cancel_ingest");
+    await act(async () => arrive());
+    await waitFor(() => expect(document.querySelector(".session-progress")).toBeNull());
+    expect(ingestCall()).toBeUndefined();
   });
 
   it("without an open library nothing opens and nothing is copied", async () => {
