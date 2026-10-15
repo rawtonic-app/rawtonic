@@ -167,6 +167,8 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
       state.selectedImage.width,
       state.selectedImage.height,
     );
+    // An update that changes nothing (a crop released where it was) is no step.
+    if (newAdjustments === prev) return state;
     debouncedSetHistory(newAdjustments);
     return {
       adjustments: newAdjustments,
@@ -351,7 +353,8 @@ export function useEditorActions() {
       if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
 
       pathsToReset.forEach((p) => globalImageCache.delete(p));
-      debouncedSetHistory.cancel();
+      // The last edit stays a step of its own, before the reset.
+      debouncedSetHistory.flush();
 
       afterRecipeSaves(
         pathsToReset,
@@ -370,6 +373,7 @@ export function useEditorActions() {
               selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
             const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
             // One undoable step, as in Capture One and Lightroom.
+            debouncedSetHistory.flush();
             pushHistory(resetData);
             setEditor({ adjustments: resetData });
           }

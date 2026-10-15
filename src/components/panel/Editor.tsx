@@ -3,7 +3,6 @@ import { Crop, PercentCrop } from 'react-image-crop';
 import { Loader2 } from 'lucide-react';
 import clsx from 'clsx';
 import { invoke } from '@tauri-apps/api/core';
-import debounce from 'lodash.debounce';
 
 import { ImageDimensions, RenderSize, useImageRenderSize } from '../../hooks/useImageRenderSize';
 import { Adjustments, MaskContainer, INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
@@ -21,6 +20,7 @@ import ImageCanvas, { type LiveMaskDefinition } from './editor/ImageCanvas';
 import { Mask, SubMask } from './right/Masks';
 import { Panel, TransformState, Invokes, canRenderSource } from '../ui/AppProperties';
 import { useEditorStore } from '../../store/useEditorStore';
+import { updateAdjustments } from '../../hooks/useEditorActions';
 import { useSettingsStore } from '../../store/useSettingsStore';
 import { useUIStore } from '../../store/useUIStore';
 import { useLibraryStore } from '../../store/useLibraryStore';
@@ -29,7 +29,6 @@ import { useAiMasking } from '../../hooks/useAiMasking';
 import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskOverlay';
 import { requestLiveMaskRender, withLiveMaskContainer } from '../../utils/liveMaskRender';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
-import { keepDrawnMasksOnPhoto } from '../../utils/maskGeometry';
 import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
 import SplitViewOverlay from './editor/SplitViewOverlay';
@@ -158,29 +157,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const hasRenderedFirstFrame = useEditorStore((s) => s.hasRenderedFirstFrame);
 
   const setEditor = useEditorStore((s) => s.setEditor);
-  const pushHistory = useEditorStore((s) => s.pushHistory);
-  const debouncedSetHistory = useMemo(() => debounce((newAdj: Adjustments) => pushHistory(newAdj), 500), [pushHistory]);
-
-  const setAdjustments = useCallback(
-    (value: Partial<Adjustments> | ((prev: Adjustments) => Adjustments)) => {
-      setEditor((state) => {
-        const prevAdjustments = state.adjustments;
-        // Drawn masks stay on the photo when this edit turns, flips or straightens it.
-        const newAdjustments = keepDrawnMasksOnPhoto(
-          prevAdjustments,
-          typeof value === 'function' ? value(prevAdjustments) : { ...prevAdjustments, ...value },
-          state.selectedImage?.width,
-          state.selectedImage?.height,
-        );
-        debouncedSetHistory(newAdjustments);
-        return {
-          adjustments: newAdjustments,
-          ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
-        };
-      });
-    },
-    [debouncedSetHistory, setEditor],
-  );
+  // Canvas edits (crop, straighten, drawn masks, guides) share the store's
+  // history scheduling, so undo, redo and photo switches settle them too.
+  const setAdjustments = updateAdjustments;
 
   const { handleGenerateAiMask } = useAiMasking();
 

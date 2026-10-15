@@ -8,6 +8,7 @@ import {
   flushRecipeSaves,
   registerScheduledRecipe,
   startBeforePeek,
+  updateAdjustments,
   useEditorActions,
   waitForPendingMetadataSave,
 } from './useEditorActions';
@@ -187,6 +188,49 @@ it('makes Reset one undoable step for the open photograph', async () => {
   expect(useEditorStore.getState().history).toHaveLength(2);
   act(() => useEditorStore.getState().undo());
   expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
+});
+
+describe('canvas edits (crop, straighten, drawn masks) in the history', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('never land in the next photograph\'s history', () => {
+    act(() => updateAdjustments((prev) => ({ ...prev, rotation: 3 })));
+    expect(useEditorStore.getState().historyPending).toBe(true);
+    act(() => select('/second.dng'));
+    vi.advanceTimersByTime(1000);
+    expect(useEditorStore.getState().history.map((r) => r.rotation)).toEqual([0]);
+    expect(useEditorStore.getState().historyPending).toBe(false);
+  });
+
+  it('are settled by undo, so undo cannot write them back later', () => {
+    act(() => updateAdjustments({ rotation: 3 }));
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments.rotation).toBe(0);
+    vi.advanceTimersByTime(1000);
+    expect(useEditorStore.getState().adjustments.rotation).toBe(0);
+    expect(useEditorStore.getState().history.map((r) => r.rotation)).toEqual([0, 3]);
+  });
+
+  it('wait for a ready photograph and skip updates that change nothing', () => {
+    act(() => select('/first.dng', false));
+    const before = useEditorStore.getState().adjustments;
+    act(() => updateAdjustments({ rotation: 3 }));
+    expect(useEditorStore.getState().adjustments).toBe(before);
+    act(() => select('/first.dng'));
+    act(() => updateAdjustments((prev) => prev));
+    expect(useEditorStore.getState().historyPending).toBe(false);
+  });
+});
+
+it('keeps the edit made just before Reset as its own undo step', async () => {
+  const { result } = renderHook(useEditorActions);
+  act(() => result.current.setAdjustments({ exposure: 1 }));
+  act(() => result.current.handleResetAdjustments(['/first.dng']));
+  await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+  expect(useEditorStore.getState().history.map((r) => r.exposure)).toEqual([-2, 1, 0]);
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments.exposure).toBe(1);
 });
 
 it('writes a debounced recipe save at once before quitting and waits for it', async () => {
