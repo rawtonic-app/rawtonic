@@ -378,3 +378,38 @@ Native QA: first slider edit, pending=true, Undo enabled; Cmd+Z completed after
 36 ms, before the 500 ms commit. Waiting past the debounce does not resurrect
 it, Cmd+Shift+Z restores it, and a final Undo restores the exact saved recipe.
 This is control-channel test timing, not rendering or pointer-to-photon latency.
+
+## Analysis version 5: subject, own light, background, 2026-10-15
+
+New analyses store version 5 (docs/RECIPE_SCHEMA.md): a subject matte (BiRefNet),
+people normals (DAViD Base, MIT; faces or skin in the whole-photo parse),
+smoothed scene normals for objects, the photo's own light (ambient + wrapped
+Lambert fitted on skin or the dominant material), the original skin shine,
+the background reach (inverse square of the distance, none on the sky) and
+the subject's depth for its shadow on the background.
+
+- Engine tests (`cargo test -p rawtonic-engine --lib relight`): the fitted
+  light follows a synthetic sphere's light and leaves its albedo flat
+  (spread < 1.25); bright sky in a matte loses the people weight but skin
+  never does; skin shine is found where skin is too bright and white; the
+  background reach ignores depth blurred into the silhouette; float
+  thumbnails keep their values (`image_processing::thumbnail`).
+- GPU tests (`relight_people_subject_lights_material_and_spares_far_background`,
+  `relight_subject_casts_its_shadow_on_the_background`): the original shadow
+  side lit by a new light is more than twice as bright as with the photo as
+  material; a far background gets nothing; a tile renders as the full frame;
+  the subject's shadow falls beside it on a nearer wall and disappears
+  without `shadows`. All 71 ignored GPU tests pass serially.
+- Recipes of versions 2–4 export byte-identically to main (16-bit TIFFs of
+  three public photos, Relight v4 and a plain recipe). x86_64 under Rosetta
+  renders version-5 recipes identically to arm64 and runs the analysis
+  (DA3 3.8 s, subject 1.3 s).
+- Native QA (QA identity, scratch session with public test photos): first
+  analysis after launch 3.2–7.4 s (model loads, memory pressure unloaded
+  models once), warm 1.9 s; the in-app fit equals the harness fit.
+- Reproduce the analysis without the app:
+  `RELIGHT_PHOTO=… RELIGHT_MODELS=<app model folder> RELIGHT_OUT=… ORT_DYLIB_PATH=… cargo test -p rawtonic-app --release --lib writes_the_analysis_of_a_photo -- --ignored`
+  (`RELIGHT_APP_LOAD=1` decodes as the editor does), then render
+  `analysis.json` as `relightDepth` with `rawtonic export --adjustments`.
+- Compared on the same public photographs with imageflow.dev and Photoshop
+  (Beta) Relight; verdict and open points: notes PARITY_GAPS G70.
