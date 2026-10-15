@@ -48,7 +48,12 @@ export function shownValue(value: number, step: number) {
   return String(Number(value.toFixed(digits)));
 }
 
-/** Independent desktop control: local feedback, at most one engine update per frame. */
+/** Input closer than this to the previous engine update waits for the next
+ * animation frame. */
+const MIN_SEND_INTERVAL_MS = 8;
+
+/** Independent desktop control: local feedback, engine updates as input
+ * arrives, at most one per 8 ms. */
 export default memo(function AdjustmentControl({
   label,
   ariaLabel,
@@ -72,6 +77,7 @@ export default memo(function AdjustmentControl({
   const frame = useRef<number | null>(null);
   const pending = useRef(value);
   const lastSent = useRef(value);
+  const sentAt = useRef(-Infinity);
   const canceled = useRef(false);
   const callback = useRef(onChange);
   callback.current = onChange;
@@ -108,6 +114,7 @@ export default memo(function AdjustmentControl({
     frame.current = null;
     if (lastSent.current !== pending.current) {
       lastSent.current = pending.current;
+      sentAt.current = performance.now();
       callback.current(pending.current);
     }
   };
@@ -116,7 +123,12 @@ export default memo(function AdjustmentControl({
     pending.current = boundedValue(next, min, max, precision);
     setLocal(pending.current);
     setText(String(pending.current));
-    if (frame.current === null) frame.current = requestAnimationFrame(flush);
+    // A drag's input goes to the engine as it arrives: waiting for the next
+    // animation frame dropped one of two moves that fell into one (slow)
+    // frame, ~1 in 6 at 60 Hz (notes: reference/slider-drag-nr.md). Faster
+    // input (high-rate mice) still waits for the frame.
+    if (performance.now() - sentAt.current >= MIN_SEND_INTERVAL_MS) flush();
+    else if (frame.current === null) frame.current = requestAnimationFrame(flush);
   };
   const begin = () => {
     active.current = true;
