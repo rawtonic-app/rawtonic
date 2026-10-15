@@ -204,9 +204,9 @@ struct GlobalAdjustments {
     // square-root luminance; color_noise.rs `luma_profile`); 0 = none.
     luma_noise_profile: array<vec4<f32>, 2>,
     // Version-five Relight (relight.rs source_uniforms): [0..9] the photo's
-    // own lighting as SH coefficients, [9] subject texture bound at binding
-    // 18, [10] lighting fitted, [11] version five, [12] the subject's median
-    // inverse depth.
+    // own lighting (ambient, light, direction), [9] subject texture bound at
+    // binding 18, [10] lighting fitted, [11] version five, [12] the
+    // subject's median inverse depth.
     relight_source: array<vec4<f32>, 4>,
 }
 
@@ -4826,13 +4826,12 @@ fn relight_people_normal(people: vec4<f32>) -> vec3<f32> {
     return vec3<f32>(people.xy, sqrt(max(1.0 - dot(people.xy, people.xy), 0.0)));
 }
 
-// The photo's own lighting at a people normal (relight_source.rs), clamped
-// so deep shadows are not lifted beyond their signal.
+// The photo's own lighting at a people normal (relight_source.rs: ambient
+// plus one Lambert light), clamped so deep shadows are not lifted beyond
+// their signal.
 fn relight_source_shading(n: vec3<f32>) -> f32 {
     let c = adjustments.global.relight_source;
-    let s = c[0].x + c[0].y * n.y + c[0].z * n.z + c[0].w * n.x
-        + c[1].x * n.x * n.y + c[1].y * n.y * n.z + c[1].z * (3.0 * n.z * n.z - 1.0)
-        + c[1].w * n.x * n.z + c[2].x * (n.x * n.x - n.y * n.y);
+    let s = c[0].x + c[0].y * max(dot(n, vec3<f32>(c[0].z, c[0].w, c[1].x)), 0.0);
     return clamp(s, RELIGHT_MIN_SHADING, 1.0);
 }
 

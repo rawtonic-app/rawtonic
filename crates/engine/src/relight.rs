@@ -382,7 +382,8 @@ fn subject_image(recipe: &Value) -> Option<source::SubjectImage> {
 }
 
 /// Version-five flags and the photo's own lighting on its people
-/// (`sourceLight`, nine coefficients) for the GPU: [0..9] coefficients,
+/// (`sourceLight`: ambient, light, direction; relight_source.rs) for the
+/// GPU: [0..9] the lighting,
 /// [9] subject texture bound, [10] lighting fitted, [11] version five,
 /// [12] the subject's median inverse depth (`subjectDepth`; 0 = unknown).
 pub fn source_uniforms(recipe: &Value) -> [[f32; 4]; 4] {

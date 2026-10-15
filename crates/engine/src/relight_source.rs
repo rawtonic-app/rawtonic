@@ -9,30 +9,22 @@
 //! The lighting is fitted on one material only — facial skin, located by
 //! the face landmarks — where albedo is nearly uniform, so the fit separates
 //! light from material; a fit over mixed materials cannot (notes:
-//! reference/relight-intrinsics.md).
+//! reference/relight-intrinsics.md). The model is physical and small: an
+//! ambient term and one directional light (Lambert), both non-negative. A
+//! free second-order fit is ill-conditioned on a face turned to the camera
+//! (constant and depth terms trade off): 8-bit rounding of the same photo
+//! turned its light from the left to the right.
 use image::{ImageBuffer, Rgb, Rgba};
 
 pub type SubjectImage = ImageBuffer<Rgba<u16>, Vec<u16>>;
 pub type Normals = ImageBuffer<Rgb<f32>, Vec<f32>>;
 
-/// Second-order spherical-harmonic basis (unnormalized) of a unit normal.
-pub fn sh9(n: [f32; 3]) -> [f32; 9] {
-    let [x, y, z] = n;
-    [
-        1.,
-        y,
-        z,
-        x,
-        x * y,
-        y * z,
-        3. * z * z - 1.,
-        x * z,
-        x * x - y * y,
-    ]
-}
-
+/// The photo's own shading at a normal: `[ambient, light, dx, dy, dz, …]`
+/// (`SourceLight::coefficients`), ambient plus a Lambert light.
 pub fn shading(coefficients: &[f32; 9], n: [f32; 3]) -> f32 {
-    sh9(n).iter().zip(coefficients).map(|(b, c)| b * c).sum()
+    let lambert =
+        (n[0] * coefficients[2] + n[1] * coefficients[3] + n[2] * coefficients[4]).max(0.);
+    coefficients[0] + coefficients[1] * lambert
 }
 
 /// Lowest source shading the renderer divides by: deeper shadows hold too
@@ -114,145 +106,178 @@ fn chroma(c: [f32; 3]) -> [f32; 2] {
     [c[0] / s, c[1] / s]
 }
 
-fn sample_rgb(image: &ImageBuffer<Rgb<f32>, Vec<f32>>, uv: [f32; 2]) -> [f32; 3] {
-    let x = (uv[0] * image.width() as f32).clamp(0., image.width() as f32 - 1.) as u32;
-    let y = (uv[1] * image.height() as f32).clamp(0., image.height() as f32 - 1.) as u32;
-    image.get_pixel(x, y).0
-}
-
-/// Skin samples of every face: inside the face oval, outside eyes, brows
-/// and lips, with the chromaticity of the face's confident skin landmarks.
-fn skin_samples(
-    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
-    normals: &Normals,
-    faces: &[Vec<[f32; 4]>],
-) -> Vec<([f32; 3], f32)> {
-    let mut samples = Vec::new();
+/// Facial skin of landmarked faces at `width × height`: inside each face
+/// oval, outside eyes, brows and lips.
+pub fn face_skin_mask(width: u32, height: u32, faces: &[Vec<[f32; 4]>]) -> image::GrayImage {
+    let mut mask = image::GrayImage::new(width, height);
     for face in faces.iter().filter(|f| f.len() >= 468) {
         let oval: Vec<[f32; 2]> = OVAL.iter().map(|&i| [face[i][0], face[i][1]]).collect();
         let excluded: Vec<Vec<[f32; 2]>> = EXCLUDED
             .iter()
             .map(|set| set.iter().map(|&i| [face[i][0], face[i][1]]).collect())
             .collect();
-        let mut reference: Vec<[f32; 2]> = face
-            .iter()
-            .filter(|p| p[3] > 0.6)
-            .map(|p| chroma(sample_rgb(linear, [p[0], p[1]])))
-            .collect();
-        if reference.len() < 40 {
-            continue;
-        }
-        let median = |i: usize, values: &mut Vec<[f32; 2]>| {
-            values.sort_by(|a, b| a[i].total_cmp(&b[i]));
-            values[values.len() / 2][i]
-        };
-        let skin = [median(0, &mut reference), median(1, &mut reference)];
         let (lo, hi) = oval.iter().fold(([1f32; 2], [0f32; 2]), |(lo, hi), p| {
             (
                 [lo[0].min(p[0]), lo[1].min(p[1])],
                 [hi[0].max(p[0]), hi[1].max(p[1])],
             )
         });
-        // About 60 × 60 samples per face, whatever its size.
-        let steps = 60;
-        for j in 0..steps {
-            for i in 0..steps {
+        let x0 = ((lo[0] * width as f32).floor().max(0.)) as u32;
+        let y0 = ((lo[1] * height as f32).floor().max(0.)) as u32;
+        let x1 = ((hi[0] * width as f32).ceil() as u32).min(width);
+        let y1 = ((hi[1] * height as f32).ceil() as u32).min(height);
+        for y in y0..y1 {
+            for x in x0..x1 {
                 let uv = [
-                    lo[0] + (hi[0] - lo[0]) * (i as f32 + 0.5) / steps as f32,
-                    lo[1] + (hi[1] - lo[1]) * (j as f32 + 0.5) / steps as f32,
+                    (x as f32 + 0.5) / width as f32,
+                    (y as f32 + 0.5) / height as f32,
                 ];
-                if !inside(&oval, uv) || excluded.iter().any(|p| inside(p, uv)) {
-                    continue;
+                if inside(&oval, uv) && !excluded.iter().any(|p| inside(p, uv)) {
+                    mask.put_pixel(x, y, image::Luma([255]));
                 }
-                let c = sample_rgb(linear, uv);
-                let luminance = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-                // Clipped highlights and black hold no shading.
-                if !(0.002..0.9).contains(&luminance) || c.iter().any(|v| *v >= 0.98) {
-                    continue;
-                }
-                let k = chroma(c);
-                if (k[0] - skin[0]).hypot(k[1] - skin[1]) > 0.035 {
-                    continue;
-                }
-                let n = sample_rgb(normals, uv);
-                samples.push((n, luminance));
             }
         }
     }
-    samples
+    mask
 }
 
-fn solve(mut a: [[f64; 9]; 9], mut b: [f64; 9]) -> Option<[f64; 9]> {
-    for col in 0..9 {
-        let pivot = (col..9).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
-        if a[pivot][col].abs() < 1e-12 {
-            return None;
-        }
-        a.swap(col, pivot);
-        b.swap(col, pivot);
-        let pivot_row = a[col];
-        for row in 0..9 {
-            if row != col {
-                let f = a[row][col] / pivot_row[col];
-                for (v, p) in a[row][col..].iter_mut().zip(&pivot_row[col..]) {
-                    *v -= f * p;
-                }
-                b[row] -= f * b[col];
-            }
-        }
+/// Lighting samples (normal, luminance) on the skin mask: skin chromaticity
+/// (loosely: the lit and the shaded side of a face differ in colour when sun
+/// and sky light them), neither clipped nor black.
+fn skin_samples(
+    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
+    normals: &Normals,
+    skin: &image::GrayImage,
+) -> Vec<([f32; 3], f32)> {
+    let texels: Vec<(u32, u32)> = skin
+        .enumerate_pixels()
+        .filter(|(_, _, p)| p[0] > 128)
+        .map(|(x, y, _)| (x, y))
+        .collect();
+    if texels.is_empty() {
+        return Vec::new();
     }
-    Some(std::array::from_fn(|i| b[i] / a[i][i]))
+    let at = |image: &ImageBuffer<Rgb<f32>, Vec<f32>>, x: u32, y: u32| {
+        let sx = ((x as f32 + 0.5) / skin.width() as f32 * image.width() as f32) as u32;
+        let sy = ((y as f32 + 0.5) / skin.height() as f32 * image.height() as f32) as u32;
+        image
+            .get_pixel(sx.min(image.width() - 1), sy.min(image.height() - 1))
+            .0
+    };
+    let mut chromas: Vec<[f32; 2]> = texels
+        .iter()
+        .map(|&(x, y)| chroma(at(linear, x, y)))
+        .collect();
+    let median = |i: usize, values: &mut Vec<[f32; 2]>| {
+        values.sort_by(|a, b| a[i].total_cmp(&b[i]));
+        values[values.len() / 2][i]
+    };
+    let reference = [median(0, &mut chromas), median(1, &mut chromas)];
+    // At most about 6000 samples, evenly spread.
+    let stride = (texels.len() / 6000).max(1);
+    texels
+        .iter()
+        .step_by(stride)
+        .filter_map(|&(x, y)| {
+            let c = at(linear, x, y);
+            let luminance = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+            // Clipped highlights and black hold no shading.
+            if !(0.002..0.9).contains(&luminance) || c.iter().any(|v| *v >= 0.98) {
+                return None;
+            }
+            let k = chroma(c);
+            ((k[0] - reference[0]).hypot(k[1] - reference[1]) <= 0.07)
+                .then(|| (at(normals, x, y), luminance))
+        })
+        .collect()
 }
 
 /// The photo's own lighting on its people.
 #[derive(Clone, Copy, Debug)]
 pub struct SourceLight {
-    /// Second-order spherical-harmonic coefficients, scaled so the
-    /// subject's brightly lit side (98th percentile) has shading 1.
+    /// `[ambient, light, dx, dy, dz, 0, 0, 0, 0]` (`shading`), scaled so
+    /// the subject's brightly lit side (98th percentile) has shading 1.
     pub coefficients: [f32; 9],
     /// The facial skin's albedo under that scale (median luminance /
     /// shading of the fitted samples), the reference for plausible material.
     pub skin_albedo: f32,
 }
 
-/// The photo's lighting on its people, fitted on facial skin. `None`
-/// without enough facial skin.
+/// The photo's lighting on its people, fitted on their skin (`skin`, a mask
+/// of any size over the frame: `face_skin_mask`, or a parse's skin). `None`
+/// without enough skin.
 pub fn fit(
     linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
     normals: &Normals,
     subject: &[[f32; 3]],
-    faces: &[Vec<[f32; 4]>],
+    skin: &image::GrayImage,
 ) -> Option<SourceLight> {
-    let samples = skin_samples(linear, normals, faces);
+    let samples = skin_samples(linear, normals, skin);
     if samples.len() < 200 {
         return None;
     }
-    // Second-order terms are damped: one face constrains them only weakly.
-    let damping = [0., 0., 0., 0., 4., 4., 4., 4., 4.];
+    // Directions over the whole sphere: rim and back light included.
+    let count = 2048;
+    let directions: Vec<[f32; 3]> = (0..count)
+        .map(|i| {
+            let y = 1. - 2. * (i as f32 + 0.5) / count as f32;
+            let r = (1. - y * y).sqrt();
+            let a = i as f32 * 2.399_963;
+            [r * a.cos(), y, r * a.sin()]
+        })
+        .collect();
+    // Weighted least squares of ambient and light for one direction, both
+    // kept non-negative; returns (ambient, light, weighted squared error).
+    let solve = |d: [f32; 3], weights: &[f64]| -> (f64, f64, f64) {
+        let (mut sw, mut sr, mut srr, mut sl, mut srl) = (0f64, 0f64, 0f64, 0f64, 0f64);
+        for ((n, l), w) in samples.iter().zip(weights) {
+            let r = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.) as f64;
+            let l = *l as f64;
+            sw += w;
+            sr += w * r;
+            srr += w * r * r;
+            sl += w * l;
+            srl += w * r * l;
+        }
+        let det = sw * srr - sr * sr;
+        let (mut a, mut k) = if det > 1e-12 {
+            ((srr * sl - sr * srl) / det, (sw * srl - sr * sl) / det)
+        } else {
+            (sl / sw, 0.)
+        };
+        if k < 0. {
+            (a, k) = (sl / sw, 0.);
+        }
+        if a < 0. {
+            (a, k) = (0., if srr > 1e-12 { srl / srr } else { 0. });
+        }
+        let error = samples
+            .iter()
+            .zip(weights)
+            .map(|((n, l), w)| {
+                let r = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.) as f64;
+                w * (a + k * r - *l as f64).powi(2)
+            })
+            .sum();
+        (a, k, error)
+    };
     let mut weights = vec![1f64; samples.len()];
-    let mut c = [0f64; 9];
-    for _ in 0..6 {
-        let mut a = [[0f64; 9]; 9];
-        let mut b = [0f64; 9];
-        let total: f64 = weights.iter().sum();
-        for ((n, l), w) in samples.iter().zip(&weights) {
-            let basis = sh9(*n).map(f64::from);
-            for i in 0..9 {
-                for j in 0..9 {
-                    a[i][j] += w * basis[i] * basis[j];
-                }
-                b[i] += w * basis[i] * *l as f64;
-            }
-        }
-        for i in 0..9 {
-            a[i][i] += damping[i] * total * 0.01;
-        }
-        c = solve(a, b)?;
+    let mut best = ([0f32, 0., 1.], 0f64, 0f64);
+    for _ in 0..3 {
+        let (d, a, k, _) = directions
+            .iter()
+            .map(|d| {
+                let (a, k, e) = solve(*d, &weights);
+                (*d, a, k, e)
+            })
+            .min_by(|x, y| x.3.total_cmp(&y.3))?;
+        best = (d, a, k);
+        // Robust weights from this fit's residuals.
         let residuals: Vec<f64> = samples
             .iter()
             .map(|(n, l)| {
-                let basis = sh9(*n).map(f64::from);
-                basis.iter().zip(&c).map(|(b, c)| b * c).sum::<f64>() - *l as f64
+                let r = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.) as f64;
+                a + k * r - *l as f64
             })
             .collect();
         let mut sorted: Vec<f64> = residuals.iter().map(|r| r.abs()).collect();
@@ -262,6 +287,8 @@ pub fn fit(
             *w = 1. / (r.abs() / scale).max(1.);
         }
     }
+    let (d, a, k) = best;
+    let c: [f64; 9] = [a, k, d[0] as f64, d[1] as f64, d[2] as f64, 0., 0., 0., 0.];
     let c = c.map(|v| v as f32);
     let mut values: Vec<f32> = subject.iter().map(|n| shading(&c, *n)).collect();
     if values.len() < 100 {
@@ -269,12 +296,14 @@ pub fn fit(
     }
     values.sort_by(f32::total_cmp);
     let peak = values[(values.len() as f32 * 0.98) as usize].max(1e-6);
-    // A lighting that leaves most of the subject black is not a fit.
-    let median = values[values.len() / 2] / peak;
-    if !median.is_finite() || median < MIN_SHADING || c.iter().any(|v| !v.is_finite()) {
+    // A back-lit subject is mostly in shadow: that is a fit (the division
+    // stops at MIN_SHADING). No light at all is not.
+    if peak <= 1e-5 || c.iter().any(|v| !v.is_finite()) {
         return None;
     }
-    let coefficients = c.map(|v| v / peak);
+    let mut coefficients = c;
+    coefficients[0] /= peak;
+    coefficients[1] /= peak;
     let mut albedo: Vec<f32> = samples
         .iter()
         .map(|(n, l)| l / shading(&coefficients, *n).max(MIN_SHADING))
@@ -452,7 +481,13 @@ mod tests {
             .map(|p| p.0)
             .filter(|n| n[2] > 0.2)
             .collect();
-        let fitted = fit(&image, &normals, &subject, &[face]).expect("fit");
+        let fitted = fit(
+            &image,
+            &normals,
+            &subject,
+            &face_skin_mask(128, 128, &[face]),
+        )
+        .expect("fit");
         let c = fitted.coefficients;
         assert!(
             (fitted.skin_albedo - 0.5).abs() < 0.1,
@@ -484,7 +519,7 @@ mod tests {
         let (mut image, normals) = sphere(64, [0., 0., 1.], 0.4);
         // A bright patch where the fitted lighting is dark: sky in the matte.
         let c = SourceLight {
-            coefficients: [0.2, 0., 0.8, 0., 0., 0., 0., 0., 0.],
+            coefficients: [0.2, 0.8, 0., 0., 1., 0., 0., 0., 0.],
             skin_albedo: 0.42,
         };
         for y in 0..6 {
@@ -531,7 +566,7 @@ mod tests {
     #[test]
     fn too_little_skin_gives_no_fit() {
         let (image, normals) = sphere(32, [0., 0., 1.], 0.5);
-        assert!(fit(&image, &normals, &[], &[]).is_none());
+        assert!(fit(&image, &normals, &[], &image::GrayImage::new(32, 32)).is_none());
     }
 
     #[test]

@@ -7390,8 +7390,8 @@ fn relight_people_subject_lights_material_and_spares_far_background() {
         "faces": [],
         "camera": {"fx":1.0,"fy":2.0,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0},
         "subject": format!("data:image/png;base64,{subject}"),
-        // The photo's light came from +x: S = 0.5 + 0.5·nx.
-        "sourceLight": [0.5, 0., 0., 0.5, 0., 0., 0., 0., 0.],
+        // The photo's light came from +x: S = 0.3 + 0.7·max(nx, 0).
+        "sourceLight": [0.3, 0.7, 1., 0., 0., 0., 0., 0., 0.],
         "subjectDepth": 1.0,
     });
     let render = |recipe: &serde_json::Value, roi| {

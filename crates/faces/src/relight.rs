@@ -71,3 +71,12 @@ pub fn analyze(image: &RgbImage, models: &FaceModels) -> Result<Vec<Vec<[f32; 4]
     }
     Ok(faces)
 }
+
+/// The whole photo's people parse (skin, hair, clothes), for photos whose
+/// people the face detector misses (a profile).
+pub fn parse_people(image: &RgbImage, models: &FaceModels) -> Result<parse::ParseCrop> {
+    let (width, height) = image.dimensions();
+    models
+        .parser
+        .run(|s| parse::parse(s, image, parse::whole_photo(width, height)))
+}

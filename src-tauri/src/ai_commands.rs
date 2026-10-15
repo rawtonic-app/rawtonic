@@ -986,7 +986,7 @@ pub async fn generate_relight_depth(
     let running = std::sync::Arc::new(running);
     let first = running.clone();
     let adjustments = js_adjustments.clone();
-    let (depth, camera, small, faces) = tauri::async_runtime::spawn_blocking(move || {
+    let (depth, camera, small, faces, parse) = tauri::async_runtime::spawn_blocking(move || {
         let _running = first;
         let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
             &source,
@@ -1000,19 +1000,26 @@ pub async fn generate_relight_depth(
         let (depth, camera) = crate::ai_processing::run_relight_model(&displayed, &model, is_raw)
             .map_err(|e| e.to_string())?;
         let small = if displayed.width().max(displayed.height()) > 1600 {
-            displayed.thumbnail(1600, 1600)
+            crate::image_processing::thumbnail(&displayed, 1600, 1600)
         } else {
             displayed.into_owned()
         };
-        let faces = face_models
+        let face_input = rawtonic_faces::recipe::display_rgb8(&small, is_raw);
+        let faces: Vec<Vec<[f32; 4]>> = face_models
+            .as_ref()
             .and_then(|models| {
-                let face_input = rawtonic_faces::recipe::display_rgb8(&small, is_raw);
-                rawtonic_faces::relight::analyze(&face_input, &models)
+                rawtonic_faces::relight::analyze(&face_input, models)
                     .inspect_err(|e| log::warn!("Relight: face analysis failed: {e}"))
                     .ok()
             })
             .unwrap_or_default();
-        Ok::<_, String>((depth, camera, small, faces))
+        // People the face detector misses (a profile) still show as skin.
+        let parse = face_models.filter(|_| faces.is_empty()).and_then(|models| {
+            rawtonic_faces::relight::parse_people(&face_input, &models)
+                .inspect_err(|e| log::warn!("Relight: people parse failed: {e}"))
+                .ok()
+        });
+        Ok::<_, String>((depth, camera, small, faces, parse))
     })
     .await
     .map_err(|e| e.to_string())??;
@@ -1031,7 +1038,9 @@ pub async fn generate_relight_depth(
     .inspect_err(|e| log::warn!("Relight: continuing without the subject model: {e}"))
     .ok()
     .flatten();
-    let people_model = if faces.is_empty() {
+    // Faces, or a parse with skin: people normals are worth loading.
+    let maybe_people = !faces.is_empty() || parse.is_some();
+    let people_model = if !maybe_people {
         None
     } else {
         crate::ai_processing::get_or_init_people_normals_model(
@@ -1046,6 +1055,7 @@ pub async fn generate_relight_depth(
     let subject = match subject_model {
         Some(subject_model) => {
             let (small, faces, depth) = (small.clone(), faces.clone(), depth.clone());
+            let parse = parse.clone();
             let second = running.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let _running = second;
@@ -1057,6 +1067,7 @@ pub async fn generate_relight_depth(
                             is_raw,
                             &matte,
                             &faces,
+                            parse.as_ref(),
                             people_model.as_deref(),
                             Some((&depth, camera)),
                         )?;

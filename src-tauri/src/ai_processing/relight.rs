@@ -174,6 +174,7 @@ pub fn analyze_subject(
     linear: bool,
     matte: &image::GrayImage,
     faces: &[Vec<[f32; 4]>],
+    parse: Option<&rawtonic_faces::ParseCrop>,
     people_model: Option<&rawtonic_onnx::Model>,
     scene: Option<(&DepthImage, Camera)>,
 ) -> Result<(Vec<u8>, Option<[f32; 9]>)> {
@@ -210,9 +211,31 @@ pub fn analyze_subject(
     let x1 = (((hi[0] + margin + 1) as f32 * to_frame) as u32).min(w);
     let y1 = (((hi[1] + margin + 1) as f32 * to_frame) as u32).min(h);
     let crop = [x0, y0, (x1 - x0).max(1), (y1 - y0).max(1)];
-    // People normals only with people (faces) and the model.
+    // Skin: the landmarked faces', else the parse's face and body skin
+    // (people the face detector misses, a profile). People: some skin.
+    let skin = if faces.is_empty() {
+        parse.map_or_else(
+            || image::GrayImage::new(tw, th),
+            |parse| {
+                image::GrayImage::from_fn(tw, th, |x, y| {
+                    let (fx, fy) = ((x as f32 + 0.5) * to_frame, (y as f32 + 0.5) * to_frame);
+                    let face = parse
+                        .sample(rawtonic_faces::parse::Class::FaceSkin, fx, fy)
+                        .0;
+                    let body = parse
+                        .sample(rawtonic_faces::parse::Class::BodySkin, fx, fy)
+                        .0;
+                    image::Luma([((face + body).min(1.) * 255.).round() as u8])
+                })
+            },
+        )
+    } else {
+        source::face_skin_mask(tw, th, faces)
+    };
+    let people = skin.pixels().filter(|p| p[0] > 128).count() * 300 >= (tw * th) as usize;
+    // People normals only with people and the model.
     let normal_at = match people_model {
-        Some(model) if !faces.is_empty() => {
+        Some(model) if people => {
             let rgb = display_rgb8(displayed.clone(), linear);
             Some(people_normals(&rgb, crop, model)?)
         }
@@ -261,7 +284,7 @@ pub fn analyze_subject(
         .collect();
     let light = normal_at
         .is_some()
-        .then(|| source::fit(&linear_rgb, &normals, &subject, faces))
+        .then(|| source::fit(&linear_rgb, &normals, &subject, &skin))
         .flatten();
     if let Some(light) = &light {
         source::limit_to_consistent(&linear_rgb, &normals, &mut people, light);
@@ -406,7 +429,26 @@ mod tests {
     fn writes_the_analysis_of_a_photo() {
         use base64::Engine as _;
         let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name}"));
-        let photo = image::open(env("RELIGHT_PHOTO")).unwrap();
+        // RELIGHT_APP_LOAD: decode as the app's editor does (engine loader).
+        let photo = if std::env::var_os("RELIGHT_APP_LOAD").is_some() {
+            let path = env("RELIGHT_PHOTO");
+            rawtonic_engine::image_loader::load_base_image(
+                &std::fs::read(&path).unwrap(),
+                &path,
+                false,
+                &rawtonic_engine::image_loader::BaseImageOptions::from_preferences(
+                    None,
+                    String::new(),
+                    None,
+                    None,
+                    None,
+                ),
+                None,
+            )
+            .unwrap()
+        } else {
+            image::open(env("RELIGHT_PHOTO")).unwrap()
+        };
         let dir = std::path::PathBuf::from(env("RELIGHT_MODELS"));
         let out = std::path::PathBuf::from(env("RELIGHT_OUT"));
         std::fs::create_dir_all(&out).unwrap();
@@ -416,16 +458,20 @@ mod tests {
         let (depth, camera) = run_relight_model(&photo, &geometry, false).unwrap();
         eprintln!("geometry {} ms", start.elapsed().as_millis());
         let small = if photo.width().max(photo.height()) > 1600 {
-            photo.thumbnail(1600, 1600)
+            crate::image_processing::thumbnail(&photo, 1600, 1600)
         } else {
             photo.clone()
         };
         let faces_models = rawtonic_faces::FaceModels::load(&dir).unwrap();
-        let faces = rawtonic_faces::relight::analyze(
-            &rawtonic_faces::recipe::display_rgb8(&small, false),
-            &faces_models,
-        )
-        .unwrap();
+        let faces = match std::env::var("RELIGHT_FACES") {
+            // Landmarks of another analysis (e.g. the app's), for comparisons.
+            Ok(path) => serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap(),
+            Err(_) => rawtonic_faces::relight::analyze(
+                &rawtonic_faces::recipe::display_rgb8(&small, false),
+                &faces_models,
+            )
+            .unwrap(),
+        };
         eprintln!("{} faces, {} ms", faces.len(), start.elapsed().as_millis());
         let mut result = serde_json::json!({
             "geometry": rawtonic_engine::relight::geometry(&serde_json::json!({})),
@@ -441,11 +487,19 @@ mod tests {
         )
         .unwrap();
         let t = std::time::Instant::now();
+        let parse = faces.is_empty().then(|| {
+            rawtonic_faces::relight::parse_people(
+                &rawtonic_faces::recipe::display_rgb8(&small, false),
+                &faces_models,
+            )
+            .unwrap()
+        });
         if let Ok((png, light)) = analyze_subject(
             &small,
             false,
             &matte,
             &faces,
+            parse.as_ref(),
             Some(&people),
             Some((&depth, camera)),
         ) {
