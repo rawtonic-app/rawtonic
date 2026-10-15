@@ -31,6 +31,7 @@ import { requestLiveMaskRender, withLiveMaskContainer } from '../../utils/liveMa
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { keepDrawnMasksOnPhoto } from '../../utils/maskGeometry';
 import { splitScreenX } from '../../utils/beforeAfter';
+import { lockedAxes, panStep } from '../../utils/panBounds';
 import SplitViewOverlay from './editor/SplitViewOverlay';
 import {
   MIN_VIEWER_ZOOM,
@@ -1048,20 +1049,16 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         panVelocityHistory.current.push({ x: e.clientX, y: e.clientY, t: performance.now() });
         if (panVelocityHistory.current.length > 6) panVelocityHistory.current.shift();
 
-        let dx = e.clientX - lastPanPos.current.x;
-        let dy = e.clientY - lastPanPos.current.y;
+        const dx = e.clientX - lastPanPos.current.x;
+        const dy = e.clientY - lastPanPos.current.y;
         lastPanPos.current = { x: e.clientX, y: e.clientY };
 
         const bounds = getTransformBounds(transformStateRef.current.scale);
         const curX = transformStateRef.current.positionX;
         const curY = transformStateRef.current.positionY;
-
-        if (curX < bounds.minX && dx < 0) dx *= 0.35;
-        if (curX > bounds.maxX && dx > 0) dx *= 0.35;
-        if (curY < bounds.minY && dy < 0) dy *= 0.35;
-        if (curY > bounds.maxY && dy > 0) dy *= 0.35;
-
-        applyTransform(curX + dx, curY + dy, transformStateRef.current.scale);
+        // A photograph that fits the viewer (on an axis) stays put.
+        const step = panStep(bounds, curX, curY, dx, dy);
+        if (step.dx !== 0 || step.dy !== 0) applyTransform(curX + step.dx, curY + step.dy, transformStateRef.current.scale);
       } else if (activePointers.current.size === 2 && lastPinch.current) {
         const pts = Array.from(activePointers.current.values());
         const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
@@ -1171,6 +1168,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
         const { positionX, positionY, scale } = transformStateRef.current;
         const bounds = getTransformBounds(scale);
+        const locked = lockedAxes(bounds);
+        if (locked.x) vx = 0;
+        if (locked.y) vy = 0;
         const outOfBounds =
           positionX > bounds.maxX || positionX < bounds.minX || positionY > bounds.maxY || positionY < bounds.minY;
 
@@ -2324,7 +2324,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   } else if (isPanningState && isMiddleMousePanning.current) {
     cursorStyle = 'grabbing';
   } else if (isZoomActionActive) {
-    if (isPanningState) {
+    const fixed = lockedAxes(getTransformBounds(transformState.scale));
+    if (isPanningState && !(fixed.x && fixed.y)) {
       cursorStyle = 'grabbing';
     } else if (transformState.scale > 1.01) {
       cursorStyle = 'zoom-out';
