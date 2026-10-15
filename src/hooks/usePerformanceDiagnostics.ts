@@ -117,6 +117,12 @@ interface PointerSession {
   movesThisFrame: number;
   queueStart: Map<QueueName, { submitted: number; superseded: number; dispatched: number }>;
   inputMs: Record<QueueName, number[]>;
+  /** React commit durations during the session, and their sum per profiler. */
+  commits: number[];
+  commitIds: Record<string, number>;
+  /** [ms after the press, length] of frames over 20 ms, and when histograms arrived. */
+  slowFrames: number[][];
+  histograms: number[][];
 }
 let pointerSession: PointerSession | null = null;
 
@@ -170,6 +176,12 @@ function finishPointerSession(session: PointerSession) {
     ...summarize("frame", session.frameIntervals),
     long_frames: session.frameIntervals.filter((ms) => ms > frameP50 * 1.5).length,
     max_moves_per_frame: Math.max(0, ...session.movesPerFrame),
+    slow_frames: session.slowFrames,
+    histograms_at: session.histograms,
+    react_commits: session.commits.length,
+    react_ms: Math.round(session.commits.reduce((a, b) => a + b, 0)),
+    ...summarize("react_commit", session.commits),
+    ...Object.fromEntries(Object.entries(session.commitIds).map(([id, ms]) => [`react_ms_${id}`, Math.round(ms)])),
     frames_without_moves: session.movesPerFrame.filter((moves) => moves === 0).length,
     ...queues,
   });
@@ -201,6 +213,11 @@ export function reportPerformance(
 // paint). Profiling builds use react-dom's profiling build (vite.config.mjs).
 const SLOW_COMMIT_MS = 8;
 const reportSlowCommit: ProfilerOnRenderCallback = (id, phase, actualDuration, baseDuration, startTime, commitTime) => {
+  const session = pointerSession;
+  if (session && !session.ended) {
+    session.commits.push(actualDuration);
+    session.commitIds[id] = (session.commitIds[id] ?? 0) + actualDuration;
+  }
   if (actualDuration < SLOW_COMMIT_MS) return;
   reportPerformance("react_commit", {
     id,
@@ -239,6 +256,9 @@ export function usePerformanceDiagnostics() {
     let pendingPath: string | null = null;
     let pendingDeveloped: string | null = null;
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
+      const session = pointerSession;
+      if (session && !session.ended && state.histogram !== previous.histogram)
+        session.histograms.push([Math.round(performance.now() - session.started)]);
       if (state.selectedImage?.path !== previous.selectedImage?.path) {
         selectionStart = performance.now();
         pendingPath = state.selectedImage?.path ?? null;
@@ -319,6 +339,10 @@ export function usePerformanceDiagnostics() {
         movesThisFrame: 0,
         queueStart: new Map(Array.from(diagnosticQueues, ([name, queue]) => [name, { ...queue.stats }])),
         inputMs: { preview: [], overlay: [] },
+        commits: [],
+        commitIds: {},
+        slowFrames: [],
+        histograms: [],
       };
     };
     const pointerUp = () => {
@@ -349,6 +373,7 @@ export function usePerformanceDiagnostics() {
         const session = pointerSession;
         if (session && !session.ended) {
           session.frameIntervals.push(now - previousFrame);
+          if (now - previousFrame > 20) session.slowFrames.push([Math.round(now - session.started), Math.round(now - previousFrame)]);
           session.movesPerFrame.push(session.movesThisFrame);
           session.movesThisFrame = 0;
         }
