@@ -495,7 +495,10 @@ pub fn background_reach(
     let mut filled = value.clone();
     let mut known = weight.clone();
     let mut sigma = band as f32;
-    while known.iter().any(|k| *k < 0.5) && sigma < w.max(h) as f32 * 2. {
+    // Without any clear background (the subject fills the frame) there is
+    // nothing to fill from: the measured depth stays.
+    let any_known = known.iter().any(|k| *k >= 0.5);
+    while any_known && known.iter().any(|k| *k < 0.5) && sigma < w.max(h) as f32 * 2. {
         let num = image::imageops::blur(
             &ImageBuffer::<image::Luma<f32>, _>::from_fn(w, h, |x, y| {
                 let i = (y * w + x) as usize;
@@ -718,6 +721,17 @@ mod tests {
             shine.get_pixel(32, 22)[0]
         );
         assert!(shine.get_pixel(32, 44)[0] < 5);
+    }
+
+    #[test]
+    fn a_subject_filling_the_frame_keeps_the_measured_depth() {
+        let inverse = ImageBuffer::from_pixel(64, 64, image::Luma([1.5f32]));
+        let matte = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
+        let start = std::time::Instant::now();
+        let reach = background_reach(&inverse, &matte, 2.);
+        assert!(start.elapsed().as_millis() < 500);
+        // (1.5 / 2)² of 255.
+        assert_eq!(reach.get_pixel(32, 32)[0], 143);
     }
 
     #[test]

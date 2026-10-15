@@ -93,8 +93,9 @@ large depth jumps; only confident facial geometry casts local shadows.
 Analysis version 5 (new analyses since 2026-10-15) keeps version 4's fields
 and smooths the scene slopes over a wide, depth-aware window when they are
 loaded (monocular depth blotches backgrounds and skies). For a subject of at
-least 5 % of the frame (BiRefNet matte) it adds `subject`, a 16-bit RGBA PNG
-data URL at up to 1024 px per side and twice that wide: the left half holds
+least 5 % of the frame (BiRefNet matte) it adds `subject`, an RGBA PNG data
+URL (8 bits per channel; 16-bit ones from earlier builds read the same) at
+up to 1024 px per side and twice that wide: the left half holds
 the subject normal's x and y (renderer frame: x right, y down, z towards the
 camera), the matte and the normal's weight; the right half the share of the
 photo that is the original light's skin shine and how far a new light reaches

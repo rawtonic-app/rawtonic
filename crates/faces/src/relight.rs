@@ -73,10 +73,24 @@ pub fn analyze(image: &RgbImage, models: &FaceModels) -> Result<Vec<Vec<[f32; 4]
 }
 
 /// The whole photo's people parse (skin, hair, clothes), for photos whose
-/// people the face detector misses (a profile).
-pub fn parse_people(image: &RgbImage, models: &FaceModels) -> Result<parse::ParseCrop> {
+/// people the face detector misses (a profile); `None` when it finds less
+/// skin than a person shows (1/300 of the frame, as `analyze_subject`).
+pub fn parse_people(image: &RgbImage, models: &FaceModels) -> Result<Option<parse::ParseCrop>> {
     let (width, height) = image.dimensions();
-    models
+    let crop = models
         .parser
-        .run(|s| parse::parse(s, image, parse::whole_photo(width, height)))
+        .run(|s| parse::parse(s, image, parse::whole_photo(width, height)))?;
+    // Sample the skin on a coarse grid of the frame.
+    let (steps_x, steps_y) = (96u32, 96u32);
+    let skin = (0..steps_y)
+        .flat_map(|j| (0..steps_x).map(move |i| (i, j)))
+        .filter(|&(i, j)| {
+            let x = (i as f32 + 0.5) / steps_x as f32 * width as f32;
+            let y = (j as f32 + 0.5) / steps_y as f32 * height as f32;
+            let face = crop.sample(parse::Class::FaceSkin, x, y).0;
+            let body = crop.sample(parse::Class::BodySkin, x, y).0;
+            face + body > 0.5
+        })
+        .count();
+    Ok((skin * 300 >= (steps_x * steps_y) as usize).then_some(crop))
 }

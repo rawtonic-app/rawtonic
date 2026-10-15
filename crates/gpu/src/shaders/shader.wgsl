@@ -5081,7 +5081,9 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     var people = vec4<f32>(0.0);
     var background_reach = 1.0;
     var shine = 0.0;
-    if (camera_mode && has_depth && adjustments.global.relight_source[2].y > 0.5) {
+    // A subject bitmap that could not be loaded leaves the 1×1 placeholder
+    // bound: then there is no subject (relight.rs subject_image).
+    if (camera_mode && has_depth && adjustments.global.relight_source[2].y > 0.5 && textureDimensions(relight_depth_texture).x > 2u) {
         people = relight_subject_sample(uv, 0.0);
         let intrinsic = relight_subject_sample(uv, 1.0);
         shine = intrinsic.x;

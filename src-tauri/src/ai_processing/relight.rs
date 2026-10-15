@@ -183,12 +183,21 @@ pub struct SubjectContext<'a> {
     pub sky: Option<&'a image::GrayImage>,
 }
 
+/// A version-five subject analysis: the subject atlas (PNG), the photo's
+/// own lighting and the subject's median inverse depth (`subjectDepth`),
+/// measured on the same matte as the atlas's background reach.
+pub struct SubjectAnalysis {
+    pub png: Vec<u8>,
+    pub light: Option<[f32; 9]>,
+    pub inverse: Option<f32>,
+}
+
 pub fn analyze_subject(
     displayed: &DynamicImage,
     linear: bool,
     matte: &image::GrayImage,
     context: SubjectContext,
-) -> Result<(Vec<u8>, Option<[f32; 9]>)> {
+) -> Result<SubjectAnalysis> {
     let SubjectContext {
         faces,
         parse,
@@ -335,8 +344,10 @@ pub fn analyze_subject(
     }
     let fitted = light;
     let light = fitted.map(|l| l.coefficients);
-    let reach = scene.and_then(|(depth, camera)| {
-        let inverse = rawtonic_engine::relight::subject_inverse(depth, camera, &matte)?;
+    let inverse = scene.and_then(|(depth, camera)| {
+        rawtonic_engine::relight::subject_inverse(depth, camera, &matte)
+    });
+    let reach = scene.zip(inverse).map(|((depth, camera), inverse)| {
         let map = image::ImageBuffer::from_fn(depth.width(), depth.height(), |x, y| {
             image::Luma([camera.inverse(depth.get_pixel(x, y)[0])])
         });
@@ -349,16 +360,31 @@ pub fn analyze_subject(
                 r[0] = (r[0] as u32 * (255 - s[0] as u32) / 255) as u8;
             }
         }
-        Some(reach)
+        reach
     });
     let specular = fitted
         .as_ref()
         .map(|light| source::skin_specular(&linear_rgb, &normals, &material, light));
     let encoded =
         source::encode_subject(&normals, &matte, &people, reach.as_ref(), specular.as_ref());
+    // Stored with 8 bits per channel: a normal's x and y to 1/127 (under
+    // half a degree), matte, weights and shares well within their use; half
+    // the recipe size of 16 bits.
+    let eight = image::RgbaImage::from_fn(encoded.width(), encoded.height(), |x, y| {
+        image::Rgba(
+            encoded
+                .get_pixel(x, y)
+                .0
+                .map(|v| ((v as u32 + 128) / 257) as u8),
+        )
+    });
     let mut png = std::io::Cursor::new(Vec::new());
-    image::DynamicImage::ImageRgba16(encoded).write_to(&mut png, image::ImageFormat::Png)?;
-    Ok((png.into_inner(), light))
+    image::DynamicImage::ImageRgba8(eight).write_to(&mut png, image::ImageFormat::Png)?;
+    Ok(SubjectAnalysis {
+        png: png.into_inner(),
+        light,
+        inverse,
+    })
 }
 
 fn size(width: u32, height: u32) -> (u32, u32) {
@@ -545,17 +571,24 @@ mod tests {
         )
         .unwrap();
         let t = std::time::Instant::now();
-        let parse = faces.is_empty().then(|| {
-            rawtonic_faces::relight::parse_people(
-                &rawtonic_faces::recipe::display_rgb8(&small, false),
-                &faces_models,
-            )
-            .unwrap()
-        });
+        let parse = faces
+            .is_empty()
+            .then(|| {
+                rawtonic_faces::relight::parse_people(
+                    &rawtonic_faces::recipe::display_rgb8(&small, false),
+                    &faces_models,
+                )
+                .unwrap()
+            })
+            .flatten();
         let sky = super::super::SkyModel::onnx(&dir.join("skyseg_upernet_convnext_t.onnx"))
             .and_then(|model| super::super::run_sky_seg_model(&small, &model, false, None))
             .ok();
-        if let Ok((png, light)) = analyze_subject(
+        if let Ok(SubjectAnalysis {
+            png,
+            light,
+            inverse,
+        }) = analyze_subject(
             &small,
             false,
             &matte,
@@ -578,8 +611,7 @@ mod tests {
             if let Some(light) = light {
                 result["sourceLight"] = serde_json::json!(light);
             }
-            if let Some(inverse) = rawtonic_engine::relight::subject_inverse(&depth, camera, &matte)
-            {
+            if let Some(inverse) = inverse {
                 result["subjectDepth"] = serde_json::json!(inverse);
             }
         }
