@@ -4,7 +4,8 @@ pub use rawtonic_engine::masks::{
     AiSubjectMaskParameters,
 };
 pub use relight::{
-    analyze_subject, get_or_init_people_normals_model, get_or_init_relight_model, run_relight_model,
+    SubjectContext, analyze_subject, get_or_init_people_normals_model, get_or_init_relight_model,
+    run_relight_model,
 };
 use std::fs;
 use std::io::{Read, Write};

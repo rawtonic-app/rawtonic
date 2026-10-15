@@ -169,15 +169,33 @@ fn people_normals(
 /// people normals inside it and the photo's own lighting on the people's
 /// skin (`rawtonic_engine::relight::source`). Returns the subject PNG and
 /// the lighting coefficients, if they could be fitted.
+/// What a version-five subject analysis reads besides the photo and its
+/// subject matte; each part is optional.
+pub struct SubjectContext<'a> {
+    /// Landmarked faces (`rawtonic_faces::relight::analyze`).
+    pub faces: &'a [Vec<[f32; 4]>],
+    /// The whole photo's people parse, for people without landmarks.
+    pub parse: Option<&'a rawtonic_faces::ParseCrop>,
+    pub people_model: Option<&'a rawtonic_onnx::Model>,
+    /// The scene depth and camera (objects' normals, background reach).
+    pub scene: Option<(&'a DepthImage, Camera)>,
+    /// The sky mask: a new light does not reach the sky.
+    pub sky: Option<&'a image::GrayImage>,
+}
+
 pub fn analyze_subject(
     displayed: &DynamicImage,
     linear: bool,
     matte: &image::GrayImage,
-    faces: &[Vec<[f32; 4]>],
-    parse: Option<&rawtonic_faces::ParseCrop>,
-    people_model: Option<&rawtonic_onnx::Model>,
-    scene: Option<(&DepthImage, Camera)>,
+    context: SubjectContext,
 ) -> Result<(Vec<u8>, Option<[f32; 9]>)> {
+    let SubjectContext {
+        faces,
+        parse,
+        people_model,
+        scene,
+        sky,
+    } = context;
     use rawtonic_engine::relight::source;
     let (w, h) = displayed.dimensions();
     let scale = SUBJECT_SIDE as f32 / w.max(h) as f32;
@@ -322,7 +340,16 @@ pub fn analyze_subject(
         let map = image::ImageBuffer::from_fn(depth.width(), depth.height(), |x, y| {
             image::Luma([camera.inverse(depth.get_pixel(x, y)[0])])
         });
-        Some(source::background_reach(&map, &matte, inverse))
+        let mut reach = source::background_reach(&map, &matte, inverse);
+        // The sky cannot be lit (monocular depth puts it only a few times
+        // farther than the subject).
+        if let Some(sky) = sky {
+            let sky = image::imageops::resize(sky, tw, th, FilterType::Triangle);
+            for (r, s) in reach.pixels_mut().zip(sky.pixels()) {
+                r[0] = (r[0] as u32 * (255 - s[0] as u32) / 255) as u8;
+            }
+        }
+        Some(reach)
     });
     let specular = fitted
         .as_ref()
@@ -525,14 +552,20 @@ mod tests {
             )
             .unwrap()
         });
+        let sky = super::super::SkyModel::onnx(&dir.join("skyseg_upernet_convnext_t.onnx"))
+            .and_then(|model| super::super::run_sky_seg_model(&small, &model, false, None))
+            .ok();
         if let Ok((png, light)) = analyze_subject(
             &small,
             false,
             &matte,
-            &faces,
-            parse.as_ref(),
-            Some(&people),
-            Some((&depth, camera)),
+            SubjectContext {
+                faces: &faces,
+                parse: parse.as_ref(),
+                people_model: Some(&people),
+                scene: Some((&depth, camera)),
+                sky: sky.as_ref(),
+            },
         ) {
             eprintln!("subject {} ms, lighting {light:?}", t.elapsed().as_millis());
             std::fs::write(out.join("subject.png"), &png).unwrap();

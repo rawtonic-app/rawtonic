@@ -1052,6 +1052,12 @@ pub async fn generate_relight_depth(
         .inspect_err(|e| log::warn!("Relight: continuing without people normals: {e}"))
         .ok()
     };
+    // The sky: a new light does not reach it.
+    let sky_model = crate::ai_processing::get_or_init_sky_model(&app_handle, &state.ai_state, true)
+        .await
+        .inspect_err(|e| log::warn!("Relight: continuing without the sky model: {e}"))
+        .ok()
+        .flatten();
     let subject = match subject_model {
         Some(subject_model) => {
             let (small, faces, depth) = (small.clone(), faces.clone(), depth.clone());
@@ -1060,16 +1066,24 @@ pub async fn generate_relight_depth(
             tauri::async_runtime::spawn_blocking(move || {
                 let _running = second;
                 let start = std::time::Instant::now();
+                let sky = sky_model.as_ref().and_then(|model| {
+                    crate::ai_processing::run_sky_seg_model(&small, model, is_raw, None)
+                        .inspect_err(|e| log::warn!("Relight: sky analysis failed: {e}"))
+                        .ok()
+                });
                 crate::ai_processing::run_subject_model(&small, &subject_model, is_raw, None)
                     .and_then(|matte| {
                         let (png, light) = crate::ai_processing::analyze_subject(
                             &small,
                             is_raw,
                             &matte,
-                            &faces,
-                            parse.as_ref(),
-                            people_model.as_deref(),
-                            Some((&depth, camera)),
+                            crate::ai_processing::SubjectContext {
+                                faces: &faces,
+                                parse: parse.as_ref(),
+                                people_model: people_model.as_deref(),
+                                scene: Some((&depth, camera)),
+                                sky: sky.as_ref(),
+                            },
                         )?;
                         let inverse =
                             rawtonic_engine::relight::subject_inverse(&depth, camera, &matte);

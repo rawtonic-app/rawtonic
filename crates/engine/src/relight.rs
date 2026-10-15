@@ -703,7 +703,11 @@ mod tests {
             assert_eq!(register_depth(&invalid), [0; 4], "{key}");
             assert_eq!(Camera::uniforms(&invalid), ([0.; 4], [0.; 4]));
         }
+        // Version five keeps the camera; an unknown newer version is not
+        // decoded as an older map.
         recipe["relightDepth"]["version"] = serde_json::json!(5);
+        assert!(prepare_depth(&recipe).1.unwrap().camera.is_some());
+        recipe["relightDepth"]["version"] = serde_json::json!(6);
         assert_eq!(register_depth(&recipe), [0; 4]);
         recipe["relightDepth"]["version"] = serde_json::json!(3);
         assert!(prepare_depth(&recipe).1.unwrap().camera.is_none());
