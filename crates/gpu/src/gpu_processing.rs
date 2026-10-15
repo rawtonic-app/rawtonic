@@ -2663,7 +2663,7 @@ struct BlurTile {
 /// tile: the global noise-reduction and sharpening settings, the preview
 /// scale of the sharpening radius and the chromatic aberration correction.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct DetailKey([u32; 26]);
+struct DetailKey([u32; 34]);
 
 impl DetailKey {
     fn of(global: &crate::image_processing::GlobalAdjustments) -> Self {
@@ -2694,6 +2694,16 @@ impl DetailKey {
             global.color_noise[1].to_bits(),
             global.color_noise[2].to_bits(),
             global.color_noise[3].to_bits(),
+            // The luminance noise profile changes the detail stage too (a
+            // version switch at Color 0 leaves color_noise zeroed).
+            global.luma_noise_profile[0][0].to_bits(),
+            global.luma_noise_profile[0][1].to_bits(),
+            global.luma_noise_profile[0][2].to_bits(),
+            global.luma_noise_profile[0][3].to_bits(),
+            global.luma_noise_profile[1][0].to_bits(),
+            global.luma_noise_profile[1][1].to_bits(),
+            global.luma_noise_profile[1][2].to_bits(),
+            global.luma_noise_profile[1][3].to_bits(),
         ])
     }
 

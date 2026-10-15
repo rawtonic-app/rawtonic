@@ -1185,10 +1185,13 @@ pub fn process_image_for_export_pipeline(
     };
 
     // The multi-scale colour noise reduction measures the full-resolution
-    // source while its CPU pixels exist.
+    // source while its CPU pixels exist; so does the luminance noise
+    // profile of a version-2 recipe at Color 0 (gpu_processing
+    // `luma_profile_wanted`), else the export loses it.
     let global = &request.adjustments.global;
-    let color_noise =
-        (global.color_noise[0] > 0.0 && global.color_noise_reduction > 0.0).then_some(is_raw);
+    let color_noise = (global.color_noise[0] > 0.0
+        && (global.color_noise_reduction > 0.0 || global.luma_noise_reduction > 0.0))
+        .then_some(is_raw);
     let Some(uploaded) =
         upload_render_source(context, &transformed_image, unique_hash, color_noise)?
     else {
