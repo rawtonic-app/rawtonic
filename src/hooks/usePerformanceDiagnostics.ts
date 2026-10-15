@@ -101,7 +101,7 @@ export function registerDiagnosticQueue(name: QueueName, queue: QueueStats) {
   };
 }
 
-/** One press–drag–release on the canvas with real input: event rates,
+/** One press–drag–release on the canvas or a slider with real input: event rates,
  * animation-frame gaps and how many render requests were dropped in favour of
  * newer pointer states. */
 interface PointerSession {
@@ -302,11 +302,13 @@ export function usePerformanceDiagnostics() {
         window.clearTimeout(finishTimer);
         finishPointerSession(pointerSession);
       }
-      if (event.button !== 0 || !(event.target instanceof HTMLCanvasElement) ||
+      // Sessions cover drags on the canvas and on Develop's sliders.
+      const slider = event.target instanceof HTMLInputElement && event.target.type === "range";
+      if (event.button !== 0 || !(slider || event.target instanceof HTMLCanvasElement) ||
           useUIStore.getState().activeView !== "editor") return;
       pointerSession = {
         pointerType: event.pointerType,
-        maskType: activeMaskType(),
+        maskType: slider ? "slider" : activeMaskType(),
         started: performance.now(),
         ended: 0,
         moveTimes: [],

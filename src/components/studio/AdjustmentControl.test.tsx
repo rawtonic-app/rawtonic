@@ -62,7 +62,7 @@ describe("professional adjustment control", () => {
     fireEvent.doubleClick(slider);
     expect(change).toHaveBeenLastCalledWith(0);
   });
-  it("coalesces drag updates and flushes the final value on release", () => {
+  it("sends drag input at once, coalesces faster input and flushes the final value on release", () => {
     vi.useFakeTimers();
     const change = vi.fn();
     const interaction = vi.fn();
@@ -76,14 +76,24 @@ describe("professional adjustment control", () => {
     );
     const slider = screen.getByRole("slider");
     fireEvent.pointerDown(slider);
+    // The first move goes out with its event; moves within 8 ms of it
+    // wait for the next animation frame and only the newest is sent.
     [1, 2, 3, 4].forEach((value) =>
       fireEvent.change(slider, { target: { value } }),
     );
-    expect(change).not.toHaveBeenCalled();
-    act(() => vi.advanceTimersByTime(16));
     expect(change).toHaveBeenCalledTimes(1);
+    expect(change).toHaveBeenLastCalledWith(1);
+    act(() => vi.advanceTimersByTime(16));
+    expect(change).toHaveBeenCalledTimes(2);
     expect(change).toHaveBeenLastCalledWith(4);
+    // A move a 60 Hz mouse later is sent with its event.
+    act(() => vi.advanceTimersByTime(16));
+    fireEvent.change(slider, { target: { value: 5 } });
+    expect(change).toHaveBeenCalledTimes(3);
+    expect(change).toHaveBeenLastCalledWith(5);
+    act(() => vi.advanceTimersByTime(1));
     fireEvent.change(slider, { target: { value: 7 } });
+    expect(change).toHaveBeenCalledTimes(3);
     fireEvent.pointerUp(slider);
     expect(change).toHaveBeenLastCalledWith(7);
     expect(interaction).toHaveBeenLastCalledWith(false);

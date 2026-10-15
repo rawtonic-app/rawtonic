@@ -280,7 +280,7 @@ export function useImageProcessing(
                 }
               : {}),
           });
-          if (live && inputAt > 0) notePointerSessionFrame('preview', performanceEnd - inputAt);
+          if ((live || dragging) && inputAt > 0) notePointerSessionFrame('preview', performanceEnd - inputAt);
         }
 
         if (newlySentPatches.size > 0) {
