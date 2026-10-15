@@ -589,11 +589,55 @@ pub fn generate_thumbnail_data(
 /// smallest embedded camera preview that is at least `size / 2` pixels on its
 /// short side, else its small TIFF thumbnail (no RAW decode); other images
 /// decoded and scaled. Only a file without any of these is developed (fast
-/// mode, as the library's thumbnails). Reads the file only (memory-mapped);
-/// never writes or caches anything. `None` when nothing could be read, and
+/// mode, as the library's thumbnails). Reads the file only (memory-mapped,
+/// read into memory on a card: `read_import_source`); never writes or
+/// caches anything. `None` when nothing could be read, and
 /// for cloud placeholders (no download).
 pub(crate) fn source_preview_jpeg(path: &Path, size: u32) -> Option<Vec<u8>> {
     encode_thumbnail(&source_preview_image(path, size)?, size).ok()
+}
+
+/// A photograph to import, as the import dialog's previews read it.
+enum ImportSource {
+    /// Memory-mapped: only the parts a preview needs are read.
+    Mapped(memmap2::Mmap),
+    /// Read into memory.
+    Read(Vec<u8>),
+}
+
+impl std::ops::Deref for ImportSource {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            Self::Mapped(map) => map,
+            Self::Read(bytes) => bytes,
+        }
+    }
+}
+
+/// Whether a photograph to import is read into memory rather than mapped:
+/// on a memory card or other removable medium (`Medium::Card`) a card
+/// pulled while a memory map of it is read raises SIGBUS and kills the app,
+/// where a read only fails. Costs a full read of the file per preview there.
+fn read_import_into_memory(path: &Path) -> bool {
+    rawtonic_ingest::batch::source_medium(path) == rawtonic_ingest::batch::Medium::Card
+}
+
+/// A photograph to import for `source_preview_jpeg`, `source_large_preview_jpeg`
+/// and `source_capture_info`: read into memory on a card, mapped elsewhere
+/// (as `read_file_mapped`: refusing missing, empty or locked files).
+fn read_import_source(path: &Path) -> Option<ImportSource> {
+    if !read_import_into_memory(path) {
+        return read_file_mapped(path).ok().map(ImportSource::Mapped);
+    }
+    let file = fs::File::open(path).ok()?;
+    if !file.metadata().ok()?.is_file() || file.try_lock_shared().is_err() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut &file, &mut bytes).ok()?;
+    (!bytes.is_empty()).then_some(ImportSource::Read(bytes))
 }
 
 /// `source_preview_jpeg`'s image before scaling.
@@ -602,7 +646,7 @@ fn source_preview_image(path: &Path, size: u32) -> Option<DynamicImage> {
         return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_file_mapped(path).ok()?;
+        let bytes = read_import_source(path)?;
         quick_source_preview(&bytes, path, size).or_else(|| {
             let path_str = path.to_string_lossy();
             let mut image = image_loader::load_and_composite(
@@ -638,7 +682,7 @@ pub(crate) fn source_large_preview_jpeg(path: &Path, max_size: u32) -> Option<Ve
     // Below this an embedded JPEG is a thumbnail, not a viewable preview.
     let viewable = max_size.min(1280);
     let passthrough = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_file_mapped(path).ok()?;
+        let bytes = read_import_source(path)?;
         let jpeg = if is_raw_file(path) {
             image_loader::priority_embedded_jpeg(&bytes)?
         } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
@@ -679,7 +723,7 @@ pub(crate) fn source_capture_info(path: &Path) -> SourceCaptureInfo {
         return SourceCaptureInfo::default();
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let bytes = read_file_mapped(path).ok()?;
+        let bytes = read_import_source(path)?;
         let exif =
             crate::exif_processing::read_exif_data_from_bytes(&path.to_string_lossy(), &bytes);
         let field = |keys: &[&str]| {
@@ -1251,6 +1295,41 @@ mod source_preview_tests {
             files.len(),
             "nothing written"
         );
+    }
+
+    /// On a memory card (a camera's DCIM folder here) the import dialog
+    /// reads photographs into memory instead of mapping them, so a card
+    /// pulled meanwhile fails a read instead of killing the app (SIGBUS);
+    /// the previews are the same.
+    #[test]
+    fn photographs_on_a_card_are_read_not_memory_mapped_for_import_previews() {
+        let directory = tempfile::tempdir().unwrap();
+        let card = directory.path().join("DCIM/100MSDCF");
+        fs::create_dir_all(&card).unwrap();
+        let raw = card.join("DSC00001.DNG");
+        let bytes = raw_with_embedded_jpeg(&jpeg_bytes(2400, 1600), 1);
+        fs::write(&raw, &bytes).unwrap();
+        let disk = directory.path().join("DSC00001.DNG");
+        fs::write(&disk, &bytes).unwrap();
+        assert!(matches!(
+            read_import_source(&raw),
+            Some(ImportSource::Read(read)) if read == bytes
+        ));
+        assert!(matches!(
+            read_import_source(&disk),
+            Some(ImportSource::Mapped(_))
+        ));
+        assert_eq!(
+            source_large_preview_jpeg(&raw, 2560),
+            source_large_preview_jpeg(&disk, 2560)
+        );
+        assert!(source_preview_jpeg(&raw, 320).is_some());
+        assert_eq!(source_capture_info(&raw), source_capture_info(&disk));
+        // Empty or gone: nothing, as with a mapped file.
+        let empty = card.join("EMPTY.DNG");
+        fs::write(&empty, b"").unwrap();
+        assert!(read_import_source(&empty).is_none());
+        assert!(read_import_source(&card.join("GONE.DNG")).is_none());
     }
 
     /// The import dialog's large view: a RAW's embedded camera JPEG at its

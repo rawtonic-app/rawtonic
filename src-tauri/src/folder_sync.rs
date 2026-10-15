@@ -79,6 +79,9 @@ pub fn folder_sync_cancel() {
 /// again and skipped when disk or library changed since; moved photographs
 /// take their previews along and get their derived sidecars written as
 /// after a relink. Files on disk are never moved, modified or deleted.
+/// When adding the new files fails after the moves and removals were
+/// applied, those are still followed and reported, the files in `skipped`
+/// (and `addError`).
 #[tauri::command]
 pub async fn folder_sync_apply(
     directory: String,
@@ -88,6 +91,9 @@ pub async fn folder_sync_apply(
         let applied = lib
             .apply_folder_sync(&actions)
             .map_err(|e| format!("{e:#}"))?;
+        if let Some(error) = &applied.add_error {
+            log::warn!("Synchronize Folder: new files not added: {error}");
+        }
         after_relink(lib, &applied.relinked());
         if !applied.added.is_empty() {
             start_checksum_pass(lib.directory.clone());
