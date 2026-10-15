@@ -8,6 +8,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { frameDrawnMasks } from '../utils/maskGeometry';
+import { globalImageCache } from '../utils/ImageLRUCache';
 import type { Adjustments } from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
@@ -50,6 +51,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     if (!enabled) return;
     const run = ++liveRuns;
     let pending: Partial<Adjustments> = {};
+    // The photographs selected while the pending edits were made: they get
+    // them even when the selection changes before they are written.
+    let targets = new Set<string>();
     // Written to the others but not confirmed yet: still shown live.
     let inflight: Partial<Adjustments> = {};
     let writes = 0;
@@ -82,18 +86,28 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     const flush = debounce(() => {
       const changes = pending;
       const from = source;
+      const others = [...targets].filter((path) => path !== from?.path);
       pending = {};
+      targets = new Set();
       if (!from || Object.keys(changes).length === 0) return;
-      const others = selectionRef.current.filter((path) => path !== from.path);
       if (others.length === 0) return;
+      const shownBefore = inflight;
       inflight = { ...inflight, ...changes };
       if (changes.masks) {
         changes.masks = frameDrawnMasks(changes.masks, from.adjustments, from.width, from.height);
       }
       const write = ++writes;
-      const done = applyRef.current(changes, others);
-      lastWrite = done ?? null;
-      void done?.then(() => {
+      // Written at the switch to another primary (see below): that one may
+      // be one of the others, still opening.
+      const done = applyRef.current(changes, others, { openingNow: true });
+      if (!done) {
+        // Nothing was written: the cells show their recipes again.
+        if (write === writes) inflight = shownBefore;
+        sendLive();
+        return;
+      }
+      lastWrite = done;
+      void done.then(() => {
         // Written: the others show it from their recipes now.
         if (write === writes) inflight = {};
         useMultiViewStore.getState().recipesSaved();
@@ -101,6 +115,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       });
     }, EDIT_ALL_SETTLE_MS);
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
+      // Another primary: what the last one gathered is written now, before
+      // the new one's loader reads its recipe (it may be one of the others).
+      if (state.selectedImage?.path !== previous.selectedImage?.path) flush.flush();
       if (state.adjustments === previous.adjustments) return;
       const image = state.selectedImage;
       // Only edits: not a photograph being opened or its recipe arriving.
@@ -112,12 +129,19 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (source && source.path !== image.path) flush.flush();
       source = { path: image.path, adjustments: state.adjustments, width: image.width, height: image.height };
       pending = { ...pending, ...changed };
+      selectionRef.current.forEach((path) => {
+        if (path === image.path) return;
+        targets.add(path);
+        // Opened before the write, it must read its recipe, not a cached one.
+        globalImageCache.delete(path);
+      });
       flush();
       sendLive();
     });
     return () => {
       unsubscribe();
-      // Switching it off keeps what was already done.
+      // Switching it off keeps what was already done (for the photographs
+      // selected when it was done).
       flush.flush();
       if (liveTimer !== null) clearTimeout(liveTimer);
       // The live patch goes once the last write is in (else the cells would
