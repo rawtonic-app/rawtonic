@@ -416,7 +416,8 @@ pub fn fit(
     })
 }
 
-/// Takes the people weight back where the photo is far brighter than its
+/// Takes the people weight and the matte back, outside skin, where the
+/// photo is far brighter than its
 /// fitted shading allows: material over 3× the skin's albedo is background
 /// caught in a soft matte (sky above hair) or a highlight, where dividing by
 /// the shading would multiply the brightness rather than lift a shadow.
@@ -424,11 +425,14 @@ pub fn limit_to_consistent(
     linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
     normals: &Normals,
     people: &mut image::GrayImage,
+    matte: &mut image::GrayImage,
+    skin: &image::GrayImage,
     light: &SourceLight,
 ) {
     let reference = light.skin_albedo.max(1e-4);
     for (x, y, w) in people.enumerate_pixels_mut() {
-        if w[0] == 0 {
+        // Skin is what the light was fitted on: never background.
+        if w[0] == 0 || skin.get_pixel(x, y)[0] > 128 {
             continue;
         }
         let c = linear.get_pixel(x, y).0;
@@ -438,6 +442,9 @@ pub fn limit_to_consistent(
         let keep = 1. - ((ratio - 3.) / 3.).clamp(0., 1.);
         let keep = keep * keep * (3. - 2. * keep);
         w[0] = (w[0] as f32 * keep).round() as u8;
+        // Sky caught in the matte (wisps of hair) is background.
+        let m = matte.get_pixel_mut(x, y);
+        m[0] = (m[0] as f32 * keep).round() as u8;
     }
 }
 
@@ -460,8 +467,9 @@ pub fn background_reach(
         let iy = ((y as f32 + 0.5) / h as f32 * ih as f32) as u32;
         inverse.get_pixel(ix.min(iw - 1), iy.min(ih - 1))[0]
     };
-    // Exclude the matte and a band around it (4 % of the short side).
-    let band = (w.min(h) as f32 * 0.04).max(2.) as i32;
+    // Exclude the matte and a band around it (8 % of the short side): the
+    // depth model blurs the subject that far into its surroundings.
+    let band = (w.min(h) as f32 * 0.08).max(2.) as i32;
     let covered = image::imageops::blur(
         &image::GrayImage::from_fn(w, h, |x, y| {
             image::Luma([if matte.get_pixel(x, y)[0] > 25 {
@@ -513,9 +521,17 @@ pub fn background_reach(
         sigma *= 2.;
     }
     let subject = subject_inverse.max(1e-6);
+    // Light on a background is low-frequency: a smooth depth field leaves
+    // no seam where the filled band meets the measured depth.
+    let field = image::imageops::blur(
+        &ImageBuffer::<image::Luma<f32>, _>::from_fn(w, h, |x, y| {
+            let i = (y * w + x) as usize;
+            image::Luma([if known[i] >= 0.5 { filled[i] } else { at(x, y) }])
+        }),
+        band as f32,
+    );
     image::GrayImage::from_fn(w, h, |x, y| {
-        let i = (y * w + x) as usize;
-        let depth = if known[i] >= 0.5 { filled[i] } else { at(x, y) };
+        let depth = field.get_pixel(x, y)[0];
         // A light set up at the subject falls off with the square of the
         // distance: (subject distance / background distance)².
         let ratio = (depth / subject).clamp(0., 1.);
@@ -632,7 +648,18 @@ mod tests {
             }
         }
         let mut people = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
-        limit_to_consistent(&image, &normals, &mut people, &c);
+        let mut matte = people.clone();
+        let skin = image::GrayImage::new(64, 64);
+        limit_to_consistent(&image, &normals, &mut people, &mut matte, &skin, &c);
+        assert_eq!(matte.get_pixel(2, 2)[0], 0);
+        // Skin keeps its weight, however bright.
+        let mut people = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
+        let skin = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
+        limit_to_consistent(&image, &normals, &mut people, &mut matte, &skin, &c);
+        assert_eq!(people.get_pixel(2, 2)[0], 255);
+        let mut people = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
+        let skin = image::GrayImage::new(64, 64);
+        limit_to_consistent(&image, &normals, &mut people, &mut matte, &skin, &c);
         assert_eq!(people.get_pixel(2, 2)[0], 0);
         assert!(people.get_pixel(32, 32)[0] > 250);
     }

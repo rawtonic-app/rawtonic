@@ -7523,7 +7523,9 @@ fn relight_subject_casts_its_shadow_on_the_background() {
         |x, _| match x {
             0..40 => image::Rgba([32768, 32768, 65535, 0]),
             40..128 => image::Rgba([32768, 32768, 0, 0]),
-            _ => image::Rgba([0, 65535, 0, 65535]),
+            128..168 => image::Rgba([0, 65535, 0, 65535]),
+            // Reach of the wall: (0.7 / 1.0)².
+            _ => image::Rgba([0, 32113, 0, 65535]),
         },
     )));
     let mut recipe = json!({
@@ -7563,24 +7565,27 @@ fn relight_subject_casts_its_shadow_on_the_background() {
         }
     };
     let row = |pixels: &[u16]| -> Vec<u16> {
-        (40..w as usize)
+        // Clear of the matte edge, where the reach map is interpolated.
+        (44..w as usize)
             .map(|x| pixels[(16 * w as usize + x) * 4 + 1])
             .collect()
     };
     let lit = row(&render(&recipe));
-    let darkest = *lit.iter().min().unwrap();
-    let brightest = *lit.iter().max().unwrap();
+    let darkest = *lit.iter().min().unwrap() as u32;
+    let brightest = *lit.iter().max().unwrap() as u32;
     assert!(
         darkest * 10 < brightest * 8,
         "shadow {darkest} vs lit {brightest}"
     );
     // The shadow lies right of the subject (light from the left), not at the
     // far right edge.
-    let at = lit.iter().position(|v| *v == darkest).unwrap();
-    assert!(at < 60, "shadow at {}", at + 40);
+    let at = lit.iter().position(|v| *v as u32 == darkest).unwrap();
+    assert!(at < 60, "shadow at {}", at + 44);
     recipe["relightLights"][0]["shadows"] = json!(0);
     let unshaded = row(&render(&recipe));
-    assert!(*unshaded.iter().min().unwrap() * 10 >= *unshaded.iter().max().unwrap() * 9);
+    assert!(
+        *unshaded.iter().min().unwrap() as u32 * 10 >= *unshaded.iter().max().unwrap() as u32 * 9
+    );
 }
 
 #[test]

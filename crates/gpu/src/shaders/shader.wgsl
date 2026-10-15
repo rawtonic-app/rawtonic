@@ -4836,11 +4836,15 @@ fn relight_subject_sample(uv: vec2<f32>, part: f32) -> vec4<f32> {
 // thin card at its median distance (relight_source.rs, version five): the
 // ray towards the light reaches the subject's distance at one point; the
 // matte there (averaged over a softness-sized disc) is the shadow.
-fn relight_subject_shadow(uv: vec2<f32>, receiver: vec3<f32>, direction: vec3<f32>, strength: f32, softness: f32) -> f32 {
+fn relight_subject_shadow(uv: vec2<f32>, reach: f32, direction: vec3<f32>, strength: f32, softness: f32) -> f32 {
     let subject_inverse = adjustments.global.relight_source[3].x;
     if (adjustments.global.relight_source[2].y < 0.5 || subject_inverse <= 0.0 || direction.z <= 0.05) { return 1.0; }
     let c = adjustments.global.relight_camera;
     let g = adjustments.global.relight_geometry;
+    // The receiver at the background's depth around the subject (the reach
+    // map: (inverse / subject's)², relight_source.rs), not the depth map,
+    // which blurs the subject into its surroundings.
+    let receiver = relight_position(uv, sqrt(max(reach, 0.0)) * subject_inverse, strength);
     let gap = relight_position(uv, subject_inverse, strength).z - receiver.z;
     if (gap <= 0.0001) { return 1.0; }
     let hit = receiver + direction * (gap / direction.z);
@@ -4881,7 +4885,7 @@ fn relight_source_shading(n: vec3<f32>) -> f32 {
 const RELIGHT_MIN_SHADING: f32 = 0.2;
 
 
-fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool, people: vec4<f32>) -> RelightEnergy {
+fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool, people: vec4<f32>, reach_map: f32) -> RelightEnergy {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
     let camera_mode = scene_only || adjustments.global.relight_geometry.w > 0.5;
     let strength = adjustments.global.relight_surface.x;
@@ -5046,7 +5050,7 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                 // The subject's shadow on its background (version five):
                 // only the matte occludes, so depth noise casts nothing.
                 if (!scene_only && camera_lighting && response > 0.0 && settings.z > 0.0 && people.z < 0.5) {
-                    let thrown = relight_subject_shadow(uv, world_position, direction, strength, shape.z);
+                    let thrown = relight_subject_shadow(uv, reach_map, direction, strength, shape.z);
                     response *= mix(1.0, thrown, settings.z * (1.0 - shape.w * 0.5));
                 }
             }
@@ -5122,7 +5126,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         let face_weight = smoothstep(0.0, 0.2, surface.a);
         surface = vec4<f32>(mix(scene_surface.xyz, surface.xyz, face_weight), surface.a);
     }
-    let energy = relight_energy(surface, uv, coord, dims, false, people);
+    let energy = relight_energy(surface, uv, coord, dims, false, people, background_reach);
     var light_gain = energy.diffuse;
     // Incident radiance must receive the same exposure as the diffuse photo.
     // Otherwise reducing exposure leaves newly added dielectric highlights fixed.
@@ -5132,7 +5136,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     if (confidence > 0.0 && has_light) {
         var separated = vec3<f32>(0.0);
         for (var j = 0u; j < 4u; j++) {
-            separated += weights[j] * relight_energy(planes[j], uv, coord, dims, true, vec4<f32>(0.0)).diffuse;
+            separated += weights[j] * relight_energy(planes[j], uv, coord, dims, true, vec4<f32>(0.0), 1.0).diffuse;
         }
         light_gain = mix(light_gain, separated, confidence);
     }

@@ -189,7 +189,7 @@ pub fn analyze_subject(
     } else {
         (w, h)
     };
-    let matte = image::imageops::resize(matte, tw, th, FilterType::Triangle);
+    let mut matte = image::imageops::resize(matte, tw, th, FilterType::Triangle);
     // People: the subject's extent, with a margin, in the displayed frame.
     let (mut lo, mut hi) = ([u32::MAX; 2], [0u32; 2]);
     for (x, y, p) in matte.enumerate_pixels() {
@@ -304,8 +304,16 @@ pub fn analyze_subject(
     let light = (normal_at.is_some() || object_normals.is_some())
         .then(|| source::fit(&linear_rgb, &normals, &subject, &material))
         .flatten();
-    if let Some(light) = &light {
-        source::limit_to_consistent(&linear_rgb, &normals, &mut people, light);
+    // People only: an object's other materials (a white label) are its own.
+    if let Some(light) = light.as_ref().filter(|_| normal_at.is_some()) {
+        source::limit_to_consistent(
+            &linear_rgb,
+            &normals,
+            &mut people,
+            &mut matte,
+            &material,
+            light,
+        );
     }
     let fitted = light;
     let light = fitted.map(|l| l.coefficients);
