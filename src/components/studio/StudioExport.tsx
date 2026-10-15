@@ -112,7 +112,11 @@ export function formatFileSize(bytes: number): string {
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
-export default function StudioExport() {
+/**
+ * `onStarted`: called once exports are queued, as the dialog closes then
+ * (Lightroom's Export closes; progress stays on the top bar's button).
+ */
+export default function StudioExport({ onStarted }: { onStarted?: () => void } = {}) {
   const { t } = useTranslation();
   const selected = useLibraryStore((s) => s.multiSelectedPaths);
   const image = useEditorStore((s) => s.selectedImage);
@@ -388,6 +392,7 @@ export default function StudioExport() {
         });
         started++;
       }
+      if (started) onStarted?.();
       if (started && (queued || started > 1))
         toast.success(
           started > 1

@@ -2455,6 +2455,10 @@
         "title": "Nawigator"
       }
     },
+    "loadError": {
+      "failed": "Nie udało się otworzyć „{{name}}”: {{error}}",
+      "unreadable": "Nie można otworzyć „{{name}}”. Plik może być uszkodzony, nie jest plikiem RAW, jak wskazuje nazwa, albo pochodzi z aparatu, którego Rawtonic jeszcze nie obsługuje."
+    },
     "lut": {
       "amount": "Ilość",
       "aria": {

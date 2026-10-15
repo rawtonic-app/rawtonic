@@ -25,7 +25,7 @@ pub use volume::Volume;
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 6;
+pub const DB_SCHEMA_VERSION: u32 = 7;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -223,6 +223,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0004.sql"))?;
         conn.execute_batch(include_str!("../migrations/0005.sql"))?;
         conn.execute_batch(include_str!("../migrations/0006.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0007.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -319,6 +320,9 @@ impl Library {
         }
         if version < 6 {
             tx.execute_batch(include_str!("../migrations/0006.sql"))?;
+        }
+        if version < 7 {
+            tx.execute_batch(include_str!("../migrations/0007.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -763,9 +767,14 @@ impl Library {
                 .is_none_or(Vec::is_empty),
             "Independent layers are not implemented; use the inherited mask recipe"
         );
-        let bytes = serde_json::to_string(payload)?;
-        ensure!(bytes.len() <= 64 * 1024 * 1024, "Recipe too large");
+        ensure!(
+            serde_json::to_string(payload)?.len() <= 64 * 1024 * 1024,
+            "Recipe too large"
+        );
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let mut stored = payload.clone();
+        let hashes = store_blobs(&tx, &mut stored)?;
+        let bytes = serde_json::to_string(&stored)?;
         let head: Option<i64> =
             tx.query_row("SELECT head FROM versions WHERE id=?", [version], |r| {
                 r.get(0)
@@ -785,6 +794,7 @@ impl Library {
             params![version, head, bytes, snapshot],
         )?;
         let id = tx.last_insert_rowid();
+        refer_blobs(&tx, id, &hashes)?;
         tx.execute(
             "UPDATE versions SET head=? WHERE id=?",
             params![id, version],
@@ -802,8 +812,12 @@ impl Library {
                 |r| r.get(0),
             )
             .optional()?;
-        text.map(|s| serde_json::from_str(&s).map_err(Into::into))
-            .transpose()
+        text.map(|s| {
+            let mut value = serde_json::from_str(&s)?;
+            load_blobs(&self.conn, &mut value)?;
+            Ok(value)
+        })
+        .transpose()
     }
 
     /// Editor adapter: the DB owns the serialized state; sidecars are derived.
@@ -914,6 +928,9 @@ impl Library {
                 .map(|text| serde_json::from_str::<Value>(&text))
                 .transpose()?
                 .and_then(|recipe| recipe.get("editor_state").cloned());
+            if let Some(ref mut state) = state {
+                load_blobs(&self.conn, state)?;
+            }
             if let Some(ref mut state) = state {
                 let metadata: String = row.get(4)?;
                 apply_editor_metadata(state, serde_json::from_str(&metadata)?);
@@ -1644,10 +1661,12 @@ impl Library {
 
     /// Forgets a virtual copy (its sidecar was deleted). Returns whether one was recorded.
     pub fn remove_copy(&self, asset: &str, copy: &str) -> Result<bool> {
-        Ok(self.conn.execute(
+        let removed = self.conn.execute(
             "DELETE FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
             params![asset, copy],
-        )? > 0)
+        )? > 0;
+        prune_blobs(&self.conn)?;
+        Ok(removed)
     }
 }
 
@@ -1703,6 +1722,10 @@ fn forget_xmp_left_behind(tx: &Connection, id: &str, path: &Path) -> Result<()> 
 /// Makes `payload` the head recipe of `version` (a new history entry unless
 /// it is the head already).
 fn write_recipe(tx: &Connection, version: &str, payload: &str) -> Result<()> {
+    let mut stored: Value = serde_json::from_str(payload)?;
+    let hashes = store_blobs(tx, &mut stored)?;
+    let payload = serde_json::to_string(&stored)?;
+    let payload = payload.as_str();
     let head: Option<i64> =
         tx.query_row("SELECT head FROM versions WHERE id=?", [version], |r| {
             r.get(0)
@@ -1715,11 +1738,100 @@ fn write_recipe(tx: &Connection, version: &str, payload: &str) -> Result<()> {
             "INSERT INTO recipes(version_id,parent,payload) VALUES(?,?,?)",
             params![version, head, payload],
         )?;
+        let id = tx.last_insert_rowid();
+        refer_blobs(tx, id, &hashes)?;
         tx.execute(
             "UPDATE versions SET head=? WHERE id=?",
-            params![tx.last_insert_rowid(), version],
+            params![id, version],
         )?;
     }
+    Ok(())
+}
+
+/// Recipe strings from this length on are stored once (`recipe_blobs`).
+const BLOB_MIN_LEN: usize = 16 * 1024;
+const BLOB_PREFIX: &str = "rawtonic-blob:sha256:";
+
+/// Moves the long strings of `value` (data URLs of masks and analyses) into
+/// `recipe_blobs`, leaving references; returns their hashes.
+fn store_blobs(tx: &Connection, value: &mut Value) -> Result<Vec<String>> {
+    let mut hashes = Vec::new();
+    let mut error = None;
+    visit_strings(value, &mut |text| {
+        if text.len() < BLOB_MIN_LEN || error.is_some() {
+            return;
+        }
+        let hash: String = <sha2::Sha256 as sha2::Digest>::digest(text.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        match tx.execute(
+            "INSERT OR IGNORE INTO recipe_blobs(hash,data) VALUES(?,?)",
+            params![hash, text.as_str()],
+        ) {
+            Ok(_) => {
+                *text = format!("{BLOB_PREFIX}{hash}");
+                hashes.push(hash);
+            }
+            Err(e) => error = Some(e),
+        }
+    });
+    if let Some(e) = error {
+        return Err(e.into());
+    }
+    hashes.sort();
+    hashes.dedup();
+    Ok(hashes)
+}
+
+fn refer_blobs(tx: &Connection, recipe: i64, hashes: &[String]) -> Result<()> {
+    for hash in hashes {
+        tx.execute(
+            "INSERT OR IGNORE INTO recipe_blob_refs(recipe_id,hash) VALUES(?,?)",
+            params![recipe, hash],
+        )?;
+    }
+    Ok(())
+}
+
+/// Puts the stored strings back in place of their references.
+fn load_blobs(conn: &Connection, value: &mut Value) -> Result<()> {
+    let mut error = None;
+    visit_strings(value, &mut |text| {
+        let Some(hash) = text.strip_prefix(BLOB_PREFIX) else {
+            return;
+        };
+        if error.is_some() {
+            return;
+        }
+        match conn.query_row("SELECT data FROM recipe_blobs WHERE hash=?", [hash], |r| {
+            r.get::<_, String>(0)
+        }) {
+            Ok(data) => *text = data,
+            Err(e) => error = Some(e),
+        }
+    });
+    match error {
+        Some(e) => Err(e.into()),
+        None => Ok(()),
+    }
+}
+
+fn visit_strings(value: &mut Value, visit: &mut impl FnMut(&mut String)) {
+    match value {
+        Value::String(text) => visit(text),
+        Value::Array(items) => items.iter_mut().for_each(|v| visit_strings(v, visit)),
+        Value::Object(map) => map.values_mut().for_each(|v| visit_strings(v, visit)),
+        _ => {}
+    }
+}
+
+/// Drops stored strings no recipe refers to any more (after removals).
+pub(crate) fn prune_blobs(tx: &Connection) -> Result<()> {
+    tx.execute(
+        "DELETE FROM recipe_blobs WHERE hash NOT IN (SELECT hash FROM recipe_blob_refs)",
+        [],
+    )?;
     Ok(())
 }
 

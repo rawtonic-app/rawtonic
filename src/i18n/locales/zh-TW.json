@@ -2263,6 +2263,10 @@
         "title": "導覽器"
       }
     },
+    "loadError": {
+      "failed": "無法開啟「{{name}}」：{{error}}",
+      "unreadable": "無法開啟「{{name}}」。檔案可能已損毀、並非其名稱所示的 RAW 檔，或來自 Rawtonic 尚未支援的相機。"
+    },
     "lut": {
       "amount": "數量",
       "aria": {

@@ -2384,6 +2384,10 @@
         "title": "Navegador"
       }
     },
+    "loadError": {
+      "failed": "No se pudo abrir «{{name}}»: {{error}}",
+      "unreadable": "No se puede abrir «{{name}}». Puede que esté dañado, que no sea el archivo RAW que indica su nombre o que sea de una cámara que Rawtonic aún no admite."
+    },
     "lut": {
       "amount": "Cantidad",
       "aria": {

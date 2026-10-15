@@ -2384,6 +2384,10 @@
         "title": "Navegador"
       }
     },
+    "loadError": {
+      "failed": "No s'ha pogut obrir «{{name}}»: {{error}}",
+      "unreadable": "No es pot obrir «{{name}}». Pot estar malmès, no ser el fitxer RAW que indica el nom o ser d'una càmera que Rawtonic encara no admet."
+    },
     "lut": {
       "amount": "Quantitat",
       "aria": {

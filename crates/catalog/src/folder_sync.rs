@@ -978,6 +978,7 @@ impl Library {
             }
             // Also drops external roots left without photographs.
             self.apply_places(&tx, &places)?;
+            crate::prune_blobs(&tx)?;
             tx.commit()?;
             applied.moved = moves.into_iter().map(|(_, from, to)| (from, to)).collect();
             applied.removed = removals.into_iter().map(|(_, path)| path).collect();
