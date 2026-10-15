@@ -136,7 +136,9 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
   );
 }
 
-function isCurrentEditorImage(path: string): boolean {
+/** Whether `path` is still the open, fully loaded photograph (an async
+ * result may only reach the editor then). */
+export function isCurrentEditorImage(path: string): boolean {
   const image = useEditorStore.getState().selectedImage;
   return image?.path === path && image.isReady;
 }

@@ -98,3 +98,26 @@ it('applies a preset to the selection from the Library', async () => {
     }),
   );
 });
+
+it('leaves the next photograph alone when auto adjustments finish after a switch', async () => {
+  const { invoke } = await import('@tauri-apps/api/core');
+  let finishAuto!: () => void;
+  vi.mocked(invoke).mockImplementation((command) => {
+    if (command === 'apply_auto_adjustments_to_paths') return new Promise<void>((resolve) => { finishAuto = resolve; }) as never;
+    if (command === 'load_metadata') return Promise.resolve({ adjustments: { exposure: 2 } }) as never;
+    return Promise.resolve() as never;
+  });
+  const photo = (path: string) => ({ path, isReady: true, isRaw: true, width: 6000, height: 4000 }) as never;
+  useUIStore.setState({ activeView: 'editor' });
+  useEditorStore.getState().setEditor({ selectedImage: photo(raw) });
+  find(openMenu(raw), 'contextMenus.thumbnail.autoAdjust')!.onClick!();
+  useEditorStore.getState().setEditor({ selectedImage: photo('/s/Capture/DSCF0147.RAF') });
+  const before = useEditorStore.getState().adjustments;
+  const history = useEditorStore.getState().history;
+  finishAuto();
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(invoke).not.toHaveBeenCalledWith('load_metadata', { path: raw });
+  expect(useEditorStore.getState().adjustments).toBe(before);
+  expect(useEditorStore.getState().history).toBe(history);
+});

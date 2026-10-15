@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Trans, useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
-import { useEditorActions } from "../../hooks/useEditorActions";
+import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorActions";
 import type { GuideLine, UprightMode } from "../../utils/adjustments";
 import { GUIDE_COLORS } from "../../utils/guideLines";
 import { Invokes, Panel } from "../ui/AppProperties";
@@ -80,12 +80,16 @@ export default function StudioUpright() {
       return;
     }
     stopDrawing();
+    // The result belongs to the photograph it was asked for.
+    const path = useEditorStore.getState().selectedImage?.path;
+    if (!path) return;
     setBusy(next);
     try {
       const result = await invoke<UprightResult | null>(Invokes.CalculateUpright, {
         mode: next,
         adjustments: useEditorStore.getState().adjustments,
       });
+      if (!isCurrentEditorImage(path)) return;
       if (!result) {
         setNote(
           next === "level"
@@ -100,7 +104,7 @@ export default function StudioUpright() {
       }));
       setNote(next === "auto" ? t(AUTO_DONE[result.applied]) : t(DONE[result.applied]));
     } catch (e) {
-      setNote(t("studio.upright.failed", { error: String(e) }));
+      if (isCurrentEditorImage(path)) setNote(t("studio.upright.failed", { error: String(e) }));
     } finally {
       setBusy(null);
     }
