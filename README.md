@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/rawtonic-app/rawtonic/releases"><img alt="Release" src="https://img.shields.io/github/v/release/rawtonic-app/rawtonic?include_prereleases&label=release&color=e8590c"></a>
   <img alt="Status: early alpha" src="https://img.shields.io/badge/status-early%20alpha-e8590c">
-  <img alt="Platform: macOS (Apple Silicon)" src="https://img.shields.io/badge/platform-macOS%20%C2%B7%20Apple%20Silicon-1f6feb">
+  <img alt="Platform: macOS (Apple Silicon) and Linux (x86-64)" src="https://img.shields.io/badge/platform-macOS%20Apple%20Silicon%20%C2%B7%20Linux%20x86--64-1f6feb">
   <img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue">
 </p>
 
@@ -55,7 +55,16 @@ xattr -cr /Applications/Rawtonic.app
 
 Or right-click (Control-click) the app → **Open** → **Open**; if macOS still refuses, go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-Intel Macs, Windows and Linux builds are not available yet. Linux is in progress; you can [build from source](docs/DEVELOPMENT.md) on any of them.
+**Linux** (x86-64): download `Rawtonic_<version>_amd64.AppImage`, make it executable and start it:
+
+```sh
+chmod +x Rawtonic_*_amd64.AppImage
+./Rawtonic_*_amd64.AppImage
+```
+
+It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and others with glibc 2.35 or later). If it does not start, install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on older Ubuntu and Debian) or start it with `--appimage-extract-and-run`. The very first start can take a minute or two before the first photo appears while the graphics driver prepares Rawtonic's shaders; later starts are quick.
+
+Intel Macs and Windows builds are not available yet; you can [build from source](docs/DEVELOPMENT.md) on them.
 
 ## From card to client
 
@@ -154,7 +163,7 @@ The keys follow what photographers already know from the big editors, and every 
 
 Rawtonic's goal is simple to state and hard to reach: every tool should be at least as good as the better of the leading professional editors, measured on real photographs. Some tools are there, others are not yet. In this alpha:
 
-- **macOS on Apple Silicon only.** Intel Macs, Windows and Linux builds come later.
+- **macOS on Apple Silicon and Linux (x86-64 AppImage).** Intel Macs and Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu and Debian).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
 - **No tethering.** Direct camera control is not available; the hot folder works with your camera maker's tethering app.
@@ -164,7 +173,7 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 
 Please [**open a GitHub issue**](https://github.com/rawtonic-app/rawtonic/issues/new) for bugs, questions and feature ideas, rather than an e-mail. Issues keep the details, screenshots and follow-ups in one place, other photographers with the same problem can find them, and you are notified when a fix ships.
 
-A useful bug report says which Rawtonic version you run (Settings → About), your macOS version and Mac model, and, for photos that don't open or look wrong, the camera model and file type (for example Sony `.ARW`).
+A useful bug report says which Rawtonic version you run (Settings → About), your system (macOS version and Mac model, or Linux distribution and graphics card), and, for photos that don't open or look wrong, the camera model and file type (for example Sony `.ARW`).
 
 ## Support
 
