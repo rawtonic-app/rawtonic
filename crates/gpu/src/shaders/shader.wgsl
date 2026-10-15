@@ -203,10 +203,11 @@ struct GlobalAdjustments {
     // Luminance noise by brightness relative to its median (8 bins of
     // square-root luminance; color_noise.rs `luma_profile`); 0 = none.
     luma_noise_profile: array<vec4<f32>, 2>,
-    // Version-five Relight (relight_source.rs): [0..9] the photo's own
-    // lighting as SH coefficients, [9] subject texture bound at binding 18,
-    // [10] lighting fitted, [11] version five.
-    relight_source: array<vec4<f32>, 3>,
+    // Version-five Relight (relight.rs source_uniforms): [0..9] the photo's
+    // own lighting as SH coefficients, [9] subject texture bound at binding
+    // 18, [10] lighting fitted, [11] version five, [12] the subject's median
+    // inverse depth.
+    relight_source: array<vec4<f32>, 4>,
 }
 
 struct MaskAdjustments {
@@ -5024,8 +5025,13 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     }
     // A version-five subject: people normals (xy), matte, normal weight.
     var people = vec4<f32>(0.0);
+    var background_reach = 1.0;
     if (camera_mode && has_depth && adjustments.global.relight_source[2].y > 0.5) {
         people = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
+        // Without people, x holds the background reach (relight_source.rs).
+        if (people.w <= 0.0) {
+            background_reach = people.x * 0.5 + 0.5;
+        }
         // Soft matte edges mix the person with the background (hair against
         // sky): only confidently covered pixels take the person's normal and
         // shading, or background light would be divided by the person's.
@@ -5070,7 +5076,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     var light_gain = energy.diffuse;
     // Incident radiance must receive the same exposure as the diffuse photo.
     // Otherwise reducing exposure leaves newly added dielectric highlights fixed.
-    let reflected_light = energy.reflected * exposure_gain;
+    var reflected_light = energy.reflected * exposure_gain;
     let shadow_ev = energy.shadow_ev;
     let has_light = energy.has_light;
     if (confidence > 0.0 && has_light) {
@@ -5079,6 +5085,14 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
             separated += weights[j] * relight_energy(planes[j], uv, coord, dims, true, vec4<f32>(0.0)).diffuse;
         }
         light_gain = mix(light_gain, separated, confidence);
+    }
+    // A light set up for the subject reaches its background only near it:
+    // a wall right behind it, not the sky or a distant backdrop (version
+    // five, the analysis's reach map; Original light alone keeps those).
+    if (camera_mode && has_depth && adjustments.global.relight_source[3].x > 0.0) {
+        let reach = mix(1.0, background_reach, 1.0 - people.z);
+        light_gain *= reach;
+        reflected_light *= reach;
     }
     // New light lights the material, not the already lit photo: divide by
     // the photo's own shading where it is known (I·L/S = A·L).

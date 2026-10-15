@@ -383,14 +383,14 @@ fn subject_image(recipe: &Value) -> Option<source::SubjectImage> {
 
 /// Version-five flags and the photo's own lighting on its people
 /// (`sourceLight`, nine coefficients) for the GPU: [0..9] coefficients,
-/// [9] subject texture bound, [10] lighting fitted, [11] version five
-/// (smoothed scene normals outside people).
-pub fn source_uniforms(recipe: &Value) -> [[f32; 4]; 3] {
-    let mut out = [0f32; 12];
+/// [9] subject texture bound, [10] lighting fitted, [11] version five,
+/// [12] the subject's median inverse depth (`subjectDepth`; 0 = unknown).
+pub fn source_uniforms(recipe: &Value) -> [[f32; 4]; 4] {
+    let mut out = [0f32; 16];
     if recipe["relightDepth"]["version"].as_u64().unwrap_or(0) < 5
         || recipe["relightDepth"]["camera"].is_null()
     {
-        return [[0.; 4]; 3];
+        return [[0.; 4]; 4];
     }
     out[11] = 1.;
     if recipe["relightDepth"]["subject"].is_string() {
@@ -408,12 +408,38 @@ pub fn source_uniforms(recipe: &Value) -> [[f32; 4]; 3] {
             out[..9].copy_from_slice(&c);
             out[10] = 1.;
         }
+        out[12] = recipe["relightDepth"]["subjectDepth"]
+            .as_f64()
+            .filter(|v| v.is_finite() && *v > 0. && *v <= 100.)
+            .unwrap_or(0.) as f32;
     }
-    [
-        [out[0], out[1], out[2], out[3]],
-        [out[4], out[5], out[6], out[7]],
-        [out[8], out[9], out[10], out[11]],
-    ]
+    std::array::from_fn(|i| std::array::from_fn(|j| out[i * 4 + j]))
+}
+
+/// The subject's median inverse depth (relative, as `Camera::inverse`)
+/// under its matte (`matte`, the displayed frame at any size), for lights
+/// that reach a background only near the subject.
+pub fn subject_inverse(
+    depth: &DepthImage,
+    camera: Camera,
+    matte: &image::GrayImage,
+) -> Option<f32> {
+    let (w, h) = depth.dimensions();
+    let (mw, mh) = matte.dimensions();
+    let mut values: Vec<f32> = depth
+        .enumerate_pixels()
+        .filter(|(x, y, _)| {
+            let mx = ((*x as f32 + 0.5) / w as f32 * mw as f32) as u32;
+            let my = ((*y as f32 + 0.5) / h as f32 * mh as f32) as u32;
+            matte.get_pixel(mx.min(mw - 1), my.min(mh - 1))[0] > 128
+        })
+        .map(|(_, _, code)| camera.inverse(code[0]))
+        .collect();
+    if values.len() < 16 {
+        return None;
+    }
+    values.sort_by(f32::total_cmp);
+    Some(values[values.len() / 2])
 }
 
 pub fn depth(key: [u32; 4]) -> Option<Arc<DepthSurface>> {

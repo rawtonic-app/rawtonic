@@ -175,6 +175,7 @@ pub fn analyze_subject(
     matte: &image::GrayImage,
     faces: &[Vec<[f32; 4]>],
     people_model: Option<&rawtonic_onnx::Model>,
+    scene: Option<(&DepthImage, Camera)>,
 ) -> Result<(Vec<u8>, Option<[f32; 9]>)> {
     use rawtonic_engine::relight::source;
     let (w, h) = displayed.dimensions();
@@ -264,7 +265,14 @@ pub fn analyze_subject(
         source::limit_to_consistent(&linear_rgb, &normals, &mut people, light);
     }
     let light = light.map(|l| l.coefficients);
-    let encoded = source::encode_subject(&normals, &matte, &people);
+    let reach = scene.and_then(|(depth, camera)| {
+        let inverse = rawtonic_engine::relight::subject_inverse(depth, camera, &matte)?;
+        let map = image::ImageBuffer::from_fn(depth.width(), depth.height(), |x, y| {
+            image::Luma([camera.inverse(depth.get_pixel(x, y)[0])])
+        });
+        Some(source::background_reach(&map, &matte, inverse))
+    });
+    let encoded = source::encode_subject(&normals, &matte, &people, reach.as_ref());
     let mut png = std::io::Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba16(encoded).write_to(&mut png, image::ImageFormat::Png)?;
     Ok((png.into_inner(), light))
@@ -431,7 +439,14 @@ mod tests {
         )
         .unwrap();
         let t = std::time::Instant::now();
-        if let Ok((png, light)) = analyze_subject(&small, false, &matte, &faces, Some(&people)) {
+        if let Ok((png, light)) = analyze_subject(
+            &small,
+            false,
+            &matte,
+            &faces,
+            Some(&people),
+            Some((&depth, camera)),
+        ) {
             eprintln!("subject {} ms, lighting {light:?}", t.elapsed().as_millis());
             std::fs::write(out.join("subject.png"), &png).unwrap();
             matte.save(out.join("matte.png")).unwrap();
@@ -442,6 +457,10 @@ mod tests {
             .into();
             if let Some(light) = light {
                 result["sourceLight"] = serde_json::json!(light);
+            }
+            if let Some(inverse) = rawtonic_engine::relight::subject_inverse(&depth, camera, &matte)
+            {
+                result["subjectDepth"] = serde_json::json!(inverse);
             }
         }
         let mut png = std::io::Cursor::new(Vec::new());

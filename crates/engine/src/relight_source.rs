@@ -41,17 +41,23 @@ pub const MIN_SHADING: f32 = 0.12;
 
 /// Packs the subject for the recipe: x and y of the people normal (z is
 /// positive, the surface faces the camera), the subject matte and the weight
-/// of the people normal (0 where no person was analyzed).
+/// of the people normal (0 where no person was analyzed). Where that weight
+/// is 0, x holds the background reach instead (`background_reach`, mapped
+/// to -1..1).
 pub fn encode_subject(
     normals: &Normals,
     matte: &image::GrayImage,
     people: &image::GrayImage,
+    reach: Option<&image::GrayImage>,
 ) -> SubjectImage {
     let (w, h) = matte.dimensions();
     let code = |v: f32| ((v.clamp(-1., 1.) * 0.5 + 0.5) * 65535.).round() as u16;
     ImageBuffer::from_fn(w, h, |x, y| {
-        let n = normals.get_pixel(x, y).0;
+        let mut n = normals.get_pixel(x, y).0;
         let weight = people.get_pixel(x, y)[0] as f32 / 255.;
+        if weight == 0. {
+            n[0] = reach.map_or(1., |r| r.get_pixel(x, y)[0] as f32 / 255.) * 2. - 1.;
+        }
         let matte = matte.get_pixel(x, y)[0] as u16 * 257;
         Rgba([
             code(n[0]),
@@ -304,6 +310,85 @@ pub fn limit_to_consistent(
     }
 }
 
+/// How much of a light set up for the subject reaches the background at
+/// each texel (0..1): full on surfaces at the subject's distance (a wall
+/// right behind it), none from 0.6× its inverse depth (sky, distant land).
+/// Depth near the silhouette is blurred into the subject's, so the
+/// background behind and around the matte takes the depth of the clear
+/// background nearby.
+pub fn background_reach(
+    inverse: &ImageBuffer<image::Luma<f32>, Vec<f32>>,
+    matte: &image::GrayImage,
+    subject_inverse: f32,
+) -> image::GrayImage {
+    let (w, h) = matte.dimensions();
+    let at = |x: u32, y: u32| {
+        let (iw, ih) = inverse.dimensions();
+        let ix = ((x as f32 + 0.5) / w as f32 * iw as f32) as u32;
+        let iy = ((y as f32 + 0.5) / h as f32 * ih as f32) as u32;
+        inverse.get_pixel(ix.min(iw - 1), iy.min(ih - 1))[0]
+    };
+    // Exclude the matte and a band around it (4 % of the short side).
+    let band = (w.min(h) as f32 * 0.04).max(2.) as i32;
+    let covered = image::imageops::blur(
+        &image::GrayImage::from_fn(w, h, |x, y| {
+            image::Luma([if matte.get_pixel(x, y)[0] > 25 {
+                255
+            } else {
+                0
+            }])
+        }),
+        band as f32 / 2.,
+    );
+    let mut value = vec![0f32; (w * h) as usize];
+    let mut weight = vec![0f32; (w * h) as usize];
+    for y in 0..h {
+        for x in 0..w {
+            if covered.get_pixel(x, y)[0] < 8 {
+                let i = (y * w + x) as usize;
+                value[i] = at(x, y);
+                weight[i] = 1.;
+            }
+        }
+    }
+    // Fill the excluded area from the clear background (push-pull).
+    let mut filled = value.clone();
+    let mut known = weight.clone();
+    let mut sigma = band as f32;
+    while known.iter().any(|k| *k < 0.5) && sigma < w.max(h) as f32 * 2. {
+        let num = image::imageops::blur(
+            &ImageBuffer::<image::Luma<f32>, _>::from_fn(w, h, |x, y| {
+                let i = (y * w + x) as usize;
+                image::Luma([filled[i] * known[i]])
+            }),
+            sigma,
+        );
+        let den = image::imageops::blur(
+            &ImageBuffer::<image::Luma<f32>, _>::from_fn(w, h, |x, y| {
+                image::Luma([known[(y * w + x) as usize]])
+            }),
+            sigma,
+        );
+        for i in 0..filled.len() {
+            if known[i] < 0.5 {
+                let d = den.as_raw()[i];
+                if d > 1e-4 {
+                    filled[i] = num.as_raw()[i] / d;
+                    known[i] = 1.;
+                }
+            }
+        }
+        sigma *= 2.;
+    }
+    let subject = subject_inverse.max(1e-6);
+    image::GrayImage::from_fn(w, h, |x, y| {
+        let i = (y * w + x) as usize;
+        let depth = if known[i] >= 0.5 { filled[i] } else { at(x, y) };
+        let t = ((depth / subject - 0.6) / 0.25).clamp(0., 1.);
+        image::Luma([(t * t * (3. - 2. * t) * 255.).round() as u8])
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,6 +496,36 @@ mod tests {
     }
 
     #[test]
+    fn background_reach_ignores_depth_blurred_into_the_silhouette() {
+        // Subject at inverse 2 in the middle, far background at 0.5, and a
+        // blurred ramp of depth around the silhouette.
+        let inverse = ImageBuffer::from_fn(100, 100, |x, _| {
+            let d = (x as f32 - 50.).abs();
+            image::Luma([if d < 20. {
+                2.
+            } else if d < 30. {
+                2. - (d - 20.) * 0.15
+            } else {
+                0.5
+            }])
+        });
+        let matte = image::GrayImage::from_fn(100, 100, |x, _| {
+            image::Luma([if (x as f32 - 50.).abs() < 20. { 255 } else { 0 }])
+        });
+        let reach = background_reach(&inverse, &matte, 2.);
+        // Right beside the silhouette the ramp would read as near; it is not.
+        assert!(
+            reach.get_pixel(72, 50)[0] < 30,
+            "{}",
+            reach.get_pixel(72, 50)[0]
+        );
+        assert_eq!(reach.get_pixel(95, 50)[0], 0);
+        // A wall at the subject's distance is reached.
+        let wall = ImageBuffer::from_pixel(100, 100, image::Luma([1.9f32]));
+        assert!(background_reach(&wall, &matte, 2.).get_pixel(95, 50)[0] > 250);
+    }
+
+    #[test]
     fn too_little_skin_gives_no_fit() {
         let (image, normals) = sphere(32, [0., 0., 1.], 0.5);
         assert!(fit(&image, &normals, &[], &[]).is_none());
@@ -421,7 +536,7 @@ mod tests {
         let normals = ImageBuffer::from_pixel(2, 1, Rgb([0.3f32, -0.4, 0.866]));
         let matte = image::GrayImage::from_pixel(2, 1, image::Luma([255]));
         let people = image::GrayImage::from_pixel(2, 1, image::Luma([128]));
-        let encoded = encode_subject(&normals, &matte, &people);
+        let encoded = encode_subject(&normals, &matte, &people, None);
         let n = decode_normal(encoded.get_pixel(0, 0).0);
         assert!(
             (n[0] - 0.3).abs() < 1e-4 && (n[1] + 0.4).abs() < 1e-4 && (n[2] - 0.866).abs() < 1e-3

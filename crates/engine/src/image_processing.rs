@@ -2886,8 +2886,8 @@ pub struct GlobalAdjustments {
     /// by the renderer with the colour noise pyramid, all 0 without it.
     pub luma_noise_profile: [[f32; 4]; 2],
     /// A version-five Relight subject: the photo's own lighting on its
-    /// people and flags (`relight::source_uniforms`).
-    pub relight_source: [[f32; 4]; 3],
+    /// people, flags and the subject's depth (`relight::source_uniforms`).
+    pub relight_source: [[f32; 4]; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]

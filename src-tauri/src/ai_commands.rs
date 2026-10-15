@@ -1045,22 +1045,26 @@ pub async fn generate_relight_depth(
     };
     let subject = match subject_model {
         Some(subject_model) => {
-            let (small, faces) = (small.clone(), faces.clone());
+            let (small, faces, depth) = (small.clone(), faces.clone(), depth.clone());
             let second = running.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 let _running = second;
                 let start = std::time::Instant::now();
                 crate::ai_processing::run_subject_model(&small, &subject_model, is_raw, None)
                     .and_then(|matte| {
-                        crate::ai_processing::analyze_subject(
+                        let (png, light) = crate::ai_processing::analyze_subject(
                             &small,
                             is_raw,
                             &matte,
                             &faces,
                             people_model.as_deref(),
-                        )
+                            Some((&depth, camera)),
+                        )?;
+                        let inverse =
+                            rawtonic_engine::relight::subject_inverse(&depth, camera, &matte);
+                        Ok((png, light, inverse))
                     })
-                    .inspect(|(_, light)| {
+                    .inspect(|(_, light, _)| {
                         log::info!(
                             "Relight: subject analyzed in {} ms, own lighting {}",
                             start.elapsed().as_millis(),
@@ -1097,10 +1101,13 @@ pub async fn generate_relight_depth(
         "version": 5,
         "camera": camera,
     });
-    if let Some((subject, light)) = subject {
+    if let Some((subject, light, inverse)) = subject {
         result["subject"] = encode(subject).into();
         if let Some(light) = light {
             result["sourceLight"] = serde_json::json!(light);
+        }
+        if let Some(inverse) = inverse {
+            result["subjectDepth"] = serde_json::json!(inverse);
         }
     }
     Ok(result)
