@@ -137,18 +137,6 @@ fn failed_or_cancelled_copies_never_publish_and_never_overwrite() {
             .to_string_lossy()
             .starts_with(".rawtonic-copy-")
     }));
-    lib.save_editor_state(
-        &id,
-        &json!({"adjustments":{"lutPath": tmp.path().join("missing.cube")}}),
-    )
-    .unwrap();
-    assert!(
-        copy_library(&lib.directory, &to, "backup", &cancel(), |_| {})
-            .unwrap_err()
-            .to_string()
-            .contains("resource is missing")
-    );
-    assert!(!to.exists());
     fs::remove_file(lib.asset(&id).unwrap().path).unwrap();
     assert!(
         copy_library(&lib.directory, &to, "backup", &cancel(), |_| {})
@@ -160,6 +148,61 @@ fn failed_or_cancelled_copies_never_publish_and_never_overwrite() {
     fs::write(to.join("keep"), b"existing destination").unwrap();
     assert!(copy_library(&lib.directory, &to, "transfer", &cancel(), |_| {}).is_err());
     assert_eq!(fs::read(to.join("keep")).unwrap(), b"existing destination");
+}
+
+/// A LUT or profile that is gone does not stop a backup, wherever an edit
+/// refers to it (undo history, a virtual copy, the current recipe): the copy
+/// is complete and verified for everything that is there, the reference is
+/// kept, and the receipt counts what was missing.
+#[test]
+fn missing_edit_resources_are_counted_and_kept_not_fatal() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (lib, id) = catalog(&root);
+    let looks = root.join("looks");
+    fs::create_dir(&looks).unwrap();
+    let (old, kept, gone) = (
+        looks.join("old.cube"),
+        looks.join("kept.cube"),
+        looks.join("gone.cube"),
+    );
+    for lut in [&old, &kept, &gone] {
+        fs::write(lut, b"LUT fixture").unwrap();
+    }
+    // History: an old step with a LUT deleted since; a virtual copy with
+    // another; the current recipe with one that is there.
+    lib.save_editor_state(&id, &json!({"adjustments": {"lutPath": old}}))
+        .unwrap();
+    lib.save_copy_state(&id, "abcdef", &json!({"adjustments": {"lutPath": gone}}))
+        .unwrap();
+    lib.save_editor_state(&id, &json!({"adjustments": {"lutPath": kept}}))
+        .unwrap();
+    fs::remove_file(&old).unwrap();
+    fs::remove_file(&gone).unwrap();
+
+    let backup = root.join("backup");
+    let receipt = copy_library(&lib.directory, &backup, "backup", &cancel(), |_| {}).unwrap();
+    assert_eq!(receipt.photographs, 1);
+    assert_eq!(receipt.missing_resources, 2);
+    assert_eq!(receipt.missing_current_resources, 1, "the virtual copy's");
+    verify(&backup, &cancel(), |_| {}).unwrap();
+    let restored = root.join("restored");
+    let again = copy_library(&backup, &restored, "restore", &cancel(), |_| {}).unwrap();
+    assert_eq!(again.missing_resources, 2);
+    let lib = Library::open(&restored).unwrap();
+    // The LUT that is there is in the copy; the missing ones keep their
+    // references.
+    let current = lib.editor_state(&id).unwrap().unwrap();
+    let path = Path::new(current["adjustments"]["lutPath"].as_str().unwrap());
+    assert!(path.starts_with(&restored));
+    assert_eq!(fs::read(path).unwrap(), b"LUT fixture");
+    let copy = lib.copy_state(&id, "abcdef").unwrap().unwrap();
+    assert_eq!(copy["adjustments"]["lutPath"], json!(gone));
+    assert!(lib.undo(&lib.primary_version(&id).unwrap()).unwrap());
+    assert_eq!(
+        lib.editor_state(&id).unwrap().unwrap()["adjustments"]["lutPath"],
+        json!(old)
+    );
 }
 
 #[test]
