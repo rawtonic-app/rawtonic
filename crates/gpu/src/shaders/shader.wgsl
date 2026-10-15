@@ -4988,7 +4988,10 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                 let material = relight_skin(normal, direction, view, shape.z, skin);
                 response *= material.x;
                 specular = material.y;
-                if (!scene_only && response > 0.0 && settings.z > 0.0) {
+                // Facial cast shadows march the coarse face mesh; against the
+                // finer people normals (version five) they cut hard-edged
+                // patches (under the nose). People keep their normal shading.
+                if (!scene_only && response > 0.0 && settings.z > 0.0 && people.w < 0.5) {
                     var visibility = 1.0;
                     if (camera_lighting) {
                         visibility = relight_camera_visibility(uv, world_position, direction, reach, strength, shape.z);

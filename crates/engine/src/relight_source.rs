@@ -306,13 +306,16 @@ pub fn limit_to_consistent(
         let s = shading(&light.coefficients, normals.get_pixel(x, y).0).max(MIN_SHADING);
         let ratio = luminance / s / reference;
         let keep = 1. - ((ratio - 3.) / 3.).clamp(0., 1.);
-        w[0] = (w[0] as f32 * keep * keep * (3. - 2. * keep)).round() as u8;
+        let keep = keep * keep * (3. - 2. * keep);
+        w[0] = (w[0] as f32 * keep).round() as u8;
     }
 }
 
 /// How much of a light set up for the subject reaches the background at
-/// each texel (0..1): full on surfaces at the subject's distance (a wall
-/// right behind it), none from 0.6× its inverse depth (sky, distant land).
+/// each texel (0..1): full on surfaces at the subject's distance (a table,
+/// a wall right behind it), none below 0.75× its inverse depth (sky,
+/// distant land, a backdrop metres away; measured on the public test set,
+/// notes: reference/relight-g70-close.md).
 /// Depth near the silhouette is blurred into the subject's, so the
 /// background behind and around the matte takes the depth of the clear
 /// background nearby.
@@ -384,7 +387,7 @@ pub fn background_reach(
     image::GrayImage::from_fn(w, h, |x, y| {
         let i = (y * w + x) as usize;
         let depth = if known[i] >= 0.5 { filled[i] } else { at(x, y) };
-        let t = ((depth / subject - 0.6) / 0.25).clamp(0., 1.);
+        let t = ((depth / subject - 0.75) / 0.2).clamp(0., 1.);
         image::Luma([(t * t * (3. - 2. * t) * 255.).round() as u8])
     })
 }

@@ -197,10 +197,10 @@ pub fn analyze_subject(
             hi = [hi[0].max(x), hi[1].max(y)];
         }
     }
-    // A subject of a few percent of the frame: else the photo is a scene.
+    // A subject of at least 5 % of the frame: else the photo is a scene.
     let covered = matte.pixels().filter(|p| p[0] > 128).count();
     anyhow::ensure!(
-        hi[0] >= lo[0] && hi[1] >= lo[1] && covered * 50 >= (tw * th) as usize,
+        hi[0] >= lo[0] && hi[1] >= lo[1] && covered * 20 >= (tw * th) as usize,
         "No subject to relight"
     );
     let to_frame = w as f32 / tw as f32;
@@ -229,7 +229,9 @@ pub fn analyze_subject(
     for (x, y, p) in normals.enumerate_pixels_mut() {
         let (fx, fy) = ((x as f32 + 0.5) * to_frame, (y as f32 + 0.5) * to_frame);
         match &normal_at {
-            Some(normal_at) if inside(fx, fy) => {
+            // Mostly covered texels only: the soft edge keeps the
+            // background's reach (relight_source.rs encode_subject).
+            Some(normal_at) if inside(fx, fy) && matte.get_pixel(x, y)[0] > 127 => {
                 p.0 = normal_at(fx, fy);
                 people.put_pixel(x, y, *matte.get_pixel(x, y));
             }
