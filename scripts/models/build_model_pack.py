@@ -71,6 +71,19 @@ DIRECT.append({
     "license_files": ["YuNet-MIT.txt"],
 })
 
+# DAViD Base surface normals of people (Microsoft, ICCV 2025), the rights
+# holder's own ONNX file, unchanged. Weights and runtime code MIT (README
+# "Model License" of github.com/microsoft/DAViD at 20a3eb6).
+DIRECT.append({
+    "file": "relight_people_normals_david_base.onnx",
+    "url": "https://facesyntheticspubwedata.z6.web.core.windows.net/iccv-2025/models/normal-model-vitb16_384.onnx",
+    "sha256": "3d37ecc812b6b50a09c514f3c8c8ad95da5cd6ae9b68c425bc52f1c9cd78c344",
+    "used_by": "Relight surface normals of people",
+    "source": "DAViD normal-model-vitb16_384 (Saleh, Hewitt et al., Microsoft; github.com/microsoft/DAViD at 20a3eb6), unchanged",
+    "license": "MIT",
+    "license_files": ["DAViD-MIT.txt"],
+})
+
 MATCHFILTER = "https://huggingface.co/sheldonxxxx/RapidRAW-Nonlocal-Denoise/resolve/af6bf36ca55591d103e465200efc4f13b7112a7b/"
 MATCHFILTER_ENTRY = {
     "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, checkpoint rawnoise_25_15_9nbr), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise (revision af6bf36), unchanged",
