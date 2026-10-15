@@ -334,14 +334,16 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Applies the verified moves of a Synchronize Folder scan of the session
-/// whose new place is one of `new`; returns the places taken by them and
-/// the places of `new` left for the user (probable and contested moves).
+/// Applies the verified moves among `new` (Synchronize Folder's, for these
+/// files only); returns the places taken by them and the places of `new`
+/// left for the user (probable and contested moves). Lists no folder and
+/// hashes only files with the size and sampled fingerprint of a photograph
+/// of the library, so opening a library never reads the whole of it.
 fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashSet<PathBuf>> {
     use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions};
     let never = std::sync::atomic::AtomicBool::new(false);
-    let plan = lib.scan_folder_sync(
-        None,
+    let plan = lib.scan_files_sync(
+        new,
         &SyncOptions {
             accept: &|path| crate::formats::is_supported_image_file(path),
             cancel: &never,

@@ -621,3 +621,187 @@ fn a_session_follows_moves_between_its_folders_and_stays_inside_itself() {
         lib.directory.join("Selects/A pick.ARW")
     );
 }
+
+/// A drive or network share without a drive identity (Windows drives, SMB
+/// and NAS shares on macOS) that is not connected only shows as its folders
+/// being gone: its photographs are unavailable, never offered or approved
+/// for removal, whether or not an empty mount point folder is left behind.
+#[test]
+fn photographs_of_a_folder_that_is_not_there_are_never_removed_without_a_drive_identity() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonicalize().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    // A share with photographs in a folder of it, and one with photographs
+    // right at its mount point.
+    let share = root.join("Volumes/NAS");
+    let folder = share.join("2026");
+    photo(&folder.join("A.ARW"), 1);
+    photo(&folder.join("B.ARW"), 2);
+    let mount = root.join("mnt/card");
+    photo(&mount.join("C.ARW"), 3);
+    let ids: Vec<String> = ["A.ARW", "B.ARW"]
+        .iter()
+        .map(|name| lib.add_asset(&folder.join(name)).unwrap().id)
+        .chain([lib.add_asset(&mount.join("C.ARW")).unwrap().id])
+        .collect();
+    fill(&lib);
+    let removals = || -> Vec<SyncAction> {
+        ids.iter()
+            .map(|id| SyncAction::Remove {
+                asset_id: id.clone(),
+                path: lib.asset(id).unwrap().path,
+            })
+            .collect()
+    };
+    // Unmounted: the share's mount point goes, the other one stays empty.
+    fs::rename(&share, root.join("unmounted")).unwrap();
+    fs::remove_file(mount.join("C.ARW")).unwrap();
+
+    let whole = scan(&lib, None);
+    assert!(whole.removed.is_empty(), "{whole:#?}");
+    assert_eq!(whole.unavailable.len(), 3, "{whole:#?}");
+    assert!(whole.unavailable.iter().all(|m| m.volume.is_none()));
+    assert!(whole.is_empty(), "nothing to act on: {whole:#?}");
+    let single = scan(&lib, Some(&mount));
+    assert!(single.removed.is_empty() && single.unavailable.len() == 1);
+    // Removals sent anyway are refused; the photographs keep their entries.
+    let applied = lib.apply_folder_sync(&removals()).unwrap();
+    assert!(applied.removed.is_empty(), "{applied:#?}");
+    assert_eq!(applied.skipped.len(), 3);
+    assert!(ids.iter().all(|id| lib.asset(id).is_ok()));
+
+    // Connected again (and the card's file back): nothing changed.
+    fs::rename(root.join("unmounted"), &share).unwrap();
+    photo(&mount.join("C.ARW"), 3);
+    let again = scan(&lib, None);
+    assert!(
+        again.is_empty() && again.unavailable.is_empty(),
+        "{again:#?}"
+    );
+}
+
+/// A photograph deleted from a library folder that is there, or with a
+/// folder deleted inside one, is still found removed; a folder renamed
+/// inside one is still followed.
+#[test]
+fn photographs_deleted_inside_a_library_folder_that_is_there_are_removed() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonicalize().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    let photos = root.join("Photos");
+    let names = ["A.ARW", "B.ARW", "Day/C.ARW", "Trip/D.ARW"];
+    for (seed, name) in names.iter().enumerate() {
+        photo(&photos.join(name), seed as u8 + 1);
+    }
+    let ids: Vec<String> = names
+        .iter()
+        .map(|name| lib.add_asset(&photos.join(name)).unwrap().id)
+        .collect();
+    fill(&lib);
+    fs::remove_file(photos.join("B.ARW")).unwrap();
+    fs::remove_dir_all(photos.join("Day")).unwrap();
+    fs::rename(photos.join("Trip"), photos.join("Trip 2026")).unwrap();
+
+    let plan = scan(&lib, None);
+    let mut removed: Vec<&str> = plan.removed.iter().map(|m| m.asset_id.as_str()).collect();
+    removed.sort();
+    let mut expected = [ids[1].as_str(), ids[2].as_str()];
+    expected.sort();
+    assert_eq!(removed, expected, "{plan:#?}");
+    assert!(plan.unavailable.is_empty(), "{plan:#?}");
+    assert_eq!(plan.verified_moves.len(), 1);
+    assert_eq!(plan.verified_moves[0].to, photos.join("Trip 2026/D.ARW"));
+    let mut actions = defaults(&plan);
+    actions.extend(plan.removed.iter().map(|m| SyncAction::Remove {
+        asset_id: m.asset_id.clone(),
+        path: m.path.clone(),
+    }));
+    let applied = lib.apply_folder_sync(&actions).unwrap();
+    assert_eq!(applied.removed.len(), 2, "{applied:#?}");
+    assert_eq!(applied.moved.len(), 1);
+    assert!(lib.asset(&ids[1]).is_err() && lib.asset(&ids[2]).is_err());
+    assert_eq!(
+        lib.asset(&ids[3]).unwrap().path,
+        photos.join("Trip 2026/D.ARW")
+    );
+}
+
+/// `scan_files_sync` classifies only the files given: it lists no folder,
+/// hashes only files matching a photograph and reports nothing removed.
+#[test]
+fn a_scan_of_given_files_follows_their_moves_without_listing_folders() {
+    let d = tempfile::tempdir().unwrap();
+    let root = d.path().canonicalize().unwrap();
+    let lib = Library::create(&root.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+    let photos = root.join("Photos");
+    photo(&photos.join("A.ARW"), 1);
+    photo(&photos.join("B.ARW"), 2);
+    let a = lib.add_asset(&photos.join("A.ARW")).unwrap().id;
+    lib.add_asset(&photos.join("B.ARW")).unwrap();
+    fill(&lib);
+    fs::rename(photos.join("A.ARW"), photos.join("A renamed.ARW")).unwrap();
+    fs::remove_file(photos.join("B.ARW")).unwrap();
+    photo(&photos.join("Unlisted.ARW"), 5);
+    let inside = lib.directory.join("Photos/N.ARW");
+    photo(&inside, 9);
+    let plan = lib
+        .scan_files_sync(
+            &[photos.join("A renamed.ARW"), inside.clone()],
+            &SyncOptions {
+                accept: &is_photo,
+                cancel: &AtomicBool::new(false),
+                progress: &|_| {},
+            },
+        )
+        .unwrap();
+    assert_eq!(plan.files, 2);
+    assert_eq!(plan.verified_moves.len(), 1);
+    assert_eq!(plan.verified_moves[0].asset_id, a);
+    assert_eq!(plan.new_files.len(), 1);
+    assert_eq!(plan.new_files[0].path, inside);
+    assert!(plan.removed.is_empty() && plan.unavailable.is_empty() && plan.folders.is_empty());
+}
+
+/// When adding the new files fails, the moves and removals applied before
+/// stay applied and are reported, with the files left out.
+#[test]
+fn a_failed_addition_still_reports_the_moves_and_removals_applied() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = session(d.path());
+    let capture = lib.directory.join("Capture");
+    photo(&capture.join("A.ARW"), 1);
+    photo(&capture.join("B.ARW"), 2);
+    let a = lib.add_asset(&capture.join("A.ARW")).unwrap().id;
+    let b = lib.add_asset(&capture.join("B.ARW")).unwrap().id;
+    fill(&lib);
+    fs::rename(capture.join("A.ARW"), capture.join("A2.ARW")).unwrap();
+    fs::remove_file(capture.join("B.ARW")).unwrap();
+    photo(&capture.join("N.ARW"), 9);
+    let plan = scan(&lib, None);
+    let mut actions = defaults(&plan);
+    actions.push(SyncAction::Remove {
+        asset_id: b.clone(),
+        path: capture.join("B.ARW"),
+    });
+    // Adding fails as a whole (as a full disk would), after the moves and
+    // removals committed.
+    rusqlite::Connection::open(lib.directory.join("session.sqlite"))
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER no_room BEFORE INSERT ON assets BEGIN SELECT RAISE(ABORT, 'disk full'); END;",
+        )
+        .unwrap();
+    let applied = lib.apply_folder_sync(&actions).unwrap();
+    assert_eq!(
+        applied.moved,
+        [(capture.join("A.ARW"), capture.join("A2.ARW"))]
+    );
+    assert_eq!(applied.removed, [capture.join("B.ARW")]);
+    assert!(applied.added.is_empty());
+    assert!(applied.add_error.is_some(), "{applied:#?}");
+    assert_eq!(applied.skipped.len(), 1);
+    assert_eq!(applied.skipped[0].path, capture.join("N.ARW"));
+    assert_eq!(lib.asset(&a).unwrap().path, capture.join("A2.ARW"));
+    assert!(lib.asset(&b).is_err());
+    assert!(lib.asset_at(&capture.join("N.ARW")).unwrap().is_none());
+}
