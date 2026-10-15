@@ -86,3 +86,47 @@ fn typed_keywords_reach_xmp_without_the_editor_prefix() {
     lib.save_editor_state(&asset.id, &state).unwrap();
     assert_eq!(lib.metadata(&asset.id).unwrap().title, "Pier");
 }
+
+#[test]
+fn large_recipe_values_are_stored_once_across_history_steps() {
+    let temp = tempfile::tempdir().unwrap();
+    let lib = Library::create(temp.path(), "Blobs", Mode::Session).unwrap();
+    let source = temp.path().join("Capture/portrait.jpg");
+    std::fs::write(&source, b"synthetic source").unwrap();
+    let asset = lib.add_asset(&source).unwrap();
+    // A mask bitmap / Relight analysis as the editor stores them.
+    let bitmap = format!("data:image/png;base64,{}", "A".repeat(400_000));
+    for exposure in 0..20 {
+        lib.save_editor_state(
+            &asset.id,
+            &json!({"adjustments":{"exposure": exposure, "relightDepth":{"data": bitmap, "version":5}}}),
+        )
+        .unwrap();
+    }
+    // The state reads back whole.
+    let state = lib.editor_state(&asset.id).unwrap().unwrap();
+    assert_eq!(state["adjustments"]["relightDepth"]["data"], json!(bitmap));
+    assert_eq!(state["adjustments"]["exposure"], json!(19));
+    drop(lib);
+    // Twenty history steps hold the bitmap once, not twenty times.
+    let conn = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
+    let (rows, total): (i64, i64) = conn
+        .query_row(
+            "SELECT COUNT(*), SUM(LENGTH(payload)) FROM recipes",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert!(rows >= 20);
+    assert!(total < 100_000, "history payloads {total} bytes");
+    let blobs: i64 = conn
+        .query_row("SELECT COUNT(*) FROM recipe_blobs", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(blobs, 1);
+    // A reopened library reads the same state.
+    let lib = Library::open(temp.path()).unwrap();
+    assert_eq!(
+        lib.editor_state(&asset.id).unwrap().unwrap()["adjustments"]["relightDepth"]["data"],
+        json!(bitmap)
+    );
+}
