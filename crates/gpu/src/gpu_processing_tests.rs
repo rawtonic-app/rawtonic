@@ -7309,6 +7309,154 @@ fn relight_real_photo_and_timing() {
     }
 }
 
+/// A version-five subject (crates/engine/src/relight_source.rs): a new light
+/// lights the person's material (divided by the photo's own shading), a far
+/// background behind the subject receives none of it, and a tile renders as
+/// the full frame.
+#[test]
+#[ignore = "native GPU; version-five Relight subject"]
+fn relight_people_subject_lights_material_and_spares_far_background() {
+    use base64::Engine as _;
+    let (w, h) = (64u32, 32u32);
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), w, h).unwrap();
+    processor
+        .force_general_pipeline
+        .store(true, Ordering::Relaxed);
+    let gray: Vec<f16> = (0..w * h)
+        .flat_map(|_| {
+            [
+                f16::from_f32(0.18),
+                f16::from_f32(0.18),
+                f16::from_f32(0.18),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Relight subject test input"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&gray),
+        )
+        .create_view(&Default::default());
+    let png = |image: DynamicImage| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+    };
+    let depth = png(DynamicImage::ImageLuma16(image::ImageBuffer::from_pixel(
+        w,
+        h,
+        image::Luma([32768]),
+    )));
+    // x < 16: person facing the light (from the left), originally in shadow;
+    // 16..32: person facing away; 32..48: background reached; 48..: far.
+    let code = |v: f32| ((v * 0.5 + 0.5) * 65535.).round() as u16;
+    let subject = png(DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(
+        w,
+        h,
+        |x, _| match x {
+            0..16 => image::Rgba([code(-0.8), code(0.), 65535, 65535]),
+            16..32 => image::Rgba([code(0.8), code(0.), 65535, 65535]),
+            32..48 => image::Rgba([code(1.), code(0.), 0, 0]),
+            _ => image::Rgba([code(-1.), code(0.), 0, 0]),
+        },
+    )));
+    let mut recipe = json!({
+        "relightLights":[{"intensity":20,"rotation":90,"elevation":20,"diffusion":0,"shadows":0}],
+        "relightOriginalLight":0,
+        "relightDepthAmount":100,
+    });
+    recipe["relightDepth"] = json!({
+        "data": depth,
+        "geometry": rawtonic_engine::relight::geometry(&recipe),
+        "version": 5,
+        "faces": [],
+        "camera": {"fx":1.0,"fy":2.0,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0},
+        "subject": format!("data:image/png;base64,{subject}"),
+        // The photo's light came from +x: S = 0.5 + 0.5·nx.
+        "sourceLight": [0.5, 0., 0., 0.5, 0., 0., 0., 0., 0.],
+        "subjectDepth": 1.0,
+    });
+    let render = |recipe: &serde_json::Value, roi| {
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                w,
+                h,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(recipe, true, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(p) => p,
+            RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect(),
+        }
+    };
+    let full = render(&recipe, None);
+    let at = |pixels: &[u16], x: usize| pixels[(16 * w as usize + x) * 4 + 1];
+    // Far background: no new light, and no original light at 0 %.
+    assert_eq!(at(&full, 56), 0);
+    // A surface right behind the subject is lit.
+    assert!(at(&full, 40) > 1000, "near background {}", at(&full, 40));
+    // The side facing away from the new light stays dark.
+    assert!(at(&full, 24) < at(&full, 8) / 4);
+    // Lighting the material: the originally shaded side, lit now, is
+    // brighter than when the photo itself counts as the material.
+    let mut photo_as_material = recipe.clone();
+    photo_as_material["relightDepth"]
+        .as_object_mut()
+        .unwrap()
+        .remove("sourceLight");
+    let plain = render(&photo_as_material, None);
+    assert!(
+        at(&full, 8) > at(&plain, 8) * 2,
+        "material {} vs photo {}",
+        at(&full, 8),
+        at(&plain, 8)
+    );
+    // A tile renders as the full frame.
+    let crop = render(
+        &recipe,
+        Some(Roi {
+            x: 4,
+            y: 4,
+            width: 52,
+            height: 20,
+        }),
+    );
+    let expected: Vec<u16> = (4..24)
+        .flat_map(|y| {
+            full[(y * w as usize + 4) * 4..(y * w as usize + 56) * 4]
+                .iter()
+                .copied()
+        })
+        .collect();
+    assert_eq!(crop, expected);
+}
+
 #[test]
 #[ignore = "native GPU; relight must keep its coordinates across the 2048px tile boundary"]
 fn relight_tiled_roi_matches_full_frame() {
