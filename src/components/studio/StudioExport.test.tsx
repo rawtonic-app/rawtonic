@@ -166,6 +166,32 @@ it("exports a session into its Output folder without asking, like Capture One", 
   expect(save).not.toHaveBeenCalled();
 });
 
+it("closes once the export is queued, the progress staying on the top bar", async () => {
+  useLibraryStore.setState({ sessionDirectory: "/job" });
+  const onStarted = vi.fn();
+  render(<StudioExport onStarted={onStarted} />);
+  fireEvent.click(screen.getByRole("button", { name: "Export" }));
+  await vi.waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
+  expect(invoke).toHaveBeenCalledWith("export_images", expect.anything());
+});
+
+it("stays open when no destination was chosen", async () => {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  vi.mocked(open).mockImplementation(() => Promise.resolve(null));
+  try {
+    const onStarted = vi.fn();
+    render(<StudioExport onStarted={onStarted} />);
+    const submit = document.querySelector(".studio-export-submit") as HTMLButtonElement;
+    fireEvent.click(submit);
+    await vi.waitFor(() => expect(open).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onStarted).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalledWith("export_images", expect.anything());
+  } finally {
+    vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
+  }
+});
+
 it("starts a waiting export that a cancel held", () => {
   useProcessStore.setState({
     exportQueue: [job({ state: "queued", done: 0 })],

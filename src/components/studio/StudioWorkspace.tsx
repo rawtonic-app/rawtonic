@@ -1150,7 +1150,7 @@ export default function StudioWorkspace(props: Props) {
         </header>
         <div className="studio-tool-dialog-content">
           <ErrorBoundary key={drawer ?? ""} name={t("studio.workspace.export.title")}>
-            {drawer === Panel.Export && <StudioExport />}
+            {drawer === Panel.Export && <StudioExport onStarted={closeTools} />}
           </ErrorBoundary>
         </div>
       </dialog>
