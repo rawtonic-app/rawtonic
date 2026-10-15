@@ -3792,11 +3792,10 @@ impl GpuProcessor {
             let legacy = depth.subject.as_ref().map_or_else(
                 || self.dummy_blur_view.clone(),
                 |subject| {
-                    let texels: Vec<f16> = subject
-                        .pixels()
-                        .flat_map(|p| {
-                            let n = rawtonic_engine::relight::source::decode_normal(p.0);
-                            [n[0], n[1], p[2] as f32 / 65535., p[3] as f32 / 65535.]
+                    let texels: Vec<f16> = (0..subject.height())
+                        .flat_map(|y| (0..subject.width()).map(move |x| (x, y)))
+                        .flat_map(|(x, y)| {
+                            rawtonic_engine::relight::source::decode_texel(subject, x, y)
                         })
                         .map(f16::from_f32)
                         .collect();

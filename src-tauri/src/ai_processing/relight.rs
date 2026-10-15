@@ -252,8 +252,8 @@ pub fn analyze_subject(
     for (x, y, p) in normals.enumerate_pixels_mut() {
         let (fx, fy) = ((x as f32 + 0.5) * to_frame, (y as f32 + 0.5) * to_frame);
         match &normal_at {
-            // Mostly covered texels only: the soft edge keeps the
-            // background's reach (relight_source.rs encode_subject).
+            // Mostly covered texels only: the soft edge counts as
+            // background for the people normal and own light.
             Some(normal_at) if inside(fx, fy) && matte.get_pixel(x, y)[0] > 127 => {
                 p.0 = normal_at(fx, fy);
                 people.put_pixel(x, y, *matte.get_pixel(x, y));
@@ -289,7 +289,8 @@ pub fn analyze_subject(
     if let Some(light) = &light {
         source::limit_to_consistent(&linear_rgb, &normals, &mut people, light);
     }
-    let light = light.map(|l| l.coefficients);
+    let fitted = light;
+    let light = fitted.map(|l| l.coefficients);
     let reach = scene.and_then(|(depth, camera)| {
         let inverse = rawtonic_engine::relight::subject_inverse(depth, camera, &matte)?;
         let map = image::ImageBuffer::from_fn(depth.width(), depth.height(), |x, y| {
@@ -297,7 +298,11 @@ pub fn analyze_subject(
         });
         Some(source::background_reach(&map, &matte, inverse))
     });
-    let encoded = source::encode_subject(&normals, &matte, &people, reach.as_ref());
+    let specular = fitted
+        .as_ref()
+        .map(|light| source::skin_specular(&linear_rgb, &normals, &skin, light));
+    let encoded =
+        source::encode_subject(&normals, &matte, &people, reach.as_ref(), specular.as_ref());
     let mut png = std::io::Cursor::new(Vec::new());
     image::DynamicImage::ImageRgba16(encoded).write_to(&mut png, image::ImageFormat::Png)?;
     Ok((png.into_inner(), light))

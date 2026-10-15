@@ -31,33 +31,94 @@ pub fn shading(coefficients: &[f32; 9], n: [f32; 3]) -> f32 {
 /// little signal to be lifted without amplifying noise.
 pub const MIN_SHADING: f32 = 0.12;
 
-/// Packs the subject for the recipe: x and y of the people normal (z is
-/// positive, the surface faces the camera), the subject matte and the weight
-/// of the people normal (0 where no person was analyzed). Where that weight
-/// is 0, x holds the background reach instead (`background_reach`, mapped
-/// to -1..1).
+/// Packs the subject for the recipe as a two-part atlas, twice as wide as
+/// the frame's texture: left, x and y of the people normal (z is positive,
+/// the surface faces the camera), the subject matte and the weight of the
+/// people normal (0 where no person was analyzed); right, the share of the
+/// photo that is the original light's skin highlight (`specular`) and the
+/// background reach (`background_reach`, 1 without one).
 pub fn encode_subject(
     normals: &Normals,
     matte: &image::GrayImage,
     people: &image::GrayImage,
     reach: Option<&image::GrayImage>,
+    specular: Option<&image::GrayImage>,
 ) -> SubjectImage {
     let (w, h) = matte.dimensions();
     let code = |v: f32| ((v.clamp(-1., 1.) * 0.5 + 0.5) * 65535.).round() as u16;
-    ImageBuffer::from_fn(w, h, |x, y| {
-        let mut n = normals.get_pixel(x, y).0;
-        let weight = people.get_pixel(x, y)[0] as f32 / 255.;
-        if weight == 0. {
-            n[0] = reach.map_or(1., |r| r.get_pixel(x, y)[0] as f32 / 255.) * 2. - 1.;
+    let wide = |gray: Option<&image::GrayImage>, x: u32, y: u32, absent: u16| {
+        gray.map_or(absent, |g| g.get_pixel(x, y)[0] as u16 * 257)
+    };
+    ImageBuffer::from_fn(w * 2, h, |x, y| {
+        if x < w {
+            let n = normals.get_pixel(x, y).0;
+            Rgba([
+                code(n[0]),
+                code(n[1]),
+                matte.get_pixel(x, y)[0] as u16 * 257,
+                people.get_pixel(x, y)[0] as u16 * 257,
+            ])
+        } else {
+            let x = x - w;
+            Rgba([wide(specular, x, y, 0), wide(reach, x, y, 65535), 0, 65535])
         }
-        let matte = matte.get_pixel(x, y)[0] as u16 * 257;
-        Rgba([
-            code(n[0]),
-            code(n[1]),
-            matte,
-            (weight * 65535.).round() as u16,
-        ])
     })
+}
+
+/// The GPU values of an atlas texel (`encode_subject`): left [nx, ny, matte,
+/// weight], right [specular share, reach, 0, 1].
+pub fn decode_texel(atlas: &SubjectImage, x: u32, y: u32) -> [f32; 4] {
+    let p = atlas.get_pixel(x, y).0;
+    if x < atlas.width() / 2 {
+        let n = decode_normal(p);
+        [n[0], n[1], p[2] as f32 / 65535., p[3] as f32 / 65535.]
+    } else {
+        p.map(|v| v as f32 / 65535.)
+    }
+}
+
+/// The share of each skin texel's light that is the original light's
+/// highlight (shine), 0..1: brightness beyond 1.5× what the skin's albedo
+/// under the fitted shading reflects, where the colour is whiter than the
+/// skin's. Removed with the original light; the new light adds its own.
+pub fn skin_specular(
+    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
+    normals: &Normals,
+    skin: &image::GrayImage,
+    light: &SourceLight,
+) -> image::GrayImage {
+    let (w, h) = skin.dimensions();
+    let saturation = |c: [f32; 3]| {
+        let max = c[0].max(c[1]).max(c[2]);
+        if max <= 1e-6 {
+            0.
+        } else {
+            1. - c[0].min(c[1]).min(c[2]) / max
+        }
+    };
+    let mut skin_saturation: Vec<f32> = skin
+        .enumerate_pixels()
+        .filter(|(_, _, p)| p[0] > 128)
+        .map(|(x, y, _)| saturation(linear.get_pixel(x, y).0))
+        .collect();
+    if skin_saturation.is_empty() {
+        return image::GrayImage::new(w, h);
+    }
+    skin_saturation.sort_by(f32::total_cmp);
+    let reference = skin_saturation[skin_saturation.len() / 2].max(0.05);
+    let shine = image::GrayImage::from_fn(w, h, |x, y| {
+        if skin.get_pixel(x, y)[0] <= 128 {
+            return image::Luma([0]);
+        }
+        let c = linear.get_pixel(x, y).0;
+        let luminance = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let diffuse = light.skin_albedo
+            * shading(&light.coefficients, normals.get_pixel(x, y).0).max(MIN_SHADING);
+        let excess = ((luminance - 1.5 * diffuse) / luminance.max(1e-6)).clamp(0., 0.85);
+        let whiter = ((reference - saturation(c)) / (0.5 * reference)).clamp(0., 1.);
+        image::Luma([(excess * whiter * 255.).round() as u8])
+    });
+    image::imageops::blur(&shine, 1.)
 }
 
 /// The normal stored at a subject texel.
@@ -564,6 +625,29 @@ mod tests {
     }
 
     #[test]
+    fn skin_shine_is_found_where_skin_is_too_bright_and_white() {
+        let (mut image, normals) = sphere(64, [0., 0., 1.], 0.4);
+        let light = SourceLight {
+            coefficients: [0.15, 0.85, 0., 0., 1., 0., 0., 0., 0.],
+            skin_albedo: 0.42,
+        };
+        // A white highlight on the forehead.
+        for y in 20..24 {
+            for x in 30..34 {
+                image.put_pixel(x, y, Rgb([0.95, 0.93, 0.9]));
+            }
+        }
+        let skin = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
+        let shine = skin_specular(&image, &normals, &skin, &light);
+        assert!(
+            shine.get_pixel(32, 22)[0] > 60,
+            "{}",
+            shine.get_pixel(32, 22)[0]
+        );
+        assert!(shine.get_pixel(32, 44)[0] < 5);
+    }
+
+    #[test]
     fn too_little_skin_gives_no_fit() {
         let (image, normals) = sphere(32, [0., 0., 1.], 0.5);
         assert!(fit(&image, &normals, &[], &image::GrayImage::new(32, 32)).is_none());
@@ -574,8 +658,10 @@ mod tests {
         let normals = ImageBuffer::from_pixel(2, 1, Rgb([0.3f32, -0.4, 0.866]));
         let matte = image::GrayImage::from_pixel(2, 1, image::Luma([255]));
         let people = image::GrayImage::from_pixel(2, 1, image::Luma([128]));
-        let encoded = encode_subject(&normals, &matte, &people, None);
+        let encoded = encode_subject(&normals, &matte, &people, None, None);
+        assert_eq!(encoded.dimensions(), (4, 1));
         let n = decode_normal(encoded.get_pixel(0, 0).0);
+        assert_eq!(decode_texel(&encoded, 2, 0), [0., 1., 0., 1.]);
         assert!(
             (n[0] - 0.3).abs() < 1e-4 && (n[1] + 0.4).abs() < 1e-4 && (n[2] - 0.866).abs() < 1e-3
         );

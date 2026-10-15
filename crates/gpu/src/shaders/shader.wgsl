@@ -4822,6 +4822,16 @@ struct RelightEnergy {
     has_light: bool,
 }
 
+// The version-five subject atlas (relight_source.rs encode_subject): part 0
+// (left) people normal, matte and weight; part 1 (right) skin shine share
+// and background reach. Filtering stays inside each half.
+fn relight_subject_sample(uv: vec2<f32>, part: f32) -> vec4<f32> {
+    let size = vec2<f32>(textureDimensions(relight_depth_texture));
+    let half_width = size.x * 0.5;
+    let x = clamp(uv.x * half_width, 0.5, half_width - 0.5) + part * half_width;
+    return textureSampleLevel(relight_depth_texture, flare_sampler, vec2<f32>(x / size.x, uv.y), 0.0);
+}
+
 fn relight_people_normal(people: vec4<f32>) -> vec3<f32> {
     return vec3<f32>(people.xy, sqrt(max(1.0 - dot(people.xy, people.xy), 0.0)));
 }
@@ -5028,12 +5038,12 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // A version-five subject: people normals (xy), matte, normal weight.
     var people = vec4<f32>(0.0);
     var background_reach = 1.0;
+    var shine = 0.0;
     if (camera_mode && has_depth && adjustments.global.relight_source[2].y > 0.5) {
-        people = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
-        // Without people, x holds the background reach (relight_source.rs).
-        if (people.w <= 0.0) {
-            background_reach = people.x * 0.5 + 0.5;
-        }
+        people = relight_subject_sample(uv, 0.0);
+        let intrinsic = relight_subject_sample(uv, 1.0);
+        shine = intrinsic.x;
+        background_reach = intrinsic.y;
         // Soft matte edges mix the person with the background (hair against
         // sky): only confidently covered pixels take the person's normal and
         // shading, or background light would be divided by the person's.
@@ -5105,11 +5115,13 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     // accumulate lights commutatively so reordering does not change the result.
     let original = select(1.0, adjustments.global.relight_surface.y, has_light);
     let gain = (vec3<f32>(original) + light_gain) * exp2(-shadow_ev);
+    // The original light's skin shine goes with the original light.
+    let photo = rgb * (1.0 - shine * people.z * (1.0 - original));
     if (adjustments.global.is_raw_image == 0u && has_light) {
         // Already-rendered photos have no scene highlight headroom. Roll off
         // added light continuously, preserving texture instead of clipping it.
-        let base = rgb * min(gain, vec3<f32>(1.0));
-        let extra = rgb * max(gain - vec3<f32>(1.0), vec3<f32>(0.0)) + reflected_light;
+        let base = photo * min(gain, vec3<f32>(1.0));
+        let extra = photo * max(gain - vec3<f32>(1.0), vec3<f32>(0.0)) + reflected_light;
         let room = max(vec3<f32>(1.0) - base, vec3<f32>(0.00001));
         if (surface_lighting) {
             // One scale for the added RGB energy: per-channel rolloff would
@@ -5121,7 +5133,7 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         }
         return base + room * (vec3<f32>(1.0) - exp(-extra / room));
     }
-    return rgb * gain + reflected_light;
+    return photo * gain + reflected_light;
 }
 
 fn apply_halation(

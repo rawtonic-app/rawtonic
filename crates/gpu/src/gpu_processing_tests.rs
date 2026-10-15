@@ -7368,14 +7368,17 @@ fn relight_people_subject_lights_material_and_spares_far_background() {
     // x < 16: person facing the light (from the left), originally in shadow;
     // 16..32: person facing away; 32..48: background reached; 48..: far.
     let code = |v: f32| ((v * 0.5 + 0.5) * 65535.).round() as u16;
+    // The atlas (relight_source.rs encode_subject): left normal, matte and
+    // weight; right shine share and background reach.
     let subject = png(DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(
-        w,
+        w * 2,
         h,
         |x, _| match x {
             0..16 => image::Rgba([code(-0.8), code(0.), 65535, 65535]),
             16..32 => image::Rgba([code(0.8), code(0.), 65535, 65535]),
-            32..48 => image::Rgba([code(1.), code(0.), 0, 0]),
-            _ => image::Rgba([code(-1.), code(0.), 0, 0]),
+            32..64 => image::Rgba([code(0.), code(0.), 0, 0]),
+            64..112 => image::Rgba([0, 65535, 0, 65535]),
+            _ => image::Rgba([0, 0, 0, 65535]),
         },
     )));
     let mut recipe = json!({
@@ -7390,8 +7393,8 @@ fn relight_people_subject_lights_material_and_spares_far_background() {
         "faces": [],
         "camera": {"fx":1.0,"fy":2.0,"cx":0.5,"cy":0.5,"inverseMin":0.6,"inverseMax":1.4,"reference":1.0},
         "subject": format!("data:image/png;base64,{subject}"),
-        // The photo's light came from +x: S = 0.3 + 0.7·max(nx, 0).
-        "sourceLight": [0.3, 0.7, 1., 0., 0., 0., 0., 0., 0.],
+        // The photo's light came from +x: S = 0.1 + 0.9·max(nx, 0).
+        "sourceLight": [0.1, 0.9, 1., 0., 0., 0., 0., 0., 0.],
         "subjectDepth": 1.0,
     });
     let render = |recipe: &serde_json::Value, roi| {
