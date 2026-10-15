@@ -258,6 +258,7 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   pushHistory: (newAdj) => {
     scheduledHistory.cancel();
+    heldHistory = null;
     set((state) => {
       const newHistory = state.history.slice(0, state.historyIndex + 1);
       newHistory.push(newAdj);
@@ -291,6 +292,7 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   resetHistory: (initialState) => {
     scheduledHistory.cancel();
+    heldHistory = null;
     set({
       history: [initialState],
       historyIndex: 0,
@@ -322,16 +324,30 @@ export const useEditorStore = create<EditorState>((set) => ({
 const scheduledHistory = debounce((adjustments: Adjustments) => {
   useEditorStore.getState().pushHistory(adjustments);
 }, 500);
+// The latest edit of a drag in progress (`isSliderDragging`): a drag is one
+// history step however long it pauses; it is scheduled when the drag ends.
+let heldHistory: Adjustments | null = null;
 export const debouncedSetHistory = Object.assign(
   (adjustments: Adjustments) => {
-    scheduledHistory(adjustments);
+    if (useEditorStore.getState().isSliderDragging) {
+      // An edit scheduled before the drag stays its own step.
+      if (!heldHistory) scheduledHistory.flush();
+      heldHistory = adjustments;
+    } else {
+      heldHistory = null;
+      scheduledHistory(adjustments);
+    }
     if (!useEditorStore.getState().historyPending)
       useEditorStore.setState({ historyPending: true });
   },
   {
-    flush: () => scheduledHistory.flush(),
+    flush: () => {
+      if (heldHistory) useEditorStore.getState().pushHistory(heldHistory);
+      else scheduledHistory.flush();
+    },
     cancel: () => {
       scheduledHistory.cancel();
+      heldHistory = null;
       if (useEditorStore.getState().historyPending)
         useEditorStore.setState({ historyPending: false });
     },
@@ -343,6 +359,13 @@ export const debouncedSetHistory = Object.assign(
 useEditorStore.subscribe((state, previous) => {
   const patch: Partial<EditorState> = {};
   if (state.selectedImage?.path !== previous.selectedImage?.path) debouncedSetHistory.cancel();
+  else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
+    // The drag ended: its last edit becomes one step (a final value sent
+    // just after the release still joins it).
+    const held = heldHistory;
+    heldHistory = null;
+    scheduledHistory(held);
+  }
   // Lightroom's automatic overlay (notes: reference/layers-panel-c1-lr.md):
   // shown while a mask is made or painted, off at the layer's first
   // adjustment; a new photo starts automatic again.

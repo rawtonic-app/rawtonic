@@ -34,7 +34,7 @@ weights tensor by tensor.
 | `birefnet_coreml_*` (Core ML package, fp32) | Subject and background masks on macOS, builds from 2026-10-10 to 2026-10-11 | As above in fp32 (927 MB; `--precision fp32` reproduces the pack's files). | MIT | In the pack; replaced by the fp16 program 2026-10-11 (the release assets stay for older builds) |
 | `u2net.onnx` | Foreground mask (inherited) | Byte-identical to rembg's `u2net.onnx` (release v0.0.0), the export of Qin et al.'s U²-Net. | Apache-2.0 (weights), MIT (rembg) | Replaced by BiRefNet 2026-10-09 (the release asset stays for older builds) |
 | `relight_geometry_da3_base.onnx` | Relight relative scene geometry and camera | DA3 **Base**, rights holder `depth-anything/DA3-BASE` revision `f4a6c9b3c95e41c82048423d3493a81ec3fa810e`; source `ByteDance-Seed/Depth-Anything-3` at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4`. Exported by `scripts/models/export_relight.py`. | Apache-2.0 | Self-host |
-| `relight_people_normals_david_base.onnx` | Relight surface normals of people | Microsoft's DAViD Base normal model (`normal-model-vitb16_384.onnx`, github.com/microsoft/DAViD at `20a3eb6`, README "Model License": "DAViD models and runtime code are licensed under the MIT License"), unchanged; trained on Microsoft's synthetic SynthHuman (CDLA-2.0). | MIT | Added 2026-10-15, to be uploaded to the pack |
+| `relight_people_normals_david_base.onnx` | Relight surface normals of people | Microsoft's DAViD Base normal model (`normal-model-vitb16_384.onnx`, github.com/microsoft/DAViD at `20a3eb6`, README "Model License": "DAViD models and runtime code are licensed under the MIT License"), unchanged; trained on Microsoft's synthetic SynthHuman (CDLA-2.0). | MIT | In the pack since 2026-10-15 |
 | `depth_anything_v2_vits.onnx` | Depth masks | Byte-identical to fabio-sim/Depth-Anything-ONNX v2.0.0, the export of Depth Anything V2 **Small**. | Apache-2.0 (Small only; Base/Large/Giant are CC BY-NC 4.0) | Keep, self-host |
 | ONNX Runtime 1.23.2 (macOS arm64 / x86_64) | Runtime for macOS AI tools | Unchanged Microsoft release libraries, SHA-256 pinned; fixes the shutdown crash reproduced on 1.22.0. | MIT + 1.23.2 third-party notices | Keep, self-host |
 | ONNX Runtime 1.22.0 (six desktop libraries) | Legacy runtime (macOS before 2026-10-13; Windows and Linux before 2026-10-10) | Byte-identical to Microsoft's v1.22.0 release archives (all six platforms). | MIT + third-party notices | Keep, self-host |
@@ -998,8 +998,10 @@ Noise2Noise.
 file Microsoft publishes (an fp16 conversion fails on its Cast nodes). Input
 is float32 `[1,3,512,512]`, BGR in 0–1, the subject's region padded to a
 square by repeating its border (as DAViD's runtime); output is a surface
-normal per pixel (x right, y up, z towards the camera). It runs only for
-photos with faces, on the region of the subject matte (BiRefNet), in
+normal per pixel (x right, y up, z towards the camera). It is loaded and
+run only for photos with people (a detected face, or skin on at least
+1/300 of the frame in the whole-photo parse) and a subject matte, on the
+matte's region (BiRefNet), in
 0.26 s on an M5 Pro CPU. Measured on the public relight set (notes:
 reference/relight-g70-close.md): its Base and Large normals differ by
 7.4° mean on a portrait, with the same wrinkle and nose detail; it is
@@ -1021,7 +1023,8 @@ to a 518-pixel longest side and multiples of 14, minimum 28 per side. The
 minimum avoids undefined single-token camera geometry on extremely narrow
 frames. Output is relative camera-axis
 distance and intrinsics, not calibrated metres. The app normalizes by median
-distance, stores 16-bit inverse depth plus the camera in version-4 recipes, and
+distance, stores 16-bit inverse depth plus the camera in version-4 and
+version-5 recipes, and
 fits a cached surface for GPU shading. Bounds on extreme inverse distance are
 0.0001–100 after normalization. Existing maps retain their previous renderer;
 new analysis is explicit and light movement performs no model inference.

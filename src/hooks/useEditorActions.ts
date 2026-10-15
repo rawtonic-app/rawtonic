@@ -136,7 +136,9 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
   );
 }
 
-function isCurrentEditorImage(path: string): boolean {
+/** Whether `path` is still the open, fully loaded photograph (an async
+ * result may only reach the editor then). */
+export function isCurrentEditorImage(path: string): boolean {
   const image = useEditorStore.getState().selectedImage;
   return image?.path === path && image.isReady;
 }
@@ -167,6 +169,8 @@ export function updateAdjustments(value: AdjustmentsUpdate) {
       state.selectedImage.width,
       state.selectedImage.height,
     );
+    // An update that changes nothing (a crop released where it was) is no step.
+    if (newAdjustments === prev) return state;
     debouncedSetHistory(newAdjustments);
     return {
       adjustments: newAdjustments,
@@ -351,7 +355,8 @@ export function useEditorActions() {
       if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
 
       pathsToReset.forEach((p) => globalImageCache.delete(p));
-      debouncedSetHistory.cancel();
+      // The last edit stays a step of its own, before the reset.
+      debouncedSetHistory.flush();
 
       afterRecipeSaves(
         pathsToReset,
@@ -370,6 +375,7 @@ export function useEditorActions() {
               selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
             const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
             // One undoable step, as in Capture One and Lightroom.
+            debouncedSetHistory.flush();
             pushHistory(resetData);
             setEditor({ adjustments: resetData });
           }
@@ -480,9 +486,12 @@ export function useEditorActions() {
   }, []);
 
   /** Apply some adjustments to `paths` (default: the selection, else the open
-   * photo), saving each recipe after its pending save; resolves once saved. */
+   * photo), saving each recipe after its pending save; resolves once saved.
+   * `openingNow`: the open photograph has only just been selected (its
+   * loader has not read its recipe yet), so it may be written too; it then
+   * reads its recipe after this write. */
   const applyAdjustmentsToPaths = useCallback(
-    (partial: Partial<Adjustments>, paths?: string[]) => {
+    (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
       const adjustmentsToApply = withGrainStructure(partial);
@@ -491,7 +500,7 @@ export function useEditorActions() {
       const pathsToUpdate =
         paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
       if (pathsToUpdate.length === 0) return;
-      if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
+      if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
@@ -499,13 +508,22 @@ export function useEditorActions() {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
 
-      return afterRecipeSaves(pathsToUpdate, () =>
+      const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
           pathsToUpdate,
           'paste adjustments',
         ),
-      )
+      );
+      // A photograph opened meanwhile reads its recipe after this write.
+      const settled = written.then(() => undefined, () => undefined);
+      pathsToUpdate.forEach((path) => {
+        pendingMetadataSaves.set(path, settled);
+        void settled.then(() => {
+          if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
+        });
+      });
+      return written
         .then((failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));

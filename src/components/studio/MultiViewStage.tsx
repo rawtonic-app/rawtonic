@@ -204,6 +204,8 @@ export default function MultiViewStage({ files, onOpen, onRate, children, transf
     count > 1 &&
     selection.includes(primary);
   useEffect(() => setActive(active), [active, setActive]);
+  // Leaving Develop unmounts the stage: the multi view ends as when it is left.
+  useEffect(() => () => setActive(false), [setActive]);
   // The before/after split is single-view only: the multi view coming on
   // (N, or a second photograph selected) turns it off.
   useEffect(() => {

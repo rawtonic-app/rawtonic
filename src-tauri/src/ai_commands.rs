@@ -1018,6 +1018,7 @@ pub async fn generate_relight_depth(
             rawtonic_faces::relight::parse_people(&face_input, &models)
                 .inspect_err(|e| log::warn!("Relight: people parse failed: {e}"))
                 .ok()
+                .flatten()
         });
         Ok::<_, String>((depth, camera, small, faces, parse))
     })
@@ -1038,8 +1039,9 @@ pub async fn generate_relight_depth(
     .inspect_err(|e| log::warn!("Relight: continuing without the subject model: {e}"))
     .ok()
     .flatten();
-    // Faces, or a parse with skin: people normals are worth loading.
-    let maybe_people = !faces.is_empty() || parse.is_some();
+    // Faces, or a parse with skin, and a subject to give them normals in:
+    // only then is the people-normal model worth loading (449 MB).
+    let maybe_people = subject_model.is_some() && (!faces.is_empty() || parse.is_some());
     let people_model = if !maybe_people {
         None
     } else {
@@ -1073,7 +1075,7 @@ pub async fn generate_relight_depth(
                 });
                 crate::ai_processing::run_subject_model(&small, &subject_model, is_raw, None)
                     .and_then(|matte| {
-                        let (png, light) = crate::ai_processing::analyze_subject(
+                        let analysis = crate::ai_processing::analyze_subject(
                             &small,
                             is_raw,
                             &matte,
@@ -1085,9 +1087,7 @@ pub async fn generate_relight_depth(
                                 sky: sky.as_ref(),
                             },
                         )?;
-                        let inverse =
-                            rawtonic_engine::relight::subject_inverse(&depth, camera, &matte);
-                        Ok((png, light, inverse))
+                        Ok((analysis.png, analysis.light, analysis.inverse))
                     })
                     .inspect(|(_, light, _)| {
                         log::info!(

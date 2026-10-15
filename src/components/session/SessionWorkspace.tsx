@@ -233,6 +233,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [mode, setMode] = useState<IngestMode>("copy");
   const [importMode, setImportMode] = useState<IngestMode>("copy");
   const [fileDrag, setFileDrag] = useState(false);
+  // Cancel pressed for the running ingest (also before it reached the backend).
+  const cancelRequested = useRef(false);
   // The ingest dialog's list as scans add to it (`addSources`).
   const listed = useRef<IngestCandidate[]>([]);
   const scanList = useRef(0);
@@ -749,6 +751,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       toast.info(t("session.drop.importing"));
       return;
     }
+    // Synchronize Folder and the library copy are dialogs of their own.
+    if (syncing || transfer) return;
     if (form && form !== "ingest") return;
     const next: IngestTarget = {
       folder:
@@ -798,6 +802,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     const adding = ingestMode === "add";
     const folder = adding ? null : target.folder;
     const album = addToAlbum ? target.album : null;
+    cancelRequested.current = false;
     setImporting(true);
     setProgress({ current: 0, total: files.length, mbps: 0 });
     setForm(null);
@@ -810,6 +815,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         : (folder ?? (await join(session.directory, session.manifest.capture)));
       setImportMode(adding ? "add" : "copy");
       if (useUIStore.getState().activeView !== "editor") await onNavigate(destination);
+      // Cancel pressed before the ingest started (the backend clears its
+      // cancel flag when it starts): nothing is copied.
+      if (cancelRequested.current) return;
       const results = await invoke<ImportResult[]>("session_ingest", {
         directory: session.directory,
         sources: files,
@@ -1085,12 +1093,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           </span>
           <progress value={progress.current} max={progress.total} />
           <span>{progress.mbps.toFixed(1)} MB/s</span>
-          <button onClick={() => void invoke("session_cancel_ingest")}>
+          <button
+            onClick={() => {
+              cancelRequested.current = true;
+              void invoke("session_cancel_ingest");
+            }}
+          >
             {t("session.progress.cancel")}
           </button>
         </div>
       )}
-      {fileDrag && session && !importing && (!form || form === "ingest") && (
+      {fileDrag && session && !importing && !syncing && !transfer && (!form || form === "ingest") && (
         <div className="session-drop-overlay" aria-hidden>
           <span>
             <ArrowDownToLine size={18} />

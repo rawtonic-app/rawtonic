@@ -10,6 +10,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Where a resource reference that `Library::rewrite_resources` passes on is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResourceUse<'a> {
+    /// The photograph whose edit holds it (recipes, versions, masks).
+    pub owner: Option<&'a Path>,
+    /// Used by what a photograph shows now: a version's current recipe (its
+    /// head), a version's state or a mask. Not: undo history, presets,
+    /// styles, export recipes.
+    pub current: bool,
+}
+
 impl Library {
     pub fn snapshot_from(source: &Path, folder: &Path) -> Result<Library> {
         let manifest_path = source.join(if source.join("session.json").exists() {
@@ -62,24 +73,30 @@ impl Library {
     /// All recipe versions, including undo history, virtual copies and presets.
     pub fn rewrite_resources(
         &self,
-        mut rewrite: impl FnMut(&str, Option<&Path>) -> Result<String>,
+        mut rewrite: impl FnMut(&str, ResourceUse<'_>) -> Result<String>,
     ) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
-        for (table, key, column) in [
-            ("recipes", "id", "payload"),
-            ("versions", "id", "legacy_state"),
-            ("presets", "id", "recipe_json"),
-            ("styles", "id", "recipe_json"),
-            ("export_recipes", "id", "recipe_json"),
-            ("masks", "id", "vector_json"),
+        for (table, key, column, current) in [
+            (
+                "recipes",
+                "id",
+                "payload",
+                "EXISTS(SELECT 1 FROM versions v WHERE v.head=recipes.id)",
+            ),
+            ("versions", "id", "legacy_state", "1"),
+            ("presets", "id", "recipe_json", "0"),
+            ("styles", "id", "recipe_json", "0"),
+            ("export_recipes", "id", "recipe_json", "0"),
+            ("masks", "id", "vector_json", "1"),
         ] {
-            let values: Vec<(String, String)> = tx
+            let values: Vec<(String, String, bool)> = tx
                 .prepare(&format!(
-                    "SELECT CAST({key} AS TEXT), {column} FROM {table} WHERE {column} IS NOT NULL"
+                    "SELECT CAST({key} AS TEXT), {column}, {current} FROM {table}
+                     WHERE {column} IS NOT NULL"
                 ))?
-                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
                 .collect::<rusqlite::Result<_>>()?;
-            for (id, text) in values {
+            for (id, text, current) in values {
                 let owner_query = match table {
                     "recipes" => Some(
                         "SELECT v.asset_id FROM recipes r JOIN versions v ON r.version_id=v.id WHERE r.id=?",
@@ -102,7 +119,11 @@ impl Library {
                     if path.is_empty() || error.is_some() {
                         return;
                     }
-                    match rewrite(path, owner.as_deref()) {
+                    let used = ResourceUse {
+                        owner: owner.as_deref(),
+                        current,
+                    };
+                    match rewrite(path, used) {
                         Ok(next) => *path = next,
                         Err(e) => error = Some(e),
                     }
@@ -123,7 +144,16 @@ impl Library {
         for (id, path) in rasters {
             tx.execute(
                 "UPDATE masks SET raster_path=? WHERE id=?",
-                params![rewrite(&path, None)?, id],
+                params![
+                    rewrite(
+                        &path,
+                        ResourceUse {
+                            owner: None,
+                            current: true
+                        }
+                    )?,
+                    id
+                ],
             )?;
         }
         tx.commit()?;

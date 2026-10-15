@@ -14,7 +14,7 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useProcessStore } from "../../store/useProcessStore";
 import { debouncedSetHistory, useEditorActions } from "../../hooks/useEditorActions";
-import { INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
+import { COLOR_NOISE_VERSION, INITIAL_ADJUSTMENTS, normalizeLoadedAdjustments } from "../../utils/adjustments";
 import { Panel, type AppSettings, type SelectedImage } from "../ui/AppProperties";
 import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { useSettingsStore } from "../../store/useSettingsStore";
@@ -465,6 +465,21 @@ describe("Capture One-style layer masks", () => {
 });
 
 describe("per-tool copy and apply (Capture One)", () => {
+  it("copies and resets the colour noise filter with the Noise reduction tool, as a full copy and Reset do", () => {
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, colorNoiseReduction: 40, colorNoiseVersion: 1 },
+    }));
+    mount();
+    fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name: "Detail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy and apply Noise reduction" }), { altKey: true });
+    expect(useEditorStore.getState().toolClipboard?.values).toMatchObject({
+      colorNoiseReduction: 40,
+      colorNoiseVersion: 1,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset Noise reduction" }));
+    expect(useEditorStore.getState().adjustments.colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
+  });
+
   it("copies chosen values, applies them to the other selected photos and here", async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     const { useLibraryStore } = await import("../../store/useLibraryStore");

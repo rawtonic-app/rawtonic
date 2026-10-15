@@ -13,7 +13,13 @@ const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adju
   const prev = useEditorStore.getState().adjustments;
   useEditorStore.setState({ adjustments: typeof update === "function" ? update(prev) : update });
 });
-vi.mock("../../hooks/useEditorActions", () => ({ useEditorActions: () => ({ setAdjustments }) }));
+vi.mock("../../hooks/useEditorActions", () => ({
+  useEditorActions: () => ({ setAdjustments }),
+  isCurrentEditorImage: (path: string) => {
+    const image = useEditorStore.getState().selectedImage;
+    return image?.path === path && image.isReady;
+  },
+}));
 const mockInvoke = vi.mocked(invoke);
 const lines = [
   { id: "vertical-0", type: "vertical", p1: { x: 0.3, y: 0.2 }, p2: { x: 0.31, y: 0.8 } },
@@ -22,6 +28,7 @@ const lines = [
 
 beforeEach(() => {
   mockInvoke.mockReset();
+  setAdjustments.mockClear();
   useEditorStore.setState({
     selectedImage: { path: "/a.raf", isReady: true } as never,
     adjustments: { ...INITIAL_ADJUSTMENTS },
@@ -89,5 +96,17 @@ describe("Upright", () => {
     expect(useEditorStore.getState().isGuidedPerspectiveActive).toBe(true);
     fireEvent.click(screen.getByText("Off"));
     expect(guided().autoCrop).toBe(false);
+  });
+
+  it("drops lines that arrive after another photograph opened", async () => {
+    let finish!: (value: unknown) => void;
+    mockInvoke.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    render(<StudioUpright />);
+    fireEvent.click(screen.getByText("Auto"));
+    const next = { ...INITIAL_ADJUSTMENTS };
+    act(() => useEditorStore.setState({ selectedImage: { path: "/b.raf", isReady: true } as never, adjustments: next }));
+    await act(async () => finish({ lines, applied: "vertical", segments: 40, agreeing: 9 }));
+    expect(useEditorStore.getState().adjustments).toBe(next);
+    expect(setAdjustments).not.toHaveBeenCalled();
   });
 });

@@ -66,7 +66,7 @@ import { Color, COLOR_LABELS, INITIAL_ADJUSTMENTS, initialAdjustmentsFor, normal
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { useEditorActions } from './useEditorActions';
+import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { previewsMenu } from '../utils/previews';
@@ -505,6 +505,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
       const handleApplyAutoAdjustmentsToSelection = () => {
         if (finalSelection.length === 0) return;
+        if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
         invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
@@ -520,17 +521,21 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           )
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));
-            if (selectedImage && applied.includes(selectedImage.path)) {
+            // The open photograph may have changed meanwhile: its editor
+            // only takes the result while it is still the one open.
+            if (selectedImage && applied.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
               const metadata = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
-              if (metadata.adjustments && !metadata.adjustments.is_null) {
+              if (isCurrentEditorImage(selectedImage.path) && metadata.adjustments && !metadata.adjustments.is_null) {
                 const normalized = normalizeLoadedAdjustments(metadata.adjustments, selectedImage.isRaw);
                 setEditor({ adjustments: normalized });
                 useEditorStore.getState().resetHistory(normalized);
               }
             }
-            if (libraryActivePath && applied.includes(libraryActivePath)) {
+            if (libraryActivePath && applied.includes(libraryActivePath)
+              && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
               const metadata = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
-              if (metadata.adjustments && !metadata.adjustments.is_null) {
+              if (useLibraryStore.getState().libraryActivePath === libraryActivePath
+                && metadata.adjustments && !metadata.adjustments.is_null) {
                 const normalized = normalizeLoadedAdjustments(metadata.adjustments, isRawInLibrary(libraryActivePath));
                 setLibrary({ libraryActiveAdjustments: normalized });
               }

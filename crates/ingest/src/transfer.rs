@@ -1,7 +1,10 @@
 //! Full, verified library copies for transfer, backup and restore. A staging
 //! directory is published only after originals, recipes and dependencies pass.
+//! A missing original stops the copy; an edit resource (LUT, profile, mask
+//! image) that is already missing does not, wherever it is referenced: it is
+//! counted in the receipt and its reference kept (`Receipt::missing_resources`).
 use anyhow::{Context, Result, ensure};
-use rawtonic_catalog::Library;
+use rawtonic_catalog::{Library, portable::ResourceUse};
 use rawtonic_metadata::resources;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -22,6 +25,18 @@ pub struct Receipt {
     pub photographs: usize,
     /// Relative filenames and full SHA-256 digests. No machine-specific paths.
     pub files: BTreeMap<String, String>,
+    /// Edit resource files (LUTs, camera profiles, mask images) that edits
+    /// refer to but that were already missing when the copy was made. They
+    /// cannot be in the copy; their references are kept unchanged and the
+    /// copy is complete for everything else. A missing original still stops
+    /// the copy.
+    #[serde(default)]
+    pub missing_resources: usize,
+    /// How many of `missing_resources` what photographs show now uses (a
+    /// current recipe, a version's state, a mask); the rest only undo
+    /// history, presets, styles or export recipes refer to.
+    #[serde(default)]
+    pub missing_current_resources: usize,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct Progress {
@@ -338,12 +353,15 @@ pub fn copy_library(
         });
     }
     let mut resources_copied = BTreeMap::<PathBuf, String>::new();
-    let mut rewrite = |value: &str, owner: Option<&Path>| -> Result<String> {
+    // Resources that are not there, with whether what a photograph shows
+    // now uses them.
+    let mut resources_missing = BTreeMap::<PathBuf, bool>::new();
+    let mut rewrite = |value: &str, used: ResourceUse<'_>| -> Result<String> {
         check(cancel)?;
         if value.is_empty() {
             return Ok(value.into());
         }
-        let owner = owner.map(|path| {
+        let owner = used.owner.map(|path| {
             path.strip_prefix(&stage_root)
                 .map(|r| source.join(r))
                 .unwrap_or_else(|_| path.to_path_buf())
@@ -360,9 +378,20 @@ pub fn copy_library(
             rawtonic_catalog::validate_relative(Path::new(value))?;
             owner_root.join(value)
         };
+        // Already gone (a LUT deleted after an old undo step or a preset
+        // used it): there is nothing to copy, and stopping would leave the
+        // user without any backup. The reference stays as it is (the file
+        // may come back on this computer) and is counted in the receipt.
+        if !path
+            .try_exists()
+            .with_context(|| format!("Cannot read edit resource {}", path.display()))?
+        {
+            *resources_missing.entry(path).or_default() |= used.current;
+            return Ok(value.into());
+        }
         let path = path
             .canonicalize()
-            .with_context(|| format!("Required edit resource is missing: {}", path.display()))?;
+            .with_context(|| format!("Cannot read edit resource {}", path.display()))?;
         if let Some(value) = resources_copied.get(&path) {
             return Ok(value.clone());
         }
@@ -405,7 +434,12 @@ pub fn copy_library(
             .and_then(|parent| owners.get(parent))
             .copied();
         let mut error = None;
-        resources::visit(&mut value, &mut |resource| match rewrite(resource, owner) {
+        // An editor sidecar is a photograph's (or legacy copy's) state now.
+        let used = ResourceUse {
+            owner,
+            current: true,
+        };
+        resources::visit(&mut value, &mut |resource| match rewrite(resource, used) {
             Ok(next) => *resource = next,
             Err(e) => error = Some(e),
         });
@@ -435,6 +469,11 @@ pub fn copy_library(
         created_at: chrono::Utc::now().to_rfc3339(),
         photographs: assets.len(),
         files: BTreeMap::new(),
+        missing_resources: resources_missing.len(),
+        missing_current_resources: resources_missing
+            .values()
+            .filter(|&&current| current)
+            .count(),
     };
     for path in all {
         check(cancel)?;

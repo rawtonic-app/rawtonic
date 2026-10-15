@@ -12,7 +12,13 @@ const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adju
   current = typeof update === "function" ? update(current) : update;
   useEditorStore.setState({ adjustments: current });
 });
-vi.mock("../../hooks/useEditorActions", () => ({ useEditorActions: () => ({ setAdjustments }) }));
+vi.mock("../../hooks/useEditorActions", () => ({
+  useEditorActions: () => ({ setAdjustments }),
+  isCurrentEditorImage: (path: string) => {
+    const image = useEditorStore.getState().selectedImage;
+    return image?.path === path && image.isReady;
+  },
+}));
 const mockInvoke = vi.mocked(invoke);
 const distortion = { k1: 0.01, k2: 0, k3: 0 };
 const cameraParams = { k1: -0.02, k2: 0.05, k3: -0.04, model: 1 };
@@ -111,6 +117,20 @@ describe("Lens correction tool", () => {
     expect(current.autoChromaticAberration).toBe(true);
     fireEvent.click(screen.getByRole("checkbox", { name: "Remove chromatic aberration" }));
     expect(current.autoChromaticAberration).toBeUndefined();
+  });
+  it("drops a detected lens that arrives after another photograph opened", async () => {
+    await renderTool();
+    let finish!: (value: unknown) => void;
+    mockInvoke.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    fireEvent.click(screen.getByLabelText("Enable profile corrections"));
+    const next = { ...INITIAL_ADJUSTMENTS };
+    act(() => useEditorStore.setState({
+      selectedImage: { path: "/job/b.arw", isReady: true, exif: {} } as never,
+      adjustments: next,
+    }));
+    await act(async () => finish(["Sony", "FE 85mm F1.8"]));
+    expect(setAdjustments).not.toHaveBeenCalled();
+    expect(useEditorStore.getState().adjustments).toBe(next);
   });
 });
 

@@ -183,6 +183,15 @@ describe("multi view", () => {
     expect(useMultiViewStore.getState().editAll).toBe(false);
   });
 
+  it("ends the multi view and Edit all selected when the stage unmounts", () => {
+    const { unmount } = stage();
+    act(() => useMultiViewStore.setState({ editAll: true }));
+    expect(useMultiViewStore.getState().active).toBe(true);
+    unmount();
+    expect(useMultiViewStore.getState().active).toBe(false);
+    expect(useMultiViewStore.getState().editAll).toBe(false);
+  });
+
   it("makes a clicked photograph the primary", () => {
     stage();
     fireEvent.click(screen.getByRole("button", { name: /Edit c\.CR3/ }));

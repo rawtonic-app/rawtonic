@@ -71,7 +71,10 @@ export interface SyncApplied {
   moved: [string, string][];
   added: string[];
   removed: string[];
+  /** Includes the new files left out when adding them failed (`addError`). */
   skipped: SyncIssue[];
+  /** Why adding the new files failed after the moves and removals applied. */
+  addError?: string;
 }
 
 export interface SyncProgress {

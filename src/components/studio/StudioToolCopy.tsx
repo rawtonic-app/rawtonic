@@ -12,9 +12,19 @@ export type ToolParams = [keyof Adjustments & string, string][];
 
 const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
+/** Recipe keys without a control of their own that travel with a copied
+ * parameter, as in a full copy: the colour noise amounts mean what the
+ * recipe's colour noise filter makes of them. */
+const COPIED_ALONG: Partial<Record<string, string[]>> = {
+  colorNoiseReduction: ["colorNoiseVersion"],
+  colorNoiseDetail: ["colorNoiseVersion"],
+  colorNoiseSmoothness: ["colorNoiseVersion"],
+};
+
 function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
+  const all = new Set(keys.flatMap((key) => [key, ...(COPIED_ALONG[key] ?? [])]));
   return Object.fromEntries(
-    keys.map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
+    [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
   ) as Partial<Adjustments>;
 }
 

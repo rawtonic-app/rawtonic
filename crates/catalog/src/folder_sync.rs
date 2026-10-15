@@ -16,18 +16,29 @@
 //!   that is there, or several files and photographs match one another.
 //!   The user picks.
 //! - **new**: no match.
-//! - **removed**: a photograph whose file is gone, with nothing found for it.
-//! - **unavailable**: a photograph on a disconnected drive or in a folder
-//!   that could not be read. It is never treated as moved or removed.
+//! - **removed**: a photograph whose file is gone, with nothing found for it,
+//!   below a folder the scan listed and whose library folder (the session
+//!   or catalog folder, or a catalog folder it is in) is there.
+//! - **unavailable**: a photograph on a disconnected drive, in a folder that
+//!   could not be read, or whose library folder is not there or empty (a
+//!   drive or network share that is not connected, also where the system
+//!   gives no drive identity: Windows, SMB/NAS shares). It is never treated
+//!   as removed, and a removal is refused for it when applied.
 //! - **error**: a file or folder that could not be read.
+//!
+//! [`Library::scan_files_sync`] classifies given files only (no folder is
+//! listed, only files matching a photograph by size and sampled
+//! fingerprint are hashed): what a library opening uses to follow renames.
 //!
 //! [`Library::apply_folder_sync`] applies what the user accepted and checks
 //! each action against disk and database first, skipping what changed since
 //! the scan. Moves and removals commit in one transaction, so ratings,
 //! keywords, recipes, versions and albums follow a moved photograph. New
 //! files are added with their sidecars in one more transaction
-//! (`add_files`, import batch "sync"). Files on disk are never moved,
-//! modified or deleted; a removal only removes the library's entry.
+//! (`add_files`, import batch "sync"); when that fails, the moves and
+//! removals stay applied and the files are reported skipped with the error.
+//! Files on disk are never moved, modified or deleted; a removal only
+//! removes the library's entry.
 use crate::checksum::{sha256_file, stamp};
 use crate::{Library, Mode, RelinkReport, add::ImportKind, fingerprint, resolve_moved};
 use anyhow::{Context, Result, bail, ensure};
@@ -256,6 +267,11 @@ pub struct SyncApplied {
     /// Actions not applied because disk or library changed since the scan
     /// (or a file cannot be added), with why.
     pub skipped: Vec<SyncIssue>,
+    /// Why the new files could not be added, when adding them failed as a
+    /// whole after the moves and removals were applied (each file is in
+    /// `skipped` too).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub add_error: Option<String>,
 }
 
 impl SyncApplied {
@@ -277,6 +293,21 @@ struct Known {
     mtime: i64,
     fingerprint: String,
     sha256: Option<String>,
+}
+
+/// What a scan listed, to be classified.
+struct Scanned<'a> {
+    known: Vec<Known>,
+    /// The disconnected drive of every photograph on one.
+    disconnected: HashMap<String, String>,
+    /// The scope: photographs below it are reported removed or unavailable.
+    folders: &'a [PathBuf],
+    /// The folders of the scope that were there and listed.
+    walked: &'a [PathBuf],
+    /// Photograph files found.
+    files: Vec<PathBuf>,
+    /// Folders that could not be read.
+    failed: Vec<SyncIssue>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -332,6 +363,56 @@ fn below(path: &Path, folder: &Path) -> bool {
     path.starts_with(folder)
 }
 
+/// Whether `folder` is a folder with anything in it. An empty one may be
+/// the mount point a drive or share left behind (`/mnt/nas` on Linux) and
+/// is no evidence that the photographs registered in it are gone.
+fn folder_there(folder: &Path) -> bool {
+    fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some())
+}
+
+/// What a registered photograph is as far as its file goes.
+fn state_of(k: &Known, disconnected: &HashMap<String, String>, failed: &[SyncIssue]) -> State {
+    if k.path.is_file() {
+        State::Present
+    } else if disconnected.contains_key(&k.id) || failed.iter().any(|f| below(&k.path, &f.path)) {
+        State::Unavailable
+    } else {
+        State::Missing
+    }
+}
+
+/// The library folders a removal must see: the library's own folder and
+/// every external catalog folder, each checked once.
+struct Anchors {
+    directory: PathBuf,
+    roots: Vec<PathBuf>,
+    there: HashMap<PathBuf, bool>,
+}
+
+impl Anchors {
+    /// Whether the photograph at `path`, whose file is gone, may be removed
+    /// as far as its folders go: its library folder (the library's own
+    /// folder, or a catalog folder it is in) is there and not empty. A
+    /// photograph whose catalog folder is gone (a drive or share that is not
+    /// connected, also without any drive identity) never is; for a folder
+    /// deleted inside a library folder that is there, it is.
+    fn allow(&mut self, path: &Path) -> bool {
+        if below(path, &self.directory) {
+            return true;
+        }
+        for root in self.roots.iter().filter(|root| below(path, root)) {
+            if *self
+                .there
+                .entry(root.clone())
+                .or_insert_with(|| folder_there(root))
+            {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 impl Library {
     /// The folders a synchronization of `folder` (or of the whole library
     /// with `None`) lists: for a session its folder, for a catalog its own
@@ -381,6 +462,20 @@ impl Library {
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The library folders a removal must see (see [`Anchors`]).
+    fn anchors(&self) -> Result<Anchors> {
+        let roots: Vec<String> = self
+            .conn
+            .prepare("SELECT path FROM roots WHERE external=1")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(Anchors {
+            directory: self.directory.clone(),
+            roots: roots.into_iter().map(PathBuf::from).collect(),
+            there: HashMap::new(),
+        })
     }
 
     /// The disconnected drive of every asset whose drive is disconnected.
@@ -460,7 +555,9 @@ impl Library {
     /// Scans `folder` (or the whole library) and returns what changed for
     /// the user to review. Reads only. A folder that is not there fails,
     /// unless its drive is disconnected: then its photographs are reported
-    /// unavailable.
+    /// unavailable. Photographs below a folder of the scope that is not
+    /// there (a drive or share that is not connected, with or without a
+    /// drive identity) are unavailable, never removed.
     pub fn scan_folder_sync(
         &self,
         folder: Option<&Path>,
@@ -468,12 +565,7 @@ impl Library {
     ) -> Result<SyncPlan> {
         let folders = self.sync_scope(folder)?;
         let known = self.known_assets()?;
-        let mut disconnected = self.disconnected()?;
-        let mut plan = SyncPlan {
-            folders: folders.clone(),
-            ..SyncPlan::default()
-        };
-        let in_scope = |path: &Path| folders.iter().any(|f| below(path, f));
+        let disconnected = self.disconnected()?;
         if let (Some(_), [only]) = (folder, folders.as_slice())
             && !only.is_dir()
             && !known
@@ -487,24 +579,67 @@ impl Library {
         }
         let mut files = Vec::new();
         let mut failed = Vec::new();
+        let mut walked = Vec::new();
         for folder in folders.iter().filter(|f| f.is_dir()) {
             self.walk(folder, options, &mut files, &mut failed)?;
+            walked.push(folder.clone());
         }
+        self.classify(
+            Scanned {
+                known,
+                disconnected,
+                folders: &folders,
+                walked: &walked,
+                files,
+                failed,
+            },
+            options,
+        )
+    }
+
+    /// Classifies `files` alone, as a scan would: which are photographs of
+    /// the library moved or renamed there, copies, or new. No folder is
+    /// listed and nothing is reported removed or unavailable; only files
+    /// with the size and sampled fingerprint of a photograph are hashed,
+    /// and only those photographs' files are looked at. Reads only.
+    pub fn scan_files_sync(
+        &self,
+        files: &[PathBuf],
+        options: &SyncOptions<'_>,
+    ) -> Result<SyncPlan> {
+        self.classify(
+            Scanned {
+                known: self.known_assets()?,
+                disconnected: self.disconnected()?,
+                folders: &[],
+                walked: &[],
+                files: files.to_vec(),
+                failed: Vec::new(),
+            },
+            options,
+        )
+    }
+
+    /// A scan's findings for the photograph files listed.
+    fn classify(&self, scanned: Scanned<'_>, options: &SyncOptions<'_>) -> Result<SyncPlan> {
+        let Scanned {
+            known,
+            mut disconnected,
+            folders,
+            walked,
+            files,
+            failed,
+        } = scanned;
+        let mut plan = SyncPlan {
+            folders: folders.to_vec(),
+            ..SyncPlan::default()
+        };
+        let in_scope = |path: &Path| folders.iter().any(|f| below(path, f));
         plan.files = files.len();
         let paths: HashSet<&Path> = known.iter().map(|k| k.path.as_path()).collect();
-        let unreadable = |path: &Path| failed.iter().any(|f| below(path, &f.path));
-        let mut states: Vec<State> = known
-            .iter()
-            .map(|k| {
-                if k.path.is_file() {
-                    State::Present
-                } else if disconnected.contains_key(&k.id) || unreadable(&k.path) {
-                    State::Unavailable
-                } else {
-                    State::Missing
-                }
-            })
-            .collect();
+        // Looked at when needed: only candidates of a file found and the
+        // photographs in the scope have their file looked at.
+        let mut states: Vec<Option<State>> = vec![None; known.len()];
         let mut by_key: HashMap<(u64, &str), Vec<usize>> = HashMap::new();
         for (index, k) in known.iter().enumerate() {
             by_key
@@ -545,11 +680,15 @@ impl Library {
                 found.push((file, identity, Found::New));
                 continue;
             }
+            for &i in &candidates {
+                states[i].get_or_insert_with(|| state_of(&known[i], &disconnected, &failed));
+            }
+            let state = |i: usize| states[i].unwrap_or(State::Unavailable);
             // Renamed only in letter case: the photograph's own file. A hard
             // link under another name is the same file too, but the
             // photograph is still at its place: a copy (below), not a move.
             if let Some(&alias) = candidates.iter().find(|&&i| {
-                states[i] == State::Present
+                state(i) == State::Present
                     && case_only_rename(&known[i].path, &file)
                     && same_file(&known[i].path, &file)
             }) {
@@ -571,7 +710,7 @@ impl Library {
             let mut copies = Vec::new();
             for &i in &candidates {
                 let k = &known[i];
-                match states[i] {
+                match state(i) {
                     // A hash on record that differs: another file.
                     State::Missing => match &k.sha256 {
                         Some(recorded) if *recorded == hash => moves.push((i, true)),
@@ -683,24 +822,37 @@ impl Library {
         // missing.
         disconnected.extend(self.disconnected()?);
         for (i, k) in known.iter().enumerate() {
-            if states[i] == State::Missing && disconnected.contains_key(&k.id) {
-                states[i] = State::Unavailable;
+            if states[i] == Some(State::Missing) && disconnected.contains_key(&k.id) {
+                states[i] = Some(State::Unavailable);
             }
         }
         let claimed: HashSet<usize> = claims.keys().copied().collect();
+        // Looked at after listing and hashing, so a drive or share that went
+        // away meanwhile is not taken for deleted photographs either.
+        let walked: Vec<&PathBuf> = walked.iter().filter(|f| f.is_dir()).collect();
+        let mut anchors = self.anchors()?;
         for (i, k) in known.iter().enumerate() {
             if !in_scope(&k.path) {
                 continue;
             }
+            let state = *states[i].get_or_insert_with(|| state_of(k, &disconnected, &failed));
             let entry = || SyncMissing {
                 asset_id: k.id.clone(),
                 path: k.path.clone(),
                 volume: disconnected.get(&k.id).cloned(),
             };
-            match states[i] {
-                State::Missing if !claimed.contains(&i) => plan.removed.push(entry()),
-                State::Unavailable => plan.unavailable.push(entry()),
-                _ => {}
+            match state {
+                State::Missing if claimed.contains(&i) => {}
+                // Gone from a folder that was listed and is there: removed.
+                State::Missing
+                    if walked.iter().any(|f| below(&k.path, f)) && anchors.allow(&k.path) =>
+                {
+                    plan.removed.push(entry())
+                }
+                // Its folder is not there: a drive or share not connected
+                // (without a drive identity the system cannot tell).
+                State::Missing | State::Unavailable => plan.unavailable.push(entry()),
+                State::Present => {}
             }
         }
         plan.errors.extend(failed);
@@ -711,7 +863,7 @@ impl Library {
             .collect();
         let still_missing = |change: &SyncMove| {
             index.get(change.asset_id.as_str()).is_some_and(|&i| {
-                states[i] == State::Missing || same_file(&known[i].path, &change.to)
+                states[i] == Some(State::Missing) || same_file(&known[i].path, &change.to)
             })
         };
         plan.verified_moves.retain(still_missing);
@@ -751,6 +903,7 @@ impl Library {
                 reason: reason.to_string(),
             })
         };
+        let mut anchors = self.anchors()?;
         // Moves first: a file a move takes is not added as well.
         let mut ordered: Vec<&SyncAction> = actions
             .iter()
@@ -780,7 +933,7 @@ impl Library {
                     }
                 }
                 SyncAction::Remove { asset_id, path } => {
-                    if let Err(reason) = self.check_removal(asset_id, path) {
+                    if let Err(reason) = self.check_removal(asset_id, path, &mut anchors) {
                         skip(path, &reason);
                     } else if taken_assets.insert(asset_id.clone()) {
                         removals.push((asset_id.clone(), path.clone()));
@@ -831,10 +984,22 @@ impl Library {
         }
         if !additions.is_empty() {
             let _batch = self.import_batch(ImportKind::Sync);
-            let report = self.add_files(&additions)?;
-            applied.added = report.added.into_iter().map(|a| a.path).collect();
-            for (path, reason) in report.failed {
-                skip(&path, &reason);
+            match self.add_files(&additions) {
+                Ok(report) => {
+                    applied.added = report.added.into_iter().map(|a| a.path).collect();
+                    for (path, reason) in report.failed {
+                        skip(&path, &reason);
+                    }
+                }
+                // The moves and removals are committed: report them with
+                // the files left out rather than fail as if nothing happened.
+                Err(e) => {
+                    let reason = format!("Not added: {e:#}");
+                    for path in &additions {
+                        skip(path, &reason);
+                    }
+                    applied.add_error = Some(format!("{e:#}"));
+                }
             }
         }
         applied.skipped = skipped;
@@ -877,7 +1042,12 @@ impl Library {
         }
     }
 
-    fn check_removal(&self, id: &str, path: &Path) -> std::result::Result<(), String> {
+    fn check_removal(
+        &self,
+        id: &str,
+        path: &Path,
+        anchors: &mut Anchors,
+    ) -> std::result::Result<(), String> {
         let asset = self
             .asset(id)
             .map_err(|_| "The photograph is no longer in the library".to_string())?;
@@ -888,9 +1058,18 @@ impl Library {
             return Err("The photograph's file is back".into());
         }
         match self.offline_asset(id) {
-            Ok(offline) if offline.volume.is_none() => Ok(()),
-            Ok(_) => Err("The photograph's drive is not connected".into()),
-            Err(e) => Err(e.to_string()),
+            Ok(offline) if offline.volume.is_none() => {}
+            Ok(_) => return Err("The photograph's drive is not connected".into()),
+            Err(e) => return Err(e.to_string()),
         }
+        // Without a drive identity (Windows, network shares) a drive or
+        // share that is not connected only shows as its folder being gone.
+        if !anchors.allow(path) {
+            return Err(
+                "The photograph's folder is not there: its drive or share may not be connected"
+                    .into(),
+            );
+        }
+        Ok(())
     }
 }

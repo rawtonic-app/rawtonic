@@ -38,6 +38,17 @@ it("flushes edits and creates a new full backup without opening it for editing",
   expect(onOpen).not.toHaveBeenCalled();
 });
 
+it("reports edit resources that were already missing without failing the copy", async () => {
+  const user = userEvent.setup();
+  vi.mocked(invoke).mockResolvedValue({ photographs: 3, missing_resources: 2, missing_current_resources: 1 });
+  render(<LibraryTransferDialog purpose="backup" directory="/photos" onClose={vi.fn()} onOpen={vi.fn()} />);
+  await user.click(screen.getByRole("button", { name: "Destination parent folder" }));
+  await user.click(screen.getByRole("button", { name: /Create full backup/ }));
+  await screen.findByText(/3 photographs/);
+  expect(screen.getByText(/2 LUT, profile or mask files .* \(1 of them used by current edits\)/)).toBeTruthy();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 it("blocks the snapshot when pending edits could not be saved", async () => {
   const user = userEvent.setup();
   vi.mocked(flushBeforeQuit).mockResolvedValue(["image.arw"]);

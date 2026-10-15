@@ -8,8 +8,9 @@ const invoke = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }));
 vi.mock('@tauri-apps/api/path', () => ({ homeDir: vi.fn() }));
+const history = vi.hoisted(() => ({ cancel: vi.fn(), flush: vi.fn() }));
 vi.mock('./useEditorActions', () => ({
-  debouncedSave: { flush: vi.fn() }, debouncedSetHistory: { cancel: vi.fn() },
+  debouncedSave: { flush: vi.fn() }, debouncedSetHistory: history,
 }));
 const scans = new Map<string, (page: unknown) => void>();
 // Every ref starts empty (null), including the boolean and number ones, so the fixture bridges via unknown.
@@ -99,4 +100,14 @@ it('keeps the photo in Develop when an album only refreshes in place', async () 
     await result.current.handleSelectAlbum('a1', 'Others', ['/album/other.png'], true);
   });
   expect(useEditorStore.getState().selectedImage?.path).toBe('/album/other.png');
+});
+
+it('keeps the last edit in the history when going back to the Library', () => {
+  history.cancel.mockClear();
+  history.flush.mockClear();
+  useEditorStore.getState().setEditor({ selectedImage: { path: '/a.dng', isReady: true } as never });
+  const { result } = renderHook(() => useAppNavigation({ clearThumbnailQueue: vi.fn(), refs: refs() }));
+  act(() => result.current.handleBackToLibrary());
+  expect(history.flush).toHaveBeenCalled();
+  expect(history.cancel).not.toHaveBeenCalled();
 });

@@ -9,7 +9,8 @@ import { flushBeforeQuit, registerQuitFlush } from "../../utils/quit";
 
 export type TransferPurpose = "transfer" | "backup" | "restore";
 interface Progress { phase: "copy" | "verify"; files: number; path: string }
-interface Receipt { photographs: number }
+/** Edit resources that were already missing are counted, not fatal. */
+interface Receipt { photographs: number; missing_resources?: number; missing_current_resources?: number }
 interface Props {
   purpose: TransferPurpose;
   directory?: string;
@@ -28,7 +29,9 @@ export default function LibraryTransferDialog({ purpose, directory = "", name = 
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<Progress | null>(null);
-  const [result, setResult] = useState<{ directory: string; photographs: number } | null>(null);
+  const [result, setResult] = useState<{
+    directory: string; photographs: number; missingResources: number; missingCurrentResources: number;
+  } | null>(null);
   const cancelRequested = useRef(false);
   const pending = useRef<Promise<void> | null>(null);
   const title = t(`session.transfer.${purpose}`);
@@ -69,7 +72,12 @@ export default function LibraryTransferDialog({ purpose, directory = "", name = 
       const unregister = registerQuitFlush(async () => { await pending.current; return []; });
       try {
         const receipt = await copy;
-        setResult({ directory: destination, photographs: receipt.photographs });
+        setResult({
+          directory: destination,
+          photographs: receipt.photographs,
+          missingResources: receipt.missing_resources ?? 0,
+          missingCurrentResources: receipt.missing_current_resources ?? 0,
+        });
       } finally { unregister(); pending.current = null; }
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
@@ -97,6 +105,9 @@ export default function LibraryTransferDialog({ purpose, directory = "", name = 
             <strong>{t("session.transfer.complete", { count: result.photographs })}</strong>
             <code>{result.directory}</code>
             <p>{t(purpose === "backup" ? "session.transfer.backupDone" : "session.transfer.transferDone")}</p>
+            {result.missingResources > 0 && <p className="session-error">{t("session.transfer.missingResources", {
+              files: result.missingResources, current: result.missingCurrentResources,
+            })}</p>}
           </div>
         ) : (
           <>

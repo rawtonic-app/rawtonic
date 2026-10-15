@@ -334,14 +334,16 @@ fn index_folder(lib: &Library) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Applies the verified moves of a Synchronize Folder scan of the session
-/// whose new place is one of `new`; returns the places taken by them and
-/// the places of `new` left for the user (probable and contested moves).
+/// Applies the verified moves among `new` (Synchronize Folder's, for these
+/// files only); returns the places taken by them and the places of `new`
+/// left for the user (probable and contested moves). Lists no folder and
+/// hashes only files with the size and sampled fingerprint of a photograph
+/// of the library, so opening a library never reads the whole of it.
 fn follow_verified_moves(lib: &Library, new: &[PathBuf]) -> anyhow::Result<HashSet<PathBuf>> {
     use rawtonic_catalog::folder_sync::{SyncAction, SyncOptions};
     let never = std::sync::atomic::AtomicBool::new(false);
-    let plan = lib.scan_folder_sync(
-        None,
+    let plan = lib.scan_files_sync(
+        new,
         &SyncOptions {
             accept: &|path| crate::formats::is_supported_image_file(path),
             cancel: &never,
@@ -663,7 +665,8 @@ pub async fn session_ingest(
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
         return Err("An ingest is already running".into());
     }
-    CANCEL_IMPORT.store(false, Ordering::Release);
+    // The cancel flag is cleared when a run ends, not when it starts: a
+    // Cancel pressed while this call was on its way still stops it.
     let library = PathBuf::from(&directory);
     let result = tauri::async_runtime::spawn_blocking(move || {
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
@@ -715,6 +718,7 @@ pub async fn session_ingest(
     })
     .await
     .map_err(|e| e.to_string());
+    CANCEL_IMPORT.store(false, Ordering::Release);
     IMPORT_RUNNING.store(false, Ordering::Release);
     // Photographs added where they are get their content hashes later.
     if matches!(mode, Some(IngestMode::Add)) {
@@ -2274,11 +2278,12 @@ pub async fn library_copy(
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
         return Err("Wait for the current import or library copy to finish".into());
     }
-    CANCEL_IMPORT.store(false, Ordering::Release);
+    // Cleared when the copy ends (as for an ingest), so an early Cancel counts.
     tauri::async_runtime::spawn_blocking(move || {
         struct Release;
         impl Drop for Release {
             fn drop(&mut self) {
+                CANCEL_IMPORT.store(false, Ordering::Release);
                 IMPORT_RUNNING.store(false, Ordering::Release);
             }
         }
