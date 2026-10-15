@@ -43,6 +43,233 @@ pub async fn get_or_init_relight_model(
     Ok(model)
 }
 
+const PEOPLE_FILE: &str = "relight_people_normals_david_base.onnx";
+const PEOPLE_SHA256: &str = "3d37ecc812b6b50a09c514f3c8c8ad95da5cd6ae9b68c425bc52f1c9cd78c344";
+/// DAViD's square input side.
+const PEOPLE_INPUT: u32 = 512;
+/// Longest side of the subject bitmap a version-five analysis stores.
+const SUBJECT_SIDE: u32 = 1024;
+
+pub async fn get_or_init_people_normals_model(
+    app: &tauri::AppHandle,
+    state: &Mutex<Option<AiState>>,
+    init: &TokioMutex<()>,
+) -> Result<Arc<rawtonic_onnx::Model>> {
+    ensure_local_runtime()?;
+    let loaded = || {
+        state
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|s| s.people_normals_model.clone())
+    };
+    if let Some(model) = loaded() {
+        return Ok(model);
+    }
+    let _guard = init.lock().await;
+    if let Some(model) = loaded() {
+        return Ok(model);
+    }
+    let generation = crate::ai_lifecycle::LIFECYCLE.generation();
+    let dir = get_models_dir(app)?;
+    download_and_verify_model(
+        app,
+        &dir,
+        PEOPLE_FILE,
+        PEOPLE_FILE,
+        PEOPLE_SHA256,
+        "Relight people normals",
+    )
+    .await?;
+    let path = dir.join(PEOPLE_FILE);
+    let model = tokio::task::spawn_blocking(move || {
+        rawtonic_onnx::Model::load(&path, rawtonic_onnx::ModelKind::PeopleNormals)
+    })
+    .await??;
+    crate::register_exit_handler();
+    let model = Arc::new(model);
+    keep_model(state, generation, |ai| {
+        ai.people_normals_model = Some(model.clone())
+    });
+    Ok(model)
+}
+
+/// DAViD's normals of the region `crop` (x, y, w, h in `rgb`), in the
+/// renderer's frame (x right, y down, z towards the camera), as a function
+/// of a position in `rgb`. The crop is padded to a square by repeating its
+/// border, as DAViD's runtime does.
+fn people_normals(
+    rgb: &image::RgbImage,
+    crop: [u32; 4],
+    model: &rawtonic_onnx::Model,
+) -> Result<impl Fn(f32, f32) -> [f32; 3] + use<>> {
+    let [cx, cy, cw, ch] = crop;
+    let side = cw.max(ch);
+    let (pad_x, pad_y) = ((side - cw) / 2, (side - ch) / 2);
+    let n = PEOPLE_INPUT as usize;
+    let scale = side as f32 / PEOPLE_INPUT as f32;
+    // BGR in [0, 1], area-sampled from the padded crop.
+    let mut input = ndarray::Array4::<f32>::zeros((1, 3, n, n));
+    for y in 0..n {
+        for x in 0..n {
+            let mut sum = [0f32; 3];
+            let mut count = 0.;
+            let (x0, y0) = (x as f32 * scale, y as f32 * scale);
+            let step = (scale / 2.).max(1.);
+            let mut sy = y0;
+            while sy < y0 + scale {
+                let mut sx = x0;
+                while sx < x0 + scale {
+                    let px = (sx as i64 - pad_x as i64).clamp(0, cw as i64 - 1) as u32 + cx;
+                    let py = (sy as i64 - pad_y as i64).clamp(0, ch as i64 - 1) as u32 + cy;
+                    let p = rgb.get_pixel(px, py);
+                    for c in 0..3 {
+                        sum[c] += p[c] as f32 / 255.;
+                    }
+                    count += 1.;
+                    sx += step;
+                }
+                sy += step;
+            }
+            for c in 0..3 {
+                input[[0, c, y, x]] = sum[2 - c] / count;
+            }
+        }
+    }
+    let values = model.run(|session| {
+        let output = session.run(ort::inputs!["input" => Tensor::from_array(input.clone())?])?;
+        let (shape, values) = output[0].try_extract_tensor::<f32>()?;
+        anyhow::ensure!(
+            shape.as_ref() == [1, 3, n as i64, n as i64],
+            "Invalid people normal output shape"
+        );
+        rawtonic_onnx::ensure_finite(values)?;
+        Ok(values.to_vec())
+    })?;
+    Ok(move |x: f32, y: f32| {
+        // Position in the model grid, bilinear.
+        let gx = ((x - cx as f32 + pad_x as f32) / scale - 0.5).clamp(0., n as f32 - 1.);
+        let gy = ((y - cy as f32 + pad_y as f32) / scale - 0.5).clamp(0., n as f32 - 1.);
+        let (x0, y0) = (gx as usize, gy as usize);
+        let (x1, y1) = ((x0 + 1).min(n - 1), (y0 + 1).min(n - 1));
+        let (fx, fy) = (gx.fract(), gy.fract());
+        let at = |c: usize, x: usize, y: usize| values[c * n * n + y * n + x];
+        let v: [f32; 3] = std::array::from_fn(|c| {
+            let top = at(c, x0, y0) + (at(c, x1, y0) - at(c, x0, y0)) * fx;
+            let bottom = at(c, x0, y1) + (at(c, x1, y1) - at(c, x0, y1)) * fx;
+            top + (bottom - top) * fy
+        });
+        let length = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6);
+        // DAViD: y up; the renderer: y down.
+        [v[0] / length, -v[1] / length, (v[2] / length).max(0.)]
+    })
+}
+
+/// The version-five subject of the displayed frame: the subject matte, the
+/// people normals inside it and the photo's own lighting on the people's
+/// skin (`rawtonic_engine::relight::source`). Returns the subject PNG and
+/// the lighting coefficients, if they could be fitted.
+pub fn analyze_subject(
+    displayed: &DynamicImage,
+    linear: bool,
+    matte: &image::GrayImage,
+    faces: &[Vec<[f32; 4]>],
+    people_model: Option<&rawtonic_onnx::Model>,
+) -> Result<(Vec<u8>, Option<[f32; 9]>)> {
+    use rawtonic_engine::relight::source;
+    let (w, h) = displayed.dimensions();
+    let scale = SUBJECT_SIDE as f32 / w.max(h) as f32;
+    let (tw, th) = if scale < 1. {
+        (
+            ((w as f32 * scale).round() as u32).max(1),
+            ((h as f32 * scale).round() as u32).max(1),
+        )
+    } else {
+        (w, h)
+    };
+    let matte = image::imageops::resize(matte, tw, th, FilterType::Triangle);
+    // People: the subject's extent, with a margin, in the displayed frame.
+    let (mut lo, mut hi) = ([u32::MAX; 2], [0u32; 2]);
+    for (x, y, p) in matte.enumerate_pixels() {
+        if p[0] > 128 {
+            lo = [lo[0].min(x), lo[1].min(y)];
+            hi = [hi[0].max(x), hi[1].max(y)];
+        }
+    }
+    // A subject of a few percent of the frame: else the photo is a scene.
+    let covered = matte.pixels().filter(|p| p[0] > 128).count();
+    anyhow::ensure!(
+        hi[0] >= lo[0] && hi[1] >= lo[1] && covered * 50 >= (tw * th) as usize,
+        "No subject to relight"
+    );
+    let to_frame = w as f32 / tw as f32;
+    let margin = ((hi[0] - lo[0]).max(hi[1] - lo[1]) as f32 * 0.08) as u32;
+    let x0 = ((lo[0].saturating_sub(margin)) as f32 * to_frame) as u32;
+    let y0 = ((lo[1].saturating_sub(margin)) as f32 * to_frame) as u32;
+    let x1 = (((hi[0] + margin + 1) as f32 * to_frame) as u32).min(w);
+    let y1 = (((hi[1] + margin + 1) as f32 * to_frame) as u32).min(h);
+    let crop = [x0, y0, (x1 - x0).max(1), (y1 - y0).max(1)];
+    // People normals only with people (faces) and the model.
+    let normal_at = match people_model {
+        Some(model) if !faces.is_empty() => {
+            let rgb = display_rgb8(displayed.clone(), linear);
+            Some(people_normals(&rgb, crop, model)?)
+        }
+        _ => None,
+    };
+    let inside = |x: f32, y: f32| {
+        x >= crop[0] as f32
+            && y >= crop[1] as f32
+            && x < (crop[0] + crop[2]) as f32
+            && y < (crop[1] + crop[3]) as f32
+    };
+    let mut normals = source::Normals::new(tw, th);
+    let mut people = image::GrayImage::new(tw, th);
+    for (x, y, p) in normals.enumerate_pixels_mut() {
+        let (fx, fy) = ((x as f32 + 0.5) * to_frame, (y as f32 + 0.5) * to_frame);
+        match &normal_at {
+            Some(normal_at) if inside(fx, fy) => {
+                p.0 = normal_at(fx, fy);
+                people.put_pixel(x, y, *matte.get_pixel(x, y));
+            }
+            _ => p.0 = [0., 0., 1.],
+        }
+    }
+    // The photo in linear light for the lighting fit.
+    let small = displayed
+        .resize_exact(tw, th, FilterType::Triangle)
+        .into_rgb32f();
+    let decode = |v: f32| {
+        if linear {
+            v
+        } else if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let linear_rgb = image::ImageBuffer::from_fn(tw, th, |x, y| {
+        image::Rgb(small.get_pixel(x, y).0.map(decode))
+    });
+    let subject: Vec<[f32; 3]> = normals
+        .enumerate_pixels()
+        .filter(|(x, y, _)| people.get_pixel(*x, *y)[0] > 128)
+        .map(|(_, _, n)| n.0)
+        .collect();
+    let light = normal_at
+        .is_some()
+        .then(|| source::fit(&linear_rgb, &normals, &subject, faces))
+        .flatten();
+    if let Some(light) = &light {
+        source::limit_to_consistent(&linear_rgb, &normals, &mut people, light);
+    }
+    let light = light.map(|l| l.coefficients);
+    let encoded = source::encode_subject(&normals, &matte, &people);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba16(encoded).write_to(&mut png, image::ImageFormat::Png)?;
+    Ok((png.into_inner(), light))
+}
+
 fn size(width: u32, height: u32) -> (u32, u32) {
     let scale = 518. / width.max(height).max(1) as f64;
     // A single patch along an axis makes the upstream camera head singular.
@@ -160,6 +387,79 @@ mod tests {
         assert_eq!(size(4000, 6000), (350, 518));
         assert_eq!(size(20000, 1), (518, 28));
     }
+    /// The analysis `generate_relight_depth` stores, of a JPEG/PNG without
+    /// the app: writes `analysis.json` (the recipe's `relightDepth` for an
+    /// untransformed photo) and `subject.png` to RELIGHT_OUT. Render it with
+    /// `rawtonic export PHOTO --adjustments recipe.json` and Relight lights.
+    #[test]
+    #[ignore = "requires RELIGHT_PHOTO, RELIGHT_MODELS (the app's model folder), RELIGHT_OUT and ORT_DYLIB_PATH"]
+    fn writes_the_analysis_of_a_photo() {
+        use base64::Engine as _;
+        let env = |name: &str| std::env::var(name).unwrap_or_else(|_| panic!("{name}"));
+        let photo = image::open(env("RELIGHT_PHOTO")).unwrap();
+        let dir = std::path::PathBuf::from(env("RELIGHT_MODELS"));
+        let out = std::path::PathBuf::from(env("RELIGHT_OUT"));
+        std::fs::create_dir_all(&out).unwrap();
+        let start = std::time::Instant::now();
+        let geometry =
+            rawtonic_onnx::Model::load(&dir.join(FILE), rawtonic_onnx::ModelKind::Relight).unwrap();
+        let (depth, camera) = run_relight_model(&photo, &geometry, false).unwrap();
+        eprintln!("geometry {} ms", start.elapsed().as_millis());
+        let small = if photo.width().max(photo.height()) > 1600 {
+            photo.thumbnail(1600, 1600)
+        } else {
+            photo.clone()
+        };
+        let faces_models = rawtonic_faces::FaceModels::load(&dir).unwrap();
+        let faces = rawtonic_faces::relight::analyze(
+            &rawtonic_faces::recipe::display_rgb8(&small, false),
+            &faces_models,
+        )
+        .unwrap();
+        eprintln!("{} faces, {} ms", faces.len(), start.elapsed().as_millis());
+        let mut result = serde_json::json!({
+            "geometry": rawtonic_engine::relight::geometry(&serde_json::json!({})),
+            "faces": faces,
+            "version": 5,
+            "camera": camera,
+        });
+        let subject = super::super::SubjectModel::onnx(&dir.join("birefnet_subject.onnx")).unwrap();
+        let matte = super::super::run_subject_model(&small, &subject, false, None).unwrap();
+        let people = rawtonic_onnx::Model::load(
+            &dir.join(PEOPLE_FILE),
+            rawtonic_onnx::ModelKind::PeopleNormals,
+        )
+        .unwrap();
+        let t = std::time::Instant::now();
+        if let Ok((png, light)) = analyze_subject(&small, false, &matte, &faces, Some(&people)) {
+            eprintln!("subject {} ms, lighting {light:?}", t.elapsed().as_millis());
+            std::fs::write(out.join("subject.png"), &png).unwrap();
+            matte.save(out.join("matte.png")).unwrap();
+            result["subject"] = format!(
+                "data:image/png;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(png)
+            )
+            .into();
+            if let Some(light) = light {
+                result["sourceLight"] = serde_json::json!(light);
+            }
+        }
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageLuma16(depth)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        result["data"] = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
+        )
+        .into();
+        std::fs::write(
+            out.join("analysis.json"),
+            serde_json::to_vec_pretty(&result).unwrap(),
+        )
+        .unwrap();
+    }
+
     #[test]
     #[ignore = "requires RELIGHT_GEOMETRY_MODEL and ORT_DYLIB_PATH"]
     fn native_geometry_handles_portrait_landscape_and_narrow_frames() {

@@ -101,6 +101,14 @@ export interface RelightDepth {
   };
   /** Names this analysis so the renderer receives its bitmap once. */
   cacheKey?: string;
+  /**
+   * Version 5: the subject's people normals and matte (16-bit RGBA PNG
+   * data URL; crates/engine/src/relight_source.rs). Null only in a preview
+   * request after it was sent.
+   */
+  subject?: string | null;
+  /** Version 5: the photo's own lighting on its people (nine coefficients). */
+  sourceLight?: number[];
 }
 
 /** The pattern's own rotation; legacy lights turn it with the light. */
@@ -164,7 +172,12 @@ export function stripSentRelightData(
   if (depth?.cacheKey && depth.data) {
     const name = `relight-depth:${depth.cacheKey}`;
     if (sent.has(name)) {
-      payload.relightDepth = { ...depth, data: null, faces: null };
+      payload.relightDepth = {
+        ...depth,
+        data: null,
+        faces: null,
+        ...(depth.subject ? { subject: null } : {}),
+      };
     } else sending.push(name);
   }
   payload.relightLights = payload.relightLights?.map((light) => {

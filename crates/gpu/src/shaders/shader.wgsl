@@ -203,6 +203,10 @@ struct GlobalAdjustments {
     // Luminance noise by brightness relative to its median (8 bins of
     // square-root luminance; color_noise.rs `luma_profile`); 0 = none.
     luma_noise_profile: array<vec4<f32>, 2>,
+    // Version-five Relight (relight_source.rs): [0..9] the photo's own
+    // lighting as SH coefficients, [9] subject texture bound at binding 18,
+    // [10] lighting fitted, [11] version five.
+    relight_source: array<vec4<f32>, 3>,
 }
 
 struct MaskAdjustments {
@@ -4817,7 +4821,25 @@ struct RelightEnergy {
     has_light: bool,
 }
 
-fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool) -> RelightEnergy {
+fn relight_people_normal(people: vec4<f32>) -> vec3<f32> {
+    return vec3<f32>(people.xy, sqrt(max(1.0 - dot(people.xy, people.xy), 0.0)));
+}
+
+// The photo's own lighting at a people normal (relight_source.rs), clamped
+// so deep shadows are not lifted beyond their signal.
+fn relight_source_shading(n: vec3<f32>) -> f32 {
+    let c = adjustments.global.relight_source;
+    let s = c[0].x + c[0].y * n.y + c[0].z * n.z + c[0].w * n.x
+        + c[1].x * n.x * n.y + c[1].y * n.y * n.z + c[1].z * (3.0 * n.z * n.z - 1.0)
+        + c[1].w * n.x * n.z + c[2].x * (n.x * n.x - n.y * n.y);
+    return clamp(s, RELIGHT_MIN_SHADING, 1.0);
+}
+
+// relight_source.rs MIN_SHADING: deeper shadows are not lifted further.
+const RELIGHT_MIN_SHADING: f32 = 0.12;
+
+
+fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool, people: vec4<f32>) -> RelightEnergy {
     var normal = vec3<f32>(0.0, 0.0, 1.0);
     let camera_mode = scene_only || adjustments.global.relight_geometry.w > 0.5;
     let strength = adjustments.global.relight_surface.x;
@@ -4839,6 +4861,23 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
             world_position = relight_position(uv, surface.z, strength);
             normal = relight_camera_normal(uv, surface, strength);
             view = normalize(vec3<f32>(-(uv - adjustments.global.relight_camera.zw) / adjustments.global.relight_camera.xy, 1.0));
+            // Version five: far surfaces (sky, distant land; inverse depth
+            // well below the photo's median) have no dependable direction.
+            // Light them evenly, as surfaces facing the camera.
+            if (!scene_only && adjustments.global.relight_source[2].w > 0.5) {
+                var even = 1.0 - smoothstep(0.12, 0.35, surface.z * adjustments.global.relight_geometry.x);
+                // Behind a subject (its matte), monocular depth invents relief
+                // in bokeh and plain backdrops: light the background evenly.
+                if (adjustments.global.relight_source[2].y > 0.5) {
+                    even = max(even, 1.0 - people.z);
+                }
+                normal = normalize(mix(normal, vec3<f32>(0.0, 0.0, 1.0), even));
+            }
+            // People normals of a version-five subject are finer than the
+            // depth's: they carry the light response where people are.
+            if (people.w > 0.0) {
+                normal = normalize(mix(normal, relight_people_normal(people), people.w));
+            }
         }
     }
     var light_gain = vec3<f32>(0.0);
@@ -4941,7 +4980,9 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                     direction = to_light / reach;
                     attenuation = 0.36 / (distance2 + 0.01);
                 }
-                let wrap = shape.w * 0.2;
+                // Skin scatters light under its surface: people (version
+                // five) get a soft terminator instead of a cut-out edge.
+                let wrap = max(shape.w * 0.2, 0.4 * people.w);
                 response = max(dot(normal, direction) + wrap, 0.0) / ((1.0 + wrap) * (1.0 + wrap));
                 let material = relight_skin(normal, direction, view, shape.z, skin);
                 response *= material.x;
@@ -4981,6 +5022,15 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
         if (camera_mode) { surface = relight_camera_sample(uv); }
         else { surface = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0); }
     }
+    // A version-five subject: people normals (xy), matte, normal weight.
+    var people = vec4<f32>(0.0);
+    if (camera_mode && has_depth && adjustments.global.relight_source[2].y > 0.5) {
+        people = textureSampleLevel(relight_depth_texture, flare_sampler, uv, 0.0);
+        // Soft matte edges mix the person with the background (hair against
+        // sky): only confidently covered pixels take the person's normal and
+        // shading, or background light would be divided by the person's.
+        people.w *= smoothstep(0.5, 0.95, people.z);
+    }
     var confidence = 0.0;
     var planes: array<vec4<f32>, 4>;
     var weights: array<f32, 4>;
@@ -5008,11 +5058,15 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
             low = min(low, inverse);
             high = max(high, inverse);
         }
-        confidence = smoothstep(0.005, 0.025, (high-low) / max(surface.z, 0.000001)) * (1.0 - smoothstep(0.0, 0.2, surface.a));
+        confidence = smoothstep(0.005, 0.025, (high-low) / max(surface.z, 0.000001)) * (1.0 - smoothstep(0.0, 0.2, surface.a)) * (1.0 - people.w);
+        // An evenly lit version-five background has no depth edges to keep.
+        if (adjustments.global.relight_source[2].y > 0.5) {
+            confidence *= people.z;
+        }
         let face_weight = smoothstep(0.0, 0.2, surface.a);
         surface = vec4<f32>(mix(scene_surface.xyz, surface.xyz, face_weight), surface.a);
     }
-    let energy = relight_energy(surface, uv, coord, dims, false);
+    let energy = relight_energy(surface, uv, coord, dims, false, people);
     var light_gain = energy.diffuse;
     // Incident radiance must receive the same exposure as the diffuse photo.
     // Otherwise reducing exposure leaves newly added dielectric highlights fixed.
@@ -5022,9 +5076,14 @@ fn apply_relight(rgb: vec3<f32>, coord: vec2<u32>, dims: vec2<f32>, exposure_gai
     if (confidence > 0.0 && has_light) {
         var separated = vec3<f32>(0.0);
         for (var j = 0u; j < 4u; j++) {
-            separated += weights[j] * relight_energy(planes[j], uv, coord, dims, true).diffuse;
+            separated += weights[j] * relight_energy(planes[j], uv, coord, dims, true, vec4<f32>(0.0)).diffuse;
         }
         light_gain = mix(light_gain, separated, confidence);
+    }
+    // New light lights the material, not the already lit photo: divide by
+    // the photo's own shading where it is known (I·L/S = A·L).
+    if (people.w > 0.0 && adjustments.global.relight_source[2].z > 0.5) {
+        light_gain /= mix(1.0, relight_source_shading(relight_people_normal(people)), people.w);
     }
     // Multiplicative illumination preserves photographic texture and black;
     // accumulate lights commutatively so reordering does not change the result.

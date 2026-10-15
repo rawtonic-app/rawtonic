@@ -261,6 +261,8 @@ mod tests {
             image: ImageBuffer::from_pixel(128, 128, image::Luma([32768])),
             faces: vec![face.clone()],
             refined: true,
+            subject: None,
+            smooth_scene: false,
         };
         let output = surface_texture(&input);
         let at = |i: usize| sample(&output, [face[i][0], face[i][1]]);

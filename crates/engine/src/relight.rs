@@ -1,6 +1,8 @@
 //! Non-generative projected lighting in scene-linear RGB. Coordinates are
 //! normalized to the developed photograph; no original pixels are changed.
 use serde_json::Value;
+#[path = "relight_source.rs"]
+pub mod source;
 #[path = "relight_surface.rs"]
 mod surface;
 #[cfg(any(test, feature = "test-support"))]
@@ -181,7 +183,7 @@ pub struct Camera {
 }
 impl Camera {
     pub fn from_recipe(recipe: &Value) -> Option<Self> {
-        if recipe["relightDepth"]["version"].as_u64()? != 4 {
+        if !(4..=5).contains(&recipe["relightDepth"]["version"].as_u64()?) {
             return None;
         }
         let c: Self = serde_json::from_value(recipe["relightDepth"]["camera"].clone()).ok()?;
@@ -236,6 +238,11 @@ pub struct DepthSurface {
     pub image: DepthImage,
     pub faces: Vec<Vec<[f32; 4]>>,
     pub refined: bool,
+    /// Version five: the subject's matte and people normals (relight_source.rs).
+    pub subject: Option<source::SubjectImage>,
+    /// Version five: scene slopes smoothed over a wide, depth-aware window
+    /// (monocular depth normals blotch backgrounds and skies).
+    pub smooth_scene: bool,
 }
 type DepthEntry = (u64, Arc<DepthSurface>);
 static DEPTHS: OnceLock<Mutex<VecDeque<DepthEntry>>> = OnceLock::new();
@@ -300,6 +307,7 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
         recipe["relightDepth"]["faces"]
             .to_string()
             .hash(&mut hasher);
+        recipe["relightDepth"]["subject"].as_str().hash(&mut hasher);
     }
     let key = hasher.finish().max(1);
     let cache = DEPTHS.get_or_init(Mutex::default);
@@ -350,12 +358,62 @@ pub fn prepare_depth(recipe: &Value) -> ([u32; 4], Option<Arc<DepthSurface>>) {
                 image: depth,
                 faces,
                 refined: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 2,
+                subject: subject_image(recipe),
+                smooth_scene: recipe["relightDepth"]["version"].as_u64().unwrap_or(0) >= 5,
             }),
         ));
         cache.truncate(8);
     }
     let surface = Arc::clone(&cache.front().unwrap().1);
     ([key as u32, (key >> 32) as u32, 0, 0], Some(surface))
+}
+
+/// The subject bitmap of a version-five analysis (a 16-bit RGBA PNG).
+fn subject_image(recipe: &Value) -> Option<source::SubjectImage> {
+    if recipe["relightDepth"]["version"].as_u64()? < 5 {
+        return None;
+    }
+    let data = recipe["relightDepth"]["subject"].as_str()?;
+    let bytes = STANDARD
+        .decode(data.split_once(',').map_or(data, |(_, d)| d))
+        .ok()?;
+    let image = image::load_from_memory(&bytes).ok()?.to_rgba16();
+    (image.width() <= 2048 && image.height() <= 2048).then_some(image)
+}
+
+/// Version-five flags and the photo's own lighting on its people
+/// (`sourceLight`, nine coefficients) for the GPU: [0..9] coefficients,
+/// [9] subject texture bound, [10] lighting fitted, [11] version five
+/// (smoothed scene normals outside people).
+pub fn source_uniforms(recipe: &Value) -> [[f32; 4]; 3] {
+    let mut out = [0f32; 12];
+    if recipe["relightDepth"]["version"].as_u64().unwrap_or(0) < 5
+        || recipe["relightDepth"]["camera"].is_null()
+    {
+        return [[0.; 4]; 3];
+    }
+    out[11] = 1.;
+    if recipe["relightDepth"]["subject"].is_string() {
+        out[9] = 1.;
+        let coefficients: Option<Vec<f32>> = recipe["relightDepth"]["sourceLight"]
+            .as_array()
+            .filter(|values| values.len() == 9)
+            .and_then(|values| {
+                values
+                    .iter()
+                    .map(|v| v.as_f64().map(|v| v as f32).filter(|v| v.is_finite()))
+                    .collect()
+            });
+        if let Some(c) = coefficients {
+            out[..9].copy_from_slice(&c);
+            out[10] = 1.;
+        }
+    }
+    [
+        [out[0], out[1], out[2], out[3]],
+        [out[4], out[5], out[6], out[7]],
+        [out[8], out[9], out[10], out[11]],
+    ]
 }
 
 pub fn depth(key: [u32; 4]) -> Option<Arc<DepthSurface>> {

@@ -97,7 +97,52 @@ pub(super) fn scene_texture(depth: &DepthSurface, camera: Camera) -> Surface {
             [0., 0., center[2], 0.]
         };
     });
+    if depth.smooth_scene {
+        smooth_slopes(&mut pixels, w, h);
+    }
     ImageBuffer::from_raw(w, h, pixels.into_iter().flatten().collect()).unwrap()
+}
+
+/// Wide depth-aware smoothing of the scene slopes (version five): a
+/// separable Gaussian over 6 % of the short side whose weights fall with
+/// the relative inverse-depth difference, so one surface's direction does
+/// not cross onto another at a different distance.
+fn smooth_slopes(pixels: &mut [[f32; 4]], w: u32, h: u32) {
+    let sigma = (w.min(h) as f32 * 0.06).max(2.);
+    let radius = (sigma * 2.5) as i32;
+    let kernel: Vec<f32> = (-radius..=radius)
+        .map(|d| (-(d * d) as f32 / (2. * sigma * sigma)).exp())
+        .collect();
+    let pass = |pixels: &[[f32; 4]], horizontal: bool| -> Vec<[f32; 4]> {
+        (0..(w * h) as usize)
+            .into_par_iter()
+            .map(|i| {
+                let (x, y) = ((i as u32 % w) as i32, (i as u32 / w) as i32);
+                let center = pixels[i];
+                let mut sum = [0.; 2];
+                let mut total = 0.;
+                for (k, d) in (-radius..=radius).enumerate() {
+                    let (px, py) = if horizontal { (x + d, y) } else { (x, y + d) };
+                    if px < 0 || py < 0 || px >= w as i32 || py >= h as i32 {
+                        continue;
+                    }
+                    let p = pixels[(py as u32 * w + px as u32) as usize];
+                    let range = (1. - ((p[2] - center[2]) / (center[2] * 0.08)).powi(2)).max(0.);
+                    let weight = kernel[k] * range * range;
+                    sum[0] += p[0] * weight;
+                    sum[1] += p[1] * weight;
+                    total += weight;
+                }
+                if total > 1e-6 {
+                    [sum[0] / total, sum[1] / total, center[2], center[3]]
+                } else {
+                    center
+                }
+            })
+            .collect()
+    };
+    let horizontal = pass(pixels, true);
+    pixels.copy_from_slice(&pass(&horizontal, false));
 }
 
 pub(super) fn refine_faces(depth: &DepthSurface, camera: Camera, base: &Surface) -> Surface {
@@ -295,6 +340,8 @@ mod tests {
                     image,
                     faces: vec![],
                     refined: true,
+                    subject: None,
+                    smooth_scene: false,
                 };
                 let output = crate::relight::surface_texture(&depth);
                 for y in 0..h {
@@ -356,6 +403,8 @@ mod tests {
                 image: ImageBuffer::from_pixel(128, 128, image::Luma([code])),
                 faces: vec![face.clone()],
                 refined: true,
+                subject: None,
+                smooth_scene: false,
             })
         };
         let near = render(60000);
@@ -377,6 +426,8 @@ mod tests {
             image: ImageBuffer::from_pixel(128, 128, image::Luma([27000])),
             faces: vec![face.clone()],
             refined: true,
+            subject: None,
+            smooth_scene: false,
         };
         let out = crate::relight::surface_texture(&input);
         let at = |i: usize| sample(&out, [face[i][0], face[i][1]]);

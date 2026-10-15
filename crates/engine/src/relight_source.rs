@@ -1,0 +1,431 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! The subject of a version-five analysis: its matte, estimated surface
+//! normals of people and the photo's own lighting on them. Removing that
+//! lighting lets a new light light the material (I·L/S = A·L) instead of the
+//! already lit photo, so a light on a face's shadow side brightens it.
+//! notes: reference/relight-g70-close.md
+//!
+//! Normals use the renderer's frame: x right, y down, z towards the camera.
+//! The lighting is fitted on one material only — facial skin, located by
+//! the face landmarks — where albedo is nearly uniform, so the fit separates
+//! light from material; a fit over mixed materials cannot (notes:
+//! reference/relight-intrinsics.md).
+use image::{ImageBuffer, Rgb, Rgba};
+
+pub type SubjectImage = ImageBuffer<Rgba<u16>, Vec<u16>>;
+pub type Normals = ImageBuffer<Rgb<f32>, Vec<f32>>;
+
+/// Second-order spherical-harmonic basis (unnormalized) of a unit normal.
+pub fn sh9(n: [f32; 3]) -> [f32; 9] {
+    let [x, y, z] = n;
+    [
+        1.,
+        y,
+        z,
+        x,
+        x * y,
+        y * z,
+        3. * z * z - 1.,
+        x * z,
+        x * x - y * y,
+    ]
+}
+
+pub fn shading(coefficients: &[f32; 9], n: [f32; 3]) -> f32 {
+    sh9(n).iter().zip(coefficients).map(|(b, c)| b * c).sum()
+}
+
+/// Lowest source shading the renderer divides by: deeper shadows hold too
+/// little signal to be lifted without amplifying noise.
+pub const MIN_SHADING: f32 = 0.12;
+
+/// Packs the subject for the recipe: x and y of the people normal (z is
+/// positive, the surface faces the camera), the subject matte and the weight
+/// of the people normal (0 where no person was analyzed).
+pub fn encode_subject(
+    normals: &Normals,
+    matte: &image::GrayImage,
+    people: &image::GrayImage,
+) -> SubjectImage {
+    let (w, h) = matte.dimensions();
+    let code = |v: f32| ((v.clamp(-1., 1.) * 0.5 + 0.5) * 65535.).round() as u16;
+    ImageBuffer::from_fn(w, h, |x, y| {
+        let n = normals.get_pixel(x, y).0;
+        let weight = people.get_pixel(x, y)[0] as f32 / 255.;
+        let matte = matte.get_pixel(x, y)[0] as u16 * 257;
+        Rgba([
+            code(n[0]),
+            code(n[1]),
+            matte,
+            (weight * 65535.).round() as u16,
+        ])
+    })
+}
+
+/// The normal stored at a subject texel.
+pub fn decode_normal(texel: [u16; 4]) -> [f32; 3] {
+    let x = texel[0] as f32 / 65535. * 2. - 1.;
+    let y = texel[1] as f32 / 65535. * 2. - 1.;
+    [x, y, (1. - x * x - y * y).max(0.).sqrt()]
+}
+
+const OVAL: [usize; 36] = [
+    10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152,
+    148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+];
+/// Eyes, brows and lips: not skin, excluded from the fit.
+const EXCLUDED: [&[usize]; 5] = [
+    &[
+        33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246,
+    ],
+    &[
+        362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398,
+    ],
+    &[70, 63, 105, 66, 107, 55, 65, 52, 53, 46],
+    &[300, 293, 334, 296, 336, 285, 295, 282, 283, 276],
+    &[
+        61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185,
+    ],
+];
+
+fn inside(polygon: &[[f32; 2]], p: [f32; 2]) -> bool {
+    let mut odd = false;
+    let mut j = polygon.len() - 1;
+    for i in 0..polygon.len() {
+        let (a, b) = (polygon[i], polygon[j]);
+        if (a[1] > p[1]) != (b[1] > p[1])
+            && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]
+        {
+            odd = !odd;
+        }
+        j = i;
+    }
+    odd
+}
+
+fn chroma(c: [f32; 3]) -> [f32; 2] {
+    let s = (c[0] + c[1] + c[2]).max(1e-6);
+    [c[0] / s, c[1] / s]
+}
+
+fn sample_rgb(image: &ImageBuffer<Rgb<f32>, Vec<f32>>, uv: [f32; 2]) -> [f32; 3] {
+    let x = (uv[0] * image.width() as f32).clamp(0., image.width() as f32 - 1.) as u32;
+    let y = (uv[1] * image.height() as f32).clamp(0., image.height() as f32 - 1.) as u32;
+    image.get_pixel(x, y).0
+}
+
+/// Skin samples of every face: inside the face oval, outside eyes, brows
+/// and lips, with the chromaticity of the face's confident skin landmarks.
+fn skin_samples(
+    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
+    normals: &Normals,
+    faces: &[Vec<[f32; 4]>],
+) -> Vec<([f32; 3], f32)> {
+    let mut samples = Vec::new();
+    for face in faces.iter().filter(|f| f.len() >= 468) {
+        let oval: Vec<[f32; 2]> = OVAL.iter().map(|&i| [face[i][0], face[i][1]]).collect();
+        let excluded: Vec<Vec<[f32; 2]>> = EXCLUDED
+            .iter()
+            .map(|set| set.iter().map(|&i| [face[i][0], face[i][1]]).collect())
+            .collect();
+        let mut reference: Vec<[f32; 2]> = face
+            .iter()
+            .filter(|p| p[3] > 0.6)
+            .map(|p| chroma(sample_rgb(linear, [p[0], p[1]])))
+            .collect();
+        if reference.len() < 40 {
+            continue;
+        }
+        let median = |i: usize, values: &mut Vec<[f32; 2]>| {
+            values.sort_by(|a, b| a[i].total_cmp(&b[i]));
+            values[values.len() / 2][i]
+        };
+        let skin = [median(0, &mut reference), median(1, &mut reference)];
+        let (lo, hi) = oval.iter().fold(([1f32; 2], [0f32; 2]), |(lo, hi), p| {
+            (
+                [lo[0].min(p[0]), lo[1].min(p[1])],
+                [hi[0].max(p[0]), hi[1].max(p[1])],
+            )
+        });
+        // About 60 × 60 samples per face, whatever its size.
+        let steps = 60;
+        for j in 0..steps {
+            for i in 0..steps {
+                let uv = [
+                    lo[0] + (hi[0] - lo[0]) * (i as f32 + 0.5) / steps as f32,
+                    lo[1] + (hi[1] - lo[1]) * (j as f32 + 0.5) / steps as f32,
+                ];
+                if !inside(&oval, uv) || excluded.iter().any(|p| inside(p, uv)) {
+                    continue;
+                }
+                let c = sample_rgb(linear, uv);
+                let luminance = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+                // Clipped highlights and black hold no shading.
+                if !(0.002..0.9).contains(&luminance) || c.iter().any(|v| *v >= 0.98) {
+                    continue;
+                }
+                let k = chroma(c);
+                if (k[0] - skin[0]).hypot(k[1] - skin[1]) > 0.035 {
+                    continue;
+                }
+                let n = sample_rgb(normals, uv);
+                samples.push((n, luminance));
+            }
+        }
+    }
+    samples
+}
+
+fn solve(mut a: [[f64; 9]; 9], mut b: [f64; 9]) -> Option<[f64; 9]> {
+    for col in 0..9 {
+        let pivot = (col..9).max_by(|&i, &j| a[i][col].abs().total_cmp(&a[j][col].abs()))?;
+        if a[pivot][col].abs() < 1e-12 {
+            return None;
+        }
+        a.swap(col, pivot);
+        b.swap(col, pivot);
+        let pivot_row = a[col];
+        for row in 0..9 {
+            if row != col {
+                let f = a[row][col] / pivot_row[col];
+                for (v, p) in a[row][col..].iter_mut().zip(&pivot_row[col..]) {
+                    *v -= f * p;
+                }
+                b[row] -= f * b[col];
+            }
+        }
+    }
+    Some(std::array::from_fn(|i| b[i] / a[i][i]))
+}
+
+/// The photo's own lighting on its people.
+#[derive(Clone, Copy, Debug)]
+pub struct SourceLight {
+    /// Second-order spherical-harmonic coefficients, scaled so the
+    /// subject's brightly lit side (98th percentile) has shading 1.
+    pub coefficients: [f32; 9],
+    /// The facial skin's albedo under that scale (median luminance /
+    /// shading of the fitted samples), the reference for plausible material.
+    pub skin_albedo: f32,
+}
+
+/// The photo's lighting on its people, fitted on facial skin. `None`
+/// without enough facial skin.
+pub fn fit(
+    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
+    normals: &Normals,
+    subject: &[[f32; 3]],
+    faces: &[Vec<[f32; 4]>],
+) -> Option<SourceLight> {
+    let samples = skin_samples(linear, normals, faces);
+    if samples.len() < 200 {
+        return None;
+    }
+    // Second-order terms are damped: one face constrains them only weakly.
+    let damping = [0., 0., 0., 0., 4., 4., 4., 4., 4.];
+    let mut weights = vec![1f64; samples.len()];
+    let mut c = [0f64; 9];
+    for _ in 0..6 {
+        let mut a = [[0f64; 9]; 9];
+        let mut b = [0f64; 9];
+        let total: f64 = weights.iter().sum();
+        for ((n, l), w) in samples.iter().zip(&weights) {
+            let basis = sh9(*n).map(f64::from);
+            for i in 0..9 {
+                for j in 0..9 {
+                    a[i][j] += w * basis[i] * basis[j];
+                }
+                b[i] += w * basis[i] * *l as f64;
+            }
+        }
+        for i in 0..9 {
+            a[i][i] += damping[i] * total * 0.01;
+        }
+        c = solve(a, b)?;
+        let residuals: Vec<f64> = samples
+            .iter()
+            .map(|(n, l)| {
+                let basis = sh9(*n).map(f64::from);
+                basis.iter().zip(&c).map(|(b, c)| b * c).sum::<f64>() - *l as f64
+            })
+            .collect();
+        let mut sorted: Vec<f64> = residuals.iter().map(|r| r.abs()).collect();
+        sorted.sort_by(f64::total_cmp);
+        let scale = sorted[sorted.len() / 2] * 1.5 + 1e-9;
+        for (w, r) in weights.iter_mut().zip(&residuals) {
+            *w = 1. / (r.abs() / scale).max(1.);
+        }
+    }
+    let c = c.map(|v| v as f32);
+    let mut values: Vec<f32> = subject.iter().map(|n| shading(&c, *n)).collect();
+    if values.len() < 100 {
+        values = samples.iter().map(|(n, _)| shading(&c, *n)).collect();
+    }
+    values.sort_by(f32::total_cmp);
+    let peak = values[(values.len() as f32 * 0.98) as usize].max(1e-6);
+    // A lighting that leaves most of the subject black is not a fit.
+    let median = values[values.len() / 2] / peak;
+    if !median.is_finite() || median < MIN_SHADING || c.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let coefficients = c.map(|v| v / peak);
+    let mut albedo: Vec<f32> = samples
+        .iter()
+        .map(|(n, l)| l / shading(&coefficients, *n).max(MIN_SHADING))
+        .collect();
+    albedo.sort_by(f32::total_cmp);
+    Some(SourceLight {
+        coefficients,
+        skin_albedo: albedo[albedo.len() / 2],
+    })
+}
+
+/// Takes the people weight back where the photo is far brighter than its
+/// fitted shading allows: material over 3× the skin's albedo is background
+/// caught in a soft matte (sky above hair) or a highlight, where dividing by
+/// the shading would multiply the brightness rather than lift a shadow.
+pub fn limit_to_consistent(
+    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
+    normals: &Normals,
+    people: &mut image::GrayImage,
+    light: &SourceLight,
+) {
+    let reference = light.skin_albedo.max(1e-4);
+    for (x, y, w) in people.enumerate_pixels_mut() {
+        if w[0] == 0 {
+            continue;
+        }
+        let c = linear.get_pixel(x, y).0;
+        let luminance = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let s = shading(&light.coefficients, normals.get_pixel(x, y).0).max(MIN_SHADING);
+        let ratio = luminance / s / reference;
+        let keep = 1. - ((ratio - 3.) / 3.).clamp(0., 1.);
+        w[0] = (w[0] as f32 * keep * keep * (3. - 2. * keep)).round() as u8;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sphere(
+        size: u32,
+        light: [f32; 3],
+        albedo: f32,
+    ) -> (ImageBuffer<Rgb<f32>, Vec<f32>>, Normals) {
+        let normal = |x: u32, y: u32| {
+            let u = (x as f32 + 0.5) / size as f32 * 2. - 1.;
+            let v = (y as f32 + 0.5) / size as f32 * 2. - 1.;
+            let z = (1. - u * u - v * v).max(0.).sqrt();
+            [u, v, z]
+        };
+        let normals = ImageBuffer::from_fn(size, size, |x, y| Rgb(normal(x, y)));
+        let image = ImageBuffer::from_fn(size, size, |x, y| {
+            let n = normal(x, y);
+            let lambert = (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]).max(0.);
+            let l = albedo * (0.15 + 0.85 * lambert);
+            Rgb([l * 1.3, l, l * 0.8])
+        });
+        (image, normals)
+    }
+
+    /// A synthetic face: landmarks on a disc, skin confident everywhere.
+    fn disc_face() -> Vec<[f32; 4]> {
+        (0..468)
+            .map(|i| {
+                let a = i as f32 / 468. * std::f32::consts::TAU * 7.;
+                let r = 0.35 * ((i % 13) as f32 / 13.);
+                [0.5 + r * a.cos(), 0.5 + r * a.sin(), 0., 1.]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fitted_lighting_follows_the_light_and_removes_it() {
+        let light = {
+            let l = [-0.6f32, -0.3, 0.74];
+            let n = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt();
+            l.map(|v| v / n)
+        };
+        let (image, normals) = sphere(128, light, 0.5);
+        let mut face = disc_face();
+        // Put the oval on a circle so the whole disc counts as the face.
+        for (k, &i) in OVAL.iter().enumerate() {
+            let a = k as f32 / OVAL.len() as f32 * std::f32::consts::TAU;
+            face[i] = [0.5 + 0.4 * a.cos(), 0.5 + 0.4 * a.sin(), 0., 1.];
+        }
+        for set in EXCLUDED {
+            for &i in set {
+                face[i] = [0.02, 0.02, 0., 0.];
+            }
+        }
+        let subject: Vec<[f32; 3]> = normals
+            .pixels()
+            .map(|p| p.0)
+            .filter(|n| n[2] > 0.2)
+            .collect();
+        let fitted = fit(&image, &normals, &subject, &[face]).expect("fit");
+        let c = fitted.coefficients;
+        assert!(
+            (fitted.skin_albedo - 0.5).abs() < 0.1,
+            "albedo {}",
+            fitted.skin_albedo
+        );
+        // The lit side is brighter than the shadow side, in the light's direction.
+        let lit = shading(&c, light);
+        let away = shading(&c, [-light[0], -light[1], light[2].abs() * 0.2]);
+        assert!(lit > 0.9 && away < 0.5, "lit {lit} away {away}");
+        // Albedo (image / shading) is nearly uniform across the lit sphere.
+        let mut ratios = Vec::new();
+        for y in 16..112 {
+            for x in 16..112 {
+                let n = normals.get_pixel(x, y).0;
+                let s = shading(&c, n).max(MIN_SHADING);
+                if n[2] > 0.3 && s > 0.3 {
+                    ratios.push(image.get_pixel(x, y)[1] / s);
+                }
+            }
+        }
+        ratios.sort_by(f32::total_cmp);
+        let spread = ratios[ratios.len() * 9 / 10] / ratios[ratios.len() / 10];
+        assert!(spread < 1.25, "albedo spread {spread}");
+    }
+
+    #[test]
+    fn bright_background_in_the_matte_loses_the_people_weight() {
+        let (mut image, normals) = sphere(64, [0., 0., 1.], 0.4);
+        // A bright patch where the fitted lighting is dark: sky in the matte.
+        let c = SourceLight {
+            coefficients: [0.2, 0., 0.8, 0., 0., 0., 0., 0., 0.],
+            skin_albedo: 0.42,
+        };
+        for y in 0..6 {
+            for x in 0..6 {
+                image.put_pixel(x, y, Rgb([0.9, 0.9, 0.9]));
+            }
+        }
+        let mut people = image::GrayImage::from_pixel(64, 64, image::Luma([255]));
+        limit_to_consistent(&image, &normals, &mut people, &c);
+        assert_eq!(people.get_pixel(2, 2)[0], 0);
+        assert!(people.get_pixel(32, 32)[0] > 250);
+    }
+
+    #[test]
+    fn too_little_skin_gives_no_fit() {
+        let (image, normals) = sphere(32, [0., 0., 1.], 0.5);
+        assert!(fit(&image, &normals, &[], &[]).is_none());
+    }
+
+    #[test]
+    fn subject_texels_round_trip() {
+        let normals = ImageBuffer::from_pixel(2, 1, Rgb([0.3f32, -0.4, 0.866]));
+        let matte = image::GrayImage::from_pixel(2, 1, image::Luma([255]));
+        let people = image::GrayImage::from_pixel(2, 1, image::Luma([128]));
+        let encoded = encode_subject(&normals, &matte, &people);
+        let n = decode_normal(encoded.get_pixel(0, 0).0);
+        assert!(
+            (n[0] - 0.3).abs() < 1e-4 && (n[1] + 0.4).abs() < 1e-4 && (n[2] - 0.866).abs() < 1e-3
+        );
+        assert_eq!(encoded.get_pixel(0, 0)[2], 65535);
+    }
+}

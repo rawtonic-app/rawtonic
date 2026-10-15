@@ -983,50 +983,127 @@ pub async fn generate_relight_depth(
         .await
         .inspect_err(|e| log::warn!("Relight: continuing without face models: {e}"))
         .ok();
-    tauri::async_runtime::spawn_blocking(move || {
-        let _running = running;
+    let running = std::sync::Arc::new(running);
+    let first = running.clone();
+    let adjustments = js_adjustments.clone();
+    let (depth, camera, small, faces) = tauri::async_runtime::spawn_blocking(move || {
+        let _running = first;
         let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
             &source,
             is_raw,
-            &js_adjustments,
+            &adjustments,
         );
         let (displayed, _) = rawtonic_engine::adjustment_utils::apply_spatial_transformations(
             warped.as_ref(),
-            &js_adjustments,
+            &adjustments,
         );
         let (depth, camera) = crate::ai_processing::run_relight_model(&displayed, &model, is_raw)
             .map_err(|e| e.to_string())?;
+        let small = if displayed.width().max(displayed.height()) > 1600 {
+            displayed.thumbnail(1600, 1600)
+        } else {
+            displayed.into_owned()
+        };
         let faces = face_models
             .and_then(|models| {
-                let face_input = if displayed.width().max(displayed.height()) > 1600 {
-                    displayed.thumbnail(1600, 1600)
-                } else {
-                    displayed.into_owned()
-                };
-                let face_input = rawtonic_faces::recipe::display_rgb8(&face_input, is_raw);
+                let face_input = rawtonic_faces::recipe::display_rgb8(&small, is_raw);
                 rawtonic_faces::relight::analyze(&face_input, &models)
                     .inspect_err(|e| log::warn!("Relight: face analysis failed: {e}"))
                     .ok()
             })
             .unwrap_or_default();
-        let mut png = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageLuma16(depth)
-            .write_to(&mut png, image::ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
-        let data = format!(
-            "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(png.into_inner())
-        );
-        Ok(serde_json::json!({
-            "data": data,
-            "geometry": rawtonic_engine::relight::geometry(&js_adjustments),
-            "faces": faces,
-            "version": 4,
-            "camera": camera,
-        }))
+        Ok::<_, String>((depth, camera, small, faces))
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())??;
+    // The subject's matte separates it from its background (version five);
+    // people's normals light them better than the scene depth and let a new
+    // light take the photo's own lighting off them. People normals load only
+    // for photos with faces; without these models the scene depth alone
+    // still lights the photo.
+    let subject_model = crate::ai_processing::get_or_init_subject_model(
+        &app_handle,
+        &state.ai_state,
+        &state.ai_init_lock,
+        true,
+    )
+    .await
+    .inspect_err(|e| log::warn!("Relight: continuing without the subject model: {e}"))
+    .ok()
+    .flatten();
+    let people_model = if faces.is_empty() {
+        None
+    } else {
+        crate::ai_processing::get_or_init_people_normals_model(
+            &app_handle,
+            &state.ai_state,
+            &state.ai_init_lock,
+        )
+        .await
+        .inspect_err(|e| log::warn!("Relight: continuing without people normals: {e}"))
+        .ok()
+    };
+    let subject = match subject_model {
+        Some(subject_model) => {
+            let (small, faces) = (small.clone(), faces.clone());
+            let second = running.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                let _running = second;
+                let start = std::time::Instant::now();
+                crate::ai_processing::run_subject_model(&small, &subject_model, is_raw, None)
+                    .and_then(|matte| {
+                        crate::ai_processing::analyze_subject(
+                            &small,
+                            is_raw,
+                            &matte,
+                            &faces,
+                            people_model.as_deref(),
+                        )
+                    })
+                    .inspect(|(_, light)| {
+                        log::info!(
+                            "Relight: subject analyzed in {} ms, own lighting {}",
+                            start.elapsed().as_millis(),
+                            if light.is_some() {
+                                "fitted"
+                            } else {
+                                "not fitted"
+                            }
+                        )
+                    })
+                    .inspect_err(|e| log::info!("Relight: no subject: {e}"))
+                    .ok()
+            })
+            .await
+            .map_err(|e| e.to_string())?
+        }
+        None => None,
+    };
+    drop(running);
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageLuma16(depth)
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    let encode = |bytes: Vec<u8>| {
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(bytes)
+        )
+    };
+    let mut result = serde_json::json!({
+        "data": encode(png.into_inner()),
+        "geometry": rawtonic_engine::relight::geometry(&js_adjustments),
+        "faces": faces,
+        "version": 5,
+        "camera": camera,
+    });
+    if let Some((subject, light)) = subject {
+        result["subject"] = encode(subject).into();
+        if let Some(light) = light {
+            result["sourceLight"] = serde_json::json!(light);
+        }
+    }
+    Ok(result)
 }
 
 /// Reads an image the user chose as a Relight pattern and returns it as the

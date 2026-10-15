@@ -2885,6 +2885,9 @@ pub struct GlobalAdjustments {
     /// (`ChromaPyramid::luma_profile`, 8 bins of square-root luminance); set
     /// by the renderer with the colour noise pyramid, all 0 without it.
     pub luma_noise_profile: [[f32; 4]; 2],
+    /// A version-five Relight subject: the photo's own lighting on its
+    /// people and flags (`relight::source_uniforms`).
+    pub relight_source: [[f32; 4]; 3],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3895,6 +3898,7 @@ fn get_global_adjustments_from_json(
         ],
         color_noise_window: [0; 4],
         luma_noise_profile: [[0.0; 4]; 2],
+        relight_source: crate::relight::source_uniforms(js_adjustments),
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()

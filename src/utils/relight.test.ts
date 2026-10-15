@@ -80,6 +80,16 @@ it("sends depth and imported patterns once per name", () => {
   expect(later.relightLights[0].customPattern).toEqual({ id: "p", data: null });
   // The editor's own recipe is not modified.
   expect(recipe().relightLights[0].customPattern!.data).toBe("PNG");
+  // A version-five subject is sent once with its depth; older ones get none.
+  expect(later.relightDepth).not.toHaveProperty("subject");
+  const withSubject = () => ({
+    relightDepth: { data: "DEPTH", faces: [], subject: "SUBJECT", geometry: {}, cacheKey: "s" },
+  });
+  const sentSubject = new Set<string>();
+  stripSentRelightData(withSubject(), sentSubject).forEach((n) => sentSubject.add(n));
+  const again = withSubject();
+  stripSentRelightData(again, sentSubject);
+  expect(again.relightDepth).toMatchObject({ data: null, subject: null });
 });
 
 it("numbers lights stably and drags elevation vertically", () => {
