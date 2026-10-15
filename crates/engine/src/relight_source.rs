@@ -442,13 +442,12 @@ pub fn limit_to_consistent(
 }
 
 /// How much of a light set up for the subject reaches the background at
-/// each texel (0..1): full on surfaces at the subject's distance (a table,
-/// a wall right behind it), none below 0.75× its inverse depth (sky,
-/// distant land, a backdrop metres away; measured on the public test set,
-/// notes: reference/relight-g70-close.md).
-/// Depth near the silhouette is blurred into the subject's, so the
-/// background behind and around the matte takes the depth of the clear
-/// background nearby.
+/// each texel (0..1): the inverse square of the distance relative to the
+/// subject's, `(inverse depth / subject's)²`, at most 1. A wall right behind
+/// the subject is lit almost fully, a backdrop at 1.7× the distance a third,
+/// the sky (≈ 3×) a tenth. Depth near the silhouette is blurred into the
+/// subject's, so the background behind and around the matte takes the depth
+/// of the clear background nearby.
 pub fn background_reach(
     inverse: &ImageBuffer<image::Luma<f32>, Vec<f32>>,
     matte: &image::GrayImage,
@@ -517,8 +516,10 @@ pub fn background_reach(
     image::GrayImage::from_fn(w, h, |x, y| {
         let i = (y * w + x) as usize;
         let depth = if known[i] >= 0.5 { filled[i] } else { at(x, y) };
-        let t = ((depth / subject - 0.75) / 0.2).clamp(0., 1.);
-        image::Luma([(t * t * (3. - 2. * t) * 255.).round() as u8])
+        // A light set up at the subject falls off with the square of the
+        // distance: (subject distance / background distance)².
+        let ratio = (depth / subject).clamp(0., 1.);
+        image::Luma([(ratio * ratio * 255.).round() as u8])
     })
 }
 
@@ -654,16 +655,19 @@ mod tests {
             image::Luma([if (x as f32 - 50.).abs() < 20. { 255 } else { 0 }])
         });
         let reach = background_reach(&inverse, &matte, 2.);
-        // Right beside the silhouette the ramp would read as near; it is not.
+        // Right beside the silhouette the blurred ramp (up to 0.85× the
+        // subject's inverse depth, 184) does not count as near.
         assert!(
-            reach.get_pixel(72, 50)[0] < 30,
+            reach.get_pixel(72, 50)[0] < 90,
             "{}",
             reach.get_pixel(72, 50)[0]
         );
-        assert_eq!(reach.get_pixel(95, 50)[0], 0);
-        // A wall at the subject's distance is reached.
+        // The far background (a quarter of the subject's inverse depth)
+        // gets the inverse square, a sixteenth.
+        assert_eq!(reach.get_pixel(95, 50)[0], 16);
+        // A wall near the subject's distance is reached.
         let wall = ImageBuffer::from_pixel(100, 100, image::Luma([1.9f32]));
-        assert!(background_reach(&wall, &matte, 2.).get_pixel(95, 50)[0] > 250);
+        assert!(background_reach(&wall, &matte, 2.).get_pixel(95, 50)[0] > 225);
     }
 
     #[test]

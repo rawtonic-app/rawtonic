@@ -7460,6 +7460,129 @@ fn relight_people_subject_lights_material_and_spares_far_background() {
     assert_eq!(crop, expected);
 }
 
+/// The subject's shadow on its background (version five): with a light from
+/// the left, the background right of the subject is darker where the
+/// subject card shades it than farther right, and no shadow without
+/// `shadows`.
+#[test]
+#[ignore = "native GPU; version-five subject shadow"]
+fn relight_subject_casts_its_shadow_on_the_background() {
+    use base64::Engine as _;
+    let (w, h) = (128u32, 32u32);
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), w, h).unwrap();
+    processor
+        .force_general_pipeline
+        .store(true, Ordering::Relaxed);
+    let gray: Vec<f16> = (0..w * h)
+        .flat_map(|_| {
+            [
+                f16::from_f32(0.18),
+                f16::from_f32(0.18),
+                f16::from_f32(0.18),
+                f16::ONE,
+            ]
+        })
+        .collect();
+    let view = context
+        .device
+        .create_texture_with_data(
+            &context.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Relight shadow test input"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::MipMajor,
+            bytemuck::cast_slice(&gray),
+        )
+        .create_view(&Default::default());
+    let png = |image: DynamicImage| {
+        let mut out = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut out, image::ImageFormat::Png).unwrap();
+        base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+    };
+    // Subject (x < 40) near, a wall behind it at 0.7× its inverse depth.
+    let depth = png(DynamicImage::ImageLuma16(image::ImageBuffer::from_fn(
+        w,
+        h,
+        |x, _| image::Luma([if x < 40 { 65535 } else { 26214 }]),
+    )));
+    let subject = png(DynamicImage::ImageRgba16(image::ImageBuffer::from_fn(
+        w * 2,
+        h,
+        |x, _| match x {
+            0..40 => image::Rgba([32768, 32768, 65535, 0]),
+            40..128 => image::Rgba([32768, 32768, 0, 0]),
+            _ => image::Rgba([0, 65535, 0, 65535]),
+        },
+    )));
+    let mut recipe = json!({
+        "relightLights":[{"intensity":40,"rotation":90,"elevation":60,"diffusion":0,"softness":0,"shadows":100}],
+        "relightOriginalLight":50,
+        "relightDepthAmount":100,
+    });
+    recipe["relightDepth"] = json!({
+        "data": depth,
+        "geometry": rawtonic_engine::relight::geometry(&recipe),
+        "version": 5,
+        "faces": [],
+        // inverse 0.5..1.0: subject 1.0, wall 0.7.
+        "camera": {"fx":1.0,"fy":4.0,"cx":0.5,"cy":0.5,"inverseMin":0.5,"inverseMax":1.0,"reference":1.0},
+        "subject": format!("data:image/png;base64,{subject}"),
+        "subjectDepth": 1.0,
+    });
+    let render = |recipe: &serde_json::Value| {
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                w,
+                h,
+                RenderRequest {
+                    adjustments: get_all_adjustments_from_json(recipe, true, Some(1)),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(p) => p,
+            RenderedPixels::U8(p) => p.into_iter().map(u16::from).collect(),
+        }
+    };
+    let row = |pixels: &[u16]| -> Vec<u16> {
+        (40..w as usize)
+            .map(|x| pixels[(16 * w as usize + x) * 4 + 1])
+            .collect()
+    };
+    let lit = row(&render(&recipe));
+    let darkest = *lit.iter().min().unwrap();
+    let brightest = *lit.iter().max().unwrap();
+    assert!(
+        darkest * 10 < brightest * 8,
+        "shadow {darkest} vs lit {brightest}"
+    );
+    // The shadow lies right of the subject (light from the left), not at the
+    // far right edge.
+    let at = lit.iter().position(|v| *v == darkest).unwrap();
+    assert!(at < 60, "shadow at {}", at + 40);
+    recipe["relightLights"][0]["shadows"] = json!(0);
+    let unshaded = row(&render(&recipe));
+    assert!(*unshaded.iter().min().unwrap() * 10 >= *unshaded.iter().max().unwrap() * 9);
+}
+
 #[test]
 #[ignore = "native GPU; relight must keep its coordinates across the 2048px tile boundary"]
 fn relight_tiled_roi_matches_full_frame() {

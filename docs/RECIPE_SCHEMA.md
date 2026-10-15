@@ -98,7 +98,9 @@ data URL at up to 1024 px per side and twice that wide: the left half holds
 the subject normal's x and y (renderer frame: x right, y down, z towards the
 camera), the matte and the normal's weight; the right half the share of the
 photo that is the original light's skin shine and how far a new light reaches
-the background (1 near the subject, 0 below 0.75× its inverse depth). People
+the background (the inverse square of its distance relative to the
+subject's). The subject, as a card at its median depth, casts its shadow on
+that background (only the matte occludes). People
 (faces, or skin in the whole-photo parse for profiles) take DAViD's normals,
 objects the smoothed scene normals. `sourceLight` (nine numbers: ambient,
 light, direction x/y/z, four zeros) is the photo's own lighting fitted on the

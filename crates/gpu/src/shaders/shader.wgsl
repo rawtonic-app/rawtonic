@@ -4832,6 +4832,37 @@ fn relight_subject_sample(uv: vec2<f32>, part: f32) -> vec4<f32> {
     return textureSampleLevel(relight_depth_texture, flare_sampler, vec2<f32>(x / size.x, uv.y), 0.0);
 }
 
+// Visibility of a background receiver from a light, with the subject as a
+// thin card at its median distance (relight_source.rs, version five): the
+// ray towards the light reaches the subject's distance at one point; the
+// matte there (averaged over a softness-sized disc) is the shadow.
+fn relight_subject_shadow(uv: vec2<f32>, receiver: vec3<f32>, direction: vec3<f32>, strength: f32, softness: f32) -> f32 {
+    let subject_inverse = adjustments.global.relight_source[3].x;
+    if (adjustments.global.relight_source[2].y < 0.5 || subject_inverse <= 0.0 || direction.z <= 0.05) { return 1.0; }
+    let c = adjustments.global.relight_camera;
+    let g = adjustments.global.relight_geometry;
+    let gap = relight_position(uv, subject_inverse, strength).z - receiver.z;
+    if (gap <= 0.0001) { return 1.0; }
+    let hit = receiver + direction * (gap / direction.z);
+    let distance = g.x - hit.z * g.y;
+    if (distance <= g.x * 0.0001) { return 1.0; }
+    let q = hit.xy * g.y * c.xy / distance + c.zw;
+    // A penumbra grows with the distance between card and receiver.
+    let radius = (0.002 + softness * 0.05) * length(q - uv) + 0.001;
+    var covered = 0.0;
+    for (var k = 0u; k < 8u; k++) {
+        let a = f32(k) * 0.7853982;
+        let p = q + vec2<f32>(cos(a), sin(a)) * radius;
+        if (all(p > vec2<f32>(0.0)) && all(p < vec2<f32>(1.0))) {
+            covered += relight_subject_sample(p, 0.0).z;
+        }
+    }
+    if (all(q > vec2<f32>(0.0)) && all(q < vec2<f32>(1.0))) {
+        covered += 2.0 * relight_subject_sample(q, 0.0).z;
+    }
+    return 1.0 - covered / 10.0;
+}
+
 fn relight_people_normal(people: vec4<f32>) -> vec3<f32> {
     return vec3<f32>(people.xy, sqrt(max(1.0 - dot(people.xy, people.xy), 0.0)));
 }
@@ -5011,6 +5042,12 @@ fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec
                     let shadow = mix(1.0, mix(visibility, 1.0, shape.w * 0.08), settings.z);
                     response *= shadow;
                     specular *= shadow;
+                }
+                // The subject's shadow on its background (version five):
+                // only the matte occludes, so depth noise casts nothing.
+                if (!scene_only && camera_lighting && response > 0.0 && settings.z > 0.0 && people.z < 0.5) {
+                    let thrown = relight_subject_shadow(uv, world_position, direction, strength, shape.z);
+                    response *= mix(1.0, thrown, settings.z * (1.0 - shape.w * 0.5));
                 }
             }
         }
