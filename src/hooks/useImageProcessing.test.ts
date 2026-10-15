@@ -1,5 +1,5 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import { useImageProcessing } from "./useImageProcessing";
 import { useEditorStore } from "../store/useEditorStore";
@@ -311,4 +311,65 @@ it("asks for the split view's before after finished native frames, one request a
   await act(async () => complete.shift()!(nativeFrame()));
   expect(befores()).toHaveLength(2);
   useEditorStore.setState({ clippingWarnings: false, hasRenderedFirstFrame: false });
+});
+
+it("renders the split view's before again when a view state changes on live frames", async () => {
+  const nativeFrame = () => new TextEncoder().encode("WGPU_RENDER").buffer as ArrayBuffer;
+  const befores = () =>
+    vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.RenderSplitBefore);
+  useEditorStore.setState({ splitView: true, hasRenderedFirstFrame: true });
+  useUIStore.setState({ activePanel: Panel.Adjustments });
+  mount();
+  await act(async () => complete.shift()!(nativeFrame()));
+  expect(befores()).toHaveLength(1);
+  await act(async () => (complete.shift() as unknown as (value: boolean) => void)(true));
+  act(() => useEditorStore.setState({ clippingWarnings: true }));
+  expect(befores()).toHaveLength(2);
+  expect(befores()[1][1]).toMatchObject({ jsAdjustments: { showClipping: true } });
+  await act(async () => (complete.pop() as unknown as (value: boolean) => void)(true));
+  act(() => useEditorStore.setState({ softProof: true, softProofSpace: "adobeRgb" }));
+  expect(befores()).toHaveLength(3);
+  expect(befores()[2][1]).toMatchObject({ jsAdjustments: { softProof: "adobeRgb" } });
+  await act(async () => (complete.pop() as unknown as (value: boolean) => void)(true));
+  useEditorStore.setState({ splitView: false, hasRenderedFirstFrame: false });
+});
+
+describe("AI Denoise busy note", () => {
+  const decoded = (path: string) => ({ ...photo(path), isDecoded: true });
+  /** Starts a develop request for AI Denoise and returns how to end it. */
+  const startDenoise = () => {
+    useEditorStore.setState({
+      selectedImage: decoded("/first.dng"),
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiDenoise: 50 },
+      aiDenoiseBusy: false,
+    });
+    mount();
+    const index = vi.mocked(invoke).mock.calls.findIndex(([name]) => name === Invokes.ApplyAiDenoise);
+    expect(index).toBeGreaterThanOrEqual(0);
+    expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
+    return { resolve: complete[index] as unknown as (value: number) => void, reject: fail[index] };
+  };
+
+  it("clears when the request ends after another photograph opened", async () => {
+    const request = startDenoise();
+    act(() => useEditorStore.setState({ selectedImage: photo("/second.dng", false) }));
+    await act(async () => request.resolve(50));
+    expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
+  });
+
+  it("clears when the request is cancelled", async () => {
+    const request = startDenoise();
+    await act(async () => request.reject("Load cancelled"));
+    expect(useEditorStore.getState().aiDenoiseBusy).toBe(false);
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("stays while a newer request runs", async () => {
+    const first = startDenoise();
+    act(() =>
+      useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), aiDenoise: 70 } }),
+    );
+    await act(async () => first.reject("Load cancelled"));
+    expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
+  });
 });
