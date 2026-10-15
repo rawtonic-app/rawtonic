@@ -2263,6 +2263,10 @@
         "title": "导航器"
       }
     },
+    "loadError": {
+      "failed": "无法打开“{{name}}”：{{error}}",
+      "unreadable": "无法打开“{{name}}”。文件可能已损坏、并非其名称所示的 RAW 文件，或来自 Rawtonic 尚不支持的相机。"
+    },
     "lut": {
       "amount": "数量",
       "aria": {

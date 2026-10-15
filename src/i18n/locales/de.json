@@ -2317,6 +2317,10 @@
         "title": "Navigator"
       }
     },
+    "loadError": {
+      "failed": "„{{name}}“ konnte nicht geöffnet werden: {{error}}",
+      "unreadable": "„{{name}}“ lässt sich nicht öffnen. Die Datei ist vielleicht beschädigt, keine RAW-Datei, wie ihr Name sagt, oder von einer Kamera, die Rawtonic noch nicht unterstützt."
+    },
     "lut": {
       "amount": "Stärke",
       "aria": {

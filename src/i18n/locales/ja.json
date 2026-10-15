@@ -2263,6 +2263,10 @@
         "title": "ナビゲーター"
       }
     },
+    "loadError": {
+      "failed": "「{{name}}」を開けませんでした：{{error}}",
+      "unreadable": "「{{name}}」を開けません。ファイルが破損しているか、名前とは異なり RAW ファイルではないか、Rawtonic がまだ対応していないカメラのファイルです。"
+    },
     "lut": {
       "amount": "適用量",
       "aria": {

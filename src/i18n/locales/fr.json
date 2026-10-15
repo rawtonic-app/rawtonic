@@ -2384,6 +2384,10 @@
         "title": "Navigation"
       }
     },
+    "loadError": {
+      "failed": "« {{name}} » n'a pas pu être ouvert : {{error}}",
+      "unreadable": "« {{name}} » ne peut pas être ouvert. Le fichier est peut-être endommagé, n'est pas le fichier RAW qu'indique son nom, ou provient d'un appareil que Rawtonic ne prend pas encore en charge."
+    },
     "lut": {
       "amount": "Intensité",
       "aria": {

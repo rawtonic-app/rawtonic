@@ -2263,6 +2263,10 @@
         "title": "탐색기"
       }
     },
+    "loadError": {
+      "failed": "“{{name}}”을(를) 열지 못했습니다: {{error}}",
+      "unreadable": "“{{name}}”을(를) 열 수 없습니다. 파일이 손상되었거나, 이름과 달리 RAW 파일이 아니거나, Rawtonic이 아직 지원하지 않는 카메라의 파일입니다."
+    },
     "lut": {
       "amount": "양",
       "aria": {

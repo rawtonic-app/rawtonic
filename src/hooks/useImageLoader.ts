@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { loadErrorText } from '../utils/loadError';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'react-toastify';
@@ -324,7 +325,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               .getState()
               .imageList.some((image) => image.path === selectedImage.path && image.is_offline);
             if (!offline || useUIStore.getState().activeView === 'editor') {
-              toast.error(`Failed to load image: ${err}`);
+              toast.error(loadErrorText(err, selectedImage.path));
             }
             setEditor({ selectedImage: null, panelsHeld: false });
           }
