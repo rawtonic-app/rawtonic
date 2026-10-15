@@ -120,8 +120,15 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       if (state.selectedImage?.path !== previous.selectedImage?.path) flush.flush();
       if (state.adjustments === previous.adjustments) return;
       const image = state.selectedImage;
-      // Only edits: not a photograph being opened or its recipe arriving.
-      if (!image?.isReady || !previous.selectedImage?.isReady || previous.selectedImage.path !== image.path) {
+      // Only edits: not a photograph being opened or its recipe arriving,
+      // nor the loader adapting the recipe as it updates the photograph
+      // (the full decode's size changing the default aspect ratio).
+      if (
+        !image?.isReady ||
+        !previous.selectedImage?.isReady ||
+        previous.selectedImage.path !== image.path ||
+        image !== previous.selectedImage
+      ) {
         return;
       }
       const changed = changedCopyableKeys(previous.adjustments, state.adjustments);

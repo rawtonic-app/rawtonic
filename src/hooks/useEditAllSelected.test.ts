@@ -106,6 +106,19 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([]);
   });
 
+  it('does not copy the default aspect ratio the full decode adapts on a ready photograph', () => {
+    renderHook(() => useEditAllSelected(true, selection));
+    act(() =>
+      useEditorStore.setState((state) => ({
+        selectedImage: { ...state.selectedImage!, width: 6024, height: 4020, isDecoded: true },
+        adjustments: { ...state.adjustments, aspectRatio: 6024 / 4020 },
+      })),
+    );
+    act(() => vi.advanceTimersByTime(1000));
+    expect(pasted()).toEqual([]);
+    expect(live()).toEqual([]);
+  });
+
   it('leaves per-photograph retouching on the primary', () => {
     renderHook(() => useEditAllSelected(true, selection));
     edit({ spots: [{ id: 's' }] } as unknown as Partial<Adjustments>);
