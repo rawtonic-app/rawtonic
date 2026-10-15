@@ -770,14 +770,7 @@ fn quick_source_preview(bytes: &[u8], path: &Path, size: u32) -> Option<DynamicI
 }
 
 pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Result<Vec<u8>> {
-    let thumbnail = if matches!(
-        image,
-        DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)
-    ) {
-        crate::image_processing::downscale_f32_image(image, target_width, target_width)
-    } else {
-        image.thumbnail(target_width, target_width)
-    };
+    let thumbnail = crate::image_processing::thumbnail(image, target_width, target_width);
     let mut buf = Cursor::new(Vec::new());
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, 75);
     encoder.encode_image(&thumbnail.to_rgb8())?;

@@ -534,7 +534,8 @@ pub fn analysis_image(image: &DynamicImage, max_side: u32) -> (Vec<f32>, usize, 
     let (w, h) = (image.width(), image.height());
     let scale = (max_side as f64 / w.max(h) as f64).min(1.0);
     let small = if scale < 1.0 {
-        image.thumbnail(
+        crate::image_processing::thumbnail(
+            image,
             (w as f64 * scale).round() as u32,
             (h as f64 * scale).round() as u32,
         )
@@ -617,7 +618,7 @@ pub fn calculate_upright(
         .is_some_and(|p| !p.is_null())
     {
         let (_, sw, sh) = analysis_image(&image, 1400);
-        let small = image.thumbnail(sw as u32, sh as u32);
+        let small = crate::image_processing::thumbnail(&image, sw as u32, sh as u32);
         analysis_image(
             &crate::image_processing::apply_geometry_warp(&small, &lens_only),
             1400,

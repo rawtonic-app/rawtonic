@@ -16,7 +16,7 @@ const RANGE_K: (f64, f64) = (2000.0, 12000.0);
 
 /// Grey world of a linear decode at the camera's balance.
 fn grey_world(decode: &DynamicImage) -> Option<[f32; 3]> {
-    let rgb = decode.thumbnail(512, 512).to_rgb32f();
+    let rgb = crate::image_processing::thumbnail(decode, 512, 512).to_rgb32f();
     let mut sum = [0f64; 3];
     for p in rgb.pixels() {
         for (total, v) in sum.iter_mut().zip(p.0) {
@@ -100,7 +100,7 @@ mod tests {
                 println!("{i}: decode failed");
                 continue;
             };
-            let small = image.thumbnail(384, 384).to_rgb32f();
+            let small = crate::image_processing::thumbnail(&image, 384, 384).to_rgb32f();
             let mut data = Vec::new();
             data.extend_from_slice(&small.width().to_le_bytes());
             data.extend_from_slice(&small.height().to_le_bytes());

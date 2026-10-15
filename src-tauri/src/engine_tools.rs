@@ -208,7 +208,7 @@ fn write_upright_recipes() {
             .is_some_and(|p| !p.is_null())
         {
             let (_, sw, sh) = analysis_image(&image, 1400);
-            let small = image.thumbnail(sw as u32, sh as u32);
+            let small = crate::image_processing::thumbnail(&image, sw as u32, sh as u32);
             analysis_image(
                 &crate::image_processing::apply_geometry_warp(&small, &lens),
                 1400,
