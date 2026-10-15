@@ -417,6 +417,40 @@ pub fn source_uniforms(recipe: &Value) -> [[f32; 4]; 4] {
     std::array::from_fn(|i| std::array::from_fn(|j| out[i * 4 + j]))
 }
 
+/// Surface normals of the scene depth at `width × height`, in the renderer's
+/// frame and at full relief, from the version-five smoothed scene slopes:
+/// objects' normals where no people model applies.
+pub fn scene_normals(
+    depth: &DepthImage,
+    camera: Camera,
+    width: u32,
+    height: u32,
+) -> source::Normals {
+    let surface = DepthSurface {
+        camera: Some(camera),
+        image: depth.clone(),
+        faces: Vec::new(),
+        refined: true,
+        subject: None,
+        smooth_scene: true,
+    };
+    let (scene, _) = surface_textures(&surface);
+    image::ImageBuffer::from_fn(width, height, |x, y| {
+        let u = (x as f32 + 0.5) / width as f32;
+        let v = (y as f32 + 0.5) / height as f32;
+        let sx = ((u * scene.width() as f32) as u32).min(scene.width() - 1);
+        let sy = ((v * scene.height() as f32) as u32).min(scene.height() - 1);
+        let p = scene.get_pixel(sx, sy).0;
+        let n = [
+            -camera.fx * p[0],
+            -camera.fy * p[1],
+            p[2] - (p[0] * (u - camera.cx) + p[1] * (v - camera.cy)),
+        ];
+        let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-6);
+        image::Rgb(n.map(|c| c / length))
+    })
+}
+
 /// The subject's median inverse depth (relative, as `Camera::inverse`)
 /// under its matte (`matte`, the displayed frame at any size), for lights
 /// that reach a background only near the subject.

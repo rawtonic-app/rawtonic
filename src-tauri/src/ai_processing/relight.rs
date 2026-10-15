@@ -247,15 +247,28 @@ pub fn analyze_subject(
             && x < (crop[0] + crop[2]) as f32
             && y < (crop[1] + crop[3]) as f32
     };
+    // Objects (no people): the smoothed scene depth's normals.
+    let object_normals = (!people)
+        .then(|| {
+            scene.map(|(depth, camera)| {
+                rawtonic_engine::relight::scene_normals(depth, camera, tw, th)
+            })
+        })
+        .flatten();
     let mut normals = source::Normals::new(tw, th);
     let mut people = image::GrayImage::new(tw, th);
     for (x, y, p) in normals.enumerate_pixels_mut() {
         let (fx, fy) = ((x as f32 + 0.5) * to_frame, (y as f32 + 0.5) * to_frame);
-        match &normal_at {
-            // Mostly covered texels only: the soft edge counts as
-            // background for the people normal and own light.
-            Some(normal_at) if inside(fx, fy) && matte.get_pixel(x, y)[0] > 127 => {
+        // Mostly covered texels only: the soft edge counts as background
+        // for the subject normal and own light.
+        let covered = matte.get_pixel(x, y)[0] > 127;
+        match (&normal_at, &object_normals) {
+            (Some(normal_at), _) if covered && inside(fx, fy) => {
                 p.0 = normal_at(fx, fy);
+                people.put_pixel(x, y, *matte.get_pixel(x, y));
+            }
+            (None, Some(object)) if covered => {
+                p.0 = object.get_pixel(x, y).0;
                 people.put_pixel(x, y, *matte.get_pixel(x, y));
             }
             _ => p.0 = [0., 0., 1.],
@@ -282,9 +295,14 @@ pub fn analyze_subject(
         .filter(|(x, y, _)| people.get_pixel(*x, *y)[0] > 128)
         .map(|(_, _, n)| n.0)
         .collect();
-    let light = normal_at
-        .is_some()
-        .then(|| source::fit(&linear_rgb, &normals, &subject, &skin))
+    // People are fitted on their skin, objects on their dominant material.
+    let material = if normal_at.is_none() && object_normals.is_some() {
+        source::dominant_material(&linear_rgb, &matte)
+    } else {
+        skin
+    };
+    let light = (normal_at.is_some() || object_normals.is_some())
+        .then(|| source::fit(&linear_rgb, &normals, &subject, &material))
         .flatten();
     if let Some(light) = &light {
         source::limit_to_consistent(&linear_rgb, &normals, &mut people, light);
@@ -300,7 +318,7 @@ pub fn analyze_subject(
     });
     let specular = fitted
         .as_ref()
-        .map(|light| source::skin_specular(&linear_rgb, &normals, &skin, light));
+        .map(|light| source::skin_specular(&linear_rgb, &normals, &material, light));
     let encoded =
         source::encode_subject(&normals, &matte, &people, reach.as_ref(), specular.as_ref());
     let mut png = std::io::Cursor::new(Vec::new());

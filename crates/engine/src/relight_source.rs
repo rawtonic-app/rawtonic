@@ -202,6 +202,36 @@ pub fn face_skin_mask(width: u32, height: u32, faces: &[Vec<[f32; 4]>]) -> image
     mask
 }
 
+/// The subject's dominant material: matte texels near its median
+/// chromaticity, the material an object's lighting is fitted on.
+pub fn dominant_material(
+    linear: &ImageBuffer<Rgb<f32>, Vec<f32>>,
+    matte: &image::GrayImage,
+) -> image::GrayImage {
+    let mut chromas: Vec<[f32; 2]> = matte
+        .enumerate_pixels()
+        .filter(|(_, _, p)| p[0] > 200)
+        .map(|(x, y, _)| chroma(linear.get_pixel(x, y).0))
+        .collect();
+    if chromas.is_empty() {
+        return image::GrayImage::new(matte.width(), matte.height());
+    }
+    let median = |i: usize, values: &mut Vec<[f32; 2]>| {
+        values.sort_by(|a, b| a[i].total_cmp(&b[i]));
+        values[values.len() / 2][i]
+    };
+    let reference = [median(0, &mut chromas), median(1, &mut chromas)];
+    image::GrayImage::from_fn(matte.width(), matte.height(), |x, y| {
+        let k = chroma(linear.get_pixel(x, y).0);
+        let near = (k[0] - reference[0]).hypot(k[1] - reference[1]) <= 0.04;
+        image::Luma([if near && matte.get_pixel(x, y)[0] > 200 {
+            255
+        } else {
+            0
+        }])
+    })
+}
+
 /// Lighting samples (normal, luminance) on the skin mask: skin chromaticity
 /// (loosely: the lit and the shaded side of a face differ in colour when sun
 /// and sky light them), neither clipped nor black.
