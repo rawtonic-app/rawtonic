@@ -254,6 +254,20 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
     }
 }
 
+/// `DynamicImage::thumbnail`, also right for float images: the image crate
+/// (0.25.10) rounds its box average with `+ n / 2` before an integer-style
+/// division, which for f32 pixels adds 0.5 to every value. Integer images
+/// keep the crate's thumbnail; float images (as the editor decodes every
+/// photograph) are area-averaged by `downscale_f32_image`.
+pub fn thumbnail(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImage {
+    match image {
+        DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_) => {
+            downscale_f32_image(image, nwidth, nheight)
+        }
+        _ => image.thumbnail(nwidth, nheight),
+    }
+}
+
 pub fn downscale_f32_image(image: &DynamicImage, nwidth: u32, nheight: u32) -> DynamicImage {
     let start = std::time::Instant::now();
 
@@ -2885,6 +2899,9 @@ pub struct GlobalAdjustments {
     /// (`ChromaPyramid::luma_profile`, 8 bins of square-root luminance); set
     /// by the renderer with the colour noise pyramid, all 0 without it.
     pub luma_noise_profile: [[f32; 4]; 2],
+    /// A version-five Relight subject: the photo's own lighting on its
+    /// people, flags and the subject's depth (`relight::source_uniforms`).
+    pub relight_source: [[f32; 4]; 4],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3895,6 +3912,7 @@ fn get_global_adjustments_from_json(
         ],
         color_noise_window: [0; 4],
         luma_noise_profile: [[0.0; 4]; 2],
+        relight_source: crate::relight::source_uniforms(js_adjustments),
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -6614,5 +6632,32 @@ mod region_tests {
         let auto_ca =
             json!({"lensDistortionParams": {"k1": -0.1}, "autoChromaticAberration": true});
         assert!(plan_transformed_region(100, 80, &auto_ca, [0, 0, 10, 10]).is_none());
+    }
+}
+
+#[cfg(test)]
+mod thumbnail_tests {
+    use super::*;
+
+    #[test]
+    fn float_thumbnails_keep_their_values() {
+        let image = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(
+            400,
+            300,
+            image::Rgb([0.1f32, 0.5, 0.9]),
+        ));
+        let small = thumbnail(&image, 160, 160).to_rgb32f();
+        assert_eq!(small.dimensions(), (160, 120));
+        let p = small.get_pixel(80, 60);
+        for (v, want) in p.0.iter().zip([0.1, 0.5, 0.9]) {
+            assert!((v - want).abs() < 1e-5, "{v} vs {want}");
+        }
+        // Integer images keep the crate's thumbnail.
+        let eight = DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(
+            400,
+            300,
+            image::Rgb([10, 128, 230]),
+        ));
+        assert_eq!(thumbnail(&eight, 160, 160), eight.thumbnail(160, 160));
     }
 }

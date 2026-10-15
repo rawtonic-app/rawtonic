@@ -101,7 +101,7 @@ pub fn hydrate_adjustments_from_cache(
             .and_then(|v| v.as_str())
             .map(|k| format!("relight-depth:{k}"))
     {
-        hydrate_fields(cache, key, depth, &["data", "faces"]);
+        hydrate_fields(cache, key, depth, &["data", "faces", "subject"]);
     }
     for light in adjustments
         .get_mut("relightLights")
@@ -133,12 +133,14 @@ fn hydrate_fields(
     if object.get("data").is_some_and(|v| !v.is_null()) {
         let saved = fields
             .iter()
-            .map(|f| (f.to_string(), object.get(*f).cloned().unwrap_or_default()))
+            .filter_map(|f| object.get(*f).map(|v| (f.to_string(), v.clone())))
             .collect();
         cache.insert(key, serde_json::Value::Object(saved));
-    } else if let Some(saved) = cache.get(&key) {
-        for field in fields {
-            object.insert(field.to_string(), saved[*field].clone());
+    } else if let Some(saved) = cache.get(&key).and_then(|v| v.as_object()) {
+        // Only the fields the bitmap's request carried (a version-five
+        // `subject` is absent from older analyses).
+        for (field, value) in saved {
+            object.insert(field.clone(), value.clone());
         }
     }
 }
@@ -219,5 +221,15 @@ mod relight_hydration_tests {
         assert_eq!(later, first);
         // Lights without patterns stay untouched (no inserted nulls).
         assert_eq!(later["relightLights"][1], json!({}));
+        // A version-five subject travels with its depth.
+        let mut first = json!({
+            "relightDepth": {"cacheKey": "d5", "data": "DEPTH", "faces": [], "subject": "SUBJECT", "version": 5},
+        });
+        hydrate_adjustments_from_cache(&mut cache, &mut first);
+        let mut later = json!({
+            "relightDepth": {"cacheKey": "d5", "data": null, "faces": null, "subject": null, "version": 5},
+        });
+        hydrate_adjustments_from_cache(&mut cache, &mut later);
+        assert_eq!(later, first);
     }
 }

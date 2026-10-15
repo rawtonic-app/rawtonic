@@ -358,7 +358,7 @@ fn mean_linear_rgb(image: &DynamicImage, is_raw: bool, x: f64, y: f64) -> Option
 /// Mean linear RGB of the whole preview input (grey world): what Auto white
 /// balance neutralises for files without a camera calibration.
 fn grey_world_rgb(image: &DynamicImage, is_raw: bool) -> Option<[f64; 3]> {
-    linear_mean(&image.thumbnail(512, 512), is_raw)
+    linear_mean(&crate::image_processing::thumbnail(image, 512, 512), is_raw)
 }
 
 fn linear_mean(image: &DynamicImage, is_raw: bool) -> Option<[f64; 3]> {

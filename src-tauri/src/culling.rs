@@ -139,7 +139,7 @@ fn analyze_image(
         .map_err(|e| e.to_string())?;
 
     let (width, height) = img.dimensions();
-    let thumbnail = img.thumbnail(ANALYSIS_DIM, ANALYSIS_DIM);
+    let thumbnail = crate::image_processing::thumbnail(&img, ANALYSIS_DIM, ANALYSIS_DIM);
     let gray_thumbnail = thumbnail.to_luma8();
 
     let sharpness_metric = calculate_laplacian_variance(&gray_thumbnail);

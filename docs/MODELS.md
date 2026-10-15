@@ -34,6 +34,7 @@ weights tensor by tensor.
 | `birefnet_coreml_*` (Core ML package, fp32) | Subject and background masks on macOS, builds from 2026-10-10 to 2026-10-11 | As above in fp32 (927 MB; `--precision fp32` reproduces the pack's files). | MIT | In the pack; replaced by the fp16 program 2026-10-11 (the release assets stay for older builds) |
 | `u2net.onnx` | Foreground mask (inherited) | Byte-identical to rembg's `u2net.onnx` (release v0.0.0), the export of Qin et al.'s U²-Net. | Apache-2.0 (weights), MIT (rembg) | Replaced by BiRefNet 2026-10-09 (the release asset stays for older builds) |
 | `relight_geometry_da3_base.onnx` | Relight relative scene geometry and camera | DA3 **Base**, rights holder `depth-anything/DA3-BASE` revision `f4a6c9b3c95e41c82048423d3493a81ec3fa810e`; source `ByteDance-Seed/Depth-Anything-3` at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4`. Exported by `scripts/models/export_relight.py`. | Apache-2.0 | Self-host |
+| `relight_people_normals_david_base.onnx` | Relight surface normals of people | Microsoft's DAViD Base normal model (`normal-model-vitb16_384.onnx`, github.com/microsoft/DAViD at `20a3eb6`, README "Model License": "DAViD models and runtime code are licensed under the MIT License"), unchanged; trained on Microsoft's synthetic SynthHuman (CDLA-2.0). | MIT | Added 2026-10-15, to be uploaded to the pack |
 | `depth_anything_v2_vits.onnx` | Depth masks | Byte-identical to fabio-sim/Depth-Anything-ONNX v2.0.0, the export of Depth Anything V2 **Small**. | Apache-2.0 (Small only; Base/Large/Giant are CC BY-NC 4.0) | Keep, self-host |
 | ONNX Runtime 1.23.2 (macOS arm64 / x86_64) | Runtime for macOS AI tools | Unchanged Microsoft release libraries, SHA-256 pinned; fixes the shutdown crash reproduced on 1.22.0. | MIT + 1.23.2 third-party notices | Keep, self-host |
 | ONNX Runtime 1.22.0 (six desktop libraries) | Legacy runtime (macOS before 2026-10-13; Windows and Linux before 2026-10-10) | Byte-identical to Microsoft's v1.22.0 release archives (all six platforms). | MIT + third-party notices | Keep, self-host |
@@ -989,6 +990,20 @@ Excluded for their weight licenses: FLUX.1 Fill/Kontext [dev], FLUX.2 [dev]
 and [klein] 9B, MAT, Qwen-Image-2.1, Mask2Former and SegFormer weights,
 Apple MobileCLIP/DFN, MetaCLIP, CycleISP, MIRNet-v2, LED, DualDn,
 Noise2Noise.
+
+### Relight people normals
+
+`relight_people_normals_david_base.onnx` is 449,232,211 bytes, SHA-256
+`3d37ecc812b6b50a09c514f3c8c8ad95da5cd6ae9b68c425bc52f1c9cd78c344`, the
+file Microsoft publishes (an fp16 conversion fails on its Cast nodes). Input
+is float32 `[1,3,512,512]`, BGR in 0–1, the subject's region padded to a
+square by repeating its border (as DAViD's runtime); output is a surface
+normal per pixel (x right, y up, z towards the camera). It runs only for
+photos with faces, on the region of the subject matte (BiRefNet), in
+0.26 s on an M5 Pro CPU. Measured on the public relight set (notes:
+reference/relight-g70-close.md): its Base and Large normals differ by
+7.4° mean on a portrait, with the same wrinkle and nose detail; it is
+human-only by design (the app uses scene depth for everything else).
 
 ### Relight camera geometry
 

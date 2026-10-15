@@ -38,6 +38,8 @@ The opt-in AI build (`RAWTONIC_BUNDLE_ONNX=1`) bundles Microsoft's [ONNX Runtime
 
 **Depth Anything 3 export.** `scripts/models/relight_da3_dynamic.patch` adapts ByteDance Seed's Depth Anything 3 source at `3d835ec1a5802d64a8b8b15f817a1ab54809bfe4` for dynamic ONNX export. Copyright (c) 2025 ByteDance Ltd. and/or its affiliates, and Meta Platforms, Inc. and affiliates (the inherited DINOv2 backbone), Apache-2.0; upstream copyright notices remain in the patched source. The DA3 Base weights are explicitly Apache-2.0 in the rights holder's `depth-anything/DA3-BASE` model card. See `docs/MODELS.md` and `licenses/models/Depth-Anything-3-Apache-2.0.txt`. No weights are included in this repository.
 
+**DAViD.** The Relight people-normal model is Microsoft's `normal-model-vitb16_384.onnx` from DAViD (Data-efficient and Accurate Vision models from synthetic Data, ICCV 2025, github.com/microsoft/DAViD), hosted unchanged in the model pack. Copyright (c) Microsoft Corporation, MIT ("DAViD models and runtime code are licensed under the MIT License"); it was trained on Microsoft's synthetic SynthHuman data (CDLA-2.0). `src-tauri/src/ai_processing/relight.rs` prepares its input as DAViD's runtime does (own code). See `docs/MODELS.md` and `licenses/models/DAViD-MIT.txt`. No weights are included in this repository.
+
 **AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT or Apache-2.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
 
 **Icons and fonts** come with the inherited frontend; see the dependency inventory below for the npm packages that ship them.

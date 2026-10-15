@@ -172,6 +172,7 @@ fn names(taken: &AiState) -> Vec<&'static str> {
         ("SAM embedding", taken.embeddings.is_some()),
         ("depth", taken.depth_model.is_some()),
         ("relight", taken.relight_model.is_some()),
+        ("people normals", taken.people_normals_model.is_some()),
         ("depth map", taken.depth_map.is_some()),
         ("MI-GAN", taken.inpaint_model.is_some()),
         ("tagging", taken.tag_models.is_some()),
@@ -192,6 +193,7 @@ fn models_loaded(state: &AppState) -> bool {
             || ai.sam_models.is_some()
             || ai.depth_model.is_some()
             || ai.relight_model.is_some()
+            || ai.people_normals_model.is_some()
             || ai.inpaint_model.is_some()
     });
     drop(ai);

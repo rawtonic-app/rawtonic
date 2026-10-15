@@ -3787,8 +3787,45 @@ impl GpuProcessor {
                         .create_view(&Default::default())
                 },
             );
+            // Camera geometry leaves the legacy slot free: a version-five
+            // subject (people normals, matte, normal weight) uses it.
+            let legacy = depth.subject.as_ref().map_or_else(
+                || self.dummy_blur_view.clone(),
+                |subject| {
+                    let texels: Vec<f16> = (0..subject.height())
+                        .flat_map(|y| (0..subject.width()).map(move |x| (x, y)))
+                        .flat_map(|(x, y)| {
+                            rawtonic_engine::relight::source::decode_texel(subject, x, y)
+                        })
+                        .map(f16::from_f32)
+                        .collect();
+                    self.context
+                        .device
+                        .create_texture_with_data(
+                            &self.context.queue,
+                            &wgpu::TextureDescriptor {
+                                label: Some("Relight subject"),
+                                size: wgpu::Extent3d {
+                                    width: subject.width(),
+                                    height: subject.height(),
+                                    depth_or_array_layers: 1,
+                                },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba16Float,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
+                            },
+                            wgpu::util::TextureDataOrder::MipMajor,
+                            bytemuck::cast_slice(&texels),
+                        )
+                        .create_view(&Default::default())
+                },
+            );
             RelightDepthViews {
-                legacy: self.dummy_blur_view.clone(),
+                legacy,
                 camera: view,
                 scene,
             }

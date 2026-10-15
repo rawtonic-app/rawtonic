@@ -3,7 +3,10 @@ pub use rawtonic_engine::masks::{
     AiDepthMaskParameters, AiForegroundMaskParameters, AiPeopleMaskParameters, AiSkyMaskParameters,
     AiSubjectMaskParameters,
 };
-pub use relight::{get_or_init_relight_model, run_relight_model};
+pub use relight::{
+    SubjectContext, analyze_subject, get_or_init_people_normals_model, get_or_init_relight_model,
+    run_relight_model,
+};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -283,6 +286,8 @@ pub struct AiState {
     pub sky_model: Option<Arc<SkyModel>>,
     pub depth_model: Option<Arc<rawtonic_onnx::Model>>,
     pub relight_model: Option<Arc<rawtonic_onnx::Model>>,
+    /// DAViD people normals for Relight (`relight::run_people_normals`).
+    pub people_normals_model: Option<Arc<rawtonic_onnx::Model>>,
     pub sam_models: Option<Arc<SamModels>>,
     pub tag_models: Option<Arc<TagModels>>,
     pub inpaint_model: Option<Arc<rawtonic_onnx::Model>>,

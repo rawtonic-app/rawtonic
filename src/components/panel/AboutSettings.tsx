@@ -85,6 +85,12 @@ export const CREDITS: Credit[] = [
     license: "Apache-2.0",
   },
   {
+    name: "DAViD",
+    url: "https://github.com/microsoft/DAViD",
+    what: "Surface normals of people for Relight (Microsoft).",
+    license: "MIT",
+  },
+  {
     name: "Depth Anything V2 Small",
     url: "https://github.com/DepthAnything/Depth-Anything-V2",
     what: "Depth masks.",
