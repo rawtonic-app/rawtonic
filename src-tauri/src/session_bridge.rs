@@ -228,7 +228,9 @@ pub fn require_verified_import() -> Result<(), String> {
 }
 
 /// The photographs in a session folder (its working folders, not caches,
-/// Trash or outputs), in walk order.
+/// Trash or outputs), in walk order. Hidden files and folders are skipped,
+/// as in ingest: macOS writes `._name` companions on exFAT and network
+/// drives, which carry a photo's extension but are not photographs.
 fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
     let mut photos = Vec::new();
     for entry in walkdir::WalkDir::new(&lib.directory)
@@ -236,19 +238,19 @@ fn session_photos(lib: &Library) -> anyhow::Result<Vec<PathBuf>> {
         .into_iter()
         .filter_entry(|e| {
             e.depth() == 0
-                || !matches!(
-                    e.file_name().to_str(),
-                    Some(
-                        ".cache"
-                            | "masks"
-                            | "resources"
-                            | "profiles"
-                            | "Trash"
-                            | "Output"
-                            | "previews"
-                            | "smart-previews"
+                || !e.file_name().to_string_lossy().starts_with('.')
+                    && !matches!(
+                        e.file_name().to_str(),
+                        Some(
+                            "masks"
+                                | "resources"
+                                | "profiles"
+                                | "Trash"
+                                | "Output"
+                                | "previews"
+                                | "smart-previews"
+                        )
                     )
-                )
         })
     {
         let entry = entry?;
@@ -1526,6 +1528,23 @@ mod tests {
                 .rating,
             4
         );
+    }
+
+    /// macOS's `._` companions (exFAT, network drives) and other hidden
+    /// files are not photographs of the session.
+    #[test]
+    fn hidden_files_are_not_registered_as_photographs() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Hidden", Mode::Session).unwrap();
+        let day = lib.directory.join("Capture");
+        fs::create_dir_all(day.join(".Spotlight-V100")).unwrap();
+        fs::write(day.join("A.ARW"), "fixture A").unwrap();
+        fs::write(day.join("._A.ARW"), "AppleDouble").unwrap();
+        fs::write(day.join(".Spotlight-V100/B.JPG"), "fixture B").unwrap();
+
+        index_folder(&lib).unwrap();
+        assert_eq!(session_photos(&lib).unwrap(), vec![day.join("A.ARW")]);
+        assert_eq!(lib.summary().unwrap().assets, 1);
     }
 
     /// A photograph renamed while the session was closed is followed with
