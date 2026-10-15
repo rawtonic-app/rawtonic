@@ -70,9 +70,9 @@ Intel Macs and Windows builds are not available yet; you can [build from source]
 
 ### 1 · Bring the shoot in
 
-Start a **project** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. The card is never changed. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives and can apply a preset or the previous photo's settings straight away.
+Start a **project** for a portrait sitting, a wedding or a product shoot. **Ingest** copies the photographs from the card, checks every copy against the original before it counts as safe, and can write a backup to a second drive at the same time. The card is never changed. You can also drag photographs from the Finder or your file manager straight onto the window. Shooting tethered into a folder? **Hot folder** picks up each new file as it arrives and can apply a preset or the previous photo's settings straight away.
 
-Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
+Use a **catalog** for a growing photo collection. Imports copy into its own `Photos/year/date` folders by default; you can also keep photos in their existing folders. Albums organize photographs without moving them. Moved, renamed, added or deleted files outside Rawtonic? **Synchronize Folder** finds the changes, follows moved photos with their edits and lets you review everything before it is applied. The library menu can create a **portable copy** for another computer, make a **full verified backup**, or **restore a backup** into a new folder—including external originals and required edit resources.
 
 Already have a Lightroom Classic catalog or a Capture One session? Rawtonic can import it, with ratings, labels, keywords, albums and translated edits.
 
@@ -86,7 +86,7 @@ The **Library** shows the whole shoot. Rate with 1–5, pick and reject with P a
 
 ### 3 · Develop
 
-The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After**, step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
+The **Develop** room gives the photograph the space: a filmstrip, a histogram and compact tool tabs. Work from the overall light and colour down to the details, compare with **Before/After** (Y), line up a series side by side in the **multi view** (N) and edit them all at once, go **full screen** (F), step back through **History**, copy settings across a series and save your own presets. Drag a slider to explore or type a number to be exact.
 
 <table>
 <tr>
@@ -109,6 +109,8 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
 
 **Portrait retouch.** Rawtonic finds the faces and heals blemishes, evens out skin, softens dark circles and shine, each with one slider, for everyone in the photo or one person at a time, and keeps the skin's texture. Heal, clone and remove distractions by hand where you need to.
 
+**Relight** _(experimental)_. Add up to four lights to a photograph after the fact. Rawtonic estimates the depth, the people's surfaces and the photo's own lighting, so a new light brightens a face's shadow side, the original light can be turned down and the subject casts its shadow on the background.
+
 **Merge.** Combine brackets into an HDR, stitch panoramas (also from brackets), or focus-stack a macro series. The result is a new RAW (DNG) that you develop like any other photograph.
 
 ### 5 · Deliver
@@ -122,19 +124,20 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 ## What it does
 
 - **Originals stay yours.** Your RAW files are never modified or deleted. Ingest verifies every copy; edits live in a portable project and XMP sidecars.
-- **Fast, on the graphics card.** The photograph is rendered natively on the GPU beneath the interface, so sliders, brushes and masks respond while you drag.
+- **Fast, on the graphics card.** The photograph is rendered on the GPU (on a Mac natively beneath the interface), so sliders, brushes and masks respond while you drag.
 - **Light.** Exposure, highlights, shadows, whites and blacks, levels, point and region curves, clarity, structure, dehaze.
 - **Colour.** RAW white balance, colour editor, colour grading, vibrance, black-and-white mix, camera profiles, CUBE LUTs, soft proofing for print and web colour spaces.
 - **Detail.** Sharpening, noise reduction, AI Denoise\*, chromatic aberration removal and defringing.
 - **Local adjustments.** Brush, linear and radial masks, colour and luminance ranges, subject, sky, background, depth and people masks\* (skin, hair, eyes, lips, clothes …), layer opacity.
 - **Geometry.** Crop, straighten, automatic and guided perspective correction, automatic lens corrections.
 - **Retouch.** Heal and clone with spots or brush strokes, object removal\*, automatic face retouch\*.
+- **Relight\*** _(experimental)_. Up to four added lights with patterns; the photo's own light can be turned down.
 - **Merge.** HDR, panorama, HDR panorama and focus stacking to a DNG; collages.
-- **Film.** Convert scanned negatives; grain and vignette.
+- **Film.** Convert scanned negatives; grain with five structures (even, soft, clumped, speckled, gritty) and vignette.
 - **Output.** JPEG, TIFF, PNG, WebP, JPEG XL and AVIF in sRGB, Display P3, Adobe RGB or ProPhoto RGB; output sharpening for screen and print; watermarks and borders; metadata you choose to keep.
 - **Private by design.** No account, no telemetry, no update checks. Rawtonic only goes online when you ask it to ([privacy](PRIVACY.md)).
 
-<sub>\* Optional AI tools. They run on your Mac, never in the cloud; each model is downloaded once, the first time you use the tool (see <a href="docs/MODELS.md">AI models</a>). Areas filled by a generative model are marked as such in exported files.</sub>
+<sub>\* Optional AI tools. They run on your computer, never in the cloud; each model is downloaded once, the first time you use the tool (see <a href="docs/MODELS.md">AI models</a>). Areas filled by a generative model are marked as such in exported files.</sub>
 
 ## Keyboard
 
@@ -147,6 +150,7 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 | **Y**                       | before / after split           |
 | hold **\\**                 | whole photograph before        |
 | **N**                       | multi view of the selection    |
+| **F**                       | full screen                    |
 | **⇧Return** / **⌘Return**   | pin / clear the reference      |
 | **C** / **R** / **B**       | crop / straighten / brush      |
 | **M**                       | show or hide the mask overlay  |
@@ -166,6 +170,7 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 - **macOS on Apple Silicon and Linux (x86-64 AppImage).** Intel Macs and Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu and Debian).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
+- **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
 - **No tethering.** Direct camera control is not available; the hot folder works with your camera maker's tethering app.
 - Expect rough edges in the interface, missing shortcuts and the occasional crash. Please [report them](#bug-reports--feedback).
 
