@@ -14,9 +14,13 @@ const GAIN: f64 = 1.5;
 const OFFSET_MIRED: f64 = -15.0;
 const RANGE_K: (f64, f64) = (2000.0, 12000.0);
 
-/// Grey world of a linear decode at the camera's balance.
+/// Grey world of a linear decode at the camera's balance. Deliberately the
+/// image crate's thumbnail, which adds 0.5 to float values
+/// (`image_processing::thumbnail`): GAIN and OFFSET_MIRED were fitted on
+/// those values (`dump_linear_decodes`). Correcting it means refitting both
+/// on the 59-camera set (notes: reference/white-balance.md, PARITY_GAPS G01).
 fn grey_world(decode: &DynamicImage) -> Option<[f32; 3]> {
-    let rgb = crate::image_processing::thumbnail(decode, 512, 512).to_rgb32f();
+    let rgb = decode.thumbnail(512, 512).to_rgb32f();
     let mut sum = [0f64; 3];
     for p in rgb.pixels() {
         for (total, v) in sum.iter_mut().zip(p.0) {
@@ -100,7 +104,8 @@ mod tests {
                 println!("{i}: decode failed");
                 continue;
             };
-            let small = crate::image_processing::thumbnail(&image, 384, 384).to_rgb32f();
+            // The values Auto was fitted on (see `grey_world`).
+            let small = image.thumbnail(384, 384).to_rgb32f();
             let mut data = Vec::new();
             data.extend_from_slice(&small.width().to_le_bytes());
             data.extend_from_slice(&small.height().to_le_bytes());
