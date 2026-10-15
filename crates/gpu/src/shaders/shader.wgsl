@@ -4837,16 +4837,17 @@ fn relight_people_normal(people: vec4<f32>) -> vec3<f32> {
 }
 
 // The photo's own lighting at a people normal (relight_source.rs: ambient
-// plus one Lambert light), clamped so deep shadows are not lifted beyond
+// plus one wrapped Lambert light), clamped so deep shadows are not lifted beyond
 // their signal.
 fn relight_source_shading(n: vec3<f32>) -> f32 {
     let c = adjustments.global.relight_source;
-    let s = c[0].x + c[0].y * max(dot(n, vec3<f32>(c[0].z, c[0].w, c[1].x)), 0.0);
+    // relight_source.rs WRAP: the photo's own soft terminator.
+    let s = c[0].x + c[0].y * max((dot(n, vec3<f32>(c[0].z, c[0].w, c[1].x)) + 0.35) / 1.35, 0.0);
     return clamp(s, RELIGHT_MIN_SHADING, 1.0);
 }
 
 // relight_source.rs MIN_SHADING: deeper shadows are not lifted further.
-const RELIGHT_MIN_SHADING: f32 = 0.12;
+const RELIGHT_MIN_SHADING: f32 = 0.2;
 
 
 fn relight_energy(surface: vec4<f32>, uv: vec2<f32>, coord: vec2<u32>, dims: vec2<f32>, scene_only: bool, people: vec4<f32>) -> RelightEnergy {

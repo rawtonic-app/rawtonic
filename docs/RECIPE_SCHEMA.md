@@ -43,8 +43,9 @@ pattern. Legacy recipes fall back to `x`/`y` for spot position and `rotation`
 for pattern rotation, preserving their rendered output. Missing lights are identity.
 `sectionVisibility.relight=false` bypasses all lighting without losing settings.
 `relightOriginalLight` (0–100, default 100) scales the existing illumination
-when at least one light has nonzero intensity. It does not reconstruct albedo
-or remove the original light direction.
+when at least one light has nonzero intensity. Up to analysis version 4 it
+does not reconstruct albedo or remove the original light direction; version 5
+(below) removes the original light's shading and skin shine on the subject.
 
 Optional `relightDepth` contains `{data, geometry}`: a 16-bit grayscale PNG data
 URL at inference resolution, and the geometry parameters at analysis time
@@ -88,6 +89,25 @@ use this camera. Facial relief scales with the face's local scene distance.
 Surface amount zero flattens this geometry onto its reference plane, retaining
 the same light transport. Scene normals are regularized without smoothing across
 large depth jumps; only confident facial geometry casts local shadows.
+
+Analysis version 5 (new analyses since 2026-10-15) keeps version 4's fields
+and smooths the scene slopes over a wide, depth-aware window when they are
+loaded (monocular depth blotches backgrounds and skies). For a subject of at
+least 5 % of the frame (BiRefNet matte) it adds `subject`, a 16-bit RGBA PNG
+data URL at up to 1024 px per side and twice that wide: the left half holds
+the subject normal's x and y (renderer frame: x right, y down, z towards the
+camera), the matte and the normal's weight; the right half the share of the
+photo that is the original light's skin shine and how far a new light reaches
+the background (1 near the subject, 0 below 0.75× its inverse depth). People
+(faces, or skin in the whole-photo parse for profiles) take DAViD's normals,
+objects the smoothed scene normals. `sourceLight` (nine numbers: ambient,
+light, direction x/y/z, four zeros) is the photo's own lighting fitted on the
+people's skin or the object's dominant material, scaled so the subject's lit
+side has shading 1; a new light is divided by this shading, so it lights the
+material (`I·L/S`) and Original light 0 % leaves only the new light, and the
+skin shine is reduced with the original light. `subjectDepth` is the subject's
+median inverse depth. Outside the matte the scene is lit evenly (no normal
+response). Recipes of versions 2–4 render as before (byte-identical exports).
 
 Since 2026-10-13: absent light fields render with a new light's values
 (intensity 25, rotation 135, shadows 100, colour `#fff1db`; engine

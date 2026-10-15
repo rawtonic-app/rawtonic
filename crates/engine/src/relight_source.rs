@@ -10,7 +10,8 @@
 //! the face landmarks — where albedo is nearly uniform, so the fit separates
 //! light from material; a fit over mixed materials cannot (notes:
 //! reference/relight-intrinsics.md). The model is physical and small: an
-//! ambient term and one directional light (Lambert), both non-negative. A
+//! ambient term and one directional light (wrapped Lambert), both
+//! non-negative. A
 //! free second-order fit is ill-conditioned on a face turned to the camera
 //! (constant and depth terms trade off): 8-bit rounding of the same photo
 //! turned its light from the left to the right.
@@ -19,17 +20,26 @@ use image::{ImageBuffer, Rgb, Rgba};
 pub type SubjectImage = ImageBuffer<Rgba<u16>, Vec<u16>>;
 pub type Normals = ImageBuffer<Rgb<f32>, Vec<f32>>;
 
+/// How far light wraps past the terminator: real light sources have area
+/// and skin scatters, so the photo's own shadow edge is soft; a hard
+/// Lambert terminator in the model would leave its edge as a seam where the
+/// new light is divided by it.
+pub const WRAP: f32 = 0.35;
+
 /// The photo's own shading at a normal: `[ambient, light, dx, dy, dz, …]`
-/// (`SourceLight::coefficients`), ambient plus a Lambert light.
+/// (`SourceLight::coefficients`), ambient plus a wrapped Lambert light.
 pub fn shading(coefficients: &[f32; 9], n: [f32; 3]) -> f32 {
-    let lambert =
-        (n[0] * coefficients[2] + n[1] * coefficients[3] + n[2] * coefficients[4]).max(0.);
-    coefficients[0] + coefficients[1] * lambert
+    let cosine = n[0] * coefficients[2] + n[1] * coefficients[3] + n[2] * coefficients[4];
+    coefficients[0] + coefficients[1] * wrapped(cosine)
+}
+
+fn wrapped(cosine: f32) -> f32 {
+    ((cosine + WRAP) / (1. + WRAP)).max(0.)
 }
 
 /// Lowest source shading the renderer divides by: deeper shadows hold too
 /// little signal to be lifted without amplifying noise.
-pub const MIN_SHADING: f32 = 0.12;
+pub const MIN_SHADING: f32 = 0.2;
 
 /// Packs the subject for the recipe as a two-part atlas, twice as wide as
 /// the frame's texture: left, x and y of the people normal (z is positive,
@@ -322,7 +332,7 @@ pub fn fit(
     let solve = |d: [f32; 3], weights: &[f64]| -> (f64, f64, f64) {
         let (mut sw, mut sr, mut srr, mut sl, mut srl) = (0f64, 0f64, 0f64, 0f64, 0f64);
         for ((n, l), w) in samples.iter().zip(weights) {
-            let r = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.) as f64;
+            let r = wrapped(n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) as f64;
             let l = *l as f64;
             sw += w;
             sr += w * r;
@@ -346,7 +356,7 @@ pub fn fit(
             .iter()
             .zip(weights)
             .map(|((n, l), w)| {
-                let r = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.) as f64;
+                let r = wrapped(n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) as f64;
                 w * (a + k * r - *l as f64).powi(2)
             })
             .sum();
@@ -367,7 +377,7 @@ pub fn fit(
         let residuals: Vec<f64> = samples
             .iter()
             .map(|(n, l)| {
-                let r = (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.) as f64;
+                let r = wrapped(n[0] * d[0] + n[1] * d[1] + n[2] * d[2]) as f64;
                 a + k * r - *l as f64
             })
             .collect();
@@ -609,9 +619,11 @@ mod tests {
     fn bright_background_in_the_matte_loses_the_people_weight() {
         let (mut image, normals) = sphere(64, [0., 0., 1.], 0.4);
         // A bright patch where the fitted lighting is dark: sky in the matte.
+        // Skin of albedo 0.2: the white patch is far brighter than any
+        // shading of that skin allows.
         let c = SourceLight {
             coefficients: [0.2, 0.8, 0., 0., 1., 0., 0., 0., 0.],
-            skin_albedo: 0.42,
+            skin_albedo: 0.2,
         };
         for y in 0..6 {
             for x in 0..6 {
