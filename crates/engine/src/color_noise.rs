@@ -160,6 +160,15 @@ pub struct Tuning {
     /// at Amount 25, Detail and Smoothness 50, to the power `finest_follow`.
     pub finest_edge_guard: f32,
     pub finest_follow: f32,
+    /// In very noisy photos the finest guard kept each pixel's own noisy
+    /// colour along the borders of coarser colour blotches, giving them
+    /// hard, speckled edges (Capture One stays calm there). Its threshold
+    /// therefore grows while the finest colour noise (`noise[0]`) rises from
+    /// `finest_edge_noise[0]` to `[1]`, until the guard keeps
+    /// `finest_edge_floor` of its strength (notes:
+    /// reference/color-noise-reference.md, round 5).
+    pub finest_edge_noise: [f32; 2],
+    pub finest_edge_floor: f32,
     /// Rebuilding the levels finer than `aware_levels` + 1 (1/2 and 1/4 of
     /// the resolution by default), each coarser sample's share of a finer
     /// sample is weighted by how close its rebuilt chroma is to the finer
@@ -207,6 +216,8 @@ impl Default for Tuning {
             edge_follow: 0.25,
             finest_edge_guard: 1.0,
             finest_follow: 0.25,
+            finest_edge_noise: [0.025, 0.04],
+            finest_edge_floor: 0.5,
             aware: 0.3,
             aware_levels: 2,
             aware_follow: 0.0,
@@ -296,7 +307,20 @@ impl Tuning {
         } else {
             1.0
         };
-        (self.finest_edge_guard * noise[0]).powi(2) * scale2
+        let strength = self.finest_edge_strength(noise[0]);
+        (self.finest_edge_guard * noise[0]).powi(2) * scale2 / (strength * strength)
+    }
+
+    /// The finest guard's strength at finest colour noise `noise0`: 1 up to
+    /// `finest_edge_noise[0]`, `finest_edge_floor` from `[1]`.
+    fn finest_edge_strength(&self, noise0: f32) -> f32 {
+        let [lo, hi] = self.finest_edge_noise;
+        if hi <= lo {
+            return 1.0;
+        }
+        let t = ((noise0 - lo) / (hi - lo)).clamp(0.0, 1.0);
+        let fade = t * t * (3.0 - 2.0 * t);
+        (1.0 - fade * (1.0 - self.finest_edge_floor)).max(1e-3)
     }
 }
 
@@ -2189,6 +2213,31 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_finest_edge_guard_weakens_only_in_very_noisy_photos() {
+        let tuning = Tuning::default();
+        let thresholds = [0.1; LEVELS];
+        let at = |noise0: f32| {
+            let mut noise = [0.01; LEVELS];
+            noise[0] = noise0;
+            tuning.finest_edge2(&thresholds, &noise) / (tuning.finest_edge_guard * noise0).powi(2)
+        };
+        // Unchanged below the range, threshold doubled (strength 0.5) above it.
+        let plain = |noise0: f32| {
+            let noise = {
+                let mut n = [0.01; LEVELS];
+                n[0] = noise0;
+                n
+            };
+            let base = noise[0] * tuning.multiples[0];
+            (thresholds[0] / base).powf(2.0 * tuning.finest_follow)
+        };
+        assert!((at(0.02) - plain(0.02)).abs() < 1e-6 * plain(0.02));
+        assert!((at(0.05) / plain(0.05) - 4.0).abs() < 1e-4);
+        let mid = at(0.0325) / plain(0.0325);
+        assert!(mid > 1.0 && mid < 4.0, "{mid}");
     }
 
     #[test]
