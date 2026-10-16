@@ -189,6 +189,7 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
     let image = image.into_cow();
 
     let warped_image = apply_geometry_warp(image, adjustments);
+    let warped_image = crate::edge_fringe::apply_for_recipe(warped_image, adjustments, 1.0);
     let blurred_image = crate::lens_blur::apply_lens_blur(warped_image, adjustments);
 
     let (cropped_image, unscaled_crop_offset) =

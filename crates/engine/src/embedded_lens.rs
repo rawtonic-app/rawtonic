@@ -884,13 +884,17 @@ pub fn params_for(source: &Path) -> Option<LensDistortionParams> {
 /// use the lens's lensfun profile when one matches the EXIF lens name
 /// exactly: Camera Raw applies its own profile to them by default (R8 +
 /// EF 24-105: corners +0.47 EV, R50 V + RF 28: +0.76 EV), not to DSLRs.
-/// Saved recipes always carry a mode and are left as they are.
+/// Saved recipes always carry a mode and are left as they are. Never-edited
+/// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`).
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if !(adjustments.is_null() || adjustments.is_object())
         || adjustments.get("lensCorrectionMode").is_some()
     {
         return;
     }
+    // A never-edited RAW also starts with the current edge-fringe pass, as
+    // the editor's new edits do.
+    crate::edge_fringe::apply_default(adjustments, true, crate::formats::is_raw_file(source));
     if let Some(params) = params_for(source) {
         if adjustments.is_null() {
             *adjustments = serde_json::json!({});
@@ -1877,6 +1881,13 @@ mod tests {
         let before = saved.clone();
         apply_default(&mut saved, &temp.path().join("missing.raf"));
         assert_eq!(saved, before);
+        // A never-edited RAW starts with the edge-fringe pass, a saved one not.
+        let mut never_raw = serde_json::Value::Null;
+        apply_default(&mut never_raw, &temp.path().join("missing.raf"));
+        assert_eq!(
+            never_raw[crate::edge_fringe::VERSION_KEY],
+            crate::edge_fringe::VERSION
+        );
         assert!(read(&temp.path().join("missing.raf")).is_none());
         let fake = temp.path().join("fake.raf");
         std::fs::write(&fake, vec![0u8; 256]).unwrap();

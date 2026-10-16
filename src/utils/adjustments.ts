@@ -517,6 +517,11 @@ export interface Adjustments {
    * recipes that used either before it = the earlier response. Photo-wide
    * (layers follow it). */
   toneVersion?: number;
+  /** Edge-fringe pass (crates/engine/src/edge_fringe.rs `VERSION`): 1 =
+   * colour along strong luminance edges that neither side explains
+   * (demosaic false colour, lateral CA rests) is removed after the lens
+   * correction; missing = none (recipes from before it). New RAW edits only. */
+  fringeVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1059,6 +1064,9 @@ export const COLOR_NOISE_VERSION = 2;
 /** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
 export const TONE_VERSION = 2;
 
+/** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
+export const FRINGE_VERSION = 1;
+
 /** Starting adjustments for a photo that has no saved edit. */
 export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
   isRaw
@@ -1067,6 +1075,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         ...RAW_DETAIL_DEFAULTS,
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
+        fringeVersion: FRINGE_VERSION,
       }
     : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION, toneVersion: TONE_VERSION };
 
@@ -1202,6 +1211,9 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     toneVersion: loadedToneVersion(loadedAdjustments),
+    // Saved recipes keep rendering as they were made: no pass unless they
+    // carry the key (never-edited RAWs get it in useImageLoader).
+    fringeVersion: loadedAdjustments.fringeVersion,
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -1358,6 +1370,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'defringeGreenHueHi',
         'moireAmount',
         'moirePattern',
+        'fringeVersion',
       ],
     },
   ],
