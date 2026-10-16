@@ -29,6 +29,7 @@ import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
+import { draftFor, flushSliderDraft, renderDraft } from '../utils/sliderDraft';
 import { saveFailure } from './useLibraryActions';
 import { clampViewerZoom } from '../utils/viewerDisplay';
 
@@ -157,8 +158,36 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
   })).then(mutation);
 }
 
-/** The editor's adjustment update outside React (history included). */
+// A drag's last moves commit as it ends, before the final render.
+useEditorStore.subscribe((state, previous) => {
+  if (previous.isSliderDragging && !state.isSliderDragging) flushSliderDraft();
+});
+
+/** Commits a slider drag's draft (sliderDraft.ts) for `path`. */
+function commitDraft(path: string, adjustments: Adjustments) {
+  useEditorStore.getState().setEditor((state) => {
+    if (state.selectedImage?.path !== path || state.adjustments === adjustments) return state;
+    debouncedSetHistory(adjustments);
+    return { adjustments };
+  });
+}
+
+/** The editor's adjustment update outside React (history included). During a
+ * slider drag the moves render as a draft and commit every 100 ms. */
 export function updateAdjustments(value: AdjustmentsUpdate) {
+  const current = useEditorStore.getState();
+  const image = current.selectedImage;
+  if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
+    const prev = draftFor(image.path) ?? current.adjustments;
+    const next = keepDrawnMasksOnPhoto(
+      prev,
+      typeof value === 'function' ? value(prev) : { ...prev, ...value },
+      image.width,
+      image.height,
+    );
+    if (next === prev || renderDraft(image.path, next, commitDraft)) return;
+  }
+  flushSliderDraft();
   useEditorStore.getState().setEditor((state) => {
     if (!state.selectedImage?.isReady) return state;
     const prev = state.adjustments;

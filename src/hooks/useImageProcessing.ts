@@ -25,6 +25,8 @@ import { toastAiError } from '../utils/aiErrors';
 // Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
 const PREVIEW_RENDER_FAILED = 'Preview rendering failed';
 import { registerLiveMaskRenderer } from '../utils/liveMaskRender';
+import { registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
+import { useMultiViewStore } from '../store/useMultiViewStore';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { interactivePreview } from '../utils/interactivePreview';
 import { previewBuffer } from '../utils/previewBuffer';
@@ -629,6 +631,40 @@ export function useImageProcessing(
     originalSize,
   ]);
 
+  // A slider drag's moves between store commits (utils/sliderDraft.ts), as
+  // the drag branch of the effect below would render them. Multi view and
+  // other views keep committing every move.
+  const calculateTargetResRef = useRef(calculateTargetRes);
+  calculateTargetResRef.current = calculateTargetRes;
+  const activeViewRef = useRef(activeView);
+  activeViewRef.current = activeView;
+  useEffect(
+    () =>
+      registerSliderDraftRenderer((path, draftAdjustments) => {
+        const image = useEditorStore.getState().selectedImage;
+        if (
+          image?.path !== path ||
+          !canRenderSource(image) ||
+          activeViewRef.current !== 'editor' ||
+          useMultiViewStore.getState().active ||
+          useSettingsStore.getState().appSettings?.enableLivePreviews === false
+        ) {
+          return false;
+        }
+        previewQueue.submit({
+          path,
+          adjustments: draftAdjustments,
+          dragging: true,
+          targetRes: calculateTargetResRef.current(),
+          inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
+          dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+        });
+        return true;
+      }),
+    [previewQueue],
+  );
+
+
   const requestHiFiZoom = useMemo(
     () =>
       debounce((targetRes: number) => {
@@ -685,7 +721,7 @@ export function useImageProcessing(
     }
 
     if (isSliderDragging) {
-      if (appSettings?.enableLivePreviews !== false) {
+      if (appSettings?.enableLivePreviews !== false && !wasRenderedAsDraft(renderAdjustments)) {
         applyAdjustments(renderAdjustments, true, targetRes);
       }
     } else {

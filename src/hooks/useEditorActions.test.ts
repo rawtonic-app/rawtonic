@@ -18,6 +18,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
+import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
 import { toast } from 'react-toastify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -404,4 +405,53 @@ it('fits a large photograph in a small view (a multi view cell) without zooming 
   act(() => result.current.handleZoomChange(0, true));
   expect(useEditorStore.getState().zoom).toBeCloseTo(1);
   vi.unstubAllGlobals();
+});
+
+describe('slider drag drafts', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    useEditorStore.setState({ isSliderDragging: false });
+  });
+
+  it('renders every move but commits on the interval and when the drag ends', () => {
+    vi.useFakeTimers();
+    const rendered: number[] = [];
+    const unregister = registerSliderDraftRenderer((_, adjustments) => {
+      rendered.push(adjustments.exposure);
+      return true;
+    });
+    useEditorStore.setState({ isSliderDragging: true });
+    updateAdjustments({ exposure: 0.5 });
+    updateAdjustments((prev) => ({ ...prev, exposure: prev.exposure + 0.25 }));
+    expect(rendered).toEqual([0.5, 0.75]);
+    // Nothing committed yet; the second move built on the first.
+    expect(useEditorStore.getState().adjustments.exposure).toBe(-2);
+    vi.advanceTimersByTime(COMMIT_INTERVAL_MS);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0.75);
+    updateAdjustments({ exposure: 1 });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0.75);
+    useEditorStore.setState({ isSliderDragging: false });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+    unregister();
+  });
+
+  it('commits each move when no renderer takes the draft', () => {
+    const unregister = registerSliderDraftRenderer(() => false);
+    useEditorStore.setState({ isSliderDragging: true });
+    updateAdjustments({ exposure: 0.5 });
+    expect(useEditorStore.getState().adjustments.exposure).toBe(0.5);
+    unregister();
+  });
+
+  it('commits a pending draft before an edit outside the drag', () => {
+    vi.useFakeTimers();
+    const unregister = registerSliderDraftRenderer(() => true);
+    useEditorStore.setState({ isSliderDragging: true });
+    updateAdjustments({ exposure: 0.5 });
+    useEditorStore.setState({ showOriginal: true });
+    updateAdjustments({ contrast: 10 });
+    const { adjustments } = useEditorStore.getState();
+    expect([adjustments.exposure, adjustments.contrast]).toEqual([0.5, 10]);
+    unregister();
+  });
 });
