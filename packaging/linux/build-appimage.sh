@@ -10,9 +10,12 @@ if [ "${1:-}" != "--inside" ]; then
   cache=$(realpath -m "${1:-../rawtonic-linux-cache}")
   mkdir -p "$cache"
   docker build -t rawtonic-linux-build --build-arg UID="$(id -u)" packaging/linux
+  # linuxdeploy runs extracted (APPIMAGE_EXTRACT_AND_RUN), FUSE only if present.
+  fuse=()
+  [ -e /dev/fuse ] && fuse=(--device /dev/fuse --cap-add SYS_ADMIN)
   exec docker run --rm -v "$PWD":/src -v "$cache":/cache \
     -e TAURI_ARGS="${TAURI_ARGS:-}" -e VITE_RAWTONIC_QA="${VITE_RAWTONIC_QA:-}" \
-    --device /dev/fuse --cap-add SYS_ADMIN rawtonic-linux-build bash packaging/linux/build-appimage.sh --inside
+    "${fuse[@]}" rawtonic-linux-build bash packaging/linux/build-appimage.sh --inside
 fi
 export CARGO_HOME=/cache/cargo CARGO_TARGET_DIR=/cache/target npm_config_cache=/cache/npm
 export PATH=$CARGO_HOME/bin:/home/builder/.cargo/bin:$PATH RUSTUP_HOME=/home/builder/.rustup

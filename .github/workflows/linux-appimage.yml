@@ -1,0 +1,69 @@
+# The Linux release AppImage, built as packaging/linux/build-appimage.sh builds
+# it by hand (Ubuntu 22.04 container, ONNX Runtime bundled), then exported
+# from headless in fresh Ubuntu, Debian and Fedora containers. Runs on demand
+# and for version tags; the AppImage is kept as a workflow artifact and is
+# attached to a release by hand (packaging/README.md).
+name: Linux AppImage
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /usr/local/share/boost /opt/hostedtoolcache/CodeQL /usr/share/swift
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/linux-cache/cargo/registry
+            ${{ runner.temp }}/linux-cache/npm
+          key: linux-appimage-${{ hashFiles('Cargo.lock', 'package-lock.json') }}
+          restore-keys: linux-appimage-
+      - run: packaging/linux/build-appimage.sh "$RUNNER_TEMP/linux-cache"
+      - name: Collect the AppImage
+        run: |
+          mkdir dist
+          cp "$RUNNER_TEMP"/linux-cache/target/release/bundle/appimage/*.AppImage dist/
+          cd dist && sha256sum *.AppImage | tee SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/
+          retention-days: 14
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04", "debian:12", "fedora:42"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist
+      # Public CC0 samples from raw.pixls.us: Bayer (Sony, Nikon) and X-Trans.
+      - name: Test photographs
+        run: |
+          mkdir photos && cd photos
+          while read -r sum url; do
+            curl -fsSL --retry 3 -o "$(basename "$url")" "$url"
+            echo "$sum  $(basename "$url")" >> SHA256SUMS
+          done <<'EOF'
+          250784580ea527442c09004417bb0eead484f2bf3ee8f9121a776ac65bb50d0f https://raw.pixls.us/data/Sony/ILCE-7M3/_DSC0009.ARW
+          3389da2bd0997be2f8e1408d8d0fba09f5062de05c4017a0bbf2849d8f0cd2a1 https://raw.pixls.us/data/Nikon/D750/compressed_14_bit.NEF
+          aaa648429eeee8e1bea05fccfeeb2ea54ee7052e23db0ee02f049e5b23cecaef https://raw.pixls.us/data/Fujifilm/X-T2/20170114_173532_TFW04723.RAF
+          EOF
+          sha256sum -c SHA256SUMS
+      - name: Headless exports in ${{ matrix.image }}
+        run: |
+          rm dist/SHA256SUMS
+          docker run --rm -v "$PWD/dist":/app:ro -v "$PWD/photos":/in:ro \
+            -v "$PWD/packaging/linux":/test:ro ${{ matrix.image }} bash /test/smoke-test.sh
