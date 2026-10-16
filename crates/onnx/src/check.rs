@@ -25,12 +25,17 @@ use crate::{Device, ModelKind};
 static VERDICTS: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
 
 /// What a verdict is about: the model file (name and size), the provider,
-/// the device and the plugin library (size), so a new driver-visible device
-/// or plugin is checked again.
-fn key(path: &Path, device: &Device) -> String {
+/// the device, the plugin library (size) and the provider's options for the
+/// model, so a new driver-visible device, plugin or option is checked again.
+fn key(path: &Path, kind: ModelKind, device: &Device) -> String {
     let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+    let options: String = kind
+        .provider_options(device.provider)
+        .iter()
+        .map(|(k, v)| format!(" | {k}={v}"))
+        .collect();
     format!(
-        "{}:{} | {} | {} | {}:{}",
+        "{}:{} | {} | {} | {}:{}{options}",
         path.file_name().unwrap_or_default().to_string_lossy(),
         size(path),
         device.provider,
@@ -98,7 +103,7 @@ pub(crate) fn check(
     device: &Device,
     file: Option<&PathBuf>,
 ) -> Result<()> {
-    let key = key(path, device);
+    let key = key(path, kind, device);
     match verdict(&key, file) {
         Some(true) => return Ok(()),
         Some(false) => {
@@ -110,7 +115,7 @@ pub(crate) fn check(
     }
     let started = Instant::now();
     let result = (|| {
-        let mut cpu = crate::session(path, None)?;
+        let mut cpu = crate::session(path, kind, None)?;
         let inputs = inputs_for(&cpu, kind, &Picture::synthetic(1536, 1024))?;
         let reference = run_once(&mut cpu, &inputs)?;
         drop(cpu);

@@ -223,6 +223,20 @@ impl ModelKind {
             _ => None,
         }
     }
+
+    /// Options for `provider` when it runs this model, each a measurement.
+    pub fn provider_options(self, provider: Provider) -> &'static [(&'static str, &'static str)] {
+        match (self, provider) {
+            // BiRefNet at 1024 × 1024 with WebGPU's default bucket cache of
+            // freed buffers ran out of memory on a 10 GB RTX 3080 (Vulkan:
+            // VK_ERROR_OUT_OF_DEVICE_MEMORY, then an invalid buffer); without
+            // the cache it runs in 0.73 s (CPU 9.5 s), mask IoU 1.0 to the
+            // CPU. Other models keep the cache: without it MI-GAN took 187
+            // instead of 59 ms and the SAM encoder 147 instead of 71 ms.
+            (ModelKind::Subject, Provider::WebGpu) => &[("storageBufferCacheMode", "disabled")],
+            _ => &[],
+        }
+    }
 }
 
 /// The user's choice and where plugin libraries may be.
@@ -439,20 +453,33 @@ fn register(provider: Provider, library: &Path) -> Result<Device> {
     Err(anyhow!("the plugin found no device"))
 }
 
-/// Adds `device`'s provider to a session's options.
-fn append(builder: &mut SessionBuilder, device: &Device) -> Result<()> {
+/// Adds `device`'s provider, with `kind`'s options for it, to a session's
+/// options.
+fn append(builder: &mut SessionBuilder, device: &Device, kind: ModelKind) -> Result<()> {
     let api = ort::api();
     let env = &device.environment;
     let devices = [device.ep_device.0];
+    let options = kind.provider_options(device.provider);
+    let text = |s: &str| CString::new(s).map_err(|e| anyhow!("provider option: {e}"));
+    let keys = options
+        .iter()
+        .map(|(k, _)| text(k))
+        .collect::<Result<Vec<_>>>()?;
+    let values = options
+        .iter()
+        .map(|(_, v)| text(v))
+        .collect::<Result<Vec<_>>>()?;
+    let key_ptrs: Vec<*const c_char> = keys.iter().map(|k| k.as_ptr()).collect();
+    let value_ptrs: Vec<*const c_char> = values.iter().map(|v| v.as_ptr()).collect();
     unsafe {
         check((api.SessionOptionsAppendExecutionProvider_V2)(
             builder.ptr_mut(),
             env.ptr().cast_mut(),
             devices.as_ptr(),
             devices.len(),
-            std::ptr::null(),
-            std::ptr::null(),
-            0,
+            key_ptrs.as_ptr(),
+            value_ptrs.as_ptr(),
+            key_ptrs.len(),
         ))
     }
 }
@@ -504,11 +531,12 @@ fn ort_path(path: &Path) -> Vec<c_char> {
         .collect()
 }
 
-/// Creates a session for `path` on `provider` (`None` = the CPU).
-pub(crate) fn session(path: &Path, device: Option<&Device>) -> Result<Session> {
+/// Creates a session for `path` (a `kind` model) on `device` (`None` = the
+/// CPU).
+pub(crate) fn session(path: &Path, kind: ModelKind, device: Option<&Device>) -> Result<Session> {
     let mut builder = Session::builder()?;
     if let Some(device) = device {
-        append(&mut builder, device)?;
+        append(&mut builder, device, kind)?;
     } else {
         // Explicit CPU registration bypasses ort's default NPU discovery.
         // Runtime 1.22 has no discoverable CPU device on macOS.
@@ -606,10 +634,10 @@ impl Model {
         for &provider in providers {
             let started = Instant::now();
             let attempt = if provider == Provider::Cpu {
-                session(path, None).map(|s| (s, "CPU".to_string()))
+                session(path, kind, None).map(|s| (s, "CPU".to_string()))
             } else {
                 device(provider, dirs).and_then(|device| {
-                    let mut gpu = session(path, Some(&device))?;
+                    let mut gpu = session(path, kind, Some(&device))?;
                     if checked {
                         check::check(path, kind, &mut gpu, &device, checks_file.as_ref())?;
                     }
@@ -685,7 +713,7 @@ impl Model {
                     "AI {}: run on {provider} failed ({e:#}); using the CPU from now on",
                     self.kind.name()
                 );
-                state.session = session(&self.path, None)?;
+                state.session = session(&self.path, self.kind, None)?;
                 state.provider = Provider::Cpu;
                 state.runs = 0;
                 let started = Instant::now();
@@ -763,6 +791,20 @@ mod tests {
             candidates(ModelKind::Subject, &settings(false), Some(Provider::Cpu)),
             vec![Provider::Cpu]
         );
+    }
+
+    #[test]
+    fn only_subject_on_webgpu_runs_without_the_buffer_cache() {
+        for kind in ModelKind::ALL {
+            for provider in [Provider::Cpu, Provider::WebGpu, Provider::Cuda] {
+                let options = kind.provider_options(provider);
+                if (kind, provider) == (ModelKind::Subject, Provider::WebGpu) {
+                    assert_eq!(options, &[("storageBufferCacheMode", "disabled")]);
+                } else {
+                    assert!(options.is_empty(), "{kind:?} {provider}");
+                }
+            }
+        }
     }
 
     #[cfg(target_os = "linux")]

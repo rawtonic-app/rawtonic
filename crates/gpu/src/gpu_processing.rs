@@ -2209,7 +2209,9 @@ pub struct GpuProcessor {
     relight_pattern_cache: Mutex<Option<([u32; 2], wgpu::TextureView)>>,
 
     main_bgl: wgpu::BindGroupLayout,
-    main_pipeline: wgpu::ComputePipeline,
+    /// The general pipeline, compiled on its own thread from construction:
+    /// without a warm driver cache it takes 16 s on NVIDIA/Linux.
+    main_pipeline: BackgroundPipeline,
     /// The general pipelines (8-bit, high precision) with the luminance
     /// noise reduction's edge-preserving pass, compiled on first use.
     edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2],
@@ -2234,7 +2236,7 @@ pub struct GpuProcessor {
     high_precision_shader: wgpu::ShaderModule,
     high_precision_layout: wgpu::PipelineLayout,
     high_precision_bgl: wgpu::BindGroupLayout,
-    high_precision_pipeline: wgpu::ComputePipeline,
+    high_precision_pipeline: BackgroundPipeline,
     high_precision_tile: std::sync::OnceLock<HighPrecisionTile>,
     tile_output_size: wgpu::Extent3d,
     adjustments_buffer: wgpu::Buffer,
@@ -2852,12 +2854,52 @@ fn validated<T>(
 ) -> Result<T, String> {
     let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
     let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let started = std::time::Instant::now();
     let value = create();
     let validation = pollster::block_on(validation.pop());
     let internal = pollster::block_on(internal.pop());
+    // Driver compiles without a warm shader cache take seconds (NVIDIA on
+    // Linux); a log line per slow compile shows where a first start waits.
+    let elapsed = started.elapsed();
+    if elapsed >= std::time::Duration::from_millis(250) {
+        log::info!("GPU {what} took {:.2} s", elapsed.as_secs_f64());
+    }
     match validation.or(internal) {
         Some(error) => Err(format!("GPU {what} could not be created: {error}")),
         None => Ok(value),
+    }
+}
+
+/// A pipeline compiled on its own thread. `wait` blocks until it is done
+/// (or failed); `get` only looks.
+struct BackgroundPipeline(Arc<std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>>);
+
+impl BackgroundPipeline {
+    fn compile(
+        device: &wgpu::Device,
+        create: impl FnOnce(&wgpu::Device) -> Result<wgpu::ComputePipeline, String> + Send + 'static,
+    ) -> Self {
+        let cell = Arc::new(std::sync::OnceLock::new());
+        let result = Arc::clone(&cell);
+        let device = device.clone();
+        std::thread::spawn(move || {
+            let created = create(&device);
+            if let Err(error) = &created {
+                log::error!("{error}");
+            }
+            let _ = result.set(created);
+        });
+        Self(cell)
+    }
+
+    fn wait(&self) -> Result<&wgpu::ComputePipeline, String> {
+        self.0.wait().as_ref().map_err(Clone::clone)
+    }
+
+    fn get(&self) -> Option<Result<&wgpu::ComputePipeline, String>> {
+        self.0
+            .get()
+            .map(|result| result.as_ref().map_err(Clone::clone))
     }
 }
 
@@ -3426,35 +3468,36 @@ impl GpuProcessor {
             immediate_size: 0,
         });
 
-        let main_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("Compute Pipeline"),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[("EDGE_NR", 0.0), ("LUMA_PROFILE", 0.0)],
-                    ..Default::default()
-                },
-                cache: None,
-            },
-        )?;
+        // The large pipelines compile in parallel on their own threads, so a
+        // cold driver cache (NVIDIA/Linux: 16 s for each general pipeline)
+        // does not hold the processor back; a render waits only for the
+        // pipeline it needs (`BackgroundPipeline::wait`, `preview_pipeline`).
+        let main_pipeline = BackgroundPipeline::compile(device, {
+            let module = shader_module.clone();
+            let layout = pipeline_layout.clone();
+            move |device| {
+                create_compute_pipeline(
+                    device,
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("Compute Pipeline"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: Some("main"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &[("EDGE_NR", 0.0), ("LUMA_PROFILE", 0.0)],
+                            ..Default::default()
+                        },
+                        cache: None,
+                    },
+                )
+            }
+        });
 
-        // The common variant is ready with the first photograph. Other variants
-        // compile on demand off the render worker; use the complete pipeline until
-        // ready. Avoid compiling unused variants during thumbnail/export startup.
+        // Display variants compile on demand off the render worker; the
+        // common ones start with the processor (see the end of `new`).
         let preview_pipelines: Arc<
             [std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT],
         > = Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new()));
-        let _ = preview_pipelines[0].set(create_preview_pipeline(
-            device,
-            &shader_module,
-            &pipeline_layout,
-            0,
-            true,
-            true,
-        )?);
 
         bind_group_layout_entries[1].ty = wgpu::BindingType::StorageTexture {
             access: wgpu::StorageTextureAccess::WriteOnly,
@@ -3480,24 +3523,30 @@ impl GpuProcessor {
                 "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
             ),
         )?;
-        let high_precision_pipeline = create_compute_pipeline(
-            device,
-            &wgpu::ComputePipelineDescriptor {
-                label: Some("High Precision Compute Pipeline"),
-                layout: Some(&high_precision_pipeline_layout),
-                module: &high_precision_shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions {
-                    constants: &[
-                        ("HIGH_PRECISION_OUTPUT", 1.0),
-                        ("EDGE_NR", 0.0),
-                        ("LUMA_PROFILE", 0.0),
-                    ],
-                    ..Default::default()
-                },
-                cache: None,
-            },
-        )?;
+        let high_precision_pipeline = BackgroundPipeline::compile(device, {
+            let module = high_precision_shader.clone();
+            let layout = high_precision_pipeline_layout.clone();
+            move |device| {
+                create_compute_pipeline(
+                    device,
+                    &wgpu::ComputePipelineDescriptor {
+                        label: Some("High Precision Compute Pipeline"),
+                        layout: Some(&layout),
+                        module: &module,
+                        entry_point: Some("main"),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &[
+                                ("HIGH_PRECISION_OUTPUT", 1.0),
+                                ("EDGE_NR", 0.0),
+                                ("LUMA_PROFILE", 0.0),
+                            ],
+                            ..Default::default()
+                        },
+                        cache: None,
+                    },
+                )
+            }
+        });
 
         let adjustments_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Adjustments Buffer"),
@@ -3700,9 +3749,11 @@ impl GpuProcessor {
             #[cfg(test)]
             last_display_render_pixels: std::sync::atomic::AtomicU64::new(0),
         };
-        // RAWs open with the default detail settings, and the all-enabled
-        // variant renders any recipe until its own variant is ready.
+        // RAWs open with the default detail settings, other photos often
+        // without any detail feature, and the all-enabled variant renders any
+        // recipe until its own variant is ready.
         processor.compile_preview_variant(RAW_DEFAULT_PREVIEW_FEATURES);
+        processor.compile_preview_variant(0);
         processor.compile_preview_variant(ALL_PREVIEW_FEATURES);
         Ok(processor)
     }
@@ -4330,33 +4381,33 @@ impl GpuProcessor {
         }
     }
 
-    fn preview_pipeline(&self, features: usize) -> &wgpu::ComputePipeline {
+    fn preview_pipeline(&self, features: usize) -> Result<&wgpu::ComputePipeline, String> {
         #[cfg(test)]
         if self
             .force_legacy_curves
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            return self.legacy_curve_pipelines[features]
+            return Ok(self.legacy_curve_pipelines[features]
                 .get()
-                .expect("prepare the matching legacy curve variant before comparing");
+                .expect("prepare the matching legacy curve variant before comparing"));
         }
         #[cfg(test)]
         if self
             .force_unprepared_layers
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            return self.unprepared_layer_pipelines[features]
+            return Ok(self.unprepared_layer_pipelines[features]
                 .get()
-                .expect("prepare the previous direct-curve variant before comparing");
+                .expect("prepare the previous direct-curve variant before comparing"));
         }
         #[cfg(test)]
         if self
             .force_fallback_variant
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            return self.preview_pipelines[ALL_PREVIEW_FEATURES]
+            return Ok(self.preview_pipelines[ALL_PREVIEW_FEATURES]
                 .get()
-                .expect("compile the all-features variant before comparing");
+                .expect("compile the all-features variant before comparing"));
         }
         // Even the all-enabled variant uses direct curve reads for display.
         // Until this variant is compiled, the all-enabled one (a superset,
@@ -4365,10 +4416,21 @@ impl GpuProcessor {
         if self.preview_pipelines[features].get().is_none() {
             self.compile_preview_variant(features);
         }
-        self.preview_pipelines[features]
-            .get()
-            .or_else(|| self.preview_pipelines[ALL_PREVIEW_FEATURES].get())
-            .unwrap_or(&self.main_pipeline)
+        // Right after start all three may still compile: the first one ready
+        // renders. A variant that fails is never set, but the general
+        // pipeline always settles, so this ends.
+        loop {
+            if let Some(pipeline) = self.preview_pipelines[features]
+                .get()
+                .or_else(|| self.preview_pipelines[ALL_PREVIEW_FEATURES].get())
+            {
+                return Ok(pipeline);
+            }
+            if let Some(general) = self.main_pipeline.get() {
+                return general;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
     }
 
     /// Compile a display variant off the render worker (once).
@@ -4432,7 +4494,7 @@ impl GpuProcessor {
         &self,
         adjustments: &AllAdjustments,
         high_precision: bool,
-    ) -> &wgpu::ComputePipeline {
+    ) -> Result<&wgpu::ComputePipeline, String> {
         let features = preview_features(adjustments) | (1 << 2);
         // Metal may reassociate active neighbourhood operations when unrelated
         // branches are removed. Their full general pipeline preserves exact
@@ -4458,7 +4520,7 @@ impl GpuProcessor {
         } else {
             &self.main_pipeline
         };
-        pipelines[features]
+        match pipelines[features]
             .get_or_init(|| {
                 create_preview_pipeline(&self.context.device, shader, layout, features, true, false)
                     .inspect_err(|error| {
@@ -4469,7 +4531,10 @@ impl GpuProcessor {
                     .ok()
             })
             .as_ref()
-            .unwrap_or(general)
+        {
+            Some(pipeline) => Ok(pipeline),
+            None => general.wait(),
+        }
     }
 
     /// The general pipeline for `adjustments`: with the luminance noise
@@ -4479,7 +4544,7 @@ impl GpuProcessor {
         &self,
         adjustments: &AllAdjustments,
         high_precision: bool,
-    ) -> &wgpu::ComputePipeline {
+    ) -> Result<&wgpu::ComputePipeline, String> {
         let plain = if high_precision {
             &self.high_precision_pipeline
         } else {
@@ -4490,11 +4555,11 @@ impl GpuProcessor {
             .force_plain_noise_reduction
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            return plain;
+            return plain.wait();
         }
         let edge = edge_noise_reduction(adjustments);
         if adjustments.global.luma_noise_profile[0][0] > 0.0 {
-            return self.profile_pipelines[usize::from(high_precision)][usize::from(edge)]
+            return match self.profile_pipelines[usize::from(high_precision)][usize::from(edge)]
                 .get_or_init(|| {
                     let (shader, layout) = if high_precision {
                         (&self.high_precision_shader, &self.high_precision_layout)
@@ -4531,12 +4596,15 @@ impl GpuProcessor {
                     .ok()
                 })
                 .as_ref()
-                .unwrap_or(plain);
+            {
+                Some(pipeline) => Ok(pipeline),
+                None => plain.wait(),
+            };
         }
         if !edge {
-            return plain;
+            return plain.wait();
         }
-        self.edge_pipelines[usize::from(high_precision)]
+        match self.edge_pipelines[usize::from(high_precision)]
             .get_or_init(|| {
                 let (shader, layout) = if high_precision {
                     (&self.high_precision_shader, &self.high_precision_layout)
@@ -4572,7 +4640,10 @@ impl GpuProcessor {
                 .ok()
             })
             .as_ref()
-            .unwrap_or(plain)
+        {
+            Some(pipeline) => Ok(pipeline),
+            None => plain.wait(),
+        }
     }
 
     /// Test shorthand for the exact export shader on readback jobs.
@@ -4710,15 +4781,15 @@ impl GpuProcessor {
         let force_general_pipeline = false;
         let main_pipeline = if display_shader && !force_full_preparation && !force_general_pipeline
         {
-            self.preview_pipeline(preview_features(&request.adjustments))
+            self.preview_pipeline(preview_features(&request.adjustments))?
         } else if !output_to_display
             && output_precision == RenderOutputPrecision::EightBit
             && !force_full_preparation
             && !force_general_pipeline
         {
-            self.export_pipeline(&request.adjustments, false)
+            self.export_pipeline(&request.adjustments, false)?
         } else {
-            self.general_pipeline(&request.adjustments, false)
+            self.general_pipeline(&request.adjustments, false)?
         };
 
         if output_precision == RenderOutputPrecision::SixteenBit && output_to_display {
@@ -4736,9 +4807,9 @@ impl GpuProcessor {
             if let Some(high_precision_tile) = high_precision_tile {
                 (
                     if force_full_preparation || force_general_pipeline {
-                        self.general_pipeline(&request.adjustments, true)
+                        self.general_pipeline(&request.adjustments, true)?
                     } else {
-                        self.export_pipeline(&request.adjustments, true)
+                        self.export_pipeline(&request.adjustments, true)?
                     },
                     &self.high_precision_bgl,
                     &high_precision_tile.texture,
