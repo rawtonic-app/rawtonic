@@ -60,6 +60,7 @@ mod performance;
 mod preset_converter;
 mod preview_cache;
 mod preview_proxy;
+mod preview_slot;
 mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
@@ -80,7 +81,6 @@ use rawtonic_runtime::allocator;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::mpsc::{self};
 
 use std::sync::{Arc, Mutex};
 
@@ -633,7 +633,7 @@ pub fn run() {
             pending_edit_session: Mutex::new(None),
             thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
             thumbnail_progress: Mutex::new(ThumbnailProgressTracker { total: 0, completed: 0 }),
-            preview_worker_tx: Mutex::new(None),
+            preview_jobs: Default::default(),
             analytics_worker_tx: Mutex::new(None),
             mask_cache: Mutex::new(Default::default()),
             mask_thumbnail_cache: Mutex::new(Default::default()),

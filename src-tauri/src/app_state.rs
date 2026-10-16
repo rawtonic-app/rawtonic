@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 
 use image::DynamicImage;
@@ -158,7 +157,7 @@ pub struct MaskOverlayRequest {
 
 pub struct PreviewJob {
     pub generation: usize,
-    /// Submission order from the webview, which keeps up to two previews in
+    /// Submission order from the webview, which keeps up to four previews in
     /// flight. Two invokes can reach the worker out of order; a sequenced job
     /// older than one already taken is dropped. `None` keeps arrival order.
     pub sequence: Option<u64>,
@@ -177,14 +176,14 @@ pub struct PreviewJob {
     pub responder: tokio::sync::oneshot::Sender<Result<Vec<u8>, String>>,
 }
 
-impl PreviewJob {
+impl crate::preview_slot::Supersedes for PreviewJob {
     /// Whether `self`, received after `current`, should replace it.
-    pub fn supersedes(&self, current: &PreviewJob) -> bool {
+    fn supersedes(&self, current: &PreviewJob) -> bool {
         supersedes(self.sequence, current.sequence)
     }
 }
 
-fn supersedes(candidate: Option<u64>, current: Option<u64>) -> bool {
+pub(crate) fn supersedes(candidate: Option<u64>, current: Option<u64>) -> bool {
     match (candidate, current) {
         (Some(candidate), Some(current)) => candidate > current,
         _ => true,
@@ -287,7 +286,9 @@ pub struct AppState {
     pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
     pub thumbnail_cancellation_token: Arc<AtomicBool>,
     pub thumbnail_progress: Mutex<ThumbnailProgressTracker>,
-    pub preview_worker_tx: Mutex<Option<Sender<PreviewJob>>>,
+    /// The preview worker's next job (preview_slot.rs): a newer request
+    /// replaces the waiting one on arrival.
+    pub preview_jobs: crate::preview_slot::LatestSlot<PreviewJob>,
     pub analytics_worker_tx: Mutex<Option<LatestJobSender<AnalyticsJob>>>,
     pub mask_cache: Mutex<MaskBitmapCache>,
     /// Masks drawn for the layer list's thumbnails, apart from the
