@@ -36,7 +36,6 @@ use crate::mask_generation::get_cached_or_generate_mask;
 use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::resolve_warped_image_for_masks;
 use crate::mask_generation::{PhotoGeometry, generate_mask_bitmap};
-use crate::mpsc;
 use crate::preview_cache;
 use base64::Engine as _;
 use base64::engine::general_purpose;
@@ -58,8 +57,6 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
 use tauri::ipc::Response;
 use tauri::{Emitter, Manager};
 
@@ -1205,39 +1202,28 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
 }
 
 pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
-    let state = app_handle.state::<AppState>();
-    let (tx, rx): (Sender<PreviewJob>, Receiver<PreviewJob>) = mpsc::channel();
-
-    *state.preview_worker_tx.lock().unwrap() = Some(tx);
-
     std::thread::spawn(move || {
+        let jobs = &app_handle.state::<AppState>().inner().preview_jobs;
         let mut newest_sequence = None;
         let mut waiting: Option<PreviewJob> = None;
         loop {
-            let mut job = match waiting.take() {
+            // A request arriving meanwhile has already replaced (and
+            // rejected) the one waiting: the job taken is the newest received.
+            let job = match waiting.take() {
                 Some(job) => job,
                 None if crate::multi_view::live_pending() => {
                     // Edit all selected: while no frame of the primary is
                     // asked for, the other cells catch up one at a time.
-                    match rx.recv_timeout(LIVE_IDLE) {
-                        Ok(job) => job,
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                    match jobs.take_timeout(LIVE_IDLE) {
+                        Some(job) => job,
+                        None => {
                             crate::multi_view::live_step(&app_handle);
                             continue;
                         }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
                 }
-                None => match rx.recv() {
-                    Ok(job) => job,
-                    Err(_) => break,
-                },
+                None => jobs.take(),
             };
-            while let Ok(latest_job) = rx.try_recv() {
-                if latest_job.supersedes(&job) {
-                    job = latest_job;
-                }
-            }
             // Dropping the responder rejects the superseded invoke.
             if crate::app_state::preview_job_is_stale(job.sequence, newest_sequence) {
                 #[cfg(feature = "performance-profiling")]
@@ -1253,8 +1239,15 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             let responder = job.responder;
             crate::multi_view_prefetch::note_preview(job.is_interactive);
             #[cfg(feature = "performance-profiling")]
-            let (job_start_epoch, job_interactive) =
-                (crate::performance::epoch_ms(), job.is_interactive);
+            let (job_start_epoch, job_interactive, job_sequence) = (
+                crate::performance::epoch_ms(),
+                job.is_interactive,
+                job.sequence,
+            );
+            #[cfg(feature = "performance-profiling")]
+            if let Some(delay) = crate::preview_slot::debug_render_delay() {
+                std::thread::sleep(delay);
+            }
             let result = process_preview_job(
                 &app_handle,
                 state,
@@ -1274,7 +1267,8 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 "[PERF] {}",
                 serde_json::json!({
                     "stage": "preview_job", "start_epoch_ms": job_start_epoch,
-                    "end_epoch_ms": crate::performance::epoch_ms(), "interactive": job_interactive
+                    "end_epoch_ms": crate::performance::epoch_ms(), "interactive": job_interactive,
+                    "sequence": job_sequence
                 })
             );
             if let Err(e) = &result {
@@ -1284,12 +1278,11 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             // Edit all selected: one other cell after each frame of the
             // primary, unless its next frame is already asked for.
             if crate::multi_view::live_pending() {
-                match rx.try_recv() {
-                    Ok(next) => waiting = Some(next),
-                    Err(mpsc::TryRecvError::Empty) => {
+                match jobs.try_take() {
+                    Some(next) => waiting = Some(next),
+                    None => {
                         crate::multi_view::live_step(&app_handle);
                     }
-                    Err(mpsc::TryRecvError::Disconnected) => break,
                 }
             }
         }
@@ -1435,24 +1428,20 @@ pub(crate) async fn activate_photo(
     };
     let (tx, rx) = tokio::sync::oneshot::channel();
     {
-        let tx_guard = state.preview_worker_tx.lock().unwrap();
-        let worker_tx = tx_guard.as_ref().ok_or("Preview worker not running")?;
-        worker_tx
-            .send(PreviewJob {
-                generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
-                sequence: None,
-                adjustments: recipe,
-                is_interactive: false,
-                target_resolution: preview_dim,
-                roi: None,
-                request_analytics: false,
-                compute_waveform: false,
-                active_waveform_channel: None,
-                mask_overlay: None,
-                crop_edit: false,
-                responder: tx,
-            })
-            .map_err(|e| format!("Failed to send to preview worker: {}", e))?;
+        state.preview_jobs.submit(PreviewJob {
+            generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
+            sequence: None,
+            adjustments: recipe,
+            is_interactive: false,
+            target_resolution: preview_dim,
+            roi: None,
+            request_analytics: false,
+            compute_waveform: false,
+            active_waveform_channel: None,
+            mask_overlay: None,
+            crop_edit: false,
+            responder: tx,
+        });
     }
     #[cfg(feature = "performance-profiling")]
     log::info!(
@@ -1655,30 +1644,29 @@ pub(crate) async fn apply_adjustments(
     );
     let (tx, rx) = tokio::sync::oneshot::channel();
 
-    {
-        let tx_guard = state.preview_worker_tx.lock().unwrap();
-        if let Some(worker_tx) = tx_guard.as_ref() {
-            let job = PreviewJob {
-                generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
-                sequence,
-                adjustments: js_adjustments,
-                is_interactive,
-                target_resolution,
-                roi,
-                request_analytics,
-                compute_waveform,
-                active_waveform_channel,
-                mask_overlay,
-                crop_edit: crop_edit.unwrap_or(false),
-                responder: tx,
-            };
-            worker_tx
-                .send(job)
-                .map_err(|e| format!("Failed to send to preview worker: {}", e))?;
-        } else {
-            return Err("Preview worker not running".to_string());
-        }
+    let kept = state.preview_jobs.submit(PreviewJob {
+        generation: state.preview_generation.fetch_add(1, Ordering::SeqCst) + 1,
+        sequence,
+        adjustments: js_adjustments,
+        is_interactive,
+        target_resolution,
+        roi,
+        request_analytics,
+        compute_waveform,
+        active_waveform_channel,
+        mask_overlay,
+        crop_edit: crop_edit.unwrap_or(false),
+        responder: tx,
+    });
+    #[cfg(feature = "performance-profiling")]
+    if !kept {
+        log::info!(
+            "[PERF] {}",
+            serde_json::json!({ "stage": "preview_job_stale", "sequence": sequence })
+        );
     }
+    #[cfg(not(feature = "performance-profiling"))]
+    let _ = kept;
 
     match rx.await {
         Ok(Ok(bytes)) => {

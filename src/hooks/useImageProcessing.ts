@@ -372,9 +372,10 @@ export function useImageProcessing(
   const executeRef = useRef(executeApplyAdjustments);
   executeRef.current = executeApplyAdjustments;
   // Requests go to the native worker right away instead of waiting for the
-  // previous response (5–7 ms with real mouse drags). The worker takes only the
-  // newest queued request when it becomes free and rejects the others, so each
-  // render starts from the latest pointer state; sequence numbers keep it in
+  // previous response (5–7 ms with real mouse drags). The worker keeps one
+  // waiting request (src-tauri/src/preview_slot.rs): a newer one replaces and
+  // rejects it on arrival, so each render starts from the latest pointer state
+  // even when a render outlasts several moves; sequence numbers keep it in
   // submission order. Four in flight bound the backlog if the GPU stalls.
   const previewQueue = useMemo(
     () => new LatestPreviewQueue<PreviewRequest>(async (request) => {
