@@ -9,7 +9,20 @@ on:
   push:
     tags: ["v*"]
 jobs:
+  # No release with an open advisory, unmaintained crates included (ADR 0005).
+  advisories:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny check advisories
   build:
+    needs: advisories
     runs-on: ubuntu-24.04
     steps:
       - name: Free disk space

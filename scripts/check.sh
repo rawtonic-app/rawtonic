@@ -22,6 +22,10 @@ step "rust: layering"; scripts/check_layering.sh
 if [ "$QUICK" = 0 ]; then step "rust: tests"; cargo test --workspace --locked; fi
 if command -v cargo-deny >/dev/null 2>&1; then
   step "dependencies: licenses, bans, sources"; cargo deny check licenses bans sources
+  # Vulnerabilities and unsound crates fail; unmaintained crates only warn here
+  # (they often need an upstream release first) and block releases instead
+  # (ADR 0005: the release workflows run the full check).
+  step "dependencies: advisories (unmaintained warns)"; cargo deny check -W unmaintained advisories
 else
   printf '\n== dependencies: skipped (cargo-deny not installed)\n'
 fi
