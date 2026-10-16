@@ -19,6 +19,10 @@ AVIF sources are decoded with [rav1d](https://github.com/memorysafety/rav1d) 1.1
 ## Local dependency patch
 `vendor/little_exif` contains little_exif 0.6.23, Copyright Tobias J. Prisching and contributors, MIT OR Apache-2.0; both license texts are preserved there. Only two dependencies were changed: quick-xml from 0.37.5 to 0.41.0 to remove known XML denial-of-service advisories, and the unmaintained `paste` macro crate for its maintained drop-in successor `pastey` 0.2 (MIT OR Apache-2.0; `use pastey::paste`) (ADR 0005). It is patched through the workspace Cargo.toml.
 
+Three more crates are patched the same way to keep unmaintained macro crates out of the build (ADR 0005):
+- `vendor/paste` is a Rawtonic stand-in under the `paste` 1.0.15 name for crates that still depend on `paste` (pulp, through image → exr). It contains no code of `paste`; it re-exports the macros of `pastey` 0.2 (Aditya Kumar and David Tolnay, MIT OR Apache-2.0; both license texts kept there).
+- `vendor/glib-macros` contains glib-macros 0.18.5 and `vendor/gtk3-macros` gtk3-macros 0.18.2 (Copyright the gtk-rs Project Developers, MIT; LICENSE and COPYRIGHT preserved), the proc-macro crates of the GTK 3 bindings Tauri uses on Linux. Both no longer depend on proc-macro-error (or its fork proc-macro-error2, also unmaintained): the few parts they used are reimplemented in each crate's `src/abort.rs` (MIT, like the crates); the changes are listed in their `RAWTONIC_PATCH.md`.
+
 Original Rawtonic work permits AGPL v3 or later. Inherited AGPL-3.0-only components, including jxl-encoder, retain their original terms; the combined development distribution uses AGPL v3. Our license does not relicense those dependencies.
 
 ## DNG
@@ -56,13 +60,13 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 
 
 
+
 <!-- generated inventory -->
 
 ## Resolved Rust dependencies
 
 | Package | Version | Declared license |
 |---|---|---|
-| ab_glyph | 0.2.32 | Apache-2.0 |
 | ab_glyph_rasterizer | 0.1.10 | Apache-2.0 |
 | addr2line | 0.25.1 | Apache-2.0 OR MIT |
 | adler2 | 2.0.1 | 0BSD OR MIT OR Apache-2.0 |
@@ -119,7 +123,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | base64 | 0.21.7 | MIT OR Apache-2.0 |
 | base64 | 0.22.1 | MIT OR Apache-2.0 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 |
-| base64ct | 1.8.3 | Apache-2.0 OR MIT |
 | bit-set | 0.8.0 | Apache-2.0 OR MIT |
 | bit-set | 0.9.1 | Apache-2.0 OR MIT |
 | bit-vec | 0.8.0 | Apache-2.0 OR MIT |
@@ -208,7 +211,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | defmt | 1.1.1 | MIT OR Apache-2.0 |
 | defmt-macros | 1.1.1 | MIT OR Apache-2.0 |
 | defmt-parser | 1.0.0 | MIT OR Apache-2.0 |
-| der | 0.8.1 | Apache-2.0 OR MIT |
 | deranged | 0.5.8 | MIT OR Apache-2.0 |
 | derive_builder | 0.20.2 | MIT OR Apache-2.0 |
 | derive_builder_core | 0.20.2 | MIT OR Apache-2.0 |
@@ -265,11 +267,10 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | fnv | 1.0.7 | Apache-2.0 / MIT |
 | foldhash | 0.1.5 | Zlib |
 | foldhash | 0.2.0 | Zlib |
+| font-types | 0.12.7 | MIT OR Apache-2.0 |
 | fontdb | 0.24.0 | MIT |
-| foreign-types | 0.3.2 | MIT/Apache-2.0 |
 | foreign-types | 0.5.0 | MIT/Apache-2.0 |
 | foreign-types-macros | 0.2.4 | MIT/Apache-2.0 |
-| foreign-types-shared | 0.1.1 | MIT/Apache-2.0 |
 | foreign-types-shared | 0.3.1 | MIT/Apache-2.0 |
 | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 |
 | fs_extra | 1.3.0 | MIT |
@@ -354,7 +355,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | idna | 1.1.0 | MIT OR Apache-2.0 |
 | idna_adapter | 1.2.2 | Apache-2.0 OR MIT |
 | image | 0.25.10 | MIT OR Apache-2.0 |
-| image-hdr | 0.6.0 | Apache-2.0 |
 | image-webp | 0.2.4 | MIT OR Apache-2.0 |
 | image_hasher | 3.1.1 | MIT OR Apache-2.0 |
 | imageproc | 0.27.0 | MIT |
@@ -417,6 +417,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | libfuzzer-sys | 0.4.13 | (MIT OR Apache-2.0) AND NCSA |
 | libloading | 0.7.4 | ISC |
 | libloading | 0.8.9 | ISC |
+| libloading | 0.9.0 | ISC |
 | libm | 0.2.16 | MIT |
 | libmimalloc-sys | 0.1.49 | MIT |
 | libredox | 0.1.20 | MIT |
@@ -460,8 +461,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | nalgebra | 0.35.0 | Apache-2.0 |
 | nalgebra-macros | 0.3.0 | Apache-2.0 |
 | nasm-rs | 0.3.2 | MIT OR Apache-2.0 |
-| native-tls | 0.2.18 | MIT OR Apache-2.0 |
-| ndarray | 0.16.1 | MIT OR Apache-2.0 |
+| ndarray | 0.17.2 | MIT OR Apache-2.0 |
 | ndk | 0.9.0 | MIT OR Apache-2.0 |
 | ndk-context | 0.1.1 | MIT OR Apache-2.0 |
 | ndk-sys | 0.6.0+11769913 | MIT OR Apache-2.0 |
@@ -513,18 +513,14 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | onig | 6.5.3 | MIT |
 | onig_sys | 69.9.3 | MIT |
 | open | 5.4.1 | MIT |
-| openssl | 0.10.81 | Apache-2.0 |
-| openssl-macros | 0.1.1 | MIT/Apache-2.0 |
 | openssl-probe | 0.2.1 | MIT OR Apache-2.0 |
-| openssl-sys | 0.9.117 | MIT |
 | option-ext | 0.2.0 | MPL-2.0 |
 | ordered-float | 5.5.0 | MIT |
 | ordered-stream | 0.2.0 | MIT OR Apache-2.0 |
-| ort | 2.0.0-rc.10 | MIT OR Apache-2.0 |
-| ort-sys | 2.0.0-rc.10 | MIT OR Apache-2.0 |
+| ort | 2.0.0-rc.12 | MIT OR Apache-2.0 |
+| ort-sys | 2.0.0-rc.12 | MIT OR Apache-2.0 |
 | os_info | 3.15.0 | MIT |
 | os_pipe | 1.2.3 | MIT |
-| owned_ttf_parser | 0.25.1 | Apache-2.0 |
 | pango | 0.18.3 | MIT |
 | pango-sys | 0.18.0 | MIT |
 | parking | 2.2.1 | Apache-2.0 OR MIT |
@@ -533,7 +529,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | paste | 1.0.15 | MIT OR Apache-2.0 |
 | pastey | 0.1.1 | MIT OR Apache-2.0 |
 | pastey | 0.2.3 | MIT OR Apache-2.0 |
-| pem-rfc7468 | 1.0.0 | Apache-2.0 OR MIT |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 |
 | phf | 0.13.1 | MIT |
 | phf_codegen | 0.13.1 | MIT |
@@ -559,8 +554,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | proc-macro-crate | 1.3.1 | MIT OR Apache-2.0 |
 | proc-macro-crate | 2.0.2 | MIT OR Apache-2.0 |
 | proc-macro-crate | 3.5.0 | MIT OR Apache-2.0 |
-| proc-macro-error | 1.0.4 | MIT OR Apache-2.0 |
-| proc-macro-error-attr | 1.0.4 | MIT OR Apache-2.0 |
 | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 |
 | profiling | 1.0.18 | MIT OR Apache-2.0 |
 | profiling-procmacros | 1.0.18 | MIT OR Apache-2.0 |
@@ -595,23 +588,27 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 |
 | rawler | 0.7.1 | LGPL-2.1 |
 | rawpointer | 0.2.1 | MIT/Apache-2.0 |
-| rawtonic-app | 0.1.0 | AGPL-3.0-or-later |
+| rawtonic-app | 0.1.0-alpha.2 | AGPL-3.0-or-later |
 | rawtonic-catalog | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-cli | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-denoise | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-engine | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-export | 0.1.0 | AGPL-3.0-or-later |
+| rawtonic-faces | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-fileops | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-gpu | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-ingest | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-interop | 0.1.0 | AGPL-3.0-or-later |
+| rawtonic-merge | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-metadata | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-naming | 0.1.0 | AGPL-3.0-or-later |
+| rawtonic-onnx | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-rawdecode | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-runtime | 0.1.0 | AGPL-3.0-or-later |
 | rayon | 1.12.0 | MIT OR Apache-2.0 |
 | rayon-cond | 0.4.0 | Apache-2.0/MIT |
 | rayon-core | 1.13.0 | MIT OR Apache-2.0 |
+| read-fonts | 0.45.1 | MIT OR Apache-2.0 |
 | reborrow | 0.5.5 | MIT |
 | redox_syscall | 0.5.18 | MIT |
 | redox_users | 0.5.2 | MIT |
@@ -636,7 +633,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | rustdct | 0.7.1 | MIT OR Apache-2.0 |
 | rustfft | 6.4.1 | MIT OR Apache-2.0 |
 | rustix | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
-| rustls | 0.23.45 | Apache-2.0 OR ISC OR MIT |
+| rustls | 0.23.46 | Apache-2.0 OR ISC OR MIT |
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 |
 | rustls-platform-verifier | 0.7.0 | MIT OR Apache-2.0 |
@@ -685,12 +682,11 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | simd_helpers | 0.1.0 | MIT |
 | simdutf8 | 0.1.5 | MIT OR Apache-2.0 |
 | siphasher | 1.0.3 | MIT/Apache-2.0 |
+| skrifa | 0.48.0 | MIT OR Apache-2.0 |
 | slab | 0.4.12 | MIT |
 | slotmap | 1.1.1 | Zlib |
 | smallvec | 1.15.2 | MIT OR Apache-2.0 |
-| smallvec | 2.0.0-alpha.10 | MIT OR Apache-2.0 |
 | socket2 | 0.6.5 | MIT OR Apache-2.0 |
-| socks | 0.3.4 | MIT/Apache-2.0 |
 | softbuffer | 0.4.8 | MIT OR Apache-2.0 |
 | soup3 | 0.5.0 | MIT |
 | soup3-sys | 0.5.0 | MIT |
@@ -707,7 +703,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | strum_macros | 0.26.4 | MIT |
 | subtle | 2.6.1 | BSD-3-Clause |
 | swift-rs | 1.0.8 | MIT OR Apache-2.0 |
-| syn | 1.0.109 | MIT OR Apache-2.0 |
 | syn | 2.0.119 | MIT OR Apache-2.0 |
 | syn | 3.0.3 | MIT OR Apache-2.0 |
 | sync_wrapper | 1.0.2 | Apache-2.0 |
@@ -717,7 +712,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | system-deps | 6.2.2 | MIT OR Apache-2.0 |
 | tao | 0.37.1 | Apache-2.0 |
 | tao-macros | 0.1.4 | MIT OR Apache-2.0 |
-| tar | 0.4.46 | MIT OR Apache-2.0 |
 | target-features | 0.1.6 | MIT OR Apache-2.0 |
 | target-lexicon | 0.12.16 | Apache-2.0 WITH LLVM-exception |
 | tauri | 2.12.1 | Apache-2.0 OR MIT |
@@ -777,7 +771,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | trash | 5.2.6 | MIT |
 | tray-icon | 0.25.1 | MIT OR Apache-2.0 |
 | try-lock | 0.2.5 | MIT |
-| ttf-parser | 0.25.1 | MIT OR Apache-2.0 |
 | turbojpeg | 1.5.1 | Unlicense OR MIT |
 | turbojpeg-sys | 1.2.0 | Unlicense OR MIT |
 | typeid | 1.0.3 | MIT OR Apache-2.0 |
@@ -791,12 +784,9 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | unicode-width | 0.2.2 | MIT OR Apache-2.0 |
 | unicode_categories | 0.1.1 | MIT OR Apache-2.0 |
 | untrusted | 0.9.0 | ISC |
-| ureq | 3.4.0 | MIT OR Apache-2.0 |
-| ureq-proto | 0.6.1 | MIT OR Apache-2.0 |
 | url | 2.5.8 | MIT OR Apache-2.0 |
 | urlencoding | 2.1.3 | MIT |
 | urlpattern | 0.6.0 | MIT |
-| utf8-zero | 0.8.1 | MIT OR Apache-2.0 |
 | utf8_iter | 1.0.4 | Apache-2.0 OR MIT |
 | utf8parse | 0.2.2 | Apache-2.0 OR MIT |
 | uuid | 1.25.0 | Apache-2.0 OR MIT |
@@ -901,7 +891,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | wry | 0.57.0 | Apache-2.0 OR MIT |
 | x11 | 2.21.0 | MIT |
 | x11-dl | 2.21.0 | MIT |
-| xattr | 1.6.1 | MIT OR Apache-2.0 |
 | xml-rs | 0.8.29 | MIT |
 | xxhash-rust | 0.8.19 | BSL-1.0 |
 | y4m | 0.8.0 | MIT |

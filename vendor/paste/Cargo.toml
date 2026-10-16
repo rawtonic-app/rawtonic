@@ -1,0 +1,18 @@
+# Stand-in for the unmaintained `paste` crate (RUSTSEC-2024-0436): the same
+# macros, implemented by its maintained successor `pastey`. Patched in through
+# the workspace Cargo.toml for crates that still depend on `paste` (pulp, via
+# image -> exr). Remove it once those consumers release on pastey (pulp's main
+# branch already uses it). ADR 0005.
+[package]
+name = "paste"
+version = "1.0.15"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Re-exports pastey's macros under the paste crate name."
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+pastey = "0.2.3"

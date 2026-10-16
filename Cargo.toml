@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["src-tauri", "crates/*", "third_party/rawler"]
-exclude = ["vendor/little_exif"]
+exclude = ["vendor/little_exif", "vendor/paste", "vendor/glib-macros", "vendor/gtk3-macros"]
 default-members = [
     "crates/catalog",
     "crates/naming",
@@ -51,6 +51,12 @@ strip = true
 
 [patch.crates-io]
 little_exif = { path = "vendor/little_exif" }
+# No unmaintained macro crates (ADR 0005): `paste` (used by pulp, via
+# image -> exr) is served by its maintained successor pastey; glib-macros and
+# gtk3-macros 0.18 (Linux, via Tauri's gtk 0.18) without proc-macro-error.
+paste = { path = "vendor/paste" }
+glib-macros = { path = "vendor/glib-macros" }
+gtk3-macros = { path = "vendor/gtk3-macros" }
 
 [patch."https://github.com/CyberTimon/RapidRAW-DngLab.git"]
 rawler = { path = "third_party/rawler" }

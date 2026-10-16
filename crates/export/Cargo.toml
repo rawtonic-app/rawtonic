@@ -45,7 +45,8 @@ anyhow = "1.0"
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs", "memmap"] }
-ab_glyph = "0.2.32"
+skrifa = "0.48.0"
+ab_glyph_rasterizer = "0.1.10"
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }
