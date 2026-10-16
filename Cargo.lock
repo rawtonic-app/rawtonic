@@ -5720,9 +5720,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "image",
  "kamadak-exif",
+ "rawler",
  "rawtonic-catalog",
  "rawtonic-fileops",
+ "rawtonic-merge",
  "rawtonic-metadata",
  "rawtonic-naming",
  "serde",

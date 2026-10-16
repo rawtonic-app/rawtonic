@@ -43,6 +43,20 @@ enum Command {
         #[arg(long)]
         backup: Option<PathBuf>,
     },
+    /// Show the names an ingest would give files (read-only): the template
+    /// filled from each file's EXIF and card sidecar, where its capture
+    /// date came from and whether a sidecar would be copied along.
+    Name {
+        #[arg(required = true)]
+        sources: Vec<PathBuf>,
+        #[arg(long, default_value = "{orig}")]
+        template: String,
+        /// The value of `{job}` and `{session}`.
+        #[arg(long, default_value = "Project")]
+        job: String,
+        #[arg(long, default_value_t = 1)]
+        sequence_start: u64,
+    },
     /// Rate an asset by UUID; queues XMP synchronization.
     Rate {
         library: PathBuf,
@@ -429,6 +443,36 @@ fn run() -> Result<()> {
                 failed == 0,
                 "{failed} import(s) failed; completed files were retained"
             );
+            Ok(())
+        }
+        Command::Name {
+            sources,
+            template,
+            job,
+            sequence_start,
+        } => {
+            let mut failed = 0;
+            for (i, source) in sources.iter().enumerate() {
+                match rawtonic_ingest::preview_name(
+                    &job,
+                    source,
+                    &template,
+                    sequence_start + i as u64,
+                    sequence_start,
+                ) {
+                    Ok(preview) => print(serde_json::json!({
+                        "source": source,
+                        "name": preview.name,
+                        "dateSource": preview.date_source,
+                        "sidecar": preview.sidecar,
+                    }))?,
+                    Err(e) => {
+                        failed += 1;
+                        eprintln!("{}: {e:#}", source.display());
+                    }
+                }
+            }
+            anyhow::ensure!(failed == 0, "{failed} name(s) could not be made");
             Ok(())
         }
         Command::Rate {
