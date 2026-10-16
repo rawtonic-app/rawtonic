@@ -113,8 +113,8 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
 <br><b>Multi view.</b> Compare up to twelve selected photographs side by side, with a reference photo and a locked zoom, and edit them all at once.
 </td>
 <td width="50%" valign="top">
-<a href="docs/images/readme-relight.jpg"><img src="docs/images/readme-relight.jpg" alt="Relight in a before/after split: a new warm light brightens the shadow side of a portrait's face"></a>
-<br><b>Relight</b> <i>(experimental)</i>. A new light added after the shoot, here in the before/after split: the shadow side of the face is brightened and the original light turned down.
+<a href="docs/images/readme-relight.jpg"><img src="docs/images/readme-relight.jpg" alt="Relight in a before/after split: left the portrait's original warm light, right a new cool light from the other side"></a>
+<br><b>Relight</b> <i>(experimental)</i>. Light a photograph again after the shoot. Before/after split: on the left the original warm light, on the right a new cool light from the other side with the original turned down.
 </td>
 </tr>
 </table>
