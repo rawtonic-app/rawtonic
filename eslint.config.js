@@ -25,7 +25,6 @@ module.exports = [
       'src-tauri/target/**',
       'src-tauri/gen/**',
       'src-tauri/rawler/**',
-      'data/**',
       '.claude/**',
     ],
   },

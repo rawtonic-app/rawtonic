@@ -47,4 +47,11 @@ export default defineConfig(async () => ({
     minify: !process.env.TAURI_ENV_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_ENV_DEBUG,
   },
+
+  // Vitest (`npm test`).
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
+    globals: false,
+  },
 }));

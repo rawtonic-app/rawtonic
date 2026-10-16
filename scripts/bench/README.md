@@ -7,15 +7,15 @@ Deterministic replay for comparing UI smoothness before/after a change.
 1. Run the build you want to measure (`npm start`, or a packaged build) and get to the
    library view with at least one image loaded.
 2. Open devtools (right-click → Inspect) and switch to the Console tab.
-3. Paste the contents of `bench/replay.js` and press Enter.
+3. Paste the contents of `scripts/bench/replay.js` and press Enter.
 4. It repeats the same scroll → open-image → drag-two-sliders → back-to-library cycle
    10 times (2 discarded warmup + 8 measured), then prints a JSON result between
    `BENCH_RESULT_JSON_START`/`END` markers (and copies it to your clipboard if the
    console supports `copy()`).
-5. Save the result as `bench/out/<name>.json` (gitignored, doesn't need to be committed).
+5. Save the result as `scripts/bench/out/<name>.json` (gitignored, doesn't need to be committed).
 6. Compare two runs:
    ```
-   node bench/analyze.mjs bench/out/before.json bench/out/after.json
+   node scripts/bench/analyze.mjs scripts/bench/out/before.json scripts/bench/out/after.json
    ```
 
 ## Why it's built this way
@@ -64,7 +64,7 @@ Deterministic replay for comparing UI smoothness before/after a change.
   *why* something is slow — use devtools Timeline/Performance recording by hand for
   root-causing, and this script for confirming a fix actually helped.
 - Still requires a manual paste-and-save per run (devtools console access, `copy()` to
-  clipboard, write `bench/out/<name>.json` by hand). There's no CI/headless runner —
+  clipboard, write `scripts/bench/out/<name>.json` by hand). There's no CI/headless runner —
   Tauri's WebDriver story (`tauri-driver`) doesn't cover macOS and would trade away the
   cross-platform self-measurement approach above for a Linux/Windows-only automation
   path. If you need unattended/CI runs, that trade-off is worth revisiting, but it's out

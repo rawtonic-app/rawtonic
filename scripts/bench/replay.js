@@ -14,7 +14,7 @@
 //
 // Output: a JSON blob printed between BENCH_RESULT_JSON_START/END markers,
 // and copied to the clipboard if the console supports copy(). Save it to
-// bench/out/<name>.json (gitignored) and diff two runs with analyze.mjs.
+// scripts/bench/out/<name>.json (gitignored) and diff two runs with analyze.mjs.
 //
 // Requirements: library open with at least one image, at the default
 // Adjustments panel (so two sliders are present to drag).
@@ -288,7 +288,7 @@
   console.log('BENCH_RESULT_JSON_END');
   try {
     copy(json);  
-    console.log('bench: result copied to clipboard. Paste into bench/out/<name>.json');
+    console.log('bench: result copied to clipboard. Paste into scripts/bench/out/<name>.json');
   } catch {
     console.log('bench: clipboard copy() unavailable in this console, copy the JSON above manually');
   }

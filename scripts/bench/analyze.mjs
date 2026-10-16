@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Diff two bench/replay.js result JSONs.
+// Diff two scripts/bench/replay.js result JSONs.
 //
 // Usage:
-//   node bench/analyze.mjs bench/out/before.json
-//   node bench/analyze.mjs bench/out/before.json bench/out/after.json
+//   node scripts/bench/analyze.mjs scripts/bench/out/before.json
+//   node scripts/bench/analyze.mjs scripts/bench/out/before.json scripts/bench/out/after.json
 
 import { readFileSync } from 'node:fs';
 
@@ -119,7 +119,7 @@ function reportDiff(pathA, a, pathB, b) {
 
 const [, , pathA, pathB] = process.argv;
 if (!pathA) {
-  console.log('Usage: node bench/analyze.mjs <result.json> [other-result.json]');
+  console.log('Usage: node scripts/bench/analyze.mjs <result.json> [other-result.json]');
   process.exit(1);
 }
 
