@@ -124,3 +124,44 @@ fn bulk_editor_states_match_primary_heads_metadata_overrides_and_path_scope() {
     assert_eq!(state["tags"], json!([]));
     assert_eq!(state["adjustments"]["exposure"], 0.5);
 }
+
+/// A rating, keywords or label the library holds for a photograph never
+/// edited (`rawtonic rate`, an adopted XMP) reach the app through the editor
+/// state, without turning the photo into an edited one.
+#[test]
+fn library_metadata_of_an_unedited_photo_is_in_its_editor_state() {
+    let temp = tempfile::tempdir().unwrap();
+    let lib = Library::create(temp.path(), "Rated", Mode::Session).unwrap();
+    let mut assets = Vec::new();
+    for name in ["rated.arw", "plain.arw"] {
+        let source = lib.directory.join("Capture").join(name);
+        fs::write(&source, name).unwrap();
+        assets.push(lib.add_asset(&source).unwrap());
+    }
+    let mut meta = lib.metadata(&assets[0].id).unwrap();
+    meta.rating = 4;
+    meta.label = "Green".into();
+    meta.keywords = vec!["studio".into()];
+    lib.set_metadata(&assets[0].id, &meta).unwrap();
+    let mut flagged = lib.metadata(&assets[1].id).unwrap();
+    flagged.flag = 1;
+    lib.set_metadata(&assets[1].id, &flagged).unwrap();
+
+    let state = lib.editor_state(&assets[0].id).unwrap().unwrap();
+    assert_eq!(state["rating"], 4);
+    assert_eq!(state["tags"], json!(["user:studio", "color:green"]));
+    assert!(
+        state["adjustments"].is_null(),
+        "still opens as never edited"
+    );
+    assert!(lib.editor_state(&assets[1].id).unwrap().is_none());
+
+    let paths = assets.iter().map(|asset| asset.path.clone()).collect();
+    let mut seen = std::collections::HashMap::new();
+    lib.visit_editor_states(&paths, |path, state| {
+        seen.insert(path.to_owned(), state);
+    })
+    .unwrap();
+    assert_eq!(seen[&assets[0].path].as_ref(), Some(&state));
+    assert!(seen[&assets[1].path].is_none());
+}
