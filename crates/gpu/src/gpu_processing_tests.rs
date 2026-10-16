@@ -487,12 +487,12 @@ fn failed_export_variant_uses_the_general_pipeline() {
         .set(None)
         .unwrap();
     assert!(std::ptr::eq(
-        processor.export_pipeline(&adjustments, false),
-        &processor.main_pipeline
+        processor.export_pipeline(&adjustments, false).unwrap(),
+        processor.main_pipeline.wait().unwrap()
     ));
     assert!(std::ptr::eq(
-        processor.export_pipeline(&adjustments, true),
-        &processor.high_precision_pipeline
+        processor.export_pipeline(&adjustments, true).unwrap(),
+        processor.high_precision_pipeline.wait().unwrap()
     ));
 }
 
