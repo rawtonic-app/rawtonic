@@ -351,10 +351,25 @@ pub fn set_metadata(
         infe.extend_from_slice(b"application/rdf+xml\0");
         infe_out.extend(full_box(b"infe", 2, 0, &infe));
         entry_count += 1;
+        // Item IDs in the reference take the width of an existing iref
+        // (version 1: 32 bits), else of a new version 0 one (16 bits).
+        let wide_refs = children
+            .iter()
+            .find(|b| &b.kind == b"iref")
+            .is_some_and(|b| b.payload().first().is_some_and(|v| *v >= 1));
         let mut reference = Vec::new();
-        reference.extend_from_slice(&(next_item as u16).to_be_bytes());
-        reference.extend_from_slice(&1u16.to_be_bytes());
-        reference.extend_from_slice(&(primary as u16).to_be_bytes());
+        if wide_refs {
+            reference.extend_from_slice(&next_item.to_be_bytes());
+            reference.extend_from_slice(&1u16.to_be_bytes());
+            reference.extend_from_slice(&primary.to_be_bytes());
+        } else {
+            if primary > u32::from(u16::MAX) {
+                return Err("AVIF primary item ID needs a wide reference".to_string());
+            }
+            reference.extend_from_slice(&(next_item as u16).to_be_bytes());
+            reference.extend_from_slice(&1u16.to_be_bytes());
+            reference.extend_from_slice(&(primary as u16).to_be_bytes());
+        }
         iref_extra = write_box(b"cdsc", &reference);
     }
     let mut iinf_body = vec![iinf_full[0], iinf_full[1], iinf_full[2], iinf_full[3]];

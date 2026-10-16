@@ -1463,7 +1463,7 @@ pub fn export_metadata_with(
 }
 
 /// Embeds `metadata` in encoded export bytes. AVIF takes its EXIF at encoding
-/// time (the encoder has no XMP item), so nothing is added here for it.
+/// time; its XMP (with the AI marking) is added here as a `mime` item.
 pub fn embed_export_metadata(
     image_bytes: &mut Vec<u8>,
     output_format: &str,
