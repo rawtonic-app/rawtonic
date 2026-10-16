@@ -14,10 +14,15 @@
 //! - Tone sliders by the values that reproduce Capture One's measured
 //!   change; the unmeasured ones are marked below.
 //!
+//! - Color Editor: each range as a colour editor range, fitted on Capture
+//!   One's renders (`color_editor_ranges`).
+//!
 //! Not translated: ICC profiles and film curves (Capture One's own
-//! rendering, files Rawtonic cannot read), the Color Editor, white
-//! balance multipliers (camera specific), noise reduction (different
-//! baselines), lens and keystone settings, retouching.
+//! rendering, files Rawtonic cannot read), Color Editor entries for all
+//! colours or inverted ranges, white balance multipliers (camera
+//! specific), noise reduction (different baselines), lens and keystone
+//! settings, retouching. `untranslated_settings` names them for the import
+//! report.
 
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -242,6 +247,142 @@ fn curve(value: &str) -> Option<Value> {
         && points[1] == json!({"x": 255.0, "y": 255.0});
     (points.len() >= 2 && !identity).then_some(Value::Array(points))
 }
+
+/// Linear sRGB to Oklab (L, chroma, hue in degrees).
+fn srgb_to_oklch(rgb: [f64; 3]) -> (f64, f64, f64) {
+    let lin = rgb.map(|c| {
+        let c = c.clamp(0.0, 1.0);
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    let lms = [
+        0.4122214708 * lin[0] + 0.5363325363 * lin[1] + 0.0514459929 * lin[2],
+        0.2119034982 * lin[0] + 0.6806995451 * lin[1] + 0.1073969566 * lin[2],
+        0.0883024619 * lin[0] + 0.2817188376 * lin[1] + 0.6299787005 * lin[2],
+    ]
+    .map(f64::cbrt);
+    let l = 0.2104542553 * lms[0] + 0.7936177850 * lms[1] - 0.0040720468 * lms[2];
+    let a = 1.9779984951 * lms[0] - 2.4285922050 * lms[1] + 0.4505937099 * lms[2];
+    let b = 0.0259040371 * lms[0] + 0.7827717662 * lms[1] - 0.8086757660 * lms[2];
+    (l, a.hypot(b), b.atan2(a).to_degrees().rem_euclid(360.0))
+}
+
+/// An sRGB colour (0–1) with its HSV hue turned by `degrees`.
+fn turn_hsv_hue(rgb: [f64; 3], degrees: f64) -> [f64; 3] {
+    let max = rgb[0].max(rgb[1]).max(rgb[2]);
+    let min = rgb[0].min(rgb[1]).min(rgb[2]);
+    let delta = max - min;
+    if delta <= 0.0 {
+        return rgb;
+    }
+    let hue = if max == rgb[0] {
+        ((rgb[1] - rgb[2]) / delta).rem_euclid(6.0)
+    } else if max == rgb[1] {
+        (rgb[2] - rgb[0]) / delta + 2.0
+    } else {
+        (rgb[0] - rgb[1]) / delta + 4.0
+    };
+    let h = (hue + degrees / 60.0).rem_euclid(6.0);
+    let x = delta * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (delta, x, 0.0),
+        1 => (x, delta, 0.0),
+        2 => (0.0, delta, x),
+        3 => (0.0, x, delta),
+        4 => (x, 0.0, delta),
+        _ => (delta, 0.0, x),
+    };
+    [r + min, g + min, b + min]
+}
+
+fn hue_difference(a: f64, b: f64) -> f64 {
+    (a - b + 540.0).rem_euclid(360.0) - 180.0
+}
+
+/// Capture One's Color Editor (`ColorCorrections`, one entry of 18 numbers
+/// per range, `;`-separated) as colour editor ranges, and whether some of
+/// it could not be translated. Decoded and fitted on test styles rendered by
+/// Capture One (notes: reference/capture-one-color-editor.md): 0 one range
+/// (1) or all colours (0), 1 on, 3/4/5 hue/saturation/lightness shift in
+/// the editor's units, 6–8 the range's colour (sRGB 0–255), 9/10 its hue
+/// extent below/above that colour (HSV degrees), 11 the lowest saturation it
+/// takes (−100 all), 13 smoothness, 15 inverted. Rawtonic's ranges are
+/// symmetric windows in Oklab hue (at most eight); all-colour and inverted
+/// entries are not translated.
+fn color_editor_ranges(value: &str) -> (Vec<Value>, bool) {
+    let mut ranges = Vec::new();
+    let mut untranslated = false;
+    for entry in value.split(';') {
+        let f: Vec<f64> = entry
+            .split(',')
+            .map(|n| n.trim().parse().unwrap_or(0.0))
+            .collect();
+        if f.len() < 18 || f[1] == 0.0 || (f[3] == 0.0 && f[4] == 0.0 && f[5] == 0.0) {
+            continue;
+        }
+        if f[0] == 0.0 || f[15] != 0.0 || ranges.len() >= 8 {
+            untranslated = true;
+            continue;
+        }
+        // Capture One turns hues as an HSV turn of the range's colour at
+        // 60 % of its saturation and 80 % of its value would (the pixels a
+        // range takes are rarely its pure colour), measured in Oklab.
+        let pure = [f[6] / 255.0, f[7] / 255.0, f[8] / 255.0];
+        let max = pure[0].max(pure[1]).max(pure[2]);
+        let rgb = pure.map(|c| 0.8 * (max - 0.6 * (max - c)));
+        let (_, _, hue) = srgb_to_oklch(rgb);
+        let below = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[9])).2, hue);
+        let above = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[10])).2, hue);
+        let turn = hue_difference(srgb_to_oklch(turn_hsv_hue(rgb, f[3])).2, hue);
+        let saturation = if f[4] > 0.0 {
+            CE_SAT_UP * (f[4] / 100.0).powf(CE_SAT_POWER) * 100.0
+        } else {
+            CE_SAT_DOWN * f[4]
+        };
+        let lightness = f[5]
+            * if f[5] > 0.0 {
+                CE_LIGHT_UP
+            } else {
+                CE_LIGHT_DOWN
+            };
+        let round = |x: f64| (x * 1000.0).round() / 1000.0;
+        ranges.push(json!({
+            "id": Uuid::new_v4().to_string(),
+            "hue": round((hue + 0.5 * (below + above)).rem_euclid(360.0)),
+            "chroma": CE_CHROMA,
+            "lightness": 0.5,
+            "hueRange": round((CE_WIDTH_SCALE * 0.5 * (above - below) + CE_WIDTH_OFFSET).clamp(5.0, 90.0)),
+            "chromaRange": round((100.0 - CE_CHROMA_FLOOR * (f[11] + 100.0)).clamp(0.0, 100.0)),
+            "lightnessRange": 100,
+            "smoothness": round((CE_SMOOTH_BASE + CE_SMOOTH_SCALE * f[13]).clamp(0.0, 100.0)),
+            "hueShift": round((2.0 * CE_HUE_SCALE * turn).clamp(-100.0, 100.0)),
+            "saturation": round(saturation.clamp(-100.0, 100.0)),
+            "lightnessShift": round(lightness.clamp(-100.0, 100.0)),
+            "hueUniformity": 0,
+            "saturationUniformity": 0,
+            "lightnessUniformity": 0,
+        }));
+    }
+    (ranges, untranslated)
+}
+
+// The Color Editor mapping, fitted on Capture One's renders of 22 test
+// styles (three photos; notes: reference/capture-one-color-editor.md).
+const CE_WIDTH_SCALE: f64 = 0.941;
+const CE_WIDTH_OFFSET: f64 = 11.61;
+const CE_SMOOTH_BASE: f64 = 35.05;
+const CE_SMOOTH_SCALE: f64 = 0.719;
+const CE_HUE_SCALE: f64 = 0.958;
+const CE_SAT_UP: f64 = 0.705;
+const CE_SAT_POWER: f64 = 0.743;
+const CE_SAT_DOWN: f64 = 1.151;
+const CE_CHROMA: f64 = 0.12;
+const CE_CHROMA_FLOOR: f64 = 0.883;
+const CE_LIGHT_UP: f64 = 16.65;
+const CE_LIGHT_DOWN: f64 = 15.37;
 
 /// Reads the `<E K="…" V="…"/>` entries; later entries win (a `.cos` file
 /// lists defaults before the variant's values).
@@ -506,15 +647,20 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
         adjustments.insert("curveMode".into(), json!("point"));
     }
 
-    let skipped: Vec<&str> = [
-        "ICCProfile",
-        "FilmCurve",
-        "ColorCorrections",
-        "WhiteBalance",
-    ]
-    .into_iter()
-    .filter(|k| s.get(*k).is_some_and(|v| !v.is_empty()))
-    .collect();
+    let mut color_editor_untranslated = false;
+    if let Some(value) = s.get("ColorCorrections") {
+        let (ranges, untranslated) = color_editor_ranges(value);
+        color_editor_untranslated = untranslated;
+        if !ranges.is_empty() {
+            adjustments.insert("colorRanges".into(), Value::Array(ranges));
+        }
+    }
+
+    let skipped: Vec<&str> = ["ICCProfile", "FilmCurve", "WhiteBalance"]
+        .into_iter()
+        .filter(|k| s.get(*k).is_some_and(|v| !v.is_empty()))
+        .chain(color_editor_untranslated.then_some("ColorCorrections"))
+        .collect();
     if !skipped.is_empty() {
         log::info!("Capture One style import: not translated {skipped:?}");
     }
@@ -571,10 +717,15 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
                 .any(|n| n.trim().parse::<f64>().is_ok_and(|n| n != 0.0))
         })
     };
+    // An image's settings file (`.cos`) holds every setting of that image,
+    // so its camera's own profile, white balance and default noise
+    // reduction are no part of a look; a style holds only what it sets.
+    let settings_file = content.contains("<IMG>") || content.contains("<AL");
     let mut out = Vec::new();
-    if s.get("ICCProfile")
-        .is_some_and(|v| !v.trim().is_empty() && v.trim() != "EMBEDDED")
-    {
+    if s.get("ICCProfile").is_some_and(|v| {
+        let v = v.trim();
+        !v.is_empty() && v != "EMBEDDED" && !v.to_ascii_lowercase().contains("generic")
+    }) {
         out.push("profile");
     }
     if s.get("FilmCurve")
@@ -582,42 +733,37 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
     {
         out.push("filmCurve");
     }
-    // One entry per colour range, comma-separated, the first field 1 when
-    // enabled. Which fields hold the hue/saturation/lightness shifts is
-    // inferred from settings files whose ranges change nothing (zeros at
-    // 3–5 and 14–17), not measured in Capture One, so both groups count.
-    if s.get("ColorCorrections").is_some_and(|v| {
-        v.split(';').any(|entry| {
-            let f: Vec<f64> = entry
-                .split(',')
-                .map(|n| n.trim().parse().unwrap_or(0.0))
-                .collect();
-            f.first() == Some(&1.0)
-                && f.iter()
-                    .enumerate()
-                    .any(|(i, n)| matches!(i, 3..=5 | 14..=17) && *n != 0.0)
-        })
-    }) {
+    // Colour ranges Rawtonic's colour editor cannot take (all colours,
+    // inverted, more than eight).
+    if s.get("ColorCorrections")
+        .is_some_and(|v| color_editor_ranges(v).1)
+    {
         out.push("colorEditor");
     }
-    if s.get("WhiteBalance").is_some_and(|v| {
-        v.split(';').any(|n| {
-            n.trim()
-                .parse::<f64>()
-                .is_ok_and(|n| (n - 1.0).abs() > 1e-6)
+    if !settings_file
+        && s.get("WhiteBalance").is_some_and(|v| {
+            v.split(';').any(|n| {
+                n.trim()
+                    .parse::<f64>()
+                    .is_ok_and(|n| (n - 1.0).abs() > 1e-6)
+            })
         })
-    }) {
+    {
         out.push("whiteBalance");
     }
+    // Capture One's defaults: luminance, colour and detail 50, surface 0.
     if [
-        "NrAmount",
-        "CnrAmount",
-        "NoiseDetailsAmount",
-        "SurfaceSmoothnessAmount",
+        ("NrAmount", 50.0),
+        ("CnrAmount", 50.0),
+        ("NoiseDetailsAmount", 50.0),
+        ("SurfaceSmoothnessAmount", 0.0),
     ]
     .iter()
-    .any(|k| nonzero(k))
-    {
+    .any(|(k, default)| {
+        s.get(*k)
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .is_some_and(|v| v != *default)
+    }) {
         out.push("noiseReduction");
     }
     if [
@@ -637,17 +783,89 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
+    /// Converts every style and settings file listed in `COSTYLE_LIST` (one
+    /// path per line) and prints what came over and what did not; checks
+    /// that nothing fails on real files. `cargo test -p rawtonic-app --lib
+    /// converts_real_styles -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn converts_real_styles() {
+        let list = std::fs::read_to_string(std::env::var("COSTYLE_LIST").unwrap()).unwrap();
+        let (mut ok, mut failed, mut with_ranges) = (0, 0, 0);
+        let mut reports = std::collections::BTreeMap::<String, usize>::new();
+        for path in list.lines().filter(|l| !l.is_empty()) {
+            let Ok(content) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            match super::convert_costyle_to_preset(&content, "x") {
+                Ok(preset) => {
+                    ok += 1;
+                    if preset.adjustments.get("colorRanges").is_some() {
+                        with_ranges += 1;
+                    }
+                }
+                Err(_) => failed += 1,
+            }
+            for code in super::untranslated_settings(&content) {
+                *reports.entry(code.to_string()).or_default() += 1;
+            }
+        }
+        println!(
+            "converted {ok}, refused {failed}, with colour ranges {with_ranges}, untranslated {reports:?}"
+        );
+    }
+
+    #[test]
+    fn translates_color_editor_ranges() {
+        // A red range turned and desaturated, a disabled one, an unchanged
+        // one and an all-colours entry (not translatable).
+        let (ranges, untranslated) = super::color_editor_ranges(
+            "1,1,1,10,-50,3,255,0,0,-30,30,-100,100,15,0,0,0,0;\
+             1,0,1,10,0,0,0,255,0,-30,30,-100,100,15,0,0,0,0;\
+             1,1,1,0,0,0,0,0,255,-30,30,-100,100,15,0,0,0,0;\
+             0,1,1,0,30,0,255,0,0,-30,30,-100,100,15,0,0,0,0",
+        );
+        assert!(untranslated);
+        assert_eq!(ranges.len(), 1);
+        // The same numbers as the fitting script (notes: scripts/reference/
+        // c1_color_editor/fit.py).
+        let close = |key: &str, want: f64| {
+            let got = ranges[0][key].as_f64().unwrap();
+            assert!((got - want).abs() < 0.01, "{key}: {got} vs {want}");
+        };
+        close("hue", 28.246);
+        close("hueRange", 45.656);
+        close("smoothness", 45.835);
+        close("hueShift", 18.439);
+        close("saturation", -57.55);
+        close("lightnessShift", 49.953);
+        close("chromaRange", 100.0);
+        let (skin, _) =
+            super::color_editor_ranges("1,1,1,-5,-20,2,230,170,140,-20,20,-100,100,15,0,0,0,0");
+        assert!((skin[0]["hue"].as_f64().unwrap() - 51.53).abs() < 0.01);
+        assert!((skin[0]["hueRange"].as_f64().unwrap() - 42.663).abs() < 0.01);
+        assert!((skin[0]["hueShift"].as_f64().unwrap() + 16.998).abs() < 0.01);
+        assert!(super::untranslated_settings(
+            r#"<SL><E K="ColorCorrections" V="1,1,1,10,0,0,255,0,0,-30,30,-100,100,15,0,0,0,0"/></SL>"#
+        )
+        .is_empty());
+    }
+
     #[test]
     fn reports_untranslated_settings_only_when_they_change_something() {
         let defaults = r#"<SL><E K="ICCProfile" V="EMBEDDED"/>
             <E K="FilmCurve" V="FileSystemJpeg-Auto.fcrv"/><E K="WhiteBalance" V="1;1;1"/>
-            <E K="NrAmount" V="0"/><E K="GeometryKeystoneAmount" V="100"/>
+            <E K="NrAmount" V="50"/><E K="GeometryKeystoneAmount" V="100"/>
             <E K="ColorCorrections" V="1,1,1,0,0,0,255,0,168.9,-7.1,7.1,-100,100,15,0,0,0,0;0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"/></SL>"#;
         assert!(super::untranslated_settings(defaults).is_empty());
-        let style = r#"<SL><E K="ICCProfile" V="Some Camera Generic.icm"/>
+        // An image's settings file: its camera profile and white balance.
+        let image = r#"<IMG><AL><E K="ICCProfile" V="FujiX100V-Generic.icm"/>
+            <E K="WhiteBalance" V="1.9;1;1.4"/><E K="CnrAmount" V="50"/></AL></IMG>"#;
+        assert!(super::untranslated_settings(image).is_empty());
+        let style = r#"<SL><E K="ICCProfile" V="Warm Film Look.icc"/>
             <E K="FilmCurve" V="Film Extra Shadow.fcrv"/><E K="WhiteBalance" V="1.2;1;0.9"/>
             <E K="NrAmount" V="40"/><E K="GeometryKeystoneTiltY" V="-12"/>
-            <E K="ColorCorrections" V="1,1,1,10,0,0,255,0,168.9,-7.1,7.1,-100,100,15,0,0,0,0"/></SL>"#;
+            <E K="ColorCorrections" V="1,1,1,10,0,0,255,0,168.9,-7.1,7.1,-100,100,15,0,1,0,0"/></SL>"#;
         assert_eq!(
             super::untranslated_settings(style),
             [

@@ -1506,7 +1506,14 @@ fn untranslated_profile(xmp: &str) -> Option<String> {
             regex!(r#"(?s)<crs:Look>\s*<rdf:Description\s[^>]*?crs:Name="([^"]*)""#).captures(xmp)
         })
         .or_else(|| regex!(r#"crs:CameraProfile="([^"]*)""#).captures(xmp))
-        .map(|c| c[1].trim().to_string())?;
+        .map(|c| {
+            c[1].trim()
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&apos;", "'")
+                .replace("&amp;", "&")
+        })?;
     let default = ["", "Adobe Color", "Adobe Standard", "Embedded"]
         .iter()
         .any(|d| look.eq_ignore_ascii_case(d));
@@ -1561,6 +1568,40 @@ pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<St
 
 #[cfg(test)]
 mod tests {
+    /// Converts every preset listed in `XMP_PRESET_LIST` (one path per line)
+    /// and counts what the import report names; checks that real presets
+    /// convert. `cargo test -p rawtonic-app --lib converts_real_presets --
+    /// --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn converts_real_presets() {
+        let list = std::fs::read_to_string(std::env::var("XMP_PRESET_LIST").unwrap()).unwrap();
+        let (mut ok, mut failed) = (0, 0);
+        let mut reports = std::collections::BTreeMap::<String, usize>::new();
+        let mut profiles = std::collections::BTreeMap::<String, usize>::new();
+        for path in list.lines().filter(|l| !l.is_empty()) {
+            let Ok(xmp) = std::fs::read_to_string(path) else {
+                continue;
+            };
+            match super::convert_xmp_to_preset(&xmp) {
+                Ok(_) => ok += 1,
+                Err(_) => failed += 1,
+            }
+            let (codes, profile) = super::untranslated_settings(&xmp);
+            for code in codes {
+                *reports.entry(code.to_string()).or_default() += 1;
+            }
+            if let Some(p) = profile {
+                *profiles.entry(p).or_default() += 1;
+            }
+        }
+        println!("converted {ok}, failed {failed}, untranslated {reports:?}");
+        println!(
+            "profiles {:?}",
+            profiles.iter().take(12).collect::<Vec<_>>()
+        );
+    }
+
     #[test]
     fn reports_untranslated_settings_and_the_profile_name() {
         let plain = r#"<rdf:Description crs:Exposure2012="+0.50" crs:RedHue="0"
@@ -1569,13 +1610,13 @@ mod tests {
         assert_eq!(super::untranslated_settings(plain), (vec![], None));
         let preset = r#"<rdf:Description crs:CameraProfile="Adobe Standard" crs:RedHue="+12"
             crs:LensProfileEnable="1" crs:HasCrop="True" crs:PerspectiveUpright="2">
-            <crs:Look><rdf:Description crs:Name="Vivid Blue" crs:Amount="1"/></crs:Look>
+            <crs:Look><rdf:Description crs:Name="Vivid &amp; Blue" crs:Amount="1"/></crs:Look>
             </rdf:Description>"#;
         assert_eq!(
             super::untranslated_settings(preset),
             (
                 vec!["profile", "calibration", "lensProfile", "crop", "upright"],
-                Some("Vivid Blue".to_string())
+                Some("Vivid & Blue".to_string())
             )
         );
     }
