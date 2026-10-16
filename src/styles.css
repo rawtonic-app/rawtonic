@@ -12,6 +12,8 @@
   --color-accent: var(--app-accent);
   --color-border-color: var(--app-border-color);
   --color-hover-color: var(--app-hover-color);
+  /* Irreversible actions (Delete Permanently, …); the red of the destructive menu items. */
+  --color-destructive: #8a3b3b;
 
   --font-sans: var(--font-family);
 

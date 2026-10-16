@@ -592,6 +592,8 @@ function App() {
             clsx(
               'relative flex min-h-16 p-4 rounded-lg justify-between overflow-hidden cursor-pointer mb-4',
               'bg-surface! text-text-primary! border! border-border-color! shadow-2xl! max-w-[420px]!',
+              // Long paths in a notice break instead of running off its edge.
+              'wrap-anywhere',
             )
           }
         />

@@ -101,6 +101,22 @@ impl Library {
         Ok(())
     }
 
+    /// How many photographs the hot folder brought into the library since
+    /// it was started (`set_hot_folder`), across restarts: its captures in
+    /// the library now (hot folder import batches since the start; verified
+    /// duplicates are not captures). 0 without a hot folder.
+    pub fn hot_folder_imported(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT count(*) FROM asset_imports ai
+             JOIN import_batches b ON b.id=ai.batch_id
+             JOIN hot_folder h ON h.id=1
+             WHERE b.kind='hotfolder' AND b.created_at>=h.started_at",
+            [],
+            |r| r.get(0),
+        )?;
+        Ok(count.max(0) as usize)
+    }
+
     /// The files the hot folder took.
     pub fn hot_folder_files(&self) -> Result<Vec<HotFolderFile>> {
         let mut statement = self
@@ -147,7 +163,7 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Mode;
+    use crate::{ImportKind, Mode};
     use serde_json::json;
 
     fn config(folder: &str) -> HotFolderConfig {
@@ -211,6 +227,68 @@ mod tests {
         assert!(lib.hot_folder_files().unwrap().is_empty());
         lib.set_hot_folder(None).unwrap();
         assert_eq!(lib.hot_folder().unwrap(), None);
+    }
+
+    fn capture(lib: &Library, name: &str) -> std::path::PathBuf {
+        let path = lib.directory.join("Capture").join(name);
+        std::fs::write(&path, format!("fixture {name}")).unwrap();
+        path
+    }
+
+    /// The hot folder's count of captures survives a restart (reopening
+    /// the library, a new run's batch) and starts again with a new start.
+    #[test]
+    fn the_count_of_captures_survives_reopening_and_restarts_with_a_new_start() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        assert_eq!(lib.hot_folder_imported().unwrap(), 0);
+        // Captures of an earlier hot folder, before this one was started
+        // (`created_at` has whole seconds: made earlier explicitly).
+        {
+            let _earlier = lib.import_batch(ImportKind::HotFolder);
+            lib.add_files(&[capture(&lib, "OLD.ARW")]).unwrap();
+        }
+        lib.conn
+            .execute(
+                "UPDATE import_batches SET created_at=datetime('now','-1 hour')",
+                [],
+            )
+            .unwrap();
+        lib.set_hot_folder(Some(&config("/hot"))).unwrap();
+        assert_eq!(lib.hot_folder_imported().unwrap(), 0);
+        {
+            let _run = lib.import_batch(ImportKind::HotFolder);
+            lib.add_files(&[capture(&lib, "A.ARW"), capture(&lib, "B.ARW")])
+                .unwrap();
+        }
+        // Photographs added otherwise are not the hot folder's.
+        {
+            let _add = lib.import_batch(ImportKind::Add);
+            lib.add_files(&[capture(&lib, "X.ARW")]).unwrap();
+        }
+        assert_eq!(lib.hot_folder_imported().unwrap(), 2);
+        drop(lib);
+
+        // After a restart the run goes on in a new batch; the count with it.
+        let lib = Library::open(&d.path().join("Job")).unwrap();
+        assert_eq!(lib.hot_folder_imported().unwrap(), 2);
+        {
+            let _run = lib.import_batch(ImportKind::HotFolder);
+            lib.add_files(&[capture(&lib, "C.ARW")]).unwrap();
+        }
+        assert_eq!(lib.hot_folder_imported().unwrap(), 3);
+
+        // Stopping forgets the count; a new start counts from 0.
+        lib.set_hot_folder(None).unwrap();
+        assert_eq!(lib.hot_folder_imported().unwrap(), 0);
+        lib.conn
+            .execute(
+                "UPDATE import_batches SET created_at=datetime('now','-1 hour')",
+                [],
+            )
+            .unwrap();
+        lib.set_hot_folder(Some(&config("/hot"))).unwrap();
+        assert_eq!(lib.hot_folder_imported().unwrap(), 0);
     }
 
     /// A transferred or restored copy does not watch the source's folder.
