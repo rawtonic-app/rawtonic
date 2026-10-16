@@ -2312,6 +2312,12 @@
         "photographs_many": "{{n}} fotos",
         "photographs_other": "{{n}} fotos"
       },
+      "fileOperations": {
+        "nothingToRedo": "No hay ninguna operación de archivos que rehacer.",
+        "redoFailed": "No se pudo rehacer: {{error}}",
+        "redone": "Rehecho: {{label}}. {{key}} lo deshace.",
+        "undone": "Deshecho: {{label}}. {{key}} lo rehace."
+      },
       "filters": {
         "allLabels": "Todas las etiquetas",
         "byColor": "Filtrar por etiqueta de color",
@@ -2382,6 +2388,30 @@
       "navigator": {
         "empty": "Selecciona una foto",
         "title": "Navegador"
+      },
+      "trash": {
+        "alreadyEmpty": "La carpeta Papelera de la sesión está vacía.",
+        "cannotUndo": "Esto no se puede deshacer, y los cambios de archivos anteriores tampoco podrán deshacerse ya.",
+        "confirm": "Eliminar definitivamente",
+        "countFailed": "No se pudo leer la carpeta Papelera de la sesión: {{error}}",
+        "emptied_one": "{{count}} foto eliminada definitivamente.",
+        "emptied_many": "{{count}} fotos eliminadas definitivamente.",
+        "emptied_other": "{{count}} fotos eliminadas definitivamente.",
+        "emptiedNow": "La carpeta Papelera de la sesión está vacía.",
+        "failed": "No se pudo vaciar la papelera: {{error}}",
+        "incomplete": "Se vació la papelera, pero algunos archivos aún no se pudieron eliminar; Rawtonic lo intentará de nuevo en el próximo inicio. {{note}}",
+        "menu": "Vaciar papelera…",
+        "messageEmptyFolders": "¿Quitar las carpetas vacías de la carpeta Papelera de esta sesión?",
+        "messageFiles_one": "Se borra {{count}} archivo del disco, incluidos los archivos complementarios y XMP.",
+        "messageFiles_many": "Se borran {{count}} archivos del disco, incluidos los archivos complementarios y XMP.",
+        "messageFiles_other": "Se borran {{count}} archivos del disco, incluidos los archivos complementarios y XMP.",
+        "messageOnlyFiles_one": "¿Eliminar definitivamente {{count}} archivo de la carpeta Papelera de esta sesión?",
+        "messageOnlyFiles_many": "¿Eliminar definitivamente {{count}} archivos de la carpeta Papelera de esta sesión?",
+        "messageOnlyFiles_other": "¿Eliminar definitivamente {{count}} archivos de la carpeta Papelera de esta sesión?",
+        "messagePhotos_one": "¿Eliminar definitivamente {{count}} foto de la carpeta Papelera de esta sesión?",
+        "messagePhotos_many": "¿Eliminar definitivamente {{count}} fotos de la carpeta Papelera de esta sesión?",
+        "messagePhotos_other": "¿Eliminar definitivamente {{count}} fotos de la carpeta Papelera de esta sesión?",
+        "title": "¿Vaciar la papelera de la sesión?"
       }
     },
     "loadError": {

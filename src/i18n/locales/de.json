@@ -2249,6 +2249,12 @@
         "photographs_one": "{{n}} Foto",
         "photographs_other": "{{n}} Fotos"
       },
+      "fileOperations": {
+        "nothingToRedo": "Es gibt keinen Dateivorgang zum Wiederherstellen.",
+        "redoFailed": "Wiederherstellen nicht möglich: {{error}}",
+        "redone": "Wiederhergestellt: {{label}}. {{key}} widerruft es.",
+        "undone": "Widerrufen: {{label}}. {{key}} stellt es wieder her."
+      },
       "filters": {
         "allLabels": "Alle Farben",
         "byColor": "Nach Farbmarkierung filtern",
@@ -2315,6 +2321,26 @@
       "navigator": {
         "empty": "Foto auswählen",
         "title": "Navigator"
+      },
+      "trash": {
+        "alreadyEmpty": "Der Papierkorb-Ordner der Session ist leer.",
+        "cannotUndo": "Das lässt sich nicht widerrufen, und Dateiänderungen davor lassen sich danach ebenfalls nicht mehr widerrufen.",
+        "confirm": "Endgültig löschen",
+        "countFailed": "Papierkorb-Ordner der Session nicht lesbar: {{error}}",
+        "emptied_one": "{{count}} Foto endgültig gelöscht.",
+        "emptied_other": "{{count}} Fotos endgültig gelöscht.",
+        "emptiedNow": "Der Papierkorb-Ordner der Session ist jetzt leer.",
+        "failed": "Papierkorb konnte nicht geleert werden: {{error}}",
+        "incomplete": "Der Papierkorb wurde geleert, einige Dateien ließen sich aber noch nicht löschen; Rawtonic versucht es beim nächsten Start erneut. {{note}}",
+        "menu": "Papierkorb leeren…",
+        "messageEmptyFolders": "Die leeren Ordner im Papierkorb-Ordner dieser Session entfernen?",
+        "messageFiles_one": "{{count}} Datei wird vom Datenträger entfernt, Begleitdateien und XMP eingeschlossen.",
+        "messageFiles_other": "{{count}} Dateien werden vom Datenträger entfernt, Begleitdateien und XMP eingeschlossen.",
+        "messageOnlyFiles_one": "{{count}} Datei im Papierkorb-Ordner dieser Session endgültig löschen?",
+        "messageOnlyFiles_other": "{{count}} Dateien im Papierkorb-Ordner dieser Session endgültig löschen?",
+        "messagePhotos_one": "{{count}} Foto im Papierkorb-Ordner dieser Session endgültig löschen?",
+        "messagePhotos_other": "{{count}} Fotos im Papierkorb-Ordner dieser Session endgültig löschen?",
+        "title": "Papierkorb der Session leeren?"
       }
     },
     "loadError": {

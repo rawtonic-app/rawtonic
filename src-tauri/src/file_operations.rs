@@ -6,7 +6,9 @@
 //! session/catalog database and the app's albums in line. Inside a session,
 //! "delete" moves files into the session's own `Trash/` folder (Capture
 //! One's session Trash); elsewhere, and from that folder, they go to the
-//! system Trash. Nothing is ever deleted.
+//! system Trash. Undone operations can be redone until a new one runs.
+//! The only deletion is the user's explicit Empty Trash of a session's
+//! `Trash/` folder (`empty_session_trash`, journaled, not undoable).
 use crate::file_management::{AlbumItem, add_to_album, get_albums, sync_album_path_changes};
 use crate::formats::is_supported_image_file;
 use rawtonic_catalog::{Library, session_for};
@@ -341,6 +343,18 @@ pub fn undo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
     Ok(Some(op))
 }
 
+/// Redoes the file operation undone last; `None` when there is none. The
+/// plan is validated again first: a redo refuses, changing nothing, when a
+/// target was taken or a source is gone since the undo.
+pub fn redo_last(app: &AppHandle) -> Result<Option<Operation>, String> {
+    let Some(next) = with_journal(app, |journal| journal.last_redoable())? else {
+        return Ok(None);
+    };
+    let op = with_journal(app, |journal| journal.redo(&next.id, &PlatformTrash))?;
+    sync_pending(app, Some(&op.id));
+    Ok(Some(op))
+}
+
 /// What the frontend shows when the database could not follow an operation.
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -454,6 +468,16 @@ pub async fn undo_file_operation(app: AppHandle) -> Result<Option<OperationSumma
     .map_err(|e| e.to_string())?
 }
 
+/// Redoes the file operation undone last (Edit ▸ Redo in the Library).
+#[tauri::command]
+pub async fn redo_file_operation(app: AppHandle) -> Result<Option<OperationSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        redo_last(&app).map(|op| op.as_ref().map(OperationSummary::from))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// The file operation Undo would revert, for menus and hints. Off the main
 /// thread: the journal waits while an operation runs.
 #[tauri::command]
@@ -544,6 +568,29 @@ fn album_memberships(app: &AppHandle, items: &[String]) -> HashMap<String, Vec<S
 /// step is idempotent) and the error is returned. Albums follow at once in
 /// either case, in the order of the operations.
 fn sync(app: &AppHandle, op: &Operation, follows: bool) -> Result<(), String> {
+    if matches!(op.state, State::PurgeCommitted | State::Purged) {
+        // Emptied for good (or committed to be): records, previews and
+        // album entries of everything that was in the Trash go.
+        let catalog = if follows {
+            forget_purged(op)
+        } else {
+            Err(WAITS_FOR_EARLIER.to_string())
+        };
+        let deletions: HashSet<String> = op
+            .purged()
+            .iter()
+            .chain(&op.removed)
+            .filter_map(|p| item_key(p).or_else(|| Some(p.to_string_lossy().into_owned())))
+            .collect();
+        if !deletions.is_empty() {
+            sync_album_path_changes(app, None, Some(&deletions), None);
+        }
+        catalog?;
+        if let Err(e) = with_journal(app, |journal| journal.mark_synced(&op.id)) {
+            log::warn!("File operation '{}' synced but not recorded: {e}", op.label);
+        }
+        return Ok(());
+    }
     let forward = op.state == State::Done;
     if !matches!(op.state, State::Done | State::Undone) {
         return Ok(());
@@ -698,6 +745,156 @@ fn carry_previews(op: &Operation, forward: bool) {
     if carried > 0 {
         log::info!("{carried} previews followed '{}'", op.label);
     }
+}
+
+/// The session catalog forgets what an emptied session Trash held (every
+/// photograph at or below each of its entries), and their previews go.
+/// Running it again finds nothing.
+pub(crate) fn forget_purged(op: &Operation) -> Result<(), String> {
+    let entries = op.purged();
+    let Some(trash) = entries.first().and_then(|e| e.parent()) else {
+        return Ok(());
+    };
+    let session = trash
+        .parent()
+        .filter(|s| {
+            trash.file_name() == Some(SESSION_TRASH.as_ref()) && s.join("session.json").is_file()
+        })
+        .ok_or_else(|| format!("{} is not a session's Trash", trash.display()))?;
+    let lib = Library::open(session).map_err(|e| format!("{e:#}"))?;
+    let mut failures = Vec::new();
+    for entry in &entries {
+        if let Err(e) = lib.forget_at(entry) {
+            failures.push(format!("{e:#}"));
+        }
+    }
+    let kinds = [
+        crate::preview_proxy::ProxyKind::Standard,
+        crate::preview_proxy::ProxyKind::Full,
+    ];
+    for file in op.removed.iter().filter(|f| is_supported_image_file(f)) {
+        crate::preview_proxy::discard_source(file, &kinds);
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+/// What the session's Trash folder holds, for the Empty Trash dialog.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashContents {
+    /// Photographs and virtual copies.
+    pub photos: usize,
+    /// Every file (sidecars, XMP and anything else included).
+    pub files: usize,
+    /// Top-level entries (files and folders).
+    pub entries: usize,
+    /// Set when the Trash was emptied but some files could not be deleted
+    /// yet (they are out of the Trash and deleted at the next start).
+    pub note: Option<String>,
+}
+
+/// The `Trash/` folder of the session at `session`, which must be a
+/// session (its `session.json`), by its real path.
+fn session_trash_dir(session: &str) -> Result<PathBuf, String> {
+    let dir = PathBuf::from(session)
+        .canonicalize()
+        .map_err(|e| format!("Cannot open the session {session}: {e}"))?;
+    if !dir.join("session.json").is_file() {
+        return Err(format!("{} is not a session", dir.display()));
+    }
+    Ok(dir.join(SESSION_TRASH))
+}
+
+/// What emptying the session's Trash would delete; `None` when it has no
+/// Trash folder.
+fn session_trash_plan(session: &str) -> Result<Option<rawtonic_fileops::PurgePlan>, String> {
+    let trash = session_trash_dir(session)?;
+    if fs::symlink_metadata(&trash).is_err() {
+        return Ok(None);
+    }
+    rawtonic_fileops::plan_purge(&trash)
+        .map(Some)
+        .map_err(|e| format!("{e:#}"))
+}
+
+fn contents_of(plan: &rawtonic_fileops::PurgePlan) -> TrashContents {
+    TrashContents {
+        photos: plan.files.iter().filter(|f| item_key(f).is_some()).count(),
+        files: plan.files.len(),
+        entries: plan.entries.len(),
+        note: None,
+    }
+}
+
+/// Empties the session's Trash for good if it still holds what the user
+/// confirmed (`expected`): refuses, deleting nothing, when it changed.
+pub fn empty_trash(
+    app: &AppHandle,
+    session: &str,
+    expected: &TrashContents,
+) -> Result<TrashContents, String> {
+    let plan = session_trash_plan(session)?
+        .filter(|plan| !plan.entries.is_empty())
+        .ok_or("The session's Trash is already empty.")?;
+    let mut contents = contents_of(&plan);
+    if (contents.photos, contents.files, contents.entries)
+        != (expected.photos, expected.files, expected.entries)
+    {
+        return Err(
+            "The session's Trash changed since it was counted; nothing was deleted.".into(),
+        );
+    }
+    let label = if contents.photos == 1 {
+        "Empty Trash (1 photo)".to_string()
+    } else {
+        format!("Empty Trash ({} photos)", contents.photos)
+    };
+    let op = with_journal(app, |journal| journal.purge("emptyTrash", &label, &plan))?;
+    sync_pending(app, Some(&op.id));
+    if op.state != State::Purged {
+        log::warn!("'{}' is not finished: {:?}", op.label, op.note);
+        contents.note = op.note.clone();
+    }
+    Ok(contents)
+}
+
+/// What the session's Trash folder holds (zero when it has none).
+#[tauri::command]
+pub async fn session_trash_contents(session: String) -> Result<TrashContents, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(session_trash_plan(&session)?
+            .map(|plan| contents_of(&plan))
+            .unwrap_or_default())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Permanently deletes everything in the session's Trash folder, after the
+/// user confirmed the counts in `session_trash_contents`. Not undoable.
+#[tauri::command]
+pub async fn empty_session_trash(
+    app: AppHandle,
+    session: String,
+    photos: usize,
+    files: usize,
+    entries: usize,
+) -> Result<TrashContents, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let expected = TrashContents {
+            photos,
+            files,
+            entries,
+            note: None,
+        };
+        empty_trash(&app, &session, &expected)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Trashes photos (and their virtual copies, sidecars, XMP) or, for
@@ -904,6 +1101,116 @@ mod tests {
         );
         assert!(dir.join("Trash").is_dir(), "the session keeps its Trash");
         assert_eq!(lib.asset_at(&photo).unwrap().unwrap().id, asset.id);
+    }
+
+    /// Delete into the session Trash, undo, redo: the files go back into
+    /// the Trash and the catalog record (id, rating) follows each step.
+    #[test]
+    fn redo_of_a_session_trash_keeps_the_catalog_record() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let photo = dir.join("Capture/A.RAF");
+        fs::write(&photo, "a").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let asset = lib.add_asset(&photo).unwrap();
+        let mut meta = lib.metadata(&asset.id).unwrap();
+        meta.rating = 3;
+        lib.set_metadata(&asset.id, &meta).unwrap();
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let none = &rawtonic_fileops::NoSystemTrash;
+        let groups = vec![associated_files(std::slice::from_ref(&photo)).unwrap()];
+        let op = journal
+            .execute("trash", "Delete 1 photo", plan_trash(&groups), none)
+            .unwrap();
+        sync_catalog(&op, true).unwrap();
+        let op = journal.undo(&op.id, none).unwrap();
+        sync_catalog(&op, false).unwrap();
+        assert_eq!(lib.asset_at(&photo).unwrap().unwrap().id, asset.id);
+
+        let op = journal.redo(&op.id, none).unwrap();
+        assert_eq!(op.state, State::Done);
+        sync_catalog(&op, true).unwrap();
+        let trashed = dir.join("Trash/Capture/A.RAF");
+        assert!(trashed.is_file() && !photo.exists());
+        let moved = lib.asset_at(&trashed).unwrap().unwrap();
+        assert_eq!((moved.id.as_str(), moved.rating), (asset.id.as_str(), 3));
+        assert!(lib.asset_at(&photo).unwrap().is_none());
+        let summary = OperationSummary::from(&op);
+        assert_eq!((summary.items, summary.session_trash), (1, 1));
+    }
+
+    /// Emptying the session Trash: its counts, then the files deleted and
+    /// the records forgotten, with photographs elsewhere in the session
+    /// untouched; a second sync is harmless.
+    #[test]
+    fn emptying_the_session_trash_deletes_its_files_and_forgets_their_records() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let kept = dir.join("Capture/K.RAF");
+        fs::write(&kept, "k").unwrap();
+        let lib = Library::open(&dir).unwrap();
+        let kept_asset = lib.add_asset(&kept).unwrap();
+        let journal = Journal::open(&tmp.path().join("journal.sqlite")).unwrap();
+        let none = &rawtonic_fileops::NoSystemTrash;
+        let mut trashed = Vec::new();
+        for name in ["A.RAF", "B.ARW"] {
+            let photo = dir.join("Capture").join(name);
+            fs::write(&photo, name).unwrap();
+            fs::write(dir.join(format!("Capture/{name}.rrdata")), "{}").unwrap();
+            trashed.push(lib.add_asset(&photo).unwrap());
+            let groups = vec![associated_files(std::slice::from_ref(&photo)).unwrap()];
+            let op = journal
+                .execute("trash", "Delete 1 photo", plan_trash(&groups), none)
+                .unwrap();
+            sync_catalog(&op, true).unwrap();
+            journal.mark_synced(&op.id).unwrap();
+        }
+        let session_path = dir.to_string_lossy().into_owned();
+        let plan = session_trash_plan(&session_path).unwrap().unwrap();
+        let contents = contents_of(&plan);
+        assert_eq!(
+            (contents.photos, contents.files, contents.entries),
+            (2, 4, 1)
+        );
+
+        let op = journal.purge("emptyTrash", "Empty Trash", &plan).unwrap();
+        assert_eq!(op.state, State::Purged);
+        forget_purged(&op).unwrap();
+        forget_purged(&op).unwrap();
+        assert_eq!(fs::read_dir(dir.join("Trash")).unwrap().count(), 0);
+        for asset in &trashed {
+            assert!(
+                lib.asset(&asset.id).is_err(),
+                "record of {:?} kept",
+                asset.path
+            );
+        }
+        assert_eq!(lib.asset_at(&kept).unwrap().unwrap().id, kept_asset.id);
+        assert_eq!(fs::read_to_string(&kept).unwrap(), "k");
+        // Nothing before it can be undone any more.
+        assert!(journal.last_undoable().unwrap().is_none());
+        // Nothing left to count.
+        let plan = session_trash_plan(&session_path).unwrap().unwrap();
+        assert_eq!(contents_of(&plan), TrashContents::default());
+    }
+
+    #[test]
+    fn only_a_session_has_a_trash_to_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let folder = tmp.path().join("Not a session");
+        fs::create_dir_all(folder.join("Trash")).unwrap();
+        fs::write(folder.join("Trash/A.RAF"), "a").unwrap();
+        let error = session_trash_plan(&folder.to_string_lossy()).unwrap_err();
+        assert!(error.contains("is not a session"), "{error}");
+        // A session without a Trash folder has nothing in it.
+        let dir = session(tmp.path());
+        fs::remove_dir(dir.join("Trash")).unwrap();
+        assert!(
+            session_trash_plan(&dir.to_string_lossy())
+                .unwrap()
+                .is_none()
+        );
+        assert!(folder.join("Trash/A.RAF").is_file());
     }
 
     /// A catalog that cannot be written reports the failure (the journal

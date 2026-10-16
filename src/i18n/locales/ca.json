@@ -2312,6 +2312,12 @@
         "photographs_many": "{{n}} fotos",
         "photographs_other": "{{n}} fotos"
       },
+      "fileOperations": {
+        "nothingToRedo": "No hi ha cap operació de fitxers per refer.",
+        "redoFailed": "No s'ha pogut refer: {{error}}",
+        "redone": "Refet: {{label}}. {{key}} ho desfà.",
+        "undone": "Desfet: {{label}}. {{key}} ho refà."
+      },
       "filters": {
         "allLabels": "Totes les etiquetes",
         "byColor": "Filtra per etiqueta de color",
@@ -2382,6 +2388,30 @@
       "navigator": {
         "empty": "Selecciona una foto",
         "title": "Navegador"
+      },
+      "trash": {
+        "alreadyEmpty": "La carpeta Paperera de la sessió és buida.",
+        "cannotUndo": "Això no es pot desfer, i els canvis de fitxers anteriors tampoc no es podran desfer.",
+        "confirm": "Suprimeix definitivament",
+        "countFailed": "No s'ha pogut llegir la carpeta Paperera de la sessió: {{error}}",
+        "emptied_one": "{{count}} foto suprimida definitivament.",
+        "emptied_many": "{{count}} fotos suprimides definitivament.",
+        "emptied_other": "{{count}} fotos suprimides definitivament.",
+        "emptiedNow": "La carpeta Paperera de la sessió ara és buida.",
+        "failed": "No s'ha pogut buidar la paperera: {{error}}",
+        "incomplete": "S'ha buidat la paperera, però encara no s'han pogut suprimir alguns fitxers; Rawtonic ho tornarà a provar en el proper inici. {{note}}",
+        "menu": "Buida la paperera…",
+        "messageEmptyFolders": "Voleu treure les carpetes buides de la carpeta Paperera d’aquesta sessió?",
+        "messageFiles_one": "S'esborra {{count}} fitxer del disc, inclosos els fitxers auxiliars i l'XMP.",
+        "messageFiles_many": "S'esborren {{count}} fitxers del disc, inclosos els fitxers auxiliars i l'XMP.",
+        "messageFiles_other": "S'esborren {{count}} fitxers del disc, inclosos els fitxers auxiliars i l'XMP.",
+        "messageOnlyFiles_one": "Voleu suprimir definitivament {{count}} fitxer de la carpeta Paperera d’aquesta sessió?",
+        "messageOnlyFiles_many": "Voleu suprimir definitivament {{count}} fitxers de la carpeta Paperera d’aquesta sessió?",
+        "messageOnlyFiles_other": "Voleu suprimir definitivament {{count}} fitxers de la carpeta Paperera d’aquesta sessió?",
+        "messagePhotos_one": "Voleu suprimir definitivament {{count}} foto de la carpeta Paperera d’aquesta sessió?",
+        "messagePhotos_many": "Voleu suprimir definitivament {{count}} fotos de la carpeta Paperera d’aquesta sessió?",
+        "messagePhotos_other": "Voleu suprimir definitivament {{count}} fotos de la carpeta Paperera d’aquesta sessió?",
+        "title": "Voleu buidar la paperera de la sessió?"
       }
     },
     "loadError": {

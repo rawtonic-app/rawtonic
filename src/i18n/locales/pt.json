@@ -2312,6 +2312,12 @@
         "photographs_many": "{{n}} fotos",
         "photographs_other": "{{n}} fotos"
       },
+      "fileOperations": {
+        "nothingToRedo": "Não há nenhuma operação de arquivos para refazer.",
+        "redoFailed": "Não foi possível refazer: {{error}}",
+        "redone": "Refeito: {{label}}. {{key}} desfaz.",
+        "undone": "Desfeito: {{label}}. {{key}} refaz."
+      },
       "filters": {
         "allLabels": "Todos os rótulos",
         "byColor": "Filtrar por rótulo de cor",
@@ -2382,6 +2388,30 @@
       "navigator": {
         "empty": "Selecione uma foto",
         "title": "Navegador"
+      },
+      "trash": {
+        "alreadyEmpty": "A pasta Lixeira da sessão está vazia.",
+        "cannotUndo": "Isso não pode ser desfeito, e as alterações de arquivos anteriores também não poderão mais ser desfeitas.",
+        "confirm": "Excluir permanentemente",
+        "countFailed": "Não foi possível ler a pasta Lixeira da sessão: {{error}}",
+        "emptied_one": "{{count}} foto excluída permanentemente.",
+        "emptied_many": "{{count}} fotos excluídas permanentemente.",
+        "emptied_other": "{{count}} fotos excluídas permanentemente.",
+        "emptiedNow": "A pasta Lixeira da sessão agora está vazia.",
+        "failed": "Não foi possível esvaziar a lixeira: {{error}}",
+        "incomplete": "A lixeira foi esvaziada, mas alguns arquivos ainda não puderam ser excluídos; o Rawtonic tentará novamente na próxima inicialização. {{note}}",
+        "menu": "Esvaziar lixeira…",
+        "messageEmptyFolders": "Remover as pastas vazias da pasta Lixeira desta sessão?",
+        "messageFiles_one": "{{count}} arquivo é removido do disco, incluindo arquivos auxiliares e XMP.",
+        "messageFiles_many": "{{count}} arquivos são removidos do disco, incluindo arquivos auxiliares e XMP.",
+        "messageFiles_other": "{{count}} arquivos são removidos do disco, incluindo arquivos auxiliares e XMP.",
+        "messageOnlyFiles_one": "Excluir permanentemente {{count}} arquivo da pasta Lixeira desta sessão?",
+        "messageOnlyFiles_many": "Excluir permanentemente {{count}} arquivos da pasta Lixeira desta sessão?",
+        "messageOnlyFiles_other": "Excluir permanentemente {{count}} arquivos da pasta Lixeira desta sessão?",
+        "messagePhotos_one": "Excluir permanentemente {{count}} foto da pasta Lixeira desta sessão?",
+        "messagePhotos_many": "Excluir permanentemente {{count}} fotos da pasta Lixeira desta sessão?",
+        "messagePhotos_other": "Excluir permanentemente {{count}} fotos da pasta Lixeira desta sessão?",
+        "title": "Esvaziar a lixeira da sessão?"
       }
     },
     "loadError": {

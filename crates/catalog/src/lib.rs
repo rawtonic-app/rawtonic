@@ -1575,6 +1575,53 @@ impl Library {
         Ok(changed)
     }
 
+    /// Forgets for good the photographs registered at `path`, or at or
+    /// below it when it was a folder, inside this library's own folder
+    /// (files deleted permanently: the emptied session Trash). Their
+    /// records go with their versions, recipes, masks, metadata and album
+    /// memberships. Paths outside the library's folder are refused. Running
+    /// it again finds nothing. Returns how many were forgotten.
+    pub fn forget_at(&self, path: &Path) -> Result<usize> {
+        let path = resolve_moved(path);
+        let relative = path.strip_prefix(&self.directory).with_context(|| {
+            format!(
+                "{} is outside {}; its records are kept",
+                path.display(),
+                self.directory.display()
+            )
+        })?;
+        ensure!(
+            !relative.as_os_str().is_empty(),
+            "The library folder itself cannot be forgotten"
+        );
+        validate_relative(relative)?;
+        let rel = relative.to_str().context("Paths must be valid UTF-8")?;
+        let like = format!(
+            "{}/%",
+            rel.replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let ids: Vec<String> = tx
+            .prepare(
+                "SELECT id FROM assets WHERE root_id='session'
+                   AND (rel_path=? OR rel_path LIKE ? ESCAPE '\\')",
+            )?
+            .query_map(params![rel, like], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for id in &ids {
+            tx.execute(
+                "DELETE FROM masks WHERE version_id IN (SELECT id FROM versions WHERE asset_id=?)",
+                [id],
+            )?;
+            tx.execute("DELETE FROM assets WHERE id=?", [id])?;
+        }
+        prune_blobs(&tx)?;
+        tx.commit()?;
+        Ok(ids.len())
+    }
+
     pub fn checkpoint(&self) -> Result<()> {
         self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")?;
         Ok(())

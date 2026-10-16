@@ -449,3 +449,30 @@ describe("the panel beside Develop's tools", () => {
     expect(open["library/Folders"]).toBeUndefined();
   });
 });
+
+describe("the session's Trash folder", () => {
+  it("offers Empty Trash only on the session's own Trash folder", () => {
+    const emptyTrash = vi.fn();
+    useLibraryStore.setState({
+      folderTrees: [
+        folder("/job", 0, [folder("/job/Capture", 2), folder("/job/Trash", 1, [folder("/job/Trash/Capture", 1)])]),
+      ] as never,
+      expandedFolders: new Set(["/job", "/job/Trash"]),
+    });
+    render(
+      <ContextMenuProvider>
+        <StudioNavigation onNavigate={vi.fn()} folderActions={{ ...actions, emptyTrash }} />
+      </ContextMenuProvider>,
+    );
+    openMenu("/job/Trash");
+    fireEvent.click(item("Empty Trash…"));
+    expect(emptyTrash).toHaveBeenCalledOnce();
+    for (const other of ["/job/Capture", "/job/Trash/Capture"]) {
+      openMenu(other);
+      // The newest menu is this folder's.
+      const names = screen.getAllByRole("menu").at(-1)!.textContent;
+      expect(names).toContain("New Folder");
+      expect(names).not.toContain("Empty Trash");
+    }
+  });
+});

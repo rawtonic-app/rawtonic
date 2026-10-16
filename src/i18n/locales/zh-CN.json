@@ -2199,6 +2199,12 @@
       "drag": {
         "photographs_other": "{{n}} 张照片"
       },
+      "fileOperations": {
+        "nothingToRedo": "没有可重做的文件操作。",
+        "redoFailed": "无法重做：{{error}}",
+        "redone": "已重做：{{label}}。按 {{key}} 撤销。",
+        "undone": "已撤销：{{label}}。按 {{key}} 重做。"
+      },
       "filters": {
         "allLabels": "全部标签",
         "byColor": "按颜色标签筛选",
@@ -2261,6 +2267,22 @@
       "navigator": {
         "empty": "请选择一张照片",
         "title": "导航器"
+      },
+      "trash": {
+        "alreadyEmpty": "会话回收站文件夹是空的。",
+        "cannotUndo": "此操作无法撤销，之前的文件更改也将无法再撤销。",
+        "confirm": "永久删除",
+        "countFailed": "无法读取会话回收站文件夹：{{error}}",
+        "emptied_other": "已永久删除 {{count}} 张照片。",
+        "emptiedNow": "会话回收站文件夹现已清空。",
+        "failed": "无法清空回收站：{{error}}",
+        "incomplete": "回收站已清空，但部分文件尚未能删除；Rawtonic 将在下次启动时重试。{{note}}",
+        "menu": "清空回收站…",
+        "messageEmptyFolders": "删除此会话回收站文件夹中的空文件夹？",
+        "messageFiles_other": "将从磁盘删除 {{count}} 个文件，包括附属文件和 XMP。",
+        "messageOnlyFiles_other": "永久删除此会话回收站文件夹中的 {{count}} 个文件？",
+        "messagePhotos_other": "永久删除此会话回收站文件夹中的 {{count}} 张照片？",
+        "title": "清空会话回收站？"
       }
     },
     "loadError": {

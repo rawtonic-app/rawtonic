@@ -4,12 +4,16 @@
 //! journal and only then carried out, one no-clobber rename at a time. A
 //! failure rolls the applied steps back; an interrupted operation (crash,
 //! power loss) is rolled back by [`Journal::recover`] on the next start. A
-//! finished operation can be undone as long as nothing has taken its place.
+//! finished operation can be undone as long as nothing has taken its place,
+//! and an undone one redone ([`Journal::redo`]) until a new operation runs:
+//! redo validates the plan again and runs it like the original.
 //!
-//! Nothing here deletes a file. "Trash" is either a rename into a folder the
-//! caller chooses (a session's own `Trash/`) or the system Trash through a
-//! [`SystemTrash`] the caller provides, which must be able to put items back.
-//! Moving between volumes would need a copy and a delete and is refused.
+//! Only [`Journal::purge`] deletes, and only what is inside one folder the
+//! caller names (a session's own `Trash/`), listed by [`plan_purge`] without
+//! following links. Everything else is renames: "Trash" is either a rename
+//! into such a folder or the system Trash through a [`SystemTrash`] the
+//! caller provides, which must be able to put items back. Moving between
+//! volumes would need a copy and a delete and is refused.
 use anyhow::{Context, Result, bail, ensure};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -64,6 +68,18 @@ pub enum State {
     Undone,
     /// A failed or interrupted operation whose applied steps were reversed.
     RolledBack,
+    /// Written before redoing an undone operation; seen after a crash only
+    /// (recovery puts it back to undone).
+    Redoing,
+    /// Emptying a folder: its entries are being moved aside. Seen after a
+    /// crash only (recovery puts them back).
+    Purging,
+    /// Every entry was moved aside: from here on they are deleted, and a
+    /// crash finishes the deletion at the next start.
+    PurgeCommitted,
+    /// Emptied for good. Not undoable, and the end of Undo for every
+    /// operation before it.
+    Purged,
 }
 
 impl State {
@@ -74,6 +90,10 @@ impl State {
             State::Undoing => "undoing",
             State::Undone => "undone",
             State::RolledBack => "rolledBack",
+            State::Redoing => "redoing",
+            State::Purging => "purging",
+            State::PurgeCommitted => "purgeCommitted",
+            State::Purged => "purged",
         }
     }
     fn parse(text: &str) -> Result<Self> {
@@ -83,6 +103,10 @@ impl State {
             "undoing" => State::Undoing,
             "undone" => State::Undone,
             "rolledBack" => State::RolledBack,
+            "redoing" => State::Redoing,
+            "purging" => State::Purging,
+            "purgeCommitted" => State::PurgeCommitted,
+            "purged" => State::Purged,
             other => bail!("Unknown file operation state {other}"),
         })
     }
@@ -100,6 +124,12 @@ struct Payload {
     /// The caller's own data, e.g. album memberships to restore on undo.
     #[serde(default)]
     context: Option<serde_json::Value>,
+    /// A purge: the folder it empties.
+    #[serde(default)]
+    purge_folder: Option<PathBuf>,
+    /// A purge: every file (and link) it deletes, at its place before.
+    #[serde(default)]
+    removed: Vec<PathBuf>,
 }
 
 /// A journaled operation.
@@ -117,6 +147,9 @@ pub struct Operation {
     /// Why an operation was rolled back, or what recovery could not restore.
     pub note: Option<String>,
     pub context: Option<serde_json::Value>,
+    /// A purge: every file (and link) it deletes, at its place in the
+    /// emptied folder; folders are not listed.
+    pub removed: Vec<PathBuf>,
     /// Whether the caller has brought its own records (catalog, albums) in
     /// line with the operation's current state.
     pub synced: bool,
@@ -134,6 +167,17 @@ impl Operation {
                 Target::SystemTrash { .. } => None,
             })
             .collect()
+    }
+    /// A purge's top-level entries of the emptied folder, at their place
+    /// there (what the caller's records forget, with everything below).
+    pub fn purged(&self) -> Vec<PathBuf> {
+        if !matches!(
+            self.state,
+            State::Purging | State::PurgeCommitted | State::Purged
+        ) {
+            return Vec::new();
+        }
+        self.steps.iter().map(|step| step.from.clone()).collect()
     }
     /// Sources the operation sent to the system Trash.
     pub fn trashed(&self) -> Vec<PathBuf> {
@@ -171,7 +215,15 @@ impl SystemTrash for NoSystemTrash {
     }
 }
 
-const JOURNAL_VERSION: u32 = 1;
+const JOURNAL_VERSION: u32 = 2;
+
+/// The hidden folder inside an emptied folder that its entries are moved
+/// into before they are deleted (followed by the operation's id).
+const PURGE_STAGING_PREFIX: &str = ".rawtonic-emptying-";
+
+/// The sequence number of the last emptied folder: Undo and Redo end there.
+const BARRIER_SQL: &str =
+    "SELECT COALESCE(MAX(seq),0) FROM operations WHERE state IN ('purgeCommitted','purged')";
 
 /// The operation journal, one SQLite file (e.g. in the app's data folder).
 pub struct Journal {
@@ -202,15 +254,32 @@ impl Journal {
                state TEXT NOT NULL,
                synced INTEGER NOT NULL DEFAULT 0,
                payload TEXT NOT NULL,
-               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
-             PRAGMA user_version=1;",
+               created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);",
         )?;
+        if version < 2 {
+            // Version 2: the redo stack. Operations undone before it are
+            // not redoable (nothing offered them).
+            let tx = conn.unchecked_transaction()?;
+            let has_column: bool = tx.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('operations') WHERE name='redoable'",
+                [],
+                |r| r.get(0),
+            )?;
+            if !has_column {
+                tx.execute_batch(
+                    "ALTER TABLE operations ADD COLUMN redoable INTEGER NOT NULL DEFAULT 0;",
+                )?;
+            }
+            tx.execute_batch("PRAGMA user_version=2;")?;
+            tx.commit()?;
+        }
         Ok(Self { conn })
     }
 
     /// Validates the whole plan, journals it and carries it out. On failure
     /// the applied steps are reversed and the error is returned; the journal
-    /// keeps the operation as rolled back.
+    /// keeps the operation as rolled back. A finished operation clears the
+    /// redo stack.
     pub fn execute(
         &self,
         kind: &str,
@@ -224,20 +293,10 @@ impl Journal {
         let mut payload = Payload {
             steps,
             created_dirs,
-            note: None,
-            context: None,
+            ..Payload::default()
         };
         let id = uuid::Uuid::new_v4().to_string();
-        self.conn.execute(
-            "INSERT INTO operations(id,kind,label,state,payload) VALUES(?,?,?,?,?)",
-            params![
-                id,
-                kind,
-                label,
-                State::Applying.as_str(),
-                serde_json::to_string(&payload)?
-            ],
-        )?;
+        self.insert(&id, kind, label, State::Applying, &payload)?;
         for index in 0..payload.steps.len() {
             let result = apply(&mut payload.steps[index], trash);
             if let Err(error) = result {
@@ -255,17 +314,22 @@ impl Journal {
                 self.store(&id, State::Applying, &payload)?;
             }
         }
-        self.store(&id, State::Done, &payload)?;
+        self.store_clearing_redo(&id, State::Done, &payload)?;
         self.operation(&id)
     }
 
     /// Undoes a finished operation. Refuses, changing nothing, when any file
     /// has moved on since or something now occupies an original location.
+    /// An undone operation goes onto the redo stack.
     pub fn undo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation> {
         let op = self.operation(id)?;
         ensure!(
             op.state == State::Done,
             "Only finished operations can be undone"
+        );
+        ensure!(
+            self.seq(id)? > self.barrier()?,
+            "The Trash was emptied after this change; it can no longer be undone"
         );
         for step in &op.steps {
             match &step.to {
@@ -299,8 +363,8 @@ impl Journal {
         let mut payload = Payload {
             steps: op.steps.clone(),
             created_dirs: op.created_dirs.clone(),
-            note: None,
             context: op.context.clone(),
+            ..Payload::default()
         };
         self.store(id, State::Undoing, &payload)?;
         let total = payload.steps.len();
@@ -320,16 +384,76 @@ impl Journal {
             }
         }
         remove_created_dirs(&payload.created_dirs);
+        let tx = self.conn.unchecked_transaction()?;
         self.store(id, State::Undone, &payload)?;
+        self.set_redoable(id, true)?;
+        tx.commit()?;
         self.operation(id)
     }
 
-    /// The newest finished operation, the one Undo applies to.
+    /// Redoes an undone operation on the redo stack: its plan is validated
+    /// again as if new (every source back in place, no target taken, same
+    /// volume), journaled and carried out one no-clobber rename at a time.
+    /// Refuses, changing nothing, when the world changed since the undo; a
+    /// failing step rolls the applied ones back and the operation stays
+    /// undone (and redoable); a crash is rolled back by [`Journal::recover`].
+    pub fn redo(&self, id: &str, trash: &dyn SystemTrash) -> Result<Operation> {
+        let op = self.operation(id)?;
+        ensure!(
+            op.state == State::Undone && self.redoable(id)?,
+            "Only an undone operation can be redone, and only until another file operation runs"
+        );
+        let mut steps = op.steps.clone();
+        for step in &mut steps {
+            // The item of the first trashing was put back by the undo.
+            if let Target::SystemTrash { item } = &mut step.to {
+                *item = None;
+            }
+        }
+        validate(&steps).context("Nothing was redone")?;
+        let created_dirs = create_target_parents(&steps).context("Nothing was redone")?;
+        let mut payload = Payload {
+            steps,
+            created_dirs,
+            context: op.context.clone(),
+            ..Payload::default()
+        };
+        // The caller's records still follow the undone state until it is done.
+        self.store_keeping_sync(id, State::Redoing, &payload)?;
+        for index in 0..payload.steps.len() {
+            if let Err(error) = apply(&mut payload.steps[index], trash) {
+                let reversed = reverse_steps(&payload.steps[..index], trash);
+                remove_created_dirs(&payload.created_dirs);
+                payload.note = Some(match reversed {
+                    Ok(()) => format!("Redo failed: {error:#}"),
+                    Err(e) => {
+                        format!("Redo failed: {error:#}; could not reverse every step: {e:#}")
+                    }
+                });
+                self.store_keeping_sync(id, State::Undone, &payload)?;
+                return Err(error.context("Nothing was redone"));
+            }
+            if matches!(payload.steps[index].to, Target::SystemTrash { .. }) {
+                self.store_keeping_sync(id, State::Redoing, &payload)?;
+            }
+        }
+        let tx = self.conn.unchecked_transaction()?;
+        self.store(id, State::Done, &payload)?;
+        self.set_redoable(id, false)?;
+        tx.commit()?;
+        self.operation(id)
+    }
+
+    /// The newest finished operation, the one Undo applies to (none before
+    /// the last emptied folder).
     pub fn last_undoable(&self) -> Result<Option<Operation>> {
         let id: Option<String> = self
             .conn
             .query_row(
-                "SELECT id FROM operations WHERE state='done' ORDER BY seq DESC LIMIT 1",
+                &format!(
+                    "SELECT id FROM operations WHERE state='done' AND seq > ({BARRIER_SQL})
+                     ORDER BY seq DESC LIMIT 1"
+                ),
                 [],
                 |r| r.get(0),
             )
@@ -337,24 +461,151 @@ impl Journal {
         id.map(|id| self.operation(&id)).transpose()
     }
 
-    /// Rolls back operations a crash interrupted and returns every operation
-    /// whose caller records still need to follow it (including those).
+    /// The operation Redo applies to: the one undone last. (Undo always
+    /// takes the newest finished operation and a new operation clears the
+    /// stack, so that is the redoable one with the lowest sequence.)
+    pub fn last_redoable(&self) -> Result<Option<Operation>> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                &format!(
+                    "SELECT id FROM operations WHERE state='undone' AND redoable=1
+                     AND seq > ({BARRIER_SQL}) ORDER BY seq ASC LIMIT 1"
+                ),
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        id.map(|id| self.operation(&id)).transpose()
+    }
+
+    fn barrier(&self) -> Result<i64> {
+        Ok(self.conn.query_row(BARRIER_SQL, [], |r| r.get(0))?)
+    }
+
+    fn seq(&self, id: &str) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT seq FROM operations WHERE id=?", [id], |r| r.get(0))?)
+    }
+
+    fn redoable(&self, id: &str) -> Result<bool> {
+        let (redoable, seq): (bool, i64) = self.conn.query_row(
+            "SELECT redoable, seq FROM operations WHERE id=?",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        Ok(redoable && seq > self.barrier()?)
+    }
+
+    fn set_redoable(&self, id: &str, redoable: bool) -> Result<()> {
+        self.conn.execute(
+            "UPDATE operations SET redoable=? WHERE id=?",
+            params![redoable, id],
+        )?;
+        Ok(())
+    }
+
+    /// Permanently deletes what `plan` lists in its folder (see
+    /// [`plan_purge`]). Refuses, deleting nothing, when the folder's
+    /// contents differ from the plan now. The entries are first moved, one
+    /// no-clobber rename each, into a hidden folder inside it (so what is
+    /// added to the folder meanwhile is never deleted); a failure or crash
+    /// during that puts them back. Once all are aside the operation is
+    /// committed: they are deleted (never following a link), and a crash
+    /// finishes the deletion at the next [`Journal::recover`]. Not undoable;
+    /// it ends Undo and Redo for every earlier operation, and its caller
+    /// syncs its records like any operation's ([`Journal::unsynced`]).
+    /// When some files could not be deleted the result stays committed
+    /// with a note; the next recovery tries again.
+    pub fn purge(&self, kind: &str, label: &str, plan: &PurgePlan) -> Result<Operation> {
+        ensure!(!plan.entries.is_empty(), "The folder is empty");
+        let now = plan_purge(&plan.folder).context("Nothing was deleted")?;
+        ensure!(
+            now == *plan,
+            "{} changed since it was listed; nothing was deleted",
+            plan.folder.display()
+        );
+        let id = uuid::Uuid::new_v4().to_string();
+        let staging = plan.folder.join(format!("{PURGE_STAGING_PREFIX}{id}"));
+        let mut steps = Vec::with_capacity(plan.entries.len());
+        for entry in &plan.entries {
+            ensure!(
+                directly_in(entry, &plan.folder),
+                "{} is not in {}; nothing was deleted",
+                entry.display(),
+                plan.folder.display()
+            );
+            let name = entry.file_name().context("An entry has no name")?;
+            steps.push(Step::rename(entry, staging.join(name)));
+        }
+        validate(&steps).context("Nothing was deleted")?;
+        let created_dirs = create_target_parents(&steps).context("Nothing was deleted")?;
+        let mut payload = Payload {
+            steps,
+            created_dirs,
+            purge_folder: Some(plan.folder.clone()),
+            removed: plan.files.clone(),
+            ..Payload::default()
+        };
+        self.insert(&id, kind, label, State::Purging, &payload)?;
+        for index in 0..payload.steps.len() {
+            if let Err(error) = apply(&mut payload.steps[index], &NoSystemTrash) {
+                let reversed = reverse_steps(&payload.steps[..index], &NoSystemTrash);
+                remove_created_dirs(&payload.created_dirs);
+                payload.note = Some(match reversed {
+                    Ok(()) => format!("{error:#}"),
+                    Err(e) => format!("{error:#}; could not reverse every step: {e:#}"),
+                });
+                self.store(&id, State::RolledBack, &payload)?;
+                return Err(error.context("Nothing was deleted"));
+            }
+        }
+        self.store_clearing_redo(&id, State::PurgeCommitted, &payload)?;
+        self.finish_purge(&id, payload)?;
+        self.operation(&id)
+    }
+
+    /// Deletes a committed purge's entries (already aside) and records it
+    /// as purged; on failure it stays committed with a note.
+    fn finish_purge(&self, id: &str, mut payload: Payload) -> Result<()> {
+        match delete_staged(&payload) {
+            Ok(()) => {
+                remove_created_dirs(&payload.created_dirs);
+                payload.note = None;
+                self.store(id, State::Purged, &payload)
+            }
+            Err(error) => {
+                payload.note = Some(format!(
+                    "Not everything could be deleted yet (tried again at the next start): {error:#}"
+                ));
+                self.store(id, State::PurgeCommitted, &payload)
+            }
+        }
+    }
+
+    /// Rolls back operations a crash interrupted (an interrupted redo goes
+    /// back to undone), finishes the deletion of a committed purge and
+    /// returns every operation whose caller records still need to follow it
+    /// (including those).
     pub fn recover(&self, trash: &dyn SystemTrash) -> Result<Vec<Operation>> {
         let ids: Vec<String> = {
             let mut q = self.conn.prepare(
-                "SELECT id FROM operations WHERE state IN ('applying','undoing') ORDER BY seq",
+                "SELECT id FROM operations
+                 WHERE state IN ('applying','undoing','redoing','purging','purgeCommitted')
+                 ORDER BY seq",
             )?;
             q.query_map([], |r| r.get(0))?
                 .collect::<rusqlite::Result<_>>()?
         };
         for id in ids {
-            let op = self.operation(&id)?;
-            let mut payload = Payload {
-                steps: op.steps.clone(),
-                created_dirs: op.created_dirs.clone(),
-                note: None,
-                context: op.context.clone(),
-            };
+            let state = self.operation(&id)?.state;
+            let mut payload = self.payload(&id)?;
+            if state == State::PurgeCommitted {
+                self.finish_purge(&id, payload)?;
+                continue;
+            }
+            payload.note = None;
             let mut problems = Vec::new();
             for step in payload.steps.iter().rev() {
                 if let Err(e) = restore_if_moved(step, trash) {
@@ -365,25 +616,37 @@ impl Journal {
             if !problems.is_empty() {
                 payload.note = Some(format!("Recovery: {}", problems.join("; ")));
             }
-            let state = if op.state == State::Undoing {
-                State::Undone
-            } else {
-                State::RolledBack
-            };
-            self.store(&id, state, &payload)?;
-            // An interrupted undo may have reversed steps the caller's
-            // records still show as done.
-            self.set_synced(&id, op.state != State::Undoing)?;
+            match state {
+                State::Undoing => {
+                    self.store(&id, State::Undone, &payload)?;
+                    self.set_redoable(&id, true)?;
+                    // An interrupted undo may have reversed steps the
+                    // caller's records still show as done.
+                    self.set_synced(&id, false)?;
+                }
+                State::Redoing => {
+                    // Back to undone: the records follow it as far as they
+                    // did before the redo began.
+                    self.store_keeping_sync(&id, State::Undone, &payload)?;
+                }
+                _ => {
+                    // Applying or purging: nothing the records follow changed.
+                    self.store(&id, State::RolledBack, &payload)?;
+                    self.set_synced(&id, true)?;
+                }
+            }
         }
         self.unsynced()
     }
 
-    /// Finished or undone operations the caller's records do not follow yet
-    /// (their sync failed or never ran), oldest first: sync them in order.
+    /// Finished, undone or purged operations the caller's records do not
+    /// follow yet (their sync failed or never ran), oldest first: sync them
+    /// in order.
     pub fn unsynced(&self) -> Result<Vec<Operation>> {
         let ids: Vec<String> = {
             let mut q = self.conn.prepare(
-                "SELECT id FROM operations WHERE synced=0 AND state IN ('done','undone') ORDER BY seq",
+                "SELECT id FROM operations WHERE synced=0
+                 AND state IN ('done','undone','purgeCommitted','purged') ORDER BY seq",
             )?;
             q.query_map([], |r| r.get(0))?
                 .collect::<rusqlite::Result<_>>()?
@@ -393,12 +656,7 @@ impl Journal {
 
     /// Stores the caller's data with an operation (kept through undo).
     pub fn set_context(&self, id: &str, context: serde_json::Value) -> Result<()> {
-        let payload: String =
-            self.conn
-                .query_row("SELECT payload FROM operations WHERE id=?", [id], |r| {
-                    r.get(0)
-                })?;
-        let mut payload: Payload = serde_json::from_str(&payload)?;
+        let mut payload = self.payload(id)?;
         payload.context = Some(context);
         self.conn.execute(
             "UPDATE operations SET payload=? WHERE id=?",
@@ -468,9 +726,40 @@ impl Journal {
             created_dirs: payload.created_dirs,
             note: payload.note,
             context: payload.context,
+            removed: payload.removed,
             synced,
             created_at,
         })
+    }
+
+    fn payload(&self, id: &str) -> Result<Payload> {
+        let payload: String =
+            self.conn
+                .query_row("SELECT payload FROM operations WHERE id=?", [id], |r| {
+                    r.get(0)
+                })?;
+        Ok(serde_json::from_str(&payload)?)
+    }
+
+    fn insert(
+        &self,
+        id: &str,
+        kind: &str,
+        label: &str,
+        state: State,
+        payload: &Payload,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO operations(id,kind,label,state,payload) VALUES(?,?,?,?,?)",
+            params![
+                id,
+                kind,
+                label,
+                state.as_str(),
+                serde_json::to_string(payload)?
+            ],
+        )?;
+        Ok(())
     }
 
     fn store(&self, id: &str, state: State, payload: &Payload) -> Result<()> {
@@ -480,6 +769,158 @@ impl Journal {
             params![state.as_str(), serde_json::to_string(payload)?, id],
         )?;
         Ok(())
+    }
+
+    /// For states the caller's records do not see change (a redo before it
+    /// is done, and its rollback to undone).
+    fn store_keeping_sync(&self, id: &str, state: State, payload: &Payload) -> Result<()> {
+        self.conn.execute(
+            "UPDATE operations SET state=?, payload=? WHERE id=?",
+            params![state.as_str(), serde_json::to_string(payload)?, id],
+        )?;
+        Ok(())
+    }
+
+    /// A new operation is done (or a purge committed): nothing undone
+    /// before can be redone any more. One transaction.
+    fn store_clearing_redo(&self, id: &str, state: State, payload: &Payload) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.store(id, state, payload)?;
+        self.conn
+            .execute("UPDATE operations SET redoable=0 WHERE redoable=1", [])?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+/// What emptying a folder deletes: its entries and every file and link
+/// below them, listed without following links.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PurgePlan {
+    /// The folder emptied (it stays), by its real path.
+    pub folder: PathBuf,
+    /// Its entries, sorted.
+    pub entries: Vec<PathBuf>,
+    /// Every file and link at or below the entries, sorted; links are
+    /// deleted themselves, never what they point to.
+    pub files: Vec<PathBuf>,
+}
+
+/// Lists what [`Journal::purge`] would delete in `folder`. The folder must
+/// be given by its real path (absolute, no `..`, no link in it or on the
+/// way to it) and be a folder, not a link; nothing below it is followed.
+pub fn plan_purge(folder: &Path) -> Result<PurgePlan> {
+    ensure!(
+        folder.is_absolute(),
+        "{} is not an absolute path",
+        folder.display()
+    );
+    let meta = fs::symlink_metadata(folder)
+        .with_context(|| format!("{} was not found", folder.display()))?;
+    ensure!(
+        !meta.file_type().is_symlink(),
+        "{} is a link; only a real folder can be emptied",
+        folder.display()
+    );
+    ensure!(meta.is_dir(), "{} is not a folder", folder.display());
+    let real = folder
+        .canonicalize()
+        .with_context(|| format!("Cannot resolve {}", folder.display()))?;
+    ensure!(
+        real == folder,
+        "{} must be given by its real path ({})",
+        folder.display(),
+        real.display()
+    );
+    let mut entries: Vec<PathBuf> = fs::read_dir(folder)?
+        .map(|entry| entry.map(|e| folder.join(e.file_name())))
+        .collect::<io::Result<_>>()?;
+    entries.sort();
+    let mut files = Vec::new();
+    for entry in &entries {
+        list_files(entry, &mut files)?;
+    }
+    files.sort();
+    Ok(PurgePlan {
+        folder: folder.to_path_buf(),
+        entries,
+        files,
+    })
+}
+
+fn list_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
+    // Not following links: a link to a folder is listed as a file.
+    if fs::symlink_metadata(path)?.is_dir() {
+        for entry in fs::read_dir(path)? {
+            list_files(&path.join(entry?.file_name()), files)?;
+        }
+    } else {
+        files.push(path.to_path_buf());
+    }
+    Ok(())
+}
+
+/// Whether `entry` is a single named entry of `folder`.
+fn directly_in(entry: &Path, folder: &Path) -> bool {
+    use std::path::Component;
+    let Ok(below) = entry.strip_prefix(folder) else {
+        return false;
+    };
+    let mut parts = below.components();
+    matches!(
+        (parts.next(), parts.next()),
+        (Some(Component::Normal(_)), None)
+    )
+}
+
+/// Deletes a committed purge's entries from its hidden folder. Checks the
+/// journal's paths first (the hidden folder directly in the emptied one,
+/// each entry directly in that), so that nothing else is ever deleted.
+fn delete_staged(payload: &Payload) -> Result<()> {
+    let folder = payload
+        .purge_folder
+        .as_deref()
+        .context("The purge has no folder")?;
+    let mut first_error = None;
+    for step in &payload.steps {
+        let Target::Path { path } = &step.to else {
+            bail!("A purge step leads to the system Trash");
+        };
+        let staging = path.parent().context("A purge entry has no folder")?;
+        ensure!(
+            directly_in(staging, folder)
+                && staging
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(PURGE_STAGING_PREFIX))
+                && directly_in(path, staging)
+                && directly_in(&step.from, folder),
+            "{} is not an entry set aside in {}; it was not deleted",
+            path.display(),
+            folder.display()
+        );
+        if let Err(e) = remove_tree(path) {
+            first_error.get_or_insert(
+                anyhow::Error::new(e).context(format!("Cannot delete {}", path.display())),
+            );
+        }
+    }
+    first_error.map_or(Ok(()), Err)
+}
+
+/// Deletes a file, a link (not what it points to) or a folder with
+/// everything in it (links inside are deleted, never followed). Already
+/// gone is fine.
+fn remove_tree(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        // A link to a folder is a directory entry on Windows.
+        Ok(meta) if meta.file_type().is_symlink() => {
+            fs::remove_file(path).or_else(|e| fs::remove_dir(path).map_err(|_| e))
+        }
+        Ok(_) => fs::remove_file(path),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
@@ -741,9 +1182,7 @@ mod tests {
         let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
         let payload = Payload {
             steps,
-            created_dirs: vec![],
-            note: None,
-            context: None,
+            ..Payload::default()
         };
         let id = "interrupted".to_string();
         journal
@@ -827,5 +1266,228 @@ mod tests {
         let op = journal.operation(&id).unwrap();
         assert_eq!(op.state, State::RolledBack);
         assert!(op.note.unwrap().contains("put it back from there"));
+    }
+
+    /// A crash during a redo: the steps it applied go back, the operation
+    /// is undone again (and still redoable), the records need no sync.
+    #[test]
+    fn recovery_puts_an_interrupted_redo_back_to_undone() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        for name in ["a", "b"] {
+            fs::write(root.join(name), name).unwrap();
+        }
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let steps = vec![
+            Step::rename(root.join("a"), root.join("sub/a")),
+            Step::rename(root.join("b"), root.join("sub/b")),
+        ];
+        let op = journal
+            .execute("move", "Move", steps, &NoSystemTrash)
+            .unwrap();
+        journal.undo(&op.id, &NoSystemTrash).unwrap();
+        journal.mark_synced(&op.id).unwrap();
+        // The redo journaled its plan, made the folder, moved "a", then
+        // the power went.
+        let mut payload = journal.payload(&op.id).unwrap();
+        payload.created_dirs = create_target_parents(&payload.steps).unwrap();
+        journal
+            .store_keeping_sync(&op.id, State::Redoing, &payload)
+            .unwrap();
+        fs::rename(root.join("a"), root.join("sub/a")).unwrap();
+        drop(journal);
+
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let pending = journal.recover(&NoSystemTrash).unwrap();
+        assert!(pending.is_empty(), "records already follow undone");
+        assert_eq!(fs::read_to_string(root.join("a")).unwrap(), "a");
+        assert_eq!(fs::read_to_string(root.join("b")).unwrap(), "b");
+        assert!(!root.join("sub").exists());
+        let now = journal.operation(&op.id).unwrap();
+        assert_eq!(now.state, State::Undone);
+        assert_eq!(journal.last_redoable().unwrap().unwrap().id, op.id);
+        // And it can be redone after all.
+        journal.redo(&op.id, &NoSystemTrash).unwrap();
+        assert!(root.join("sub/a").is_file() && root.join("sub/b").is_file());
+    }
+
+    /// A crash while the entries are being set aside: they go back, nothing
+    /// is deleted, Undo of earlier operations stays.
+    #[test]
+    fn recovery_puts_back_an_interrupted_purge_before_its_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let trash = root.join("Trash");
+        fs::create_dir_all(trash.join("Capture")).unwrap();
+        fs::write(trash.join("Capture/A.RAF"), "a").unwrap();
+        fs::write(trash.join("B.RAF"), "b").unwrap();
+        fs::write(root.join("x"), "x").unwrap();
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let earlier = journal
+            .execute(
+                "rename",
+                "x→y",
+                vec![Step::rename(root.join("x"), root.join("y"))],
+                &NoSystemTrash,
+            )
+            .unwrap();
+        let plan = plan_purge(&trash).unwrap();
+        let staging = trash.join(format!("{PURGE_STAGING_PREFIX}crash"));
+        let steps: Vec<Step> = plan
+            .entries
+            .iter()
+            .map(|e| Step::rename(e, staging.join(e.file_name().unwrap())))
+            .collect();
+        let payload = Payload {
+            created_dirs: create_target_parents(&steps).unwrap(),
+            steps,
+            purge_folder: Some(trash.clone()),
+            removed: plan.files.clone(),
+            ..Payload::default()
+        };
+        journal
+            .insert(
+                "crash",
+                "emptyTrash",
+                "Empty Trash",
+                State::Purging,
+                &payload,
+            )
+            .unwrap();
+        fs::rename(trash.join("B.RAF"), staging.join("B.RAF")).unwrap();
+
+        let pending = journal.recover(&NoSystemTrash).unwrap();
+        assert!(
+            pending.iter().all(|op| op.id != "crash"),
+            "nothing to forget"
+        );
+        assert_eq!(fs::read_to_string(trash.join("B.RAF")).unwrap(), "b");
+        assert!(trash.join("Capture/A.RAF").is_file());
+        assert!(!staging.exists());
+        assert_eq!(journal.operation("crash").unwrap().state, State::RolledBack);
+        assert_eq!(journal.last_undoable().unwrap().unwrap().id, earlier.id);
+    }
+
+    /// A crash after the commit, with some entries deleted: recovery
+    /// deletes the rest and hands the purge to the caller to forget its
+    /// records; Undo before it is over.
+    #[test]
+    fn recovery_finishes_a_committed_purge_a_crash_cut_short() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let trash = root.join("Trash");
+        fs::create_dir_all(trash.join("Capture")).unwrap();
+        fs::write(trash.join("Capture/A.RAF"), "a").unwrap();
+        fs::write(trash.join("B.RAF"), "b").unwrap();
+        fs::write(root.join("keep.RAF"), "keep").unwrap();
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        let plan = plan_purge(&trash).unwrap();
+        let staging = trash.join(format!("{PURGE_STAGING_PREFIX}crash"));
+        let steps: Vec<Step> = plan
+            .entries
+            .iter()
+            .map(|e| Step::rename(e, staging.join(e.file_name().unwrap())))
+            .collect();
+        let created_dirs = create_target_parents(&steps).unwrap();
+        for step in &steps {
+            let Target::Path { path } = &step.to else {
+                unreachable!()
+            };
+            fs::rename(&step.from, path).unwrap();
+        }
+        let payload = Payload {
+            steps,
+            created_dirs,
+            purge_folder: Some(trash.clone()),
+            removed: plan.files.clone(),
+            ..Payload::default()
+        };
+        journal
+            .insert(
+                "crash",
+                "emptyTrash",
+                "Empty Trash",
+                State::PurgeCommitted,
+                &payload,
+            )
+            .unwrap();
+        // One entry was deleted before the crash.
+        fs::remove_file(staging.join("B.RAF")).unwrap();
+
+        let pending = journal.recover(&NoSystemTrash).unwrap();
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].state, State::Purged);
+        assert_eq!(pending[0].removed, plan.files);
+        assert!(!staging.exists());
+        assert!(trash.is_dir());
+        assert_eq!(fs::read_dir(&trash).unwrap().count(), 0);
+        assert_eq!(fs::read_to_string(root.join("keep.RAF")).unwrap(), "keep");
+        // Recovering again is harmless.
+        journal.recover(&NoSystemTrash).unwrap();
+        assert_eq!(journal.operation("crash").unwrap().state, State::Purged);
+    }
+
+    /// A journal whose purge row names paths outside its folder (damaged
+    /// or edited) deletes nothing.
+    #[test]
+    fn a_committed_purge_never_deletes_outside_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let trash = root.join("Trash");
+        fs::create_dir_all(&trash).unwrap();
+        fs::write(root.join("A.RAF"), "original").unwrap();
+        let journal = Journal::open(&root.join("journal.sqlite")).unwrap();
+        for target in [
+            root.join("A.RAF"),
+            trash.join("not-staging/A.RAF"),
+            trash.join(format!("{PURGE_STAGING_PREFIX}x/../../A.RAF")),
+        ] {
+            let payload = Payload {
+                steps: vec![Step::rename(trash.join("A.RAF"), &target)],
+                purge_folder: Some(trash.clone()),
+                ..Payload::default()
+            };
+            let id = uuid::Uuid::new_v4().to_string();
+            journal
+                .insert(&id, "emptyTrash", "Empty", State::PurgeCommitted, &payload)
+                .unwrap();
+            journal.recover(&NoSystemTrash).unwrap();
+            let op = journal.operation(&id).unwrap();
+            assert_eq!(op.state, State::PurgeCommitted, "{target:?}");
+            assert!(op.note.unwrap().contains("not deleted"));
+        }
+        assert_eq!(fs::read_to_string(root.join("A.RAF")).unwrap(), "original");
+    }
+
+    /// A version 1 journal gains the redo stack; its undone operations are
+    /// not redoable (nothing offered them).
+    #[test]
+    fn a_version_1_journal_is_upgraded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("journal.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE operations(
+                   seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+                   kind TEXT NOT NULL, label TEXT NOT NULL, state TEXT NOT NULL,
+                   synced INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL,
+                   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+                 INSERT INTO operations(id,kind,label,state,synced,payload)
+                   VALUES('old','rename','Rename','undone',1,'{\"steps\":[]}');
+                 PRAGMA user_version=1;",
+            )
+            .unwrap();
+        }
+        let journal = Journal::open(&path).unwrap();
+        let version: u32 = journal
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        assert_eq!(journal.operation("old").unwrap().state, State::Undone);
+        assert!(journal.last_redoable().unwrap().is_none());
+        drop(journal);
+        Journal::open(&path).unwrap();
     }
 }

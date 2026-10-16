@@ -1,6 +1,7 @@
 import { useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
+import i18next from 'i18next';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
@@ -10,6 +11,7 @@ import { ImageFile, Invokes } from '../components/ui/AppProperties';
 import { followPathMoves, type PathMove } from '../utils/pathKeyedState';
 import { recountAfterFileOperation } from '../utils/offline';
 import { flushRecipeSaves } from './useEditorActions';
+import { isBelow } from '../utils/catalogFolders';
 
 /** Mirrors `OperationSummary` in src-tauri/src/file_operations.rs. */
 export interface FileOperationSummary {
@@ -36,6 +38,31 @@ async function saveEditsFirst() {
 }
 
 export const undoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⌘Z' : 'Ctrl+Z');
+export const redoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⇧⌘Z' : 'Ctrl+Y');
+
+/** Mirrors `TrashContents` in src-tauri/src/file_operations.rs. */
+export interface TrashContents {
+  /** Photographs and virtual copies. */
+  photos: number;
+  /** Every file, sidecars and XMP included. */
+  files: number;
+  /** Top-level files and folders. */
+  entries: number;
+  /** Set when some files could not be deleted yet. */
+  note?: string | null;
+}
+
+/** The Empty Trash dialog's text: what goes for good, and that it cannot be undone. */
+export function describeEmptyTrash(contents: TrashContents): string {
+  const t = i18next.t.bind(i18next);
+  const what =
+    contents.photos > 0
+      ? `${t('studio.library.trash.messagePhotos', { count: contents.photos })} ${t('studio.library.trash.messageFiles', { count: contents.files })}`
+      : contents.files > 0
+        ? t('studio.library.trash.messageOnlyFiles', { count: contents.files })
+        : t('studio.library.trash.messageEmptyFolders');
+  return `${what} ${t('studio.library.trash.cannotUndo')}`;
+}
 
 /** What a finished file operation did, with how to undo it. */
 export function describeFileOperation(summary: FileOperationSummary, key: string): string {
@@ -183,7 +210,7 @@ export function useFileOperations(
       // places: the selection, the open photograph, picks and thumbnails
       // go with them, as after a rename.
       const reopen = followMoves(summary.moves ?? []);
-      toast.success(`Undone: ${summary.label}.`);
+      toast.success(i18next.t('studio.library.fileOperations.undone', { label: summary.label, key: redoKey() }));
       await refreshImageList();
       await refreshAllFolderTrees();
       reopen();
@@ -192,6 +219,98 @@ export function useFileOperations(
       toast.error(`Could not undo: ${err}`);
     }
   }, [refreshImageList, refreshAllFolderTrees, followMoves]);
+
+  /** Redoes the file operation undone last (validated again; refused when
+   * something took a place since). */
+  const handleRedoFileOperation = useCallback(async () => {
+    try {
+      await saveEditsFirst();
+      const summary = await invoke<FileOperationSummary | null>(Invokes.RedoFileOperation);
+      if (!summary) {
+        toast.info(i18next.t('studio.library.fileOperations.nothingToRedo'));
+        return;
+      }
+      // As after the operation itself: path-keyed state follows the moves.
+      const reopen = followMoves(summary.moves ?? []);
+      toast.success(i18next.t('studio.library.fileOperations.redone', { label: summary.label, key: undoKey() }));
+      await refreshImageList();
+      await refreshAllFolderTrees();
+      reopen();
+      void recountAfterFileOperation();
+    } catch (err) {
+      toast.error(i18next.t('studio.library.fileOperations.redoFailed', { error: String(err) }));
+    }
+  }, [refreshImageList, refreshAllFolderTrees, followMoves]);
+
+  /** Empties the session's Trash folder for good, after a dialog naming
+   * what goes and saying it cannot be undone. */
+  const handleEmptySessionTrash = useCallback(async () => {
+    const { sessionDirectory } = useLibraryStore.getState();
+    if (!sessionDirectory) return;
+    const t = i18next.t.bind(i18next);
+    let contents: TrashContents;
+    try {
+      contents = await invoke<TrashContents>(Invokes.SessionTrashContents, { session: sessionDirectory });
+    } catch (err) {
+      toast.error(t('studio.library.trash.countFailed', { error: String(err) }));
+      return;
+    }
+    if (!contents || contents.entries === 0) {
+      toast.info(t('studio.library.trash.alreadyEmpty'));
+      return;
+    }
+    const separator = sessionDirectory.includes('\\') && !sessionDirectory.includes('/') ? '\\' : '/';
+    const trashFolder = `${sessionDirectory}${separator}Trash`;
+    const inTrash = (path: string) => isBelow(path.split('?vc=')[0], trashFolder);
+    useUIStore.getState().setUI({
+      confirmModalState: {
+        isOpen: true,
+        title: t('studio.library.trash.title'),
+        message: describeEmptyTrash(contents),
+        confirmText: t('studio.library.trash.confirm'),
+        confirmVariant: 'destructive',
+        onConfirm: async () => {
+          try {
+            await saveEditsFirst();
+            const result = await invoke<TrashContents>(Invokes.EmptySessionTrash, {
+              session: sessionDirectory,
+              photos: contents.photos,
+              files: contents.files,
+              entries: contents.entries,
+            });
+            if (result?.note) {
+              toast.warn(t('studio.library.trash.incomplete', { note: result.note }), { autoClose: false });
+            } else if (contents.photos > 0) {
+              toast.success(t('studio.library.trash.emptied', { count: contents.photos }));
+            } else {
+              toast.success(t('studio.library.trash.emptiedNow'));
+            }
+            // Nothing from the Trash stays selected or open.
+            const { selectedImage, setEditor } = useEditorStore.getState();
+            if (selectedImage && inTrash(selectedImage.path)) {
+              if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
+              setEditor({ selectedImage: null });
+            }
+            const library = useLibraryStore.getState();
+            const kept = library.multiSelectedPaths.filter((p) => !inTrash(p));
+            library.setLibrary({
+              multiSelectedPaths: kept,
+              libraryActivePath:
+                library.libraryActivePath && inTrash(library.libraryActivePath) ? null : library.libraryActivePath,
+              ...(library.currentFolderPath && isBelow(library.currentFolderPath, trashFolder)
+                ? { currentFolderPath: trashFolder }
+                : {}),
+            });
+            await refreshAllFolderTrees();
+            await refreshImageList();
+            void recountAfterFileOperation();
+          } catch (err) {
+            toast.error(t('studio.library.trash.failed', { error: String(err) }));
+          }
+        },
+      },
+    });
+  }, [refreshImageList, refreshAllFolderTrees, handleBackToLibrary]);
 
   /** Moves photos (with their sidecars and virtual copies) into `destination`. */
   const handleMoveToFolder = useCallback(
@@ -455,6 +574,8 @@ export function useFileOperations(
     executeDelete,
     handleDeleteSelected,
     handleUndoFileOperation,
+    handleRedoFileOperation,
+    handleEmptySessionTrash,
     handleMoveToFolder,
     handleMoveToSelects,
     handleTrashFolder,

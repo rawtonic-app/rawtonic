@@ -1,7 +1,16 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { describeFileOperation, FileOperationSummary, useFileOperations } from './useFileOperations';
+import { toast } from 'react-toastify';
+import '../i18n';
+import {
+  describeEmptyTrash,
+  describeFileOperation,
+  FileOperationSummary,
+  type TrashContents,
+  useFileOperations,
+} from './useFileOperations';
+import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
@@ -10,7 +19,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { OFFLINE_COUNTED } from '../utils/offline';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
-vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() } }));
+vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
 
 const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => ({
   id: 'op',
@@ -185,5 +194,132 @@ describe('undo follows the paths it moves back', () => {
     await waitFor(() => expect(counted).toHaveBeenCalled());
     window.removeEventListener(OFFLINE_COUNTED, counted);
     expect(invoke).toHaveBeenCalledWith(Invokes.SessionOffline, { directory: '/job' });
+  });
+});
+
+describe('redo', () => {
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+    useSettingsStore.setState({ osPlatform: 'macos' });
+  });
+
+  it('redoes the operation undone last and follows its moves', async () => {
+    const from = '/job/Capture/x.ARW';
+    const to = '/job/Capture/x_renamed.ARW';
+    useLibraryStore.setState({ multiSelectedPaths: [from], libraryActivePath: from, imageFlags: { [from]: 1 } });
+    useEditorStore.setState({ selectedImage: null });
+    vi.mocked(invoke).mockResolvedValueOnce(
+      summary({ kind: 'rename', label: 'Rename 1 photo', items: 1, newPaths: [to], moves: [{ from, to }] }),
+    );
+    const { result } = renderHook(() =>
+      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    );
+    await result.current.handleRedoFileOperation();
+    expect(invoke).toHaveBeenCalledWith(Invokes.RedoFileOperation);
+    expect(useLibraryStore.getState().libraryActivePath).toBe(to);
+    expect(useLibraryStore.getState().imageFlags).toEqual({ [to]: 1 });
+    expect(toast.success).toHaveBeenCalledWith('Redone: Rename 1 photo. ⌘Z undoes it.');
+  });
+
+  it('says when there is nothing to redo, and why a redo was refused', async () => {
+    const { result } = renderHook(() =>
+      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    );
+    vi.mocked(invoke).mockResolvedValueOnce(null);
+    await result.current.handleRedoFileOperation();
+    expect(toast.info).toHaveBeenCalledWith('There is no file operation to redo.');
+    vi.mocked(invoke).mockRejectedValueOnce('/job/Capture/b.RAF already exists: Nothing was redone');
+    await result.current.handleRedoFileOperation();
+    expect(toast.error).toHaveBeenCalledWith('Could not redo: /job/Capture/b.RAF already exists: Nothing was redone');
+  });
+
+  it('says after an undo how to redo it', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(summary({ kind: 'trash', label: 'Delete 2 photos' }));
+    const { result } = renderHook(() =>
+      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    );
+    await result.current.handleUndoFileOperation();
+    expect(toast.success).toHaveBeenCalledWith('Undone: Delete 2 photos. ⇧⌘Z redoes it.');
+  });
+});
+
+describe('emptying the session Trash', () => {
+  const contents: TrashContents = { photos: 3, files: 7, entries: 2 };
+
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.success).mockClear();
+    useUIStore.setState({ activeView: 'library', confirmModalState: { isOpen: false } });
+    useEditorStore.setState({ selectedImage: { path: '/job/Trash/Capture/A.RAF' } as never });
+    useLibraryStore.setState({
+      sessionDirectory: '/job',
+      currentFolderPath: '/job/Trash/Capture',
+      multiSelectedPaths: ['/job/Trash/Capture/A.RAF', '/job/Capture/K.RAF'],
+      libraryActivePath: '/job/Trash/Capture/A.RAF',
+    });
+  });
+
+  it('names the count, says it is permanent and not undoable', () => {
+    expect(describeEmptyTrash(contents)).toBe(
+      "Permanently delete 3 photos in this session's Trash folder? 7 files are removed from disk, sidecars and XMP included. This cannot be undone, and file changes made before it can no longer be undone either.",
+    );
+    expect(describeEmptyTrash({ photos: 1, files: 1, entries: 1 })).toContain('Permanently delete 1 photo in');
+    expect(describeEmptyTrash({ photos: 0, files: 2, entries: 1 })).toContain('Permanently delete 2 files in');
+    expect(describeEmptyTrash({ photos: 0, files: 0, entries: 1 })).toContain('Remove the empty folders');
+  });
+
+  it('asks first, then empties exactly what was counted and lets nothing from the Trash stay open', async () => {
+    const handleBackToLibrary = vi.fn();
+    vi.mocked(invoke).mockResolvedValueOnce(contents);
+    const { result } = renderHook(() =>
+      useFileOperations(
+        vi.fn(() => Promise.resolve()),
+        vi.fn(() => Promise.resolve()),
+        vi.fn(),
+        handleBackToLibrary,
+        [],
+      ),
+    );
+    await result.current.handleEmptySessionTrash();
+    expect(invoke).toHaveBeenCalledWith(Invokes.SessionTrashContents, { session: '/job' });
+    const modal = useUIStore.getState().confirmModalState;
+    expect(modal.isOpen).toBe(true);
+    expect(modal.title).toBe('Empty the Session Trash?');
+    expect(modal.confirmText).toBe('Delete Permanently');
+    expect(modal.confirmVariant).toBe('destructive');
+    expect(modal.message).toContain('3 photos');
+    // Nothing is deleted before the confirmation.
+    expect(invoke).not.toHaveBeenCalledWith(Invokes.EmptySessionTrash, expect.anything());
+
+    vi.mocked(invoke).mockResolvedValueOnce(contents);
+    await modal.onConfirm?.();
+    expect(invoke).toHaveBeenCalledWith(Invokes.EmptySessionTrash, {
+      session: '/job',
+      photos: 3,
+      files: 7,
+      entries: 2,
+    });
+    expect(toast.success).toHaveBeenCalledWith('3 photos deleted permanently.');
+    expect(useEditorStore.getState().selectedImage).toBeNull();
+    const library = useLibraryStore.getState();
+    expect(library.multiSelectedPaths).toEqual(['/job/Capture/K.RAF']);
+    expect(library.libraryActivePath).toBeNull();
+    expect(library.currentFolderPath).toBe('/job/Trash');
+  });
+
+  it('an empty Trash asks nothing', async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ photos: 0, files: 0, entries: 0 });
+    const { result } = renderHook(() =>
+      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    );
+    await result.current.handleEmptySessionTrash();
+    expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
+    expect(toast.info).toHaveBeenCalledWith("The session's Trash folder is empty.");
   });
 });

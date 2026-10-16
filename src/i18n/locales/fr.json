@@ -2312,6 +2312,12 @@
         "photographs_many": "{{n}} photos",
         "photographs_other": "{{n}} photos"
       },
+      "fileOperations": {
+        "nothingToRedo": "Aucune opération sur les fichiers à rétablir.",
+        "redoFailed": "Impossible de rétablir : {{error}}",
+        "redone": "Rétabli : {{label}}. {{key}} l’annule.",
+        "undone": "Annulé : {{label}}. {{key}} le rétablit."
+      },
       "filters": {
         "allLabels": "Toutes les étiquettes",
         "byColor": "Filtrer par étiquette de couleur",
@@ -2382,6 +2388,30 @@
       "navigator": {
         "empty": "Sélectionnez une photo",
         "title": "Navigation"
+      },
+      "trash": {
+        "alreadyEmpty": "Le dossier Corbeille de la session est vide.",
+        "cannotUndo": "Cette action est irréversible, et les modifications de fichiers antérieures ne pourront plus être annulées non plus.",
+        "confirm": "Supprimer définitivement",
+        "countFailed": "Impossible de lire le dossier Corbeille de la session : {{error}}",
+        "emptied_one": "{{count}} photo supprimée définitivement.",
+        "emptied_many": "{{count}} photos supprimées définitivement.",
+        "emptied_other": "{{count}} photos supprimées définitivement.",
+        "emptiedNow": "Le dossier Corbeille de la session est maintenant vide.",
+        "failed": "Impossible de vider la corbeille : {{error}}",
+        "incomplete": "La corbeille a été vidée, mais certains fichiers n’ont pas encore pu être supprimés ; Rawtonic réessaiera au prochain démarrage. {{note}}",
+        "menu": "Vider la corbeille…",
+        "messageEmptyFolders": "Supprimer les dossiers vides du dossier Corbeille de cette session ?",
+        "messageFiles_one": "{{count}} fichier est effacé du disque, fichiers annexes et XMP compris.",
+        "messageFiles_many": "{{count}} fichiers sont effacés du disque, fichiers annexes et XMP compris.",
+        "messageFiles_other": "{{count}} fichiers sont effacés du disque, fichiers annexes et XMP compris.",
+        "messageOnlyFiles_one": "Supprimer définitivement {{count}} fichier du dossier Corbeille de cette session ?",
+        "messageOnlyFiles_many": "Supprimer définitivement {{count}} fichiers du dossier Corbeille de cette session ?",
+        "messageOnlyFiles_other": "Supprimer définitivement {{count}} fichiers du dossier Corbeille de cette session ?",
+        "messagePhotos_one": "Supprimer définitivement {{count}} photo du dossier Corbeille de cette session ?",
+        "messagePhotos_many": "Supprimer définitivement {{count}} photos du dossier Corbeille de cette session ?",
+        "messagePhotos_other": "Supprimer définitivement {{count}} photos du dossier Corbeille de cette session ?",
+        "title": "Vider la corbeille de la session ?"
       }
     },
     "loadError": {
