@@ -109,7 +109,7 @@ npm run build
 npm run tauri -- build
 ```
 
-The advisory check currently reports transitive unmaintained crates; it is not waived. See [ADR 0005](decisions/0005-dependency-remediation.md) for the remediation history. Before a merge, `scripts/check.sh` runs every gate locally; CI (`.github/workflows/ci.yml`) repeats them on Linux after each merge into main.
+The advisory check passes without waivers (2026-10-16); a few unmaintained transitive macro crates are replaced through patched copies in `vendor/`. See [ADR 0005](decisions/0005-dependency-remediation.md) for the remediation history. Before a merge, `scripts/check.sh` runs every gate locally; CI (`.github/workflows/ci.yml`) repeats them on Linux after each merge into main.
 
 ### GPU tests (manual)
 
