@@ -21,3 +21,9 @@ Six of the eight unmaintained packages are gone: Tauri 2.11.5 → 2.12.1 (with `
 - proc-macro-error: Tauri 2.12.4 and 3.0.0-alpha.5 still require gtk ^0.18 on Linux (gtk3-rs is maintained again and released gtk 0.19.0 on glib 0.22 in 2026-09; Tauri plans the move, tauri-apps/tauri#10910, tauri-apps/muda#219). Its maintained fork proc-macro-error2 is itself unmaintained now (RUSTSEC-2026-0173), so `vendor/glib-macros` (0.18.5) and `vendor/gtk3-macros` (0.18.2) implement the three items they used (`#[proc_macro_error]` entry, `abort!`, `abort_call_site!`) in a small `src/abort.rs` on `syn::Error`. glib-macros' own test suite (including 29 compile-fail cases) passes, and seven wrong macro uses give byte-identical compiler output with the original and patched crate; the Linux workspace builds and passes clippy (Ubuntu 24.04 container, aarch64). syn 1 leaves the build with them.
 
 Each patch is documented in its folder and in THIRD_PARTY_NOTICES; remove it when the upstream consumer releases the fix. Full-resolution exports of four RAWs (Fujifilm X-T3, Sony A7R IV, Nikon D5300, Canon R10; TIFF, and JPEG with metadata) are byte-identical before and after. Licenses, bans and sources pass.
+
+## Gate policy — 2026-10-16 (user decision)
+
+- Merges: `scripts/check.sh` and CI (`ci.yml`) run `cargo deny check -W unmaintained advisories`. Vulnerabilities and unsound crates fail the gate; an unmaintained transitive crate is a warning, because it often needs an upstream release first and should not block unrelated work.
+- Watch: `.github/workflows/advisories.yml` runs the full `cargo deny check advisories` after every merge into main and weekly, so a new advisory shows as a failed run.
+- Releases: the full check must pass. `npm run package:mac` runs it before building, and the Linux AppImage workflow's build needs its `advisories` job. Ignore entries in `deny.toml` stay a user decision, each with a reason and an exit condition.

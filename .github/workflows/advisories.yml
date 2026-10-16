@@ -1,0 +1,23 @@
+# The full RustSec check (unmaintained crates included), weekly and after every
+# merge into main, so a new advisory shows up as a failed run even when nobody
+# is working on the code. Merges are gated on vulnerabilities only
+# (scripts/check.sh, ci.yml); releases need this full check green (ADR 0005).
+name: Dependency advisories
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+jobs:
+  advisories:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.98.1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - run: cargo deny check advisories
