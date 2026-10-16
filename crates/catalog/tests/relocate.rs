@@ -187,3 +187,69 @@ fn iptc_fields_are_stored_and_searchable() {
     );
     assert_eq!(lib.assets(Some("Ascona")).unwrap().len(), 1);
 }
+
+/// Emptying the session Trash: the photographs deleted for good are
+/// forgotten with their edits and album memberships; the rest stay, paths
+/// outside the session are refused, and a second run finds nothing.
+#[test]
+fn forget_at_drops_permanently_deleted_photographs_only() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Job");
+    let lib = Library::create(&dir, "Job", Mode::Session).unwrap();
+    let add = |rel: &str| {
+        let path = dir.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, rel).unwrap();
+        lib.add_asset(&path).unwrap()
+    };
+    let trashed = add("Trash/Capture/A.ARW");
+    let numbered = add("Trash/Capture/1/A.ARW");
+    let loose = add("Trash/B_1%.ARW");
+    let kept = add("Capture/A.ARW");
+    // A look-alike name next to the Trash must not match its pattern.
+    let lookalike = add("Trash2/C.ARW");
+    lib.save_editor_state(
+        &trashed.id,
+        &serde_json::json!({"adjustments":{"exposure":1}}),
+    )
+    .unwrap();
+    let album = lib.create_collection("Picks", None).unwrap();
+    lib.add_to_collection(&album.id, &[trashed.id.clone(), kept.id.clone()])
+        .unwrap();
+
+    // The files are gone (deleted for good) before the records follow.
+    fs::remove_dir_all(dir.join("Trash/Capture")).unwrap();
+    fs::remove_file(dir.join("Trash/B_1%.ARW")).unwrap();
+    assert_eq!(lib.forget_at(&dir.join("Trash/Capture")).unwrap(), 2);
+    assert_eq!(lib.forget_at(&dir.join("Trash/B_1%.ARW")).unwrap(), 1);
+    for gone in [&trashed, &numbered, &loose] {
+        assert!(lib.asset(&gone.id).is_err(), "{:?} still known", gone.path);
+    }
+    assert!(
+        !matches!(lib.editor_state(&trashed.id), Ok(Some(_))),
+        "edits gone"
+    );
+    let in_album: Vec<String> = lib
+        .collection_assets(&album.id)
+        .unwrap()
+        .into_iter()
+        .map(|a| a.id)
+        .collect();
+    assert_eq!(in_album, std::slice::from_ref(&kept.id));
+    assert_eq!(
+        lib.asset_at(&dir.join("Capture/A.ARW"))
+            .unwrap()
+            .unwrap()
+            .id,
+        kept.id
+    );
+    assert_eq!(
+        lib.asset_at(&dir.join("Trash2/C.ARW")).unwrap().unwrap().id,
+        lookalike.id
+    );
+    // Again: nothing left.
+    assert_eq!(lib.forget_at(&dir.join("Trash/Capture")).unwrap(), 0);
+    // Outside the session, or the session itself: refused.
+    assert!(lib.forget_at(&tmp.path().join("Elsewhere/A.ARW")).is_err());
+    assert!(lib.forget_at(&dir).is_err());
+}
