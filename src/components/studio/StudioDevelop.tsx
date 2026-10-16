@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
 import {
@@ -53,6 +53,7 @@ import StudioCameraProfile from "./StudioCameraProfile";
 import StudioWhiteBalance from "./StudioWhiteBalance";
 import type { TatTarget } from "../../utils/targetedAdjustment";
 import StudioHistogram from "./StudioHistogram";
+import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
 import StudioLut from "./StudioLut";
 import StudioRelight from "./StudioRelight";
@@ -511,8 +512,11 @@ export default function StudioDevelop() {
       ? adjustments.masks.find((m) => m.id === activeMaskContainerId)
       : undefined;
   const values = layer?.adjustments || adjustments;
-  const onInteraction = (active: boolean) =>
-    setEditor({ isSliderDragging: active });
+  const onInteraction = useCallback(
+    (active: boolean) =>
+      useEditorStore.getState().setEditor({ isSliderDragging: active }),
+    [],
+  );
   const change = (patch: Partial<Adjustments>) =>
     selectedImage?.isReady &&
     setAdjustments((prev) =>
@@ -527,6 +531,19 @@ export default function StudioDevelop() {
           }
         : withNewGrainStructure(prev, { ...prev, ...patch }),
     );
+  // One callback per value for the sliders, calling this render's `change`:
+  // the memoized controls then skip re-rendering while another slider moves.
+  const latestChange = useRef(change);
+  latestChange.current = change;
+  const keyedChanges = useRef(new Map<string, (value: number) => void>());
+  const changeOf = (key: string) => {
+    let onChange = keyedChanges.current.get(key);
+    if (!onChange) {
+      onChange = (value: number) => latestChange.current({ [key]: value });
+      keyedChanges.current.set(key, onChange);
+    }
+    return onChange;
+  };
   // Layers start neutral; the photo itself starts from the RAW defaults.
   const defaults = layer
     ? INITIAL_ADJUSTMENTS
@@ -555,7 +572,7 @@ export default function StudioDevelop() {
       defaultValue={(defaults[key] ?? 0) as number}
       disabled={!panelsReady}
       track={track}
-      onChange={(v) => change({ [key]: v })}
+      onChange={changeOf(key)}
       onInteraction={onInteraction}
     />
   );
@@ -593,7 +610,7 @@ export default function StudioDevelop() {
       step={1}
       defaultValue={fallback}
       disabled={!panelsReady || idle}
-      onChange={(v) => change({ [key]: v })}
+      onChange={changeOf(key)}
       onInteraction={onInteraction}
     />
   );
@@ -636,7 +653,9 @@ export default function StudioDevelop() {
   });
   return (
     <div className="studio-develop">
-      <StudioHistogram />
+      <PerfProfiler id="histogram">
+        <StudioHistogram />
+      </PerfProfiler>
       <nav
         className="studio-tool-tabs"
         aria-label={t("studio.develop.tabs.aria")}

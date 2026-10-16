@@ -83,6 +83,7 @@ import type { FlagCounts } from "../../utils/culling";
 import { useSessionBar } from "../session/sessionBar";
 import { openMaskingTools, useAiModelLifecycle } from "../../hooks/useAiMasking";
 import "./studio.css";
+import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 
 interface Props {
@@ -662,7 +663,7 @@ export default function StudioWorkspace(props: Props) {
                   ? t("studio.workspace.errors.developTools")
                   : t("studio.workspace.errors.libraryTools")
               }>
-              {develop ? <StudioDevelop /> : navigation}
+              {develop ? <PerfProfiler id="develop"><StudioDevelop /></PerfProfiler> : navigation}
             </ErrorBoundary>
             <div
               className="studio-panel-resizer"
@@ -836,13 +837,15 @@ export default function StudioWorkspace(props: Props) {
                       onRate={onRate}
                       transformWrapperRef={transformWrapperRef}
                     >
-                      <Editor
-                        studioMode
-                        transformWrapperRef={transformWrapperRef}
-                        onBackToLibrary={onBack}
-                        onContextMenu={onViewerContextMenu}
-                        onImageSelect={onOpen}
-                      />
+                      <PerfProfiler id="viewer">
+                        <Editor
+                          studioMode
+                          transformWrapperRef={transformWrapperRef}
+                          onBackToLibrary={onBack}
+                          onContextMenu={onViewerContextMenu}
+                          onImageSelect={onOpen}
+                        />
+                      </PerfProfiler>
                     </MultiViewStage>
                     {toolPopover && (
                       <StudioToolPopover
