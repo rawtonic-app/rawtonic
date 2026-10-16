@@ -186,6 +186,7 @@ pub fn import_batch(
             asset_id: None,
             error: Some(error.to_string()),
             skipped: false,
+            ..Default::default()
         });
         if cancel.load(Ordering::Acquire) && result.error.is_some() {
             break;
@@ -290,6 +291,7 @@ pub fn add_batch(
             asset_id: None,
             error: Some(error.to_string()),
             skipped: false,
+            ..Default::default()
         });
         on_file(FileDone {
             index,
@@ -314,6 +316,7 @@ fn add_one(
         asset_id: Some(asset.id),
         error: None,
         skipped: true,
+        ..Default::default()
     };
     anyhow::ensure!(source.is_file(), "Not a file: {}", source.display());
     if let Some(asset) = library.asset_at(source)? {
@@ -354,6 +357,7 @@ fn add_one(
         asset_id: Some(asset.id),
         error: None,
         skipped: false,
+        ..Default::default()
     })
 }
 

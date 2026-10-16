@@ -34,6 +34,7 @@ The standalone CLI can manage sessions and export photographs without opening th
 cargo build -p rawtonic-cli
 ./target/debug/rawtonic create /path/Job --name Job
 ./target/debug/rawtonic ingest /path/Job /card/DSC0001.ARW --template '{job}_{seq:4}.{ext|lower}' --backup /backup/Job
+./target/debug/rawtonic name /card/DCIM/100CANON/*.CR3 --template '{yyyy}{mm}{dd}_{camera}_{orig_num}.{ext}'
 ./target/debug/rawtonic list /path/Job
 ./target/debug/rawtonic inspect /path/Job
 ./target/debug/rawtonic rate /path/Job ASSET_UUID 5
@@ -42,7 +43,14 @@ cargo build -p rawtonic-cli
 ./target/debug/rawtonic bench --iterations 1000
 ```
 
-Ingest supplies original name, sequence, job/session and an mtime date fallback for naming templates. EXIF camera/lens token hydration, live preview and saved templates remain unfinished. Missing context tokens fail explicitly.
+Ingest names each copy from the source's own metadata, read from its header only (no decode; plain reads, never a memory map of a card). Tokens (`rawtonic_naming::TOKENS`; older templates keep working, tokens are only added):
+
+- Capture date and time: `{yyyy}` `{yy}` `{mm}` (month) `{month}` `{mon}` `{dd}` `{doy}` `{weekday}` `{hh}` `{MM}` (minute) `{ss}` `{subsec}` `{tz}` `{date}` (`2026-10-01`) `{time}` (`14-37-08`). The date comes, best first, from EXIF DateTimeOriginal (with SubSecTimeOriginal/OffsetTimeOriginal; for maker formats as the RAW decoder reads their embedded EXIF, and a CRW's CIFF time stamp), DateTimeDigitized, the EXIF file date (IFD0 DateTime), the file's modification time, and only without any of these the import time. The import dialog's example shows which one was used.
+- Original file: `{orig}` `{orig_base}` `{orig_num}` (the digits the name ends with) `{folder}` (the card folder) `{ext}`; counter `{seq}` / `{seq:N}` `{seq_start}`; `{job}` / `{session}`.
+- Camera and exposure: `{camera}` (make and model, the make not repeated) `{make}` `{model}` `{serial}` `{lens}` `{iso}` `{focal}` `{aperture}` `{shutter}` (`1-250`, `0.3s`, `2s`).
+- Metadata: `{rating}` `{color}` `{title}` from an XMP sidecar on the card, `{creator}` `{copyright}` from it or else EXIF Artist/Copyright.
+
+A token without a value renders empty; unknown tokens and transforms fail. Transforms: `|upper`, `|lower`, `|pad:N`. A source's XMP sidecar (`NAME.EXT.xmp`, else `NAME.xmp`; for a JPEG, HEIF or other developed image only when no other file shares its name, as in a RAW+JPEG pair the sidecar is the RAW's) is copied, verified and never replacing a file, beside the copy as `<new name>.xmp` (and beside the backup), and the library adopts its rating, label, keywords and IPTC fields when it registers the photograph. `rawtonic name SOURCES --template T` shows the names an ingest would give, read-only.
 
 ### Full-resolution export
 

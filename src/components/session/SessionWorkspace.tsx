@@ -1,4 +1,4 @@
-import { validNamingTemplate, validSequenceStart } from "../../utils/namingTemplates";
+import { validNamingTemplate, validSequenceStart, type NamePreview } from "../../utils/namingTemplates";
 import NamingEditor from "../ui/NamingEditor";
 import LibraryTransferDialog, { type TransferPurpose } from "./LibraryTransferDialog";
 import FolderSyncDialog from "./FolderSyncDialog";
@@ -84,6 +84,10 @@ interface ImportResult {
   error: string | null;
   skipped: boolean;
   destination: string | null;
+  /** The card sidecar copied beside the copy (and adopted). */
+  sidecar?: string | null;
+  /** A problem that did not keep the photograph out (its sidecar). */
+  warning?: string | null;
 }
 /** Mirrors `session_bridge::IngestScan`. */
 interface IngestScan {
@@ -242,6 +246,35 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [backup, setBackup] = useState<string | null>(null);
   const [template, setTemplate] = useState("{orig}");
   const [sequenceStart, setSequenceStart] = useState(1);
+  // The ingest dialog's example name made by the backend from the first
+  // chosen photograph's own EXIF and card sidecar, for the template,
+  // counter and photograph it was made for.
+  const [namePreview, setNamePreview] = useState<
+    { key: string; result: NamePreview } | null
+  >(null);
+  const previewSource =
+    form === "ingest" ? (sources.find((file) => chosen.has(file.path))?.path ?? null) : null;
+  const previewKey = `${previewSource}\n${template}\n${sequenceStart}\n${session?.manifest.name ?? ""}`;
+  useEffect(() => {
+    if (!previewSource || !isTauri() || !validNamingTemplate(template, "ingest") || !validSequenceStart(sequenceStart))
+      return;
+    let current = true;
+    const timer = window.setTimeout(() => {
+      invoke<NamePreview>("session_naming_preview", {
+        source: previewSource,
+        template,
+        job: session?.manifest.name ?? "",
+        sequence: sequenceStart,
+        sequenceStart,
+      })
+        .then((result) => current && setNamePreview({ key: previewKey, result }))
+        .catch(() => current && setNamePreview(null));
+    }, 150);
+    return () => {
+      current = false;
+      window.clearTimeout(timer);
+    };
+  }, [previewKey, previewSource, template, sequenceStart, session?.manifest.name]);
   const [busy, setBusy] = useState(false);
   const [importing, setImporting] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
@@ -830,6 +863,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       const failures = results.filter((r) => r.error);
       const skipped = results.filter((r) => r.skipped).length;
       const copied = results.length - failures.length - skipped;
+      const sidecars = results.filter((r) => r.sidecar && !r.error).length;
+      const warnings = results.filter((r) => r.warning);
       let albumError: string | null = null;
       if (album) {
         const paths = results.filter((r) => r.destination && !r.error).map((r) => r.destination as string);
@@ -857,11 +892,17 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               ? t("session.toasts.added", { count: copied })
               : t("session.toasts.ingested", { count: copied }),
             skipped ? t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
+            sidecars ? t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
             album && !albumError ? t("session.toasts.addedToAlbum", { name: album.name }) : null,
             results.length < files.length ? t("session.toasts.ingestCancelled") : null,
           ]
             .filter(Boolean)
             .join(" · "),
+        );
+      if (warnings.length)
+        toast.warning(
+          t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
+          { autoClose: false },
         );
       if (albumError)
         toast.error(t("session.toasts.albumAddFailed", { name: album?.name, error: albumError }), {
@@ -1580,7 +1621,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               <h3>{t("naming.title")}</h3>
               <NamingEditor mode="ingest" value={template} onChange={setTemplate}
                 label={t("session.fields.filenameTemplate")} original={sources.find((file) => chosen.has(file.path))?.path ?? sources[0]?.path} job={session?.manifest.name} total={chosen.size}
-                sequenceStart={sequenceStart} onSequenceStartChange={setSequenceStart} />
+                sequenceStart={sequenceStart} onSequenceStartChange={setSequenceStart}
+                preview={namePreview?.key === previewKey ? namePreview.result : null} />
             </section>
             )}
             <div className="session-copy-note">

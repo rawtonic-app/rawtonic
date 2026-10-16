@@ -23,6 +23,7 @@ import {
   namingPresets,
   namingTokens,
   splitTemplate,
+  type NamePreview,
   type NamingMode,
 } from "../../utils/namingTemplates";
 import "./naming-editor.css";
@@ -55,6 +56,7 @@ export default function NamingEditor({
   total = 1,
   sequenceStart = 1,
   onSequenceStartChange,
+  preview,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -66,6 +68,9 @@ export default function NamingEditor({
   total?: number;
   sequenceStart?: number;
   onSequenceStartChange?: (value: number) => void;
+  /** The backend's name for the first source photograph (its own EXIF and
+   * sidecar); without it the example uses illustrative values. */
+  preview?: NamePreview | null;
 }) {
   const { t } = useTranslation();
   const id = useId();
@@ -211,16 +216,24 @@ export default function NamingEditor({
       <div className="naming-example" id={`${id}-example`} aria-live="polite">
         <span>{t("naming.example")}</span>
         <code>
-          {namingExample(
-            value,
-            mode,
-            original,
-            extension,
-            job,
-            validSequenceStart(sequenceStart) ? sequenceStart : 1,
-            total,
-          )}
+          {preview && valid
+            ? preview.name
+            : namingExample(
+                value,
+                mode,
+                original,
+                extension,
+                job,
+                validSequenceStart(sequenceStart) ? sequenceStart : 1,
+                total,
+              )}
         </code>
+        {preview && valid && (
+          <small className="naming-date-source">
+            {t(`naming.dateSources.${preview.dateSource}`)}
+            {preview.sidecar ? ` · ${t("naming.sidecarCopied")}` : ""}
+          </small>
+        )}
       </div>
       <details className="naming-builder">
         <summary>{t("naming.edit")}</summary>

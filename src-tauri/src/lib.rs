@@ -660,6 +660,7 @@ pub fn run() {
             session_bridge::session_last,
             session_bridge::session_summary,
             session_bridge::session_ingest,
+            session_bridge::session_naming_preview,
             session_bridge::session_ingest_scan,
             session_bridge::session_ingest_thumbnail,
             session_bridge::session_ingest_preview,

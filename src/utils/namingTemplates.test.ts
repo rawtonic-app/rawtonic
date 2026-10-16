@@ -28,9 +28,14 @@ it("retains free text, separators and malformed tokens for editing without data 
   expect(splitTemplate(template).join("")).toBe(template);
 });
 it("offers only populated import tokens and preserves unknown values in previews", () => {
+  // Camera tokens are filled from EXIF since the backend reads it.
   expect(namingTokens("ingest").some((t) => t.value === "{camera}")).toBe(
-    false,
+    true,
   );
+  for (const token of ["{version}", "{user_text}", "{session}"])
+    expect(namingTokens("ingest").some((t) => t.value === token), token).toBe(
+      false,
+    );
   expect(namingExample("{unknown}_{orig}", "ingest", "a.RAF")).toBe(
     "{unknown}_a.RAF",
   );
@@ -68,6 +73,24 @@ it('moves repeated tokens by position and inserts new tokens without losing text
   expect(dropNamingBlock(parts, 2, '{sequence}')).toBe('{YYYY}-{sequence}{YYYY}_{original_filename}');
   expect(dropNamingBlock([], 0, '{sequence}')).toBe('{sequence}');
   expect(dropNamingBlock(parts, 2, '', 2)).toBe(parts.join(''));
+});
+it("accepts every offered ingest token and keeps the Rust token list", async () => {
+  const { validNamingTemplate, INGEST_TOKEN_NAMES } = await import(
+    "./namingTemplates"
+  );
+  for (const token of namingTokens("ingest"))
+    expect(validNamingTemplate(`${token.value}.x`, "ingest"), token.value).toBe(
+      true,
+    );
+  for (const name of INGEST_TOKEN_NAMES)
+    expect(validNamingTemplate(`{${name}}`, "ingest"), name).toBe(true);
+  expect(
+    namingExample(
+      "{camera}_{orig_num}_ISO{iso}_{shutter}.{ext}",
+      "ingest",
+      "DSC_0042.ARW",
+    ),
+  ).toBe("Camera Model_0042_ISO400_1-250.ARW");
 });
 it('previews zero and a counter crossing a padding boundary', () => {
   expect(namingExample('{sequence}', 'export', 'a.RAF', 'jpg', '', 98, 4)).toBe('098.jpg');

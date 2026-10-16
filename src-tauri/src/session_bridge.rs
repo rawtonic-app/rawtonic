@@ -605,6 +605,33 @@ pub async fn session_ingest_capture_info(
     .map_err(|e| e.to_string())
 }
 
+/// The name the ingest would give `source` with `template` (counter
+/// `sequence`, first `sequence_start`) in a library named `job`, filled from
+/// its EXIF and card sidecar, and where its capture date came from: the
+/// import dialog's preview. Reads the file's header and sidecar only.
+#[tauri::command]
+pub async fn session_naming_preview(
+    source: String,
+    template: String,
+    job: String,
+    sequence: Option<u64>,
+    sequence_start: Option<u64>,
+) -> Result<rawtonic_ingest::NamePreview, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let start = sequence_start.unwrap_or(1);
+        rawtonic_ingest::preview_name(
+            &job,
+            Path::new(&source),
+            &template,
+            sequence.unwrap_or(start),
+            start,
+        )
+        .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// What `session-ingest-imported` reports for each photograph of an ingest,
 /// in order, as soon as it is in the library.
 #[derive(Debug, Clone, serde::Serialize)]

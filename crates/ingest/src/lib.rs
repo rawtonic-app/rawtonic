@@ -1,5 +1,6 @@
 //! Verified ingest: streaming reads, bounded memory and no-clobber publication.
 pub mod batch;
+pub mod capture;
 pub mod hot_folder;
 pub mod transfer;
 
@@ -28,7 +29,7 @@ pub struct CopyReceipt {
     pub bytes: u64,
     pub sha256: String,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ImportResult {
     pub source: PathBuf,
     pub destination: Option<PathBuf>,
@@ -36,6 +37,132 @@ pub struct ImportResult {
     pub asset_id: Option<String>,
     pub error: Option<String>,
     pub skipped: bool,
+    /// The source's XMP sidecar (`capture::card_sidecar`), copied beside
+    /// `destination` under its name and adopted by the library.
+    #[serde(default)]
+    pub sidecar: Option<PathBuf>,
+    /// A problem that did not keep the photograph out: its sidecar could
+    /// not be read or copied (the photograph is imported without it).
+    #[serde(default)]
+    pub warning: Option<String>,
+}
+
+/// What a source brings to its import besides its bytes: its capture facts
+/// (`capture::read_capture`) and its card sidecar with the metadata read
+/// from it (`capture::card_sidecar`).
+#[derive(Debug, Clone, Default)]
+pub struct SourceFacts {
+    pub capture: rawtonic_naming::Capture,
+    pub sidecar: Option<PathBuf>,
+    /// Why the sidecar is not used (unreadable, not XMP).
+    pub sidecar_error: Option<String>,
+}
+
+/// Reads `source`'s capture facts and card sidecar. Reads only.
+pub fn source_facts(source: &Path) -> SourceFacts {
+    let mut facts = SourceFacts {
+        capture: capture::read_capture(source),
+        ..SourceFacts::default()
+    };
+    if let Some(sidecar) = capture::card_sidecar(source) {
+        match read_sidecar(&sidecar) {
+            Ok(metadata) => {
+                capture::apply_sidecar(&mut facts.capture, &metadata);
+                facts.sidecar = Some(sidecar);
+            }
+            Err(error) => {
+                facts.sidecar_error = Some(format!(
+                    "The sidecar {} was not copied: {error:#}",
+                    sidecar.display()
+                ))
+            }
+        }
+    }
+    facts
+}
+
+fn read_sidecar(path: &Path) -> Result<rawtonic_metadata::Metadata> {
+    ensure!(
+        fs::metadata(path)?.len() <= 16 * 1024 * 1024,
+        "XMP exceeds 16 MiB limit"
+    );
+    let text = fs::read_to_string(path)?;
+    Ok(rawtonic_metadata::read_xmp(&text)?.0)
+}
+
+/// The naming context of `source` in a library named `job`: its name,
+/// counter and the facts of `source_facts`.
+pub fn naming_context(
+    job: &str,
+    source: &Path,
+    facts: &SourceFacts,
+    sequence: u64,
+    sequence_start: u64,
+) -> Result<NamingContext> {
+    let mut context = NamingContext::new(
+        source
+            .file_name()
+            .and_then(|s| s.to_str())
+            .context("Invalid source filename")?,
+        sequence,
+    );
+    context.sequence_start = sequence_start;
+    context.values.insert("session".into(), job.into());
+    context.values.insert("job".into(), job.into());
+    if let Some(folder) = source
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+    {
+        context.values.insert("folder".into(), folder.into());
+    }
+    context.apply_capture(&facts.capture);
+    Ok(context)
+}
+
+/// The name an import of `source` would give it with `template` (before a
+/// collision suffix), and where its date came from: the import dialog's
+/// preview. Reads `source`'s header and sidecar only.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamePreview {
+    pub name: String,
+    pub date_source: rawtonic_naming::DateSource,
+    pub sidecar: bool,
+}
+
+pub fn preview_name(
+    job: &str,
+    source: &Path,
+    template: &str,
+    sequence: u64,
+    sequence_start: u64,
+) -> Result<NamePreview> {
+    let facts = source_facts(source);
+    let context = naming_context(job, source, &facts, sequence, sequence_start)?;
+    Ok(NamePreview {
+        name: render(template, &context)?,
+        date_source: facts.capture.date_source,
+        sidecar: facts.sidecar.is_some(),
+    })
+}
+
+/// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
+/// photograph) as `<photo stem>.xmp`, verified and never replacing a file:
+/// a file already there with the same bytes is taken as that copy (an
+/// earlier, interrupted import made it), a different one is an error.
+fn copy_sidecar(sidecar: &Path, photo: &Path, cancel: &AtomicBool) -> Result<PathBuf> {
+    let target = photo.with_extension("xmp");
+    if fs::symlink_metadata(&target).is_ok() {
+        ensure!(
+            fs::symlink_metadata(&target)?.is_file() && sha256(&target)? == sha256(sidecar)?,
+            "A different sidecar is already at {}; the card's sidecar was not copied",
+            target.display()
+        );
+        return Ok(target);
+    }
+    verified_copy(sidecar, &target, cancel, |_| {})?;
+    Ok(target)
 }
 
 pub fn sha256(path: &Path) -> Result<String> {
@@ -394,31 +521,23 @@ fn import_one_into_with(
     contents: Option<&Contents>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult> {
-    let mut context = NamingContext::new(
-        source
-            .file_name()
-            .and_then(|s| s.to_str())
-            .context("Invalid source filename")?,
+    // One read of the source's header for its name, its date folder and
+    // its card sidecar (the copy below reads the whole file).
+    let facts = source_facts(source);
+    let context = naming_context(
+        &library.manifest.name,
+        source,
+        &facts,
         sequence,
-    );
-    context.sequence_start = sequence_start;
-    context
-        .values
-        .insert("session".into(), library.manifest.name.clone());
-    context
-        .values
-        .insert("job".into(), library.manifest.name.clone());
-    // mtime is a documented fallback; capture EXIF extraction belongs in rawdecode.
-    if let Ok(modified) = fs::metadata(source)?.modified() {
-        context.captured = chrono_from_system(modified);
-    }
+        sequence_start,
+    )?;
     let name = render(template, &context)?;
     let mut folder = destination.path().to_path_buf();
     // Catalogs organize their managed originals by capture date. Explicit
     // folder drops retain the destination the user chose; old manifests keep
     // their existing capture folder. Projects retain the per-job layout.
     if destination.sort_by_date {
-        let date = capture_date(source);
+        let date = context.captured.date();
         folder = folder
             .join(date.format("%Y").to_string())
             .join(date.format("%Y-%m-%d").to_string());
@@ -444,6 +563,7 @@ fn import_one_into_with(
                 asset_id: Some(asset.id.clone()),
                 error: None,
                 skipped: true,
+                ..Default::default()
             });
         }
     }
@@ -476,14 +596,23 @@ fn import_one_into_with(
             }
         });
     }
+    // The backup gets the card sidecar too; a failure there only warns.
+    let mut warnings: Vec<String> = facts.sidecar_error.iter().cloned().collect();
+    if let (Some(card), Some(backup)) = (&facts.sidecar, &backup_result)
+        && let Err(error) = copy_sidecar(card, backup, &AtomicBool::new(false))
+    {
+        warnings.push(format!("Backup: {error:#}"));
+    }
     if let Some(earlier) = earlier {
-        return Ok(register(
+        return Ok(register_with_sidecar(
             library,
             source,
             earlier,
             backup_result,
             None,
             contents,
+            &facts,
+            warnings,
         ));
     }
     let destination =
@@ -498,17 +627,66 @@ fn import_one_into_with(
                 asset_id: None,
                 error: Some(error.to_string()),
                 skipped: false,
+                ..Default::default()
             });
         }
     };
-    Ok(register(
+    Ok(register_with_sidecar(
         library,
         source,
         receipt.destination,
         backup_result,
         Some(&receipt.sha256),
         contents,
+        &facts,
+        warnings,
     ))
+}
+
+/// `register` of `photo` after copying the card sidecar of `facts` beside
+/// it, so the library adopts the sidecar's rating, label, keywords and
+/// IPTC fields in the same transaction (`Contents::read_sidecars`, as
+/// "Add" and `adopt_xmp` read them). The sidecar is small and always
+/// finished once its photograph is in (no cancel). Without one, or when it
+/// cannot be copied or read, the photograph is registered as it is, with a
+/// warning.
+#[allow(clippy::too_many_arguments)]
+fn register_with_sidecar(
+    library: &Library,
+    source: &Path,
+    photo: PathBuf,
+    backup: Option<PathBuf>,
+    sha256: Option<&str>,
+    contents: Option<&Contents>,
+    facts: &SourceFacts,
+    mut warnings: Vec<String>,
+) -> ImportResult {
+    let mut sidecar = None;
+    let mut merged = contents.cloned();
+    if let Some(card) = &facts.sidecar {
+        let adopted = copy_sidecar(card, &photo, &AtomicBool::new(false))
+            .and_then(|copied| Ok((copied, Contents::read_sidecars(&photo)?)));
+        match adopted {
+            Ok((copied, read)) => {
+                sidecar = Some(copied);
+                merged = Some(match contents {
+                    None => read,
+                    // A capture's next-capture adjustments stay; the
+                    // sidecar's metadata takes precedence over theirs.
+                    Some(given) => Contents {
+                        editor_state: given.editor_state.clone().or(read.editor_state),
+                        metadata: read.metadata.or(given.metadata.clone()),
+                        xmp_digest: read.xmp_digest.or(given.xmp_digest.clone()),
+                    },
+                });
+            }
+            Err(error) => warnings.push(format!("{error:#}")),
+        }
+    }
+    let mut result = register(library, source, photo, backup, sha256, merged.as_ref());
+    result.sidecar = sidecar;
+    result.warning = (!warnings.is_empty()).then(|| warnings.join("; "));
+    result
 }
 
 /// Records `copy`, which an earlier `import_one` of `source` copied and
@@ -587,11 +765,8 @@ fn register(
         asset_id,
         error,
         skipped: false,
+        ..Default::default()
     }
-}
-
-fn chrono_from_system(t: std::time::SystemTime) -> chrono::NaiveDateTime {
-    chrono::DateTime::<chrono::Local>::from(t).naive_local()
 }
 
 #[cfg(test)]
@@ -779,6 +954,132 @@ mod tests {
 }
 
 #[cfg(test)]
+mod exif_and_sidecar_tests {
+    use super::*;
+    use crate::capture::tests::{jpeg_with_exif, tiff_exif};
+
+    const CARD_XMP: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:photoshop="http://ns.adobe.com/photoshop/1.0/" xmp:Rating="3" xmp:Label="Red" photoshop:City="Hamburg"><dc:subject><rdf:Bag><rdf:li>harbour</rdf:li></rdf:Bag></dc:subject><dc:title><rdf:Alt><rdf:li xml:lang="x-default">Ships</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF></x:xmpmeta>"#;
+
+    fn session(dir: &Path, mode: rawtonic_catalog::Mode) -> Library {
+        Library::create(&dir.join("job"), "Harbour", mode).unwrap()
+    }
+
+    fn card(dir: &Path) -> PathBuf {
+        let card = dir.join("card/DCIM/100TEST");
+        fs::create_dir_all(&card).unwrap();
+        card
+    }
+
+    /// Names and catalog date folders come from the EXIF capture date and
+    /// camera, not the file's modification time.
+    #[test]
+    fn names_and_date_folders_come_from_exif() {
+        let d = tempfile::tempdir().unwrap();
+        let source = card(d.path()).join("DSC_0042.JPG");
+        fs::write(&source, jpeg_with_exif(&tiff_exif("2025:12:24 18:30:15"))).unwrap();
+        let lib = session(d.path(), rawtonic_catalog::Mode::Catalog);
+        let r = import_one(
+            &lib,
+            &source,
+            "{yyyy}{mm}{dd}-{hh}{MM}{ss}.{subsec}_{camera}_{orig_num}_{folder}_ISO{iso}_{shutter}.{ext|lower}",
+            1,
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert!(r.error.is_none() && r.warning.is_none(), "{r:?}");
+        let destination = r.destination.unwrap();
+        assert_eq!(
+            destination.file_name().unwrap().to_str().unwrap(),
+            "20251224-183015.042_Testmaker Model One_0042_100TEST_ISO800_1-250.jpg"
+        );
+        assert!(destination.parent().unwrap().ends_with("2025/2025-12-24"));
+        let preview = preview_name("Harbour", &source, "{date}_{lens}", 1, 1).unwrap();
+        assert_eq!(preview.name, "2025-12-24_Test Lens 35mm F2.8");
+        assert_eq!(preview.date_source, rawtonic_naming::DateSource::Original);
+        assert!(!preview.sidecar);
+    }
+
+    /// A card sidecar is copied beside the renamed copy (and its backup)
+    /// under the new name, and the library adopts its metadata; the card's
+    /// files stay as they were.
+    #[test]
+    fn card_sidecars_are_copied_under_the_new_name_and_adopted() {
+        let d = tempfile::tempdir().unwrap();
+        let card = card(d.path());
+        let source = card.join("A0001.ARW");
+        fs::write(&source, b"raw bytes").unwrap();
+        let card_xmp = card.join("A0001.xmp");
+        fs::write(&card_xmp, CARD_XMP).unwrap();
+        let lib = session(d.path(), rawtonic_catalog::Mode::Session);
+        let backup = d.path().join("backup");
+        let r = import_one(
+            &lib,
+            &source,
+            "{job}_{rating}{color|lower}_{title}_{seq:3}.{ext}",
+            7,
+            Some(&backup),
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert!(r.error.is_none() && r.warning.is_none(), "{r:?}");
+        let destination = r.destination.unwrap();
+        assert_eq!(
+            destination.file_name().unwrap().to_str().unwrap(),
+            "Harbour_3red_Ships_007.ARW"
+        );
+        let copied = destination.with_file_name("Harbour_3red_Ships_007.xmp");
+        assert_eq!(r.sidecar.as_deref(), Some(copied.as_path()));
+        assert_eq!(fs::read_to_string(&copied).unwrap(), CARD_XMP);
+        assert_eq!(
+            fs::read_to_string(backup.join("Harbour_3red_Ships_007.xmp")).unwrap(),
+            CARD_XMP
+        );
+        let asset = lib.asset(&r.asset_id.unwrap()).unwrap();
+        assert_eq!((asset.rating, asset.label.as_str()), (3, "Red"));
+        let metadata = lib.metadata(&asset.id).unwrap();
+        assert_eq!(metadata.keywords, ["harbour"]);
+        assert_eq!(metadata.title, "Ships");
+        assert_eq!(
+            metadata.iptc.get("city").map(String::as_str),
+            Some("Hamburg")
+        );
+        assert_eq!(lib.summary().unwrap().xmp_pending, 0, "adopted as synced");
+        assert_eq!(fs::read_to_string(&card_xmp).unwrap(), CARD_XMP);
+        assert_eq!(fs::read(&source).unwrap(), b"raw bytes");
+    }
+
+    /// A different file where the sidecar would go is never replaced; a
+    /// sidecar that is not XMP is not copied. Either way the photograph is
+    /// imported, with a warning.
+    #[test]
+    fn sidecar_problems_warn_and_never_replace_a_file() {
+        let d = tempfile::tempdir().unwrap();
+        let card = card(d.path());
+        let lib = session(d.path(), rawtonic_catalog::Mode::Session);
+        let capture = lib.directory.join(&lib.manifest.capture);
+        fs::create_dir_all(&capture).unwrap();
+        fs::write(capture.join("B.xmp"), b"someone else's").unwrap();
+        let b = card.join("B.ARW");
+        fs::write(&b, b"b bytes").unwrap();
+        fs::write(card.join("B.xmp"), CARD_XMP).unwrap();
+        let r = import_one(&lib, &b, "{orig}", 1, None, &AtomicBool::new(false)).unwrap();
+        assert!(r.asset_id.is_some() && r.error.is_none(), "{r:?}");
+        assert!(r.warning.unwrap().contains("different sidecar"));
+        assert_eq!(r.sidecar, None);
+        assert_eq!(fs::read(capture.join("B.xmp")).unwrap(), b"someone else's");
+
+        let c = card.join("C.ARW");
+        fs::write(&c, b"c bytes").unwrap();
+        fs::write(card.join("C.xmp"), b"not xml <").unwrap();
+        let r = import_one(&lib, &c, "{orig}", 2, None, &AtomicBool::new(false)).unwrap();
+        assert!(r.asset_id.is_some() && r.error.is_none(), "{r:?}");
+        assert!(r.warning.unwrap().contains("was not copied"));
+        assert!(!capture.join("C.xmp").exists());
+    }
+}
+
+#[cfg(test)]
 mod counter_start_tests {
     use super::*;
 
@@ -813,35 +1114,4 @@ mod counter_start_tests {
             assert_eq!(fs::read(&source).unwrap(), fs::read(destination).unwrap());
         }
     }
-}
-
-/// EXIF capture date, falling back to the source's modification date.
-fn capture_date(source: &Path) -> chrono::NaiveDate {
-    let exif = fs::File::open(source).ok().and_then(|file| {
-        exif::Reader::new()
-            .read_from_container(&mut std::io::BufReader::new(file))
-            .ok()
-    });
-    if let Some(exif) = exif {
-        for tag in [
-            exif::Tag::DateTimeOriginal,
-            exif::Tag::DateTimeDigitized,
-            exif::Tag::DateTime,
-        ] {
-            if let Some(field) = exif.get_field(tag, exif::In::PRIMARY)
-                && let exif::Value::Ascii(values) = &field.value
-                && let Some(bytes) = values.first()
-                && let Ok(text) = std::str::from_utf8(bytes)
-                && let Some(date) = text.get(..10)
-                && let Ok(date) = chrono::NaiveDate::parse_from_str(date, "%Y:%m:%d")
-            {
-                return date;
-            }
-        }
-    }
-    fs::metadata(source)
-        .and_then(|m| m.modified())
-        .map(chrono_from_system)
-        .unwrap_or_else(|_| chrono::Utc::now().naive_utc())
-        .date()
 }
