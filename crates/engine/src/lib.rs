@@ -38,6 +38,7 @@ pub mod relight;
 pub mod session_layout;
 pub mod source_facts;
 pub mod spot_removal;
+pub mod white_balance_estimate;
 
 use rawtonic_rawdecode::{
     camera_exposure, capture_info, color_calibration, dng_color, dng_opcodes, image_key,
