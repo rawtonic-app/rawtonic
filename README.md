@@ -7,7 +7,7 @@
 
 <p align="center">
   A free, open-source <b>RAW developer</b> for photographers.<br>
-  <b>Ingest → select → develop → retouch → deliver</b>, on your own Mac, with your originals left untouched.
+  <b>Ingest → select → develop → retouch → deliver</b>, on your own Mac or Linux PC, with your originals left untouched.
 </p>
 
 <p align="center">
@@ -45,7 +45,11 @@ Rawtonic is a one-person project that I work on in my spare time. Some weeks a l
 
 Get the latest build from the [**Releases**](https://github.com/rawtonic-app/rawtonic/releases) page.
 
-**macOS**: download `Rawtonic_<version>_aarch64.dmg` for Apple Silicon (M1 and later), macOS 13 or later. Open it and drag **Rawtonic** to **Applications**.
+Rawtonic runs on **macOS** (Apple Silicon) and **Linux** (x86-64).
+
+### macOS
+
+Download `Rawtonic_<version>_aarch64.dmg` for Apple Silicon (M1 and later), macOS 13 or later. Open it and drag **Rawtonic** to **Applications**.
 
 The app is not signed with an Apple Developer ID (yet), so macOS will refuse to open it at first, or claim it is "damaged". Clear the quarantine flag once in Terminal:
 
@@ -55,7 +59,9 @@ xattr -cr /Applications/Rawtonic.app
 
 Or right-click (Control-click) the app → **Open** → **Open**; if macOS still refuses, go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-**Linux** (x86-64): download `Rawtonic_<version>_amd64.AppImage`, make it executable and start it:
+### Linux
+
+Download `Rawtonic_<version>_amd64.AppImage` for x86-64, make it executable and start it:
 
 ```sh
 chmod +x Rawtonic_*_amd64.AppImage
@@ -63,6 +69,8 @@ chmod +x Rawtonic_*_amd64.AppImage
 ```
 
 It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and others with glibc 2.35 or later). If it does not start, install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on older Ubuntu and Debian) or start it with `--appimage-extract-and-run`. The very first start can take a minute or two before the first photo appears while the graphics driver prepares Rawtonic's shaders; later starts are quick.
+
+### Other systems
 
 Intel Macs and Windows builds are not available yet; you can [build from source](docs/DEVELOPMENT.md) on them.
 
@@ -171,13 +179,13 @@ Save **export recipes** for full-size delivery, web sizes, social media or TIFFs
 
 The before / after split shows in the single view only: turning on the multi view turns the split off, and turning on the split leaves the multi view.
 
-The keys follow what photographers already know from the big editors, and every shortcut can be changed in Settings.
+On Linux, **Ctrl** takes the place of **⌘** (Ctrl+Z, Ctrl+Return …). The keys follow what photographers already know from the big editors, and every shortcut can be changed in Settings.
 
 ## Status and known limitations
 
 Rawtonic's goal is simple to state and hard to reach: every tool should be at least as good as the better of the leading professional editors, measured on real photographs. Some tools are there, others are not yet. In this alpha:
 
-- **macOS on Apple Silicon and Linux (x86-64 AppImage).** Intel Macs and Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu and Debian).
+- **macOS on Apple Silicon and Linux (x86-64 AppImage).** Intel Macs and Windows builds come later. On Linux, Develop shows its preview through the web view rather than directly on the GPU, so it is not quite as immediate as on a Mac, and it has been tested on fewer systems (NVIDIA on KDE Wayland; exports also on Ubuntu, Debian and Fedora).
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
