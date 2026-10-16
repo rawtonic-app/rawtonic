@@ -2587,7 +2587,21 @@
         "exportFailed": "导出失败：{{error}}",
         "imported_other": "已导入 {{count}} 个",
         "importedWithFailures": "已导入 {{imported}} 个，{{failed}} 个失败：{{files}}",
-        "importFailed": "导入失败：{{error}}"
+        "importFailed": "导入失败：{{error}}",
+        "untranslated": "未转换 — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "校准",
+        "colorEditor": "Color Editor",
+        "crop": "裁剪",
+        "filmCurve": "胶片曲线",
+        "lens": "镜头和梯形校正",
+        "lensProfile": "镜头配置文件",
+        "noiseReduction": "降噪",
+        "profile": "配置文件",
+        "profileNamed": "配置文件“{{name}}”",
+        "upright": "Upright",
+        "whiteBalance": "白平衡"
       }
     },
     "profile": {

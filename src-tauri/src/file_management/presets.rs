@@ -64,6 +64,21 @@ pub struct PresetImportFailure {
 pub struct PresetImportResult {
     pub presets: Vec<PresetItem>,
     pub failures: Vec<PresetImportFailure>,
+    /// Lightroom presets and Capture One styles whose settings were only
+    /// partly translated, so the photographer knows what the import left out.
+    pub untranslated: Vec<PresetImportUntranslated>,
+}
+
+/// Settings a converted preset file set that Rawtonic did not translate:
+/// codes from `preset_converter::untranslated_settings` and
+/// `costyle::untranslated_settings`, and the Lightroom profile's name.
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetImportUntranslated {
+    pub file_name: String,
+    pub settings: Vec<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 pub(crate) fn get_presets_path(app_handle: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -115,6 +130,21 @@ pub(crate) fn collect_top_level_preset_names(items: &[PresetItem]) -> HashSet<St
 }
 
 pub(crate) fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, String> {
+    parse_preset_file_reporting(file_path).map(|(items, _)| items)
+}
+
+/// Parses a preset file and, for Lightroom presets and Capture One styles,
+/// what they set that the translation left out (`None` when nothing).
+pub(crate) fn parse_preset_file_reporting(
+    file_path: &str,
+) -> Result<(Vec<PresetItem>, Option<PresetImportUntranslated>), String> {
+    let report = |settings: Vec<&'static str>, profile: Option<String>| {
+        (!settings.is_empty()).then(|| PresetImportUntranslated {
+            file_name: preset_file_display_name(file_path),
+            settings,
+            profile,
+        })
+    };
     let lower_path = file_path.to_lowercase();
     if lower_path.ends_with(".costyle") || lower_path.ends_with(".cos") {
         let content = fs::read_to_string(file_path)
@@ -123,9 +153,9 @@ pub(crate) fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, Stri
             || "Capture One style".to_string(),
             |s| s.to_string_lossy().to_string(),
         );
-        return Ok(vec![PresetItem::Preset(
-            crate::costyle::convert_costyle_to_preset(&content, &stem)?,
-        )]);
+        let preset = crate::costyle::convert_costyle_to_preset(&content, &stem)?;
+        let untranslated = report(crate::costyle::untranslated_settings(&content), None);
+        return Ok((vec![PresetItem::Preset(preset)], untranslated));
     }
     let is_legacy = lower_path.ends_with(".xmp") || lower_path.ends_with(".lrtemplate");
 
@@ -134,7 +164,7 @@ pub(crate) fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, Stri
             .map_err(|e| format!("Failed to read preset file: {}", e))?;
         let preset_file: PresetFile = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse preset file: {}", e))?;
-        return Ok(preset_file.presets);
+        return Ok((preset_file.presets, None));
     }
 
     let content = fs::read_to_string(file_path)
@@ -153,7 +183,11 @@ pub(crate) fn parse_preset_file(file_path: &str) -> Result<Vec<PresetItem>, Stri
     };
 
     let converted_preset = preset_converter::convert_xmp_to_preset(&xmp_content)?;
-    Ok(vec![PresetItem::Preset(converted_preset)])
+    let (settings, profile) = preset_converter::untranslated_settings(&xmp_content);
+    Ok((
+        vec![PresetItem::Preset(converted_preset)],
+        report(settings, profile),
+    ))
 }
 
 pub(crate) fn merge_imported_items(
@@ -232,11 +266,13 @@ pub fn handle_import_presets_from_files(
     let mut taken_names = collect_top_level_preset_names(&current_presets);
 
     let mut failures: Vec<PresetImportFailure> = Vec::new();
+    let mut untranslated: Vec<PresetImportUntranslated> = Vec::new();
     let mut library_changed = false;
 
     for file_path in &file_paths {
-        match parse_preset_file(file_path) {
-            Ok(imported) => {
+        match parse_preset_file_reporting(file_path) {
+            Ok((imported, report)) => {
+                untranslated.extend(report);
                 library_changed |= !imported.is_empty();
                 merge_imported_items(&mut current_presets, &mut taken_names, imported);
             }
@@ -254,6 +290,7 @@ pub fn handle_import_presets_from_files(
     Ok(PresetImportResult {
         presets: current_presets,
         failures,
+        untranslated,
     })
 }
 

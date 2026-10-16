@@ -1495,8 +1495,91 @@ pub fn lightroom_masks(xmp: &str) -> (Vec<Value>, Vec<String>) {
     (layers, skipped)
 }
 
+/// The profile or creative look a preset sets (`crs:Look`, else
+/// `crs:CameraProfile`), unless it is Camera Raw's default rendering, which
+/// Rawtonic's own base rendering stands in for. Only the name is read:
+/// Adobe's profiles are Adobe's content and are not reproduced.
+fn untranslated_profile(xmp: &str) -> Option<String> {
+    let look = regex!(r#"<crs:Look\s[^>]*?crs:Name="([^"]*)""#)
+        .captures(xmp)
+        .or_else(|| {
+            regex!(r#"(?s)<crs:Look>\s*<rdf:Description\s[^>]*?crs:Name="([^"]*)""#).captures(xmp)
+        })
+        .or_else(|| regex!(r#"crs:CameraProfile="([^"]*)""#).captures(xmp))
+        .map(|c| c[1].trim().to_string())?;
+    let default = ["", "Adobe Color", "Adobe Standard", "Embedded"]
+        .iter()
+        .any(|d| look.eq_ignore_ascii_case(d));
+    (!default).then_some(look)
+}
+
+/// Settings in a Lightroom preset that `convert_xmp_to_preset` does not
+/// translate, as codes the import report names (`profile`, `calibration`,
+/// `lensProfile`, `crop`, `upright`), and the profile's name. Settings left
+/// at their defaults are not reported.
+pub fn untranslated_settings(xmp_content: &str) -> (Vec<&'static str>, Option<String>) {
+    let attrs: HashMap<String, String> = regex!(r#"crs:([A-Za-z0-9]+)="([^"]*)""#)
+        .captures_iter(xmp_content)
+        .map(|c| (c[1].to_string(), c[2].to_string()))
+        .collect();
+    let nonzero = |key: &str| get_attr_as_f64(&attrs, key).is_some_and(|v| v != 0.0);
+    let is = |key: &str, value: &str| {
+        attrs
+            .get(key)
+            .is_some_and(|v| v.eq_ignore_ascii_case(value))
+    };
+    let profile = untranslated_profile(xmp_content);
+    let mut out = Vec::new();
+    if profile.is_some() {
+        out.push("profile");
+    }
+    if [
+        "ShadowTint",
+        "RedHue",
+        "RedSaturation",
+        "GreenHue",
+        "GreenSaturation",
+        "BlueHue",
+        "BlueSaturation",
+    ]
+    .iter()
+    .any(|k| nonzero(k))
+    {
+        out.push("calibration");
+    }
+    if is("LensProfileEnable", "1") {
+        out.push("lensProfile");
+    }
+    if is("HasCrop", "True") {
+        out.push("crop");
+    }
+    if nonzero("PerspectiveUpright") {
+        out.push("upright");
+    }
+    (out, profile)
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reports_untranslated_settings_and_the_profile_name() {
+        let plain = r#"<rdf:Description crs:Exposure2012="+0.50" crs:RedHue="0"
+            crs:LensProfileEnable="0" crs:HasCrop="False" crs:PerspectiveUpright="0">
+            <crs:Look crs:Name="Adobe Color" crs:Amount="1"/></rdf:Description>"#;
+        assert_eq!(super::untranslated_settings(plain), (vec![], None));
+        let preset = r#"<rdf:Description crs:CameraProfile="Adobe Standard" crs:RedHue="+12"
+            crs:LensProfileEnable="1" crs:HasCrop="True" crs:PerspectiveUpright="2">
+            <crs:Look><rdf:Description crs:Name="Vivid Blue" crs:Amount="1"/></crs:Look>
+            </rdf:Description>"#;
+        assert_eq!(
+            super::untranslated_settings(preset),
+            (
+                vec!["profile", "calibration", "lensProfile", "crop", "upright"],
+                Some("Vivid Blue".to_string())
+            )
+        );
+    }
+
     use super::convert_xmp_to_preset;
     use serde_json::json;
 

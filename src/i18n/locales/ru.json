@@ -2824,7 +2824,21 @@
         "imported_many": "Импортировано {{count}} файлов",
         "imported_other": "Импортировано {{count}} файла",
         "importedWithFailures": "Импортировано: {{imported}}, ошибок: {{failed}}: {{files}}",
-        "importFailed": "Ошибка импорта: {{error}}"
+        "importFailed": "Ошибка импорта: {{error}}",
+        "untranslated": "Не перенесено — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "калибровка",
+        "colorEditor": "Color Editor",
+        "crop": "кадрирование",
+        "filmCurve": "плёночная кривая",
+        "lens": "объектив и keystone",
+        "lensProfile": "профиль объектива",
+        "noiseReduction": "шумоподавление",
+        "profile": "профиль",
+        "profileNamed": "профиль «{{name}}»",
+        "upright": "Upright",
+        "whiteBalance": "баланс белого"
       }
     },
     "profile": {

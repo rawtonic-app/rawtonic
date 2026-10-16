@@ -2,6 +2,7 @@ import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
+import { toast } from "react-toastify";
 import StudioPresets, { groupPresets } from "./StudioPresets";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -163,6 +164,33 @@ describe("importing presets and styles", () => {
     expect(mockInvoke).toHaveBeenCalledWith("handle_import_presets_from_files", {
       filePaths: ["/styles/Warm matte.costyle", "/lr/Film.xmp"],
     });
+  });
+
+  it("names the settings an import did not translate", async () => {
+    const info = vi.spyOn(toast, "info").mockImplementation(() => "");
+    openDialog.mockResolvedValue(["/lr/Film.xmp", "/styles/Warm matte.costyle"]);
+    mockInvoke.mockImplementation(async (command) =>
+      command === "load_presets"
+        ? stored
+        : command === "handle_import_presets_from_files"
+          ? {
+              presets: stored,
+              failures: [],
+              untranslated: [
+                { fileName: "Film.xmp", settings: ["profile", "crop"], profile: "Vivid Blue" },
+                { fileName: "Warm matte.costyle", settings: ["filmCurve"] },
+              ],
+            }
+          : undefined,
+    );
+    await renderTool();
+    fireEvent.click(screen.getByRole("button", { name: "Import presets" }));
+    await act(async () => {});
+    expect(info).toHaveBeenCalledWith(
+      "Not translated — Film.xmp: profile “Vivid Blue”, crop · Warm matte.costyle: film curve",
+      { autoClose: 12000 },
+    );
+    info.mockRestore();
   });
 
   it("does nothing when the dialog is cancelled", async () => {

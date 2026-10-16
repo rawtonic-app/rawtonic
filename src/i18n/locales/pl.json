@@ -2824,7 +2824,21 @@
         "imported_many": "Zaimportowano {{count}} plików",
         "imported_other": "Zaimportowano {{count}} pliku",
         "importedWithFailures": "Zaimportowano: {{imported}}, błędy: {{failed}}: {{files}}",
-        "importFailed": "Import nie powiódł się: {{error}}"
+        "importFailed": "Import nie powiódł się: {{error}}",
+        "untranslated": "Nie przeniesiono — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "kalibracja",
+        "colorEditor": "Color Editor",
+        "crop": "kadrowanie",
+        "filmCurve": "krzywa filmowa",
+        "lens": "obiektyw i keystone",
+        "lensProfile": "profil obiektywu",
+        "noiseReduction": "redukcja szumu",
+        "profile": "profil",
+        "profileNamed": "profil „{{name}}”",
+        "upright": "Upright",
+        "whiteBalance": "balans bieli"
       }
     },
     "profile": {

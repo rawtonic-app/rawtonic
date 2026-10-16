@@ -31,9 +31,18 @@ export interface PresetImportFailure {
   error: string;
 }
 
+// Settings a Lightroom preset or Capture One style set that the import did
+// not translate (codes from the converters, see `PresetImportUntranslated`).
+export interface PresetImportUntranslated {
+  fileName: string;
+  settings: Array<string>;
+  profile?: string;
+}
+
 export interface PresetImportResult {
   presets: Array<UserPreset>;
   failures: Array<PresetImportFailure>;
+  untranslated?: Array<PresetImportUntranslated>;
 }
 
 function arrayMove<T>(array: T[], from: number, to: number): T[] {
