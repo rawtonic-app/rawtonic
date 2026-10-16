@@ -2,7 +2,7 @@ import "../../i18n";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import SessionWorkspace, { flattenPresets, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
+import SessionWorkspace, { flattenPresets, parseKeywords, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
@@ -326,6 +326,9 @@ it("starts a hot folder for the session with a preset as next capture adjustment
   await user.type(screen.getByLabelText("Watched folder"), "/tether");
   await waitFor(() => expect(screen.getByRole("option", { name: "Preset: Studio" })).toBeTruthy());
   await user.selectOptions(screen.getByLabelText("Next capture adjustments"), "preset:p1");
+  await user.click(screen.getByLabelText("Include subfolders"));
+  await user.selectOptions(screen.getByLabelText("Next capture rating"), "3");
+  await user.type(screen.getByLabelText("Next capture keywords"), "studio, Acme, studio");
   await user.click(screen.getByRole("button", { name: "Start watching" }));
   await waitFor(() =>
     expect(invoke).toHaveBeenCalledWith("hot_folder_start", {
@@ -333,9 +336,52 @@ it("starts a hot folder for the session with a preset as next capture adjustment
       folder: "/tether",
       template: "{orig}",
       nextCapture: { mode: "preset", name: "Studio", adjustments: { contrast: 12 } },
+      metadata: { rating: 3, keywords: ["studio", "Acme"] },
+      includeSubfolders: true,
     }),
   );
   expect(screen.getByRole("button", { name: /Hot folder · 0/ })).toBeTruthy();
+});
+
+it("resumes the hot folder a library keeps when it opens, and shows a missing folder", async () => {
+  const user = userEvent.setup();
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === "hot_folder_resume"
+      ? {
+          folder: "/Volumes/Tether/Hot",
+          session: "/jobs/Acme",
+          imported: 0,
+          nextCapture: { mode: "defaults" },
+          metadata: { rating: 2, keywords: ["studio"] },
+          includeSubfolders: true,
+          missing: true,
+        }
+      : command === "hot_folder_stop"
+        ? null
+        : base(command, args),
+  );
+  render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Location" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("hot_folder_resume", { directory: "/jobs/Acme" }));
+  const button = await screen.findByRole("button", { name: /folder missing/ });
+  expect(toast.info).toHaveBeenCalledWith(expect.stringContaining("Hot not found"));
+  // The dialog shows what is watched; Stop forgets it for this library.
+  await user.click(button);
+  expect((screen.getByLabelText("Watched folder") as HTMLInputElement).value).toBe("/Volumes/Tether/Hot");
+  expect((screen.getByLabelText("Include subfolders") as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByLabelText("Next capture keywords") as HTMLInputElement).value).toBe("studio");
+  await user.click(screen.getByRole("button", { name: "Stop watching" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("hot_folder_stop", { directory: "/jobs/Acme" }));
+  expect(screen.getByRole("button", { name: "Hot folder" })).toBeTruthy();
+  expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "hot_folder_resume")).toHaveLength(1);
+});
+
+it("reads next-capture keywords from a comma-separated list", () => {
+  expect(parseKeywords(" studio, Acme;; studio ,")).toEqual(["studio", "Acme"]);
 });
 
 it("previews and imports a Lightroom catalog into the open catalog", async () => {

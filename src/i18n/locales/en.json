@@ -752,6 +752,8 @@
     "bar": {
       "hotFolder": "Hot folder",
       "hotFolderCount": "Hot folder · {{imported}}",
+      "hotFolderMissing": "Hot folder · folder missing",
+      "hotFolderMissingTitle": "{{folder}} cannot be found (is its drive connected?). Watching goes on when it is back.",
       "hotFolderTitle": "Watch a folder and copy new photographs into this project or catalog",
       "hotFolderWatching_one": "Watching {{folder}} · {{count}} imported",
       "hotFolderWatching_other": "Watching {{folder}} · {{count}} imported",
@@ -810,11 +812,16 @@
       "defaults": "Defaults",
       "folder": "Watched folder",
       "folderPlaceholder": "/path/to/tethered/captures",
+      "includeSubfolders": "Include subfolders",
+      "keywords": "Next capture keywords",
+      "keywordsPlaceholder": "studio, client (separated by commas)",
       "nextCapture": "Next capture adjustments",
+      "noRating": "No rating",
       "preset": "Preset: {{name}}",
+      "rating": "Next capture rating",
+      "resumesOnOpen": "Watching resumes when this project or catalog is opened again.",
       "start": "Start watching",
       "stop": "Stop watching",
-      "stopsOnQuit": "Watching stops when the app quits.",
       "subtitle": "New photographs in the folder are copied in as they arrive.",
       "switch": "Watch this folder instead",
       "title": "Hot folder"
@@ -980,6 +987,7 @@
       "flagsFailed": "Could not save flags: {{error}}",
       "flagsSavedRefreshFailed": "Flags saved; project summary could not refresh: {{error}}",
       "hotFolderFailed": "Hot folder: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "The hot folder could not resume: {{error}}",
       "importCopiesSkipped_one": "{{count}} virtual copy not imported",
       "importCopiesSkipped_other": "{{count}} virtual copies not imported",
       "imported_one": "{{count}} photograph imported ({{withSettings}} with edits, {{albums}} albums)",
@@ -991,7 +999,9 @@
       "ingested_other": "{{count}} photos copied and verified",
       "ingestFailed_one": "{{copied}} copied; {{count}} failed. {{error}}",
       "ingestFailed_other": "{{copied}} copied; {{count}} failed. {{error}}",
-      "watching": "Watching {{folder}} for new photographs."
+      "watching": "Watching {{folder}} for new photographs.",
+      "watchingMissing": "Hot folder {{folder}} not found; watching goes on when it is back.",
+      "watchingResumed": "Watching {{folder}} again."
     },
     "transfer": {
       "backup": "Create full backup…",

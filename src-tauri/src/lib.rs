@@ -777,6 +777,8 @@ pub fn run() {
             library_import::library_import_preview,
             library_import::library_import,
             hot_folder::hot_folder_stop,
+            hot_folder::hot_folder_suspend,
+            hot_folder::hot_folder_resume,
             hot_folder::hot_folder_status,
             export_queue::export_queue_resume,
             export_queue::export_queue_remove,

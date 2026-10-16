@@ -179,6 +179,10 @@ impl Library {
         // not edit history. Replaying them on another computer is invalid.
         tx.execute("DELETE FROM tasks", [])?;
         tx.execute("DELETE FROM file_ops_log", [])?;
+        // A copy does not watch the source's hot folder: two libraries
+        // would take the same captures.
+        tx.execute("DELETE FROM hot_folder", [])?;
+        tx.execute("DELETE FROM hot_folder_files", [])?;
         tx.commit()?;
         Ok(())
     }

@@ -778,6 +778,8 @@
     "bar": {
       "hotFolder": "Monitora",
       "hotFolderCount": "Monitorata · {{imported}}",
+      "hotFolderMissing": "Monitora · cartella mancante",
+      "hotFolderMissingTitle": "Impossibile trovare {{folder}} (il disco è collegato?). Il monitoraggio continua quando torna disponibile.",
       "hotFolderTitle": "Cartella monitorata: monitora una cartella e copia le nuove foto in questo progetto",
       "hotFolderWatching_one": "Monitoraggio di {{folder}} · {{count}} importata",
       "hotFolderWatching_many": "Monitoraggio di {{folder}} · {{count}} importate",
@@ -840,11 +842,16 @@
       "defaults": "Predefinite",
       "folder": "Cartella monitorata",
       "folderPlaceholder": "/percorso/degli/scatti/in/tethering",
+      "includeSubfolders": "Includi sottocartelle",
+      "keywords": "Parole chiave del prossimo scatto",
+      "keywordsPlaceholder": "studio, cliente (separate da virgole)",
       "nextCapture": "Regolazioni del prossimo scatto",
+      "noRating": "Nessuna valutazione",
       "preset": "Predefinito: {{name}}",
+      "rating": "Valutazione del prossimo scatto",
+      "resumesOnOpen": "Il monitoraggio riprende quando questo progetto o catalogo viene riaperto.",
       "start": "Avvia monitoraggio",
       "stop": "Interrompi monitoraggio",
-      "stopsOnQuit": "Il monitoraggio si interrompe alla chiusura dell’app.",
       "subtitle": "Le nuove foto nella cartella vengono copiate appena arrivano.",
       "switch": "Monitora invece questa cartella",
       "title": "Cartella monitorata"
@@ -1025,6 +1032,7 @@
       "flagsFailed": "Impossibile salvare i contrassegni: {{error}}",
       "flagsSavedRefreshFailed": "Contrassegni salvati; impossibile aggiornare il riepilogo del progetto: {{error}}",
       "hotFolderFailed": "Cartella monitorata: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "Impossibile riprendere il monitoraggio della cartella: {{error}}",
       "importCopiesSkipped_one": "{{count}} copia virtuale non importata",
       "importCopiesSkipped_many": "{{count}} copie virtuali non importate",
       "importCopiesSkipped_other": "{{count}} copie virtuali non importate",
@@ -1041,7 +1049,9 @@
       "ingestFailed_one": "Copiate: {{copied}}; non riuscite: {{count}}. {{error}}",
       "ingestFailed_many": "Copiate: {{copied}}; non riuscite: {{count}}. {{error}}",
       "ingestFailed_other": "Copiate: {{copied}}; non riuscite: {{count}}. {{error}}",
-      "watching": "Monitoraggio di {{folder}} per nuove foto."
+      "watching": "Monitoraggio di {{folder}} per nuove foto.",
+      "watchingMissing": "Cartella monitorata {{folder}} non trovata; il monitoraggio continua quando torna disponibile.",
+      "watchingResumed": "Monitoraggio di {{folder}} ripreso."
     },
     "transfer": {
       "backup": "Create full backup…",

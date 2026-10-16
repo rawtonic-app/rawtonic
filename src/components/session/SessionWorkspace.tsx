@@ -116,11 +116,31 @@ type NextCapture =
   | { mode: "copyFromLast" }
   | { mode: "preset"; name: string; adjustments: Record<string, unknown> };
 
+/** Mirrors `hot_folder::NextCaptureMetadata`. */
+interface NextCaptureMetadata {
+  rating: number;
+  keywords: string[];
+}
+
 interface HotFolderStatus {
   folder: string;
   session: string;
   imported: number;
   nextCapture: NextCapture;
+  metadata?: NextCaptureMetadata;
+  includeSubfolders?: boolean;
+  /** The watched folder cannot be read now (say its drive is unplugged). */
+  missing?: boolean;
+}
+
+/** Next-capture keywords typed as a comma-separated list. */
+export function parseKeywords(text: string): string[] {
+  const keywords: string[] = [];
+  for (const part of text.split(/[,;]/)) {
+    const keyword = part.trim();
+    if (keyword && !keywords.includes(keyword)) keywords.push(keyword);
+  }
+  return keywords;
 }
 
 interface PresetChoice {
@@ -215,6 +235,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [hotFolder, setHotFolder] = useState<HotFolderStatus | null>(null);
   const [hotPath, setHotPath] = useState("");
   const [nextCapture, setNextCapture] = useState("defaults");
+  const [includeSubfolders, setIncludeSubfolders] = useState(false);
+  const [nextRating, setNextRating] = useState(0);
+  const [nextKeywords, setNextKeywords] = useState("");
+  // The library whose kept hot folder was asked to resume.
+  const resumedFor = useRef<string | null>(null);
   const [presets, setPresets] = useState<PresetChoice[]>([]);
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
@@ -374,13 +399,53 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     };
   }, []);
 
-  // A hot folder feeds the session it was started for.
+  // The watched folder went away (an unplugged drive) or came back.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ missing: boolean }>("hot-folder-state", (event) => {
+      setHotFolder((current) => current && { ...current, missing: event.payload.missing });
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+
+  // A hot folder feeds the session it was started for; another library
+  // pauses it (the library keeps it and resumes it when opened again).
   useEffect(() => {
     if (hotFolder && session && !hotFolder.session.startsWith(session.directory.replace(/\/$/, ""))) {
-      void invoke("hot_folder_stop");
+      void invoke("hot_folder_suspend", { directory: hotFolder.session });
       setHotFolder(null);
     }
   }, [session, hotFolder]);
+
+  // Opening a library (also at start-up) resumes the hot folder it keeps.
+  const sessionDirectory = session?.directory ?? null;
+  const openDirectory = useRef(sessionDirectory);
+  openDirectory.current = sessionDirectory;
+  useEffect(() => {
+    if (!sessionDirectory || resumedFor.current === sessionDirectory) return;
+    resumedFor.current = sessionDirectory;
+    // Still the library shown when the answer comes.
+    const current = () => openDirectory.current === sessionDirectory;
+    invoke<HotFolderStatus | null>("hot_folder_resume", { directory: sessionDirectory })
+      .then((status) => {
+        if (!current() || typeof status?.folder !== "string") return;
+        setHotFolder(status);
+        const folder = status.folder.split(/[\\/]/).pop();
+        if (status.missing) toast.info(i18n.t("session.toasts.watchingMissing", { folder }));
+        else toast.info(i18n.t("session.toasts.watchingResumed", { folder }));
+      })
+      .catch((e) => {
+        if (current()) toast.error(i18n.t("session.toasts.hotFolderResumeFailed", { error: String(e) }));
+      });
+  }, [sessionDirectory]);
 
   const startHotFolder = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -397,6 +462,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         folder: hotPath,
         template,
         nextCapture: next,
+        metadata: { rating: nextRating, keywords: parseKeywords(nextKeywords) },
+        includeSubfolders,
       });
       setHotFolder(status);
       setForm(null);
@@ -406,10 +473,20 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     }
   };
   const stopHotFolder = async () => {
-    await invoke("hot_folder_stop");
-    setHotFolder(null);
+    try {
+      await invoke("hot_folder_stop", { directory: session?.directory ?? null });
+      setHotFolder(null);
+    } catch (e) {
+      setError(String(e));
+    }
   };
   const openHotFolder = async () => {
+    if (hotFolder) {
+      setHotPath(hotFolder.folder);
+      setIncludeSubfolders(!!hotFolder.includeSubfolders);
+      setNextRating(hotFolder.metadata?.rating ?? 0);
+      setNextKeywords((hotFolder.metadata?.keywords ?? []).join(", "));
+    }
     setForm("hotfolder");
     try {
       setPresets(flattenPresets((await invoke<PresetItemJson[]>(Invokes.LoadPresets)) ?? []));
@@ -1001,20 +1078,24 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             disabled={!session}
             aria-pressed={!!hotFolder}
             title={
-              hotFolder
-                ? t("session.bar.hotFolderWatching", {
-                    folder: hotFolder.folder,
-                    count: hotFolder.imported,
-                  })
-                : t("session.bar.hotFolderTitle")
+              hotFolder?.missing
+                ? t("session.bar.hotFolderMissingTitle", { folder: hotFolder.folder })
+                : hotFolder
+                  ? t("session.bar.hotFolderWatching", {
+                      folder: hotFolder.folder,
+                      count: hotFolder.imported,
+                    })
+                  : t("session.bar.hotFolderTitle")
             }
             onClick={() => void openHotFolder()}
           >
             <FolderSync size={14} />
             <span>
-              {hotFolder
-                ? t("session.bar.hotFolderCount", { imported: hotFolder.imported })
-                : t("session.bar.hotFolder")}
+              {hotFolder?.missing
+                ? t("session.bar.hotFolderMissing")
+                : hotFolder
+                  ? t("session.bar.hotFolderCount", { imported: hotFolder.imported })
+                  : t("session.bar.hotFolder")}
             </span>
           </button>
           <div
@@ -1312,6 +1393,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                 </button>
               </div>
             </label>
+            <label className="session-ingest-album">
+              <input
+                type="checkbox"
+                checked={includeSubfolders}
+                onChange={(e) => setIncludeSubfolders(e.target.checked)}
+              />
+              {t("session.hotFolder.includeSubfolders")}
+            </label>
             <NamingEditor mode="ingest" value={template} onChange={setTemplate}
               label={t("session.fields.filenameTemplate")} job={session?.manifest.name} />
 
@@ -1330,6 +1419,31 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   </option>
                 ))}
               </select>
+            </label>
+            <label className="session-field">
+              {t("session.hotFolder.rating")}
+              <select
+                aria-label={t("session.hotFolder.rating")}
+                value={nextRating}
+                onChange={(e) => setNextRating(Number(e.target.value))}
+              >
+                <option value={0}>{t("session.hotFolder.noRating")}</option>
+                {[1, 2, 3, 4, 5].map((stars) => (
+                  <option key={stars} value={stars}>
+                    {"★".repeat(stars)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="session-field">
+              {t("session.hotFolder.keywords")}
+              <input
+                aria-label={t("session.hotFolder.keywords")}
+                value={nextKeywords}
+                placeholder={t("session.hotFolder.keywordsPlaceholder")}
+                spellCheck={false}
+                onChange={(e) => setNextKeywords(e.target.value)}
+              />
             </label>
             <div className="session-copy-note">
               <Check size={16} />
@@ -1356,7 +1470,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   {t("session.hotFolder.stop")}
                 </button>
               ) : (
-                <span>{t("session.hotFolder.stopsOnQuit")}</span>
+                <span>{t("session.hotFolder.resumesOnOpen")}</span>
               )}
               <button
                 type="submit"

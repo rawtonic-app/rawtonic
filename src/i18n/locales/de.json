@@ -752,6 +752,8 @@
     "bar": {
       "hotFolder": "Überwachen",
       "hotFolderCount": "Überwacht · {{imported}}",
+      "hotFolderMissing": "Überwacht · Ordner fehlt",
+      "hotFolderMissingTitle": "{{folder}} ist nicht zu finden (ist das Laufwerk angeschlossen?). Die Überwachung geht weiter, sobald er wieder da ist.",
       "hotFolderTitle": "Einen Ordner überwachen und neue Fotos in dieses Projekt oder diesen Katalog kopieren",
       "hotFolderWatching_one": "{{folder}} wird überwacht · {{count}} importiert",
       "hotFolderWatching_other": "{{folder}} wird überwacht · {{count}} importiert",
@@ -810,11 +812,16 @@
       "defaults": "Standard",
       "folder": "Überwachter Ordner",
       "folderPlaceholder": "/Pfad/zu/Tether-Aufnahmen",
+      "includeSubfolders": "Unterordner einbeziehen",
+      "keywords": "Stichwörter der nächsten Aufnahme",
+      "keywordsPlaceholder": "Studio, Kunde (durch Kommas getrennt)",
       "nextCapture": "Anpassungen der nächsten Aufnahme",
+      "noRating": "Keine Bewertung",
       "preset": "Vorgabe: {{name}}",
+      "rating": "Bewertung der nächsten Aufnahme",
+      "resumesOnOpen": "Die Überwachung geht weiter, wenn dieses Projekt oder dieser Katalog wieder geöffnet wird.",
       "start": "Überwachung starten",
       "stop": "Überwachung beenden",
-      "stopsOnQuit": "Die Überwachung endet, wenn die App beendet wird.",
       "subtitle": "Neue Fotos im Ordner werden hineinkopiert, sobald sie eintreffen.",
       "switch": "Stattdessen diesen Ordner überwachen",
       "title": "Überwachter Ordner"
@@ -980,6 +987,7 @@
       "flagsFailed": "Markierungen konnten nicht gespeichert werden: {{error}}",
       "flagsSavedRefreshFailed": "Markierungen gespeichert; die Projekt-Übersicht konnte nicht aktualisiert werden: {{error}}",
       "hotFolderFailed": "Überwachter Ordner: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "Die Ordnerüberwachung konnte nicht fortgesetzt werden: {{error}}",
       "importCopiesSkipped_one": "{{count}} virtuelle Kopie nicht importiert",
       "importCopiesSkipped_other": "{{count}} virtuelle Kopien nicht importiert",
       "imported_one": "{{count}} Foto importiert ({{withSettings}} mit Bearbeitungen, Alben: {{albums}})",
@@ -991,7 +999,9 @@
       "ingested_other": "{{count}} Fotos kopiert und geprüft",
       "ingestFailed_one": "{{copied}} kopiert; {{count}} fehlgeschlagen. {{error}}",
       "ingestFailed_other": "{{copied}} kopiert; {{count}} fehlgeschlagen. {{error}}",
-      "watching": "{{folder}} wird auf neue Fotos überwacht."
+      "watching": "{{folder}} wird auf neue Fotos überwacht.",
+      "watchingMissing": "Überwachter Ordner {{folder}} nicht gefunden; die Überwachung geht weiter, sobald er wieder da ist.",
+      "watchingResumed": "{{folder}} wird wieder überwacht."
     },
     "transfer": {
       "backup": "Vollständiges Backup erstellen…",
