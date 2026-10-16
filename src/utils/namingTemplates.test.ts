@@ -96,3 +96,9 @@ it('previews zero and a counter crossing a padding boundary', () => {
   expect(namingExample('{sequence}', 'export', 'a.RAF', 'jpg', '', 98, 4)).toBe('098.jpg');
   expect(namingExample('{seq:4}.{ext}', 'ingest', 'a.RAF', '', '', 0, 4)).toBe('0000.RAF');
 });
+it("keeps the photograph's extension when an import template leaves it out", () => {
+  // Mirrors rawtonic_ingest::render_name (native QA 2026-10-16).
+  expect(namingExample("{yyyy}_{orig_base}", "ingest", "DSC.RAF")).toBe("2026_DSC.RAF");
+  expect(namingExample("{orig_base}.{ext|lower}", "ingest", "DSC.RAF")).toBe("DSC.raf");
+  expect(namingExample("{orig}", "ingest", "DSC.RAF")).toBe("DSC.RAF");
+});

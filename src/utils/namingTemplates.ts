@@ -209,7 +209,11 @@ export function namingExample(
       ).join("");
     },
   );
-  return mode === "export" ? `${rendered}.${extension}` : rendered;
+  if (mode === "export") return `${rendered}.${extension}`;
+  // Mirrors `rawtonic_ingest::render_name`: a copy keeps its photograph's
+  // extension when the template leaves it out.
+  const kept = !ext || rendered.toLowerCase().endsWith(`.${ext.toLowerCase()}`);
+  return kept ? rendered : `${rendered}.${ext}`;
 }
 
 /** Mirrors `rawtonic_naming::TOKENS`, every token an ingest template may use. */
