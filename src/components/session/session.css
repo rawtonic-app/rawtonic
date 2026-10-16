@@ -396,6 +396,7 @@
 }
 .session-error {
   color: #f1abab;
+  overflow-wrap: anywhere;
   background: #511c1c50;
   padding: 12px;
   margin-top: 15px;
@@ -556,6 +557,9 @@
 .session-ingest-badge { position: absolute; right: 4px; bottom: 4px; padding: 1px 5px; border-radius: 4px; background: #000b; color: #e6c27a; font-size: 10px; letter-spacing: 0; }
 .session-ingest-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 18px; }
 .session-ingest-album { display: flex; align-items: center; gap: 8px; margin-top: 6px; color: var(--app-text-primary); }
+/* An option of the field above it (the hot folder's Include subfolders): as
+   close to it as the field's own label, and the group gap below. */
+.session-dialog form > .session-field + .session-ingest-album { margin: -13px 0 21px; }
 .session-drop-overlay { position: fixed; inset: 0; z-index: 900; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 32px; pointer-events: none; box-shadow: inset 0 0 0 3px #b4c8d3; background: #b4c8d314; }
 .session-drop-overlay span { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; background: #1b1d1fe6; color: #edf0f2; font-size: 13px; box-shadow: 0 8px 30px #0008; }
 .session-ingest-form > :is(.session-copy-note, .session-error, .session-dialog-footer) { grid-column: 1 / -1; margin: 0; }

@@ -385,14 +385,17 @@ fn suspend() -> Option<Watch> {
 }
 
 /// Starts watching the hot folder `session` keeps, in place of any other.
+/// `imported`: the photographs it brought in since it was started
+/// (`Library::hot_folder_imported`), so the count survives a restart.
 fn spawn(
     session: PathBuf,
     config: HotFolderConfig,
+    imported: usize,
     app: AppHandle,
 ) -> Result<HotFolderStatus, String> {
     suspend();
     let stop = Arc::new(AtomicBool::new(false));
-    let imported = Arc::new(AtomicUsize::new(0));
+    let imported = Arc::new(AtomicUsize::new(imported));
     let missing = Arc::new(AtomicBool::new(!config.folder.is_dir()));
     let settings: CaptureSettings =
         serde_json::from_value(config.settings.clone()).unwrap_or_default();
@@ -478,8 +481,9 @@ pub fn hot_folder_start(
     };
     lib.set_hot_folder(Some(&config))
         .map_err(|e| format!("{e:#}"))?;
+    let imported = lib.hot_folder_imported().map_err(|e| format!("{e:#}"))?;
     drop(lib);
-    spawn(session, config, app)
+    spawn(session, config, imported, app)
 }
 
 /// Resumes the hot folder the library in `directory` keeps, if any (it is
@@ -503,11 +507,16 @@ pub fn hot_folder_resume(
     let Some(config) = lib.hot_folder().map_err(|e| format!("{e:#}"))? else {
         return Ok(None);
     };
+    // Not a reason to keep the hot folder from resuming.
+    let imported = lib.hot_folder_imported().unwrap_or_else(|e| {
+        log::warn!("Hot folder: its count of captures cannot be read: {e:#}");
+        0
+    });
     drop(lib);
     if config.folder.starts_with(&session) || session.starts_with(&config.folder) {
         return Err("Choose a hot folder outside the session.".into());
     }
-    spawn(session, config, app).map(Some)
+    spawn(session, config, imported, app).map(Some)
 }
 
 /// Stops watching for now (another library is opened); the library keeps
@@ -873,6 +882,8 @@ mod tests {
         fs::write(hot.join("A.ARW"), b"first capture").unwrap();
         let config = kept(&lib, &hot, true, NextCapture::CopyFromLast.into());
         let (lib, config) = {
+            // As the watch thread does: the run's captures are one batch.
+            let _batch = lib.import_batch(ImportKind::HotFolder);
             let mut watcher = Watcher::new(&lib, &config.folder, Duration::ZERO, &config);
             let shown = run(&mut watcher);
             assert_eq!(shown.len(), 1, "{shown:?}");
@@ -887,10 +898,14 @@ mod tests {
                 .unwrap();
             // The app quits.
             drop(watcher);
+            drop(_batch);
             reopen(lib)
         };
+        // The hot folder button's count goes on from before the restart.
+        assert_eq!(lib.hot_folder_imported().unwrap(), 1);
         // While it was closed.
         fs::write(hot.join("day 2/B.ARW"), b"second capture").unwrap();
+        let batch = lib.import_batch(ImportKind::HotFolder);
         let mut watcher = Watcher::new(&lib, &config.folder, Duration::ZERO, &config);
         let shown = run(&mut watcher);
         assert_eq!(
@@ -907,9 +922,11 @@ mod tests {
         );
         assert!(run(&mut watcher).is_empty(), "once");
         assert_eq!(watcher.lib.summary().unwrap().assets, 2);
+        assert_eq!(watcher.lib.hot_folder_imported().unwrap(), 2);
 
         // Once more, nothing new: nothing at all.
         drop(watcher);
+        drop(batch);
         let (lib, config) = reopen(lib);
         let mut watcher = Watcher::new(&lib, &config.folder, Duration::ZERO, &config);
         assert!(run(&mut watcher).is_empty());

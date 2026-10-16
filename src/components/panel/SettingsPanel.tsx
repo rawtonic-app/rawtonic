@@ -253,7 +253,7 @@ const DataActionItem = ({
         {message && <p className="pref-message">{message}</p>}
       </div>
       <div className="pref-control">
-        <Button variant="destructive" onClick={buttonAction} disabled={isProcessing || disabled}>
+        <Button onClick={buttonAction} disabled={isProcessing || disabled}>
           {icon}
           {isProcessing ? t('settings.data.statuses.processing') : buttonText}
         </Button>
@@ -674,7 +674,7 @@ export default function SettingsPanel({
   const handleResetLayout = () => {
     setConfirmModalState({
       confirmText: t('settings.data.modals.confirmResetLayout'),
-      confirmVariant: 'destructive',
+      confirmVariant: 'primary',
       isOpen: true,
       message: t('settings.data.modals.resetLayoutMessage'),
       onConfirm: executeResetLayout,
@@ -785,7 +785,7 @@ export default function SettingsPanel({
   const handleClearCache = () => {
     setConfirmModalState({
       confirmText: t('settings.data.modals.confirmClearCache'),
-      confirmVariant: 'destructive',
+      confirmVariant: 'primary',
       isOpen: true,
       message: t('settings.data.modals.cacheMessage'),
       onConfirm: executeClearCache,

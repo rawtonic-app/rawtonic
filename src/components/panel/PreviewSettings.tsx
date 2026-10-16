@@ -90,14 +90,10 @@ export default function PreviewSettings({ appSettings, onSettingsChange }: Props
           </Text>
         </div>
         <div className="pref-control flex gap-2">
-          <Button
-            variant="destructive"
-            disabled={busy || entry.usage.fullCount === 0}
-            onClick={() => void clear(session, true)}
-          >
+          <Button disabled={busy || entry.usage.fullCount === 0} onClick={() => void clear(session, true)}>
             {t('previews.settings.discardFullButton')}
           </Button>
-          <Button variant="destructive" disabled={busy || empty} onClick={() => void clear(session, false)}>
+          <Button disabled={busy || empty} onClick={() => void clear(session, false)}>
             {t('previews.settings.discardAllButton')}
           </Button>
         </div>

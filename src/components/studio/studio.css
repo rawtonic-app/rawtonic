@@ -3903,6 +3903,7 @@ body.is-dragging * {
 }
 .merge-error {
   flex-basis: 100%;
+  overflow-wrap: anywhere;
   margin: 0 0 4px;
   color: #e7a3a3;
 }

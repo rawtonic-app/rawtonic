@@ -126,15 +126,36 @@ interface NextCaptureMetadata {
   keywords: string[];
 }
 
-interface HotFolderStatus {
+export interface HotFolderStatus {
   folder: string;
   session: string;
+  /** Photographs this hot folder brought in since it was started (kept
+   * by the library, so the count survives a restart). */
   imported: number;
   nextCapture: NextCapture;
   metadata?: NextCaptureMetadata;
   includeSubfolders?: boolean;
   /** The watched folder cannot be read now (say its drive is unplugged). */
   missing?: boolean;
+}
+
+/** What the hot folder did with one file (`hot-folder-imported`). */
+interface HotFolderImported {
+  source: string;
+  skipped: boolean;
+  error: string | null;
+}
+
+/** The hot folder after it handled `file`: its count of photographs taken
+ * goes on from the count the library keeps (`imported` survives restarts:
+ * the photographs this hot folder brought in since it was started); a
+ * verified duplicate or a failure is not counted. */
+export function countHotFolderCapture(
+  status: HotFolderStatus | null,
+  file: HotFolderImported,
+): HotFolderStatus | null {
+  if (!status || file.error || file.skipped) return status;
+  return { ...status, imported: status.imported + 1 };
 }
 
 /** Next-capture keywords typed as a comma-separated list. */
@@ -411,16 +432,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!isTauri()) return;
     let disposed = false;
     let stop: (() => void) | undefined;
-    void listen<{ source: string; skipped: boolean; error: string | null }>(
+    void listen<HotFolderImported>(
       "hot-folder-imported",
       (event) => {
         const { error, skipped, source } = event.payload;
+        setHotFolder((current) => countHotFolderCapture(current, event.payload));
         if (error)
           toast.error(i18n.t("session.toasts.hotFolderFailed", { file: source.split(/[\\/]/).pop(), error }));
-        else if (!skipped) {
-          setHotFolder((current) => current && { ...current, imported: current.imported + 1 });
-          void refreshRef.current();
-        }
+        else if (!skipped) void refreshRef.current();
       },
     ).then((fn) => {
       if (disposed) fn();

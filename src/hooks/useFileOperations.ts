@@ -376,7 +376,8 @@ export function useFileOperations(
       useUIStore.getState().setUI({
         confirmModalState: {
           confirmText: 'Move to Trash',
-          confirmVariant: 'destructive',
+          // Undoable, so not destructive; only Empty Trash is.
+          confirmVariant: 'primary',
           isOpen: true,
           message: `Move the folder "${name}" and everything in it to the Trash? In a session it goes to its Trash folder. ${undoKey()} undoes it.`,
           onConfirm: async () => {
@@ -436,7 +437,8 @@ export function useFileOperations(
     setUI({
       confirmModalState: {
         confirmText,
-        confirmVariant: 'destructive',
+        // Undoable, so not destructive; only Empty Trash is.
+        confirmVariant: 'primary',
         isOpen: true,
         message: modalMessage,
         onConfirm: () => executeDelete(pathsToDelete, { includeAssociated: false }),

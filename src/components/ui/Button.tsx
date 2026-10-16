@@ -1,8 +1,9 @@
 import clsx from 'clsx';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'size'> {
   children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
   size?: string;
   variant?: string;
 }
@@ -13,7 +14,7 @@ const Button = ({
   disabled,
   className = '',
   size: _size,
-  variant: _variant,
+  variant,
   ...props
 }: ButtonProps) => {
   const baseClasses = `
@@ -24,13 +25,17 @@ const Button = ({
   `;
 
   const hasSurfaceBg = className.includes('bg-surface');
+  // An action that cannot be undone (Delete Permanently, …) is red.
+  const destructive = variant === 'destructive';
 
   const combinedClasses = clsx(
     baseClasses,
-    {
-      'bg-accent': !hasSurfaceBg,
-      'bg-surface': hasSurfaceBg,
-    },
+    destructive
+      ? 'bg-destructive text-white! hover:brightness-110'
+      : {
+          'bg-accent': !hasSurfaceBg,
+          'bg-surface': hasSurfaceBg,
+        },
     className,
   );
 

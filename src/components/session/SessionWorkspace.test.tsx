@@ -2,7 +2,7 @@ import "../../i18n";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import SessionWorkspace, { flattenPresets, parseKeywords, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
+import SessionWorkspace, { countHotFolderCapture, flattenPresets, parseKeywords, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
@@ -378,6 +378,34 @@ it("resumes the hot folder a library keeps when it opens, and shows a missing fo
   await waitFor(() => expect(invoke).toHaveBeenCalledWith("hot_folder_stop", { directory: "/jobs/Acme" }));
   expect(screen.getByRole("button", { name: "Hot folder" })).toBeTruthy();
   expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === "hot_folder_resume")).toHaveLength(1);
+});
+
+it("goes on counting a resumed hot folder's captures from the count the library keeps", async () => {
+  const resumed = {
+    folder: "/Volumes/Tether/Hot",
+    session: "/jobs/Acme",
+    imported: 12,
+    nextCapture: { mode: "defaults" as const },
+  };
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  vi.mocked(invoke).mockImplementation(async (command, args) =>
+    command === "hot_folder_resume" ? resumed : base(command, args),
+  );
+  const user = userEvent.setup();
+  render(<SessionWorkspace onNavigate={vi.fn(async () => {})} />);
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Location" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
+  // After a restart the button shows the captures from before it, not 0.
+  expect(await screen.findByText("Hot folder · 12")).toBeTruthy();
+
+  const file = { source: "/Volumes/Tether/Hot/A.ARW", skipped: false, error: null };
+  expect(countHotFolderCapture(resumed, file)?.imported).toBe(13);
+  // A verified duplicate or a failure is not a capture.
+  expect(countHotFolderCapture(resumed, { ...file, skipped: true })?.imported).toBe(12);
+  expect(countHotFolderCapture(resumed, { ...file, error: "disk full" })?.imported).toBe(12);
+  expect(countHotFolderCapture(null, file)).toBeNull();
 });
 
 it("reads next-capture keywords from a comma-separated list", () => {

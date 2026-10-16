@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import Button from '../ui/Button';
@@ -29,6 +29,11 @@ export default function ConfirmModal({
   const { t } = useTranslation();
   const [isMounted, setIsMounted] = useState(false);
   const [show, setShow] = useState(false);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  // A destructive confirmation (Delete Permanently, …) is never the default: Cancel
+  // has the focus and Enter only confirms when the confirm button itself is focused,
+  // as macOS alerts do for destructive actions.
+  const destructive = confirmVariant === 'destructive';
 
   const resolvedCancelText = cancelText || t('modals.confirm.cancel');
   const resolvedConfirmText = confirmText || t('modals.confirm.confirm');
@@ -62,7 +67,11 @@ export default function ConfirmModal({
         e.preventDefault();
         e.stopPropagation();
         e.nativeEvent.stopImmediatePropagation();
-        handleConfirm();
+        if (!destructive || e.target === confirmRef.current) {
+          handleConfirm();
+        } else {
+          onClose();
+        }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
@@ -70,7 +79,7 @@ export default function ConfirmModal({
         onClose();
       }
     },
-    [handleConfirm, onClose],
+    [destructive, handleConfirm, onClose],
   );
 
   if (!isMounted) {
@@ -102,20 +111,25 @@ export default function ConfirmModal({
         <Text variant={TextVariants.title} id="confirm-modal-title" className="mb-4">
           {title}
         </Text>
-        <Text className="mb-6 whitespace-pre-wrap">{message}</Text>
+        <Text className="mb-6 whitespace-pre-wrap wrap-anywhere">{message}</Text>
         <div className="flex justify-end gap-3 mt-5">
           <Button
-            className="bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none focus:outline-hidden focus:ring-0"
+            className={`bg-bg-primary shadow-transparent hover:bg-bg-primary text-white shadow-none focus:outline-hidden ${
+              // The default button shows that it is: Enter cancels.
+              destructive ? 'focus:ring-1 focus:ring-text-secondary' : 'focus:ring-0'
+            }`}
             onClick={onClose}
             variant="ghost"
             tabIndex={0}
+            autoFocus={destructive}
           >
             {resolvedCancelText}
           </Button>
           <Button
             onClick={handleConfirm}
             variant={confirmVariant}
-            autoFocus={true}
+            autoFocus={!destructive}
+            ref={confirmRef}
             className="focus:outline-hidden focus:ring-0 focus:ring-offset-0"
           >
             {resolvedConfirmText}
