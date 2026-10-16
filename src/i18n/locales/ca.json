@@ -778,6 +778,8 @@
     "bar": {
       "hotFolder": "Vigila",
       "hotFolderCount": "Vigilant · {{imported}}",
+      "hotFolderMissing": "Vigila · falta la carpeta",
+      "hotFolderMissingTitle": "No es troba {{folder}} (el disc està connectat?). La vigilància continua quan torni.",
       "hotFolderTitle": "Carpeta vigilada: vigila una carpeta i copia les fotos noves a aquest projecte",
       "hotFolderWatching_one": "Vigilant {{folder}} · {{count}} importada",
       "hotFolderWatching_many": "Vigilant {{folder}} · {{count}} importades",
@@ -840,11 +842,16 @@
       "defaults": "Predeterminats",
       "folder": "Carpeta vigilada",
       "folderPlaceholder": "/camí/a/captures/connectades",
+      "includeSubfolders": "Inclou les subcarpetes",
+      "keywords": "Paraules clau de la propera captura",
+      "keywordsPlaceholder": "estudi, client (separades per comes)",
       "nextCapture": "Ajustaments de la propera captura",
+      "noRating": "Sense valoració",
       "preset": "Preajust: {{name}}",
+      "rating": "Valoració de la propera captura",
+      "resumesOnOpen": "La vigilància es reprèn en tornar a obrir aquest projecte o catàleg.",
       "start": "Comença a vigilar",
       "stop": "Deixa de vigilar",
-      "stopsOnQuit": "La vigilància s’atura quan es tanca l’app.",
       "subtitle": "Les fotos noves de la carpeta es copien tan bon punt arriben.",
       "switch": "Vigila aquesta carpeta en lloc de l’altra",
       "title": "Carpeta vigilada"
@@ -1025,6 +1032,7 @@
       "flagsFailed": "No s’han pogut desar les marques: {{error}}",
       "flagsSavedRefreshFailed": "Marques desades; no s’ha pogut actualitzar el resum del projecte: {{error}}",
       "hotFolderFailed": "Carpeta vigilada: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "No s’ha pogut reprendre la carpeta vigilada: {{error}}",
       "importCopiesSkipped_one": "{{count}} còpia virtual no importada",
       "importCopiesSkipped_many": "{{count}} còpies virtuals no importades",
       "importCopiesSkipped_other": "{{count}} còpies virtuals no importades",
@@ -1041,7 +1049,9 @@
       "ingestFailed_one": "Copiades: {{copied}}; amb error: {{count}}. {{error}}",
       "ingestFailed_many": "Copiades: {{copied}}; amb error: {{count}}. {{error}}",
       "ingestFailed_other": "Copiades: {{copied}}; amb error: {{count}}. {{error}}",
-      "watching": "Vigilant {{folder}} per si arriben fotos noves."
+      "watching": "Vigilant {{folder}} per si arriben fotos noves.",
+      "watchingMissing": "No es troba la carpeta vigilada {{folder}}; la vigilància continua quan torni.",
+      "watchingResumed": "Vigilant {{folder}} de nou."
     },
     "transfer": {
       "backup": "Create full backup…",

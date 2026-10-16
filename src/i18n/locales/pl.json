@@ -804,6 +804,8 @@
     "bar": {
       "hotFolder": "Obserwuj",
       "hotFolderCount": "Obserwowany · {{imported}}",
+      "hotFolderMissing": "Obserwuj · brak folderu",
+      "hotFolderMissingTitle": "Nie można znaleźć {{folder}} (czy dysk jest podłączony?). Obserwowanie będzie kontynuowane, gdy folder wróci.",
       "hotFolderTitle": "Folder obserwowany: obserwuj folder i kopiuj nowe zdjęcia do tego projektu",
       "hotFolderWatching_one": "Obserwowanie {{folder}} · zaimportowano: {{count}}",
       "hotFolderWatching_few": "Obserwowanie {{folder}} · zaimportowano: {{count}}",
@@ -870,11 +872,16 @@
       "defaults": "Domyślne",
       "folder": "Folder obserwowany",
       "folderPlaceholder": "/ścieżka/do/zdjęć/z/tetheringu",
+      "includeSubfolders": "Uwzględnij podfoldery",
+      "keywords": "Słowa kluczowe następnego zdjęcia",
+      "keywordsPlaceholder": "studio, klient (oddzielone przecinkami)",
       "nextCapture": "Ustawienia następnego zdjęcia",
+      "noRating": "Bez oceny",
       "preset": "Preset: {{name}}",
+      "rating": "Ocena następnego zdjęcia",
+      "resumesOnOpen": "Obserwowanie zostanie wznowione po ponownym otwarciu tego projektu lub katalogu.",
       "start": "Rozpocznij obserwowanie",
       "stop": "Zatrzymaj obserwowanie",
-      "stopsOnQuit": "Obserwowanie kończy się po zamknięciu aplikacji.",
       "subtitle": "Nowe zdjęcia w folderze są kopiowane, gdy tylko się pojawią.",
       "switch": "Obserwuj zamiast tego ten folder",
       "title": "Folder obserwowany"
@@ -1070,6 +1077,7 @@
       "flagsFailed": "Nie udało się zapisać flag: {{error}}",
       "flagsSavedRefreshFailed": "Flagi zapisane; nie udało się odświeżyć podsumowania projektu: {{error}}",
       "hotFolderFailed": "Folder obserwowany: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "Nie udało się wznowić obserwowania folderu: {{error}}",
       "importCopiesSkipped_one": "{{count}} kopia wirtualna niezaimportowana",
       "importCopiesSkipped_few": "{{count}} kopie wirtualne niezaimportowane",
       "importCopiesSkipped_many": "{{count}} kopii wirtualnych niezaimportowanych",
@@ -1091,7 +1099,9 @@
       "ingestFailed_few": "Skopiowano: {{copied}}; błędy: {{count}}. {{error}}",
       "ingestFailed_many": "Skopiowano: {{copied}}; błędy: {{count}}. {{error}}",
       "ingestFailed_other": "Skopiowano: {{copied}}; błędy: {{count}}. {{error}}",
-      "watching": "Obserwowanie folderu {{folder}} w poszukiwaniu nowych zdjęć."
+      "watching": "Obserwowanie folderu {{folder}} w poszukiwaniu nowych zdjęć.",
+      "watchingMissing": "Nie znaleziono folderu obserwowanego {{folder}}; obserwowanie będzie kontynuowane, gdy wróci.",
+      "watchingResumed": "Ponownie obserwowany jest folder {{folder}}."
     },
     "transfer": {
       "backup": "Create full backup…",

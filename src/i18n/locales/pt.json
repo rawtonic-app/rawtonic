@@ -778,6 +778,8 @@
     "bar": {
       "hotFolder": "Monitorar",
       "hotFolderCount": "Monitorando · {{imported}}",
+      "hotFolderMissing": "Monitorar · pasta ausente",
+      "hotFolderMissingTitle": "Não foi possível encontrar {{folder}} (o disco está conectado?). O monitoramento continua quando ela voltar.",
       "hotFolderTitle": "Pasta monitorada: monitore uma pasta e copie as novas fotos para este projeto",
       "hotFolderWatching_one": "Monitorando {{folder}} · {{count}} importada",
       "hotFolderWatching_many": "Monitorando {{folder}} · {{count}} importadas",
@@ -840,11 +842,16 @@
       "defaults": "Padrões",
       "folder": "Pasta monitorada",
       "folderPlaceholder": "/caminho/para/capturas/conectadas",
+      "includeSubfolders": "Incluir subpastas",
+      "keywords": "Palavras-chave da próxima captura",
+      "keywordsPlaceholder": "estúdio, cliente (separadas por vírgulas)",
       "nextCapture": "Ajustes da próxima captura",
+      "noRating": "Sem classificação",
       "preset": "Predefinição: {{name}}",
+      "rating": "Classificação da próxima captura",
+      "resumesOnOpen": "O monitoramento é retomado quando este projeto ou catálogo for aberto novamente.",
       "start": "Começar a monitorar",
       "stop": "Parar de monitorar",
-      "stopsOnQuit": "O monitoramento para quando o app é encerrado.",
       "subtitle": "As novas fotos na pasta são copiadas assim que chegam.",
       "switch": "Monitorar esta pasta em vez disso",
       "title": "Pasta monitorada"
@@ -1025,6 +1032,7 @@
       "flagsFailed": "Não foi possível salvar as marcações: {{error}}",
       "flagsSavedRefreshFailed": "Marcações salvas; não foi possível atualizar o resumo do projeto: {{error}}",
       "hotFolderFailed": "Pasta monitorada: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "Não foi possível retomar a pasta monitorada: {{error}}",
       "importCopiesSkipped_one": "{{count}} cópia virtual não importada",
       "importCopiesSkipped_many": "{{count}} cópias virtuais não importadas",
       "importCopiesSkipped_other": "{{count}} cópias virtuais não importadas",
@@ -1041,7 +1049,9 @@
       "ingestFailed_one": "Copiadas: {{copied}}; com falha: {{count}}. {{error}}",
       "ingestFailed_many": "Copiadas: {{copied}}; com falha: {{count}}. {{error}}",
       "ingestFailed_other": "Copiadas: {{copied}}; com falha: {{count}}. {{error}}",
-      "watching": "Monitorando {{folder}} em busca de novas fotos."
+      "watching": "Monitorando {{folder}} em busca de novas fotos.",
+      "watchingMissing": "Pasta monitorada {{folder}} não encontrada; o monitoramento continua quando ela voltar.",
+      "watchingResumed": "Monitorando {{folder}} novamente."
     },
     "transfer": {
       "backup": "Create full backup…",

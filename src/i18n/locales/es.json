@@ -778,6 +778,8 @@
     "bar": {
       "hotFolder": "Vigilar",
       "hotFolderCount": "Vigilando · {{imported}}",
+      "hotFolderMissing": "Vigilar · falta la carpeta",
+      "hotFolderMissingTitle": "No se encuentra {{folder}} (¿está conectado el disco?). La vigilancia continúa cuando vuelva.",
       "hotFolderTitle": "Carpeta vigilada: vigila una carpeta y copia las fotos nuevas a este proyecto",
       "hotFolderWatching_one": "Vigilando {{folder}} · {{count}} importada",
       "hotFolderWatching_many": "Vigilando {{folder}} · {{count}} importadas",
@@ -840,11 +842,16 @@
       "defaults": "Predeterminados",
       "folder": "Carpeta vigilada",
       "folderPlaceholder": "/ruta/a/capturas/conectadas",
+      "includeSubfolders": "Incluir subcarpetas",
+      "keywords": "Palabras clave de la próxima captura",
+      "keywordsPlaceholder": "estudio, cliente (separadas por comas)",
       "nextCapture": "Ajustes de la próxima captura",
+      "noRating": "Sin valoración",
       "preset": "Ajuste preestablecido: {{name}}",
+      "rating": "Valoración de la próxima captura",
+      "resumesOnOpen": "La vigilancia se reanuda al volver a abrir este proyecto o catálogo.",
       "start": "Empezar a vigilar",
       "stop": "Dejar de vigilar",
-      "stopsOnQuit": "La vigilancia termina al cerrar la app.",
       "subtitle": "Las fotos nuevas de la carpeta se copian en cuanto llegan.",
       "switch": "Vigilar esta carpeta en su lugar",
       "title": "Carpeta vigilada"
@@ -1025,6 +1032,7 @@
       "flagsFailed": "No se pudieron guardar las marcas: {{error}}",
       "flagsSavedRefreshFailed": "Marcas guardadas; no se pudo actualizar el resumen del proyecto: {{error}}",
       "hotFolderFailed": "Carpeta vigilada: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "No se pudo reanudar la carpeta vigilada: {{error}}",
       "importCopiesSkipped_one": "{{count}} copia virtual no importada",
       "importCopiesSkipped_many": "{{count}} copias virtuales no importadas",
       "importCopiesSkipped_other": "{{count}} copias virtuales no importadas",
@@ -1041,7 +1049,9 @@
       "ingestFailed_one": "Copiadas: {{copied}}; con error: {{count}}. {{error}}",
       "ingestFailed_many": "Copiadas: {{copied}}; con error: {{count}}. {{error}}",
       "ingestFailed_other": "Copiadas: {{copied}}; con error: {{count}}. {{error}}",
-      "watching": "Vigilando {{folder}} por si llegan fotos nuevas."
+      "watching": "Vigilando {{folder}} por si llegan fotos nuevas.",
+      "watchingMissing": "No se encuentra la carpeta vigilada {{folder}}; la vigilancia continúa cuando vuelva.",
+      "watchingResumed": "Vigilando {{folder}} de nuevo."
     },
     "transfer": {
       "backup": "Create full backup…",

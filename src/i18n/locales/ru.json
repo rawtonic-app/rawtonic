@@ -804,6 +804,8 @@
     "bar": {
       "hotFolder": "Слежение",
       "hotFolderCount": "Слежение · {{imported}}",
+      "hotFolderMissing": "Слежение · папка не найдена",
+      "hotFolderMissingTitle": "Папка {{folder}} не найдена (диск подключён?). Слежение продолжится, когда она вернётся.",
       "hotFolderTitle": "Отслеживаемая папка: следить за папкой и копировать новые фото в этот проект",
       "hotFolderWatching_one": "Отслеживается {{folder}} · импортировано: {{count}}",
       "hotFolderWatching_few": "Отслеживается {{folder}} · импортировано: {{count}}",
@@ -870,11 +872,16 @@
       "defaults": "По умолчанию",
       "folder": "Отслеживаемая папка",
       "folderPlaceholder": "/путь/к/снимкам/при/тетеринге",
+      "includeSubfolders": "Включая вложенные папки",
+      "keywords": "Ключевые слова следующего снимка",
+      "keywordsPlaceholder": "студия, клиент (через запятую)",
       "nextCapture": "Настройки следующего снимка",
+      "noRating": "Без рейтинга",
       "preset": "Пресет: {{name}}",
+      "rating": "Рейтинг следующего снимка",
+      "resumesOnOpen": "Слежение возобновится при повторном открытии этого проекта или каталога.",
       "start": "Начать слежение",
       "stop": "Остановить слежение",
-      "stopsOnQuit": "Слежение прекращается при выходе из приложения.",
       "subtitle": "Новые фото из папки копируются по мере появления.",
       "switch": "Следить за этой папкой вместо прежней",
       "title": "Отслеживаемая папка"
@@ -1070,6 +1077,7 @@
       "flagsFailed": "Не удалось сохранить флажки: {{error}}",
       "flagsSavedRefreshFailed": "Флажки сохранены; не удалось обновить сводку проекта: {{error}}",
       "hotFolderFailed": "Отслеживаемая папка: {{file}}: {{error}}",
+      "hotFolderResumeFailed": "Не удалось возобновить слежение за папкой: {{error}}",
       "importCopiesSkipped_one": "{{count}} виртуальная копия не импортирована",
       "importCopiesSkipped_few": "{{count}} виртуальные копии не импортированы",
       "importCopiesSkipped_many": "{{count}} виртуальных копий не импортировано",
@@ -1091,7 +1099,9 @@
       "ingestFailed_few": "Скопировано: {{copied}}; ошибок: {{count}}. {{error}}",
       "ingestFailed_many": "Скопировано: {{copied}}; ошибок: {{count}}. {{error}}",
       "ingestFailed_other": "Скопировано: {{copied}}; ошибок: {{count}}. {{error}}",
-      "watching": "Папка {{folder}} отслеживается на новые фото."
+      "watching": "Папка {{folder}} отслеживается на новые фото.",
+      "watchingMissing": "Отслеживаемая папка {{folder}} не найдена; слежение продолжится, когда она вернётся.",
+      "watchingResumed": "Слежение за {{folder}} возобновлено."
     },
     "transfer": {
       "backup": "Create full backup…",

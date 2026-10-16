@@ -3,10 +3,19 @@
 //! their size and modification time have not changed for a settle time, so a
 //! file still being written by tethering software or a card reader is left
 //! alone. Polling keeps this portable and independent of file system events.
+//!
+//! Subfolders are watched when asked (`with_subfolders`); hidden files and
+//! folders are skipped as in ingest, and symbolic links are never followed,
+//! so the watch never leaves the watched tree. A watched folder that is gone
+//! (an unplugged drive) makes `poll` fail without forgetting anything; the
+//! watch goes on when it is back. The files taken can be kept
+//! (`taken_file`) and given to a later watch (`restore_taken`), so files
+//! that arrived in between are taken once and the earlier ones not again.
+use rawtonic_catalog::HotFolderFile;
 use std::{
     collections::HashMap,
-    fs,
-    path::{Path, PathBuf},
+    fs, io,
+    path::{Component, Path, PathBuf},
     time::{Duration, Instant, SystemTime},
 };
 
@@ -17,6 +26,9 @@ pub const DEFAULT_SETTLE: Duration = Duration::from_millis(1500);
 /// with every further failure, up to `RETRY_MAX`.
 pub const RETRY_FIRST: Duration = Duration::from_secs(5);
 pub const RETRY_MAX: Duration = Duration::from_secs(300);
+
+/// How deep subfolders are watched, against runaway trees.
+pub const MAX_DEPTH: usize = 16;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Seen {
@@ -38,9 +50,12 @@ struct Retry {
 pub struct HotFolder {
     folder: PathBuf,
     settle: Duration,
+    subfolders: bool,
     seen: HashMap<PathBuf, Seen>,
     taken: HashMap<PathBuf, (u64, Option<SystemTime>)>,
     retries: HashMap<PathBuf, Retry>,
+    /// Taken files no longer in the folder, since `take_forgotten`.
+    forgotten: Vec<PathBuf>,
 }
 
 impl HotFolder {
@@ -48,10 +63,80 @@ impl HotFolder {
         Self {
             folder: folder.into(),
             settle,
+            subfolders: false,
             seen: HashMap::new(),
             taken: HashMap::new(),
             retries: HashMap::new(),
+            forgotten: Vec::new(),
         }
+    }
+
+    /// Watches the folders inside the watched folder too (not hidden ones,
+    /// not through symbolic links, up to `MAX_DEPTH` deep).
+    pub fn with_subfolders(mut self, subfolders: bool) -> Self {
+        self.subfolders = subfolders;
+        self
+    }
+
+    /// Files an earlier watch of this folder took: they are not offered
+    /// again unless they changed since.
+    pub fn restore_taken(&mut self, files: impl IntoIterator<Item = HotFolderFile>) {
+        for file in files {
+            let mut path = self.folder.clone();
+            let mut valid = !file.rel_path.is_empty();
+            for part in file.rel_path.split('/') {
+                // Only plain names: a stored path never leads elsewhere.
+                if part.is_empty() || part == "." || part == ".." || part.contains('\\') {
+                    valid = false;
+                    break;
+                }
+                path.push(part);
+            }
+            if valid {
+                self.taken
+                    .insert(path, (file.size, file.mtime_ns.map(from_nanos)));
+            }
+        }
+    }
+
+    /// What to keep of a file `poll` returned once it is in the library (or
+    /// a verified duplicate), for `restore_taken`. `None` for a path that is
+    /// not valid Unicode (it is then checked as a duplicate next time).
+    pub fn taken_file(&self, path: &Path) -> Option<HotFolderFile> {
+        let (size, modified) = *self.taken.get(path)?;
+        let relative = path.strip_prefix(&self.folder).ok()?;
+        let mut parts = Vec::new();
+        for component in relative.components() {
+            match component {
+                Component::Normal(name) => parts.push(name.to_str()?),
+                _ => return None,
+            }
+        }
+        Some(HotFolderFile {
+            rel_path: parts.join("/"),
+            size,
+            mtime_ns: modified.and_then(to_nanos),
+        })
+    }
+
+    /// Taken files that left the folder since the last call, as relative
+    /// paths of `taken_file` (to forget them where they are kept).
+    pub fn take_forgotten(&mut self) -> Vec<String> {
+        let folder = self.folder.clone();
+        std::mem::take(&mut self.forgotten)
+            .into_iter()
+            .filter_map(|path| {
+                let relative = path.strip_prefix(&folder).ok()?;
+                let parts: Option<Vec<&str>> = relative
+                    .components()
+                    .map(|c| match c {
+                        Component::Normal(name) => name.to_str(),
+                        _ => None,
+                    })
+                    .collect();
+                Some(parts?.join("/"))
+            })
+            .collect()
     }
 
     /// Reports that a file `poll` returned could not be imported (say the
@@ -85,31 +170,76 @@ impl HotFolder {
         &self.folder
     }
 
-    /// Files (directly in the folder, accepted by `wanted`) that are complete
-    /// and not taken before, oldest first. Each is returned once, unless it
-    /// changes afterwards (a file replaced under the same name is new) or
-    /// its import `failed`.
-    pub fn poll(&mut self, now: Instant, wanted: impl Fn(&Path) -> bool) -> Vec<PathBuf> {
-        let Ok(entries) = fs::read_dir(&self.folder) else {
-            return Vec::new();
-        };
-        let mut present = HashMap::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
+    /// The files in `dir` (and, with subfolders, below it) `wanted` accepts.
+    /// Folders that cannot be read are listed in `unreadable`.
+    fn list(
+        &self,
+        dir: &Path,
+        depth: usize,
+        wanted: &dyn Fn(&Path) -> bool,
+        present: &mut HashMap<PathBuf, (u64, Option<SystemTime>)>,
+        unreadable: &mut Vec<PathBuf>,
+    ) -> io::Result<()> {
+        for entry in fs::read_dir(dir)?.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with('.') || is_partial(&name) || !wanted(&path) {
+            if name.starts_with('.') {
                 continue;
             }
-            let Ok(meta) = entry.metadata() else { continue };
-            if !meta.is_file() {
+            // Does not follow symbolic links.
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            let path = entry.path();
+            if kind.is_dir() {
+                if self.subfolders
+                    && depth < MAX_DEPTH
+                    && self
+                        .list(&path, depth + 1, wanted, present, unreadable)
+                        .is_err()
+                {
+                    unreadable.push(path);
+                }
                 continue;
             }
-            present.insert(path, (meta.len(), meta.modified().ok()));
+            if !kind.is_file() || is_partial(&name) || !wanted(&path) {
+                continue;
+            }
+            let Ok(meta) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if meta.is_file() {
+                present.insert(path, (meta.len(), meta.modified().ok()));
+            }
         }
-        self.seen.retain(|path, _| present.contains_key(path));
-        self.taken.retain(|path, _| present.contains_key(path));
-        self.retries.retain(|path, _| present.contains_key(path));
+        Ok(())
+    }
+
+    /// Files (accepted by `wanted`) that are complete and not taken before,
+    /// oldest first. Each is returned once, unless it changes afterwards (a
+    /// file replaced under the same name is new) or its import `failed`.
+    /// Fails, forgetting nothing, when the watched folder cannot be read
+    /// (it is gone, say its drive was unplugged).
+    pub fn poll(
+        &mut self,
+        now: Instant,
+        wanted: impl Fn(&Path) -> bool,
+    ) -> io::Result<Vec<PathBuf>> {
+        let mut present = HashMap::new();
+        let mut unreadable = Vec::new();
+        let folder = self.folder.clone();
+        self.list(&folder, 0, &wanted, &mut present, &mut unreadable)?;
+        // What is in a folder that could not be read this time is kept.
+        let keep = |path: &PathBuf| {
+            present.contains_key(path) || unreadable.iter().any(|dir| path.starts_with(dir))
+        };
+        self.seen.retain(|path, _| keep(path));
+        let forgotten: Vec<PathBuf> = self.taken.keys().filter(|p| !keep(p)).cloned().collect();
+        for path in &forgotten {
+            self.taken.remove(path);
+        }
+        self.forgotten.extend(forgotten);
+        self.retries.retain(|path, _| keep(path));
         let mut ready = Vec::new();
         for (path, (size, modified)) in present {
             if self.taken.get(&path) == Some(&(size, modified)) {
@@ -152,14 +282,30 @@ impl HotFolder {
             }
         }
         ready.sort();
-        ready
+        Ok(ready
             .into_iter()
             .map(|(modified, path, size)| {
                 self.taken.insert(path.clone(), (size, modified));
                 self.seen.remove(&path);
                 path
             })
-            .collect()
+            .collect())
+    }
+}
+
+fn to_nanos(time: SystemTime) -> Option<i64> {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(after) => i64::try_from(after.as_nanos()).ok(),
+        Err(before) => i64::try_from(before.duration().as_nanos()).ok().map(|n| -n),
+    }
+}
+
+fn from_nanos(nanos: i64) -> SystemTime {
+    let magnitude = Duration::from_nanos(nanos.unsigned_abs());
+    if nanos >= 0 {
+        SystemTime::UNIX_EPOCH + magnitude
+    } else {
+        SystemTime::UNIX_EPOCH - magnitude
     }
 }
 
@@ -185,19 +331,29 @@ mod tests {
         let mut hot = HotFolder::new(dir.path(), Duration::from_millis(500));
         let t0 = Instant::now();
         fs::write(dir.path().join("A.ARW"), b"half").unwrap();
-        assert!(hot.poll(t0, raw).is_empty(), "just appeared");
+        assert!(hot.poll(t0, raw).unwrap().is_empty(), "just appeared");
         // Still being written: it grows.
         fs::write(dir.path().join("A.ARW"), b"half and more").unwrap();
-        assert!(hot.poll(t0 + Duration::from_millis(400), raw).is_empty());
         assert!(
-            hot.poll(t0 + Duration::from_millis(800), raw).is_empty(),
+            hot.poll(t0 + Duration::from_millis(400), raw)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            hot.poll(t0 + Duration::from_millis(800), raw)
+                .unwrap()
+                .is_empty(),
             "changed at 400 ms, settles at 900 ms"
         );
         assert_eq!(
-            hot.poll(t0 + Duration::from_millis(1000), raw),
+            hot.poll(t0 + Duration::from_millis(1000), raw).unwrap(),
             vec![dir.path().join("A.ARW")]
         );
-        assert!(hot.poll(t0 + Duration::from_millis(2000), raw).is_empty());
+        assert!(
+            hot.poll(t0 + Duration::from_millis(2000), raw)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -210,8 +366,12 @@ mod tests {
         fs::write(dir.path().join("E.ARW"), b"").unwrap();
         fs::create_dir(dir.path().join("F.ARW")).unwrap();
         let t0 = Instant::now();
-        hot.poll(t0, raw);
-        assert!(hot.poll(t0 + Duration::from_millis(10), raw).is_empty());
+        hot.poll(t0, raw).unwrap();
+        assert!(
+            hot.poll(t0 + Duration::from_millis(10), raw)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -224,11 +384,11 @@ mod tests {
         fs::write(&a, b"a").unwrap();
         filetime_set(&a, 2_000);
         let t0 = Instant::now();
-        hot.poll(t0, raw);
-        assert_eq!(hot.poll(t0, raw), vec![b.clone(), a.clone()]);
+        hot.poll(t0, raw).unwrap();
+        assert_eq!(hot.poll(t0, raw).unwrap(), vec![b.clone(), a.clone()]);
         fs::write(&a, b"a, second shot").unwrap();
-        hot.poll(t0, raw);
-        assert_eq!(hot.poll(t0, raw), vec![a]);
+        hot.poll(t0, raw).unwrap();
+        assert_eq!(hot.poll(t0, raw).unwrap(), vec![a]);
     }
 
     #[test]
@@ -238,44 +398,187 @@ mod tests {
         let a = dir.path().join("A.ARW");
         fs::write(&a, b"a").unwrap();
         let t0 = Instant::now();
-        hot.poll(t0, raw);
-        assert_eq!(hot.poll(t0, raw), vec![a.clone()]);
+        hot.poll(t0, raw).unwrap();
+        assert_eq!(hot.poll(t0, raw).unwrap(), vec![a.clone()]);
         // The import failed (say the session was not writable).
         assert!(hot.failed(&a, t0), "the first failure is reported");
         assert!(
-            hot.poll(t0 + RETRY_FIRST / 2, raw).is_empty(),
+            hot.poll(t0 + RETRY_FIRST / 2, raw).unwrap().is_empty(),
             "no hot loop"
         );
         let t1 = t0 + RETRY_FIRST;
         assert_eq!(
-            hot.poll(t1, raw),
+            hot.poll(t1, raw).unwrap(),
             vec![a.clone()],
             "unchanged, still retried"
         );
         assert!(!hot.failed(&a, t1), "reported once");
         assert!(
-            hot.poll(t1 + RETRY_FIRST, raw).is_empty(),
+            hot.poll(t1 + RETRY_FIRST, raw).unwrap().is_empty(),
             "the pause doubled"
         );
         let t2 = t1 + RETRY_FIRST * 2;
-        assert_eq!(hot.poll(t2, raw), vec![a.clone()]);
+        assert_eq!(hot.poll(t2, raw).unwrap(), vec![a.clone()]);
         // Now it worked: taken for good.
-        assert!(hot.poll(t2 + RETRY_MAX, raw).is_empty());
+        assert!(hot.poll(t2 + RETRY_MAX, raw).unwrap().is_empty());
 
         // A changed file is new: it settles as usual and a failure of it is
         // reported again.
         fs::write(&a, b"a, second shot").unwrap();
         let t3 = t2 + RETRY_MAX;
-        assert!(hot.poll(t3, raw).is_empty(), "first sighting");
-        assert_eq!(hot.poll(t3, raw), vec![a.clone()]);
+        assert!(hot.poll(t3, raw).unwrap().is_empty(), "first sighting");
+        assert_eq!(hot.poll(t3, raw).unwrap(), vec![a.clone()]);
         assert!(hot.failed(&a, t3));
         fs::write(&a, b"a, third shot").unwrap();
-        assert!(hot.poll(t3, raw).is_empty(), "changed: settles first");
+        assert!(
+            hot.poll(t3, raw).unwrap().is_empty(),
+            "changed: settles first"
+        );
         assert_eq!(
-            hot.poll(t3, raw),
+            hot.poll(t3, raw).unwrap(),
             vec![a.clone()],
             "no pause for a new file"
         );
+    }
+
+    #[test]
+    fn subfolders_are_watched_only_when_asked_and_hidden_ones_never() {
+        let dir = tempfile::tempdir().unwrap();
+        let day = dir.path().join("2026-10-16");
+        fs::create_dir_all(day.join("card")).unwrap();
+        fs::create_dir_all(dir.path().join(".hidden")).unwrap();
+        fs::write(dir.path().join("A.ARW"), b"a").unwrap();
+        fs::write(day.join("B.ARW"), b"b").unwrap();
+        fs::write(day.join("card/C.ARW"), b"c").unwrap();
+        fs::write(day.join("._C.ARW"), b"x").unwrap();
+        fs::write(dir.path().join(".hidden/D.ARW"), b"d").unwrap();
+        let t0 = Instant::now();
+
+        let mut flat = HotFolder::new(dir.path(), Duration::ZERO);
+        flat.poll(t0, raw).unwrap();
+        assert_eq!(flat.poll(t0, raw).unwrap(), [dir.path().join("A.ARW")]);
+
+        let mut deep = HotFolder::new(dir.path(), Duration::ZERO).with_subfolders(true);
+        deep.poll(t0, raw).unwrap();
+        let mut taken = deep.poll(t0, raw).unwrap();
+        taken.sort();
+        assert_eq!(
+            taken,
+            [
+                day.join("B.ARW"),
+                day.join("card/C.ARW"),
+                dir.path().join("A.ARW")
+            ]
+        );
+        assert_eq!(
+            deep.taken_file(&day.join("card/C.ARW")).unwrap().rel_path,
+            "2026-10-16/card/C.ARW"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symbolic_links_are_never_followed() {
+        let dir = tempfile::tempdir().unwrap();
+        let watched = dir.path().join("Hot");
+        let outside = dir.path().join("Elsewhere");
+        fs::create_dir_all(&watched).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        fs::write(outside.join("X.ARW"), b"outside").unwrap();
+        std::os::unix::fs::symlink(&outside, watched.join("link")).unwrap();
+        std::os::unix::fs::symlink(outside.join("X.ARW"), watched.join("Y.ARW")).unwrap();
+        // A loop back into the watched tree.
+        std::os::unix::fs::symlink(&watched, watched.join("loop")).unwrap();
+        fs::write(watched.join("A.ARW"), b"a").unwrap();
+        let mut hot = HotFolder::new(&watched, Duration::ZERO).with_subfolders(true);
+        let t0 = Instant::now();
+        hot.poll(t0, raw).unwrap();
+        assert_eq!(hot.poll(t0, raw).unwrap(), [watched.join("A.ARW")]);
+    }
+
+    /// An unplugged drive: polls fail and nothing is forgotten, so nothing
+    /// taken before is offered again once it is back; what arrived while it
+    /// was away is taken then.
+    #[test]
+    fn a_folder_that_is_gone_forgets_nothing_and_resumes() {
+        let dir = tempfile::tempdir().unwrap();
+        let watched = dir.path().join("Card");
+        let away = dir.path().join("Unplugged");
+        fs::create_dir(&watched).unwrap();
+        fs::write(watched.join("A.ARW"), b"a").unwrap();
+        let mut hot = HotFolder::new(&watched, Duration::ZERO);
+        let t0 = Instant::now();
+        hot.poll(t0, raw).unwrap();
+        assert_eq!(hot.poll(t0, raw).unwrap(), [watched.join("A.ARW")]);
+        fs::rename(&watched, &away).unwrap();
+        assert!(hot.poll(t0, raw).is_err());
+        assert!(hot.poll(t0, raw).is_err());
+        assert!(hot.take_forgotten().is_empty());
+        fs::write(away.join("B.ARW"), b"b").unwrap();
+        fs::rename(&away, &watched).unwrap();
+        assert!(hot.poll(t0, raw).unwrap().is_empty(), "B: first sighting");
+        assert_eq!(hot.poll(t0, raw).unwrap(), [watched.join("B.ARW")]);
+    }
+
+    /// A later watch given what an earlier one took (a restart) takes only
+    /// the files that arrived or changed in between, each once.
+    #[test]
+    fn a_restored_watch_takes_only_what_arrived_since() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("sub")).unwrap();
+        let (a, b, c) = (
+            dir.path().join("A.ARW"),
+            dir.path().join("sub/B.ARW"),
+            dir.path().join("C.ARW"),
+        );
+        fs::write(&a, b"a").unwrap();
+        fs::write(&b, b"b").unwrap();
+        let t0 = Instant::now();
+        let mut first = HotFolder::new(dir.path(), Duration::ZERO).with_subfolders(true);
+        first.poll(t0, raw).unwrap();
+        let taken: Vec<HotFolderFile> = first
+            .poll(t0, raw)
+            .unwrap()
+            .iter()
+            .map(|p| first.taken_file(p).unwrap())
+            .collect();
+        assert_eq!(taken.len(), 2);
+        drop(first);
+
+        // While the app was closed: C arrived, B was replaced, A stayed.
+        fs::write(&c, b"c").unwrap();
+        fs::write(&b, b"b, second shot").unwrap();
+        let mut second = HotFolder::new(dir.path(), Duration::ZERO).with_subfolders(true);
+        second.restore_taken(taken.clone());
+        second.poll(t0, raw).unwrap();
+        let mut again = second.poll(t0, raw).unwrap();
+        again.sort();
+        assert_eq!(again, [c.clone(), b.clone()]);
+        assert!(second.poll(t0, raw).unwrap().is_empty(), "once");
+
+        // A file gone is forgotten (to be dropped where it is kept).
+        fs::remove_file(&a).unwrap();
+        second.poll(t0, raw).unwrap();
+        assert_eq!(second.take_forgotten(), ["A.ARW"]);
+
+        // Stored paths never lead out of the folder.
+        let mut third = HotFolder::new(dir.path(), Duration::ZERO);
+        third.restore_taken([HotFolderFile {
+            rel_path: "../C.ARW".into(),
+            size: 1,
+            mtime_ns: None,
+        }]);
+        assert!(third.taken.is_empty());
+    }
+
+    #[test]
+    fn modification_times_survive_being_kept() {
+        for time in [
+            SystemTime::UNIX_EPOCH + Duration::new(1_760_000_000, 123_456_789),
+            SystemTime::UNIX_EPOCH - Duration::new(10, 5),
+        ] {
+            assert_eq!(from_nanos(to_nanos(time).unwrap()), time);
+        }
     }
 
     fn filetime_set(path: &Path, secs: u64) {

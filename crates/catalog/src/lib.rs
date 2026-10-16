@@ -18,14 +18,16 @@ pub mod add;
 pub mod checksum;
 pub mod folder_sync;
 pub mod folders;
+pub mod hot_folder;
 pub mod volume;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
+pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use volume::Volume;
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 7;
+pub const DB_SCHEMA_VERSION: u32 = 8;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -224,6 +226,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0005.sql"))?;
         conn.execute_batch(include_str!("../migrations/0006.sql"))?;
         conn.execute_batch(include_str!("../migrations/0007.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0008.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -323,6 +326,9 @@ impl Library {
         }
         if version < 7 {
             tx.execute_batch(include_str!("../migrations/0007.sql"))?;
+        }
+        if version < 8 {
+            tx.execute_batch(include_str!("../migrations/0008.sql"))?;
         }
         tx.commit()?;
         Ok(())

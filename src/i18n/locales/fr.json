@@ -778,6 +778,8 @@
     "bar": {
       "hotFolder": "Surveiller",
       "hotFolderCount": "Surveillé · {{imported}}",
+      "hotFolderMissing": "Surveiller · dossier introuvable",
+      "hotFolderMissingTitle": "{{folder}} est introuvable (le disque est-il connecté ?). La surveillance reprend dès qu’il revient.",
       "hotFolderTitle": "Dossier surveillé : surveiller un dossier et copier les nouvelles photos dans ce projet",
       "hotFolderWatching_one": "Surveillance de {{folder}} · {{count}} importée",
       "hotFolderWatching_many": "Surveillance de {{folder}} · {{count}} importées",
@@ -840,11 +842,16 @@
       "defaults": "Par défaut",
       "folder": "Dossier surveillé",
       "folderPlaceholder": "/chemin/vers/captures/connectées",
+      "includeSubfolders": "Inclure les sous-dossiers",
+      "keywords": "Mots-clés de la prochaine prise",
+      "keywordsPlaceholder": "studio, client (séparés par des virgules)",
       "nextCapture": "Réglages de la prochaine prise",
+      "noRating": "Aucune note",
       "preset": "Préréglage : {{name}}",
+      "rating": "Note de la prochaine prise",
+      "resumesOnOpen": "La surveillance reprend à la prochaine ouverture de ce projet ou catalogue.",
       "start": "Lancer la surveillance",
       "stop": "Arrêter la surveillance",
-      "stopsOnQuit": "La surveillance s’arrête quand l’app est fermée.",
       "subtitle": "Les nouvelles photos du dossier sont copiées dès leur arrivée.",
       "switch": "Surveiller plutôt ce dossier",
       "title": "Dossier surveillé"
@@ -1025,6 +1032,7 @@
       "flagsFailed": "Impossible d’enregistrer les marques : {{error}}",
       "flagsSavedRefreshFailed": "Marques enregistrées ; impossible d’actualiser le résumé du projet : {{error}}",
       "hotFolderFailed": "Dossier surveillé : {{file}} : {{error}}",
+      "hotFolderResumeFailed": "Impossible de reprendre la surveillance du dossier : {{error}}",
       "importCopiesSkipped_one": "{{count}} copie virtuelle non importée",
       "importCopiesSkipped_many": "{{count}} copies virtuelles non importées",
       "importCopiesSkipped_other": "{{count}} copies virtuelles non importées",
@@ -1041,7 +1049,9 @@
       "ingestFailed_one": "Copiés : {{copied}} ; échec : {{count}}. {{error}}",
       "ingestFailed_many": "Copiés : {{copied}} ; échecs : {{count}}. {{error}}",
       "ingestFailed_other": "Copiés : {{copied}} ; échecs : {{count}}. {{error}}",
-      "watching": "Surveillance de {{folder}} pour les nouvelles photos."
+      "watching": "Surveillance de {{folder}} pour les nouvelles photos.",
+      "watchingMissing": "Dossier surveillé {{folder}} introuvable ; la surveillance reprend dès qu’il revient.",
+      "watchingResumed": "Surveillance de {{folder}} reprise."
     },
     "transfer": {
       "backup": "Create full backup…",
