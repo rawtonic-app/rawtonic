@@ -5,6 +5,7 @@ import {
   INITIAL_ADJUSTMENTS,
   NON_COPYABLE_ADJUSTMENT_KEYS,
   RAW_DETAIL_DEFAULTS,
+  TONE_VERSION,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
@@ -49,6 +50,28 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(partial, false).colorNoiseVersion).toBeUndefined();
     const versioned = { colorNoiseReduction: 25, colorNoiseVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).colorNoiseVersion).toBe(2);
+  });
+
+  it('keep the Shadows response a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).toneVersion).toBe(TONE_VERSION);
+    expect(initialAdjustmentsFor(false).toneVersion).toBe(TONE_VERSION);
+    // Shadows above +50 without a version: the earlier response, key absent.
+    const strong = { shadows: 80 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(strong, true).toneVersion).toBeUndefined();
+    expect('toneVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(strong, true)))).toBe(false);
+    const layered = { shadows: 0, masks: [{ adjustments: { shadows: 100 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layered, true).toneVersion).toBeUndefined();
+    // Nothing that renders differently: the current response.
+    const lowered = { highlights: -60 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(lowered, true).toneVersion).toBeUndefined();
+    const layerLowered = { masks: [{ adjustments: { highlights: -10 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layerLowered, true).toneVersion).toBeUndefined();
+    const mild = { shadows: 50, highlights: 40, exposure: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(TONE_VERSION);
+    const versioned = { shadows: 80, toneVersion: 2 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);
+    const old = { shadows: 80, toneVersion: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(old, true).toneVersion).toBe(1);
   });
 });
 

@@ -511,6 +511,12 @@ export interface Adjustments {
    * (crates/engine/src/color_noise.rs); 1 or missing on recipes that set
    * `colorNoiseReduction` = the earlier cross-bilateral filter. */
   colorNoiseVersion?: number;
+  /** Tone-slider response (crates/engine/src/image_processing.rs
+   * `TONE_VERSION`): 2 = Shadows above +50 reaches further into the
+   * quarter-tones and lowered Highlights is refitted; 1 or missing on
+   * recipes that used either before it = the earlier response. Photo-wide
+   * (layers follow it). */
+  toneVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1050,11 +1056,34 @@ export const RAW_DETAIL_DEFAULTS = {
 /** The colour noise reduction new edits start with (notes: reference/detail.md). */
 export const COLOR_NOISE_VERSION = 2;
 
+/** The tone-slider response new edits start with (notes: reference/highlight-recovery-gfx.md). */
+export const TONE_VERSION = 2;
+
 /** Starting adjustments for a photo that has no saved edit. */
 export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
   isRaw
-    ? { ...INITIAL_ADJUSTMENTS, ...RAW_DETAIL_DEFAULTS, colorNoiseVersion: COLOR_NOISE_VERSION }
-    : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION };
+    ? {
+        ...INITIAL_ADJUSTMENTS,
+        ...RAW_DETAIL_DEFAULTS,
+        colorNoiseVersion: COLOR_NOISE_VERSION,
+        toneVersion: TONE_VERSION,
+      }
+    : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION, toneVersion: TONE_VERSION };
+
+/** The tone-slider response of a saved recipe: its own; else the current
+ * one when nothing in it renders differently with it (no Shadows above +50
+ * and no lowered Highlights on the photo or a layer), the earlier one
+ * otherwise (missing key). */
+const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
+    return loaded.toneVersion;
+  }
+  // Version 2 changes Shadows above +50 and lowered Highlights only.
+  const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
+    ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
+  const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
+  return rendersDifferently ? undefined : TONE_VERSION;
+};
 
 /** The colour noise filter of a saved recipe: its own, else the earlier
  * filter when it sets the colour amount, and the current one when it leaves
@@ -1172,6 +1201,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     },
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
+    toneVersion: loadedToneVersion(loadedAdjustments),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -1258,6 +1288,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         BasicAdjustment.Shadows,
         BasicAdjustment.Whites,
         BasicAdjustment.Blacks,
+        'toneVersion',
       ],
     },
     {

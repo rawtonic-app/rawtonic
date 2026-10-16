@@ -2743,7 +2743,9 @@ pub struct GlobalAdjustments {
     /// adapts to them.
     pub image_key: f32,
     pub image_key_low: f32,
-    _pad_lut5: f32,
+    /// The recipe's `toneVersion` (1 when missing): 2 lets Shadows above +50
+    /// reach further into the quarter-tones (docs/RECIPE_SCHEMA.md).
+    pub tone_version: f32,
 
     /// EV applied before the Standard tone mapper (DNG BaselineExposure).
     pub baseline_exposure: f32,
@@ -3740,7 +3742,7 @@ fn get_global_adjustments_from_json(
         lut_is_scene_referred,
         image_key: 0.0,
         image_key_low: 0.0,
-        _pad_lut5: 0.0,
+        tone_version: tone_version_of(js_adjustments) as f32,
 
         baseline_exposure: 0.0,
         noise_level: 0.0,
@@ -5731,6 +5733,26 @@ pub fn grain_structure_index(name: Option<&str>) -> u32 {
     }
 }
 
+/// The recipe key naming which tone-slider response it was made with.
+pub const TONE_VERSION_KEY: &str = "toneVersion";
+/// The newest tone-slider response: 2 (2026-10-16) lets Shadows above +50
+/// lift the quarter-tones further, at +100 as far as Camera Raw's and close
+/// to Capture One's, and refits lowering Highlights (moderate values like
+/// both editors, the same display levels on every camera, −100 at least
+/// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05).
+/// New edits record it; recipes without the key keep version 1, the
+/// response they were made with.
+pub const TONE_VERSION: u64 = 2;
+
+/// The recipe's tone-slider version: `toneVersion`, 1 when missing, never
+/// newer than this renderer knows.
+pub fn tone_version_of(adjustments: &serde_json::Value) -> u64 {
+    adjustments[TONE_VERSION_KEY]
+        .as_u64()
+        .unwrap_or(1)
+        .clamp(1, TONE_VERSION)
+}
+
 /// Recipe `baseCurve` names as the shader's curve index. Unknown names use
 /// the standard curve.
 pub fn base_curve_index(name: Option<&str>) -> u32 {
@@ -6017,6 +6039,26 @@ mod grain_structure_tests {
                 index
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tone_version_tests {
+    use super::{TONE_VERSION, get_all_adjustments_from_json};
+    use serde_json::json;
+
+    #[test]
+    fn recipes_without_a_tone_version_keep_the_first_response() {
+        let version = |recipe| {
+            get_all_adjustments_from_json(&recipe, true, None)
+                .global
+                .tone_version
+        };
+        assert_eq!(version(json!({"shadows": 80})), 1.0);
+        assert_eq!(version(json!({"shadows": 80, "toneVersion": 1})), 1.0);
+        assert_eq!(version(json!({"shadows": 80, "toneVersion": 2})), 2.0);
+        // A newer version than this renderer knows renders with its newest.
+        assert_eq!(version(json!({"toneVersion": 9})), TONE_VERSION as f32);
     }
 }
 

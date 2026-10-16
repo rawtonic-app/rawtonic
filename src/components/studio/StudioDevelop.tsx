@@ -1053,6 +1053,8 @@ export default function StudioDevelop() {
                   "shadows",
                   "whites",
                   "blacks",
+                  // The photo's tone-slider response goes back to a new edit's.
+                  ...(layer ? [] : ["toneVersion"]),
                 ])
               }
             >

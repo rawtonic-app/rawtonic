@@ -14,11 +14,14 @@ const fileName = (path: string) => path.split(/[\\/]/).pop() ?? path;
 
 /** Recipe keys without a control of their own that travel with a copied
  * parameter, as in a full copy: the colour noise amounts mean what the
- * recipe's colour noise filter makes of them. */
+ * recipe's colour noise filter makes of them, Shadows what its tone-slider
+ * response makes of it. */
 const COPIED_ALONG: Partial<Record<string, string[]>> = {
   colorNoiseReduction: ["colorNoiseVersion"],
   colorNoiseDetail: ["colorNoiseVersion"],
   colorNoiseSmoothness: ["colorNoiseVersion"],
+  // Shadows means what the recipe's tone-slider response makes of it.
+  shadows: ["toneVersion"],
 };
 
 function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {

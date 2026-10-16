@@ -5952,6 +5952,7 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         }
     }
     recipes.push(json!({ "shadows": 100, "blacks": 100, "exposure": 1.5 }));
+    with_tone_version_2(&mut recipes);
     // Away from the image borders (the blur clamps there). Over up to 24
     // steps (0.1 EV of scene) no channel falls by more than 0.01 EV or two
     // 16-bit codes, whichever is more: Shadows and Blacks read the f16
@@ -5993,6 +5994,25 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
         "tones out of order:\n{}",
         failures.join("\n")
     );
+}
+
+/// Adds, for every recipe with Shadows above +50 or Highlights lowered
+/// (where the tone-slider versions differ), the same recipe with
+/// `toneVersion` 2.
+fn with_tone_version_2(recipes: &mut Vec<serde_json::Value>) {
+    let versioned: Vec<serde_json::Value> = recipes
+        .iter()
+        .filter(|recipe| {
+            recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0
+                || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
+        })
+        .map(|recipe| {
+            let mut recipe = recipe.clone();
+            recipe["toneVersion"] = json!(2);
+            recipe
+        })
+        .collect();
+    recipes.extend(versioned);
 }
 
 /// An opaque grey `Rgba16Float` texture of scene luminances, row by row.
@@ -6168,6 +6188,7 @@ fn tone_sliders_keep_tones_in_order_at_every_step() {
             recipes.push(recipe);
         }
     }
+    with_tone_version_2(&mut recipes);
     let columns = 64..(width - 64) as usize;
     let row = (height / 2 * width) as usize;
     let mut failures = Vec::new();
@@ -6192,6 +6213,70 @@ fn tone_sliders_keep_tones_in_order_at_every_step() {
         failures.len(),
         recipes.len() * RAW_LOOKS.len(),
         failures.join("\n")
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; Shadows of tone version 2 against version 1 on a grey ramp"]
+fn tone_version_2_reaches_further_with_strong_shadows_only() {
+    let context = context();
+    let (width, height) = (2048u32, 8u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let (low_ev, span_ev) = (-14.0f32, 16.0f32);
+    let levels: Vec<f32> = (0..height)
+        .flat_map(|_| 0..width)
+        .map(|x| (2.0f32).powf(low_ev + span_ev * x as f32 / (width - 1) as f32))
+        .collect();
+    let view = grey_texture(&context, width, height, &levels);
+    let look = (3, 2.0);
+    let render = |recipe: serde_json::Value| {
+        render_raw_look(&processor, &view, (width, height), &recipe, look)
+    };
+    // Nothing else changes: no Shadows, Shadows +50, Shadows lowering.
+    for recipe in [
+        json!({}),
+        json!({ "shadows": 50, "highlights": 60 }),
+        json!({ "shadows": -100 }),
+    ] {
+        let mut versioned = recipe.clone();
+        versioned["toneVersion"] = json!(2);
+        assert!(
+            render(recipe.clone()) == render(versioned),
+            "{recipe} differs"
+        );
+    }
+    // Shadows +100 lifts the quarter-tones further (display −5 … −3 EV of
+    // the neutral render), the deep shadows and the upper tones about alike.
+    let neutral = render(json!({}));
+    let first = render(json!({ "shadows": 100 }));
+    let second = render(json!({ "shadows": 100, "toneVersion": 2 }));
+    let row = (height / 2 * width) as usize;
+    let luma = |p: &[u16; 3]| {
+        0.2126 * srgb_code_to_linear(p[0])
+            + 0.7152 * srgb_code_to_linear(p[1])
+            + 0.0722 * srgb_code_to_linear(p[2])
+    };
+    let mut extra_quarter = Vec::new();
+    let mut extra_top = Vec::new();
+    for x in 64..(width - 64) as usize {
+        let display = luma(&neutral[row + x]).max(1e-9).log2();
+        let extra = (luma(&second[row + x]) / luma(&first[row + x]).max(1e-12)).log2();
+        if (-5.0..-3.0).contains(&display) {
+            extra_quarter.push(extra);
+        } else if display > -1.0 {
+            extra_top.push(extra);
+        }
+    }
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    assert!(
+        mean(&extra_quarter) > 0.25,
+        "quarter-tones {:.3} EV",
+        mean(&extra_quarter)
+    );
+    assert!(
+        mean(&extra_top).abs() < 0.03,
+        "upper tones {:.3} EV",
+        mean(&extra_top)
     );
 }
 
@@ -6224,8 +6309,10 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                     .collect();
                 let view = grey_texture(&context, width, height, &levels);
                 for (look, mode, flag) in RAW_LOOKS {
-                    for amount in [-100, -50, 50, 100] {
-                        let recipe = json!({ "highlights": amount });
+                    for (amount, version) in
+                        [(-100, 1), (-50, 1), (50, 1), (100, 1), (-100, 2), (-50, 2)]
+                    {
+                        let recipe = json!({ "highlights": amount, "toneVersion": version });
                         let pixels = render_raw_look(
                             &processor,
                             &view,
@@ -6254,7 +6341,7 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         // now at most 0.11 %.
                         if ratio > 1.005 {
                             failures.push(format!(
-                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
+                                "{look} highlights {amount} v{version}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
                             ));
                         }
                         // Anything darker than the background-to-plateau
@@ -6262,7 +6349,7 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         let edge = (centre - plateau_radius - 4.0) as usize;
                         if let Some((excess, x, k, c, ev)) = worst_tone_reversal(half, 8..edge, 4) {
                             failures.push(format!(
-                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: channel {c} falls {ev:.3} EV over {k} px in the rim at x {x} ({excess:.1}× the limit)"
+                                "{look} highlights {amount} v{version}, plateau {plateau}, rim {rim}px, background {background}: channel {c} falls {ev:.3} EV over {k} px in the rim at x {x} ({excess:.1}× the limit)"
                             ));
                         }
                     }
