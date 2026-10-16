@@ -71,25 +71,39 @@
 use image::DynamicImage;
 use rayon::prelude::*;
 use std::borrow::Cow;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex};
 
-/// Recipe key of the colour noise reduction's version: [`VERSION`] selects
-/// this filter, 1 the renderer's cross-bilateral filter. Recipes without the
-/// key keep the filter they rendered with before: the cross-bilateral one
-/// when they set `colorNoiseReduction`, this one when they leave it to the
+/// Recipe key of the colour noise reduction's version: from
+/// [`MULTISCALE_VERSION`] on this filter ([`Tuning::for_version`]), 1 the
+/// renderer's cross-bilateral filter. Recipes without the key keep the
+/// filter they rendered with before: the cross-bilateral one when they set
+/// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-pub const VERSION: u64 = 2;
+/// The newest version: 3 (2026-10-16) keeps more 8–30 px colour texture
+/// where those scales of the photo are quiet ([`Tuning::quiet`],
+/// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
+pub const VERSION: u64 = 3;
+/// The first version that is this filter (on a base image without the
+/// decode-time chroma clean-up; every later version shares that base).
+pub const MULTISCALE_VERSION: u64 = 2;
 
-/// Whether a recipe's colour noise reduction is this filter.
-pub fn multiscale(adjustments: &serde_json::Value, is_raw: bool) -> bool {
+/// The recipe's colour noise version (1 = the cross-bilateral filter),
+/// never newer than this renderer knows.
+pub fn version(adjustments: &serde_json::Value, is_raw: bool) -> u64 {
     match adjustments
         .get(VERSION_KEY)
         .and_then(serde_json::Value::as_u64)
     {
-        Some(version) => version >= VERSION,
-        None => is_raw && adjustments.get("colorNoiseReduction").is_none(),
+        Some(version) => version.clamp(1, VERSION),
+        None if is_raw && adjustments.get("colorNoiseReduction").is_none() => VERSION,
+        None => 1,
     }
+}
+
+/// Whether a recipe's colour noise reduction is this filter.
+pub fn multiscale(adjustments: &serde_json::Value, is_raw: bool) -> bool {
+    version(adjustments, is_raw) >= MULTISCALE_VERSION
 }
 
 /// Detail levels with their own threshold; the level below them (1/32 of
@@ -131,7 +145,8 @@ pub struct Settings {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tuning {
     /// Threshold of each level (finest first) in multiples of its measured
-    /// noise at Amount 25, Detail and Smoothness 50.
+    /// noise at Amount 25, Detail and Smoothness 50 (see `quiet` for the
+    /// coarsest levels of quieter photos).
     pub multiples: [f32; LEVELS],
     /// How sharply the gain moves from removed to kept around the
     /// threshold: the gain is x^s / (1 + x^s) with x = |detail|² / threshold².
@@ -201,10 +216,57 @@ pub struct Tuning {
     /// detail levels reach goes, strong colour edges stay.
     pub base_blur: f32,
     pub base_range: f32,
+    /// On levels from `quiet_from` on (1/8 and 1/16 of the resolution), the
+    /// multiple falls with the level's noise: `quiet[1]` + `quiet[2]` ·
+    /// log2(noise / `quiet[0]`), between `quiet[1]` and `multiples[l]`
+    /// (`quiet[0]` 0: off). Real colour patches of 8–30 px (moss on bark, a
+    /// blue flower) stand only 2–4× above the noise of these levels, so the
+    /// full multiples removed them, also at ISO 3200; where these levels'
+    /// noise is low its residue stays invisible (flat-area 4–16 px colour
+    /// noise +0.01–0.03 Oklab ×100), and the noisiest photos (ISO 25600 and
+    /// up) keep the full multiples, which their noise blotches need (notes:
+    /// reference/color-noise-reference.md, round 7). Version 3.
+    pub quiet: [f32; 3],
+    pub quiet_from: usize,
+    /// From level `coarse_noise_from` on (1/8 of the resolution), a level's
+    /// colour noise is taken as at most the finer level's over
+    /// `coarse_noise_fall` (0: off). The true colour noise of high-ISO
+    /// photos (noisy minus ground-truth frames of the same scenes) falls
+    /// 1.7–1.9× per level there, but the smoothest blocks of these coarse
+    /// levels still hold the scene's own colour variation in textured
+    /// photos, which raised their measured noise up to 1.6× and removed real
+    /// colour patches with it (notes: reference/color-noise-reference.md,
+    /// round 7). Version 3.
+    pub coarse_noise_fall: f32,
+    pub coarse_noise_from: usize,
 }
 
 impl Default for Tuning {
+    /// The newest version's constants ([`VERSION`]).
     fn default() -> Self {
+        Self::for_version(VERSION)
+    }
+}
+
+impl Tuning {
+    /// The constants of colour noise version `version` (2 or newer; older
+    /// versions are not this filter and get version 2's).
+    pub fn for_version(version: u64) -> Self {
+        let v2 = Self::version2();
+        if version <= 2 {
+            return v2;
+        }
+        Self {
+            quiet: [0.012, 2.5, 2.75],
+            quiet_from: 3,
+            coarse_noise_fall: 1.7,
+            coarse_noise_from: 3,
+            ..v2
+        }
+    }
+
+    /// Version 2 (2026-10-13 … 2026-10-16).
+    fn version2() -> Self {
         Self {
             multiples: [7.0, 8.0, 10.0, 8.0, 7.0],
             steepness: 3.0,
@@ -225,11 +287,35 @@ impl Default for Tuning {
             finest_aware: 1.0,
             base_blur: 2.0,
             base_range: 10.0,
+            quiet: [0.0, 0.0, 0.0],
+            quiet_from: LEVELS,
+            coarse_noise_fall: 0.0,
+            coarse_noise_from: LEVELS,
         }
     }
-}
 
-impl Tuning {
+    /// The colour noise each level is filtered by, from the pyramid's
+    /// `measured` noise (`coarse_noise_fall`).
+    pub fn level_noise(&self, measured: &[f32; LEVELS]) -> [f32; LEVELS] {
+        let mut noise = *measured;
+        if self.coarse_noise_fall > 0.0 {
+            for l in self.coarse_noise_from.max(1)..LEVELS {
+                noise[l] = noise[l].min(noise[l - 1] / self.coarse_noise_fall);
+            }
+        }
+        noise
+    }
+
+    /// Level `l`'s multiple at its noise `noise` (`quiet`).
+    pub fn multiple(&self, l: usize, noise: f32) -> f32 {
+        let [reference, low, growth] = self.quiet;
+        if l < self.quiet_from || reference <= 0.0 || noise <= 0.0 {
+            return self.multiples[l];
+        }
+        (low + growth * (noise / reference).log2())
+            .clamp(low.min(self.multiples[l]), self.multiples[l])
+    }
+
     /// Each level's threshold (in square-root chroma units) for `settings`
     /// and the measured `noise`; all zero at Amount 0.
     pub fn thresholds(&self, settings: Settings, noise: &[f32; LEVELS]) -> [f32; LEVELS] {
@@ -245,7 +331,7 @@ impl Tuning {
         let smoothness = settings.smoothness.clamp(0.0, 1.0);
         std::array::from_fn(|l| {
             noise[l]
-                * self.multiples[l]
+                * self.multiple(l, noise[l])
                 * response
                 * (0.5 - detail).mul_add(self.detail_exponents[l], 0.0).exp2()
                 * (smoothness - 0.5)
@@ -258,7 +344,7 @@ impl Tuning {
     /// the level's threshold is `threshold` (`edge_follow`); 1 at Amount 25,
     /// Detail and Smoothness 50.
     pub fn edge_scale2(&self, l: usize, threshold: f32, noise: &[f32; LEVELS]) -> f32 {
-        let base = noise[l] * self.multiples[l];
+        let base = noise[l] * self.multiple(l, noise[l]);
         if base <= 0.0 || threshold <= 0.0 {
             return 1.0;
         }
@@ -285,7 +371,7 @@ impl Tuning {
     /// The factor on level `l`'s aware range: its threshold relative to
     /// the one at Amount 25, Detail and Smoothness 50, to `aware_follow`.
     fn aware_scale(&self, l: usize, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
-        let base = noise[l] * self.multiples[l];
+        let base = noise[l] * self.multiple(l, noise[l]);
         if base <= 0.0 || thresholds[l] <= 0.0 {
             return 1.0;
         }
@@ -1083,14 +1169,15 @@ fn block_stride(width: usize, height: usize) -> usize {
 
 /// The chroma pyramid of a render source: levels 1–5 (half resolution
 /// down to 1/32) and the colour noise measured at levels 0–4.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ChromaPyramid {
     pub width: usize,
     pub height: usize,
     /// Gaussian levels 1…LEVELS (index 0 = half resolution).
     pub levels: Vec<Plane>,
     /// Colour noise (RMS of the level's detail in square-root chroma units)
-    /// at levels 0…LEVELS − 1; 0 where nothing could be measured.
+    /// at levels 0…LEVELS − 1 as measured; 0 where nothing could be
+    /// measured. The filter uses [`ChromaPyramid::noise_for`] its tuning.
     pub noise: [f32; LEVELS],
     /// Luminance noise measured the same way.
     pub luma_noise: [f32; LEVELS],
@@ -1105,7 +1192,23 @@ pub struct ChromaPyramid {
     /// noise departs from the shot-noise model the renderer's luminance
     /// noise reduction assumes (read noise in the shadows).
     pub luma_profile: [f32; PROFILE_BINS],
-    prepared: OnceLock<Arc<Prepared>>,
+    /// The last tuning's prepared levels ([`ChromaPyramid::prepared`]).
+    prepared: Mutex<Option<Arc<Prepared>>>,
+}
+
+impl Clone for ChromaPyramid {
+    fn clone(&self) -> Self {
+        Self {
+            width: self.width,
+            height: self.height,
+            levels: self.levels.clone(),
+            noise: self.noise,
+            luma_noise: self.luma_noise,
+            profile: self.profile,
+            luma_profile: self.luma_profile,
+            prepared: Mutex::new(self.cached_prepared()),
+        }
+    }
 }
 
 impl ChromaPyramid {
@@ -1220,8 +1323,14 @@ impl ChromaPyramid {
             luma_noise,
             profile,
             luma_profile,
-            prepared: OnceLock::new(),
+            prepared: Mutex::new(None),
         })
+    }
+
+    /// The colour noise each level is filtered by with `tuning`
+    /// ([`Tuning::level_noise`] of the measured `noise`).
+    pub fn noise_for(&self, tuning: &Tuning) -> [f32; LEVELS] {
+        tuning.level_noise(&self.noise)
     }
 
     /// Level 1 rebuilt with each level's detail kept by its threshold
@@ -1239,6 +1348,7 @@ impl ChromaPyramid {
         }
         let prepared = self.prepared(tuning);
         let steepness = tuning.steepness;
+        let noise = self.noise_for(tuning);
         // Levels LEVELS − 1 … 1 are rebuilt on the coarsest one.
         let mut rebuilt = self.coarsest(base_sigma, tuning);
         for l in (1..LEVELS).rev() {
@@ -1246,8 +1356,8 @@ impl ChromaPyramid {
             let coarse = &self.levels[l];
             let level = &prepared.levels[l - 1];
             let t2 = thresholds[l] * thresholds[l];
-            let edge2 = tuning.edge_scale2(l, thresholds[l], &self.noise);
-            let aware_inv2 = tuning.aware_inv2(l, thresholds, &self.noise);
+            let edge2 = tuning.edge_scale2(l, thresholds[l], &noise);
+            let aware_inv2 = tuning.aware_inv2(l, thresholds, &noise);
             let mut data = vec![[0.0f32; CH]; fine.width * fine.height];
             data.par_chunks_mut(fine.width).enumerate().for_each_init(
                 AwareRow::default,
@@ -1303,7 +1413,7 @@ impl ChromaPyramid {
     /// samples (none at 0) whose range is `base_range` times its noise.
     pub fn coarsest(&self, sigma: f32, tuning: &Tuning) -> Plane {
         let base = &self.levels[LEVELS - 1];
-        let range = tuning.base_range * self.noise[LEVELS - 1];
+        let range = tuning.base_range * self.noise_for(tuning)[LEVELS - 1];
         if sigma <= 0.0 || range <= 0.0 {
             return base.clone();
         }
@@ -1338,30 +1448,40 @@ impl ChromaPyramid {
         }
     }
 
-    /// What does not depend on the sliders, prepared once per source (and
-    /// tuning): each coarse level's detail, local energy and guards.
+    /// What does not depend on the sliders, prepared once per source and
+    /// tuning (the last one is kept): each coarse level's detail, local
+    /// energy and guards.
     pub fn prepared(&self, tuning: &Tuning) -> Arc<Prepared> {
-        match self.prepared.get() {
-            Some(prepared) if prepared.tuning == *tuning => Arc::clone(prepared),
-            _ => {
-                let computed = Arc::new(self.prepare(tuning));
-                if self.prepared.get().is_none() {
-                    let _ = self.prepared.set(Arc::clone(&computed));
-                }
-                computed
-            }
+        if let Some(prepared) = self.cached_prepared()
+            && prepared.tuning == *tuning
+        {
+            return prepared;
         }
+        let computed = Arc::new(self.prepare(tuning));
+        *self
+            .prepared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Arc::clone(&computed));
+        computed
+    }
+
+    fn cached_prepared(&self) -> Option<Arc<Prepared>> {
+        self.prepared
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Each coarse level's detail, its local energy and its guards.
     fn prepare(&self, tuning: &Tuning) -> Prepared {
+        let noise = self.noise_for(tuning);
         let levels = (1..LEVELS)
             .map(|l| {
                 let fine = &self.levels[l - 1];
                 let coarse = &self.levels[l];
                 let (w, h) = (fine.width, fine.height);
                 let luma2 = (tuning.luma_guard * self.luma_noise[l]).powi(2);
-                let edge2 = (tuning.edge_guard * self.noise[l]).powi(2);
+                let edge2 = (tuning.edge_guard * noise[l]).powi(2);
                 let gradient = (edge2 > 0.0).then(|| coherent_gradient(coarse));
                 let steepness = tuning.steepness;
                 let mut detail = vec![[0.0f32; 2]; w * h];
@@ -1614,7 +1734,7 @@ pub fn apply_to_linear(
     let Some(pyramid) = ChromaPyramid::build(&dynamic, true) else {
         return image.clone();
     };
-    let thresholds = tuning.thresholds(settings, &pyramid.noise);
+    let thresholds = tuning.thresholds(settings, &pyramid.noise_for(tuning));
     if thresholds.iter().all(|t| *t <= 0.0) {
         return image.clone();
     }
@@ -1637,7 +1757,8 @@ pub fn apply_with(
 ) -> image::Rgb32FImage {
     let steepness = tuning.steepness;
     let rebuilt = pyramid.reconstruct(thresholds, base_sigma, tuning);
-    let aware2 = tuning.finest_aware2(thresholds, &pyramid.noise);
+    let noise = pyramid.noise_for(tuning);
+    let aware2 = tuning.finest_aware2(thresholds, &noise);
     let level1 = &pyramid.levels[0];
     let (w, h) = (image.width() as usize, image.height() as usize);
     let src = image.as_raw();
@@ -1655,7 +1776,7 @@ pub fn apply_with(
         *s /= finest_relative2(&pyramid.profile, pixel(i));
     });
     let t2 = thresholds[0] * thresholds[0];
-    let edge2 = tuning.finest_edge2(thresholds, &pyramid.noise);
+    let edge2 = tuning.finest_edge2(thresholds, &noise);
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3)
         .enumerate()
@@ -1949,13 +2070,123 @@ mod tests {
     fn the_version_follows_the_recipe() {
         use serde_json::json;
         assert!(multiscale(&json!({"colorNoiseVersion": 2}), false));
+        assert!(multiscale(&json!({"colorNoiseVersion": 3}), false));
         assert!(!multiscale(&json!({"colorNoiseVersion": 1}), true));
         // Saved colour noise reduction without a version: as before.
         assert!(!multiscale(&json!({"colorNoiseReduction": 25}), true));
-        // The RAW default (never edited): this filter.
+        assert_eq!(version(&json!({"colorNoiseReduction": 25}), true), 1);
+        // The RAW default (never edited): this filter, newest version.
         assert!(multiscale(&json!({}), true));
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
+        assert_eq!(version(&json!({}), true), VERSION);
+        assert_eq!(VERSION, 3);
+        // Saved versions stay; unknown newer ones get the newest.
+        assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
+        assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), VERSION);
+        assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
+    }
+
+    #[test]
+    fn version_2_keeps_its_constants() {
+        // Version 2 recipes render exactly as before version 3: no quiet
+        // multiples and the measured coarse noise.
+        let v2 = Tuning::for_version(2);
+        assert_eq!(v2, Tuning::for_version(1));
+        assert_eq!(v2.multiples, [7.0, 8.0, 10.0, 8.0, 7.0]);
+        let noise = [0.02, 0.012, 0.008, 0.007, 0.006];
+        assert_eq!(v2.level_noise(&noise), noise);
+        for l in 0..LEVELS {
+            for n in [0.0005, 0.003, 0.012, 0.05] {
+                assert_eq!(v2.multiple(l, n), v2.multiples[l]);
+            }
+        }
+        let v3 = Tuning::for_version(3);
+        assert_eq!(v3, Tuning::default());
+        assert_eq!(
+            Tuning {
+                quiet: v2.quiet,
+                quiet_from: v2.quiet_from,
+                coarse_noise_fall: v2.coarse_noise_fall,
+                coarse_noise_from: v2.coarse_noise_from,
+                ..v3
+            },
+            v2
+        );
+    }
+
+    #[test]
+    fn coarse_multiples_fall_only_where_their_noise_is_low() {
+        let tuning = Tuning::for_version(3);
+        let [reference, low, _] = tuning.quiet;
+        for l in 0..tuning.quiet_from {
+            assert_eq!(tuning.multiple(l, 0.001), tuning.multiples[l]);
+        }
+        for l in tuning.quiet_from..LEVELS {
+            // Quiet photos: the lowest multiple; the noisiest: the full one.
+            assert_eq!(tuning.multiple(l, 0.5 * reference), low);
+            assert_eq!(tuning.multiple(l, reference), low);
+            assert_eq!(tuning.multiple(l, 0.1), tuning.multiples[l]);
+            let mid = tuning.multiple(l, 2.0 * reference);
+            assert!(low < mid && mid < tuning.multiples[l]);
+        }
+    }
+
+    #[test]
+    fn coarse_noise_falls_at_least_as_measured_noise_does() {
+        let tuning = Tuning::for_version(3);
+        let noise = tuning.level_noise(&[0.02, 0.012, 0.009, 0.008, 0.007]);
+        assert_eq!(noise[..3], [0.02, 0.012, 0.009]);
+        for l in tuning.coarse_noise_from..LEVELS {
+            assert!(noise[l] <= noise[l - 1] / tuning.coarse_noise_fall + 1e-9);
+        }
+        // Below the cap the measured noise stays.
+        let quiet = [0.02, 0.01, 0.005, 0.002, 0.001];
+        assert_eq!(tuning.level_noise(&quiet), quiet);
+        let image = noisy(256, 256, 0.02, true, 7);
+        let pyramid = ChromaPyramid::build(&DynamicImage::ImageRgb32F(image), true).unwrap();
+        let used = pyramid.noise_for(&tuning);
+        for l in tuning.coarse_noise_from..LEVELS {
+            assert!(used[l] <= used[l - 1] / tuning.coarse_noise_fall + 1e-9);
+            assert!(used[l] <= pyramid.noise[l]);
+        }
+    }
+
+    #[test]
+    fn version_3_keeps_more_quiet_coarse_colour_than_version_2() {
+        // Faint 8–30 px colour patches under fine noise: version 2's full
+        // coarse multiples flatten them more than version 3's.
+        let (w, h) = (256u32, 256u32);
+        let noise = noisy(w, h, 0.01, false, 5);
+        let patch = |x: u32, y: u32| {
+            let (cx, cy) = ((x / 24) % 2, (y / 24) % 2);
+            if cx == cy { 0.012 } else { -0.012 }
+        };
+        let image = Rgb32FImage::from_fn(w, h, |x, y| {
+            let p = noise.get_pixel(x, y).0;
+            let d = patch(x, y);
+            image::Rgb([
+                (p[0].sqrt() + d).max(0.0).powi(2),
+                p[1],
+                (p[2].sqrt() - d).max(0.0).powi(2),
+            ])
+        });
+        let settings = Settings {
+            amount: 0.25,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let kept = |tuning: &Tuning| {
+            let out = apply_to_linear(&image, settings, tuning);
+            // Correlation of the output's red-minus-green with the patches.
+            let mut sum = 0.0f64;
+            for (x, y, p) in out.enumerate_pixels() {
+                sum += f64::from(chroma(p.0)[0] * patch(x, y).signum());
+            }
+            sum / f64::from(w * h)
+        };
+        let (v2, v3) = (kept(&Tuning::for_version(2)), kept(&Tuning::for_version(3)));
+        assert!(v3 > v2, "{v2} vs {v3}");
     }
 
     #[test]
@@ -1975,7 +2206,7 @@ mod tests {
         assert_eq!(at(0.0, 0.5, 0.5), [0.0; LEVELS]);
         let default = at(0.25, 0.5, 0.5);
         for l in 0..LEVELS {
-            assert!((default[l] - noise[l] * tuning.multiples[l]).abs() < 1e-7);
+            assert!((default[l] - noise[l] * tuning.multiple(l, noise[l])).abs() < 1e-7);
             assert!(at(1.0, 0.5, 0.5)[l] > default[l]);
             assert!(at(0.1, 0.5, 0.5)[l] < default[l]);
         }

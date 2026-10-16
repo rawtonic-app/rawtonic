@@ -118,8 +118,9 @@ pub struct GpuImageCache {
     chroma_gpu: Option<Box<ChromaGpu>>,
 }
 
-/// Thresholds and steepness a packed chroma texture was rebuilt with.
-type ChromaKey = [u32; color_noise::LEVELS + 1];
+/// Thresholds, steepness and colour noise version a packed chroma texture
+/// was rebuilt with.
+type ChromaKey = [u32; color_noise::LEVELS + 2];
 
 /// Level-1 pixels up to which display frames rebuild level 1 on the GPU
 /// (a 2304 px preview has 1.3 M); larger sources rebuild it on the CPU.
@@ -153,6 +154,8 @@ struct ChromaReconstruction {
     /// Levels 2…5 unfiltered (chroma xy, luminance z), for the aware
     /// expansion of the finer level.
     originals: Vec<wgpu::TextureView>,
+    /// The tuning the prepared levels were made with.
+    tuning: color_noise::Tuning,
     /// Level 1 (xy).
     level1: wgpu::TextureView,
 }
@@ -362,25 +365,37 @@ fn set_luma_profile(
     global.luma_noise_profile = [[p[0], p[1], p[2], p[3]], [p[4], p[5], p[6], p[7]]];
 }
 
+/// The colour noise version of a recipe's uniforms (`color_noise` x =
+/// version − 1, set by `image_processing`) and its filter constants; read
+/// before `color_noise_settings` may clear x.
+fn color_noise_tuning(
+    global: &crate::image_processing::GlobalAdjustments,
+) -> (u64, color_noise::Tuning) {
+    let version = global.color_noise[0].round().max(0.0) as u64 + 1;
+    (version, color_noise::Tuning::for_version(version))
+}
+
 /// The thresholds for `settings`, set in the uniforms, the coarsest
 /// level's smoothing (`Tuning::base_sigma`) and their key.
 fn color_noise_thresholds(
     global: &mut crate::image_processing::GlobalAdjustments,
     settings: color_noise::Settings,
     pyramid: &ChromaPyramid,
-    tuning: &color_noise::Tuning,
+    (version, tuning): &(u64, color_noise::Tuning),
 ) -> ([f32; color_noise::LEVELS], f32, ChromaKey) {
-    let thresholds = tuning.thresholds(settings, &pyramid.noise);
+    let noise = pyramid.noise_for(tuning);
+    let thresholds = tuning.thresholds(settings, &noise);
     let base_sigma = tuning.base_sigma(settings);
-    let mut key: ChromaKey = [0; color_noise::LEVELS + 1];
+    let mut key: ChromaKey = [0; color_noise::LEVELS + 2];
     for (k, t) in key.iter_mut().zip(thresholds) {
         *k = t.to_bits();
     }
     key[color_noise::LEVELS] = tuning.steepness.to_bits();
+    key[color_noise::LEVELS + 1] = *version as u32;
     global.color_noise[1] = thresholds[0];
     global.color_noise[2] = tuning.steepness;
-    global.color_noise[3] = tuning.finest_edge2(&thresholds, &pyramid.noise);
-    global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &pyramid.noise);
+    global.color_noise[3] = tuning.finest_edge2(&thresholds, &noise);
+    global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &noise);
     global.color_noise_aware_far = tuning.aware_far;
     (thresholds, base_sigma, key)
 }
@@ -515,6 +530,13 @@ impl ChromaGpu {
         tuning: &color_noise::Tuning,
     ) {
         let device = &context.device;
+        if self
+            .reconstruction
+            .as_ref()
+            .is_some_and(|r| r.tuning != *tuning)
+        {
+            self.reconstruction = None;
+        }
         let reconstruction = self.reconstruction.get_or_insert_with(|| {
             let prepared = pyramid.prepared(tuning);
             let rgba = |data: Vec<[f32; 4]>, width: usize, height: usize, label: &str| {
@@ -588,8 +610,10 @@ impl ChromaGpu {
                 ),
                 originals,
                 level1: chroma_plane_texture(context, &pyramid.levels[0], "Chroma level 1 (f32)"),
+                tuning: *tuning,
             }
         });
+        let noise = pyramid.noise_for(tuning);
         let smoothed = (base_sigma > 0.0).then(|| {
             chroma_plane_texture(
                 context,
@@ -605,8 +629,8 @@ impl ChromaGpu {
                 is_raw: 0,
                 threshold2: thresholds[l] * thresholds[l],
                 steepness: tuning.steepness,
-                edge2: tuning.edge_scale2(l, thresholds[l], &pyramid.noise),
-                aware_inv2: tuning.aware_inv2(l, thresholds, &pyramid.noise),
+                edge2: tuning.edge_scale2(l, thresholds[l], &noise),
+                aware_inv2: tuning.aware_inv2(l, thresholds, &noise),
                 aware_far: tuning.aware_far,
                 _pad: [0.0; 2],
                 profile: pyramid.profile,
@@ -723,6 +747,7 @@ fn prepare_color_noise(
 ) -> Option<(wgpu::TextureView, wgpu::TextureView)> {
     let global = &mut adjustments.uniforms.global;
     let luma_profile = luma_profile_wanted(global);
+    let versioned = color_noise_tuning(global);
     let settings = color_noise_settings(global);
     if settings.is_none() && !luma_profile {
         return None;
@@ -744,8 +769,9 @@ fn prepare_color_noise(
     }
     let settings = settings?;
     let pipelines = processor.chroma_pipelines.as_ref()?;
-    let tuning = color_noise::Tuning::default();
-    let (thresholds, base_sigma, key) = color_noise_thresholds(global, settings, &pyramid, &tuning);
+    let (thresholds, base_sigma, key) =
+        color_noise_thresholds(global, settings, &pyramid, &versioned);
+    let tuning = versioned.1;
     let level1 = &pyramid.levels[0];
     let window = [0, 0, level1.width as u32, level1.height as u32];
     global.color_noise_window = window;
@@ -5984,7 +6010,8 @@ fn render_in_windows(
     // whole render's export does).
     let mut request = request;
     let is_raw = request.adjustments.global.is_raw_image != 0;
-    let tuning = color_noise::Tuning::default();
+    let versioned = color_noise_tuning(&request.adjustments.uniforms.global);
+    let tuning = versioned.1;
     let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
     let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
     let pyramid = (settings.is_some() || luma_profile)
@@ -5999,7 +6026,7 @@ fn render_in_windows(
             &mut request.adjustments.uniforms.global,
             settings,
             &pyramid,
-            &tuning,
+            &versioned,
         );
         let rebuilt = pyramid.reconstruct(&thresholds, base_sigma, &tuning);
         let level1 = &pyramid.levels[0];
