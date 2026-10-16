@@ -23,6 +23,7 @@ pub const GEOMETRY_KEYS: &[&str] = &[
     "lensDistortionEnabled",
     "lensTcaEnabled",
     "autoChromaticAberration",
+    "fringeVersion",
     "lensVignetteEnabled",
     "guidedPerspective",
 ];

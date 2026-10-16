@@ -6,6 +6,7 @@ import {
   NON_COPYABLE_ADJUSTMENT_KEYS,
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
+  FRINGE_VERSION,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
@@ -50,6 +51,16 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(partial, false).colorNoiseVersion).toBeUndefined();
     const versioned = { colorNoiseReduction: 25, colorNoiseVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).colorNoiseVersion).toBe(2);
+  });
+
+  it('start new RAW edits with the edge-fringe pass and keep saved recipes without it', () => {
+    expect(initialAdjustmentsFor(true).fringeVersion).toBe(FRINGE_VERSION);
+    expect(initialAdjustmentsFor(false).fringeVersion).toBeUndefined();
+    const saved = { ...INITIAL_ADJUSTMENTS, sharpness: 40 } as Adjustments;
+    expect(normalizeLoadedAdjustments(saved, true).fringeVersion).toBeUndefined();
+    expect('fringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
+    const versioned = { ...INITIAL_ADJUSTMENTS, fringeVersion: 1 } as Adjustments;
+    expect(normalizeLoadedAdjustments(versioned, true).fringeVersion).toBe(1);
   });
 
   it('keep the Shadows response a saved recipe rendered with', () => {

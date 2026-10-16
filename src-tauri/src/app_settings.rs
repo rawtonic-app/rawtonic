@@ -191,6 +191,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "defringeGreenHueHi",
         "moireAmount",
         "moirePattern",
+        "fringeVersion",
         "vignetteStyle",
         "vignetteHighlights",
         "grainStructure",

@@ -13,6 +13,7 @@ pub mod camera_profile;
 pub mod color_grading;
 pub mod color_noise;
 pub mod diffraction;
+pub mod edge_fringe;
 pub mod embedded_lens;
 pub mod face_retouch;
 pub mod file_io;

@@ -8,7 +8,13 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
-import { INITIAL_ADJUSTMENTS, initialAdjustmentsFor, normalizeLoadedAdjustments, type Adjustments } from '../utils/adjustments';
+import {
+  FRINGE_VERSION,
+  INITIAL_ADJUSTMENTS,
+  initialAdjustmentsFor,
+  normalizeLoadedAdjustments,
+  type Adjustments,
+} from '../utils/adjustments';
 import { waitForPendingMetadataSave } from './useEditorActions';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
@@ -174,6 +180,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             const neverEdited = !savedAdjustments || savedAdjustments.is_null
               || (savedAdjustments as Partial<Adjustments>).lensCorrectionMode === undefined;
             if (neverEdited && isRaw) {
+              // And with the edge-fringe pass, as its export (edge_fringe.rs).
+              initialAdjusts.fringeVersion = FRINGE_VERSION;
               const camera = await cameraRequest;
               if (camera?.params) {
                 initialAdjusts.lensCorrectionMode = 'camera';
