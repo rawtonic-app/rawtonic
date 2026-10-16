@@ -884,12 +884,11 @@ impl Library {
     }
 
     pub fn editor_state(&self, asset: &str) -> Result<Option<Value>> {
-        let mut state = self
+        let state = self
             .recipe(&self.primary_version(asset)?)?
             .and_then(|r| r.get("editor_state").cloned());
+        let mut state = with_library_metadata(state, self.metadata(asset)?);
         if let Some(ref mut state) = state {
-            let meta = self.metadata(asset)?;
-            apply_editor_metadata(state, meta);
             rawtonic_metadata::resources::resolve(state, &self.directory);
         }
         Ok(state)
@@ -931,9 +930,9 @@ impl Library {
             if let Some(ref mut state) = state {
                 load_blobs(&self.conn, state)?;
             }
+            let metadata: String = row.get(4)?;
+            let mut state = with_library_metadata(state, serde_json::from_str(&metadata)?);
             if let Some(ref mut state) = state {
-                let metadata: String = row.get(4)?;
-                apply_editor_metadata(state, serde_json::from_str(&metadata)?);
                 rawtonic_metadata::resources::resolve(state, &self.directory);
             }
             visit(&path, state);
@@ -1879,6 +1878,24 @@ fn search_text(metadata: &Metadata) -> String {
 /// The editor's prefix for keywords the user typed (other tags come from
 /// automatic tagging).
 const USER_TAG_PREFIX: &str = "user:";
+
+/// A photograph's editor state with the library's rating, keywords and
+/// label. A photograph never edited has no state of its own; when the library
+/// holds such metadata for it (set by `rawtonic rate`, adopted from an XMP or
+/// imported), it gets a state that carries it, so the app shows what the
+/// library holds. Its adjustments stay null: the photo still opens with the
+/// defaults of a never-edited photo, not as an (empty) saved recipe.
+fn with_library_metadata(state: Option<Value>, meta: Metadata) -> Option<Value> {
+    let mut state = match state {
+        Some(state) => state,
+        None if meta.rating > 0 || !meta.keywords.is_empty() || !meta.label.is_empty() => {
+            json!({"version": 1, "rating": 0, "tags": [], "adjustments": null})
+        }
+        None => return None,
+    };
+    apply_editor_metadata(&mut state, meta);
+    Some(state)
+}
 
 fn apply_editor_metadata(state: &mut Value, meta: Metadata) {
     state["rating"] = json!(meta.rating);
