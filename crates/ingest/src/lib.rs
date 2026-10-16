@@ -120,6 +120,28 @@ pub fn naming_context(
     Ok(context)
 }
 
+/// `template` filled for `source`, keeping the photograph's file type: a
+/// name that does not end in the source's extension (say from
+/// `{date}_{orig_base}`) gets it appended, as Capture One and Lightroom add
+/// it themselves. Without it the copy would not be recognised as a
+/// photograph (the library would list it nowhere). Templates may still place
+/// `{ext}` (any case) themselves.
+pub fn render_name(template: &str, context: &NamingContext, source: &Path) -> Result<String> {
+    let name = render(template, context)?;
+    let Some(ext) = source
+        .extension()
+        .and_then(|e| e.to_str())
+        .filter(|e| !e.is_empty())
+    else {
+        return Ok(name);
+    };
+    let kept = Path::new(&name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext));
+    Ok(if kept { name } else { format!("{name}.{ext}") })
+}
+
 /// The name an import of `source` would give it with `template` (before a
 /// collision suffix), and where its date came from: the import dialog's
 /// preview. Reads `source`'s header and sidecar only.
@@ -141,7 +163,7 @@ pub fn preview_name(
     let facts = source_facts(source);
     let context = naming_context(job, source, &facts, sequence, sequence_start)?;
     Ok(NamePreview {
-        name: render(template, &context)?,
+        name: render_name(template, &context, source)?,
         date_source: facts.capture.date_source,
         sidecar: facts.sidecar.is_some(),
     })
@@ -531,7 +553,7 @@ fn import_one_into_with(
         sequence,
         sequence_start,
     )?;
-    let name = render(template, &context)?;
+    let name = render_name(template, &context, source)?;
     let mut folder = destination.path().to_path_buf();
     // Catalogs organize their managed originals by capture date. Explicit
     // folder drops retain the destination the user chose; old manifests keep
@@ -995,7 +1017,7 @@ mod exif_and_sidecar_tests {
         );
         assert!(destination.parent().unwrap().ends_with("2025/2025-12-24"));
         let preview = preview_name("Harbour", &source, "{date}_{lens}", 1, 1).unwrap();
-        assert_eq!(preview.name, "2025-12-24_Test Lens 35mm F2.8");
+        assert_eq!(preview.name, "2025-12-24_Test Lens 35mm F2.8.JPG");
         assert_eq!(preview.date_source, rawtonic_naming::DateSource::Original);
         assert!(!preview.sidecar);
     }
@@ -1076,6 +1098,42 @@ mod exif_and_sidecar_tests {
         assert!(r.asset_id.is_some() && r.error.is_none(), "{r:?}");
         assert!(r.warning.unwrap().contains("was not copied"));
         assert!(!capture.join("C.xmp").exists());
+    }
+
+    /// A template without `{ext}` keeps the photograph's extension (native
+    /// QA 2026-10-16: `{yyyy}{mm}{dd}_{orig_base}` made extension-less copies
+    /// the library did not show); one that has it is left alone.
+    #[test]
+    fn names_keep_the_source_extension() {
+        let d = tempfile::tempdir().unwrap();
+        let card = card(d.path());
+        let source = card.join("DSC_0042.JPG");
+        fs::write(&source, jpeg_with_exif(&tiff_exif("2025:12:24 18:30:15"))).unwrap();
+        fs::write(card.join("DSC_0042.xmp"), CARD_XMP).unwrap();
+        for (template, expected) in [
+            ("{yyyy}{mm}{dd}_{orig_base}", "20251224_DSC_0042.JPG"),
+            ("{yyyy}_{orig_base}.{ext|lower}", "2025_DSC_0042.jpg"),
+            ("{orig}", "DSC_0042.JPG"),
+            ("{date}_{lens}", "2025-12-24_Test Lens 35mm F2.8.JPG"),
+        ] {
+            let preview = preview_name("Harbour", &source, template, 1, 1).unwrap();
+            assert_eq!(preview.name, expected, "{template}");
+        }
+        let lib = session(d.path(), rawtonic_catalog::Mode::Session);
+        let r = import_one(
+            &lib,
+            &source,
+            "{yyyy}{mm}{dd}_{orig_base}",
+            1,
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        assert!(r.error.is_none() && r.warning.is_none(), "{r:?}");
+        let destination = r.destination.unwrap();
+        assert_eq!(destination.file_name().unwrap(), "20251224_DSC_0042.JPG");
+        assert!(destination.with_extension("xmp").is_file());
+        assert!(lib.asset_at(&destination).unwrap().is_some());
     }
 }
 
