@@ -2,19 +2,22 @@
 //!
 //! Matched to Camera Raw's Auto on one frame each of 232 in-scope cameras
 //! (notes: reference/white-balance.md): the mean of the linear decode
-//! without near-clipped pixels (grey world) gives a neutral, its
+//! without clipped pixels (grey world) gives a neutral, its
 //! temperature 20 mireds warmer is Auto's, its tint is Auto's; Camera
 //! Raw's limits (2850-7500 K, tint 0 to +30) keep scenes of one dominant
 //! colour from swinging far. Against Camera Raw's Auto: median 0.5 mireds
-//! (As Shot 24), 208 of 232 within 3 mireds, tint median 0.
+//! (As Shot 24), 210 of 232 within 3 mireds, tint median 0. Like Camera
+//! Raw's, it is less neutral than Capture One's Auto on scenes filled with
+//! colour (an IT8 chart; PARITY_GAPS G01).
 
 use image::DynamicImage;
 
 const OFFSET_MIRED: f64 = -20.0;
 const RANGE_K: (f64, f64) = (2850.0, 7500.0);
 const RANGE_TINT: (f64, f64) = (0.0, 30.0);
-/// Pixels with a channel at or above this are left out of grey world.
-const CLIPPED: f32 = 0.9;
+/// Pixels with a channel at or above the decode's white are left out of
+/// grey world.
+const CLIPPED: f32 = 1.0;
 
 /// Grey world of a linear decode at the camera's balance, without
 /// near-clipped pixels.
