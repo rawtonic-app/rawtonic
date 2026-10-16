@@ -1,33 +1,33 @@
 //! Auto white balance (Lightroom's and Capture One's Auto).
 //!
-//! Fitted to Camera Raw's Auto on one sample frame each of 59 cameras
-//! (notes: reference/white-balance.md): the mean of the linear decode (grey
-//! world) gives a neutral; its temperature moves the camera's As Shot one
-//! by 1.5 times their difference in mireds, 15 mireds cooler-lit, and the
-//! tint is grey world's. Leave-one-out against Camera Raw's Auto: 22.8
-//! mireds mean (As Shot 35.0); Camera Raw stops at 7500 K, which counts as
-//! "at least" there.
+//! Matched to Camera Raw's Auto on one frame each of 232 in-scope cameras
+//! (notes: reference/white-balance.md): the mean of the linear decode
+//! without near-clipped pixels (grey world) gives a neutral, its
+//! temperature 20 mireds warmer is Auto's, its tint is Auto's; Camera
+//! Raw's limits (2850-7500 K, tint 0 to +30) keep scenes of one dominant
+//! colour from swinging far. Against Camera Raw's Auto: median 0.5 mireds
+//! (As Shot 24), 208 of 232 within 3 mireds, tint median 0.
 
 use image::DynamicImage;
 
-const GAIN: f64 = 1.5;
-const OFFSET_MIRED: f64 = -15.0;
-const RANGE_K: (f64, f64) = (2000.0, 12000.0);
+const OFFSET_MIRED: f64 = -20.0;
+const RANGE_K: (f64, f64) = (2850.0, 7500.0);
+const RANGE_TINT: (f64, f64) = (0.0, 30.0);
+/// Pixels with a channel at or above this are left out of grey world.
+const CLIPPED: f32 = 0.9;
 
-/// Grey world of a linear decode at the camera's balance. Deliberately the
-/// image crate's thumbnail, which adds 0.5 to float values
-/// (`image_processing::thumbnail`): GAIN and OFFSET_MIRED were fitted on
-/// those values (`dump_linear_decodes`). Correcting it means refitting both
-/// on the 59-camera set (notes: reference/white-balance.md, PARITY_GAPS G01).
+/// Grey world of a linear decode at the camera's balance, without
+/// near-clipped pixels.
 fn grey_world(decode: &DynamicImage) -> Option<[f32; 3]> {
-    let rgb = decode.thumbnail(512, 512).to_rgb32f();
+    let rgb = rawtonic_engine::image_processing::thumbnail(decode, 512, 512).to_rgb32f();
     let mut sum = [0f64; 3];
-    for p in rgb.pixels() {
+    let mut n = 0f64;
+    for p in rgb.pixels().filter(|p| p.0.iter().all(|v| *v < CLIPPED)) {
         for (total, v) in sum.iter_mut().zip(p.0) {
             *total += v.max(0.0) as f64;
         }
+        n += 1.0;
     }
-    let n = (rgb.width() * rgb.height()) as f64;
     (n > 0.0 && sum.iter().all(|v| *v > 0.0)).then(|| sum.map(|v| (v / n) as f32))
 }
 
@@ -36,10 +36,11 @@ fn grey_world(decode: &DynamicImage) -> Option<[f32; 3]> {
 pub fn auto_white_balance(path: &str, decode: &DynamicImage) -> Option<(f64, f64)> {
     let (k_world, tint) =
         crate::camera_profile::white_balance_for_sample(path, grey_world(decode)?)?;
-    let (k_shot, _) = crate::camera_profile::as_shot_white_balance(path)?;
-    let mired = 1e6 / k_shot + GAIN * (1e6 / k_world - 1e6 / k_shot) + OFFSET_MIRED;
-    let kelvin = (1e6 / mired.max(1e6 / RANGE_K.1)).clamp(RANGE_K.0, RANGE_K.1);
-    Some((kelvin, tint.clamp(-150.0, 150.0)))
+    // A mean bluer than the offset can reach (negative mireds) gives the
+    // upper limit; Camera Raw wraps such frames to its lower one.
+    let mired = (1e6 / k_world + OFFSET_MIRED).max(1e6 / RANGE_K.1);
+    let kelvin = (1e6 / mired).clamp(RANGE_K.0, RANGE_K.1);
+    Some((kelvin, tint.clamp(RANGE_TINT.0, RANGE_TINT.1)))
 }
 
 /// Auto for the open photo, from its cached preview base; `None` while no
@@ -89,45 +90,37 @@ pub async fn auto_white_balance_for(
 
 #[cfg(test)]
 mod tests {
-    /// Writes the linear decode (as-shot balance, sRGB primaries) of each
-    /// RAW in `$AWB_FILES` (`;`-separated) to `$AWB_OUT/<index>.bin`:
-    /// width and height as u32, then f32 RGB, long edge ≤ 384 px.
+    /// Grey world is the plain mean of the unclipped pixels.
     #[test]
-    #[ignore = "tool: needs AWB_FILES and AWB_OUT"]
-    fn dump_linear_decodes() {
-        let out = std::path::PathBuf::from(std::env::var("AWB_OUT").unwrap());
-        for (i, path) in std::env::var("AWB_FILES").unwrap().split(';').enumerate() {
-            let bytes = std::fs::read(path).unwrap();
-            let Ok(image) =
-                crate::raw_processing::develop_raw_image(&bytes, true, 2.5, "auto".into(), None)
-            else {
-                println!("{i}: decode failed");
-                continue;
-            };
-            // The values Auto was fitted on (see `grey_world`).
-            let small = image.thumbnail(384, 384).to_rgb32f();
-            let mut data = Vec::new();
-            data.extend_from_slice(&small.width().to_le_bytes());
-            data.extend_from_slice(&small.height().to_le_bytes());
-            for v in small.as_raw() {
-                data.extend_from_slice(&v.to_le_bytes());
-            }
-            std::fs::write(out.join(format!("{i:03}.bin")), data).unwrap();
+    fn grey_world_leaves_out_clipped_pixels() {
+        let mut rgb = image::Rgb32FImage::from_pixel(4, 4, image::Rgb([0.2, 0.4, 0.1]));
+        rgb.put_pixel(0, 0, image::Rgb([1.5, 0.95, 0.3]));
+        let mean = super::grey_world(&image::DynamicImage::ImageRgb32F(rgb)).unwrap();
+        for (got, want) in mean.iter().zip([0.2, 0.4, 0.1]) {
+            assert!((got - want).abs() < 1e-6, "{mean:?}");
         }
     }
 
-    /// Prints the Auto balance of each RAW in `$AWB_FILES`.
+    /// Prints one JSON line per RAW in `$AWB_FILES` (`;`-separated): As
+    /// Shot, the grey world neutral and Auto as Kelvin and tint
+    /// (notes: scripts/reference/awb_fit.py compares them with Camera Raw's).
     #[test]
     #[ignore = "tool: needs AWB_FILES"]
     fn print_auto_white_balance() {
         for path in std::env::var("AWB_FILES").unwrap().split(';') {
             let bytes = std::fs::read(path).unwrap();
-            let decode =
+            let Ok(decode) =
                 crate::raw_processing::develop_raw_image(&bytes, true, 2.5, "auto".into(), None)
-                    .ok();
+            else {
+                println!("{{\"source\":{path:?},\"error\":\"decode\"}}");
+                continue;
+            };
+            let grey = super::grey_world(&decode)
+                .and_then(|rgb| crate::camera_profile::white_balance_for_sample(path, rgb));
             println!(
-                "{:?}",
-                decode.and_then(|d| super::auto_white_balance(path, &d))
+                "{{\"source\":{path:?},\"as_shot\":{:?},\"grey_world\":{grey:?},\"auto\":{:?}}}",
+                crate::camera_profile::as_shot_white_balance(path),
+                super::auto_white_balance(path, &decode),
             );
         }
     }
