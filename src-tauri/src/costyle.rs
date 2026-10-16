@@ -557,8 +557,110 @@ fn default_curves() -> Value {
     })
 }
 
+/// Settings in a style that `convert_costyle_to_preset` does not translate
+/// (see the module comment), as codes the import report names: `profile`,
+/// `filmCurve`, `colorEditor`, `whiteBalance`, `noiseReduction`, `lens`.
+/// Only settings that change something are listed, so a `.cos` file's
+/// defaults (ICC `EMBEDDED`, an `Auto` film curve, white balance `1;1;1`,
+/// zero amounts) report nothing.
+pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
+    let s = entries(content);
+    let nonzero = |key: &str| {
+        s.get(key).is_some_and(|v| {
+            v.split([';', ','])
+                .any(|n| n.trim().parse::<f64>().is_ok_and(|n| n != 0.0))
+        })
+    };
+    let mut out = Vec::new();
+    if s.get("ICCProfile")
+        .is_some_and(|v| !v.trim().is_empty() && v.trim() != "EMBEDDED")
+    {
+        out.push("profile");
+    }
+    if s.get("FilmCurve")
+        .is_some_and(|v| !v.trim().is_empty() && !v.contains("Auto"))
+    {
+        out.push("filmCurve");
+    }
+    // One entry per colour range, comma-separated, the first field 1 when
+    // enabled. Which fields hold the hue/saturation/lightness shifts is
+    // inferred from settings files whose ranges change nothing (zeros at
+    // 3–5 and 14–17), not measured in Capture One, so both groups count.
+    if s.get("ColorCorrections").is_some_and(|v| {
+        v.split(';').any(|entry| {
+            let f: Vec<f64> = entry
+                .split(',')
+                .map(|n| n.trim().parse().unwrap_or(0.0))
+                .collect();
+            f.first() == Some(&1.0)
+                && f.iter()
+                    .enumerate()
+                    .any(|(i, n)| matches!(i, 3..=5 | 14..=17) && *n != 0.0)
+        })
+    }) {
+        out.push("colorEditor");
+    }
+    if s.get("WhiteBalance").is_some_and(|v| {
+        v.split(';').any(|n| {
+            n.trim()
+                .parse::<f64>()
+                .is_ok_and(|n| (n - 1.0).abs() > 1e-6)
+        })
+    }) {
+        out.push("whiteBalance");
+    }
+    if [
+        "NrAmount",
+        "CnrAmount",
+        "NoiseDetailsAmount",
+        "SurfaceSmoothnessAmount",
+    ]
+    .iter()
+    .any(|k| nonzero(k))
+    {
+        out.push("noiseReduction");
+    }
+    if [
+        "GeometryKeystoneTiltX",
+        "GeometryKeystoneTiltY",
+        "LensShift",
+        "LensTilt",
+        "LensLccLightFalloffAmount",
+    ]
+    .iter()
+    .any(|k| nonzero(k))
+    {
+        out.push("lens");
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reports_untranslated_settings_only_when_they_change_something() {
+        let defaults = r#"<SL><E K="ICCProfile" V="EMBEDDED"/>
+            <E K="FilmCurve" V="FileSystemJpeg-Auto.fcrv"/><E K="WhiteBalance" V="1;1;1"/>
+            <E K="NrAmount" V="0"/><E K="GeometryKeystoneAmount" V="100"/>
+            <E K="ColorCorrections" V="1,1,1,0,0,0,255,0,168.9,-7.1,7.1,-100,100,15,0,0,0,0;0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"/></SL>"#;
+        assert!(super::untranslated_settings(defaults).is_empty());
+        let style = r#"<SL><E K="ICCProfile" V="Some Camera Generic.icm"/>
+            <E K="FilmCurve" V="Film Extra Shadow.fcrv"/><E K="WhiteBalance" V="1.2;1;0.9"/>
+            <E K="NrAmount" V="40"/><E K="GeometryKeystoneTiltY" V="-12"/>
+            <E K="ColorCorrections" V="1,1,1,10,0,0,255,0,168.9,-7.1,7.1,-100,100,15,0,0,0,0"/></SL>"#;
+        assert_eq!(
+            super::untranslated_settings(style),
+            [
+                "profile",
+                "filmCurve",
+                "colorEditor",
+                "whiteBalance",
+                "noiseReduction",
+                "lens"
+            ]
+        );
+    }
+
     use super::*;
 
     /// Writes each style in `$COSTYLE_FILES` (`;`-separated) as a Rawtonic

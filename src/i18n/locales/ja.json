@@ -2587,7 +2587,21 @@
         "exportFailed": "書き出しに失敗しました: {{error}}",
         "imported_other": "{{count}} 件を読み込みました",
         "importedWithFailures": "{{imported}} 件を読み込み、{{failed}} 件が失敗: {{files}}",
-        "importFailed": "読み込みに失敗しました: {{error}}"
+        "importFailed": "読み込みに失敗しました: {{error}}",
+        "untranslated": "変換されなかった設定 — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "キャリブレーション",
+        "colorEditor": "Color Editor",
+        "crop": "切り抜き",
+        "filmCurve": "フィルムカーブ",
+        "lens": "レンズとキーストーン",
+        "lensProfile": "レンズプロファイル",
+        "noiseReduction": "ノイズ除去",
+        "profile": "プロファイル",
+        "profileNamed": "プロファイル「{{name}}」",
+        "upright": "Upright",
+        "whiteBalance": "ホワイトバランス"
       }
     },
     "profile": {

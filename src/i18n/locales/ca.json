@@ -2738,7 +2738,21 @@
         "imported_many": "{{count}} importats",
         "imported_other": "{{count}} importats",
         "importedWithFailures": "{{imported}} importats, {{failed}} amb errors: {{files}}",
-        "importFailed": "No s'ha pogut importar: {{error}}"
+        "importFailed": "No s'ha pogut importar: {{error}}",
+        "untranslated": "No traduït — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "calibratge",
+        "colorEditor": "Color Editor",
+        "crop": "retall",
+        "filmCurve": "corba de pel·lícula",
+        "lens": "objectiu i keystone",
+        "lensProfile": "perfil d’objectiu",
+        "noiseReduction": "reducció de soroll",
+        "profile": "perfil",
+        "profileNamed": "perfil «{{name}}»",
+        "upright": "Upright",
+        "whiteBalance": "balanç de blancs"
       }
     },
     "profile": {

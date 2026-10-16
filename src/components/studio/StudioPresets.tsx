@@ -283,7 +283,7 @@ export default function StudioPresets() {
     const paths = Array.isArray(chosen) ? chosen : chosen ? [chosen] : [];
     if (!paths.length) return;
     try {
-      const { failures } = await importPresetsFromFiles(paths);
+      const { failures, untranslated = [] } = await importPresetsFromFiles(paths);
       const imported = paths.length - failures.length;
       if (failures.length)
         toast.warn(
@@ -294,6 +294,26 @@ export default function StudioPresets() {
           }),
         );
       else toast.success(t("studio.presets.toasts.imported", { count: imported }));
+      // What the translation left out, per file, so a look that comes over
+      // only partly is not mistaken for a faithful one.
+      if (untranslated.length)
+        toast.info(
+          t("studio.presets.toasts.untranslated", {
+            files: untranslated
+              .map(
+                ({ fileName, settings, profile }) =>
+                  `${fileName}: ${settings
+                    .map((code) =>
+                      code === "profile" && profile
+                        ? t("studio.presets.untranslated.profileNamed", { name: profile })
+                        : t(`studio.presets.untranslated.${code}`, { defaultValue: code }),
+                    )
+                    .join(", ")}`,
+              )
+              .join(" · "),
+          }),
+          { autoClose: 12000 },
+        );
     } catch (error) {
       toast.error(t("studio.presets.toasts.importFailed", { error: String(error) }));
     }

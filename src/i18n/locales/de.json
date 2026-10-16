@@ -2656,7 +2656,21 @@
         "imported_one": "{{count}} importiert",
         "imported_other": "{{count}} importiert",
         "importedWithFailures": "{{imported}} importiert, {{failed}} fehlgeschlagen: {{files}}",
-        "importFailed": "Import fehlgeschlagen: {{error}}"
+        "importFailed": "Import fehlgeschlagen: {{error}}",
+        "untranslated": "Nicht übernommen — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "Kalibrierung",
+        "colorEditor": "Color Editor",
+        "crop": "Freistellung",
+        "filmCurve": "Filmkurve",
+        "lens": "Objektiv und Keystone",
+        "lensProfile": "Objektivprofil",
+        "noiseReduction": "Rauschreduzierung",
+        "profile": "Profil",
+        "profileNamed": "Profil „{{name}}“",
+        "upright": "Upright",
+        "whiteBalance": "Weißabgleich"
       }
     },
     "profile": {

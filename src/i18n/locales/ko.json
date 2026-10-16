@@ -2587,7 +2587,21 @@
         "exportFailed": "내보내기 실패: {{error}}",
         "imported_other": "{{count}}개를 가져왔습니다",
         "importedWithFailures": "{{imported}}개 가져옴, {{failed}}개 실패: {{files}}",
-        "importFailed": "가져오기 실패: {{error}}"
+        "importFailed": "가져오기 실패: {{error}}",
+        "untranslated": "변환되지 않음 — {{files}}"
+      },
+      "untranslated": {
+        "calibration": "보정",
+        "colorEditor": "Color Editor",
+        "crop": "자르기",
+        "filmCurve": "필름 커브",
+        "lens": "렌즈 및 키스톤",
+        "lensProfile": "렌즈 프로필",
+        "noiseReduction": "노이즈 감소",
+        "profile": "프로필",
+        "profileNamed": "프로필 “{{name}}”",
+        "upright": "Upright",
+        "whiteBalance": "화이트 밸런스"
       }
     },
     "profile": {
