@@ -62,7 +62,11 @@ describe('RAW detail defaults', () => {
     const layered = { shadows: 0, masks: [{ adjustments: { shadows: 100 }, subMasks: [] }] } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layered, true).toneVersion).toBeUndefined();
     // Nothing that renders differently: the current response.
-    const mild = { shadows: 50, exposure: 1 } as unknown as Adjustments;
+    const lowered = { highlights: -60 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(lowered, true).toneVersion).toBeUndefined();
+    const layerLowered = { masks: [{ adjustments: { highlights: -10 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layerLowered, true).toneVersion).toBeUndefined();
+    const mild = { shadows: 50, highlights: 40, exposure: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(mild, true).toneVersion).toBe(TONE_VERSION);
     const versioned = { shadows: 80, toneVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);

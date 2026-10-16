@@ -749,6 +749,25 @@ const CR_HIGHLIGHTS_LOWER: f32 = 2.5;
 const CR_HIGHLIGHTS_SHAPE: f32 = 0.3;
 const CR_HIGHLIGHTS_BLEND: f32 = 0.26;
 const CR_HIGHLIGHTS_DESAT: f32 = 0.5;
+// Tone version 2 (recipe `toneVersion`), lowering Highlights under the Camera
+// Raw look: pivot and blend width in units of the look's exposure (baseline
+// applied, so the response sits at the same display levels on every
+// camera; version 1 varied −0.5 … −1.5 EV at −1 EV by camera), the amount
+// steeper towards −100 (−50 is about 0.4 of −100's change, as in Camera Raw
+// and Capture One), and more bright local detail restored. Fitted on eight
+// RAWs against Capture One 16.6 and Camera Raw, checked on six more (notes:
+// reference/highlight-recovery-gfx.md, G05): −50 at −1.5 / −1 / −0.5 EV
+// −0.28 / −0.37 / −0.27 EV (Capture One −0.22 / −0.33 / −0.30, Camera Raw
+// −0.31 / −0.40 / −0.24; version 1 −0.48 / −0.60 / −0.51); −100 −0.69 /
+// −0.95 / −0.86 (Camera Raw −0.65 / −0.91 / −0.73).
+// Highlights −100 as a renderer value (slider / 120).
+const HL_K100: f32 = 0.8333333;
+const HL_V2_PIVOT: f32 = 0.07;
+const HL_V2_BLEND: f32 = 0.2;
+const HL_V2_LOWER: f32 = 3.8;
+const HL_V2_SHAPE: f32 = 1.0;
+const HL_V2_AMOUNT_EXPONENT: f32 = 1.7;
+const HL_V2_RESTORE: f32 = 1.4;
 const CR_HIGHLIGHTS_DESAT_START: f32 = 0.9;
 const CR_HIGHLIGHTS_DESAT_END: f32 = 2.5;
 const STANDARD_WHITES_RAISE: f32 = 1.7;
@@ -1583,8 +1602,17 @@ fn apply_highlights_adjustment(
     }
 
     let standard_look = base_look_is_standard();
-    let l_pivot = select(0.10, STANDARD_HIGHLIGHTS_PIVOT, standard_look);
-    let lower_gain = select(STANDARD_HIGHLIGHTS_LOWER, CR_HIGHLIGHTS_LOWER, base_look_is_camera_raw());
+    let v2 = highlights_adj < 0.0 && adjustments.global.tone_version > 1.5 && base_look_is_camera_raw();
+    var l_pivot = select(0.10, STANDARD_HIGHLIGHTS_PIVOT, standard_look);
+    var lower_gain = select(STANDARD_HIGHLIGHTS_LOWER, CR_HIGHLIGHTS_LOWER, base_look_is_camera_raw());
+    // Version 2 works in units of the look's exposure (baseline applied),
+    // so the response sits at the same display levels on every camera.
+    var hl_unit = 1.0;
+    if (v2) {
+        hl_unit = exp2(adjustments.global.baseline_exposure);
+        l_pivot = HL_V2_PIVOT / hl_unit;
+        lower_gain = HL_V2_LOWER;
+    }
     let highlights_gain = select(
         1.0,
         select(STANDARD_HIGHLIGHTS_RAISE, lower_gain, highlights_adj < 0.0),
@@ -1660,15 +1688,24 @@ fn apply_highlights_adjustment(
     var target_luma: f32 = pixel_luma;
 
     if (highlights_adj < 0.0) {
-        let k = -highlights_adj;
+        var k = -highlights_adj;
+        if (v2) {
+            k = HL_K100 * pow(k / HL_K100, HL_V2_AMOUNT_EXPONENT);
+        }
         let delta_base = max(luma_base - l_pivot, 0.0);
 
         let compression_strength = k * 2.2 * highlights_gain;
-        let shape = select(0.35, CR_HIGHLIGHTS_SHAPE, base_look_is_camera_raw());
-        let compressed_delta = delta_base / (1.0 + compression_strength * (delta_base / (1.0 + delta_base * shape)));
+        var shape = select(0.35, CR_HIGHLIGHTS_SHAPE, base_look_is_camera_raw());
+        if (v2) {
+            shape = HL_V2_SHAPE;
+        }
+        let compressed_delta = delta_base / (1.0 + compression_strength * (delta_base * hl_unit / (1.0 + delta_base * hl_unit * shape)));
         let target_base = l_pivot + compressed_delta;
 
-        let restoration_gain = 1.0 + k * 0.55;
+        // Version 2 restores bright detail more (cloud structure, as in
+        // Capture One and Camera Raw), dark detail as before: raising that
+        // too darkened the surround next to bright edges (a dark rim).
+        let restoration_gain = 1.0 + k * select(0.55, HL_V2_RESTORE, v2 && soft_log_detail > 0.0);
         let recovered_detail = exp2(soft_log_detail * restoration_gain);
 
         var recovered_target = target_base * recovered_detail;
@@ -1679,14 +1716,17 @@ fn apply_highlights_adjustment(
         // the lift is limited to the pixel's own compressed level unless it
         // is a peak over all of them; texture keeps its lift.
         let delta_pixel = pixel_luma - l_pivot;
-        let target_pixel = l_pivot + delta_pixel / (1.0 + compression_strength * (delta_pixel / (1.0 + delta_pixel * shape)));
+        let target_pixel = l_pivot + delta_pixel / (1.0 + compression_strength * (delta_pixel * hl_unit / (1.0 + delta_pixel * hl_unit * shape)));
         let peak = max(pixel_luma / max(brightest_neighbour, 1e-4), 1.0);
         let capped = min(recovered_target, max(target_pixel * pow(peak, restoration_gain), target_base));
         // 7.4: the sum of the spatial weights.
         let flatness = smoothstep(0.15, 0.35, flat_weight / 7.4);
         recovered_target = mix(recovered_target, capped, flatness);
 
-        let blend_width = select(0.35, CR_HIGHLIGHTS_BLEND, base_look_is_camera_raw());
+        var blend_width = select(0.35, CR_HIGHLIGHTS_BLEND, base_look_is_camera_raw());
+        if (v2) {
+            blend_width = HL_V2_BLEND / hl_unit;
+        }
         let blend = smoothstep(l_pivot, l_pivot + blend_width, pixel_luma);
         target_luma = mix(pixel_luma, recovered_target, blend);
 

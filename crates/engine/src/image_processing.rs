@@ -5737,9 +5737,11 @@ pub fn grain_structure_index(name: Option<&str>) -> u32 {
 pub const TONE_VERSION_KEY: &str = "toneVersion";
 /// The newest tone-slider response: 2 (2026-10-16) lets Shadows above +50
 /// lift the quarter-tones further, at +100 as far as Camera Raw's and close
-/// to Capture One's (notes: reference/highlight-recovery-gfx.md, G05). New
-/// edits record it; recipes without the key keep version 1, the response
-/// they were made with.
+/// to Capture One's, and refits lowering Highlights (moderate values like
+/// both editors, the same display levels on every camera, −100 at least
+/// Camera Raw's reach; notes: reference/highlight-recovery-gfx.md, G05).
+/// New edits record it; recipes without the key keep version 1, the
+/// response they were made with.
 pub const TONE_VERSION: u64 = 2;
 
 /// The recipe's tone-slider version: `toneVersion`, 1 when missing, never

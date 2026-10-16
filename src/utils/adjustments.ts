@@ -513,8 +513,9 @@ export interface Adjustments {
   colorNoiseVersion?: number;
   /** Tone-slider response (crates/engine/src/image_processing.rs
    * `TONE_VERSION`): 2 = Shadows above +50 reaches further into the
-   * quarter-tones; 1 or missing on recipes that set Shadows above +50
-   * before it = the earlier response. Photo-wide (layers follow it). */
+   * quarter-tones and lowered Highlights is refitted; 1 or missing on
+   * recipes that used either before it = the earlier response. Photo-wide
+   * (layers follow it). */
   toneVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
@@ -1071,15 +1072,17 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
 
 /** The tone-slider response of a saved recipe: its own; else the current
  * one when nothing in it renders differently with it (no Shadows above +50
- * on the photo or a layer), the earlier one otherwise (missing key). */
+ * and no lowered Highlights on the photo or a layer), the earlier one
+ * otherwise (missing key). */
 const loadedToneVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.toneVersion !== undefined && loaded.toneVersion !== null) {
     return loaded.toneVersion;
   }
-  const strongShadows =
-    (loaded.shadows ?? 0) > 50 ||
-    (loaded.masks ?? []).some((mask) => ((mask?.adjustments?.shadows as number | undefined) ?? 0) > 50);
-  return strongShadows ? undefined : TONE_VERSION;
+  // Version 2 changes Shadows above +50 and lowered Highlights only.
+  const differs = (values: { shadows?: unknown; highlights?: unknown } | undefined) =>
+    ((values?.shadows as number | undefined) ?? 0) > 50 || ((values?.highlights as number | undefined) ?? 0) < 0;
+  const rendersDifferently = differs(loaded) || (loaded.masks ?? []).some((mask) => differs(mask?.adjustments));
+  return rendersDifferently ? undefined : TONE_VERSION;
 };
 
 /** The colour noise filter of a saved recipe: its own, else the earlier

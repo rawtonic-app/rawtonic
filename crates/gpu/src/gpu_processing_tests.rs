@@ -5996,12 +5996,16 @@ fn camera_raw_tone_sliders_keep_tones_in_order() {
     );
 }
 
-/// Adds, for every recipe with Shadows above +50 (where the tone-slider
-/// versions differ), the same recipe with `toneVersion` 2.
+/// Adds, for every recipe with Shadows above +50 or Highlights lowered
+/// (where the tone-slider versions differ), the same recipe with
+/// `toneVersion` 2.
 fn with_tone_version_2(recipes: &mut Vec<serde_json::Value>) {
     let versioned: Vec<serde_json::Value> = recipes
         .iter()
-        .filter(|recipe| recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0)
+        .filter(|recipe| {
+            recipe["shadows"].as_f64().unwrap_or(0.0) > 50.0
+                || recipe["highlights"].as_f64().unwrap_or(0.0) < 0.0
+        })
         .map(|recipe| {
             let mut recipe = recipe.clone();
             recipe["toneVersion"] = json!(2);
@@ -6231,7 +6235,7 @@ fn tone_version_2_reaches_further_with_strong_shadows_only() {
     // Nothing else changes: no Shadows, Shadows +50, Shadows lowering.
     for recipe in [
         json!({}),
-        json!({ "shadows": 50, "highlights": -60 }),
+        json!({ "shadows": 50, "highlights": 60 }),
         json!({ "shadows": -100 }),
     ] {
         let mut versioned = recipe.clone();
@@ -6305,8 +6309,10 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                     .collect();
                 let view = grey_texture(&context, width, height, &levels);
                 for (look, mode, flag) in RAW_LOOKS {
-                    for amount in [-100, -50, 50, 100] {
-                        let recipe = json!({ "highlights": amount });
+                    for (amount, version) in
+                        [(-100, 1), (-50, 1), (50, 1), (100, 1), (-100, 2), (-50, 2)]
+                    {
+                        let recipe = json!({ "highlights": amount, "toneVersion": version });
                         let pixels = render_raw_look(
                             &processor,
                             &view,
@@ -6335,7 +6341,7 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         // now at most 0.11 %.
                         if ratio > 1.005 {
                             failures.push(format!(
-                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
+                                "{look} highlights {amount} v{version}, plateau {plateau}, rim {rim}px, background {background}: brightest / centre luminance {ratio:.4}"
                             ));
                         }
                         // Anything darker than the background-to-plateau
@@ -6343,7 +6349,7 @@ fn highlights_keep_a_clipped_plateau_above_its_rim() {
                         let edge = (centre - plateau_radius - 4.0) as usize;
                         if let Some((excess, x, k, c, ev)) = worst_tone_reversal(half, 8..edge, 4) {
                             failures.push(format!(
-                                "{look} highlights {amount}, plateau {plateau}, rim {rim}px, background {background}: channel {c} falls {ev:.3} EV over {k} px in the rim at x {x} ({excess:.1}× the limit)"
+                                "{look} highlights {amount} v{version}, plateau {plateau}, rim {rim}px, background {background}: channel {c} falls {ev:.3} EV over {k} px in the rim at x {x} ({excess:.1}× the limit)"
                             ));
                         }
                     }
