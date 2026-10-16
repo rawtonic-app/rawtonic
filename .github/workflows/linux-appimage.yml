@@ -28,13 +28,13 @@ jobs:
       - run: packaging/linux/build-appimage.sh "$RUNNER_TEMP/linux-cache"
       - name: Collect the AppImage
         run: |
-          mkdir dist
-          cp "$RUNNER_TEMP"/linux-cache/target/release/bundle/appimage/*.AppImage dist/
-          cd dist && sha256sum *.AppImage | tee SHA256SUMS
+          mkdir appimage-out
+          cp "$RUNNER_TEMP"/linux-cache/target/release/bundle/appimage/*.AppImage appimage-out/
+          cd appimage-out && sha256sum *.AppImage | tee SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: linux-appimage
-          path: dist/
+          path: appimage-out/
           retention-days: 14
   smoke:
     needs: build
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: linux-appimage
-          path: dist
+          path: appimage-out
       # Public CC0 samples from raw.pixls.us: Bayer (Sony, Nikon) and X-Trans.
       - name: Test photographs
         run: |
@@ -64,6 +64,6 @@ jobs:
           sha256sum -c SHA256SUMS
       - name: Headless exports in ${{ matrix.image }}
         run: |
-          rm dist/SHA256SUMS
-          docker run --rm -v "$PWD/dist":/app:ro -v "$PWD/photos":/in:ro \
+          rm appimage-out/SHA256SUMS
+          docker run --rm -v "$PWD/appimage-out":/app:ro -v "$PWD/photos":/in:ro \
             -v "$PWD/packaging/linux":/test:ro ${{ matrix.image }} bash /test/smoke-test.sh
