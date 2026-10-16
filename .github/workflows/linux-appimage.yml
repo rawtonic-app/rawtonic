@@ -65,5 +65,7 @@ jobs:
       - name: Headless exports in ${{ matrix.image }}
         run: |
           rm appimage-out/SHA256SUMS
+          # Artifacts lose the executable bit.
+          chmod +x appimage-out/*.AppImage
           docker run --rm -v "$PWD/appimage-out":/app:ro -v "$PWD/photos":/in:ro \
             -v "$PWD/packaging/linux":/test:ro ${{ matrix.image }} bash /test/smoke-test.sh
