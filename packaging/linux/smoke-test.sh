@@ -24,7 +24,8 @@ for photo in /in/*; do
   name=$(basename "$photo")
   [ "$name" = SHA256SUMS ] && continue
   out=$work/$name.jpg
-  xvfb-run -a "$app" --appimage-extract-and-run export "$photo" --output "$out" --format jpeg \
+  # A hung export fails instead of holding the job.
+  timeout 1200 xvfb-run -a "$app" --appimage-extract-and-run export "$photo" --output "$out" --format jpeg \
     > "$work/$name.log" 2>&1
   code=$?
   size=$(stat -c %s "$out" 2>/dev/null || echo 0)
