@@ -99,6 +99,16 @@ The **Develop** room gives the photograph the space: a filmstrip, a histogram an
 <br><b>Local adjustments.</b> Brush, linear and radial masks, colour and luminance ranges, and one-click masks for the subject, sky, background, depth or people.
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+<a href="docs/images/readme-multiview.jpg"><img src="docs/images/readme-multiview.jpg" alt="Multi view: four portraits side by side, the first one the reference"></a>
+<br><b>Multi view.</b> Compare up to twelve selected photographs side by side, with a reference photo and a locked zoom, and edit them all at once.
+</td>
+<td width="50%" valign="top">
+<a href="docs/images/readme-relight.jpg"><img src="docs/images/readme-relight.jpg" alt="Relight in a before/after split: a new warm light brightens the shadow side of a portrait's face"></a>
+<br><b>Relight</b> <i>(experimental)</i>. A new light added after the shoot, here in the before/after split: the shadow side of the face is brightened and the original light turned down.
+</td>
+</tr>
 </table>
 
 ### 4 · Retouch and merge
