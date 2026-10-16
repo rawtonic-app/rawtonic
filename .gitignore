@@ -21,3 +21,6 @@ CLAUDE.local.md
 src-tauri/resources/licenses/THIRD_PARTY_LICENSES.txt
 # Copied by src-tauri/build.rs for the RAWTONIC_BUNDLE_ONNX=1 build
 src-tauri/resources/licenses/onnxruntime-*.txt
+
+# Local results of scripts/bench/replay.js
+scripts/bench/out/
