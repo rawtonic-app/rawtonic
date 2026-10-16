@@ -2199,6 +2199,12 @@
       "drag": {
         "photographs_other": "{{n}} 枚の写真"
       },
+      "fileOperations": {
+        "nothingToRedo": "やり直せるファイル操作はありません。",
+        "redoFailed": "やり直せませんでした：{{error}}",
+        "redone": "やり直しました：{{label}}。{{key}} で取り消せます。",
+        "undone": "取り消しました：{{label}}。{{key}} でやり直せます。"
+      },
       "filters": {
         "allLabels": "すべてのラベル",
         "byColor": "カラーラベルで絞り込み",
@@ -2261,6 +2267,22 @@
       "navigator": {
         "empty": "写真を選択してください",
         "title": "ナビゲーター"
+      },
+      "trash": {
+        "alreadyEmpty": "セッションのゴミ箱フォルダは空です。",
+        "cannotUndo": "この操作は取り消せません。また、それ以前のファイル変更も取り消せなくなります。",
+        "confirm": "完全に削除",
+        "countFailed": "セッションのゴミ箱フォルダを読み込めませんでした：{{error}}",
+        "emptied_other": "写真 {{count}} 枚を完全に削除しました。",
+        "emptiedNow": "セッションのゴミ箱フォルダは空になりました。",
+        "failed": "ゴミ箱を空にできませんでした：{{error}}",
+        "incomplete": "ゴミ箱は空になりましたが、一部のファイルはまだ削除できていません。Rawtonic は次回の起動時に再試行します。{{note}}",
+        "menu": "ゴミ箱を空にする…",
+        "messageEmptyFolders": "このセッションのゴミ箱フォルダにある空のフォルダを削除しますか？",
+        "messageFiles_other": "サイドカーと XMP を含む {{count}} 個のファイルがディスクから削除されます。",
+        "messageOnlyFiles_other": "このセッションのゴミ箱フォルダにある {{count}} 個のファイルを完全に削除しますか？",
+        "messagePhotos_other": "このセッションのゴミ箱フォルダにある写真 {{count}} 枚を完全に削除しますか？",
+        "title": "セッションのゴミ箱を空にしますか？"
       }
     },
     "loadError": {

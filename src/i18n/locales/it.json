@@ -2312,6 +2312,12 @@
         "photographs_many": "{{n}} foto",
         "photographs_other": "{{n}} foto"
       },
+      "fileOperations": {
+        "nothingToRedo": "Nessuna operazione sui file da ripristinare.",
+        "redoFailed": "Impossibile ripristinare: {{error}}",
+        "redone": "Ripristinato: {{label}}. {{key}} lo annulla.",
+        "undone": "Annullato: {{label}}. {{key}} lo ripristina."
+      },
       "filters": {
         "allLabels": "Tutte le etichette",
         "byColor": "Filtra per etichetta colore",
@@ -2382,6 +2388,30 @@
       "navigator": {
         "empty": "Seleziona una foto",
         "title": "Navigatore"
+      },
+      "trash": {
+        "alreadyEmpty": "La cartella Cestino della sessione è vuota.",
+        "cannotUndo": "Non si può annullare, e anche le modifiche ai file precedenti non potranno più essere annullate.",
+        "confirm": "Elimina definitivamente",
+        "countFailed": "Impossibile leggere la cartella Cestino della sessione: {{error}}",
+        "emptied_one": "{{count}} foto eliminata definitivamente.",
+        "emptied_many": "{{count}} foto eliminate definitivamente.",
+        "emptied_other": "{{count}} foto eliminate definitivamente.",
+        "emptiedNow": "La cartella Cestino della sessione ora è vuota.",
+        "failed": "Impossibile svuotare il cestino: {{error}}",
+        "incomplete": "Il cestino è stato svuotato, ma alcuni file non è ancora stato possibile eliminarli; Rawtonic riproverà al prossimo avvio. {{note}}",
+        "menu": "Svuota cestino…",
+        "messageEmptyFolders": "Rimuovere le cartelle vuote dalla cartella Cestino di questa sessione?",
+        "messageFiles_one": "Viene rimosso dal disco {{count}} file, file accessori e XMP compresi.",
+        "messageFiles_many": "Vengono rimossi dal disco {{count}} file, file accessori e XMP compresi.",
+        "messageFiles_other": "Vengono rimossi dal disco {{count}} file, file accessori e XMP compresi.",
+        "messageOnlyFiles_one": "Eliminare definitivamente {{count}} file dalla cartella Cestino di questa sessione?",
+        "messageOnlyFiles_many": "Eliminare definitivamente {{count}} file dalla cartella Cestino di questa sessione?",
+        "messageOnlyFiles_other": "Eliminare definitivamente {{count}} file dalla cartella Cestino di questa sessione?",
+        "messagePhotos_one": "Eliminare definitivamente {{count}} foto dalla cartella Cestino di questa sessione?",
+        "messagePhotos_many": "Eliminare definitivamente {{count}} foto dalla cartella Cestino di questa sessione?",
+        "messagePhotos_other": "Eliminare definitivamente {{count}} foto dalla cartella Cestino di questa sessione?",
+        "title": "Svuotare il cestino della sessione?"
       }
     },
     "loadError": {

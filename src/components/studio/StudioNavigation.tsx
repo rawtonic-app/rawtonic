@@ -76,6 +76,8 @@ import {
 export interface FolderActions {
   moveHere(paths: string[], folder: string): void;
   trash(folder: string): void;
+  /** Empties the session's Trash folder for good (asks first; not undoable). */
+  emptyTrash?(): void;
   /** Adds a folder to the library (a folder dialog). */
   addFolder?(): void;
   /** Takes a top-level folder off the library list; nothing on disk changes. */
@@ -184,6 +186,7 @@ function FolderRow({
       path === sessionRoot ||
       isRoot ||
       (!!sessionRoot && parent === sessionRoot && SESSION_FOLDERS.has(node.name));
+    const isSessionTrash = !catalog && !!sessionRoot && parent === sessionRoot && node.name === "Trash";
     const copied = new Set(copiedFilePaths.map((p) => p.split("?vc=")[0])).size;
     const { setUI } = useUIStore.getState();
     const fileItems: Option[] = actions
@@ -231,6 +234,17 @@ function FolderRow({
             isDestructive: true,
             onClick: () => actions.trash(path),
           },
+          // The session's own Trash folder (Capture One's session Trash).
+          ...(actions.emptyTrash && isSessionTrash
+            ? [
+                {
+                  label: t("studio.library.trash.menu"),
+                  icon: Trash2,
+                  isDestructive: true,
+                  onClick: () => actions.emptyTrash?.(),
+                },
+              ]
+            : []),
           { type: OPTION_SEPARATOR },
         ]
       : [];

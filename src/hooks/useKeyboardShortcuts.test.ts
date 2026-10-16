@@ -20,6 +20,7 @@ const props = {
   handleBackToLibrary: vi.fn(),
   handleDeleteSelected: vi.fn(),
   handleUndoFileOperation: vi.fn(),
+  handleRedoFileOperation: vi.fn(),
   handleImageSelect: vi.fn(),
   handlePasteFiles: vi.fn(),
   handleZoomChange: vi.fn(),
@@ -120,6 +121,36 @@ const pressUndo = () =>
 it("undoes the last file operation with Cmd+Z in the Library", () => {
   pressUndo();
   expect(props.handleUndoFileOperation).toHaveBeenCalledOnce();
+});
+
+it("redoes the file operation undone last with Shift+Cmd+Z in the Library", () => {
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      code: "KeyZ",
+      key: "z",
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  expect(props.handleRedoFileOperation).toHaveBeenCalledOnce();
+  expect(props.handleUndoFileOperation).not.toHaveBeenCalled();
+});
+
+it("leaves Shift+Cmd+Z in Develop to the edit history", () => {
+  useUIStore.setState({ activeView: "editor" });
+  window.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      code: "KeyZ",
+      key: "z",
+      metaKey: true,
+      shiftKey: true,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
+  expect(props.handleRedoFileOperation).not.toHaveBeenCalled();
 });
 
 it("leaves Cmd+Z in Develop to the edit history", () => {

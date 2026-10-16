@@ -24,6 +24,8 @@ interface KeyboardShortcutsProps {
   handleDeleteSelected(): void;
   /** Undoes the last rename, move or delete (Library). */
   handleUndoFileOperation?(): void;
+  /** Redoes the file operation undone last (Library). */
+  handleRedoFileOperation?(): void;
   /** Moves the selection into the session's Selects folder. */
   handleMoveToSelects?(): void;
   handleImageSelect(path: string, openInEditor?: boolean): void;
@@ -49,6 +51,7 @@ export const useKeyboardShortcuts = ({
   handleBackToLibrary,
   handleDeleteSelected,
   handleUndoFileOperation,
+  handleRedoFileOperation,
   handleMoveToSelects,
   handleImageSelect,
   handlePasteFiles,
@@ -412,13 +415,17 @@ export const useKeyboardShortcuts = ({
         },
       },
       redo: {
+        // Develop: edit history. Library: the file operation undone last.
         shouldFire: (s) =>
-          s.ui.activeView === 'editor' &&
-          s.editor.selectedImage?.isReady &&
-          !s.editor.historyPending && s.editor.historyIndex < s.editor.history.length - 1,
+          s.ui.activeView === 'editor'
+            ? s.editor.selectedImage?.isReady &&
+              !s.editor.historyPending &&
+              s.editor.historyIndex < s.editor.history.length - 1
+            : !!handleRedoFileOperation,
         execute: (e, s) => {
           e.preventDefault();
-          s.editor.redo();
+          if (s.ui.activeView === 'editor') s.editor.redo();
+          else handleRedoFileOperation?.();
         },
       },
       auto_adjust: {
@@ -923,6 +930,7 @@ export const useKeyboardShortcuts = ({
     handleBackToLibrary,
     handleDeleteSelected,
     handleUndoFileOperation,
+    handleRedoFileOperation,
     handleMoveToSelects,
     handleImageSelect,
     handlePasteFiles,

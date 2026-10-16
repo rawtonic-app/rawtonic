@@ -2249,6 +2249,12 @@
         "photographs_one": "{{n}} photograph",
         "photographs_other": "{{n}} photographs"
       },
+      "fileOperations": {
+        "nothingToRedo": "There is no file operation to redo.",
+        "redoFailed": "Could not redo: {{error}}",
+        "redone": "Redone: {{label}}. {{key}} undoes it.",
+        "undone": "Undone: {{label}}. {{key}} redoes it."
+      },
       "filters": {
         "allLabels": "All labels",
         "byColor": "Filter by color label",
@@ -2315,6 +2321,26 @@
       "navigator": {
         "empty": "Select a photograph",
         "title": "Navigator"
+      },
+      "trash": {
+        "alreadyEmpty": "The session's Trash folder is empty.",
+        "cannotUndo": "This cannot be undone, and file changes made before it can no longer be undone either.",
+        "confirm": "Delete Permanently",
+        "countFailed": "Could not read the session's Trash folder: {{error}}",
+        "emptied_one": "{{count}} photo deleted permanently.",
+        "emptied_other": "{{count}} photos deleted permanently.",
+        "emptiedNow": "The session's Trash folder is empty now.",
+        "failed": "Could not empty the Trash: {{error}}",
+        "incomplete": "The Trash was emptied, but some files could not be deleted yet; Rawtonic tries again at the next start. {{note}}",
+        "menu": "Empty Trash…",
+        "messageEmptyFolders": "Remove the empty folders in this session's Trash folder?",
+        "messageFiles_one": "{{count}} file is removed from disk, sidecars and XMP included.",
+        "messageFiles_other": "{{count}} files are removed from disk, sidecars and XMP included.",
+        "messageOnlyFiles_one": "Permanently delete {{count}} file in this session's Trash folder?",
+        "messageOnlyFiles_other": "Permanently delete {{count}} files in this session's Trash folder?",
+        "messagePhotos_one": "Permanently delete {{count}} photo in this session's Trash folder?",
+        "messagePhotos_other": "Permanently delete {{count}} photos in this session's Trash folder?",
+        "title": "Empty the Session Trash?"
       }
     },
     "loadError": {

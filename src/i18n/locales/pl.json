@@ -2379,6 +2379,12 @@
         "photographs_many": "{{n}} zdjęć",
         "photographs_other": "{{n}} zdjęcia"
       },
+      "fileOperations": {
+        "nothingToRedo": "Brak operacji na plikach do ponowienia.",
+        "redoFailed": "Nie można ponowić: {{error}}",
+        "redone": "Ponowiono: {{label}}. {{key}} cofa.",
+        "undone": "Cofnięto: {{label}}. {{key}} ponawia."
+      },
       "filters": {
         "allLabels": "Wszystkie etykiety",
         "byColor": "Filtruj według etykiety koloru",
@@ -2453,6 +2459,34 @@
       "navigator": {
         "empty": "Zaznacz zdjęcie",
         "title": "Nawigator"
+      },
+      "trash": {
+        "alreadyEmpty": "Folder kosza sesji jest pusty.",
+        "cannotUndo": "Tego nie można cofnąć, a wcześniejszych zmian plików również nie będzie już można cofnąć.",
+        "confirm": "Usuń trwale",
+        "countFailed": "Nie można odczytać folderu kosza sesji: {{error}}",
+        "emptied_one": "Trwale usunięto {{count}} zdjęcie.",
+        "emptied_few": "Trwale usunięto {{count}} zdjęcia.",
+        "emptied_many": "Trwale usunięto {{count}} zdjęć.",
+        "emptied_other": "Trwale usunięto {{count}} zdjęcia.",
+        "emptiedNow": "Folder kosza sesji jest teraz pusty.",
+        "failed": "Nie można opróżnić kosza: {{error}}",
+        "incomplete": "Kosz został opróżniony, ale niektórych plików nie udało się jeszcze usunąć; Rawtonic spróbuje ponownie przy następnym uruchomieniu. {{note}}",
+        "menu": "Opróżnij kosz…",
+        "messageEmptyFolders": "Usunąć puste foldery z folderu kosza tej sesji?",
+        "messageFiles_one": "Z dysku zostanie usunięty {{count}} plik, łącznie z plikami towarzyszącymi i XMP.",
+        "messageFiles_few": "Z dysku zostaną usunięte {{count}} pliki, łącznie z plikami towarzyszącymi i XMP.",
+        "messageFiles_many": "Z dysku zostanie usuniętych {{count}} plików, łącznie z plikami towarzyszącymi i XMP.",
+        "messageFiles_other": "Z dysku zostanie usuniętego {{count}} pliku, łącznie z plikami towarzyszącymi i XMP.",
+        "messageOnlyFiles_one": "Trwale usunąć {{count}} plik z folderu kosza tej sesji?",
+        "messageOnlyFiles_few": "Trwale usunąć {{count}} pliki z folderu kosza tej sesji?",
+        "messageOnlyFiles_many": "Trwale usunąć {{count}} plików z folderu kosza tej sesji?",
+        "messageOnlyFiles_other": "Trwale usunąć {{count}} pliku z folderu kosza tej sesji?",
+        "messagePhotos_one": "Trwale usunąć {{count}} zdjęcie z folderu kosza tej sesji?",
+        "messagePhotos_few": "Trwale usunąć {{count}} zdjęcia z folderu kosza tej sesji?",
+        "messagePhotos_many": "Trwale usunąć {{count}} zdjęć z folderu kosza tej sesji?",
+        "messagePhotos_other": "Trwale usunąć {{count}} zdjęcia z folderu kosza tej sesji?",
+        "title": "Opróżnić kosz sesji?"
       }
     },
     "loadError": {
