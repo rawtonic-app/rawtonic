@@ -14,8 +14,11 @@
 //! and sets a clipped channel to the mean of the other channels in its
 //! neighbourhood plus that chrominance. Chrominance is kept on a coarse grid
 //! so a blue sky, a white cloud and a warm lamp each get their own colour.
-//! Where all channels are clipped the estimate lands near the sensor's
-//! clipping level and near neutral, which is what Capture One shows there.
+//! Where two colours clip, both are solved from the recorded third and
+//! their chrominances. Where all channels are clipped the area becomes
+//! neutral, at least at the sensor's highest clipping level and at the
+//! brightness of the rebuilt colours around it, which is what Capture One
+//! shows there.
 //! Values above the clipping level are kept; the tone pipeline decides how
 //! to bring them into the display range (Highlights, roll-off).
 //!
@@ -55,6 +58,12 @@ const ROBUST_MIN_SAMPLES: u32 = 32;
 const MIN_CLIPPED_SAMPLES: usize = 64;
 /// Chrominance candidates must be at least this bright relative to the clip.
 const CANDIDATE_FRACTION: f32 = 0.5;
+/// Candidates darker than the other colours around them by more than this
+/// ratio are left out: they are mostly samples on the dark side of an edge
+/// next to a bright area (branches against a bright sky), whose negative
+/// chrominance turned the rebuilt sky magenta (notes: reference/
+/// highlight-recovery-gfx.md, G05).
+const CANDIDATE_MIN_RATIO: f32 = 0.75;
 /// Cells with fewer candidates are filled from their neighbours.
 const MIN_CELL_SAMPLES: usize = 8;
 /// Block size of the clipped-share map that steers the neutral fill.
@@ -63,6 +72,11 @@ const SHARE_BLOCK: usize = 8;
 /// from rebuilt colour to neutral fill spreads over that distance instead
 /// of drawing contours along the clipping boundary.
 const SHARE_BLUR: usize = 2;
+/// Recorded samples this far below their clip level (as a fraction of it)
+/// count fully as the dark side of an edge for the neutral fill.
+const DARK_EDGE_RANGE: f32 = 0.4;
+/// The fill level is measured on every this many pairs of rows.
+const LEVEL_ROW_STEP: usize = 4;
 /// Unclipped samples within this fraction below their clipping level count
 /// partly as clipped in that map.
 const NEAR_CLIP: f32 = 0.08;
@@ -304,6 +318,8 @@ struct Window {
     sum: [f32; 3],
     count: [u32; 3],
     clipped: [u32; 3],
+    /// Sum of the unclipped samples only.
+    sum_unclipped: [f32; 3],
 }
 
 impl Window {
@@ -317,6 +333,19 @@ impl Window {
             total += self.sum[other] / self.count[other] as f32;
         }
         Some(total / 2.0)
+    }
+
+    /// The smaller of the means of the two colours other than `color`, if
+    /// both are present.
+    fn min_other(&self, color: usize) -> Option<f32> {
+        let mut low = f32::INFINITY;
+        for other in (0..3).filter(|c| *c != color) {
+            if self.count[other] == 0 {
+                return None;
+            }
+            low = low.min(self.sum[other] / self.count[other] as f32);
+        }
+        Some(low)
     }
 }
 
@@ -344,6 +373,7 @@ impl Mosaic<'_> {
             sum: [0.0; 3],
             count: [0; 3],
             clipped: [0; 3],
+            sum_unclipped: [0.0; 3],
         };
         for r in r0..=r1 {
             let base = r * self.width;
@@ -353,9 +383,13 @@ impl Mosaic<'_> {
                 if color >= 3 || (unclipped_only && clipped) {
                     continue;
                 }
-                w.sum[color] += self.data[base + c] * self.wb[color];
+                let value = self.data[base + c] * self.wb[color];
+                w.sum[color] += value;
                 w.count[color] += 1;
                 w.clipped[color] += clipped as u32;
+                if !clipped {
+                    w.sum_unclipped[color] += value;
+                }
             }
         }
         w
@@ -445,8 +479,15 @@ fn fill_grid(sum: &mut [f32], count: &mut [u32], cols: usize, rows: usize, fallb
     count.iter_mut().for_each(|c| *c = 1);
 }
 
+/// Per block of SHARE_BLOCK pixels: samples and clipped samples per colour.
+struct BlockCounts {
+    cols: usize,
+    rows: usize,
+    counts: Vec<[[f32; 3]; 2]>,
+}
+
 /// Per block of SHARE_BLOCK pixels: the share of clipped samples of every
-/// colour, box-blurred over SHARE_BLUR blocks.
+/// colour, box-blurred over a few blocks.
 struct ShareMap {
     cols: usize,
     rows: usize,
@@ -457,14 +498,14 @@ impl ShareMap {
     /// `data` and `thresholds` (data units) give every unclipped sample a
     /// partial share once it is within NEAR_CLIP of its clipping level, so
     /// a colour just below saturation counts almost as clipped.
-    fn build(
+    fn block_counts(
         data: &[f32],
         mask: &[u8],
         width: usize,
         active: Area,
         pattern: &Pattern,
         thresholds: [f32; 3],
-    ) -> Self {
+    ) -> BlockCounts {
         let (left, top, aw, ah) = active;
         let cols = aw.div_ceil(SHARE_BLOCK);
         let rows = ah.div_ceil(SHARE_BLOCK);
@@ -495,14 +536,21 @@ impl ShareMap {
                 c
             })
             .collect();
+        BlockCounts { cols, rows, counts }
+    }
+
+    /// The block shares box-blurred over `radius` blocks.
+    fn blurred(blocks: &BlockCounts, radius: usize) -> Self {
+        let BlockCounts { cols, rows, counts } = blocks;
+        let (cols, rows) = (*cols, *rows);
         let share = (0..rows * cols)
             .into_par_iter()
             .map(|i| {
                 let (by, bx) = (i / cols, i % cols);
                 let mut total = [0f32; 3];
                 let mut clipped = [0f32; 3];
-                for y in by.saturating_sub(SHARE_BLUR)..(by + SHARE_BLUR + 1).min(rows) {
-                    for x in bx.saturating_sub(SHARE_BLUR)..(bx + SHARE_BLUR + 1).min(cols) {
+                for y in by.saturating_sub(radius)..(by + radius + 1).min(rows) {
+                    for x in bx.saturating_sub(radius)..(bx + radius + 1).min(cols) {
                         let c = &counts[y * cols + x];
                         for k in 0..3 {
                             total[k] += c[0][k];
@@ -548,7 +596,12 @@ impl ShareMap {
 /// colours towards neutral would tint the area with the complement of the
 /// recorded one, e.g. cyan where red survives).
 fn neutral_weight(share: [f32; 3]) -> f32 {
-    let t = share.iter().copied().fold(1.0f32, f32::min).clamp(0.0, 1.0);
+    smooth(share.iter().copied().fold(1.0f32, f32::min))
+}
+
+/// Smoothstep from 0 to 1.
+fn smooth(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
 }
 
@@ -683,6 +736,9 @@ pub fn reconstruct_clipped_mosaic(
                     else {
                         continue;
                     };
+                    if value < mean_others * CANDIDATE_MIN_RATIO {
+                        continue;
+                    }
                     let gx = col / CELL;
                     sums[gx][color] += value - mean_others;
                     counts[gx][color] += 1;
@@ -719,40 +775,185 @@ pub fn reconstruct_clipped_mosaic(
         }
     }
 
-    // 3. Raise clipped samples to the mean of the other colours around them
-    //    plus the local chrominance (one pass over the original values).
+    // 3. Per clipped sample: the mean of the other colours around it plus
+    //    the local chrominance (the opposed estimate), and how far the
+    //    neutral fill of fully clipped areas takes over there.
     let neutral_level = clip_wb
         .iter()
         .copied()
         .filter(|level| level.is_finite())
         .fold(0.0f32, f32::max);
-    let shares = ShareMap::build(data, &mask, width, active, &pattern, thresholds);
+    let blocks = ShareMap::block_counts(data, &mask, width, active, &pattern, thresholds);
+    let shares = ShareMap::blurred(&blocks, SHARE_BLUR);
+    // The opposed estimate of a clipped sample and the weight of the neutral
+    // fill there.
+    let estimate_parts = |row: usize, col: usize, color: usize| -> Option<(f32, f32, f32)> {
+        let w = mosaic.window(row, col, RADIUS, false);
+        let mean_others = w.mean_others(color)?;
+        // A clipped colour is not the smallest of the three: that
+        // would need a magenta (for green) object brighter than the
+        // clip in every colour. The other colours' means (clipped
+        // ones at their clip level, a lower bound) floor it; a sky
+        // whose green and blue clip over recorded red turned pink
+        // when the opposed estimate fell below red (D800, G05).
+        let floor = w.min_other(color).unwrap_or(0.0);
+        let chroma = |c: usize| chroma_at(&chrominance, grid_cols, grid_rows, row, col, c);
+        let mut opposed = (mean_others + chroma(color)).max(floor);
+        // A second colour clipped here as well: its clip level is
+        // only a lower bound, so the mean of the others under-
+        // estimates both. Solve both clipped colours from the
+        // recorded one and the two chrominances (c - mean(others) =
+        // chroma for each): c = recorded + (4 chroma_c + 2 chroma_o)
+        // / 3. Near a low sun green and blue clip over a recorded red
+        // that already exceeds blue's clip level; the old estimate
+        // left blue and green below red there (a pink sky, D800).
+        // The weight follows the blurred clipped-share map, so the
+        // estimate changes smoothly where the clipping does.
+        let share = shares.at(row - top, col - left);
+        let (a, b) = ((color + 1) % 3, (color + 2) % 3);
+        let (other_clipped, recorded) = if share[a] >= share[b] { (a, b) } else { (b, a) };
+        let joint_weight =
+            smooth(share[other_clipped]) * smooth(2.0 * (share[other_clipped] - share[recorded]));
+        if joint_weight > 0.0 && w.count[recorded] > 0 {
+            let level = w.sum[recorded] / w.count[recorded] as f32;
+            let joint = level + (4.0 * chroma(color) + 2.0 * chroma(other_clipped)) / 3.0;
+            opposed += (joint - opposed).max(0.0) * joint_weight;
+        }
+        // Where every colour is saturated nothing is known about the
+        // colour; such areas become neutral (no warm or magenta cast
+        // from the colour that clips last), blended smoothly by how
+        // many colours clip around. Held back where the other
+        // colours are recorded well below their clip right here: at
+        // the edge of a dark object inside a white area its red and
+        // blue samples are recorded, and raising the clipped green
+        // alone drew green rims (LX100). Recorded samples just below
+        // their clip (a smooth clipping contour) do not hold it back.
+        let hold = [a, b]
+            .map(|c| {
+                let unclipped = w.count[c] - w.clipped[c];
+                if unclipped == 0 {
+                    return 0.0;
+                }
+                let level = w.sum_unclipped[c] / unclipped as f32 / clip_wb[c];
+                let darkness = smooth((1.0 - level) / DARK_EDGE_RANGE);
+                darkness * smooth(2.0 * unclipped as f32 / w.count[c] as f32)
+            })
+            .into_iter()
+            .fold(0.0f32, f32::max);
+        let weight = neutral_weight(share) * (1.0 - hold);
+        // The brightest colour here as it stands: samples above a
+        // clip threshold keep their value (Sony's linear white sits
+        // below the saturation), so the fill must reach it to be
+        // neutral (a lilac sky on a ZV-1 frame otherwise).
+        let brightest = (0..3)
+            .filter(|c| w.count[*c] > 0)
+            .map(|c| w.sum[c] / w.count[c] as f32)
+            .fold(0.0f32, f32::max);
+        Some((opposed, weight, brightest))
+    };
+    let pattern = &pattern;
+    let clipped_samples = |row: usize| {
+        let line = &mask[row * width + left..row * width + left + aw];
+        line.iter()
+            .enumerate()
+            .filter_map(move |(offset, clipped)| {
+                let col = left + offset;
+                let color = pattern.color(row, col);
+                (*clipped != 0 && color < 3).then_some((col, color))
+            })
+    };
+    // 4. The level of the neutral fill: at least the highest clipping level,
+    //    and at least the brightness of the rebuilt colours around a fully
+    //    clipped area (camera (R + 2G + B) / 4 of the partly clipped samples,
+    //    per grid cell, carried into the cells without such samples). A
+    //    constant level left a rebuilt blue sky brighter than the white area
+    //    it surrounds, a dark step along the contour (GFX 50R frame, G05).
+    let level_rows: Vec<GridRow> = (0..grid_rows)
+        .into_par_iter()
+        .map(|gy| {
+            let mut sums = vec![[0.0f32; 3]; grid_cols];
+            let mut counts = vec![[0u32; 3]; grid_cols];
+            // Every fourth pair of rows (both rows of the CFA pattern) is
+            // enough for a cell mean and keeps this pass cheap.
+            let rows = ((gy * CELL).max(top)..((gy + 1) * CELL).min(top + ah))
+                .filter(|row| (row / 2) % LEVEL_ROW_STEP == 0);
+            for row in rows {
+                for col in left..left + aw {
+                    let color = pattern.color(row, col);
+                    if color >= 3 {
+                        continue;
+                    }
+                    let index = row * width + col;
+                    let value = if mask[index] != 0 {
+                        // The fill weight is at most the share map's.
+                        if neutral_weight(shares.at(row - top, col - left)) >= 0.5 {
+                            continue;
+                        }
+                        match estimate_parts(row, col, color) {
+                            Some((opposed, weight, _)) if weight < 0.5 => opposed,
+                            _ => continue,
+                        }
+                    } else {
+                        // Recorded samples count where they border clipped
+                        // ones (a colour still recorded beside two clipped).
+                        let value = data[index] * wb[color];
+                        if value < clip_wb[color] * CANDIDATE_FRACTION
+                            || !mosaic.any_clipped_near(row, col)
+                        {
+                            continue;
+                        }
+                        value
+                    };
+                    sums[col / CELL][color] += value;
+                    counts[col / CELL][color] += 1;
+                }
+            }
+            (gy, sums, counts)
+        })
+        .collect();
+    let mut level_sum = vec![0.0f32; grid_cols * grid_rows];
+    let mut level_count = vec![0u32; grid_cols * grid_rows];
+    for (gy, sums, counts) in level_rows {
+        for gx in 0..grid_cols {
+            let (s, c) = (sums[gx], counts[gx]);
+            if c.iter().all(|n| *n as usize >= MIN_CELL_SAMPLES) {
+                let mean = |k: usize| s[k] / c[k] as f32;
+                level_sum[gy * grid_cols + gx] = (mean(0) + 2.0 * mean(1) + mean(2)) / 4.0;
+                level_count[gy * grid_cols + gx] = MIN_CELL_SAMPLES as u32;
+            }
+        }
+    }
+    level_sum
+        .iter_mut()
+        .zip(level_count.iter_mut())
+        .for_each(|(s, c)| *s *= *c as f32);
+    fill_grid(
+        &mut level_sum,
+        &mut level_count,
+        grid_cols,
+        grid_rows,
+        neutral_level,
+    );
+    let fill_level: Vec<[f32; 3]> = level_sum
+        .iter()
+        .map(|v| [v.max(neutral_level); 3])
+        .collect();
+
+    // 5. Raise clipped samples to the opposed estimate blended into the
+    //    neutral fill (one pass over the original values; never lowered).
     let updates: Vec<Vec<(usize, f32)>> = (top..top + ah)
         .into_par_iter()
         .map(|row| {
             let mut changes = Vec::new();
-            let line = &mask[row * width + left..row * width + left + aw];
-            for (offset, clipped) in line.iter().enumerate() {
-                if *clipped == 0 {
-                    continue;
-                }
-                let col = left + offset;
-                let color = pattern.color(row, col);
-                if color >= 3 {
-                    continue;
-                }
-                let w = mosaic.window(row, col, RADIUS, false);
-                let Some(mean_others) = w.mean_others(color) else {
+            for (col, color) in clipped_samples(row) {
+                let Some((opposed, weight, brightest)) = estimate_parts(row, col, color) else {
                     continue;
                 };
-                let opposed =
-                    mean_others + chroma_at(&chrominance, grid_cols, grid_rows, row, col, color);
-                // Where every colour is saturated nothing is known about the
-                // colour; such areas become neutral at the highest clipping
-                // level (no warm or magenta cast from the colour that clips
-                // last), blended smoothly by how many colours clip around.
-                let weight = neutral_weight(shares.at(row - top, col - left));
-                let estimate = opposed + (neutral_level - opposed).max(0.0) * weight;
+                let level =
+                    chroma_at(&fill_level, grid_cols, grid_rows, row, col, 0).max(brightest);
+                // Both ways: a rebuilt colour above the fill level fades
+                // into it too, so its chroma does not end at the contour.
+                let estimate = opposed + (level - opposed) * weight;
                 let index = row * width + col;
                 let current = data[index] * wb[color];
                 if estimate > current {
@@ -915,5 +1116,143 @@ mod tests {
         assert!(levels.thresholds[0].is_none() && levels.thresholds[1].is_none());
         let blue = levels.thresholds[2].unwrap();
         assert!((0.975..=0.982).contains(&blue), "blue threshold {blue}");
+    }
+
+    /// Reconstructs `data` (clip levels detected from it, nominal white 1.0).
+    fn rebuild(data: &mut [f32], w: usize, h: usize, wb: [f32; 3]) -> Reconstruction {
+        let cfa = rggb();
+        let levels = detect_clip_levels(data, w, (0, 0, w, h), &cfa, 1.0).expect("clips");
+        reconstruct_clipped_mosaic(
+            data,
+            w,
+            h,
+            (0, 0, w, h),
+            &cfa,
+            [wb[0], wb[1], wb[2], 0.0],
+            &levels,
+        )
+        .expect("reconstructed")
+    }
+
+    /// Mean white-balanced R, G, B of the 2 × 2 cells in a rectangle.
+    fn cell_means(
+        data: &[f32],
+        w: usize,
+        wb: [f32; 3],
+        rows: std::ops::Range<usize>,
+        cols: std::ops::Range<usize>,
+    ) -> [f32; 3] {
+        let cfa = rggb();
+        let mut sum = [0.0f32; 3];
+        let mut n = [0u32; 3];
+        for row in rows {
+            for col in cols.clone() {
+                let c = cfa.color_at(row, col);
+                sum[c] += data[row * w + col] * wb[c];
+                n[c] += 1;
+            }
+        }
+        [0, 1, 2].map(|c| sum[c] / n[c] as f32)
+    }
+
+    #[test]
+    fn two_clipped_colours_follow_the_recorded_one() {
+        // A neutral area brightening from left to right: green clips first
+        // (multiplier 1.0), then blue (1.4); red (2.0) is recorded all the
+        // way. Where green and blue clip over a red that is already above
+        // blue's clip level, both are rebuilt from red: the area stays
+        // neutral instead of keeping blue at its clip level below red (a
+        // pink sky near a low sun).
+        let (w, h) = (256, 64);
+        let wb = [2.0, 1.0, 1.4];
+        let cfa = rggb();
+        let scale = |col: usize| 0.6 + 1.2 * col as f32 / (w - 1) as f32;
+        let mut data = vec![0.0; w * h];
+        for row in 0..h {
+            for col in 0..w {
+                let c = cfa.color_at(row, col);
+                data[row * w + col] = (scale(col) / wb[c]).min(1.0);
+            }
+        }
+        rebuild(&mut data, w, h, wb);
+        // Columns where the scene is at 1.6–1.75: green and blue clipped.
+        let [r, g, b] = cell_means(&data, w, wb, 8..h - 8, 214..238);
+        assert!(r > 1.5 && r < 1.8, "red {r}");
+        assert!(
+            (g - r).abs() < 0.05 * r && (b - r).abs() < 0.05 * r,
+            "{r} {g} {b}"
+        );
+    }
+
+    #[test]
+    fn dark_object_in_a_white_area_gets_no_green_rim() {
+        // A fully clipped white area beside a less bright one where only
+        // green clips (red and blue recorded at 60 and 80 % of their clips),
+        // as around a darker cloud in a bright sky. The neutral fill fades
+        // in over the share map's width; it must not lift green alone on
+        // the recorded side (green rims, LX100).
+        let (w, h) = (128, 128);
+        let wb = [2.0, 1.0, 1.5];
+        let cfa = rggb();
+        let mut data = vec![0.0; w * h];
+        for row in 0..h {
+            for col in 0..w {
+                let c = cfa.color_at(row, col);
+                let scene: f32 = if col < 64 { 3.0 } else { 1.2 };
+                data[row * w + col] = (scene / wb[c]).min(1.0);
+            }
+        }
+        rebuild(&mut data, w, h, wb);
+        for col in (66..96).step_by(2) {
+            let [r, g, b] = cell_means(&data, w, wb, 16..h - 16, col..col + 2);
+            assert!(
+                g <= 1.1 * r.max(b),
+                "green rim at column {col}: {r} {g} {b}"
+            );
+        }
+        // Away from the bar the area is neutral at the highest clip.
+        let [r, g, b] = cell_means(&data, w, wb, 16..h - 16, 16..40);
+        assert!(
+            (g - r).abs() < 0.02 * r && (b - r).abs() < 0.02 * r,
+            "{r} {g} {b}"
+        );
+    }
+
+    #[test]
+    fn neutral_fill_reaches_samples_above_their_threshold() {
+        // A threshold below the samples' saturation (Sony's linear white):
+        // red keeps its value above it, so the fill lifts green and blue to
+        // red's value, not just to red's threshold.
+        let (w, h) = (64, 64);
+        let wb = [2.0, 1.0, 1.5];
+        let cfa = rggb();
+        let mut data = vec![0.0; w * h];
+        for row in 0..h {
+            for col in 0..w {
+                data[row * w + col] = match cfa.color_at(row, col) {
+                    0 => 1.0,
+                    _ => 0.94,
+                };
+            }
+        }
+        let levels = ClipLevels {
+            thresholds: [Some(0.94), Some(0.94), Some(0.94)],
+        };
+        reconstruct_clipped_mosaic(
+            &mut data,
+            w,
+            h,
+            (0, 0, w, h),
+            &cfa,
+            [wb[0], wb[1], wb[2], 0.0],
+            &levels,
+        )
+        .expect("reconstructed");
+        let [r, g, b] = cell_means(&data, w, wb, 8..h - 8, 8..w - 8);
+        assert!((r - 2.0).abs() < 1e-4, "red {r}");
+        assert!(
+            (g - r).abs() < 0.01 * r && (b - r).abs() < 0.01 * r,
+            "{r} {g} {b}"
+        );
     }
 }

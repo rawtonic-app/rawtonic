@@ -118,7 +118,7 @@ struct GlobalAdjustments {
     lut_is_scene_referred: u32,
     image_key: f32,
     image_key_low: f32,
-    _pad_lut5: f32,
+    tone_version: f32,
 
     baseline_exposure: f32,
     noise_level: f32,
@@ -1303,6 +1303,20 @@ fn cr_curve_level(display: f32) -> f32 {
     return (exp2(ev) * (1.0 - black) + black) / exp2(adjustments.global.baseline_exposure);
 }
 
+// Tone version 2 (recipe `toneVersion`): Shadows above +50 reaches further
+// into the quarter-tones, display EV added on the tone grid at +100 and
+// faded in quadratically from +50 (where the Camera Raw fit is unchanged).
+// On eight RAWs Shadows +100 lifts −5 / −4 / −3 EV by +2.27 / +1.68 /
+// +1.02 EV (version 1: +1.77 / +1.25 / +0.73; Camera Raw +2.10 / +1.57 /
+// +1.00; Capture One 16.6 +2.40 / +1.87 / +1.00, which squeezes −4 … −3 EV
+// to a 0.13 EV/EV band; notes: reference/highlight-recovery-gfx.md, G05).
+const CR_SHADOWS_REACH = array<f32, 14>(0.0, 0.0, 0.15, 0.33, 0.46, 0.62, 0.61, 0.43, 0.30, 0.17, 0.05, 0.02, 0.0, 0.0);
+
+fn cr_shadows_reach(i: u32, f: f32, shadows: f32) -> f32 {
+    let r = (shadows - 0.5) * 2.0;
+    return mix(CR_SHADOWS_REACH[i], CR_SHADOWS_REACH[i + 1u], f) * r * r;
+}
+
 fn camera_raw_shadows_blacks_gain_unordered(level_luma: f32, sh: f32, bl: f32) -> f32 {
     // Renderer values are slider / 120 (Shadows) and slider / 40 (Blacks).
     let shadows = clamp(sh * 1.2, -1.0, 1.0);
@@ -1314,6 +1328,9 @@ fn camera_raw_shadows_blacks_gain_unordered(level_luma: f32, sh: f32, bl: f32) -
     var raise = 0.0;
     if (shadows > 0.0) {
         raise += mix(CR_SHADOWS_RAISE[i], CR_SHADOWS_RAISE[i + 1u], g.y) * pow(shadows, CR_SHADOWS_RAISE_EXPONENT);
+        if (shadows > 0.5 && adjustments.global.tone_version > 1.5) {
+            raise += cr_shadows_reach(i, g.y, shadows);
+        }
     } else if (shadows < 0.0) {
         delta += mix(CR_SHADOWS_LOWER[i], CR_SHADOWS_LOWER[i + 1u], g.y) * pow(-shadows, CR_SHADOWS_LOWER_EXPONENT);
     }
