@@ -8258,7 +8258,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
     // Wider than one tile, so the half-resolution texture is addressed in
     // image coordinates across tiles.
     let image = chroma_noise_frame(2300, 300);
-    for version in [2, 3, 4] {
+    for version in [2, 3, 4, 5] {
         let gpu = render_source(
             &context,
             &image,
@@ -8290,8 +8290,9 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
             RenderOutputPrecision::SixteenBit,
         )
         .to_rgba16();
-        let (mut worst, mut changed, mut sum) = (0i32, 0i64, 0i64);
+        let (mut worst, mut changed, mut sum, mut far) = (0i32, 0i64, 0i64, 0u32);
         for ((g, c), u) in gpu.pixels().zip(cpu.pixels()).zip(unfiltered.pixels()) {
+            far += u32::from((0..3).any(|k| (g[k] as i32 - c[k] as i32).abs() > 64));
             for k in 0..3 {
                 let d = (g[k] as i32 - c[k] as i32).abs();
                 worst = worst.max(d);
@@ -8301,7 +8302,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         }
         let n = (gpu.width() * gpu.height() * 3) as f64;
         println!(
-            "version {version}: GPU vs CPU reference: max {worst}, mean {:.2}; filter changed mean {:.1} levels",
+            "version {version}: GPU vs CPU reference: max {worst}, mean {:.2}, {far} pixels above 64; filter changed mean {:.1} levels",
             sum as f64 / n,
             changed as f64 / n
         );
@@ -8310,6 +8311,14 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
         assert!(changed as f64 / n > 40.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 600, "max {worst}");
+        // Version 5's switched guide is discontinuous: where a pixel's chroma
+        // lies about one noise unit from its 3 x 3 median, GPU and CPU
+        // rounding can flip the side it takes (10 of 690 000 pixels above 64
+        // levels, none for versions 2-4). Such flips must stay rare.
+        assert!(
+            far * 10_000 < gpu.width() * gpu.height(),
+            "{far} pixels above 64"
+        );
     }
 }
 
@@ -8339,6 +8348,16 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 4})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 3}))
+    );
+    // Version 5's switched guide acts only in the colour expansion: at
+    // Color 0 it renders as version 4.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 5})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 4}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 5})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 4}))
     );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
@@ -8455,7 +8474,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=4 {
+        for version in 1..=5 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {
@@ -8654,8 +8673,10 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
     let fresh2 = render(&mut source(), 2);
     let fresh3 = render(&mut source(), 3);
     let fresh4 = render(&mut source(), 4);
+    let fresh5 = render(&mut source(), 5);
     assert_ne!(fresh2, fresh3);
     assert_ne!(fresh3, fresh4);
+    assert_ne!(fresh4, fresh5);
     // Version 4 builds the pyramid again (linear means) and back.
     let mut kept = source();
     assert!(render(&mut kept, 2) == fresh2);
@@ -8663,7 +8684,11 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
     assert!(render(&mut kept, 4) == fresh4);
     assert!(render(&mut kept, 3) == fresh3);
     assert!(render(&mut kept, 4) == fresh4);
+    // Version 5 shares version 4's levels; only the guide differs.
+    assert!(render(&mut kept, 5) == fresh5);
+    assert!(render(&mut kept, 4) == fresh4);
     assert!(render(&mut kept, 2) == fresh2);
+    assert!(render(&mut kept, 5) == fresh5);
 }
 
 #[test]

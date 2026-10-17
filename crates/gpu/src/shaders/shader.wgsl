@@ -3258,7 +3258,7 @@ fn apply_color_noise_multiscale(
     // against the plain expansion of level 1 (crisper colour edges than
     // expanding both alike, measured on real files).
     let aware2 = adjustments.global.color_noise_aware2;
-    // Version 4 may decide the side by a guide from the 3 x 3 chroma
+    // Version 5 decides the side by a guide from the 3 x 3 chroma
     // (color_noise.rs `Tuning::guide`).
     let guide_code = u32(round(adjustments.global.color_noise_guide));
     let edge2 = adjustments.global.color_noise.w;
