@@ -1153,6 +1153,16 @@ impl WarpKernel {
         } else {
             None
         };
+        let measured = measured.map(|m| {
+            let k: f32 = std::env::var("RAWTONIC_PROTO_CA_SCALE")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1.0);
+            crate::lateral_ca::CaModel {
+                red: (m.red.0 * k, m.red.1 * k),
+                blue: (m.blue.0 * k, m.blue.1 * k),
+            }
+        });
         let (vr, vb, vr2, vb2, tca_on) = match measured {
             Some(m) => (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true),
             None => {
