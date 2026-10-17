@@ -1705,7 +1705,27 @@ fn develop_rgb_mosaic(
         let cx = frame.p.x as f32 + frame.d.w as f32 / 2.0;
         let cy = frame.p.y as f32 + frame.d.h as f32 / 2.0;
         let inv_hd2 = 4.0 / ((frame.d.w * frame.d.w + frame.d.h * frame.d.h) as f32);
+        let cubic = std::env::var_os("RAWTONIC_PROTO_MOSAIC_CUBIC").is_some();
+        let cr = |t: f32| -> [f32; 4] {
+            let (t2, t3) = (t * t, t * t * t);
+            [
+                -0.5 * t3 + t2 - 0.5 * t,
+                1.5 * t3 - 2.5 * t2 + 1.0,
+                -1.5 * t3 + 2.0 * t2 + 0.5 * t,
+                0.5 * t3 - 0.5 * t2,
+            ]
+        };
         let plane = |x: f32, y: f32, c: usize| -> f32 {
+            if cubic && x >= 1.0 && y >= 1.0 && x < roi_w as f32 - 2.0 && y < roi_h as f32 - 2.0 {
+                let (xi, yi) = (x.floor() as usize, y.floor() as usize);
+                let (wx, wy) = (cr(x - xi as f32), cr(y - yi as f32));
+                let mut v = 0.0;
+                for (j, wyj) in wy.iter().enumerate() {
+                    let row = &rgb[(yi + j - 1) * roi_w + xi - 1..];
+                    v += wyj * (0..4).map(|i| row[i][c] * wx[i]).sum::<f32>();
+                }
+                return v.max(0.0);
+            }
             let x = x.clamp(0.0, roi_w as f32 - 1.001);
             let y = y.clamp(0.0, roi_h as f32 - 1.001);
             let (xi, yi) = (x.floor() as usize, y.floor() as usize);
