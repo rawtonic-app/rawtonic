@@ -2136,9 +2136,10 @@ const LOCAL_DEFRINGE_STRENGTH: f32 = 0.6;
 // pair with a much brighter, lit side counts (fringes are light spilling
 // from a brighter neighbour), and a patch of the colour (its neighbours all
 // round share its colour and brightness) is an object; a wide out-of-focus
-// fringe lies on the edge's brightness ramp, so it is no patch. The
-// fringe's colour moves to the prediction, so a coloured edge keeps the
-// colour its sides explain.
+// fringe lies on the edge's brightness ramp, so it is no patch. Next to a
+// patch of its own hue the pixel is that object's edge (printed type, a
+// petal). The fringe falls to the most neutral prediction across a clear
+// edge, so a coloured edge keeps the colour its sides explain.
 const DEFRINGE2_DISTANCES = array<f32, 3>(3.0, 7.0, 16.0);
 const DEFRINGE2_DIRECTIONS = array<vec2<f32>, 4>(
     vec2<f32>(1.0, 0.0), vec2<f32>(0.70710678, 0.70710678),
@@ -2154,8 +2155,26 @@ fn defringe2_side(coord: vec2<i32>, offset: vec2<f32>, dims: vec2<i32>) -> vec4<
     return vec4<f32>(c, get_luma(c));
 }
 
-// How much of the pixel's colour is a fringe (x, 0…1) and the colour (Oklab
-// ab, yz) the edge explains there.
+// Whether the colour at a point (Oklab ab, luminance) fills a patch around
+// it: its four neighbours `near` away share colour and brightness, 0…1.
+fn defringe2_patch(coord: vec2<i32>, ab: vec2<f32>, y: f32, near: f32, dims: vec2<i32>) -> f32 {
+    let chroma = length(ab);
+    let f = DEFRINGE2_FLOOR;
+    var alike = 0.0;
+    for (var j = 0; j < 4; j = j + 1) {
+        let o = select(vec2<f32>(0.0, near), vec2<f32>(near, 0.0), j < 2) * select(-1.0, 1.0, j % 2 == 0);
+        let ns = defringe2_side(coord, o, dims);
+        let n = linear_srgb_to_oklab(ns.rgb).yz;
+        let nc = length(n);
+        let cosine = dot(n, ab) / max(nc * chroma, 1.0e-8);
+        alike += smoothstep(0.92, 0.98, cosine) * smoothstep(0.6, 0.9, nc / chroma)
+            * (1.0 - smoothstep(0.3, 0.7, abs(log2((ns.w + f) / (y + f)))));
+    }
+    return smoothstep(2.5, 3.8, alike);
+}
+
+// How much of the pixel's colour is a fringe (x, 0…1) and the most neutral
+// colour (Oklab ab, yz) a clear edge across it explains there.
 fn defringe2_fringe(coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
     let dims = vec2<i32>(input_dims());
     let rgb = max(load_input(coord).rgb, vec3<f32>(0.0));
@@ -2179,6 +2198,7 @@ fn defringe2_fringe(coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
     let region = smoothstep(5.0, 7.5, alike);
     if (region >= 1.0) { return vec3<f32>(0.0); }
     var best = 0.0;
+    var least = 1.0;
     var goal = ab;
     for (var k = 0; k < 3; k = k + 1) {
         let d = max(1.0, DEFRINGE2_DISTANCES[k] * pixel_scale);
@@ -2192,7 +2212,7 @@ fn defringe2_fringe(coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
             let edge = smoothstep(0.3, 0.8, log2((bright.w + f) / (min(dark.w, y) + f)))
                 * smoothstep(-0.2, 0.2, log2((bright.w + f) / (y + f)))
                 * smoothstep(0.03, 0.12, bright.w);
-            if (edge <= best) { continue; }
+            if (edge < 0.05) { continue; }
             // The mix of the sides at the pixel's luminance; below the
             // darker side (a thin dark line) the darker side's colour fades
             // with the pixel's darkness.
@@ -2202,15 +2222,25 @@ fn defringe2_fringe(coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
             let ec = length(e);
             if (ec > chroma) { e *= chroma / ec; }
             let unexplained = smoothstep(0.3, 0.7, length(ab - e) / chroma);
-            let score = edge * unexplained;
-            if (score > best) {
-                best = score;
-                goal = e;
+            // Next to a patch of its own hue at no less chroma the pixel is
+            // that object's edge (printed type, a petal), not a fringe.
+            if (k < 2) {
+                let dab = linear_srgb_to_oklab(dark.rgb).yz;
+                let dc = length(dab);
+                let same = smoothstep(0.92, 0.98, dot(dab, ab) / max(dc * chroma, 1.0e-8))
+                    * smoothstep(0.7, 0.95, dc / chroma);
+                if (same > 0.0) {
+                    let at = coord + vec2<i32>(round(DEFRINGE2_DIRECTIONS[j] * d * select(-1.0, 1.0, s1.w < s2.w)));
+                    let own = same * defringe2_patch(clamp(at, vec2<i32>(0), dims - 1), dab, dark.w, near, dims);
+                    least = min(least, 1.0 - own);
+                }
             }
+            if (edge >= 0.5 && dot(e, ab) < dot(goal, ab)) { goal = e; }
+            best = max(best, edge * unexplained);
         }
     }
     // Clear evidence counts in full.
-    return vec3<f32>(smoothstep(0.02, 0.25, best) * (1.0 - region), goal);
+    return vec3<f32>(smoothstep(0.02, 0.25, best * least) * (1.0 - region), goal);
 }
 
 fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
@@ -2305,11 +2335,12 @@ fn apply_defringe2(color: vec3<f32>, coord: vec2<i32>, local: f32, protect: f32)
     let global_share = smoothstep(0.0, DEFRINGE_RAMP, selected) * DEFRINGE2_STRENGTH;
     let local_share = local_amount * DEFRINGE2_STRENGTH;
     let share = clamp(fringe.x * (1.0 - (1.0 - global_share) * (1.0 - local_share)), 0.0, 1.0);
-    // The goal never holds more chroma than the pixel had.
-    var goal = fringe.yz;
-    let gc = length(goal);
-    if (gc > chroma) { goal *= chroma / gc; }
-    return gamut_floor(oklab_to_linear_srgb(vec3<f32>(lab.x, mix(lab.yz, goal, share))));
+    // The pixel keeps its hue and falls to the part of the explained colour
+    // along it: the prediction comes from the input before colour noise
+    // reduction, whose hue still carries the chroma noise (and CA rests) the
+    // reduction removed, so a prediction across the pixel's hue means grey.
+    let keep = mix(1.0, clamp(dot(fringe.yz, lab.yz) / (chroma * chroma), 0.0, 1.0), share);
+    return gamut_floor(oklab_to_linear_srgb(vec3<f32>(lab.x, lab.yz * keep)));
 }
 
 // Capture One's Advanced Color Editor / Lightroom's Point Color on display

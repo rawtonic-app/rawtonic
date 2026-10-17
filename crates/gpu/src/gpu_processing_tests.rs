@@ -865,6 +865,7 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         ),
         ("defringePurpleAmount", 10., 20., 0., json!({})),
         ("defringeGreenAmount", 10., 20., 0., json!({})),
+        ("defringePurpleAmount", 10., 20., 0., json!({"defringeVersion": 2})),
     ] {
         for value in [lo, hi] {
             let mut profile = dependency.clone();
@@ -7905,6 +7906,13 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
             "multiscale_color_noise",
             json!({"colorNoiseReduction":90,"colorNoiseVersion":2,"colorNoiseDetail":30,
                 "colorNoiseSmoothness":80,"lumaNoiseReduction":20,"sharpness":40}),
+        ),
+        // The second Defringe detector, photo and layer: sides up to 16 px
+        // away and a patch test around them.
+        (
+            "defringe_v2",
+            json!({"defringePurpleAmount":20,"defringeGreenAmount":20,"defringeVersion":2,
+                "masks":[local_mask("local", json!({"defringe":80}))]}),
         ),
         // Light flare: its map is built from samples of the whole photo.
         (
