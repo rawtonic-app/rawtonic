@@ -96,6 +96,8 @@ interface DrawnLine {
   hardness?: number;
   /** Auto Mask: keeps to colours like the one under the brush centre. */
   autoMask?: boolean;
+  /** Auto Mask method; absent = 1 (old strokes, Lightroom imports), 2 = edge-aware. */
+  autoMaskVersion?: number;
   /** The photo's geometry the stroke was painted in (see `ShapeFrame`). */
   frame?: ShapeFrame;
   points: Array<Coord>;
@@ -215,6 +217,10 @@ interface ColorSample extends Partial<FrameGeometry> {
 
 /** Lightroom's colour range takes up to five samples. */
 const MAX_COLOR_SAMPLES = 5;
+
+/** Auto Mask method of new strokes: 2 is edge-aware (crates/engine
+ * `AutoMaskModel`); strokes without it keep version 1. */
+const AUTO_MASK_VERSION = 2;
 
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -1550,6 +1556,7 @@ const ImageCanvas = memo(
     const strokeFlow = isFlowMask ? activeLineFlow : brushFlow < 100 ? brushFlow : undefined;
     const strokeHardness = isFlowMask ? undefined : brushSettings?.hardness;
     const strokeAutoMask = !isFlowMask && brushSettings?.autoMask ? true : undefined;
+    const strokeAutoMaskVersion = strokeAutoMask ? AUTO_MASK_VERSION : undefined;
 
     // Capture One's brush cursor: the inner ring is the brush size (50%
     // coverage), the outer one where the soft edge ends, r(1 + s) for softness
@@ -2096,6 +2103,7 @@ const ImageCanvas = memo(
               flow: strokeFlow,
               hardness: strokeHardness,
               autoMask: strokeAutoMask,
+              autoMaskVersion: strokeAutoMaskVersion,
               frame: drawingFrame,
               points: interpolatedPoints,
               tool: effectiveTool,
@@ -2143,6 +2151,8 @@ const ImageCanvas = memo(
         strokeOpacity,
         strokeFlow,
         strokeHardness,
+        strokeAutoMask,
+        strokeAutoMaskVersion,
         isAiSubjectActive,
         isParametricActive,
         isLumaPickerActive,
@@ -2317,6 +2327,7 @@ const ImageCanvas = memo(
               flow: strokeFlow,
               hardness: strokeHardness,
               autoMask: strokeAutoMask,
+              autoMaskVersion: strokeAutoMaskVersion,
               frame: drawingFrame,
               points: updatedLine.points.map((p: Coord) => ({
                 x: p.x / scale + cropX,
@@ -2365,6 +2376,8 @@ const ImageCanvas = memo(
         strokeOpacity,
         strokeFlow,
         strokeHardness,
+        strokeAutoMask,
+        strokeAutoMaskVersion,
         isAiSubjectActive,
         imageRenderSize,
         cropX,
@@ -2584,6 +2597,7 @@ const ImageCanvas = memo(
           flow: strokeFlow,
           hardness: strokeHardness,
           autoMask: strokeAutoMask,
+          autoMaskVersion: strokeAutoMaskVersion,
           frame: drawingFrame,
           points: line.points.map((p: Coord) => ({
             x: p.x / scale + cropX,
@@ -2635,6 +2649,8 @@ const ImageCanvas = memo(
       strokeOpacity,
       strokeFlow,
       strokeHardness,
+      strokeAutoMask,
+      strokeAutoMaskVersion,
       isMasking,
       onGenerateAiMask,
       updateSubMask,

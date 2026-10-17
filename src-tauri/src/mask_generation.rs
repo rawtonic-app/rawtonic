@@ -81,7 +81,8 @@ pub async fn sample_luma_range(
             get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments),
             (source.width() as f64, source.height() as f64),
         )?
-        .with_geometry(&js_adjustments);
+        .with_geometry(&js_adjustments)
+        .with_raw_curve(is_raw);
         Ok(
             sample_luma_tones(&mask_source, x, y, width, height).map(|tones| LumaSampleReply {
                 tones,
@@ -327,7 +328,8 @@ pub fn resolve_warped_image_for_masks(
                     source.height() as f64 / source_scale as f64,
                 ),
             )?
-            .with_geometry(adjustments),
+            .with_geometry(adjustments)
+            .with_raw_curve(is_raw),
         ))
     } else {
         Ok(None)

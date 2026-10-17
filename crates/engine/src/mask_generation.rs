@@ -28,6 +28,10 @@ pub struct ParametricMaskSource {
     /// The photo's orientation, flips and straightening, for parametric masks
     /// that follow the photo (luma range) instead of storing their own.
     geometry: SourceGeometry,
+    /// The image carries the CPU default raw curve
+    /// (`apply_cpu_default_raw_processing`) rather than sRGB; Auto Mask
+    /// version 2 inverts it to work in linear light.
+    raw_curve: bool,
 }
 
 /// Orientation steps, flips and rotation of the photo a mask source belongs to.
@@ -670,7 +674,14 @@ impl ParametricMaskSource {
             image,
             coordinate_dimensions,
             geometry: SourceGeometry::default(),
+            raw_curve: false,
         })
+    }
+
+    /// Whether the image carries the CPU default raw curve (see `raw_curve`).
+    pub fn with_raw_curve(mut self, raw_curve: bool) -> Self {
+        self.raw_curve = raw_curve;
+        self
     }
 
     /// The geometry of the photo the source belongs to (see `SourceGeometry`).
@@ -694,6 +705,7 @@ impl ParametricMaskSource {
             image: Arc::new(image),
             coordinate_dimensions: self.coordinate_dimensions,
             geometry: self.geometry,
+            raw_curve: self.raw_curve,
         }
     }
 
@@ -766,7 +778,7 @@ pub fn prepare_parametric_mask_source(
             source.height() as f64 / source_scale as f64,
         ),
     )
-    .map(|source| source.with_geometry(adjustments))
+    .map(|source| source.with_geometry(adjustments).with_raw_curve(is_raw))
 }
 
 pub fn prepare_shared_warped_mask_image(
@@ -907,6 +919,11 @@ struct BrushLine {
     /// colours like the one under its centre (see `auto_mask_weight`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     auto_mask: bool,
+    /// Auto Mask method. Absent: version 1, the Camera Raw-fitted colour
+    /// distance of `auto_mask_weight` (old recipes and imported Lightroom
+    /// strokes keep it). 2: the edge-aware mask of `AutoMaskModel`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auto_mask_version: Option<u32>,
     /// The photo's geometry the stroke was painted in (see `ShapeFrame`).
     #[serde(
         default,
@@ -959,6 +976,7 @@ struct SourceSampler<'a> {
     centre: (f32, f32),
     scale: f32,
     crop_offset: (f32, f32),
+    raw_curve: bool,
 }
 
 impl<'a> SourceSampler<'a> {
@@ -984,6 +1002,7 @@ impl<'a> SourceSampler<'a> {
             centre: (scaled.0 / 2.0, scaled.1 / 2.0),
             scale,
             crop_offset,
+            raw_curve: source.raw_curve,
         }
     }
 
@@ -1038,6 +1057,294 @@ fn source_lab_region(sampler: &SourceSampler, bounds: (u32, u32, u32, u32)) -> V
             })
         })
         .collect()
+}
+
+/// Linear-light RGB of the source under each pixel of `bounds` (row-major),
+/// for Auto Mask version 2; pixels outside the photo are NaN.
+fn source_linear_region(sampler: &SourceSampler, bounds: (u32, u32, u32, u32)) -> Vec<[f32; 3]> {
+    let lut = if sampler.raw_curve {
+        raw8_linear_lut()
+    } else {
+        srgb8_linear_lut()
+    };
+    let (min_x, min_y, max_x, max_y) = bounds;
+    (min_y..=max_y)
+        .into_par_iter()
+        .flat_map_iter(|y| {
+            (min_x..=max_x).map(move |x| {
+                sampler.at(x as f32, y as f32).map_or([f32::NAN; 3], |p| {
+                    [lut[p[0] as usize], lut[p[1] as usize], lut[p[2] as usize]]
+                })
+            })
+        })
+        .collect()
+}
+
+fn srgb8_linear_lut() -> &'static [f32; 256] {
+    static LINEAR: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
+    LINEAR.get_or_init(|| {
+        std::array::from_fn(|i| {
+            let v = i as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        })
+    })
+}
+
+/// The inverse of `apply_cpu_default_raw_processing`'s curve (gamma 2.38,
+/// contrast 1.28 about 0.5) on 8-bit values.
+fn raw8_linear_lut() -> &'static [f32; 256] {
+    static LINEAR: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
+    LINEAR.get_or_init(|| {
+        std::array::from_fn(|i| {
+            let v = i as f32 / 255.0;
+            ((v - 0.5) / 1.28 + 0.5).clamp(0.0, 1.0).powf(2.38)
+        })
+    })
+}
+
+fn linear_to_lab(c: [f32; 3]) -> [f32; 3] {
+    let x = (0.4124 * c[0] + 0.3576 * c[1] + 0.1805 * c[2]) / 0.950_47;
+    let y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    let z = (0.0193 * c[0] + 0.1192 * c[1] + 0.9505 * c[2]) / 1.088_83;
+    let f = |t: f32| {
+        if t > 0.008_856 {
+            t.cbrt()
+        } else {
+            7.787 * t + 16.0 / 116.0
+        }
+    };
+    let (fx, fy, fz) = (f(x), f(y), f(z));
+    [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// Share of `a` in `c` on the line from `b` to `a`, and whether `c` lies
+/// within `AUTO_MASK_BAND` × |a − b| of that line.
+fn share_on_line(c: [f32; 3], a: [f32; 3], b: [f32; 3]) -> Option<(f32, bool)> {
+    let axis = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let len_sq = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
+    if len_sq <= 0.0 {
+        return None;
+    }
+    let d = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+    let t = (d[0] * axis[0] + d[1] * axis[1] + d[2] * axis[2]) / len_sq;
+    let r = [d[0] - t * axis[0], d[1] - t * axis[1], d[2] - t * axis[2]];
+    let r_sq = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+    Some((t, r_sq < AUTO_MASK_BAND * AUTO_MASK_BAND * len_sq))
+}
+
+/// Colour clusters per dab for Auto Mask version 2.
+const AUTO_MASK_CLUSTERS: usize = 3;
+/// Samples per dab radius on the clustering grid (about π · 12² samples).
+const AUTO_MASK_SAMPLES_PER_RADIUS: f32 = 12.0;
+/// A background is fully one from this CIE Lab distance to the subject on
+/// (fading in from the lower one): closer clusters are the subject's own
+/// variation.
+const AUTO_MASK_SEPARATION: (f32, f32) = (4.0, 10.0);
+/// A cluster is a background only when it covers this share of the dab
+/// (fading in from the lower one), not for a few stray pixels.
+const AUTO_MASK_SHARE: (f32, f32) = (0.02, 0.06);
+/// How far from the line between two clusters a third may lie to count as
+/// their mix, relative to their distance.
+const AUTO_MASK_BAND: f32 = 0.25;
+
+/// Auto Mask version 2 for one dab. The colours under the dab fall into
+/// `AUTO_MASK_CLUSTERS` clusters (k-means in CIE Lab); the one nearest the
+/// colour under the centre (in linear light) is the subject. Another
+/// cluster is
+/// - the subject too when the subject's own colour lies on the line from it
+///   to a third cluster, mostly towards it: the centre sits in a soft edge
+///   and that cluster is the subject's purer colour;
+/// - neither when it lies on the line between the subject and a third
+///   cluster: it is their mix along a soft edge;
+/// - a background otherwise, as strong as it is far from the subject and
+///   large (`AUTO_MASK_SEPARATION`, `AUTO_MASK_SHARE`).
+///
+/// A pixel keeps the subject's share of its linear-light mix with each
+/// background, so a soft or low-contrast edge keeps as much as the
+/// subject's light covers there; the colour distance alone (version 1)
+/// keeps most of a background that is close in colour.
+/// notes: reference/local-masks-baseline.md.
+#[derive(Clone, Copy)]
+struct AutoMaskModel {
+    /// Cluster colours in linear light.
+    colours: [[f32; 3]; AUTO_MASK_CLUSTERS],
+    /// Per cluster: `None` for the subject, else its strength as a
+    /// background (0 = none).
+    background: [Option<f32>; AUTO_MASK_CLUSTERS],
+    count: usize,
+}
+
+impl AutoMaskModel {
+    const EMPTY: Self = Self {
+        colours: [[0.0; 3]; AUTO_MASK_CLUSTERS],
+        background: [None; AUTO_MASK_CLUSTERS],
+        count: 0,
+    };
+
+    /// The model of the dab at `centre` (pixels of the stroke's bounds, of
+    /// which `colours` holds the linear-light colours, NaN outside the
+    /// photo) that reaches `outer` pixels.
+    fn fit(colours: &[[f32; 3]], bb_w: usize, bb_h: usize, centre: (f32, f32), outer: f32) -> Self {
+        let colour_at = |x: i64, y: i64| -> Option<[f32; 3]> {
+            if x < 0 || y < 0 || x >= bb_w as i64 || y >= bb_h as i64 {
+                return None;
+            }
+            let c = colours[y as usize * bb_w + x as usize];
+            c[0].is_finite().then_some(c)
+        };
+        // The colour under the centre: its pixel and the four next to it.
+        let (cx, cy) = (centre.0.round() as i64, centre.1.round() as i64);
+        let mut sum = [0.0f32; 3];
+        let mut n = 0.0f32;
+        for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
+            if let Some(c) = colour_at(cx + dx, cy + dy) {
+                sum = [sum[0] + c[0], sum[1] + c[1], sum[2] + c[2]];
+                n += 1.0;
+            }
+        }
+        if n == 0.0 {
+            return Self::EMPTY;
+        }
+        let centre_colour = [sum[0] / n, sum[1] / n, sum[2] / n];
+
+        let stride = (outer / AUTO_MASK_SAMPLES_PER_RADIUS).floor().max(1.0) as i64;
+        let cells = outer.ceil() as i64 / stride + 1;
+        let mut samples: Vec<([f32; 3], [f32; 3])> = Vec::new();
+        for gy in -cells..=cells {
+            for gx in -cells..=cells {
+                let (x, y) = (cx + gx * stride, cy + gy * stride);
+                let (ox, oy) = (x as f32 - centre.0, y as f32 - centre.1);
+                if ox * ox + oy * oy > outer * outer {
+                    continue;
+                }
+                if let Some(c) = colour_at(x, y) {
+                    samples.push((c, linear_to_lab(c)));
+                }
+            }
+        }
+        if samples.len() < AUTO_MASK_CLUSTERS + 1 {
+            return Self::EMPTY;
+        }
+
+        // k-means seeded at the centre's colour, then each time at the
+        // sample farthest from the seeds so far.
+        let k = AUTO_MASK_CLUSTERS;
+        let nearest_seed = |lab: [f32; 3], seeds: &[[f32; 3]]| {
+            seeds
+                .iter()
+                .map(|seed| distance(lab, *seed))
+                .fold(f32::INFINITY, f32::min)
+        };
+        let mut labs = vec![linear_to_lab(centre_colour)];
+        while labs.len() < k {
+            let farthest = samples
+                .iter()
+                .max_by(|a, b| nearest_seed(a.1, &labs).total_cmp(&nearest_seed(b.1, &labs)))
+                .map_or(labs[0], |sample| sample.1);
+            labs.push(farthest);
+        }
+        let mut lins = [[0.0f32; 3]; AUTO_MASK_CLUSTERS];
+        let mut counts = [0.0f32; AUTO_MASK_CLUSTERS];
+        for _ in 0..4 {
+            let mut sums = [[0.0f32; 6]; AUTO_MASK_CLUSTERS];
+            counts = [0.0; AUTO_MASK_CLUSTERS];
+            for &(lin, lab) in &samples {
+                let j = (0..k)
+                    .min_by(|&a, &b| distance(lab, labs[a]).total_cmp(&distance(lab, labs[b])))
+                    .unwrap_or(0);
+                for c in 0..3 {
+                    sums[j][c] += lin[c];
+                    sums[j][3 + c] += lab[c];
+                }
+                counts[j] += 1.0;
+            }
+            for j in 0..k {
+                if counts[j] > 0.0 {
+                    let s = sums[j];
+                    lins[j] = [s[0] / counts[j], s[1] / counts[j], s[2] / counts[j]];
+                    labs[j] = [s[3] / counts[j], s[4] / counts[j], s[5] / counts[j]];
+                }
+            }
+        }
+        let present = |j: usize| counts[j] > 0.0;
+        let Some(subject) = (0..k).filter(|&j| present(j)).min_by(|&a, &b| {
+            distance(centre_colour, lins[a]).total_cmp(&distance(centre_colour, lins[b]))
+        }) else {
+            return Self::EMPTY;
+        };
+        let others = |j: usize| (0..k).filter(move |&m| m != j && m != subject && present(m));
+        let purer_subject = |j: usize| {
+            others(j).any(|m| {
+                share_on_line(lins[subject], lins[j], lins[m])
+                    .is_some_and(|(t, near)| near && (0.5..1.0).contains(&t))
+            })
+        };
+        let soft_edge = |j: usize| {
+            others(j).any(|m| {
+                share_on_line(lins[j], lins[subject], lins[m])
+                    .is_some_and(|(t, near)| near && (0.1..0.9).contains(&t))
+            })
+        };
+        let total = samples.len() as f32;
+        let mut model = Self::EMPTY;
+        for j in (0..k).filter(|&j| present(j)) {
+            let background = if j == subject || purer_subject(j) {
+                None
+            } else if soft_edge(j) {
+                Some(0.0)
+            } else {
+                let (near, far) = AUTO_MASK_SEPARATION;
+                let (few, many) = AUTO_MASK_SHARE;
+                Some(
+                    smoothstep(near, far, distance(labs[subject], labs[j]))
+                        * smoothstep(few, many, counts[j] / total),
+                )
+            };
+            model.colours[model.count] = lins[j];
+            model.background[model.count] = background;
+            model.count += 1;
+        }
+        model
+    }
+
+    /// The share of the dab a pixel of linear-light colour `c` keeps: the
+    /// best subject cluster's share against its nearest background.
+    #[inline]
+    fn weight(&self, c: [f32; 3]) -> f32 {
+        if !c[0].is_finite() {
+            return 0.0;
+        }
+        let clusters = || {
+            self.colours[..self.count]
+                .iter()
+                .zip(&self.background[..self.count])
+        };
+        clusters()
+            .filter(|(_, background)| background.is_none())
+            .map(|(&subject, _)| {
+                clusters()
+                    .filter_map(|(&colour, background)| {
+                        let strength = background.filter(|s| *s > 0.0)?;
+                        let (t, _) = share_on_line(c, subject, colour)?;
+                        Some(1.0 - strength * (1.0 - t.clamp(0.0, 1.0)))
+                    })
+                    .fold(1.0f32, f32::min)
+            })
+            .fold(0.0f32, f32::max)
+    }
 }
 
 fn default_brush_feather() -> f32 {
@@ -1599,7 +1906,9 @@ impl DabTip {
 /// path, as 1 − Π(1 − flow · dab), so it depends on the path and not on how
 /// densely the pointer was sampled (Capture One's and Photoshop's flow); the
 /// stroke's opacity then scales the result. Pixel positions match
-/// `blend_stroke`.
+/// `blend_stroke`. Auto Mask uses the source's colours over `bounds`: CIE
+/// Lab in `colours` for version 1, linear light in `linear_colours` for
+/// version 2 (`blend_stroke_auto_mask_v2`).
 #[allow(clippy::too_many_arguments)]
 fn blend_stroke_dabs(
     mask: &mut GrayImage,
@@ -1611,6 +1920,7 @@ fn blend_stroke_dabs(
     crop_offset: (f32, f32),
     bounds: (u32, u32, u32, u32),
     colours: Option<&[[f32; 3]]>,
+    linear_colours: Option<&[[f32; 3]]>,
     combine: impl Fn(u8, u8) -> u8 + Sync,
 ) -> usize {
     let (min_x, min_y, max_x, max_y) = bounds;
@@ -1686,6 +1996,31 @@ fn blend_stroke_dabs(
             .collect()
     });
 
+    if let Some(linear_colours) = linear_colours {
+        let tip_at = |dist_sq: f32| {
+            if let Some(center_weight) = lightroom {
+                lightroom_tip(center_weight, dist_sq.sqrt() / outer)
+            } else if dist_sq <= inner_radius_sq {
+                1.0
+            } else {
+                let t = ((dist_sq.sqrt() - inner) / feather_range).clamp(0.0, 1.0);
+                1.0 - (t * t * (3.0 - 2.0 * t))
+            }
+        };
+        blend_stroke_auto_mask_v2(
+            mask,
+            (min_x, min_y, bb_w, bb_h),
+            &dabs,
+            outer,
+            tip_at,
+            flow,
+            opacity,
+            linear_colours,
+            combine,
+        );
+        return dabs.len();
+    }
+
     let rows = &mut mask.as_mut()[min_y as usize * width..(max_y as usize + 1) * width];
     rows.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
         let py = y as f32;
@@ -1738,6 +2073,73 @@ fn blend_stroke_dabs(
         }
     });
     dabs.len()
+}
+
+/// Auto Mask version 2 over one stroke: the stroke's coverage without Auto
+/// Mask times a matte, the tip-weighted mean over the dabs of each dab's
+/// share (`AutoMaskModel`). Applying the share per dab instead would let
+/// overlapping dabs build a half-kept edge pixel up to 75–88 %, moving the
+/// edge into the background.
+#[allow(clippy::too_many_arguments)]
+fn blend_stroke_auto_mask_v2(
+    mask: &mut GrayImage,
+    (min_x, min_y, bb_w, bb_h): (u32, u32, usize, usize),
+    dabs: &[(f32, f32)],
+    outer: f32,
+    tip_at: impl Fn(f32) -> f32 + Sync,
+    flow: f32,
+    opacity: f32,
+    colours: &[[f32; 3]],
+    combine: impl Fn(u8, u8) -> u8 + Sync,
+) {
+    let models: Vec<AutoMaskModel> = dabs
+        .par_iter()
+        .map(|&centre| AutoMaskModel::fit(colours, bb_w, bb_h, centre, outer))
+        .collect();
+    let radius_sq = outer * outer;
+    let width = mask.width() as usize;
+    let rows = &mut mask.as_mut()[min_y as usize * width..(min_y as usize + bb_h) * width];
+    rows.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
+        let py = y as f32;
+        let mut keep: Vec<f32> = Vec::new();
+        let mut shares: Vec<(f32, f32)> = Vec::new();
+        for (dab, &(dx, dy)) in dabs.iter().enumerate() {
+            let offset_y = py - dy;
+            if offset_y.abs() > outer {
+                continue;
+            }
+            if keep.is_empty() {
+                keep.resize(bb_w, 1.0);
+                shares.resize(bb_w, (0.0, 0.0));
+            }
+            let half = (radius_sq - offset_y * offset_y).max(0.0).sqrt();
+            let left = ((dx - half).floor() as i32).max(0);
+            let right = ((dx + half).ceil() as i32).min(bb_w as i32 - 1);
+            for x in left..=right {
+                let offset_x = x as f32 - dx;
+                let dist_sq = offset_x * offset_x + offset_y * offset_y;
+                if dist_sq > radius_sq {
+                    continue;
+                }
+                let intensity = tip_at(dist_sq);
+                let x = x as usize;
+                keep[x] *= 1.0 - flow * intensity;
+                let share = models[dab].weight(colours[y * bb_w + x]);
+                shares[x].0 += intensity * share;
+                shares[x].1 += intensity;
+            }
+        }
+        for (x, (kept, (share, weight))) in keep.iter().zip(&shares).enumerate() {
+            if *weight <= 0.0 {
+                continue;
+            }
+            let coverage = ((1.0 - kept) * (share / weight) * opacity * 255.0).round() as u8;
+            if coverage > 0 {
+                let pixel = &mut row[min_x as usize + x];
+                *pixel = combine(*pixel, coverage);
+            }
+        }
+    });
 }
 
 /// The former separate-layer rasterizer, kept as the exact test reference.
@@ -2181,7 +2583,13 @@ fn apply_brush_line(
         (blended.clamp(0.0, 1.0) * 255.0).round() as u8
     };
     if let Some(tip) = tip {
-        let colours = auto_mask.map(|sampler| source_lab_region(sampler, bounds));
+        let edge_aware = line.auto_mask_version.is_some_and(|version| version >= 2);
+        let colours = auto_mask
+            .filter(|_| !edge_aware)
+            .map(|sampler| source_lab_region(sampler, bounds));
+        let linear_colours = auto_mask
+            .filter(|_| edge_aware)
+            .map(|sampler| source_linear_region(sampler, bounds));
         #[cfg(feature = "performance-profiling")]
         let colours_ms = started.elapsed().as_secs_f64() * 1000.0;
         let _dabs = blend_stroke_dabs(
@@ -2194,6 +2602,7 @@ fn apply_brush_line(
             crop_offset,
             bounds,
             colours.as_deref(),
+            linear_colours.as_deref(),
             combine,
         );
         // Profiling only: dabs of this stroke, the rows and columns of its
@@ -2209,6 +2618,7 @@ fn apply_brush_line(
                 "cols": bounds.2 - bounds.0 + 1,
                 "radius_px": radius,
                 "auto_mask": auto_mask.is_some(),
+                "auto_mask_version": if edge_aware { 2 } else { 1 },
                 "colours_ms": colours_ms,
             }),
         );
@@ -3029,34 +3439,12 @@ const COLOR_RANGE_WEIGHT_AB: f32 = 0.506_557; // sqrt(0.2566)
 const COLOR_RANGE_SHAPE: f32 = 2.03;
 
 fn srgb8_to_lab(pixel: Rgba<u8>) -> [f32; 3] {
-    static LINEAR: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
-    let lut = LINEAR.get_or_init(|| {
-        std::array::from_fn(|i| {
-            let v = i as f32 / 255.0;
-            if v <= 0.04045 {
-                v / 12.92
-            } else {
-                ((v + 0.055) / 1.055).powf(2.4)
-            }
-        })
-    });
-    let (r, g, b) = (
+    let lut = srgb8_linear_lut();
+    linear_to_lab([
         lut[pixel[0] as usize],
         lut[pixel[1] as usize],
         lut[pixel[2] as usize],
-    );
-    let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.950_47;
-    let y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    let z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.088_83;
-    let f = |t: f32| {
-        if t > 0.008_856 {
-            t.cbrt()
-        } else {
-            7.787 * t + 16.0 / 116.0
-        }
-    };
-    let (fx, fy, fz) = (f(x), f(y), f(z));
-    [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+    ])
 }
 
 impl ColorRangeModel {
@@ -5005,11 +5393,13 @@ mod mask_bitmap_cache_tests {
             image: Arc::new(DynamicImage::new_rgb8(8, 6)),
             coordinate_dimensions: (8.0, 6.0),
             geometry: SourceGeometry::default(),
+            raw_curve: false,
         };
         let other_source = ParametricMaskSource {
             image: Arc::new(source.image.as_ref().clone()),
             coordinate_dimensions: (8.0, 6.0),
             geometry: SourceGeometry::default(),
+            raw_curve: false,
         };
         for mask_type in ["color", "luminance", "luma-range"] {
             let def = definition(mask_type);
@@ -5051,6 +5441,7 @@ mod mask_bitmap_cache_tests {
                 image: Arc::clone(&source),
                 coordinate_dimensions: (8.0, 6.0),
                 geometry: SourceGeometry::default(),
+                raw_curve: false,
             }),
         );
         let image = Arc::new(GrayImage::new(8, 6));
@@ -5072,6 +5463,7 @@ mod mask_bitmap_cache_tests {
                 image: new_source,
                 coordinate_dimensions: (8.0, 6.0),
                 geometry: SourceGeometry::default(),
+                raw_curve: false,
             }),
         );
         assert!(cache.get(&new_key).is_none());
@@ -5517,6 +5909,7 @@ mod stroke_rasterization_tests {
                         hardness: None,
                         lr_center_weight: None,
                         auto_mask: false,
+                        auto_mask_version: None,
                         frame: None,
                     };
                     let offset = ((next() % 9) as f32 - 4.5, (next() % 7) as f32 - 2.0);
@@ -5585,6 +5978,7 @@ mod stroke_rasterization_tests {
             hardness: None,
             lr_center_weight: None,
             auto_mask: false,
+            auto_mask_version: None,
             frame: None,
         }
     }
@@ -5607,6 +6001,7 @@ mod stroke_rasterization_tests {
             hardness: None,
             lr_center_weight: Some(1.0),
             auto_mask: false,
+            auto_mask_version: None,
             frame: None,
         };
         // One dab at 50 % coverage; two dabs on the same spot reach 75 %
@@ -5719,6 +6114,7 @@ mod stroke_rasterization_tests {
             hardness: Some(hardness),
             lr_center_weight: None,
             auto_mask: false,
+            auto_mask_version: None,
             frame: None,
         };
         let stroke = [(120.0, -150.0), (120.0, 270.0)];
@@ -5786,6 +6182,7 @@ mod stroke_rasterization_tests {
             hardness: None,
             lr_center_weight: None,
             auto_mask: false,
+            auto_mask_version: None,
             frame: None,
         }
     }
@@ -6460,6 +6857,220 @@ mod auto_mask_tools {
             auto.get_pixel(48, 34)[0]
         );
         assert!(auto.get_pixel(48, 28)[0] > 240 && auto.get_pixel(48, 24)[0] > 200);
+    }
+
+    /// One stroke along y = `y` over `image` (96 × 64), Capture One's tip at
+    /// 80 % hardness, with the given Auto Mask setting.
+    fn auto_mask_stroke(image: DynamicImage, y: f64, auto_mask: Value) -> GrayImage {
+        let source = ParametricMaskSource::new(Arc::new(image), (96.0, 64.0)).unwrap();
+        let mut line = serde_json::json!({"tool": "brush", "brushSize": 24.0,
+            "points": [{"x": 20.0, "y": y}, {"x": 76.0, "y": y}], "feather": 0.5,
+            "hardness": 80.0});
+        for (key, value) in auto_mask.as_object().unwrap() {
+            line[key] = value.clone();
+        }
+        let def: MaskDefinition = serde_json::from_value(serde_json::json!({
+            "id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100.0,
+            "adjustments": {}, "subMasks": [{"id": "b", "type": "brush", "visible": true,
+            "mode": "additive", "parameters": {"lines": [line]}}]
+        }))
+        .unwrap();
+        generate_mask_bitmap(
+            &def,
+            96,
+            64,
+            1.0,
+            (0.0, 0.0),
+            &PhotoGeometry::default(),
+            Some(&source),
+        )
+        .unwrap()
+    }
+
+    fn rows(top: Rgba<u8>, bottom: Rgba<u8>, split: u32) -> DynamicImage {
+        DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(96, 64, |_, y| {
+            if y < split { top } else { bottom }
+        }))
+    }
+
+    #[test]
+    fn edge_aware_auto_mask_separates_a_low_contrast_edge() {
+        // Two greys about 11 ΔE apart: version 1 keeps most of the other
+        // one, version 2 keeps to the side under the stroke.
+        let image = rows(Rgba([128, 128, 128, 255]), Rgba([100, 106, 116, 255]), 32);
+        let v1 = auto_mask_stroke(image.clone(), 28.0, serde_json::json!({"autoMask": true}));
+        let v2 = auto_mask_stroke(
+            image,
+            28.0,
+            serde_json::json!({"autoMask": true, "autoMaskVersion": 2}),
+        );
+        assert!(
+            v1.get_pixel(48, 35)[0] > 150,
+            "v1 {}",
+            v1.get_pixel(48, 35)[0]
+        );
+        assert!(
+            v2.get_pixel(48, 35)[0] < 5,
+            "v2 {}",
+            v2.get_pixel(48, 35)[0]
+        );
+        assert!(v2.get_pixel(48, 28)[0] > 245 && v2.get_pixel(48, 31)[0] > 240);
+    }
+
+    #[test]
+    fn edge_aware_auto_mask_keeps_a_soft_edges_coverage_in_linear_light() {
+        // A defocused edge: red mixing into blue in linear light over rows
+        // 26..34 (sRGB-encoded), within the dabs' reach. The mask follows the
+        // red's share.
+        let encode = |linear: f32| {
+            let v = if linear <= 0.003_130_8 {
+                linear * 12.92
+            } else {
+                1.055 * linear.powf(1.0 / 2.4) - 0.055
+            };
+            (v * 255.0).round() as u8
+        };
+        let (red, blue) = ([0.6f32, 0.05, 0.03], [0.03f32, 0.08, 0.5]);
+        let share = |y: u32| 1.0 - ((y as f32 - 26.0) / 8.0).clamp(0.0, 1.0);
+        let image = DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(96, 64, |_, y| {
+            let a = share(y);
+            let c = |i: usize| encode(red[i] * a + blue[i] * (1.0 - a));
+            Rgba([c(0), c(1), c(2), 255])
+        }));
+        let mask = auto_mask_stroke(
+            image,
+            24.0,
+            serde_json::json!({"autoMask": true, "autoMaskVersion": 2}),
+        );
+        for y in [26u32, 28, 30, 32] {
+            let kept = mask.get_pixel(48, y)[0] as f32 / 255.0;
+            assert!(
+                (kept - share(y)).abs() < 0.08,
+                "row {y}: {kept} vs {}",
+                share(y)
+            );
+        }
+        assert!(mask.get_pixel(48, 36)[0] < 5);
+    }
+
+    #[test]
+    fn edge_aware_auto_mask_drops_two_backgrounds() {
+        // Brown roof (rows 24..36) between sky above and a white wall below;
+        // a stroke along the roof reaches both.
+        let image = DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(96, 64, |_, y| match y {
+            0..24 => Rgba([170, 200, 235, 255]),
+            24..36 => Rgba([110, 50, 35, 255]),
+            _ => Rgba([235, 232, 225, 255]),
+        }));
+        let mask = auto_mask_stroke(
+            image,
+            30.0,
+            serde_json::json!({"autoMask": true, "autoMaskVersion": 2}),
+        );
+        assert!(mask.get_pixel(48, 30)[0] > 245);
+        assert!(mask.get_pixel(48, 21)[0] < 5 && mask.get_pixel(48, 39)[0] < 5);
+    }
+
+    #[test]
+    fn auto_mask_version_stays_out_of_strokes_without_it() {
+        // Old recipes and Lightroom imports carry no version and keep it so.
+        let line: BrushLine = serde_json::from_value(serde_json::json!({"tool": "brush",
+            "brushSize": 24.0, "points": [], "autoMask": true}))
+        .unwrap();
+        assert_eq!(line.auto_mask_version, None);
+        assert!(
+            serde_json::to_value(&line)
+                .unwrap()
+                .get("autoMaskVersion")
+                .is_none()
+        );
+        let image = rows(Rgba([200, 40, 30, 255]), Rgba([30, 60, 190, 255]), 32);
+        assert_eq!(
+            auto_mask_stroke(image.clone(), 28.0, serde_json::json!({"autoMask": true})),
+            auto_mask_stroke(
+                image,
+                28.0,
+                serde_json::json!({"autoMask": true, "autoMaskVersion": 1})
+            )
+        );
+    }
+
+    /// M3 of notes plans/local-adjustments-g29-g31.md: the brush stage per
+    /// pointer move while a stroke grows (the newest stroke is redrawn on
+    /// every move), on a 1536 × 1024 preview of a 7728 × 5152 photo, as in
+    /// the WP0 baseline (reference/local-masks-baseline.md): 60 points over
+    /// the width, Capture One's tip at 50 %, brush diameters of 300 and 1500
+    /// photo pixels, Auto Mask off, version 1 and version 2. `$AM_IMAGE`
+    /// (any photo, resized to the preview) replaces the synthetic one.
+    #[test]
+    #[ignore = "timing: run with --release"]
+    fn measures_auto_mask_stroke_cost() {
+        let (w, h) = (1536u32, 1024u32);
+        let scale = w as f32 / 7728.0;
+        let image = match std::env::var("AM_IMAGE") {
+            Ok(path) => {
+                image::open(path)
+                    .unwrap()
+                    .resize_exact(w, h, image::imageops::FilterType::Triangle)
+            }
+            Err(_) => DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(w, h, |x, y| {
+                let edge = (y as f32) < 500.0 + 120.0 * (x as f32 / 90.0).sin();
+                let n = ((x * 7919 + y * 104_729) % 37) as u8;
+                if edge {
+                    Rgba([150 + n, 170 + n, 200, 255])
+                } else {
+                    Rgba([90 + n, 60, 40 + n, 255])
+                }
+            })),
+        };
+        let source = ParametricMaskSource::new(Arc::new(image), (7728.0, 5152.0)).unwrap();
+        for size in [300.0f64, 1500.0] {
+            for (label, extra) in [
+                ("off", serde_json::json!({})),
+                ("v1", serde_json::json!({"autoMask": true})),
+                (
+                    "v2",
+                    serde_json::json!({"autoMask": true, "autoMaskVersion": 2}),
+                ),
+            ] {
+                let mut times = Vec::new();
+                for stroke in 0..5 {
+                    clear_brush_prefixes();
+                    let y = 2000.0 + stroke as f64 * 300.0;
+                    for n in 2..=60usize {
+                        let points: Vec<Value> = (0..n)
+                            .map(|i| serde_json::json!({"x": 800.0 + i as f64 * 100.0, "y": y + 40.0 * (i as f64 / 6.0).sin()}))
+                            .collect();
+                        let mut line = serde_json::json!({"tool": "brush", "brushSize": size,
+                            "points": points, "feather": 0.5, "hardness": 50.0});
+                        for (key, value) in extra.as_object().unwrap() {
+                            line[key] = value.clone();
+                        }
+                        let params = serde_json::json!({"lines": [line]});
+                        let started = std::time::Instant::now();
+                        let _ = generate_brush_bitmap(
+                            &params,
+                            w,
+                            h,
+                            scale,
+                            (0.0, 0.0),
+                            Shown::default(),
+                            Some(&source),
+                        );
+                        times.push(started.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+                times.sort_by(f64::total_cmp);
+                let at = |q: f64| times[((times.len() - 1) as f64 * q).round() as usize];
+                println!(
+                    "diameter {size} px, auto mask {label}: brush stage per move p50 {:.2} ms, p95 {:.2} ms, max {:.2} ms ({} moves)",
+                    at(0.5),
+                    at(0.95),
+                    at(1.0),
+                    times.len()
+                );
+            }
+        }
     }
 
     /// Tool: brush masks of `$AM_IMAGE` for the strokes in `$AM_STROKES`

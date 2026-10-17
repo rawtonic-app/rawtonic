@@ -74,6 +74,8 @@ export interface MaskStrokeLine {
   hardness?: number;
   /** Auto Mask: the stroke keeps to colours like the one under its dabs' centre. */
   autoMask?: boolean;
+  /** Auto Mask method; absent = 1 (old strokes, Lightroom imports), 2 = edge-aware. */
+  autoMaskVersion?: number;
   /** The photo's geometry the stroke was painted in (`ShapeFrame`); absent on older strokes. */
   frame?: ShapeFrame;
   points: Array<{ x: number; y: number }>;
