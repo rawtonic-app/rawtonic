@@ -2324,7 +2324,7 @@
       "notFoundPhoto": "Nie znaleziono profilu dla tego zdjęcia; wybierz obiektyw poniżej.",
       "profile": "Profil",
       "removeCa": "Usuń aberrację chromatyczną",
-      "removeCaTitle": "Mierzy czerwone i niebieskie obwódki na krawędziach zdjęcia i wyrównuje kolory; zastępuje aberrację chromatyczną z profilu",
+      "removeCaTitle": "Mierzy czerwone i niebieskie obwódki na krawędziach zdjęcia i wyrównuje kolory. Korekcja aberracji chromatycznej z danych obiektywu zostaje, chyba że pomiar zostawia wyraźnie mniej obwódek; wyłączone zachowuje korekcję z danych obiektywu",
       "title": "Korekcja obiektywu",
       "useCameraData": "Użyj danych aparatu ({{maker}})",
       "useDatabase": "Użyj bazy obiektywów…",

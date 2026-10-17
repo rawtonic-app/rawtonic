@@ -196,7 +196,14 @@ fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &s
     if let (Some(full), Some(reduced)) = (full.as_rgb32f(), reduced.as_rgb32f())
         && full.dimensions() != reduced.dimensions()
     {
-        rawtonic_engine::lateral_ca::share_estimate(full, reduced, params.auto_ca_version);
+        rawtonic_engine::lateral_ca::share_estimate(
+            full,
+            reduced,
+            params.auto_ca_version,
+            params
+                .auto_ca_versus_own
+                .then(|| crate::image_processing::own_tca_model(&params)),
+        );
     }
 }
 

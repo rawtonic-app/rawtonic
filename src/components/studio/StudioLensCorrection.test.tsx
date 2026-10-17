@@ -129,7 +129,7 @@ describe("Lens correction tool", () => {
     fireEvent.click(box());
     expect(current.autoChromaticAberration).toBeUndefined();
   });
-  it("leaves the camera's own CA data in place by default", async () => {
+  it("leaves the camera's own CA data in place by default in version 2 recipes", async () => {
     current = {
       ...INITIAL_ADJUSTMENTS,
       autoCaVersion: 2,
@@ -142,6 +142,22 @@ describe("Lens correction tool", () => {
     expect(box.checked).toBe(false);
     fireEvent.click(box);
     expect(current.autoChromaticAberration).toBe(true);
+  });
+  it("lets new edits measure against the camera's CA data, and off keeps the camera's", async () => {
+    current = {
+      ...INITIAL_ADJUSTMENTS,
+      autoCaVersion: 3,
+      lensCorrectionMode: "camera",
+      lensDistortionParams: { ...cameraParams, tca_vr: 1.0012, tca_vb: 0.9991 },
+    } as Adjustments;
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const box = () => screen.getByRole("checkbox", { name: "Remove chromatic aberration" }) as HTMLInputElement;
+    expect(box().checked).toBe(true);
+    fireEvent.click(box());
+    expect(current.autoChromaticAberration).toBe(false);
+    fireEvent.click(box());
+    expect(current.autoChromaticAberration).toBeUndefined();
   });
   it("drops a detected lens that arrives after another photograph opened", async () => {
     await renderTool();

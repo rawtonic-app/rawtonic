@@ -93,7 +93,11 @@ describe('RAW detail defaults', () => {
     expect(autoCaOn(fresh)).toBe(true);
     expect(autoCaOn({ ...fresh, autoChromaticAberration: false })).toBe(false);
     const camera = { ...fresh, lensDistortionParams: { k1: 0, k2: 0, k3: 0, tca_vr: 1.001, tca_vb: 1 } } as Adjustments;
-    expect(autoCaOn(camera)).toBe(false);
+    // Version 3 competes with the camera's own CA data; version 2 leaves it.
+    expect(autoCaOn(camera)).toBe(true);
+    expect(autoCaOn({ ...camera, autoCaVersion: 2 })).toBe(false);
+    expect(autoCaOn({ ...camera, lensTcaAmount: 150 })).toBe(false);
+    expect(autoCaOn({ ...camera, autoChromaticAberration: false })).toBe(false);
     expect(autoCaOn({ ...camera, lensTcaEnabled: false })).toBe(true);
     expect(autoCaOn({ ...camera, autoChromaticAberration: true })).toBe(true);
     // Saved recipes keep the switch as it was: off unless set.

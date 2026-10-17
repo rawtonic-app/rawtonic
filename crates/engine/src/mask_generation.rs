@@ -179,6 +179,7 @@ fn warp_geometry(params: GeometryParams) -> GeometryParams {
         vig_k3: defaults.vig_k3,
         auto_ca: defaults.auto_ca,
         auto_ca_version: defaults.auto_ca_version,
+        auto_ca_versus_own: defaults.auto_ca_versus_own,
         ..params
     }
 }
