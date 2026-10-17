@@ -18,6 +18,7 @@ export const getTransformAdjustments = (adj: Adjustments) => ({
   guidedPerspective: adj.guidedPerspective,
   lensCorrectionMode: adj.lensCorrectionMode,
   autoChromaticAberration: adj.autoChromaticAberration,
+  autoCaVersion: adj.autoCaVersion,
   transformDistortion: adj.transformDistortion,
   transformVertical: adj.transformVertical,
   transformHorizontal: adj.transformHorizontal,

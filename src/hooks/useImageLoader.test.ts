@@ -275,6 +275,7 @@ it('starts a never-edited RAW with the camera lens data, but not an edited one',
   expect(useEditorStore.getState().adjustments.lensCorrectionMode).toBe('camera');
   expect(useEditorStore.getState().adjustments.fringeVersion).toBe(1);
   expect(useEditorStore.getState().adjustments.cameraCaVersion).toBe(CAMERA_CA_VERSION);
+  expect(useEditorStore.getState().adjustments.autoCaVersion).toBe(2);
   expect(useEditorStore.getState().history).toHaveLength(1);
 
   useEditorStore.setState({ selectedImage: photo('/edited.raf') });
@@ -286,6 +287,7 @@ it('starts a never-edited RAW with the camera lens data, but not an edited one',
   expect(useEditorStore.getState().adjustments.lensDistortionParams).toBeNull();
   // A saved edit keeps rendering without the edge-fringe pass.
   expect(useEditorStore.getState().adjustments.fringeVersion).toBeUndefined();
+  expect(useEditorStore.getState().adjustments.autoCaVersion).toBeUndefined();
 });
 
 it('renders from the preview proxy before the decode, then from the decode without resetting the recipe', async () => {

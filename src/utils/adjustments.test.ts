@@ -8,6 +8,8 @@ import {
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
   FRINGE_VERSION,
+  AUTO_CA_VERSION,
+  autoCaOn,
   colorNoiseMultiscale,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
@@ -82,6 +84,23 @@ describe('RAW detail defaults', () => {
     expect('fringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
     const versioned = { ...INITIAL_ADJUSTMENTS, fringeVersion: 1 } as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).fringeVersion).toBe(1);
+  });
+
+  it('start new RAW edits with the automatic lateral CA where the lens data has none', () => {
+    const fresh = initialAdjustmentsFor(true);
+    expect(fresh.autoCaVersion).toBe(AUTO_CA_VERSION);
+    expect(initialAdjustmentsFor(false).autoCaVersion).toBeUndefined();
+    expect(autoCaOn(fresh)).toBe(true);
+    expect(autoCaOn({ ...fresh, autoChromaticAberration: false })).toBe(false);
+    const camera = { ...fresh, lensDistortionParams: { k1: 0, k2: 0, k3: 0, tca_vr: 1.001, tca_vb: 1 } } as Adjustments;
+    expect(autoCaOn(camera)).toBe(false);
+    expect(autoCaOn({ ...camera, lensTcaEnabled: false })).toBe(true);
+    expect(autoCaOn({ ...camera, autoChromaticAberration: true })).toBe(true);
+    // Saved recipes keep the switch as it was: off unless set.
+    const saved = { ...INITIAL_ADJUSTMENTS, sharpness: 40 } as Adjustments;
+    expect(normalizeLoadedAdjustments(saved, true).autoCaVersion).toBeUndefined();
+    expect(autoCaOn(normalizeLoadedAdjustments(saved, true))).toBe(false);
+    expect(autoCaOn({ ...saved, autoChromaticAberration: true })).toBe(true);
   });
 
   it('keep the Shadows response a saved recipe rendered with', () => {

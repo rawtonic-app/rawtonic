@@ -579,8 +579,15 @@ export interface Adjustments {
   wbTint?: number;
   transformDistortion: number;
   /** Lateral chromatic aberration measured on the photo and corrected
-   * (crates/engine/src/lateral_ca.rs). */
+   * (crates/engine/src/lateral_ca.rs): true = on (replacing the lens data's
+   * own CA correction), false = off; missing = off before `autoCaVersion` 2,
+   * from it on wherever the lens correction has no CA data of its own. */
   autoChromaticAberration?: boolean;
+  /** The automatic lateral CA estimate (lateral_ca.rs `VERSION`): 2 = refined
+   * at full resolution, applied only when trustworthy, on by default where
+   * the lens data has no CA correction; missing = 1 (recipes from before).
+   * New RAW edits only. */
+  autoCaVersion?: number;
   transformVertical: number;
   transformHorizontal: number;
   transformRotate: number;
@@ -1084,6 +1091,27 @@ export const FRINGE_VERSION = 1;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
+/** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
+export const AUTO_CA_VERSION = 2;
+
+/** Whether the automatic lateral CA correction is on for a recipe, as the
+ * renderer decides (lateral_ca.rs `applies`): its switch when set, else on
+ * from `autoCaVersion` 2 when the lens data has no CA correction of its own. */
+export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
+  if (adjustments.autoChromaticAberration !== undefined && adjustments.autoChromaticAberration !== null) {
+    return adjustments.autoChromaticAberration;
+  }
+  if ((adjustments.autoCaVersion ?? 1) < 2) return false;
+  const params = adjustments.lensDistortionParams as Record<string, unknown> | null | undefined;
+  const value = (key: string, fallback: number) => (typeof params?.[key] === 'number' ? (params[key] as number) : fallback);
+  const ownTca =
+    adjustments.lensTcaEnabled !== false &&
+    (Math.abs(value('tca_vr', 1) - 1) > 1e-6 ||
+      Math.abs(value('tca_vb', 1) - 1) > 1e-6 ||
+      Math.abs(value('tca_vr2', 0)) > 1e-9 ||
+      Math.abs(value('tca_vb2', 0)) > 1e-9);
+  return !ownTca;
+};
 
 /** Starting adjustments for a photo that has no saved edit. */
 export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
@@ -1095,6 +1123,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         toneVersion: TONE_VERSION,
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
+        autoCaVersion: AUTO_CA_VERSION,
       }
     : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION, toneVersion: TONE_VERSION };
 
@@ -1234,6 +1263,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     // carry the key (never-edited RAWs get it in useImageLoader).
     fringeVersion: loadedAdjustments.fringeVersion,
     cameraCaVersion: loadedAdjustments.cameraCaVersion,
+    autoCaVersion: loadedAdjustments.autoCaVersion,
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -1461,6 +1491,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'diffractionCorrection',
         'autoChromaticAberration',
         'cameraCaVersion',
+        'autoCaVersion',
       ],
     },
     {
