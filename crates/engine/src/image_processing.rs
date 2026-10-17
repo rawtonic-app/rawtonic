@@ -121,6 +121,9 @@ pub struct GeometryParams {
     /// (`lateral_ca::estimate`), instead of the lens profile's TCA.
     #[serde(default)]
     pub auto_ca: bool,
+    /// The estimate `auto_ca` uses (`lateral_ca::version_of`).
+    #[serde(default)]
+    pub auto_ca_version: u64,
 }
 
 impl Default for GeometryParams {
@@ -157,6 +160,7 @@ impl Default for GeometryParams {
             guided_perspective_enabled: false,
             guided_fill: false,
             auto_ca: false,
+            auto_ca_version: 0,
         }
     }
 }
@@ -176,7 +180,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
 
-    GeometryParams {
+    let mut params = GeometryParams {
         distortion: adjustments["transformDistortion"].as_f64().unwrap_or(0.0) as f32,
         vertical: adjustments["transformVertical"].as_f64().unwrap_or(0.0) as f32,
         horizontal: adjustments["transformHorizontal"].as_f64().unwrap_or(0.0) as f32,
@@ -247,11 +251,22 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
                 .and_then(|g| g.get("autoCrop"))
                 .and_then(|v| v.as_bool())
                 != Some(false),
-        auto_ca: adjustments
-            .get("autoChromaticAberration")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false),
-    }
+        auto_ca: false,
+        auto_ca_version: crate::lateral_ca::version_of(adjustments),
+    };
+    params.auto_ca = crate::lateral_ca::applies(adjustments, has_own_tca(&params));
+    params
+}
+
+/// Whether the lens correction carries a lateral CA correction of its own
+/// (camera data or a profile's TCA), which the automatic default leaves
+/// in place.
+fn has_own_tca(params: &GeometryParams) -> bool {
+    params.lens_tca_enabled
+        && ((params.tca_vr - 1.0).abs() > 1e-6
+            || (params.tca_vb - 1.0).abs() > 1e-6
+            || params.tca_vr2.abs() > 1e-9
+            || params.tca_vb2.abs() > 1e-9)
 }
 
 /// `DynamicImage::thumbnail`, also right for float images: the image crate
@@ -1015,7 +1030,7 @@ impl WarpKernel {
             // Measured on the photo itself; it covers the whole lateral CA, so
             // it replaces the profile's.
             let m = src_img
-                .and_then(crate::lateral_ca::estimate_cached)
+                .and_then(|image| crate::lateral_ca::estimate_cached(image, params.auto_ca_version))
                 .unwrap_or(crate::lateral_ca::CaModel::NONE);
             (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true)
         } else {
@@ -6682,6 +6697,31 @@ mod region_tests {
         let auto_ca =
             json!({"lensDistortionParams": {"k1": -0.1}, "autoChromaticAberration": true});
         assert!(plan_transformed_region(100, 80, &auto_ca, [0, 0, 10, 10]).is_none());
+        // New RAW edits measure it by default.
+        let new_edit = json!({"lensDistortionParams": {"k1": -0.1}, "autoCaVersion": 2});
+        assert!(plan_transformed_region(100, 80, &new_edit, [0, 0, 10, 10]).is_none());
+    }
+
+    #[test]
+    fn the_measured_ca_default_gives_way_to_the_lens_data() {
+        let params = |v: serde_json::Value| get_geometry_params_from_json(&v);
+        // Saved recipes: only when switched on, with the first estimate.
+        assert!(!params(json!({})).auto_ca);
+        let on = params(json!({"autoChromaticAberration": true}));
+        assert!(on.auto_ca && on.auto_ca_version == 1);
+        // New edits: by default, unless the camera data or profile corrects CA.
+        let new = params(json!({"autoCaVersion": 2}));
+        assert!(new.auto_ca && new.auto_ca_version == 2 && !is_geometry_identity(&new));
+        let camera = json!({"autoCaVersion": 2, "lensCorrectionMode": "camera",
+            "lensDistortionParams": {"k1": 0.0, "tca_vr": 1.0004, "tca_vb": 0.9997}});
+        assert!(!params(camera.clone()).auto_ca);
+        let mut tca_off = camera.clone();
+        tca_off["lensTcaEnabled"] = json!(false);
+        assert!(params(tca_off).auto_ca);
+        let mut forced = camera;
+        forced["autoChromaticAberration"] = json!(true);
+        assert!(params(forced).auto_ca);
+        assert!(!params(json!({"autoCaVersion": 2, "autoChromaticAberration": false})).auto_ca);
     }
 }
 

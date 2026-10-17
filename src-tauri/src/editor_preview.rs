@@ -185,6 +185,21 @@ pub(crate) fn reduced_preview_scale(
     (scale <= REDUCED_PREVIEW_MAX_SCALE).then_some(scale)
 }
 
+/// A reduced preview's automatic lateral CA is the one measured on the
+/// full-resolution image, as its export renders it
+/// (`lateral_ca::share_estimate`).
+fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &serde_json::Value) {
+    let params = crate::image_processing::get_geometry_params_from_json(adjustments);
+    if !params.auto_ca || params.auto_ca_version < 2 {
+        return;
+    }
+    if let (Some(full), Some(reduced)) = (full.as_rgb32f(), reduced.as_rgb32f())
+        && full.dimensions() != reduced.dimensions()
+    {
+        rawtonic_engine::lateral_ca::share_estimate(full, reduced, params.auto_ca_version);
+    }
+}
+
 /// The preview base from `source`, a copy of the full-resolution image at
 /// `source_scale`: resampled to `scale` (if smaller), warped, cropped and
 /// rotated with the crop scaled accordingly. The returned GPU scale and crop
@@ -227,6 +242,9 @@ pub(crate) fn reduced_preview_base(
     } else {
         reduced
     };
+    if source_scale >= 1.0 {
+        share_lateral_ca(source, &retouched, adjustments);
+    }
     let warped = apply_geometry_warp(retouched, &scaled);
     let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale);
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
@@ -1759,6 +1777,7 @@ pub(crate) async fn generate_uncropped_preview(
                 let target_dim = (settings.editor_preview_resolution.unwrap_or(1920) as f32) as u32;
 
                 let downscaled = downscale_f32_image(&blurred_image, target_dim, target_dim);
+                share_lateral_ca(&blurred_image, &downscaled, &adjustments_clone);
 
                 if cache.len() > 5 {
                     cache.clear();

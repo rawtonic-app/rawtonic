@@ -63,6 +63,7 @@ const GEOMETRY_FIELDS = [
   'lensDistortionEnabled',
   'lensTcaEnabled',
   'autoChromaticAberration',
+  'autoCaVersion',
   'lensVignetteEnabled',
   'guidedPerspective',
 ] as const;

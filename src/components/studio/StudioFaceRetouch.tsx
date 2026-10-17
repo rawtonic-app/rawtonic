@@ -37,6 +37,7 @@ export const FACE_FRAME_KEYS = [
   'lensDistortionEnabled',
   'lensTcaEnabled',
   'autoChromaticAberration',
+  'autoCaVersion',
   'fringeVersion',
   'lensVignetteEnabled',
   'guidedPerspective',

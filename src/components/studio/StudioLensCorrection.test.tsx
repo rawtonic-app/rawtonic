@@ -118,6 +118,31 @@ describe("Lens correction tool", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Remove chromatic aberration" }));
     expect(current.autoChromaticAberration).toBeUndefined();
   });
+  it("shows the automatic default of new RAW edits and stores only a change from it", async () => {
+    current = { ...INITIAL_ADJUSTMENTS, autoCaVersion: 2 };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const box = () => screen.getByRole("checkbox", { name: "Remove chromatic aberration" }) as HTMLInputElement;
+    expect(box().checked).toBe(true);
+    fireEvent.click(box());
+    expect(current.autoChromaticAberration).toBe(false);
+    fireEvent.click(box());
+    expect(current.autoChromaticAberration).toBeUndefined();
+  });
+  it("leaves the camera's own CA data in place by default", async () => {
+    current = {
+      ...INITIAL_ADJUSTMENTS,
+      autoCaVersion: 2,
+      lensCorrectionMode: "camera",
+      lensDistortionParams: { ...cameraParams, tca_vr: 1.0012, tca_vb: 0.9991 },
+    } as Adjustments;
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const box = screen.getByRole("checkbox", { name: "Remove chromatic aberration" }) as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    expect(current.autoChromaticAberration).toBe(true);
+  });
   it("drops a detected lens that arrives after another photograph opened", async () => {
     await renderTool();
     let finish!: (value: unknown) => void;

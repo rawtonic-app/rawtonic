@@ -1010,8 +1010,9 @@ fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionPa
 /// exactly: Camera Raw applies its own profile to them by default (R8 +
 /// EF 24-105: corners +0.47 EV, R50 V + RF 28: +0.76 EV), not to DSLRs.
 /// Saved recipes always carry a mode and are left as they are. Never-edited
-/// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`),
-/// and with the camera's data its current `cameraCaVersion`.
+/// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`)
+/// and `autoCaVersion` (`lateral_ca::apply_default`), and with the camera's
+/// data its current `cameraCaVersion`.
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if !(adjustments.is_null() || adjustments.is_object())
         || adjustments.get("lensCorrectionMode").is_some()
@@ -1020,7 +1021,10 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     }
     // A never-edited RAW also starts with the current edge-fringe pass, as
     // the editor's new edits do.
-    crate::edge_fringe::apply_default(adjustments, true, crate::formats::is_raw_file(source));
+    let is_raw = crate::formats::is_raw_file(source);
+    crate::edge_fringe::apply_default(adjustments, true, is_raw);
+    // And with the automatic lateral CA where the camera has no CA data.
+    crate::lateral_ca::apply_default(adjustments, true, is_raw);
     if let Some(params) = params_for(source) {
         if adjustments.is_null() {
             *adjustments = serde_json::json!({});
@@ -2133,6 +2137,11 @@ mod tests {
         assert_eq!(
             never_raw[crate::edge_fringe::VERSION_KEY],
             crate::edge_fringe::VERSION
+        );
+        // And with the automatic lateral CA default.
+        assert_eq!(
+            never_raw[crate::lateral_ca::VERSION_KEY],
+            crate::lateral_ca::VERSION
         );
         assert!(read(&temp.path().join("missing.raf")).is_none());
         let fake = temp.path().join("fake.raf");

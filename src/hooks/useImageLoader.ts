@@ -11,6 +11,7 @@ import { Invokes, type ImageMetadata, type LoadImageResult } from '../components
 import {
   FRINGE_VERSION,
   CAMERA_CA_VERSION,
+  AUTO_CA_VERSION,
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
@@ -183,6 +184,8 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             if (neverEdited && isRaw) {
               // And with the edge-fringe pass, as its export (edge_fringe.rs).
               initialAdjusts.fringeVersion = FRINGE_VERSION;
+              // And with the automatic lateral CA (lateral_ca.rs).
+              initialAdjusts.autoCaVersion = AUTO_CA_VERSION;
               const camera = await cameraRequest;
               if (camera?.params) {
                 initialAdjusts.lensCorrectionMode = 'camera';

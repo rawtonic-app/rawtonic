@@ -33,6 +33,7 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'lensDistortionEnabled',
   'lensTcaEnabled',
   'autoChromaticAberration',
+  'autoCaVersion',
   'fringeVersion',
   'lensVignetteEnabled',
   'guidedPerspective',

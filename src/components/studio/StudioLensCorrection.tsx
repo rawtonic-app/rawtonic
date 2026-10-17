@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { isCurrentEditorImage, useEditorActions } from "../../hooks/useEditorActions";
-import { CAMERA_CA_VERSION, INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
+import { CAMERA_CA_VERSION, INITIAL_ADJUSTMENTS, autoCaOn, type Adjustments } from "../../utils/adjustments";
 import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
 import { ToolGroup } from "./StudioDevelop";
@@ -325,14 +325,17 @@ export default function StudioLensCorrection() {
         <input
           type="checkbox"
           aria-label={t("studio.lens.removeCa")}
-          checked={!!adjustments.autoChromaticAberration}
+          checked={autoCaOn(adjustments)}
           disabled={!ready}
-          onChange={(e) =>
-            setAdjustments((prev) => ({
-              ...prev,
-              autoChromaticAberration: e.target.checked || undefined,
-            }))
-          }
+          onChange={(e) => {
+            const on = e.target.checked;
+            setAdjustments((prev) => {
+              // The switch is stored only where it differs from the recipe's
+              // default (on for new RAW edits without lens CA data).
+              const byDefault = autoCaOn({ ...prev, autoChromaticAberration: undefined });
+              return { ...prev, autoChromaticAberration: on === byDefault ? undefined : on };
+            });
+          }}
         />
         {t("studio.lens.removeCa")}
       </label>
