@@ -1,0 +1,119 @@
+#!/bin/sh
+# Tests scripts/ship.sh against a throwaway repository: a local bare "origin",
+# a main checkout and branch worktrees, with `gh` replaced by a stub. Nothing
+# reaches GitHub. Run by scripts/check.sh; usage: scripts/ship_test.sh
+set -eu
+SHIP=$(cd "$(dirname "$0")" && pwd -P)/ship.sh
+T=$(mktemp -d "${TMPDIR:-/tmp}/rawtonic-ship-test.XXXXXX")
+T=$(cd "$T" && pwd -P)
+trap 'rm -rf "$T"' EXIT
+# Isolated from the user's git configuration (hooks, signing, hooksPath).
+export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_NOSYSTEM=1 TMPDIR="$T"
+unset ORCA_WORKTREE_ID
+git config --global user.name Test
+git config --global user.email test@example.org
+git config --global init.defaultBranch main
+
+mkdir "$T/bin"
+cat >"$T/bin/gh" <<'EOF'
+#!/bin/sh
+# gh stub: no pull request exists until `gh pr create`.
+case "$1 $2" in
+  "pr view") [ -f "$GH_STATE" ] && cat "$GH_STATE" || exit 1 ;;
+  "pr create") echo https://github.com/rawtonic-app/rawtonic/pull/7 | tee "$GH_STATE" ;;
+  *) echo "gh stub: unexpected: $*" >&2; exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/gh"
+export PATH="$T/bin:$PATH"
+
+FAILS=0
+fail() { printf 'FAIL: %s\n' "$*"; FAILS=$((FAILS + 1)); }
+expect_last() { # file pattern
+  last=$(tail -n 1 "$1")
+  # shellcheck disable=SC2254  # $2 is a glob on purpose
+  case "$last" in
+    $2) ;;
+    *) fail "last line '$last' does not match '$2'" ;;
+  esac
+}
+
+git init -q --bare "$T/origin.git"
+git clone -q "$T/origin.git" "$T/main" 2>/dev/null
+mkdir "$T/main/scripts"
+cp "$SHIP" "$T/main/scripts/ship.sh"
+git -C "$T/main" add scripts
+git -C "$T/main" commit -q -m "chore: start"
+git -C "$T/main" push -q origin main
+
+# new_branch NAME: a worktree with one commit and a recorded check pass.
+new_branch() {
+  git -C "$T/main" worktree add -q -b "$1" "$T/wt-$1" main
+  echo "$1" >"$T/wt-$1/$1.txt"
+  git -C "$T/wt-$1" add "$1.txt"
+  git -C "$T/wt-$1" commit -q -m "feat: $1"
+  git -C "$T/wt-$1" rev-parse HEAD >"$(git -C "$T/wt-$1" rev-parse --git-dir)/rawtonic-check-passed"
+  rm -f "$T/gh-$1"
+}
+ship() { # name dir args... (runs ship.sh of worktree NAME from DIR)
+  name=$1 dir=$2; shift 2
+  (cd "$dir" && GH_STATE="$T/gh-$name" sh "$T/wt-$name/scripts/ship.sh" "$@") >"$T/out" 2>&1
+}
+
+# 1. --dry-run pushes nothing.
+new_branch dry
+ship dry "$T/wt-dry" --dry-run || fail "dry run exited $?"
+expect_last "$T/out" "ship: dry run OK; would merge dry into main * and keep the worktree at $T/wt-dry *"
+git -C "$T/origin.git" rev-parse -q --verify refs/heads/dry >/dev/null && fail "dry run pushed the branch"
+
+# 2. A dirty tree fails with a FAILED line and exit 1.
+echo x >"$T/wt-dry/dirty.txt"
+if ship dry "$T/wt-dry"; then fail "dirty tree shipped"; fi
+expect_last "$T/out" "ship: FAILED during preconditions (exit 1)*"
+grep -q "uncommitted changes" "$T/out" || fail "dirty tree: no reason given"
+
+# 3. --no-merge opens the PR and leaves main alone.
+new_branch review
+ship review "$T/wt-review" --no-merge || fail "--no-merge exited $?"
+expect_last "$T/out" "ship: opened PR #7 (https://github.com/rawtonic-app/rawtonic/pull/7); not merged (--no-merge)"
+git -C "$T/origin.git" rev-parse -q --verify refs/heads/review >/dev/null || fail "--no-merge did not push the branch"
+[ "$(git -C "$T/origin.git" log --oneline main | wc -l)" -eq 1 ] || fail "--no-merge changed main"
+
+# 4. Shipping from inside the worktree merges and keeps the worktree and branch.
+new_branch inside
+ship inside "$T/wt-inside/scripts" --title "feat(x): inside" || fail "ship from inside exited $?"
+expect_last "$T/out" "ship: merged PR #7 as * worktree kept at $T/wt-inside (the caller's working directory is inside it); remove it later with: *"
+[ -d "$T/wt-inside" ] || fail "worktree the caller was in was removed"
+git -C "$T/main" rev-parse -q --verify refs/heads/inside >/dev/null || fail "checked-out local branch was deleted"
+git -C "$T/origin.git" rev-parse -q --verify refs/heads/inside >/dev/null && fail "remote branch not deleted"
+[ "$(git -C "$T/origin.git" log -1 --format=%s main)" = "Merge pull request #7: inside" ] || fail "origin/main lacks the merge"
+cmd=$(tail -n 1 "$T/out" | sed 's/.*remove it later with: //')
+sh -c "$cmd" >/dev/null 2>&1 || fail "printed removal command failed: $cmd"
+[ -d "$T/wt-inside" ] && fail "printed removal command left the worktree"
+
+# 5. Orca worktree: kept even when called from elsewhere.
+new_branch orca
+export ORCA_WORKTREE_ID=test
+ship orca "$T/main" || fail "ship in Orca worktree exited $?"
+unset ORCA_WORKTREE_ID
+expect_last "$T/out" "ship: merged PR #7 as *worktree kept at $T/wt-orca (running in an Orca worktree)*"
+[ -d "$T/wt-orca" ] || fail "Orca worktree was removed"
+
+# 6. Called from outside the worktree: worktree and branch removed.
+new_branch outside
+ship outside "$T/main" || fail "ship from outside exited $?"
+expect_last "$T/out" "ship: merged PR #7 as *; worktree and branch removed"
+[ -d "$T/wt-outside" ] && fail "worktree not removed"
+git -C "$T/main" rev-parse -q --verify refs/heads/outside >/dev/null && fail "local branch not deleted"
+
+# 7. --keep-worktree keeps it as well.
+new_branch keep
+ship keep "$T/main" --keep-worktree || fail "--keep-worktree exited $?"
+expect_last "$T/out" "ship: merged PR #7 as *worktree kept at $T/wt-keep (--keep-worktree)*"
+[ -d "$T/wt-keep" ] || fail "--keep-worktree removed the worktree"
+
+if [ "$FAILS" != 0 ]; then
+  printf 'last output:\n'; cat "$T/out"
+  exit 1
+fi
+echo "ship.sh: all tests passed"

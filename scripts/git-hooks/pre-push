@@ -12,6 +12,7 @@ case "$remote_url" in
 esac
 zero=0000000000000000000000000000000000000000
 status=0
+# shellcheck disable=SC2034  # remote_ref is part of git's input format
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
   if [ "$remote_sha" = "$zero" ]; then

@@ -113,6 +113,14 @@ npm run tauri -- build
 
 The advisory check passes without waivers (2026-10-16); a few unmaintained transitive macro crates are replaced through patched copies in `vendor/` (`[patch.crates-io]` in the workspace Cargo.toml: `vendor/paste` → pastey; `vendor/glib-macros`, `vendor/gtk3-macros` without proc-macro-error; ADR 0005). Remove each patch when its upstream releases the fix; new advisories need the same treatment, not an ignore entry. Gates: merges fail on vulnerabilities and unsound crates (`cargo deny check -W unmaintained advisories` in `scripts/check.sh` and CI), unmaintained crates only warn there; `.github/workflows/advisories.yml` runs the full check after each merge and weekly, and releases need it green (`npm run package:mac` and the AppImage workflow run it). See [ADR 0005](decisions/0005-dependency-remediation.md) for the policy and remediation history. Before a merge, `scripts/check.sh` runs every gate locally; CI (`.github/workflows/ci.yml`) repeats them on Linux after each merge into main.
 
+`scripts/ship.sh` ships a branch from its clean worktree in one step: the full check (skipped when `check.sh --brief` already passed on that HEAD with a clean tree), push, pull request, local `merge --no-ff` into the main checkout, push of main, deletion of the remote branch. The worktree and its local branch are removed only when ship.sh is called from outside that worktree. When the caller's working directory is inside it, the caller runs in an Orca worktree (`ORCA_WORKTREE_ID`) or `--keep-worktree` is given, both stay: an agent running there would otherwise lose its working directory before it can send its final report, and a checked-out branch cannot be deleted. The last output line names the outcome and, for a kept worktree, the command that removes it and the branch later:
+
+```text
+ship: merged PR #95 as 1a2b3c4 (https://github.com/…/pull/95); worktree kept at /path/wt (running in an Orca worktree); remove it later with: git -C '/path/main' worktree remove '/path/wt' && git -C '/path/main' branch -d 'feature'
+```
+
+Other outcomes: `ship: opened PR #N (…); not merged (--no-merge)`, `ship: dry run OK; …` (`--dry-run` checks the preconditions and prints the plan without pushing, opening, merging or deleting anything) and `ship: FAILED during <step> (exit N)` with a non-zero exit code. Once main is pushed, a failed clean-up step only warns. `scripts/ship_test.sh` (part of `check.sh`) tests these paths against a throwaway repository with a local bare origin and a stubbed `gh`; `check.sh` also runs `shellcheck` on the scripts when it is installed.
+
 ### GPU tests (manual)
 
 The renderer's GPU tests need a GPU adapter, so they are `#[ignore]`d: neither `scripts/check.sh` nor CI runs them. Run them by hand on a machine with a GPU before merging any change to the shaders (`crates/gpu/src/shaders/`), the GPU pipeline or the tone, colour and look code they render:
