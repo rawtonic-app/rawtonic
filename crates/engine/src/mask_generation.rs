@@ -180,6 +180,8 @@ fn warp_geometry(params: GeometryParams) -> GeometryParams {
         auto_ca: defaults.auto_ca,
         auto_ca_version: defaults.auto_ca_version,
         auto_ca_versus_own: defaults.auto_ca_versus_own,
+        lens_tca_candidate: defaults.lens_tca_candidate,
+        auto_ca_challenged: defaults.auto_ca_challenged,
         ..params
     }
 }

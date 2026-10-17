@@ -974,6 +974,12 @@ pub fn to_params(data: &EmbeddedLensData) -> Option<LensDistortionParams> {
         };
         if let (Some(red), Some(blue)) = (channel(|p| p.1), channel(|p| p.2)) {
             params = params.with_tca(red, blue);
+            // Olympus / OM System's CA data render worse than the automatic
+            // correction on most photos (notes: reference/lateral-ca.md
+            // "Olympus / OM System CA data"): only a candidate.
+            if data.maker == "Olympus" {
+                params = params.as_tca_candidate();
+            }
         }
     }
     Some(params)
@@ -1981,7 +1987,14 @@ mod tests {
         })
         .unwrap();
         assert!(!params.is_identity());
-        assert!(params.without_tca().is_identity());
+        assert!(params.clone().without_tca().is_identity());
+        // Only a candidate for the automatic correction; other makers' CA
+        // data and data without CA carry no flag, so their recipes stay as
+        // they were.
+        let json = serde_json::to_value(&params).unwrap();
+        assert_eq!(json["tca_candidate"], serde_json::json!(true));
+        let plain = serde_json::to_value(params.without_tca()).unwrap();
+        assert!(plain.get("tca_candidate").is_none());
     }
 
     // Fujifilm X-H2S with XF8-16mmF2.8 R LM WR at 15.2 mm (values as stored).

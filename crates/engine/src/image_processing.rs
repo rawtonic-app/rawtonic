@@ -128,6 +128,15 @@ pub struct GeometryParams {
     /// clearly better (`lateral_ca::competes`, `estimate_versus`).
     #[serde(default)]
     pub auto_ca_versus_own: bool,
+    /// The lens data's TCA is only a candidate (`tca_candidate` of the lens
+    /// parameters: Olympus / OM System camera data).
+    #[serde(default)]
+    pub lens_tca_candidate: bool,
+    /// `auto_ca` applies the lens data's candidate TCA only where it
+    /// measures clearly better (`lateral_ca::challenges`,
+    /// `estimate_challenged`).
+    #[serde(default)]
+    pub auto_ca_challenged: bool,
 }
 
 impl Default for GeometryParams {
@@ -166,6 +175,8 @@ impl Default for GeometryParams {
             auto_ca: false,
             auto_ca_version: 0,
             auto_ca_versus_own: false,
+            lens_tca_candidate: false,
+            auto_ca_challenged: false,
         }
     }
 }
@@ -259,15 +270,21 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         auto_ca: false,
         auto_ca_version: crate::lateral_ca::version_of(adjustments),
         auto_ca_versus_own: false,
+        lens_tca_candidate: lens_params
+            .and_then(|p| p.get("tca_candidate").and_then(|v| v.as_bool()))
+            .unwrap_or(false),
+        auto_ca_challenged: false,
     };
     let own = has_own_tca(&params);
+    let untouched = own && (params.lens_tca_amount - 1.0).abs() < 1e-4;
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
+    params.auto_ca_challenged = !params.auto_ca
+        && params.lens_tca_candidate
+        && crate::lateral_ca::challenges(adjustments, untouched);
     params.auto_ca_versus_own = !params.auto_ca
-        && crate::lateral_ca::competes(
-            adjustments,
-            own && (params.lens_tca_amount - 1.0).abs() < 1e-4,
-        );
-    params.auto_ca |= params.auto_ca_versus_own;
+        && !params.auto_ca_challenged
+        && crate::lateral_ca::competes(adjustments, untouched);
+    params.auto_ca |= params.auto_ca_versus_own || params.auto_ca_challenged;
     params
 }
 
@@ -307,6 +324,18 @@ pub fn own_tca_model(params: &GeometryParams) -> crate::lateral_ca::CaModel {
     crate::lateral_ca::CaModel {
         red: (vr - 1.0, vr2),
         blue: (vb - 1.0, vb2),
+    }
+}
+
+/// The lens data's lateral CA as the automatic estimate treats it for
+/// these parameters (`lateral_ca::estimate_for`).
+pub fn lens_ca_of(params: &GeometryParams) -> crate::lateral_ca::LensCa {
+    if params.auto_ca_challenged {
+        crate::lateral_ca::LensCa::Candidate(own_tca_model(params))
+    } else if params.auto_ca_versus_own {
+        crate::lateral_ca::LensCa::Own(own_tca_model(params))
+    } else {
+        crate::lateral_ca::LensCa::None
     }
 }
 
@@ -1067,15 +1096,25 @@ impl WarpKernel {
             1.0
         };
 
-        let measured = if params.auto_ca && params.auto_ca_versus_own {
+        let measured = if params.auto_ca && params.auto_ca_challenged {
+            // Candidate lens data: the photo's own measurement unless the
+            // data leave clearly fewer fringes.
+            Some(
+                src_img
+                    .and_then(|image| {
+                        crate::lateral_ca::estimate_for(
+                            image,
+                            params.auto_ca_version,
+                            lens_ca_of(params),
+                        )
+                    })
+                    .unwrap_or(crate::lateral_ca::CaModel::NONE),
+            )
+        } else if params.auto_ca && params.auto_ca_versus_own {
             // Version 3 against the lens data's own TCA: the photo's own
             // measurement only where it leaves clearly fewer fringes.
             src_img.and_then(|image| {
-                crate::lateral_ca::estimate_for(
-                    image,
-                    params.auto_ca_version,
-                    Some(own_tca_model(params)),
-                )
+                crate::lateral_ca::estimate_for(image, params.auto_ca_version, lens_ca_of(params))
             })
         } else if params.auto_ca {
             // Measured on the photo itself; it covers the whole lateral CA, so
@@ -6797,6 +6836,38 @@ mod region_tests {
         disabled["lensTcaEnabled"] = json!(false);
         let p = params(disabled);
         assert!(p.auto_ca && !p.auto_ca_versus_own);
+    }
+
+    #[test]
+    fn candidate_lens_data_only_challenge_the_measurement() {
+        let params = |v: serde_json::Value| get_geometry_params_from_json(&v);
+        let olympus = json!({"autoCaVersion": 3, "lensCorrectionMode": "camera",
+            "lensDistortionParams": {"k1": 0.0, "tca_vr": 1.0004, "tca_vb": 0.9997,
+                "tca_candidate": true}});
+        let p = params(olympus.clone());
+        assert!(p.auto_ca && p.auto_ca_challenged && !p.auto_ca_versus_own);
+        assert!(matches!(
+            lens_ca_of(&p),
+            crate::lateral_ca::LensCa::Candidate(_)
+        ));
+        let mut v2 = olympus.clone();
+        v2["autoCaVersion"] = json!(2);
+        assert!(params(v2).auto_ca_challenged);
+        // Recipes from before version 2 and the user's choices: the data.
+        let mut old = olympus.clone();
+        old.as_object_mut().unwrap().remove("autoCaVersion");
+        assert!(!params(old).auto_ca);
+        let mut off = olympus.clone();
+        off["autoChromaticAberration"] = json!(false);
+        assert!(!params(off).auto_ca);
+        let mut amount = olympus.clone();
+        amount["lensTcaAmount"] = json!(50);
+        assert!(!params(amount).auto_ca);
+        let mut on = olympus;
+        on["autoChromaticAberration"] = json!(true);
+        let p = params(on);
+        assert!(p.auto_ca && !p.auto_ca_challenged);
+        assert_eq!(lens_ca_of(&p), crate::lateral_ca::LensCa::None);
     }
 }
 

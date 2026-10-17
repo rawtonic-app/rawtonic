@@ -100,6 +100,16 @@ describe('RAW detail defaults', () => {
     expect(autoCaOn({ ...camera, autoChromaticAberration: false })).toBe(false);
     expect(autoCaOn({ ...camera, lensTcaEnabled: false })).toBe(true);
     expect(autoCaOn({ ...camera, autoChromaticAberration: true })).toBe(true);
+    // Candidate camera data (Olympus) are only challengers, from version 2.
+    const candidate = {
+      ...camera,
+      autoCaVersion: 2,
+      lensDistortionParams: { ...camera.lensDistortionParams, tca_candidate: true },
+    } as Adjustments;
+    expect(autoCaOn(candidate)).toBe(true);
+    expect(autoCaOn({ ...candidate, autoCaVersion: undefined })).toBe(false);
+    expect(autoCaOn({ ...candidate, lensTcaAmount: 150 })).toBe(false);
+    expect(autoCaOn({ ...candidate, autoChromaticAberration: false })).toBe(false);
     // Saved recipes keep the switch as it was: off unless set.
     const saved = { ...INITIAL_ADJUSTMENTS, sharpness: 40 } as Adjustments;
     expect(normalizeLoadedAdjustments(saved, true).autoCaVersion).toBeUndefined();

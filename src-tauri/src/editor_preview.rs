@@ -200,9 +200,7 @@ fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &s
             full,
             reduced,
             params.auto_ca_version,
-            params
-                .auto_ca_versus_own
-                .then(|| crate::image_processing::own_tca_model(&params)),
+            crate::image_processing::lens_ca_of(&params),
         );
     }
 }

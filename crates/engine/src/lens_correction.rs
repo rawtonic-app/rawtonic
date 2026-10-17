@@ -163,6 +163,12 @@ pub struct LensDistortionParams {
     tca_vr2: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
     tca_vb2: f64,
+    /// The lateral CA is only a candidate for the automatic correction:
+    /// applied by default only where it measures clearly better
+    /// (`lateral_ca::estimate_challenged`; the Olympus / OM System camera
+    /// data, embedded_lens.rs).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    tca_candidate: bool,
 }
 
 fn is_zero(value: &f64) -> bool {
@@ -194,6 +200,7 @@ impl LensDistortionParams {
             zoom: 1.0,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            tca_candidate: false,
         }
     }
 
@@ -207,6 +214,13 @@ impl LensDistortionParams {
         self
     }
 
+    /// The same parameters with their lateral CA only a candidate
+    /// (`tca_candidate`).
+    pub fn as_tca_candidate(mut self) -> Self {
+        self.tca_candidate = true;
+        self
+    }
+
     /// The same parameters without lateral CA.
     pub fn without_tca(self) -> Self {
         Self {
@@ -214,6 +228,7 @@ impl LensDistortionParams {
             tca_vb: 1.0,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            tca_candidate: false,
             ..self
         }
     }
@@ -626,6 +641,7 @@ impl Lens {
             zoom: 1.0,
             tca_vr2: 0.0,
             tca_vb2: 0.0,
+            tca_candidate: false,
         })
     }
 }

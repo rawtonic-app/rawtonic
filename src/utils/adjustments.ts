@@ -584,7 +584,8 @@ export interface Adjustments {
    * own CA correction), false = off; missing = off before `autoCaVersion` 2,
    * from it on wherever the lens correction has no CA data of its own, from
    * 3 also where it has (replacing them only where it measures clearly
-   * better). */
+   * better), and over candidate lens data (`tca_candidate`: Olympus / OM
+   * System, applied only where they measure clearly better). */
   autoChromaticAberration?: boolean;
   /** The automatic lateral CA estimate (lateral_ca.rs `VERSION`): 2 = refined
    * at full resolution, applied only when trustworthy, on by default where
@@ -1103,7 +1104,8 @@ export const AUTO_CA_VERSION = 3;
  * set, else on from `autoCaVersion` 2 when the lens data has no CA
  * correction of its own, and from 3 also when it has one at its default
  * amount (the measurement then replaces it only where it leaves clearly
- * fewer fringes). */
+ * fewer fringes); over candidate lens data (`tca_candidate`) at their default
+ * amount from 2 (the data then apply only where they leave clearly fewer). */
 export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
   if (adjustments.autoChromaticAberration !== undefined && adjustments.autoChromaticAberration !== null) {
     return adjustments.autoChromaticAberration;
@@ -1119,7 +1121,9 @@ export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
       Math.abs(value('tca_vr2', 0)) > 1e-9 ||
       Math.abs(value('tca_vb2', 0)) > 1e-9);
   if (!ownTca) return true;
-  return version >= 3 && Math.abs((adjustments.lensTcaAmount ?? 100) - 100) < 1e-2;
+  const untouched = Math.abs((adjustments.lensTcaAmount ?? 100) - 100) < 1e-2;
+  if (params?.tca_candidate === true) return untouched;
+  return version >= 3 && untouched;
 };
 
 /** Starting adjustments for a photo that has no saved edit. */
