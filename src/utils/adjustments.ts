@@ -537,9 +537,9 @@ export interface Adjustments {
   fringeVersion?: number;
   /** Defringe's fringe detector (crates/engine/src/image_processing.rs
    * `DEFRINGE_VERSION`): 2 = only colour the edge across it does not explain
-   * (neither a mix of its two sides nor a side's own colour) loses it, for the
-   * photo's and the layers' Defringe; 1 or missing on recipes that used
-   * Defringe before it = every colour in range near an edge. Photo-wide. */
+   * (beyond the mix of its two sides) moves to that mix, for the photo's and
+   * the layers' Defringe; 1 or missing on recipes that used Defringe before
+   * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;

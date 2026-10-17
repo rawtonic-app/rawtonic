@@ -4305,11 +4305,12 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
 /// The recipe key naming the Defringe fringe detector a recipe was made with.
 pub const DEFRINGE_VERSION_KEY: &str = "defringeVersion";
 /// The newest detector: 2 (2026-10-17) takes only colour that the edge
-/// across it does not explain (neither a mix of the two sides nor a side's
-/// own colour, and darker than the brighter side) and moves it to the mix of
-/// the sides, for the photo's and the layers' Defringe alike
-/// (notes: reference/defringe.md "Fringe detector"); 1 desaturates every
-/// colour in range near an edge. Recipes without the key keep version 1.
+/// across it does not explain (beyond the linear-light mix of its two sides
+/// at the pixel's luminance, next to a much brighter side, not a patch of
+/// one colour) and moves it to that mix, for the photo's and the layers'
+/// Defringe alike (notes: reference/defringe.md "Fringe detector"); 1
+/// desaturates every colour in range near an edge. Recipes without the key
+/// keep version 1.
 pub const DEFRINGE_VERSION: u64 = 2;
 
 /// The recipe's Defringe detector, 1 when missing, never newer than this
