@@ -10,7 +10,7 @@ import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } fr
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
 import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
 
-interface InteractivePatch {
+export interface InteractivePatch {
   url: string;
   normX: number;
   normY: number;

@@ -328,6 +328,47 @@ pub(crate) fn process_alive(pid: u32) -> bool {
     }
 }
 
+/// Whether to set `WEBKIT_FORCE_DMABUF_RENDERER=1` before the webview exists.
+///
+/// WebKitGTK up to at least 2.50 (the AppImage's) turns its DMA-BUF renderer
+/// off when it finds `/dev/nvidia*`, and on Wayland that leaves it without
+/// accelerated compositing: every frame of the page is rasterised on the CPU
+/// (the photo rescaled each time), which held slider drags to ~30 webview
+/// frames per second on an RTX 3080 (notes: benchmark-results/
+/// linux-slider-drag-2026-10-17/). Its reason, the explicit-sync protocol
+/// error on Wayland, is handled by `tauri_plugin_wayland_nvidia_quirk`
+/// (driver 555 and newer). Any WebKit renderer variable the user set wins,
+/// and so does Compatibility Mode, which turns the renderer off.
+#[cfg(any(target_os = "linux", test))]
+pub(crate) fn force_webkit_dmabuf_renderer(
+    env: impl Fn(&str) -> Option<String>,
+    nvidia_driver: Option<&str>,
+    compatibility_mode: bool,
+) -> bool {
+    const USER_CHOICES: [&str; 3] = [
+        "WEBKIT_DISABLE_DMABUF_RENDERER",
+        "WEBKIT_FORCE_DMABUF_RENDERER",
+        "WEBKIT_DISABLE_COMPOSITING_MODE",
+    ];
+    if compatibility_mode || USER_CHOICES.iter().any(|name| env(name).is_some()) {
+        return false;
+    }
+    // GTK takes the first backend it can open from GDK_BACKEND.
+    let wayland = match env("GDK_BACKEND").and_then(|list| {
+        list.split(',')
+            .map(str::trim)
+            .find(|b| !b.is_empty() && *b != "*")
+            .map(str::to_owned)
+    }) {
+        Some(backend) => backend == "wayland",
+        None => env("WAYLAND_DISPLAY").is_some_and(|d| !d.is_empty()),
+    };
+    let explicit_sync = nvidia_driver
+        .and_then(|version| version.trim().split('.').next()?.parse::<u32>().ok())
+        .is_some_and(|major| major >= 555);
+    wayland && explicit_sync
+}
+
 #[cfg(test)]
 mod window_scale_tests {
     use super::linux_restored_window_size;
@@ -381,5 +422,91 @@ mod gpu_crash_flag_tests {
             }
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod webkit_renderer_tests {
+    use super::force_webkit_dmabuf_renderer;
+
+    fn env(vars: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |name| {
+            vars.iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[test]
+    fn nvidia_on_wayland_gets_the_accelerated_renderer() {
+        let wayland = env(&[("WAYLAND_DISPLAY", "wayland-0")]);
+        assert!(force_webkit_dmabuf_renderer(
+            &wayland,
+            Some("615.78.08\n"),
+            false
+        ));
+        assert!(force_webkit_dmabuf_renderer(
+            &wayland,
+            Some("555.42.02"),
+            false
+        ));
+        // Before explicit sync the quirk plugin cannot prevent the protocol error.
+        assert!(!force_webkit_dmabuf_renderer(
+            &wayland,
+            Some("550.120"),
+            false
+        ));
+        // Not NVIDIA's driver: WebKit already uses its renderer.
+        assert!(!force_webkit_dmabuf_renderer(&wayland, None, false));
+        assert!(!force_webkit_dmabuf_renderer(
+            &wayland,
+            Some("garbage"),
+            false
+        ));
+    }
+
+    #[test]
+    fn user_choices_and_x11_are_left_alone() {
+        let nvidia = Some("615.78.08");
+        assert!(!force_webkit_dmabuf_renderer(
+            env(&[("WAYLAND_DISPLAY", "wayland-0")]),
+            nvidia,
+            true
+        ));
+        for name in [
+            "WEBKIT_DISABLE_DMABUF_RENDERER",
+            "WEBKIT_FORCE_DMABUF_RENDERER",
+            "WEBKIT_DISABLE_COMPOSITING_MODE",
+        ] {
+            let vars: &'static [(&'static str, &'static str)] = match name {
+                "WEBKIT_DISABLE_DMABUF_RENDERER" => &[
+                    ("WAYLAND_DISPLAY", "w"),
+                    ("WEBKIT_DISABLE_DMABUF_RENDERER", "0"),
+                ],
+                "WEBKIT_FORCE_DMABUF_RENDERER" => &[
+                    ("WAYLAND_DISPLAY", "w"),
+                    ("WEBKIT_FORCE_DMABUF_RENDERER", "0"),
+                ],
+                _ => &[
+                    ("WAYLAND_DISPLAY", "w"),
+                    ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),
+                ],
+            };
+            assert!(
+                !force_webkit_dmabuf_renderer(env(vars), nvidia, false),
+                "{name}"
+            );
+        }
+        assert!(!force_webkit_dmabuf_renderer(env(&[]), nvidia, false));
+        assert!(!force_webkit_dmabuf_renderer(
+            env(&[("WAYLAND_DISPLAY", "w"), ("GDK_BACKEND", "x11")]),
+            nvidia,
+            false
+        ));
+        assert!(force_webkit_dmabuf_renderer(
+            env(&[("GDK_BACKEND", "wayland,x11")]),
+            nvidia,
+            false
+        ));
     }
 }
