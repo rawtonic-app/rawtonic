@@ -123,8 +123,26 @@ interface PointerSession {
   /** [ms after the press, length] of frames over 20 ms, and when histograms arrived. */
   slowFrames: number[][];
   histograms: number[][];
+  /** Brush strokes: live stroke sends, moves dropped as closer than 2 px to
+   * the previous point, and the stroke's length in points at the last send. */
+  strokeSends: number;
+  strokeDropped: number;
+  strokePoints: number;
 }
 let pointerSession: PointerSession | null = null;
+
+/** Profiling builds: a brush move that sent the live stroke of `points`
+ * points, or (`null`) one dropped for lying too close to the last point.
+ * The native `brush_stroke_dabs`/`mask_upload` records give the cost. */
+export function notePointerSessionStroke(points: number | null) {
+  const session = pointerSession;
+  if (!performanceDiagnosticsEnabled || !session || session.ended) return;
+  if (points === null) session.strokeDropped++;
+  else {
+    session.strokeSends++;
+    session.strokePoints = points;
+  }
+}
 
 /** A live preview or mask overlay completed for the current pointer session. */
 export function notePointerSessionFrame(queue: QueueName, inputMs: number) {
@@ -183,6 +201,9 @@ function finishPointerSession(session: PointerSession) {
     ...summarize("react_commit", session.commits),
     ...Object.fromEntries(Object.entries(session.commitIds).map(([id, ms]) => [`react_ms_${id}`, Math.round(ms)])),
     frames_without_moves: session.movesPerFrame.filter((moves) => moves === 0).length,
+    stroke_sends: session.strokeSends,
+    stroke_moves_dropped: session.strokeDropped,
+    stroke_points: session.strokePoints,
     ...queues,
   });
 }
@@ -343,6 +364,9 @@ export function usePerformanceDiagnostics() {
         commitIds: {},
         slowFrames: [],
         histograms: [],
+        strokeSends: 0,
+        strokeDropped: 0,
+        strokePoints: 0,
       };
     };
     const pointerUp = () => {

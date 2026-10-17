@@ -25,7 +25,12 @@ import FaceRetouchOverlay from './FaceRetouchOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
 import { useDecodedPreview } from '../../../hooks/useDecodedPreview';
 import { toast } from 'react-toastify';
-import { reportImagePlaceholderLoad, reportMaskOverlayLoad, reportBrowserPreviewLoad } from '../../../hooks/usePerformanceDiagnostics';
+import {
+  notePointerSessionStroke,
+  reportImagePlaceholderLoad,
+  reportMaskOverlayLoad,
+  reportBrowserPreviewLoad,
+} from '../../../hooks/usePerformanceDiagnostics';
 import { whiteBalanceForCurrentPreview } from '../../../utils/whiteBalance';
 import { useBrushGesture } from './brushGesture';
 import { isCropEdge, resizeCropFromEdge, type CropRect } from './cropEdges';
@@ -2289,6 +2294,7 @@ const ImageCanvas = memo(
             const dx = pos.x - lastPoint.x;
             const dy = pos.y - lastPoint.y;
             if (dx * dx + dy * dy < 4) {
+              notePointerSessionStroke(null);
               if (e.evt && e.evt.cancelable) e.evt.preventDefault();
               return;
             }
@@ -2335,6 +2341,7 @@ const ImageCanvas = memo(
             };
 
             onLiveMaskPreview(previewContainer, { renderLive: true });
+            notePointerSessionStroke(imageSpaceLine.points.length);
           }
           if (e.evt && e.evt.cancelable) e.evt.preventDefault();
         }

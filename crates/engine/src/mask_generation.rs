@@ -1612,7 +1612,7 @@ fn blend_stroke_dabs(
     bounds: (u32, u32, u32, u32),
     colours: Option<&[[f32; 3]]>,
     combine: impl Fn(u8, u8) -> u8 + Sync,
-) {
+) -> usize {
     let (min_x, min_y, max_x, max_y) = bounds;
     let DabTip {
         inner,
@@ -1621,7 +1621,7 @@ fn blend_stroke_dabs(
         lightroom,
     } = tip;
     if points.is_empty() || outer <= 0.0 {
-        return;
+        return 0;
     }
     let width = mask.width() as usize;
     let bb_w = (max_x - min_x + 1) as usize;
@@ -1737,6 +1737,7 @@ fn blend_stroke_dabs(
             }
         }
     });
+    dabs.len()
 }
 
 /// The former separate-layer rasterizer, kept as the exact test reference.
@@ -2164,6 +2165,8 @@ fn apply_brush_line(
     let Some(bounds) = stroke_bounds(&line.points, width, height, reach, scale, crop_offset) else {
         return;
     };
+    #[cfg(feature = "performance-profiling")]
+    let started = std::time::Instant::now();
 
     // Strokes lay over earlier ones (and the eraser removes in proportion), so
     // two 50% strokes reach 75%, as in Capture One.
@@ -2179,7 +2182,9 @@ fn apply_brush_line(
     };
     if let Some(tip) = tip {
         let colours = auto_mask.map(|sampler| source_lab_region(sampler, bounds));
-        blend_stroke_dabs(
+        #[cfg(feature = "performance-profiling")]
+        let colours_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let _dabs = blend_stroke_dabs(
             mask,
             &line.points,
             tip,
@@ -2190,6 +2195,22 @@ fn apply_brush_line(
             bounds,
             colours.as_deref(),
             combine,
+        );
+        // Profiling only: dabs of this stroke, the rows and columns of its
+        // bounding box, and the Auto Mask colour lookup's share of the time.
+        #[cfg(feature = "performance-profiling")]
+        crate::performance::record_stage(
+            "brush_stroke_dabs",
+            started,
+            serde_json::json!({
+                "dabs": _dabs,
+                "points": line.points.len(),
+                "rows": bounds.3 - bounds.1 + 1,
+                "cols": bounds.2 - bounds.0 + 1,
+                "radius_px": radius,
+                "auto_mask": auto_mask.is_some(),
+                "colours_ms": colours_ms,
+            }),
         );
     } else {
         blend_stroke(
@@ -2202,6 +2223,42 @@ fn apply_brush_line(
             crop_offset,
             bounds,
             combine,
+        );
+        #[cfg(feature = "performance-profiling")]
+        crate::performance::record_stage(
+            "brush_stroke_capsules",
+            started,
+            serde_json::json!({
+                "points": line.points.len(),
+                "rows": bounds.3 - bounds.1 + 1,
+                "cols": bounds.2 - bounds.0 + 1,
+                "radius_px": radius,
+            }),
+        );
+    }
+}
+
+#[cfg(feature = "performance-profiling")]
+struct BrushBitmapSpan {
+    started: std::time::Instant,
+    lines: usize,
+    cached_lines: usize,
+    width: u32,
+    height: u32,
+}
+
+#[cfg(feature = "performance-profiling")]
+impl Drop for BrushBitmapSpan {
+    fn drop(&mut self) {
+        crate::performance::record_stage(
+            "brush_bitmap",
+            self.started,
+            serde_json::json!({
+                "lines": self.lines,
+                "cached_lines": self.cached_lines,
+                "width": self.width,
+                "height": self.height,
+            }),
         );
     }
 }
@@ -2245,11 +2302,23 @@ fn generate_brush_bitmap(
         crop_offset.1.to_bits(),
         photo,
     );
+    #[cfg(feature = "performance-profiling")]
+    let started = std::time::Instant::now();
     let (mut mask, cached_lines) =
         brush_prefix(geometry, lines).unwrap_or_else(|| (GrayImage::new(width, height), 0));
     if cached_lines == lines.len() {
         return mask;
     }
+    // Profiling only: the whole brush component, with how many of its strokes
+    // came from the cached prefix (a live stroke redraws only its newest).
+    #[cfg(feature = "performance-profiling")]
+    let _span = BrushBitmapSpan {
+        started,
+        lines: lines.len(),
+        cached_lines,
+        width,
+        height,
+    };
     for line in &lines[cached_lines..newest] {
         apply_brush_line(&mut mask, line, scale, crop_offset, sampler.as_ref());
     }

@@ -2553,6 +2553,52 @@ fn changed_rows(previous: &GrayImage, current: &GrayImage) -> Option<(u32, u32)>
     Some((top as u32, bottom as u32))
 }
 
+// Profiling only: layers, rows and bytes `upload_mask_rows` queued on this
+// thread, read by the `MaskUploadSpan` of the `prepare_mask_texture` call.
+#[cfg(feature = "performance-profiling")]
+thread_local! {
+    static MASK_UPLOAD_COUNTS: std::cell::Cell<(usize, usize, usize)> =
+        const { std::cell::Cell::new((0, 0, 0)) };
+}
+
+/// Profiling only: one `mask_upload` record per `prepare_mask_texture` call.
+/// `queue.write_texture` copies into a staging buffer; the transfer itself
+/// runs with the next submission, so `ms` is the CPU side of the upload
+/// (dirty-row comparison and staging), not GPU transfer time.
+#[cfg(feature = "performance-profiling")]
+struct MaskUploadSpan {
+    started: std::time::Instant,
+    masks: usize,
+}
+
+#[cfg(feature = "performance-profiling")]
+impl MaskUploadSpan {
+    fn start(masks: usize) -> Self {
+        MASK_UPLOAD_COUNTS.with(|counts| counts.set((0, 0, 0)));
+        Self {
+            started: std::time::Instant::now(),
+            masks,
+        }
+    }
+}
+
+#[cfg(feature = "performance-profiling")]
+impl Drop for MaskUploadSpan {
+    fn drop(&mut self) {
+        let (layers, rows, bytes) = MASK_UPLOAD_COUNTS.with(|counts| counts.get());
+        crate::performance::record_stage(
+            "mask_upload",
+            self.started,
+            serde_json::json!({
+                "masks": self.masks,
+                "layers_written": layers,
+                "rows_written": rows,
+                "bytes_written": bytes,
+            }),
+        );
+    }
+}
+
 /// Widen `bands` (one entry per `DIRTY_BAND_ROWS` rows) by the pixels that
 /// differ between two equally sized masks. Returns the changed row range.
 fn add_changed_mask_bands(
@@ -4067,6 +4113,15 @@ impl GpuProcessor {
                 std::sync::atomic::Ordering::Relaxed,
             );
         }
+        #[cfg(feature = "performance-profiling")]
+        MASK_UPLOAD_COUNTS.with(|counts| {
+            let (layers, rows_sum, bytes) = counts.get();
+            counts.set((
+                layers + 1,
+                rows_sum + rows as usize,
+                bytes + width as usize * rows as usize,
+            ));
+        });
     }
 
     #[cfg(test)]
@@ -4086,6 +4141,8 @@ impl GpuProcessor {
         output_to_display: bool,
         force_full_preparation: bool,
     ) -> Result<(wgpu::TextureView, MaskTextureUpdate), String> {
+        #[cfg(feature = "performance-profiling")]
+        let _span = MaskUploadSpan::start(masks.len());
         let masks = &masks[..masks.len().min(MAX_MASKS)];
         for (index, mask) in masks.iter().enumerate() {
             if mask.dimensions() != (width, height) {
