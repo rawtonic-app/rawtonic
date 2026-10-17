@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Sparkles } from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
 import {
+  DEFRINGE_VERSION,
   INITIAL_LEVELS,
   type Adjustments,
   type Level,
@@ -252,6 +253,8 @@ export function StudioDefringe({
           defringeGreenAmount: 0,
           defringeGreenHueLo: 40,
           defringeGreenHueHi: 60,
+          // The fringe detector goes back to a new edit's.
+          defringeVersion: DEFRINGE_VERSION,
         })
       }
     >

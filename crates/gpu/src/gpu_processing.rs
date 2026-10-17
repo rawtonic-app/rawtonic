@@ -5947,7 +5947,8 @@ const FLARE_WINDOW_ERROR: &str = "Light flare needs the whole photo on the GPU."
 ///   around it, the horizontal pass reads its radius further (largest base
 ///   radius 40, Structure);
 /// - Highlights' local contrast (`apply_highlights_adjustment`): 7.5 x scale;
-/// - Defringe (`apply_defringe`): up to 18 detail-scaled pixels;
+/// - Defringe (`apply_defringe`): up to 18 detail-scaled pixels (the
+///   second detector, `apply_defringe2`, up to 16);
 /// - Moiré (`apply_moire`): two pattern steps, at most 8 detail-scaled pixels
 ///   each (`moire_settings`), for the photo and every layer;
 /// - chromatic aberration (`apply_ca_correction`): the shift, at most the

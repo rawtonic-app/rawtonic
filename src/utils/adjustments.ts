@@ -535,6 +535,12 @@ export interface Adjustments {
    * (demosaic false colour, lateral CA rests) is removed after the lens
    * correction; missing = none (recipes from before it). New RAW edits only. */
   fringeVersion?: number;
+  /** Defringe's fringe detector (crates/engine/src/image_processing.rs
+   * `DEFRINGE_VERSION`): 2 = only colour the edge across it does not explain
+   * (beyond the mix of its two sides) moves to that mix, for the photo's and
+   * the layers' Defringe; 1 or missing on recipes that used Defringe before
+   * it = every colour in range near an edge loses chroma. Photo-wide. */
+  defringeVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1095,6 +1101,9 @@ export const TONE_VERSION = 2;
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
 export const FRINGE_VERSION = 2;
 
+/** The Defringe detector new edits start with (notes: reference/defringe.md). */
+export const DEFRINGE_VERSION = 2;
+
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
@@ -1135,8 +1144,28 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         fringeVersion: FRINGE_VERSION,
         cameraCaVersion: CAMERA_CA_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
+        defringeVersion: DEFRINGE_VERSION,
       }
-    : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION, toneVersion: TONE_VERSION };
+    : {
+        ...INITIAL_ADJUSTMENTS,
+        colorNoiseVersion: COLOR_NOISE_VERSION,
+        toneVersion: TONE_VERSION,
+        defringeVersion: DEFRINGE_VERSION,
+      };
+
+/** The Defringe detector of a saved recipe: its own; else the current one
+ * when the recipe does not use Defringe (no purple or green amount, no layer
+ * with a Defringe above 0), the earlier one otherwise (missing key). */
+const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.defringeVersion !== undefined && loaded.defringeVersion !== null) {
+    return loaded.defringeVersion;
+  }
+  const used =
+    (loaded.defringePurpleAmount ?? 0) > 0 ||
+    (loaded.defringeGreenAmount ?? 0) > 0 ||
+    (loaded.masks ?? []).some((mask) => ((mask?.adjustments?.defringe as number | undefined) ?? 0) > 0);
+  return used ? undefined : DEFRINGE_VERSION;
+};
 
 /** The tone-slider response of a saved recipe: its own; else the current
  * one when nothing in it renders differently with it (no Shadows above +50
@@ -1270,6 +1299,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     lutIsSceneReferred: loadedAdjustments.lutIsSceneReferred ?? false,
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     toneVersion: loadedToneVersion(loadedAdjustments),
+    defringeVersion: loadedDefringeVersion(loadedAdjustments),
     // Saved recipes keep rendering as they were made: no pass unless they
     // carry the key (never-edited RAWs get it in useImageLoader).
     fringeVersion: loadedAdjustments.fringeVersion,
@@ -1432,6 +1462,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'moireAmount',
         'moirePattern',
         'fringeVersion',
+        'defringeVersion',
       ],
     },
   ],

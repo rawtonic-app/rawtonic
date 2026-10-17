@@ -3896,7 +3896,10 @@ fn get_global_adjustments_from_json(
         defringe: if is_visible("details") {
             defringe_settings(js_adjustments)
         } else {
-            [[0.0; 4]; 2]
+            [
+                [0.0, 0.0, 0.0, defringe_version(js_adjustments) as f32],
+                [0.0; 4],
+            ]
         },
         color_ranges: [[0.0; 4]; 32],
         color_range_count: [0; 4],
@@ -4298,7 +4301,30 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
         60.0,
         190.0,
     );
-    [[purple, p_lo, p_hi, 0.0], [green, g_lo, g_hi, 0.0]]
+    let version = defringe_version(adjustments) as f32;
+    [[purple, p_lo, p_hi, version], [green, g_lo, g_hi, 0.0]]
+}
+
+/// The recipe key naming the Defringe fringe detector a recipe was made with.
+pub const DEFRINGE_VERSION_KEY: &str = "defringeVersion";
+/// The newest detector: 2 (2026-10-17) takes only colour that the edge
+/// across it does not explain (beyond the linear-light mix of its two sides
+/// at the pixel's luminance, next to a much brighter side, not a patch of
+/// one colour) and moves it to that mix (along its own hue, and across it
+/// where the mix lies outside the selected ranges), for the photo's and the
+/// layers' Defringe alike (notes: reference/defringe.md "Fringe detector"); 1
+/// desaturates every colour in range near an edge. Recipes without the key
+/// keep version 1.
+pub const DEFRINGE_VERSION: u64 = 2;
+
+/// The recipe's Defringe detector, 1 when missing, never newer than this
+/// renderer knows.
+pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(DEFRINGE_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, DEFRINGE_VERSION)
 }
 
 /// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100
@@ -6280,6 +6306,28 @@ mod editing_tool_tests {
         assert!((g.defringe[0][1] - 282.0).abs() < 1e-3 && (g.defringe[0][2] - 358.0).abs() < 1e-3);
         assert_eq!(g.defringe[1][0], 1.0);
         assert!((g.defringe[1][1] - 136.0).abs() < 1e-3 && (g.defringe[1][2] - 174.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn defringe_version_reaches_the_shader() {
+        let version = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).defringe[0][3]
+        };
+        // Recipes without the key keep the first detector.
+        assert_eq!(version(json!({"defringePurpleAmount": 10})), 1.0);
+        assert_eq!(
+            version(json!({"defringePurpleAmount": 10, "defringeVersion": 2})),
+            2.0
+        );
+        assert_eq!(
+            version(json!({"defringeVersion": 7})),
+            DEFRINGE_VERSION as f32
+        );
+        // Layers' Defringe reads it too when the photo's Detail tool is hidden.
+        assert_eq!(
+            version(json!({"defringeVersion": 2, "sectionVisibility": {"details": false}})),
+            2.0
+        );
     }
 
     #[test]

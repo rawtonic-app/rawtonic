@@ -22,6 +22,9 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   colorNoiseSmoothness: ["colorNoiseVersion"],
   // Shadows means what the recipe's tone-slider response makes of it.
   shadows: ["toneVersion"],
+  // Defringe means what the recipe's fringe detector makes of it.
+  defringePurpleAmount: ["defringeVersion"],
+  defringeGreenAmount: ["defringeVersion"],
 };
 
 function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
