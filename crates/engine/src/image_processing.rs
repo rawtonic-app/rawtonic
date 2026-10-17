@@ -4323,7 +4323,7 @@ pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
         .get(DEFRINGE_VERSION_KEY)
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1)
-        .clamp(1, 9)
+        .clamp(1, DEFRINGE_VERSION)
 }
 
 /// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100
