@@ -2184,19 +2184,6 @@ fn defringe2_fringe(coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
     if (chroma < 0.005) { return vec3<f32>(0.0); }
     let f = DEFRINGE2_FLOOR;
     let near = max(1.5, 3.0 * pixel_scale);
-    var alike = 0.0;
-    for (var j = 0; j < 4; j = j + 1) {
-        for (var sgn = -1.0; sgn <= 1.0; sgn = sgn + 2.0) {
-            let ns = defringe2_side(coord, DEFRINGE2_DIRECTIONS[j] * near * sgn, dims);
-            let n = linear_srgb_to_oklab(ns.rgb).yz;
-            let nc = length(n);
-            let cosine = dot(n, ab) / max(nc * chroma, 1.0e-8);
-            let flat = 1.0 - smoothstep(0.3, 0.7, abs(log2((ns.w + f) / (y + f))));
-            alike += smoothstep(0.92, 0.98, cosine) * smoothstep(0.6, 0.9, nc / chroma) * flat;
-        }
-    }
-    let region = smoothstep(5.0, 7.5, alike);
-    if (region >= 1.0) { return vec3<f32>(0.0); }
     var best = 0.0;
     var least = 1.0;
     var goal = ab;
@@ -2240,7 +2227,23 @@ fn defringe2_fringe(coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
         }
     }
     // Clear evidence counts in full.
-    return vec3<f32>(smoothstep(0.02, 0.25, best * least) * (1.0 - region), goal);
+    let evidence = smoothstep(0.02, 0.25, best * least);
+    if (evidence <= 0.0) { return vec3<f32>(0.0); }
+    // A patch of the colour (its neighbours all round share its colour and
+    // brightness) is an object.
+    var alike = 0.0;
+    for (var j = 0; j < 4; j = j + 1) {
+        for (var sgn = -1.0; sgn <= 1.0; sgn = sgn + 2.0) {
+            let ns = defringe2_side(coord, DEFRINGE2_DIRECTIONS[j] * near * sgn, dims);
+            let n = linear_srgb_to_oklab(ns.rgb).yz;
+            let nc = length(n);
+            let cosine = dot(n, ab) / max(nc * chroma, 1.0e-8);
+            let flat = 1.0 - smoothstep(0.3, 0.7, abs(log2((ns.w + f) / (y + f))));
+            alike += smoothstep(0.92, 0.98, cosine) * smoothstep(0.6, 0.9, nc / chroma) * flat;
+        }
+    }
+    let region = smoothstep(5.0, 7.5, alike);
+    return vec3<f32>(evidence * (1.0 - region), goal);
 }
 
 fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
