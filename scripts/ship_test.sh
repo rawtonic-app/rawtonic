@@ -9,7 +9,10 @@ T=$(cd "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 # Isolated from the user's git configuration (hooks, signing, hooksPath).
 export GIT_CONFIG_GLOBAL="$T/gitconfig" GIT_CONFIG_NOSYSTEM=1 TMPDIR="$T"
-unset ORCA_WORKTREE_ID
+# A ship.sh that runs check.sh (and so this test) passes its own state on;
+# with it the test's ship.sh would work in the calling repository and run
+# check.sh there again, recursing.
+unset ORCA_WORKTREE_ID RAWTONIC_SHIP_COPY RAWTONIC_SHIP_CALLER RAWTONIC_SHIP_REPO
 git config --global user.name Test
 git config --global user.email test@example.org
 git config --global init.defaultBranch main
