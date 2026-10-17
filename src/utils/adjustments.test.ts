@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   ADJUSTMENT_GROUPS,
+  COLOR_NOISE_VERSION,
   COPYABLE_ADJUSTMENT_KEYS,
   INITIAL_ADJUSTMENTS,
   NON_COPYABLE_ADJUSTMENT_KEYS,
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
   FRINGE_VERSION,
+  colorNoiseMultiscale,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
@@ -39,18 +41,31 @@ describe('RAW detail defaults', () => {
   });
 
   it('keep the colour noise filter a saved recipe rendered with', () => {
-    expect(initialAdjustmentsFor(true).colorNoiseVersion).toBe(2);
-    expect(initialAdjustmentsFor(false).colorNoiseVersion).toBe(2);
+    expect(COLOR_NOISE_VERSION).toBe(3);
+    expect(initialAdjustmentsFor(true).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
+    expect(initialAdjustmentsFor(false).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     // Saved colour amount without a version: the earlier filter.
     const saved = { colorNoiseReduction: 25 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(saved, true).colorNoiseVersion).toBeUndefined();
     expect('colorNoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
     // Left to the RAW default: the current one, as the backend renders it.
     const partial = { exposure: 0.5 } as unknown as Adjustments;
-    expect(normalizeLoadedAdjustments(partial, true).colorNoiseVersion).toBe(2);
+    expect(normalizeLoadedAdjustments(partial, true).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     expect(normalizeLoadedAdjustments(partial, false).colorNoiseVersion).toBeUndefined();
+    // Saved versions stay, also the earlier multi-scale tuning (2).
     const versioned = { colorNoiseReduction: 25, colorNoiseVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).colorNoiseVersion).toBe(2);
+    const first = { colorNoiseReduction: 25, colorNoiseVersion: 1 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(first, true).colorNoiseVersion).toBe(1);
+  });
+
+  it('develop versions 2 and 3 on the same base image (multi-scale filter)', () => {
+    expect(colorNoiseMultiscale({ colorNoiseVersion: 3 }, true)).toBe(true);
+    expect(colorNoiseMultiscale({ colorNoiseVersion: 2 }, true)).toBe(true);
+    expect(colorNoiseMultiscale({ colorNoiseVersion: 1 }, true)).toBe(false);
+    expect(colorNoiseMultiscale({ colorNoiseReduction: 25 }, true)).toBe(false);
+    expect(colorNoiseMultiscale({}, true)).toBe(true);
+    expect(colorNoiseMultiscale({}, false)).toBe(false);
   });
 
   it('start new RAW edits with the edge-fringe pass and keep saved recipes without it', () => {

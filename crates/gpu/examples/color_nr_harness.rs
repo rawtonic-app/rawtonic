@@ -715,8 +715,15 @@ fn print(name: &str, m: &Metrics) {
     );
 }
 
+/// The colour noise version measured (`NR_VERSION`, default the newest).
+fn version_from_env() -> u64 {
+    std::env::var("NR_VERSION")
+        .ok()
+        .map_or(color_noise::VERSION, |v| v.parse().unwrap())
+}
+
 fn tuning_from_env() -> Tuning {
-    let mut tuning = Tuning::default();
+    let mut tuning = Tuning::for_version(version_from_env());
     let list = |key: &str| -> Option<Vec<f32>> {
         std::env::var(key)
             .ok()
@@ -809,7 +816,7 @@ fn synthetic() {
                         detail: 0.5,
                         smoothness: 0.5,
                     };
-                    let thresholds = tuning.thresholds(settings, &pyramid.noise);
+                    let thresholds = tuning.thresholds(settings, &pyramid.noise_for(&tuning));
                     if std::env::var("NR_DEBUG").is_ok() {
                         let filtered = color_noise::apply_with(
                             &truth_lin,
@@ -851,7 +858,8 @@ fn synthetic() {
                     let new = if gpu_new {
                         renderer.render(
                             &noisy,
-                            json!({"colorNoiseReduction": amount, "colorNoiseVersion": 2}),
+                            json!({"colorNoiseReduction": amount,
+                                "colorNoiseVersion": version_from_env()}),
                             level,
                         )
                     } else {
