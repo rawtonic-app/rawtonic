@@ -38,6 +38,8 @@ Frame sizes (2026-10-11): `width` and `height` may be absent (frames stamped by 
 
 Masks read from the photo's own frame (AI masks, colour and luminance ranges, the luma range, colour samples, Auto Mask strokes) take, on a straightened photo, the photo's pixel nearest the point the straightened photo is resampled at (since 2026-10-11; they rounded that point down before, half a pixel off on average).
 
+Auto Mask version (2026-10-18, `crates/engine/src/mask_generation.rs` `BrushLine`, `AutoMaskModel`): a brush stroke with `autoMask: true` may carry `autoMaskVersion`. Absent (every stroke before 2026-10-18, and strokes imported from Lightroom presets) is version 1: each dab keeps colours by their CIE Lab distance to the colour under its centre (fitted to Camera Raw), and such strokes render byte-identically to before. `2` is the edge-aware mask the editor writes for new strokes: per dab, the colours under it split into clusters, the one nearest the centre's colour is the subject, the others are backgrounds unless they are the subject's soft-edge mix, and a pixel keeps the subject's share of its linear-light mix with the nearest background; the stroke's coverage is then multiplied by the tip-weighted mean of its dabs' shares. Version 2 needs the photo like version 1 does.
+
 ## Relight
 
 `relightLights` holds up to four non-generative projected lights. Each has an
