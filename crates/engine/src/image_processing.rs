@@ -3896,7 +3896,7 @@ fn get_global_adjustments_from_json(
         defringe: if is_visible("details") {
             defringe_settings(js_adjustments)
         } else {
-            [[0.0; 4]; 2]
+            [[0.0, 0.0, 0.0, defringe_version(js_adjustments) as f32], [0.0; 4]]
         },
         color_ranges: [[0.0; 4]; 32],
         color_range_count: [0; 4],
@@ -4298,7 +4298,28 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
         60.0,
         190.0,
     );
-    [[purple, p_lo, p_hi, 0.0], [green, g_lo, g_hi, 0.0]]
+    let version = defringe_version(adjustments) as f32;
+    [[purple, p_lo, p_hi, version], [green, g_lo, g_hi, 0.0]]
+}
+
+/// The recipe key naming the Defringe fringe detector a recipe was made with.
+pub const DEFRINGE_VERSION_KEY: &str = "defringeVersion";
+/// The newest detector: 2 (2026-10-17) takes only colour that the edge
+/// across it does not explain (neither a mix of the two sides nor a side's
+/// own colour, and darker than the brighter side) and moves it to the mix of
+/// the sides, for the photo's and the layers' Defringe alike
+/// (notes: reference/defringe.md "Fringe detector"); 1 desaturates every
+/// colour in range near an edge. Recipes without the key keep version 1.
+pub const DEFRINGE_VERSION: u64 = 2;
+
+/// The recipe's Defringe detector, 1 when missing, never newer than this
+/// renderer knows.
+pub fn defringe_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(DEFRINGE_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, 9)
 }
 
 /// Lightroom's B&W mix (`grayMixer`, −100…100 per channel) as slider / 100

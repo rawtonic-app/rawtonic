@@ -2125,11 +2125,83 @@ const DEFRINGE_RAMP: f32 = 0.35;
 // colour of any hue along edges loses chroma, up to this share at +100.
 const LOCAL_DEFRINGE_STRENGTH: f32 = 0.6;
 
+// `defringeVersion` 2 (notes: reference/defringe.md "Fringe detector"):
+// a colour in range is a fringe when the edge across it does not explain
+// it. Sampled along the luminance gradient at two widths (sharp fringes
+// and wide out-of-focus ones), a pixel keeps its colour when it is a mix
+// of the two sides' colours (a coloured object against another), when a
+// side has the same hue (a coloured object's own edge, a darker or paler
+// version of it), or when it is not darker than the brighter side (a lit
+// coloured detail such as a blossom: fringes are light spilling from a
+// brighter neighbour). A fringe moves to the mix of the sides' colours.
+const DEFRINGE2_DISTANCES = array<f32, 2>(7.0, 16.0);
+const DEFRINGE2_STRENGTH: f32 = 0.9;
+
+fn defringe2_side(coord: vec2<i32>, offset: vec2<f32>, dims: vec2<i32>) -> vec4<f32> {
+    let p = clamp(coord + vec2<i32>(round(offset)), vec2<i32>(0), dims - 1);
+    let c = max(load_input(p).rgb, vec3<f32>(0.0));
+    let lab = linear_srgb_to_oklab(c);
+    return vec4<f32>(lab.yz, get_luma(c), 0.0);
+}
+
+// Fringe weight (0…1) and the colour (Oklab ab) a fringe moves to.
+fn defringe2_fringe(lab: vec3<f32>, y: f32, coord: vec2<i32>, pixel_scale: f32) -> vec3<f32> {
+    let dims = vec2<i32>(input_dims());
+    let step = max(1, i32(round(2.0 * pixel_scale)));
+    let gx = get_luma(max(load_input(clamp(coord + vec2<i32>(step, 0), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)))
+        - get_luma(max(load_input(clamp(coord - vec2<i32>(step, 0), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)));
+    let gy = get_luma(max(load_input(clamp(coord + vec2<i32>(0, step), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)))
+        - get_luma(max(load_input(clamp(coord - vec2<i32>(0, step), vec2<i32>(0), dims - 1)).rgb, vec3<f32>(0.0)));
+    let g = length(vec2<f32>(gx, gy));
+    let dir = select(vec2<f32>(1.0, 0.0), vec2<f32>(gx, gy) / g, g > 1.0e-6);
+    let chroma = length(lab.yz);
+    var best = 0.0;
+    var goal = lab.yz;
+    for (var k = 0; k < 2; k = k + 1) {
+        let d = DEFRINGE2_DISTANCES[k] * pixel_scale;
+        let s1 = defringe2_side(coord, dir * d, dims);
+        let s2 = defringe2_side(coord, -dir * d, dims);
+        let bright = select(s2, s1, s1.z >= s2.z);
+        let dark = select(s1, s2, s1.z >= s2.z);
+        // A strong edge: the bright side about a stop above the dark one,
+        // and above the pixel (light spilling into it).
+        let edge = smoothstep(0.6, 1.4, log2((bright.z + 0.002) / (dark.z + 0.002)))
+            * smoothstep(0.15, 0.6, log2((bright.z + 0.002) / (y + 0.002)));
+        // A mix of the sides' colours is explained.
+        let seg = bright.xy - dark.xy;
+        let t = clamp(dot(lab.yz - dark.xy, seg) / max(dot(seg, seg), 1.0e-8), 0.0, 1.0);
+        let nearest = dark.xy + seg * t;
+        let unexplained = smoothstep(0.3, 0.7, length(lab.yz - nearest) / chroma);
+        // So is a side's own colour (same hue, comparable chroma).
+        var own = 0.0;
+        for (var j = 0; j < 2; j = j + 1) {
+            let side = select(dark.xy, bright.xy, j == 1);
+            let sc = length(side);
+            let cosine = dot(side, lab.yz) / max(sc * chroma, 1.0e-8);
+            own = max(own, smoothstep(0.8, 0.95, cosine) * smoothstep(0.25, 0.5, sc / chroma));
+        }
+        var w = edge * unexplained * (1.0 - own);
+        let dbg = adjustments.global.defringe[0].w;
+        if (dbg == 4.0) { w = edge; } else if (dbg == 5.0) { w = unexplained; } else if (dbg == 6.0) { w = own; }
+        if (w > best) {
+            best = w;
+            goal = nearest;
+        }
+    }
+    // Never more colour than the pixel had.
+    let tc = length(goal);
+    goal = select(goal, goal * chroma / tc, tc > chroma);
+    return vec3<f32>(best, goal);
+}
+
 fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
     // A negative local amount holds the photo's Defringe back (−100: none).
     let protect = select(1.0, max(0.0, 1.0 + local), local < 0.0);
     let purple = adjustments.global.defringe[0];
     let green = adjustments.global.defringe[1];
+    if (purple.w >= 2.0) {
+        return apply_defringe2(color, coord, local, protect);
+    }
     let lab = linear_srgb_to_oklab(gamut_floor(color));
     let chroma = length(lab.yz);
     if (chroma < 0.01) { return color; }
@@ -2193,6 +2265,30 @@ fn apply_defringe(color: vec3<f32>, coord: vec2<i32>, local: f32) -> vec3<f32> {
     let keep = (1.0 - clamp(smoothstep(0.0, DEFRINGE_RAMP, selected) * edge * DEFRINGE_STRENGTH, 0.0, 1.0))
         * (1.0 - clamp(local_amount * edge * fringe, 0.0, 1.0));
     return gamut_floor(oklab_to_linear_srgb(vec3<f32>(lab.x, lab.yz * keep)));
+}
+
+fn apply_defringe2(color: vec3<f32>, coord: vec2<i32>, local: f32, protect: f32) -> vec3<f32> {
+    let purple = adjustments.global.defringe[0];
+    let green = adjustments.global.defringe[1];
+    let lab = linear_srgb_to_oklab(gamut_floor(color));
+    let chroma = length(lab.yz);
+    if (chroma < 0.01) { return color; }
+    let hue = (degrees(atan2(lab.z, lab.y)) + 360.0) % 360.0;
+    let selected = protect * max(purple.x * in_hue_range(hue, purple.y, purple.z),
+        green.x * in_hue_range(hue, green.y, green.z));
+    let local_amount = max(local, 0.0);
+    if (selected <= 0.0 && local_amount <= 0.0) { return color; }
+    let pixel_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
+    let y = get_luma(max(load_input(coord).rgb, vec3<f32>(0.0)));
+    let fringe = defringe2_fringe(lab, y, coord, pixel_scale);
+    if (purple.w >= 3.0) { return vec3<f32>(fringe.x * 0.18); }
+    if (fringe.x <= 0.0) { return color; }
+    // The photo's amount reaches its full strength by about amount 7, a
+    // layer's at +100; together they combine like two filters.
+    let global_share = smoothstep(0.0, DEFRINGE_RAMP, selected) * DEFRINGE2_STRENGTH;
+    let local_share = local_amount * DEFRINGE2_STRENGTH;
+    let share = clamp(fringe.x * (1.0 - (1.0 - global_share) * (1.0 - local_share)), 0.0, 1.0);
+    return gamut_floor(oklab_to_linear_srgb(vec3<f32>(lab.x, mix(lab.yz, fringe.yz, share))));
 }
 
 // Capture One's Advanced Color Editor / Lightroom's Point Color on display
