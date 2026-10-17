@@ -2261,7 +2261,7 @@
       "notFoundPhoto": "No s'ha trobat cap perfil per a aquesta foto; tria l'objectiu a continuació.",
       "profile": "Perfil",
       "removeCa": "Elimina l'aberració cromàtica",
-      "removeCaTitle": "Mesura les franges vermelles i blaves de les vores d'aquesta foto i alinea els colors; substitueix l'aberració cromàtica del perfil",
+      "removeCaTitle": "Mesura les franges vermelles i blaves de les vores d'aquesta foto i alinea els colors. La correcció de l'aberració cromàtica de les dades de l'objectiu es manté si la mesura no deixa clarament menys franges; desactivat manté la de les dades de l'objectiu",
       "title": "Correcció de l'objectiu",
       "useCameraData": "Usa les dades de la càmera ({{maker}})",
       "useDatabase": "Usa la base d'objectius…",

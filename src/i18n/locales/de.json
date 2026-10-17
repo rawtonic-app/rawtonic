@@ -2202,7 +2202,7 @@
       "notFoundPhoto": "Kein Profil für dieses Foto gefunden; wählen Sie das Objektiv unten aus.",
       "profile": "Profil",
       "removeCa": "Chromatische Aberration entfernen",
-      "removeCaTitle": "Misst die roten und blauen Farbsäume an den Kanten dieses Fotos und richtet die Farben aneinander aus; ersetzt die chromatische Aberration des Profils",
+      "removeCaTitle": "Misst die roten und blauen Farbsäume an den Kanten dieses Fotos und richtet die Farben aneinander aus. Die Korrektur der chromatischen Aberration aus Objektivdaten bleibt, wenn die Messung nicht deutlich weniger Säume lässt; aus behält die Korrektur der Objektivdaten",
       "title": "Objektivkorrektur",
       "useCameraData": "Kameradaten verwenden ({{maker}})",
       "useDatabase": "Objektivdatenbank verwenden…",

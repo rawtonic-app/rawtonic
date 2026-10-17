@@ -2261,7 +2261,7 @@
       "notFoundPhoto": "Aucun profil trouvé pour cette photo ; choisissez l'objectif ci-dessous.",
       "profile": "Profil",
       "removeCa": "Supprimer l'aberration chromatique",
-      "removeCaTitle": "Mesure les franges rouges et bleues des bords de cette photo et réaligne les couleurs ; remplace l'aberration chromatique du profil",
+      "removeCaTitle": "Mesure les franges rouges et bleues des bords de cette photo et réaligne les couleurs. La correction de l'aberration chromatique des données de l'objectif est conservée sauf si la mesure laisse nettement moins de franges ; désactivé conserve celle des données de l'objectif",
       "title": "Correction de l'objectif",
       "useCameraData": "Utiliser les données de l'appareil ({{maker}})",
       "useDatabase": "Utiliser la base d'objectifs…",

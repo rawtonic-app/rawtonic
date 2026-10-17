@@ -2261,7 +2261,7 @@
       "notFoundPhoto": "Nenhum perfil encontrado para esta foto; escolha a lente abaixo.",
       "profile": "Perfil",
       "removeCa": "Remover aberração cromática",
-      "removeCaTitle": "Mede as franjas vermelhas e azuis das bordas desta foto e alinha as cores; substitui a aberração cromática do perfil",
+      "removeCaTitle": "Mede as franjas vermelhas e azuis das bordas desta foto e alinha as cores. A correção de aberração cromática dos dados da lente é mantida, a menos que a medição deixe claramente menos franjas; desligado mantém a dos dados da lente",
       "title": "Correção de lente",
       "useCameraData": "Usar os dados da câmera ({{maker}})",
       "useDatabase": "Usar banco de lentes…",

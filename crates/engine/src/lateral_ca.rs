@@ -54,12 +54,15 @@ impl CaModel {
 /// The recipe key naming the estimate a recipe's automatic lateral CA
 /// correction uses.
 pub const VERSION_KEY: &str = "autoCaVersion";
-/// The newest estimate: 2 (2026-10-17), refined at full resolution and
-/// applied only when it is trustworthy; it is also the default for new RAW
-/// edits whose lens correction has no lateral CA data of its own. Recipes
-/// without the key use version 1 (`estimate`), and only when
-/// `autoChromaticAberration` is on.
-pub const VERSION: u64 = 2;
+/// The newest estimate: 3 (2026-10-17), the default for new RAW edits.
+/// Version 2 (`estimate_v2`, 2026-10-17) is refined at full resolution and
+/// applied only when it is trustworthy, by default only where the lens
+/// correction has no lateral CA data of its own. Version 3 measures the
+/// same, and where the lens correction has CA data (camera or profile) it
+/// replaces them only when it leaves clearly less colour at the edges
+/// (`estimate_versus`). Recipes without the key use version 1 (`estimate`),
+/// and only when `autoChromaticAberration` is on.
+pub const VERSION: u64 = 3;
 /// The key of the Remove chromatic aberration switch.
 pub const SWITCH_KEY: &str = "autoChromaticAberration";
 
@@ -73,10 +76,11 @@ pub fn version_of(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, VERSION)
 }
 
-/// Whether the automatic correction runs for a recipe: when its switch is
-/// on; from version 2 also when the switch is not set and the lens
-/// correction has no lateral CA correction of its own (`has_own_tca`:
-/// camera data or a profile keep priority).
+/// Whether the automatic correction runs for a recipe in place of any
+/// lens CA data: when its switch is on; from version 2 also when the switch
+/// is not set and the lens correction has no lateral CA correction of its
+/// own (`has_own_tca`: camera data or a profile keep priority, from
+/// version 3 see `competes`).
 pub fn applies(adjustments: &serde_json::Value, has_own_tca: bool) -> bool {
     match adjustments
         .get(SWITCH_KEY)
@@ -85,6 +89,21 @@ pub fn applies(adjustments: &serde_json::Value, has_own_tca: bool) -> bool {
         Some(on) => on,
         None => version_of(adjustments) >= 2 && !has_own_tca,
     }
+}
+
+/// Whether the automatic correction only competes with the lens
+/// correction's own lateral CA correction (`estimate_versus`) instead of
+/// replacing it: from version 3 when the switch is not set and the lens
+/// data's correction is on at its default amount (`own_tca_untouched`).
+/// An explicit switch is the user's choice: off keeps the lens data's
+/// correction, on replaces it.
+pub fn competes(adjustments: &serde_json::Value, own_tca_untouched: bool) -> bool {
+    own_tca_untouched
+        && adjustments
+            .get(SWITCH_KEY)
+            .and_then(serde_json::Value::as_bool)
+            .is_none()
+        && version_of(adjustments) >= 3
 }
 
 /// Sets the current version on the recipe of a never-edited RAW (as the
@@ -292,7 +311,7 @@ pub fn estimate(image: &Rgb32FImage) -> Option<CaModel> {
 }
 
 /// The cache key of an image: its size and a sparse sample of its pixels.
-fn image_key(image: &Rgb32FImage, version: u64) -> u64 {
+fn image_key(image: &Rgb32FImage, version: u64, own: Option<CaModel>) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     image.dimensions().hash(&mut hasher);
@@ -302,6 +321,11 @@ fn image_key(image: &Rgb32FImage, version: u64) -> u64 {
         v.to_bits().hash(&mut hasher);
     }
     version.hash(&mut hasher);
+    if let Some(m) = own {
+        for v in [m.red.0, m.red.1, m.blue.0, m.blue.1] {
+            v.to_bits().hash(&mut hasher);
+        }
+    }
     hasher.finish()
 }
 
@@ -329,14 +353,22 @@ fn remember(key: u64, value: Option<CaModel>) {
 /// The estimate of `version` for the same photo once: the warp runs for
 /// every preview and export of it.
 pub fn estimate_cached(image: &Rgb32FImage, version: u64) -> Option<CaModel> {
-    let key = image_key(image, version);
+    estimate_for(image, version, None)
+}
+
+/// `estimate_cached`, and with `own` (the lens data's lateral CA, which
+/// the estimate competes with from version 3) `estimate_versus`: `None`
+/// then keeps `own`.
+pub fn estimate_for(image: &Rgb32FImage, version: u64, own: Option<CaModel>) -> Option<CaModel> {
+    let own = own.filter(|_| version >= 3);
+    let key = image_key(image, version, own);
     if let Some(value) = cached(key) {
         return value;
     }
-    let value = if version >= 2 {
-        estimate_v2(image)
-    } else {
-        estimate(image)
+    let value = match own {
+        Some(own) => estimate_versus(image, own),
+        None if version >= 2 => estimate_v2(image),
+        None => estimate(image),
     };
     remember(key, value);
     value
@@ -348,12 +380,18 @@ pub fn estimate_cached(image: &Rgb32FImage, version: u64) -> Option<CaModel> {
 /// larger lateral CA (notes: reference/lateral-ca.md), so the preview would
 /// not show what the export renders. Version 1 measures each image itself,
 /// as before.
-pub fn share_estimate(full: &Rgb32FImage, reduced: &Rgb32FImage, version: u64) {
+pub fn share_estimate(
+    full: &Rgb32FImage,
+    reduced: &Rgb32FImage,
+    version: u64,
+    own: Option<CaModel>,
+) {
     if version < 2 {
         return;
     }
-    let value = estimate_cached(full, version);
-    remember(image_key(reduced, version), value);
+    let own = own.filter(|_| version >= 3);
+    let value = estimate_for(full, version, own);
+    remember(image_key(reduced, version, own), value);
 }
 
 /// The shift (pixels, outward positive) at which `plane` along the radius
@@ -791,18 +829,26 @@ fn scaled(m: CaModel, g: f32) -> CaModel {
     }
 }
 
-/// Version 2 of the estimate (notes: reference/lateral-ca.md):
-/// - found on the reduced working copy, then refined twice at the photo's
-///   full resolution, where the fringes are seen (a reduced copy measures a
-///   larger CA: soft red and blue halos weigh more there);
-/// - the refined and the reduced copy's model are tried at a quarter, half,
-///   three quarters and full strength, and the one that leaves the least
-///   colour at the measured edges at full resolution (`fringe_cost`) wins,
-///   if it lowers that colour by `MIN_GAIN` at least; else `None` (the
-///   photo is not corrected), so the correction never adds fringes.
-pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
-    let report = std::env::var_os("RAWTONIC_CA_PROFILE").is_some();
-    let start = std::time::Instant::now();
+/// What version 2 measures on a photo before it chooses: the patch
+/// centres at full resolution, the reduced copy's model and, when it
+/// settles, the model refined at full resolution.
+struct Analysis {
+    full: Vec<(f32, f32)>,
+    coarse: CaModel,
+    refined: Option<CaModel>,
+    half_diagonal: f32,
+}
+
+fn fit(patches: &[Patch], half_diagonal: f32) -> CaModel {
+    CaModel {
+        red: band_fit(patches, half_diagonal, |p| p.red),
+        blue: band_fit(patches, half_diagonal, |p| p.blue),
+    }
+}
+
+/// Found on the reduced working copy, then refined twice at the photo's
+/// full resolution on the same patches; `None` with too few usable edges.
+fn analyse(image: &Rgb32FImage, report: bool) -> Option<Analysis> {
     let (w, h) = image.dimensions();
     let small = downscale(image, WORK_EDGE);
     let (sw, sh) = small.dimensions();
@@ -827,10 +873,6 @@ pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
     if first.len() < 12 {
         return None;
     }
-    let fit = |patches: &[Patch], hd: f32| CaModel {
-        red: band_fit(patches, hd, |p| p.red),
-        blue: band_fit(patches, hd, |p| p.blue),
-    };
     let coarse = fit(&first, small_hd);
     if report {
         println!(
@@ -847,7 +889,6 @@ pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
         .collect();
     // Refined twice; a refinement whose second step does not settle (it
     // moves the corners by more than half as much as the first) is noise.
-    let corner = |m: CaModel| (m.red.0 + m.red.1).abs().max((m.blue.0 + m.blue.1).abs());
     let mut refined = Some(coarse);
     let mut last_step = f32::MAX;
     for pass in 0..2 {
@@ -872,22 +913,56 @@ pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
         last_step = step;
         refined = Some(add(model, rest));
     }
+    Some(Analysis {
+        full,
+        coarse,
+        refined,
+        half_diagonal: hd,
+    })
+}
+
+/// The largest scale difference a model gives at the corners.
+fn corner(m: CaModel) -> f32 {
+    (m.red.0 + m.red.1).abs().max((m.blue.0 + m.blue.1).abs())
+}
+
+/// Version 2's candidates: the refined and the reduced copy's model at a
+/// quarter, half, three quarters and full strength.
+fn candidates(analysis: &Analysis) -> impl Iterator<Item = (f32, CaModel)> + '_ {
+    analysis
+        .refined
+        .into_iter()
+        .chain([analysis.coarse])
+        .flat_map(|model| GAINS.map(|g| (g, scaled(model, g))))
+}
+
+/// Version 2 of the estimate (notes: reference/lateral-ca.md):
+/// - found on the reduced working copy, then refined twice at the photo's
+///   full resolution, where the fringes are seen (a reduced copy measures a
+///   larger CA: soft red and blue halos weigh more there);
+/// - the refined and the reduced copy's model are tried at a quarter, half,
+///   three quarters and full strength, and the one that leaves the least
+///   colour at the measured edges at full resolution (`fringe_cost`) wins,
+///   if it lowers that colour by `MIN_GAIN` at least; else `None` (the
+///   photo is not corrected), so the correction never adds fringes.
+pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
+    let report = std::env::var_os("RAWTONIC_CA_PROFILE").is_some();
+    let start = std::time::Instant::now();
+    let analysis = analyse(image, report)?;
+    let full = &analysis.full;
     // The candidate that leaves the least colour at the edges.
-    let (none, count) = fringe_cost(image, &full, CaModel::NONE);
+    let (none, count) = fringe_cost(image, full, CaModel::NONE);
     if count == 0 || none <= 0.0 {
         return None;
     }
     let mut best = (none, CaModel::NONE);
-    for model in refined.into_iter().chain([coarse]) {
-        for g in GAINS {
-            let candidate = scaled(model, g);
-            let cost = fringe_cost(image, &full, candidate).0;
-            if report {
-                println!("  v2 check {g} x {model:?}: {:.4}", cost / none);
-            }
-            if cost < best.0 {
-                best = (cost, candidate);
-            }
+    for (g, candidate) in candidates(&analysis) {
+        let cost = fringe_cost(image, full, candidate).0;
+        if report {
+            println!("  v2 check {g} x {candidate:?}: {:.4}", cost / none);
+        }
+        if cost < best.0 {
+            best = (cost, candidate);
         }
     }
     if report {
@@ -899,6 +974,156 @@ pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
         );
     }
     (best.0 <= (1.0 - MIN_GAIN) * none).then_some(best.1)
+}
+
+/// The share by which the photo's own measurement must lower the fringe
+/// cost below the lens data's own correction to replace it (version 3), on
+/// all measured patches, on each half of them and on those beyond
+/// `OUTER` of the half-diagonal. Chosen by measurement (notes:
+/// reference/lateral-ca.md "Version 3"): the split-half spread of the cost
+/// ratio is 0.01–0.06 with 100 patches or more, and where it lay between
+/// 0.8 and 1 the rendered photos' edges came out better or worse about as
+/// often (the edge-fringe pass and colour noise reduction even out small
+/// differences).
+const VERSUS_MARGIN: f64 = 0.20;
+/// Relative radius from which a patch counts as outer: lateral CA grows
+/// with the radius, so a choice must hold there. Inner patches alone
+/// (mostly dark, low-contrast windows) chose too weak a correction where
+/// the render showed the camera data right (X-Pro3 + XF35mmF2).
+const OUTER: f32 = 0.6;
+/// The least share of the lens data's fringe cost that the outer patches
+/// must carry for a choice.
+const MIN_OUTER_SHARE: f64 = 0.05;
+/// The independent check: the red and blue shift left after the choice
+/// (patch shifts, band fit, the larger of the corner and 0.6 of the
+/// radius) must be at most this share of the shift left after the lens
+/// data, and smaller by `MIN_SHIFT_GAIN` at least (‰ of the radius). The
+/// photos where the choice was right had 0.0–0.47; where the render showed
+/// the camera data right, 0.86 (X-T30 + XF35mmF2).
+const MAX_SHIFT_SHARE: f32 = 0.65;
+const MIN_SHIFT_GAIN: f32 = 5e-5;
+
+/// The lateral CA left on `patches` measured with a model applied: the
+/// larger of red's and blue's band-fitted scale at the corners and at 0.6
+/// of the radius.
+fn shift_left(patches: &[Patch], half_diagonal: f32) -> f32 {
+    let rest = fit(patches, half_diagonal);
+    let at = |m: (f32, f32), rn: f32| (m.0 + m.1 * rn * rn).abs();
+    [1.0, 0.6]
+        .iter()
+        .map(|&rn| at(rest.red, rn).max(at(rest.blue, rn)))
+        .fold(0.0, f32::max)
+}
+
+/// Version 3 where the lens correction has a lateral CA correction of its
+/// own (`own`: the camera's data or a profile's TCA): the same check as
+/// version 2 scores `own`, no correction, version 2's candidates and `own`
+/// refined at full resolution (its remainder added at a quarter to full
+/// strength). The best of them replaces `own` only when the evidence is
+/// clear: it leaves at least `VERSUS_MARGIN` less colour at the edges than
+/// `own` on all patches, on every other one of them alike and on the outer
+/// ones (which must carry `MIN_OUTER_SHARE` of the cost), and the measured
+/// red and blue shift it leaves is clearly smaller (`MAX_SHIFT_SHARE`).
+/// `None` keeps `own` (also when the photo has too few usable edges).
+pub fn estimate_versus(image: &Rgb32FImage, own: CaModel) -> Option<CaModel> {
+    let report = std::env::var_os("RAWTONIC_CA_PROFILE").is_some();
+    let start = std::time::Instant::now();
+    let analysis = analyse(image, report)?;
+    let full = &analysis.full;
+    let (w, h) = image.dimensions();
+    let (cx, cy) = ((w as f32 - 1.0) / 2.0, (h as f32 - 1.0) / 2.0);
+    // Four disjoint groups of patches: every other one (two halves), each
+    // inner and outer. Their costs add up to the cost on all patches.
+    let groups: [Vec<(f32, f32)>; 4] = [0, 1, 2, 3].map(|g| {
+        full.iter()
+            .enumerate()
+            .filter(|&(i, &(x, y))| {
+                let outer =
+                    ((x - cx).powi(2) + (y - cy).powi(2)).sqrt() >= OUTER * analysis.half_diagonal;
+                (i % 2) + 2 * usize::from(outer) == g
+            })
+            .map(|(_, c)| *c)
+            .collect()
+    });
+    let cost = |model: CaModel| -> [f64; 4] {
+        [0, 1, 2, 3].map(|g| fringe_cost(image, &groups[g], model).0)
+    };
+    // All, the two halves and the outer patches.
+    let parts = |c: [f64; 4]| {
+        [
+            c[0] + c[1] + c[2] + c[3],
+            c[0] + c[2],
+            c[1] + c[3],
+            c[2] + c[3],
+        ]
+    };
+    let own_cost = parts(cost(own));
+    if own_cost[1] <= 0.0 || own_cost[2] <= 0.0 {
+        return None;
+    }
+    let own_patches = measure_patches(image, full, own, false);
+    let refined_own: Vec<(f32, CaModel)> = if own_patches.len() < 12 {
+        Vec::new()
+    } else {
+        let rest = fit(&own_patches, analysis.half_diagonal);
+        if report {
+            println!("  v3 own {own:?}: rest {rest:?}");
+        }
+        GAINS.map(|g| (g, add(own, scaled(rest, g)))).to_vec()
+    };
+    let mut best = ([f64::MAX; 4], own, "own");
+    let tried = [(0.0, CaModel::NONE, "none")]
+        .into_iter()
+        .chain(candidates(&analysis).map(|(g, m)| (g, m, "auto")))
+        .chain(refined_own.into_iter().map(|(g, m)| (g, m, "own+")));
+    for (g, candidate, kind) in tried {
+        let c = parts(cost(candidate));
+        if report {
+            println!(
+                "  v3 check {kind} {g} x {candidate:?}: {:.4}",
+                c[0] / own_cost[0]
+            );
+        }
+        if c[0] < best.0[0] {
+            best = (c, candidate, kind);
+        }
+    }
+    let keep = 1.0 - VERSUS_MARGIN;
+    let ratios = [0, 1, 2, 3].map(|i| best.0[i] / own_cost[i]);
+    let outer_share = own_cost[3] / own_cost[0];
+    let clearer = ratios[..3].iter().all(|&r| r <= keep)
+        && outer_share >= MIN_OUTER_SHARE
+        && ratios[3] <= keep;
+    // The patch shifts are measured only when the colour check is clear.
+    let shifts = (clearer && own_patches.len() >= 12)
+        .then(|| {
+            let after = measure_patches(image, full, best.1, false);
+            (after.len() >= 12).then(|| {
+                (
+                    shift_left(&own_patches, analysis.half_diagonal),
+                    shift_left(&after, analysis.half_diagonal),
+                )
+            })
+        })
+        .flatten();
+    let replaced = shifts.is_some_and(|(own_left, left)| {
+        left <= MAX_SHIFT_SHARE * own_left && own_left - left >= MIN_SHIFT_GAIN
+    });
+    if report {
+        println!(
+            "  v3 choice: {} {:?} ({:.4}; halves {:.4} {:.4}; outer {:.4} of share {outer_share:.3}; shift left {shifts:?}; {} patches; {}; {:?})",
+            best.2,
+            best.1,
+            ratios[0],
+            ratios[1],
+            ratios[2],
+            ratios[3],
+            full.len(),
+            if replaced { "replaces" } else { "keeps own" },
+            start.elapsed()
+        );
+    }
+    replaced.then_some(best.1)
 }
 
 #[cfg(test)]
@@ -1012,6 +1237,48 @@ mod tests {
             image
         };
         assert_eq!(estimate_v2(&shaded), None);
+    }
+
+    #[test]
+    fn version_3_replaces_lens_data_only_when_it_measures_clearly_better() {
+        let photo = scene_sized(3000, 2000, 0.0008, 0.0, -0.0006, 0.0);
+        // Lens data that are right are kept.
+        let right = CaModel {
+            red: (0.0008, 0.0),
+            blue: (-0.0006, 0.0),
+        };
+        assert_eq!(estimate_versus(&photo, right), None);
+        // Lens data that miss the photo's CA are replaced by the measurement.
+        let wrong = CaModel {
+            red: (-0.0004, 0.0),
+            blue: (0.0003, 0.0),
+        };
+        let m = estimate_versus(&photo, wrong).expect("replaced");
+        for rn in [0.5, 0.9] {
+            assert!((at(m.red, rn) - 0.0008).abs() < 0.00015, "{m:?}");
+            assert!((at(m.blue, rn) + 0.0006).abs() < 0.00015, "{m:?}");
+        }
+        // A photo without usable edges keeps the lens data.
+        let flat = Rgb32FImage::from_pixel(1200, 800, image::Rgb([0.2, 0.3, 0.4]));
+        assert_eq!(estimate_versus(&flat, wrong), None);
+    }
+
+    #[test]
+    fn version_3_competes_only_without_a_user_choice() {
+        use serde_json::json;
+        assert!(competes(&json!({"autoCaVersion": 3}), true));
+        assert!(!competes(&json!({"autoCaVersion": 3}), false));
+        assert!(!competes(&json!({"autoCaVersion": 2}), true));
+        assert!(!competes(&json!({}), true));
+        for on in [true, false] {
+            assert!(!competes(
+                &json!({"autoCaVersion": 3, "autoChromaticAberration": on}),
+                true
+            ));
+        }
+        // Version 3 runs where version 2 did; with lens CA data it competes.
+        assert!(applies(&json!({"autoCaVersion": 3}), false));
+        assert!(!applies(&json!({"autoCaVersion": 3}), true));
     }
 
     #[test]

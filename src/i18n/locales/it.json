@@ -2261,7 +2261,7 @@
       "notFoundPhoto": "Nessun profilo trovato per questa foto; scegli l'obiettivo qui sotto.",
       "profile": "Profilo",
       "removeCa": "Rimuovi l'aberrazione cromatica",
-      "removeCaTitle": "Misura le frange rosse e blu dei bordi di questa foto e allinea i colori; sostituisce l'aberrazione cromatica del profilo",
+      "removeCaTitle": "Misura le frange rosse e blu dei bordi di questa foto e allinea i colori. La correzione dell'aberrazione cromatica dei dati dell'obiettivo resta, a meno che la misura lasci frange nettamente minori; disattivato mantiene quella dei dati dell'obiettivo",
       "title": "Correzione obiettivo",
       "useCameraData": "Usa i dati della fotocamera ({{maker}})",
       "useDatabase": "Usa database obiettivi…",

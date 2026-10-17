@@ -581,11 +581,14 @@ export interface Adjustments {
   /** Lateral chromatic aberration measured on the photo and corrected
    * (crates/engine/src/lateral_ca.rs): true = on (replacing the lens data's
    * own CA correction), false = off; missing = off before `autoCaVersion` 2,
-   * from it on wherever the lens correction has no CA data of its own. */
+   * from it on wherever the lens correction has no CA data of its own, from
+   * 3 also where it has (replacing them only where it measures clearly
+   * better). */
   autoChromaticAberration?: boolean;
   /** The automatic lateral CA estimate (lateral_ca.rs `VERSION`): 2 = refined
    * at full resolution, applied only when trustworthy, on by default where
-   * the lens data has no CA correction; missing = 1 (recipes from before).
+   * the lens data has no CA correction; 3 = the same, and where the lens
+   * data has one it competes with it; missing = 1 (recipes from before).
    * New RAW edits only. */
   autoCaVersion?: number;
   transformVertical: number;
@@ -1092,16 +1095,20 @@ export const FRINGE_VERSION = 1;
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
-export const AUTO_CA_VERSION = 2;
+export const AUTO_CA_VERSION = 3;
 
 /** Whether the automatic lateral CA correction is on for a recipe, as the
- * renderer decides (lateral_ca.rs `applies`): its switch when set, else on
- * from `autoCaVersion` 2 when the lens data has no CA correction of its own. */
+ * renderer decides (lateral_ca.rs `applies`, `competes`): its switch when
+ * set, else on from `autoCaVersion` 2 when the lens data has no CA
+ * correction of its own, and from 3 also when it has one at its default
+ * amount (the measurement then replaces it only where it leaves clearly
+ * fewer fringes). */
 export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
   if (adjustments.autoChromaticAberration !== undefined && adjustments.autoChromaticAberration !== null) {
     return adjustments.autoChromaticAberration;
   }
-  if ((adjustments.autoCaVersion ?? 1) < 2) return false;
+  const version = adjustments.autoCaVersion ?? 1;
+  if (version < 2) return false;
   const params = adjustments.lensDistortionParams as Record<string, unknown> | null | undefined;
   const value = (key: string, fallback: number) => (typeof params?.[key] === 'number' ? (params[key] as number) : fallback);
   const ownTca =
@@ -1110,7 +1117,8 @@ export const autoCaOn = (adjustments: Partial<Adjustments>): boolean => {
       Math.abs(value('tca_vb', 1) - 1) > 1e-6 ||
       Math.abs(value('tca_vr2', 0)) > 1e-9 ||
       Math.abs(value('tca_vb2', 0)) > 1e-9);
-  return !ownTca;
+  if (!ownTca) return true;
+  return version >= 3 && Math.abs((adjustments.lensTcaAmount ?? 100) - 100) < 1e-2;
 };
 
 /** Starting adjustments for a photo that has no saved edit. */

@@ -124,6 +124,10 @@ pub struct GeometryParams {
     /// The estimate `auto_ca` uses (`lateral_ca::version_of`).
     #[serde(default)]
     pub auto_ca_version: u64,
+    /// `auto_ca` replaces the lens data's own TCA only where it measures
+    /// clearly better (`lateral_ca::competes`, `estimate_versus`).
+    #[serde(default)]
+    pub auto_ca_versus_own: bool,
 }
 
 impl Default for GeometryParams {
@@ -161,6 +165,7 @@ impl Default for GeometryParams {
             guided_fill: false,
             auto_ca: false,
             auto_ca_version: 0,
+            auto_ca_versus_own: false,
         }
     }
 }
@@ -253,8 +258,16 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
                 != Some(false),
         auto_ca: false,
         auto_ca_version: crate::lateral_ca::version_of(adjustments),
+        auto_ca_versus_own: false,
     };
-    params.auto_ca = crate::lateral_ca::applies(adjustments, has_own_tca(&params));
+    let own = has_own_tca(&params);
+    params.auto_ca = crate::lateral_ca::applies(adjustments, own);
+    params.auto_ca_versus_own = !params.auto_ca
+        && crate::lateral_ca::competes(
+            adjustments,
+            own && (params.lens_tca_amount - 1.0).abs() < 1e-4,
+        );
+    params.auto_ca |= params.auto_ca_versus_own;
     params
 }
 
@@ -267,6 +280,34 @@ fn has_own_tca(params: &GeometryParams) -> bool {
             || (params.tca_vb - 1.0).abs() > 1e-6
             || params.tca_vr2.abs() > 1e-9
             || params.tca_vb2.abs() > 1e-9)
+}
+
+/// The lens data's own lateral CA correction at its amount: red and blue
+/// scale at the centre (`vr`, `vb`) and their growth to the corners
+/// (`vr2`, `vb2`), as the warp applies them.
+fn own_tca(params: &GeometryParams) -> (f32, f32, f32, f32) {
+    let vr = if (params.tca_vr - 1.0).abs() > 1e-5 {
+        params.tca_vr + (1.0 - params.tca_vr) * (1.0 - params.lens_tca_amount)
+    } else {
+        1.0
+    };
+    let vb = if (params.tca_vb - 1.0).abs() > 1e-5 {
+        params.tca_vb + (1.0 - params.tca_vb) * (1.0 - params.lens_tca_amount)
+    } else {
+        1.0
+    };
+    let amount = params.lens_tca_amount;
+    (vr, vb, params.tca_vr2 * amount, params.tca_vb2 * amount)
+}
+
+/// `own_tca` as the model the automatic estimate competes with
+/// (`lateral_ca::estimate_versus`).
+pub fn own_tca_model(params: &GeometryParams) -> crate::lateral_ca::CaModel {
+    let (vr, vb, vr2, vb2) = own_tca(params);
+    crate::lateral_ca::CaModel {
+        red: (vr - 1.0, vr2),
+        blue: (vb - 1.0, vb2),
+    }
 }
 
 /// `DynamicImage::thumbnail`, also right for float images: the image crate
@@ -1026,32 +1067,35 @@ impl WarpKernel {
             1.0
         };
 
-        let (vr, vb, vr2, vb2, tca_on) = if params.auto_ca {
+        let measured = if params.auto_ca && params.auto_ca_versus_own {
+            // Version 3 against the lens data's own TCA: the photo's own
+            // measurement only where it leaves clearly fewer fringes.
+            src_img.and_then(|image| {
+                crate::lateral_ca::estimate_for(
+                    image,
+                    params.auto_ca_version,
+                    Some(own_tca_model(params)),
+                )
+            })
+        } else if params.auto_ca {
             // Measured on the photo itself; it covers the whole lateral CA, so
             // it replaces the profile's.
-            let m = src_img
-                .and_then(|image| crate::lateral_ca::estimate_cached(image, params.auto_ca_version))
-                .unwrap_or(crate::lateral_ca::CaModel::NONE);
-            (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true)
-        } else {
-            let vr = if (params.tca_vr - 1.0).abs() > 1e-5 {
-                params.tca_vr + (1.0 - params.tca_vr) * (1.0 - params.lens_tca_amount)
-            } else {
-                1.0
-            };
-            let vb = if (params.tca_vb - 1.0).abs() > 1e-5 {
-                params.tca_vb + (1.0 - params.tca_vb) * (1.0 - params.lens_tca_amount)
-            } else {
-                1.0
-            };
-            let amount = params.lens_tca_amount;
-            (
-                vr,
-                vb,
-                params.tca_vr2 * amount,
-                params.tca_vb2 * amount,
-                params.lens_tca_enabled,
+            Some(
+                src_img
+                    .and_then(|image| {
+                        crate::lateral_ca::estimate_cached(image, params.auto_ca_version)
+                    })
+                    .unwrap_or(crate::lateral_ca::CaModel::NONE),
             )
+        } else {
+            None
+        };
+        let (vr, vb, vr2, vb2, tca_on) = match measured {
+            Some(m) => (1.0 + m.red.0, 1.0 + m.blue.0, m.red.1, m.blue.1, true),
+            None => {
+                let (vr, vb, vr2, vb2) = own_tca(params);
+                (vr, vb, vr2, vb2, params.lens_tca_enabled)
+            }
         };
         let has_tca = tca_on
             && ((vr - 1.0).abs() > 1e-5
@@ -6722,6 +6766,37 @@ mod region_tests {
         forced["autoChromaticAberration"] = json!(true);
         assert!(params(forced).auto_ca);
         assert!(!params(json!({"autoCaVersion": 2, "autoChromaticAberration": false})).auto_ca);
+    }
+
+    #[test]
+    fn version_3_competes_with_the_lens_data_unless_the_user_chose() {
+        let params = |v: serde_json::Value| get_geometry_params_from_json(&v);
+        let camera = json!({"autoCaVersion": 3, "lensCorrectionMode": "camera",
+            "lensDistortionParams": {"k1": 0.0, "tca_vr": 1.0004, "tca_vb": 0.9997, "tca_vr2": 0.0002}});
+        let p = params(camera.clone());
+        assert!(p.auto_ca && p.auto_ca_versus_own);
+        let own = own_tca_model(&p);
+        assert!((own.red.0 - 0.0004).abs() < 1e-6 && (own.blue.0 + 0.0003).abs() < 1e-6);
+        assert!((own.red.1 - 0.0002).abs() < 1e-9);
+        // Without lens CA data version 3 is version 2: always measured.
+        let p = params(json!({"autoCaVersion": 3}));
+        assert!(p.auto_ca && !p.auto_ca_versus_own);
+        // The user's choices: off keeps the camera data, on replaces it, a
+        // changed CA amount is kept as set.
+        let mut off = camera.clone();
+        off["autoChromaticAberration"] = json!(false);
+        assert!(!params(off).auto_ca);
+        let mut on = camera.clone();
+        on["autoChromaticAberration"] = json!(true);
+        let p = params(on);
+        assert!(p.auto_ca && !p.auto_ca_versus_own);
+        let mut amount = camera.clone();
+        amount["lensTcaAmount"] = json!(150);
+        assert!(!params(amount).auto_ca);
+        let mut disabled = camera;
+        disabled["lensTcaEnabled"] = json!(false);
+        let p = params(disabled);
+        assert!(p.auto_ca && !p.auto_ca_versus_own);
     }
 }
 

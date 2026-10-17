@@ -2202,7 +2202,7 @@
       "notFoundPhoto": "No profile found for this photograph; choose the lens below.",
       "profile": "Profile",
       "removeCa": "Remove chromatic aberration",
-      "removeCaTitle": "Measures the red and blue fringes of this photo's edges and lines the colours up; replaces the profile's chromatic aberration",
+      "removeCaTitle": "Measures the red and blue fringes of this photo's edges and lines the colours up. Lens data with their own chromatic aberration correction are kept unless the measurement leaves clearly fewer fringes; off keeps the lens data's correction",
       "title": "Lens correction",
       "useCameraData": "Use the camera's data ({{maker}})",
       "useDatabase": "Use lens database…",
