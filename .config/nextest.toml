@@ -1,0 +1,5 @@
+# cargo-nextest settings (scripts/check.sh uses nextest when installed).
+[profile.default]
+# fixture_render is a harness = false binary that prints SKIP on --list, which
+# nextest cannot parse; check.sh runs it with cargo test instead.
+default-filter = "not binary_id(rawtonic-app::fixture_render)"
