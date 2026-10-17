@@ -97,6 +97,14 @@ describe("QA control bridge", () => {
     expect(result).toMatchObject({ restored: true });
   });
 
+  it('counts animation frames during a measured range sequence', async () => {
+    const field = document.getElementById('search') as HTMLInputElement;
+    field.type = 'range'; field.min = '0'; field.max = '5'; field.value = '0';
+    const result = await handleQaRequest('ui.range_sequence', { selector: '#search', values: [1, 2, 3, 4], interval_ms: 20, measure: true });
+    expect(result).toMatchObject({ restored: true, drafts_shown: 0 });
+    expect((result as { frames: number }).frames).toBeGreaterThan(0);
+  });
+
   it("dispatches keys to the focused element", async () => {
     const pressed = vi.fn(
       (event: KeyboardEvent) =>

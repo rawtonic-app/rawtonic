@@ -15,6 +15,13 @@ let shownJob = 0;
 // Decodes started before a retire or clear are dropped when they finish.
 let generation = 0;
 
+// QA measurements (qa/qaControl.ts): told each time a draft is shown.
+const shownListeners = new Set<() => void>();
+export function onDraftShown(listener: () => void) {
+  shownListeners.add(listener);
+  return () => void shownListeners.delete(listener);
+}
+
 export function registerDraftPatchHost(element: HTMLDivElement | null) {
   if (host && host !== element) host.replaceChildren();
   host = element;
@@ -43,6 +50,7 @@ export function showDraftPatch(patch: InteractivePatch, job: number): boolean {
       target.replaceChildren(image);
       if (previous) revoke(previous.src);
       reportBrowserPreviewLoad(patch.url, true);
+      shownListeners.forEach((listener) => listener());
     },
     () => revoke(patch.url),
   );
