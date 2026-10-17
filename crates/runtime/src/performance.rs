@@ -57,6 +57,23 @@ pub fn footprint_bytes() -> Option<(u64, u64)> {
     None
 }
 
+/// A `[PERF_STAGE]` record with counters beside the time (for example dabs
+/// and rows of a brush stroke), stamped with `epoch_ms` at its end so it can
+/// be joined with the webview's `pointer_session`. No footprint: these run
+/// per pointer move, and `proc_pid_rusage` would add to what they time.
+pub fn record_stage(stage: &'static str, started: Instant, fields: serde_json::Value) {
+    let mut record = serde_json::json!({
+        "stage": stage,
+        "ms": started.elapsed().as_secs_f64() * 1000.0,
+        "epoch_ms": epoch_ms(),
+    });
+    if let (Some(record), serde_json::Value::Object(fields)) = (record.as_object_mut(), fields) {
+        record.extend(fields);
+    }
+    eprintln!("[PERF_STAGE] {record}");
+    log::info!("[PERF_STAGE] {record}");
+}
+
 impl Drop for PerformanceStage {
     fn drop(&mut self) {
         let footprint = footprint_bytes();
