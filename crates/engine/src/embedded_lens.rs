@@ -360,6 +360,35 @@ pub fn panasonic_chromatic(v: &[i16; 32], half_diagonal: f64) -> Option<Vec<(f64
         .then_some(curve)
 }
 
+/// Olympus / OM System lateral CA (ImageProcessing tag 0x150c; read as
+/// darktable reads it, checked against `lateral_ca` on 51 raw.pixls.us ORF
+/// files, notes: reference/lateral-ca.md): [red c0, c2, c4, blue c0, c2,
+/// c4]; a channel is sampled at `r (1 + c0 + c2 r² + c4 r⁴)` with `r` the
+/// radius in the camera's image, its 4:3 corner = 1, which an aspect-ratio
+/// frame reaches at `reach`. Returns (radius relative to the frame's
+/// half-diagonal, red scale − 1, blue scale − 1) as
+/// `EmbeddedLensData::chromatic`; `None` without data (all zero, lenses
+/// without electronic contacts).
+pub fn olympus_chromatic(ca: &[f64], reach: f64) -> Option<Vec<(f64, f64, f64)>> {
+    let [r0, r2, r4, b0, b2, b4] = *ca else {
+        return None;
+    };
+    if ca.iter().all(|&c| c == 0.0) || !ca.iter().all(|c| c.is_finite()) {
+        return None;
+    }
+    let curve: Vec<(f64, f64, f64)> = (1..=FORMULA_KNOTS)
+        .map(|i| {
+            let u = i as f64 / FORMULA_KNOTS as f64;
+            let rr = (u * reach) * (u * reach);
+            (u, r0 + rr * (r2 + rr * r4), b0 + rr * (b2 + rr * b4))
+        })
+        .collect();
+    curve
+        .iter()
+        .all(|&(_, r, b)| r.abs() < 0.01 && b.abs() < 0.01)
+        .then_some(curve)
+}
+
 /// Olympus / OM System ImageProcessing distortion [k2, k4, k6, s] (ExifTool
 /// tag 0x150a): an output radius `r` (corner = 1) samples the camera's image
 /// at `r s (1 + k2 (r s)² + k4 (r s)⁴ + k6 (r s)⁶)`; `0 0 0 1` means none.
@@ -639,10 +668,11 @@ fn read_u32_be<R: Read + Seek>(reader: &mut R, at: u64) -> Option<u32> {
 /// The recipe key naming which of the cameras' CA data a camera-mode recipe
 /// was made with.
 pub const CA_VERSION_KEY: &str = "cameraCaVersion";
-/// The newest: 1 (2026-10-17) adds Panasonic's (RW2 tag 0x011b). Recipes
-/// without the key were made with Fujifilm's and Sony's only; saving them
-/// again fills in the same parameters as before.
-pub const CA_VERSION: u64 = 1;
+/// The newest: 2 (2026-10-17) adds Olympus / OM System's (ORF
+/// ImageProcessing tag 0x150c), 1 (2026-10-17) Panasonic's (RW2 tag
+/// 0x011b). Recipes without the key were made with Fujifilm's and Sony's
+/// only; saving a recipe again fills in the same parameters as before.
+pub const CA_VERSION: u64 = 2;
 
 /// The recipe's camera CA version: `cameraCaVersion`, 0 when missing.
 pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
@@ -782,7 +812,7 @@ pub fn read_version(path: &Path, ca_version: u64) -> Option<EmbeddedLensData> {
             }
         }
         "orf" | "ori" => {
-            let (distortion, _ca) = crate::capture_info::olympus_lens_correction(path.to_str()?)?;
+            let (distortion, ca) = crate::capture_info::olympus_lens_correction(path.to_str()?)?;
             // The model's corner is the 4:3 sensor's; an aspect-ratio frame
             // (16:9, 3:2, 1:1) reaches a smaller part of its radius.
             let mut head = Vec::new();
@@ -804,7 +834,21 @@ pub fn read_version(path: &Path, ca_version: u64) -> Option<EmbeddedLensData> {
                 })
                 .filter(|reach| (0.5..=1.0).contains(reach))
                 .unwrap_or(1.0);
-            olympus_curve(&distortion, reach)
+            let chromatic = ca
+                .filter(|_| ca_version >= 2)
+                .and_then(|ca| olympus_chromatic(&ca, reach));
+            match olympus_curve(&distortion, reach) {
+                Some(data) => Some(EmbeddedLensData { chromatic, ..data }),
+                // Bodies with lenses whose distortion needs no correction
+                // (0 0 0 1) still store their CA.
+                None => chromatic.map(|chromatic| EmbeddedLensData {
+                    maker: "Olympus",
+                    distortion: vec![(0.5, 1.0), (1.0, 1.0)],
+                    vignetting: None,
+                    zoom: 1.0,
+                    chromatic: Some(chromatic),
+                }),
+            }
         }
         _ => None,
     }
@@ -960,6 +1004,13 @@ fn is_panasonic(source: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("rw2") || e.eq_ignore_ascii_case("rwl"))
 }
 
+fn is_olympus(source: &Path) -> bool {
+    source
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("orf") || e.eq_ignore_ascii_case("ori"))
+}
+
 fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionParams> {
     // Read once per file (and modification time): opening a photograph,
     // its thumbnail and its export all ask, and reading the RAW header costs
@@ -971,10 +1022,11 @@ fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionPa
         >,
     >;
     // Offline: the data the file had (source_facts), read at the current
-    // version; version 0 had no Panasonic CA and no CA-only data.
+    // version; version 0 had no Panasonic CA and no CA-only data, versions
+    // 0 and 1 no Olympus CA.
     if let Some(facts) = crate::source_facts::registered(&source.to_string_lossy()) {
         let params = facts.camera_lens.clone();
-        if ca_version == 0 && is_panasonic(source) {
+        if (ca_version == 0 && is_panasonic(source)) || (ca_version < 2 && is_olympus(source)) {
             return params
                 .map(LensDistortionParams::without_tca)
                 .filter(|p| !p.is_identity());
@@ -1884,6 +1936,52 @@ mod tests {
             0.95 * (1.0 + rs2 * (-0.12 + rs2 * (0.05 - 0.01 * rs2)))
         };
         assert!((data.zoom * k(data.zoom) - 1.0).abs() < 1e-6);
+    }
+
+    // OM-5 Mark II with M.Zuiko 12-45mm F4.0 Pro at 12 mm (0x150c as stored).
+    const OM5_II_CA: [f64; 6] = [
+        0.000477313995361328,
+        0.000508785247802734,
+        -0.00117158889770508,
+        -0.0000810623168945312,
+        -0.000942230224609375,
+        0.00201725959777832,
+    ];
+
+    #[test]
+    fn olympus_ca_is_a_polynomial_in_the_camera_radius() {
+        let curve = olympus_chromatic(&OM5_II_CA, 1.0).unwrap();
+        let [r0, r2, r4, b0, b2, b4] = OM5_II_CA;
+        for &(u, red, blue) in &curve {
+            let rr = u * u;
+            assert!((red - (r0 + rr * (r2 + rr * r4))).abs() < 1e-12);
+            assert!((blue - (b0 + rr * (b2 + rr * b4))).abs() < 1e-12);
+        }
+        // Red larger than green in the middle, blue at the corner, as
+        // `lateral_ca` measures on this frame.
+        let (_, red, blue) = curve[curve.len() / 2];
+        assert!(red > 4e-4 && blue < 0.0, "{curve:?}");
+        let (_, red, blue) = curve[curve.len() - 1];
+        assert!(red < 0.0 && blue > 9e-4, "{curve:?}");
+        // A 16:9 frame reaches only part of the 4:3 corner.
+        let framed = olympus_chromatic(&OM5_II_CA, 0.9).unwrap();
+        let last = framed[framed.len() - 1];
+        let rr = 0.81;
+        assert!((last.2 - (b0 + rr * (b2 + rr * b4))).abs() < 1e-12);
+        // Lenses without data store zeros.
+        assert!(olympus_chromatic(&[0.0; 6], 1.0).is_none());
+        assert!(olympus_chromatic(&[0.5, 0.0, 0.0, 0.0, 0.0, 0.0], 1.0).is_none());
+        assert!(olympus_chromatic(&OM5_II_CA[..4], 1.0).is_none());
+        let params = to_params(&EmbeddedLensData {
+            maker: "Olympus",
+            distortion: vec![(0.5, 1.0), (1.0, 1.0)],
+            vignetting: None,
+            zoom: 1.0,
+            chromatic: Some(curve),
+        })
+        .unwrap();
+        assert!(!params.is_identity());
+        assert!(params.without_tca().is_identity());
     }
 
     // Fujifilm X-H2S with XF8-16mmF2.8 R LM WR at 15.2 mm (values as stored).

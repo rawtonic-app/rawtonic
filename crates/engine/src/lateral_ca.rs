@@ -901,6 +901,63 @@ pub fn estimate_v2(image: &Rgb32FImage) -> Option<CaModel> {
     (best.0 <= (1.0 - MIN_GAIN) * none).then_some(best.1)
 }
 
+/// Measurement tool (notes: reference/lateral-ca.md): the photo's own
+/// lateral CA at full resolution, as the median red and blue shift / radius
+/// (scale − 1) per radius band 0.35…1.05 of the half-diagonal on the patches
+/// version 2 selects: (median relative radius, red, blue, patches) per band
+/// with five patches or more.
+pub fn full_resolution_bands(image: &Rgb32FImage) -> Vec<(f32, f32, f32, usize)> {
+    let (w, h) = image.dimensions();
+    let small = downscale(image, WORK_EDGE);
+    let (sw, sh) = small.dimensions();
+    let factor = (w as f32 / sw as f32).round().max(1.0);
+    let (scx, scy) = ((sw as f32 - 1.0) / 2.0, (sh as f32 - 1.0) / 2.0);
+    let small_hd = (scx * scx + scy * scy).sqrt();
+    let mut centres = Vec::new();
+    let border = HALF as u32 + MAX_SHIFT as u32 + 2;
+    let mut y = border;
+    while y + border < sh {
+        let mut x = border;
+        while x + border < sw {
+            let (dx, dy) = (x as f32 - scx, y as f32 - scy);
+            if (dx * dx + dy * dy).sqrt() > 0.35 * small_hd {
+                centres.push((x as f32, y as f32));
+            }
+            x += (HALF * 2) as u32;
+        }
+        y += (HALF * 2) as u32;
+    }
+    let first = measure_patches(&small, &centres, CaModel::NONE, true);
+    let full: Vec<(f32, f32)> = first
+        .iter()
+        .map(|p| ((p.x + 0.5) * factor - 0.5, (p.y + 0.5) * factor - 0.5))
+        .collect();
+    let patches = measure_patches(image, &full, CaModel::NONE, false);
+    let (cx, cy) = ((w as f32 - 1.0) / 2.0, (h as f32 - 1.0) / 2.0);
+    let hd = (cx * cx + cy * cy).sqrt();
+    let median = |mut v: Vec<f32>| {
+        v.sort_by(f32::total_cmp);
+        v[v.len() / 2]
+    };
+    (0..7)
+        .filter_map(|band| {
+            let (lo, hi) = (0.35 + band as f32 * 0.1, 0.45 + band as f32 * 0.1);
+            let inside: Vec<&Patch> = patches
+                .iter()
+                .filter(|p| (lo..hi).contains(&(p.radius / hd)))
+                .collect();
+            (inside.len() >= 5).then(|| {
+                (
+                    median(inside.iter().map(|p| p.radius / hd).collect()),
+                    median(inside.iter().map(|p| p.red / p.radius).collect()),
+                    median(inside.iter().map(|p| p.blue / p.radius).collect()),
+                    inside.len(),
+                )
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
