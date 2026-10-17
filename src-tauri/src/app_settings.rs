@@ -160,6 +160,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "guidedPerspective",
         "diffractionCorrection",
         "autoChromaticAberration",
+        "cameraCaVersion",
         // Rawtonic's own tools. Keep this list equal to the frontend's
         // ADJUSTMENT_GROUPS (src/utils/adjustments.ts); a vitest compares them.
         "baseCurve",
@@ -236,6 +237,7 @@ pub fn default_included_adjustments() -> HashSet<String> {
         "guidedPerspective",
         "diffractionCorrection",
         "autoChromaticAberration",
+        "cameraCaVersion",
     ];
 
     for item in off_by_default.iter() {

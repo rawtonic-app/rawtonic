@@ -476,8 +476,12 @@ export interface Adjustments {
   lensBlurMaxFade: number;
   lensBlurMinDepth: number;
   lensBlurMinFade: number;
-  /** 'camera': the RAW's own correction data (Fujifilm, Sony). */
+  /** 'camera': the RAW's own correction data (Fujifilm, Sony, Panasonic, …). */
   lensCorrectionMode: 'auto' | 'manual' | 'camera';
+  /** Which cameras' CA data camera mode reads (crates/engine/src/embedded_lens.rs
+   * `CA_VERSION`): 1 = also Panasonic's; missing = Fujifilm and Sony only
+   * (recipes from before it, so saving them again keeps their parameters). */
+  cameraCaVersion?: number;
   lensDistortionAmount: number;
   lensVignetteAmount: number;
   lensTcaAmount: number;
@@ -1078,6 +1082,9 @@ export const TONE_VERSION = 2;
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
 export const FRINGE_VERSION = 1;
 
+/** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
+export const CAMERA_CA_VERSION = 1;
+
 /** Starting adjustments for a photo that has no saved edit. */
 export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
   isRaw
@@ -1087,6 +1094,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         fringeVersion: FRINGE_VERSION,
+        cameraCaVersion: CAMERA_CA_VERSION,
       }
     : { ...INITIAL_ADJUSTMENTS, colorNoiseVersion: COLOR_NOISE_VERSION, toneVersion: TONE_VERSION };
 
@@ -1225,6 +1233,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     // Saved recipes keep rendering as they were made: no pass unless they
     // carry the key (never-edited RAWs get it in useImageLoader).
     fringeVersion: loadedAdjustments.fringeVersion,
+    cameraCaVersion: loadedAdjustments.cameraCaVersion,
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -1451,6 +1460,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         LensAdjustment.LensVignetteEnabled,
         'diffractionCorrection',
         'autoChromaticAberration',
+        'cameraCaVersion',
       ],
     },
     {

@@ -10,6 +10,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
 import {
   FRINGE_VERSION,
+  CAMERA_CA_VERSION,
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
@@ -186,6 +187,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               if (camera?.params) {
                 initialAdjusts.lensCorrectionMode = 'camera';
                 initialAdjusts.lensDistortionParams = camera.params;
+                initialAdjusts.cameraCaVersion = CAMERA_CA_VERSION;
               }
             }
             return initialAdjusts;
