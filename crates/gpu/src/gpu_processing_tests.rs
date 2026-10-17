@@ -8258,7 +8258,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
     // Wider than one tile, so the half-resolution texture is addressed in
     // image coordinates across tiles.
     let image = chroma_noise_frame(2300, 300);
-    for version in [2, 3] {
+    for version in [2, 3, 4] {
         let gpu = render_source(
             &context,
             &image,
@@ -8330,6 +8330,16 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
         render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 3})),
         render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 2}))
     );
+    // Version 4's linear-mean levels change only the chroma: at Color 0
+    // (luminance noise reduction only) it renders as version 3.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 4})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 3}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 4})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 3}))
+    );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 3})),
@@ -8355,9 +8365,23 @@ fn multiscale_color_noise_latency_probe() {
         let image = chroma_noise_frame(width, height);
         let mut builds = Vec::new();
         for _ in 0..5 {
+            // Version 3's square-root levels, then the newest's.
             let start = Instant::now();
-            let pyramid = color_noise::ChromaPyramid::build(&image, true).unwrap();
+            let _ = color_noise::ChromaPyramid::build(&image, true).unwrap();
+            let build_v3 = start.elapsed().as_secs_f64() * 1000.0;
+            let start = Instant::now();
+            let pyramid = color_noise::ChromaPyramid::build_for(
+                &image,
+                true,
+                &color_noise::Tuning::default(),
+            )
+            .unwrap();
             builds.push(start.elapsed().as_secs_f64() * 1000.0);
+            println!(
+                "{}",
+                json!({"probe":"color_noise_build","size":[width,height],"v3_ms":build_v3,
+                    "newest_ms":builds.last()})
+            );
             let thresholds = color_noise::Tuning::default().thresholds(
                 color_noise::Settings {
                     amount: 0.25,
@@ -8384,7 +8408,7 @@ fn multiscale_color_noise_latency_probe() {
     let image = chroma_noise_frame(width, height);
     {
         let gpu = GpuProcessor::new(context.clone(), width, height).unwrap();
-        for interactive in [false, true] {
+        for (version, interactive) in [(2, false), (2, true), (4, false), (4, true)] {
             let texture =
                 create_input_texture(&context.device, &context.queue, &image, 256).unwrap();
             let mut source = GpuImageCache {
@@ -8398,7 +8422,8 @@ fn multiscale_color_noise_latency_probe() {
             };
             let mut times = Vec::new();
             for frame in 0..12 {
-                let profile = json!({"colorNoiseReduction": 20 + frame, "colorNoiseVersion": 2});
+                let profile =
+                    json!({"colorNoiseReduction": 20 + frame, "colorNoiseVersion": version});
                 let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
                 let start = Instant::now();
                 prepare_color_noise(
@@ -8421,7 +8446,7 @@ fn multiscale_color_noise_latency_probe() {
             times.sort_by(f64::total_cmp);
             println!(
                 "{}",
-                json!({"probe":"color_noise_prepare","on_gpu":interactive,
+                json!({"probe":"color_noise_prepare","version":version,"on_gpu":interactive,
                     "median_ms":times[times.len()/2]})
             );
         }
@@ -8430,7 +8455,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=3 {
+        for version in 1..=4 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {
@@ -8628,10 +8653,16 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
     };
     let fresh2 = render(&mut source(), 2);
     let fresh3 = render(&mut source(), 3);
+    let fresh4 = render(&mut source(), 4);
     assert_ne!(fresh2, fresh3);
+    assert_ne!(fresh3, fresh4);
+    // Version 4 builds the pyramid again (linear means) and back.
     let mut kept = source();
     assert!(render(&mut kept, 2) == fresh2);
     assert!(render(&mut kept, 3) == fresh3);
+    assert!(render(&mut kept, 4) == fresh4);
+    assert!(render(&mut kept, 3) == fresh3);
+    assert!(render(&mut kept, 4) == fresh4);
     assert!(render(&mut kept, 2) == fresh2);
 }
 

@@ -507,11 +507,13 @@ export interface Adjustments {
   lumaNoiseContrast?: number;
   colorNoiseDetail?: number;
   colorNoiseSmoothness?: number;
-  /** Colour noise reduction filter: 3 = multi-scale, measured per photo
-   * (crates/engine/src/color_noise.rs), keeping more 8–30 px colour texture
-   * where those scales are quiet; 2 = the same filter before that; 1 or
-   * missing on recipes that set `colorNoiseReduction` = the earlier
-   * cross-bilateral filter. */
+  /** Colour noise reduction filter: 4 = multi-scale, measured per photo
+   * (crates/engine/src/color_noise.rs), its scales built from linear mean
+   * colours (dark noisy colours keep their hue); 3 = the same filter on
+   * square-root means, keeping more 8–30 px colour texture where those
+   * scales are quiet; 2 = the same filter before that; 1 or missing on
+   * recipes that set `colorNoiseReduction` = the earlier cross-bilateral
+   * filter. */
   colorNoiseVersion?: number;
   /** Tone-slider response (crates/engine/src/image_processing.rs
    * `TONE_VERSION`): 2 = Shadows above +50 reaches further into the
@@ -1062,7 +1064,7 @@ export const RAW_DETAIL_DEFAULTS = {
 
 /** The colour noise reduction new edits start with (notes: reference/detail.md,
  * reference/color-noise-reference.md). */
-export const COLOR_NOISE_VERSION = 3;
+export const COLOR_NOISE_VERSION = 4;
 
 /** The first colour noise version that is the multi-scale filter; versions
  * from it on share its base image (no decode-time chroma clean-up). */
