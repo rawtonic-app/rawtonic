@@ -545,7 +545,8 @@ export interface Adjustments {
   /** 'camera': the RAW's own correction data (Fujifilm, Sony, Panasonic, …). */
   lensCorrectionMode: 'auto' | 'manual' | 'camera';
   /** Which cameras' CA data camera mode reads (crates/engine/src/embedded_lens.rs
-   * `CA_VERSION`): 1 = also Panasonic's; missing = Fujifilm and Sony only
+   * `CA_VERSION`): 1 = also Panasonic's, 2 = also Olympus / OM System's; missing =
+   * Fujifilm and Sony only
    * (recipes from before it, so saving them again keeps their parameters). */
   cameraCaVersion?: number;
   lensDistortionAmount: number;
@@ -1314,7 +1315,7 @@ export const deadPixelAdjacent = (adjustments: Pick<Partial<Adjustments>, 'rende
 export const AI_DENOISE_VERSION = 3;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
-export const CAMERA_CA_VERSION = 1;
+export const CAMERA_CA_VERSION = 2;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
 export const AUTO_CA_VERSION = 3;
 
