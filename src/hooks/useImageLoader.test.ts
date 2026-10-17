@@ -8,7 +8,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { AUTO_CA_VERSION, CAMERA_CA_VERSION, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
+import { AUTO_CA_VERSION, CAMERA_CA_VERSION, FRINGE_VERSION, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { Invokes } from '../components/ui/AppProperties';
 import { debouncedSave, waitForPendingMetadataSave } from './useEditorActions';
 import { toast } from 'react-toastify';
@@ -273,7 +273,7 @@ it('starts a never-edited RAW with the camera lens data, but not an edited one',
   await resolve(Invokes.LoadImage, '/new.raf', nativeResult);
   expect(useEditorStore.getState().selectedImage?.isReady).toBe(true);
   expect(useEditorStore.getState().adjustments.lensCorrectionMode).toBe('camera');
-  expect(useEditorStore.getState().adjustments.fringeVersion).toBe(1);
+  expect(useEditorStore.getState().adjustments.fringeVersion).toBe(FRINGE_VERSION);
   expect(useEditorStore.getState().adjustments.cameraCaVersion).toBe(CAMERA_CA_VERSION);
   expect(useEditorStore.getState().adjustments.autoCaVersion).toBe(AUTO_CA_VERSION);
   expect(useEditorStore.getState().history).toHaveLength(1);
