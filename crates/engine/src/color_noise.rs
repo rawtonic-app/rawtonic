@@ -80,12 +80,15 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 4 (2026-10-17) builds the pyramid's levels from
+/// The newest version: 5 (2026-10-17) decides at full resolution which side
+/// of a colour edge a pixel's aware expansion takes by its 3 × 3 median when
+/// its own chroma is an outlier (fewer isolated colour specks;
+/// [`Tuning::guide`]); 4 (2026-10-17) builds the pyramid's levels from
 /// linear mean colours, so dark noisy colours keep their hue
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 4;
+pub const VERSION: u64 = 5;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -268,11 +271,12 @@ pub struct Tuning {
     /// The guide of the edge-aware expansions: with each sample's own noisy
     /// chroma, neighbours took opposite sides of a colour edge by chance,
     /// leaving 2 px stair-steps along colour edges and isolated off-colour
-    /// pixels (notes: reference/color-noise-reference.md, round 8). Every
-    /// version so far takes the sample's own chroma; a robust guide traded
+    /// pixels (notes: reference/color-noise-reference.md, round 8).
+    /// Versions 2–4 take the sample's own chroma; a robust guide traded
     /// colour-edge contrast for fewer specks in every form measured (round
-    /// 9: a switched full-resolution guide, isolated specks −22 % for
-    /// colour edges −0.2 %, awaits a decision).
+    /// 9). Version 5 takes the switch (k = 1) at full resolution only, the
+    /// cheapest form: isolated specks −22 % for colour edges −0.2 % (55
+    /// files, rounds 9–10); the coarse levels' guide cost ~4 % edges.
     /// `guide_coarse`: rebuilding the coarse levels; `guide_finest`: the
     /// full resolution (renderer); `guide_edge`: the finest detail kept only
     /// by the finest edge guard is the guide's, not the pixel's own.
@@ -317,9 +321,17 @@ impl Tuning {
         if version == 3 {
             return v3;
         }
-        Self {
+        let v4 = Self {
             linear_means: true,
             ..v3
+        };
+        if version == 4 {
+            return v4;
+        }
+        Self {
+            guide: Guide::Switch(1.0),
+            guide_finest: true,
+            ..v4
         }
     }
 
@@ -2419,6 +2431,7 @@ mod tests {
         assert!(multiscale(&json!({"colorNoiseVersion": 2}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 3}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 4}), false));
+        assert!(multiscale(&json!({"colorNoiseVersion": 5}), false));
         assert!(!multiscale(&json!({"colorNoiseVersion": 1}), true));
         // Saved colour noise reduction without a version: as before.
         assert!(!multiscale(&json!({"colorNoiseReduction": 25}), true));
@@ -2428,10 +2441,11 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 4);
+        assert_eq!(VERSION, 5);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
+        assert_eq!(version(&json!({"colorNoiseVersion": 4}), true), 4);
         assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
@@ -2468,7 +2482,6 @@ mod tests {
         // Version 3 recipes render exactly as before version 4: square-root
         // means and each sample's own chroma as the aware guide.
         let (v3, v4) = (Tuning::for_version(3), Tuning::for_version(4));
-        assert_eq!(v4, Tuning::default());
         assert!(!v3.linear_means && v4.linear_means);
         assert_eq!(v3.guide, Guide::Own);
         assert!(!v3.guide_coarse && !v3.guide_finest && !v3.guide_edge);
@@ -2483,6 +2496,31 @@ mod tests {
                 ..v4
             },
             v3
+        );
+    }
+
+    #[test]
+    fn version_4_keeps_its_constants() {
+        // Version 4 recipes render exactly as before version 5: each
+        // sample's own chroma as the full-resolution aware guide.
+        let (v4, v5) = (Tuning::for_version(4), Tuning::for_version(5));
+        assert_eq!(v5, Tuning::default());
+        assert_eq!(v4.guide, Guide::Own);
+        assert!(!v4.guide_finest);
+        assert_eq!(v4.finest_guide_code(), (0.0, 0.0));
+        // Version 5: the switch (one noise unit from the 3 × 3 median) at
+        // full resolution only, no edge gate, the detail the pixel's own.
+        assert_eq!(v5.guide, Guide::Switch(1.0));
+        assert!(v5.guide_finest && !v5.guide_coarse && !v5.guide_edge);
+        assert!(!v5.guide_gate && !v5.guide_detail);
+        assert_eq!(v5.finest_guide_code(), (3.0, 1.0));
+        assert_eq!(
+            Tuning {
+                guide: v4.guide,
+                guide_finest: v4.guide_finest,
+                ..v5
+            },
+            v4
         );
     }
 
@@ -2598,7 +2636,7 @@ mod tests {
         n[4] = [0.3, -0.2];
         assert_eq!(guide_of(&n, Guide::Switch(1.0), 1e-4), a);
         // Versions 2–4 take each sample's own chroma.
-        for version in 2..=VERSION {
+        for version in 2..=4 {
             let t = Tuning::for_version(version);
             assert_eq!(t.guide, Guide::Own);
             assert_eq!(t.finest_guide_code(), (0.0, 0.0));
@@ -2649,11 +2687,7 @@ mod tests {
             n
         };
         let own = Tuning::for_version(4);
-        let switched = Tuning {
-            guide: Guide::Switch(1.0),
-            guide_finest: true,
-            ..own
-        };
+        let switched = Tuning::for_version(5);
         let (with_own, with_switch) = (isolated(&own), isolated(&switched));
         assert!(with_switch < with_own, "{with_own} → {with_switch}");
     }
