@@ -160,6 +160,38 @@ fn print_lateral_ca() {
     }
 }
 
+/// Tool: the photo's own lateral CA at full resolution per radius band
+/// (`lateral_ca::full_resolution_bands`) of the RAWs in `$CA_FILES`
+/// (`;`-separated) on the unedited base image, one JSON line per file.
+#[test]
+#[ignore = "tool: needs CA_FILES"]
+fn print_lateral_ca_bands() {
+    for path in std::env::var("CA_FILES").unwrap().split(';') {
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
+        let Ok(image) = crate::image_loader::load_base_image_from_bytes(
+            &bytes,
+            path,
+            false,
+            &crate::app_settings::AppSettings::default(),
+            None,
+        ) else {
+            println!(
+                "{}",
+                serde_json::json!({"path": path, "error": "decode failed"})
+            );
+            continue;
+        };
+        let image = image.to_rgb32f();
+        let bands = rawtonic_engine::lateral_ca::full_resolution_bands(&image);
+        println!(
+            "{}",
+            serde_json::json!({"path": path, "size": image.dimensions(), "bands": bands})
+        );
+    }
+}
+
 /// Tool: the camera's own lens data (`embedded_lens::read`) of the RAWs in
 /// `$LENS_FILES` (`;`-separated) as warp parameters, with the read time,
 /// then the parameters a recipe without `cameraCaVersion` gets.
