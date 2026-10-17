@@ -7,7 +7,7 @@ description = "Process helpers shared by the Rawtonic engine crates: opt-in stag
 
 [features]
 default = []
-# Stage timing written to stderr and the log; never in normal builds.
+# Stage timing written to the log (stderr without a logger); never in normal builds.
 performance-profiling = ["dep:serde_json", "dep:log", "dep:libc"]
 
 [dependencies]

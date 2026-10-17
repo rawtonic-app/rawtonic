@@ -169,7 +169,9 @@ export function ToolGroup({
           </button>
         )}
       </summary>
-      <div className="studio-tool-body">{children}</div>
+      <div className="studio-tool-body">
+        <PerfProfiler id={`tool:${title}`}>{children}</PerfProfiler>
+      </div>
     </details>
   );
 }

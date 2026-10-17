@@ -116,6 +116,25 @@ pub struct GpuImageCache {
     /// The renderer's textures for `chroma` (level 1 and its reconstruction,
     /// the finest level's energy).
     chroma_gpu: Option<Box<ChromaGpu>>,
+    /// The foreground source before this one, while it is small: drag drafts
+    /// render from a smaller copy than the final frame, and each switch
+    /// uploaded the source again, rebuilt its chroma pyramid and freed GPU
+    /// memory (the first draft of every drag took 70–150 ms on the Linux PC;
+    /// notes: parity-gaps/G55-performance.md). Cleared with this cache.
+    spare: Option<Box<GpuImageCache>>,
+}
+
+/// Sources up to this size (Rgba16Float) are kept as the spare.
+const SPARE_SOURCE_MAX_BYTES: u64 = 64 << 20;
+
+impl GpuImageCache {
+    fn is_source(&self, transform_hash: u64, width: u32, height: u32) -> bool {
+        self.transform_hash == transform_hash && self.width == width && self.height == height
+    }
+
+    fn worth_keeping(&self) -> bool {
+        u64::from(self.width) * u64::from(self.height) * 8 <= SPARE_SOURCE_MAX_BYTES
+    }
 }
 
 /// Thresholds, steepness and colour noise version a packed chroma texture
@@ -1780,8 +1799,39 @@ pub fn read_texture_data_roi(
     size: wgpu::Extent3d,
     bytes_per_pixel: u32,
 ) -> Result<Vec<u8>, String> {
-    let pending = begin_texture_readback(device, queue, texture, origin, size, bytes_per_pixel);
-    finish_texture_readback(device, pending)
+    let pending =
+        begin_texture_readback(device, queue, texture, origin, size, bytes_per_pixel, None);
+    finish_texture_readback(device, pending, None)
+}
+
+/// Readback buffers of preview sizes, kept for the next frame: otherwise
+/// every drag draft allocates, maps and frees a buffer of its size (6 MB for
+/// a 1.5 MP draft) in the driver.
+#[derive(Default)]
+struct ReadbackPool(Mutex<Vec<wgpu::Buffer>>);
+
+/// Larger buffers (export tiles) are freed after use.
+const POOLED_READBACK_MAX_BYTES: u64 = 16 << 20;
+/// A tile in flight and the next one.
+const POOLED_READBACKS: usize = 2;
+
+impl ReadbackPool {
+    fn take(&self, size: u64) -> Option<wgpu::Buffer> {
+        let mut buffers = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let found = buffers.iter().position(|buffer| buffer.size() == size)?;
+        Some(buffers.swap_remove(found))
+    }
+
+    fn keep(&self, buffer: wgpu::Buffer) {
+        if buffer.size() > POOLED_READBACK_MAX_BYTES {
+            return;
+        }
+        let mut buffers = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if buffers.len() >= POOLED_READBACKS {
+            buffers.remove(0);
+        }
+        buffers.push(buffer);
+    }
 }
 
 /// A texture region copied into a mappable buffer whose mapping has been
@@ -1804,18 +1854,23 @@ fn begin_texture_readback(
     origin: wgpu::Origin3d,
     size: wgpu::Extent3d,
     bytes_per_pixel: u32,
+    pool: Option<&ReadbackPool>,
 ) -> PendingReadback {
     let unpadded_bytes_per_row = bytes_per_pixel * size.width;
     let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let padded_bytes_per_row = (unpadded_bytes_per_row + align - 1) & !(align - 1);
     let output_buffer_size = (padded_bytes_per_row * size.height) as u64;
 
-    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Readback Buffer"),
-        size: output_buffer_size,
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
+    let buffer = pool
+        .and_then(|pool| pool.take(output_buffer_size))
+        .unwrap_or_else(|| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Readback Buffer"),
+                size: output_buffer_size,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            })
+        });
 
     let mut encoder =
         device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -1859,6 +1914,7 @@ fn begin_texture_readback(
 fn finish_texture_readback(
     device: &wgpu::Device,
     pending: PendingReadback,
+    pool: Option<&ReadbackPool>,
 ) -> Result<Vec<u8>, String> {
     let PendingReadback {
         buffer,
@@ -1868,6 +1924,8 @@ fn finish_texture_readback(
         unpadded_bytes_per_row,
         height,
     } = pending;
+    #[cfg(feature = "performance-profiling")]
+    let wait_stage = crate::performance::PerformanceStage::new("gpu_readback_wait");
     device
         .poll(wgpu::PollType::Wait {
             submission_index: Some(submission),
@@ -1878,6 +1936,10 @@ fn finish_texture_readback(
         .recv()
         .map_err(|e| format!("Failed receiving GPU map result: {}", e))?;
     map_result.map_err(|e| e.to_string())?;
+    #[cfg(feature = "performance-profiling")]
+    drop(wait_stage);
+    #[cfg(feature = "performance-profiling")]
+    let _copy_stage = crate::performance::PerformanceStage::new("gpu_readback_copy");
 
     let buffer_slice = buffer.slice(..);
     let mapped = buffer_slice.get_mapped_range();
@@ -1892,6 +1954,9 @@ fn finish_texture_readback(
     };
     drop(mapped);
     buffer.unmap();
+    if let Some(pool) = pool {
+        pool.keep(buffer);
+    }
     Ok(pixels)
 }
 
@@ -1905,8 +1970,22 @@ struct TilePlacement {
 }
 
 /// Copies a read-back tile (RGBA8 or RGBA32F rows) into the output pixels.
-fn store_tile(final_pixels: &mut RenderedPixels, tile: TilePlacement, out_width: u32, data: &[u8]) {
+fn store_tile(
+    final_pixels: &mut RenderedPixels,
+    tile: TilePlacement,
+    out_width: u32,
+    data: Vec<u8>,
+) {
     match final_pixels {
+        // One tile is the whole output (drag drafts, previews): take it.
+        RenderedPixels::U8(final_pixels)
+            if tile.x == 0
+                && tile.y == 0
+                && tile.width == out_width
+                && data.len() == final_pixels.len() =>
+        {
+            *final_pixels = data;
+        }
         RenderedPixels::U8(final_pixels) => {
             for row in 0..tile.height {
                 let final_row_offset = ((tile.y + row) * out_width + tile.x) as usize * 4;
@@ -2309,6 +2388,7 @@ pub struct GpuProcessor {
     empty_mask_view: wgpu::TextureView,
     mask_cache: Mutex<Option<MaskTextureCache>>,
     blur_cache: Mutex<BlurCache>,
+    readback_pool: ReadbackPool,
     /// The multi-scale colour noise reduction's passes (None if they failed
     /// to compile: the cross-bilateral filter runs).
     chroma_pipelines: Option<ChromaPipelines>,
@@ -3810,6 +3890,7 @@ impl GpuProcessor {
             empty_mask_view,
             mask_cache: Mutex::new(None),
             blur_cache: Mutex::new(BlurCache::default()),
+            readback_pool: ReadbackPool::default(),
             chroma_pipelines,
             #[cfg(test)]
             force_mask_upload: std::sync::atomic::AtomicBool::new(false),
@@ -5780,6 +5861,7 @@ impl GpuProcessor {
                             depth_or_array_layers: 1,
                         },
                         bytes_per_pixel,
+                        Some(&self.readback_pool),
                     );
                     let placement = TilePlacement {
                         x: x_start - bounds.x,
@@ -5793,8 +5875,9 @@ impl GpuProcessor {
                         #[cfg(feature = "performance-profiling")]
                         let _readback_stage =
                             crate::performance::PerformanceStage::new("gpu_tile_readback");
-                        let data = finish_texture_readback(device, previous)?;
-                        store_tile(&mut final_pixels, previous_placement, out_width, &data);
+                        let data =
+                            finish_texture_readback(device, previous, Some(&self.readback_pool))?;
+                        store_tile(&mut final_pixels, previous_placement, out_width, data);
                     }
                 }
             }
@@ -5803,8 +5886,8 @@ impl GpuProcessor {
         if let Some((previous, placement)) = pending_readback.take() {
             #[cfg(feature = "performance-profiling")]
             let _readback_stage = crate::performance::PerformanceStage::new("gpu_tile_readback");
-            let data = finish_texture_readback(device, previous)?;
-            store_tile(&mut final_pixels, placement, out_width, &data);
+            let data = finish_texture_readback(device, previous, Some(&self.readback_pool))?;
+            store_tile(&mut final_pixels, placement, out_width, data);
         }
 
         if let Some(state) = display_state {
@@ -5858,6 +5941,7 @@ pub fn upload_render_source(
         transform_hash,
         chroma,
         chroma_gpu: None,
+        spare: None,
     })))
 }
 
@@ -6408,21 +6492,33 @@ pub fn process_and_get_dynamic_image_inner(
     let mut needs_new_cache = false;
 
     if let Some(cache) = &*cache_lock {
-        if !preuploaded
-            && (cache.transform_hash != transform_hash
-                || cache.width != width
-                || cache.height != height)
-        {
+        if !preuploaded && !cache.is_source(transform_hash, width, height) {
             needs_new_cache = true;
         }
     } else {
         needs_new_cache = true;
     }
 
+    let mut spare = None;
+    if needs_new_cache {
+        let mut old_cache = cache_lock.take();
+        let older = old_cache.as_mut().and_then(|old| old.spare.take());
+        let keep = old_cache
+            .filter(|old| !preuploaded && old.worth_keeping())
+            .map(Box::new);
+        match older {
+            // A drag's draft and its final frame alternate.
+            Some(mut older) if older.is_source(transform_hash, width, height) => {
+                older.spare = keep;
+                *cache_lock = Some(*older);
+                needs_new_cache = false;
+            }
+            _ => spare = keep,
+        }
+    }
+
     if needs_new_cache {
         let base_image = base_image.ok_or("Missing source image for GPU upload.")?;
-        let old_cache = cache_lock.take();
-        drop(old_cache);
 
         let _ = context.device.poll(wgpu::PollType::Wait {
             submission_index: None,
@@ -6444,6 +6540,7 @@ pub fn process_and_get_dynamic_image_inner(
             transform_hash,
             chroma: None,
             chroma_gpu: None,
+            spare,
         });
     }
 

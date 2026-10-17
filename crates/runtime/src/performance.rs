@@ -70,8 +70,20 @@ pub fn record_stage(stage: &'static str, started: Instant, fields: serde_json::V
     if let (Some(record), serde_json::Value::Object(fields)) = (record.as_object_mut(), fields) {
         record.extend(fields);
     }
-    eprintln!("[PERF_STAGE] {record}");
-    log::info!("[PERF_STAGE] {record}");
+    emit(&record);
+}
+
+/// To the log when a logger is installed (the app's writes it to stderr as
+/// well, on a thread of its own), else to stderr (CLI, tests). Writing to
+/// stderr here too blocked the preview worker for ~1 s while the Linux PC's
+/// btrfs flushed, with stderr redirected to a file (notes:
+/// parity-gaps/G55-performance.md).
+fn emit(record: &serde_json::Value) {
+    if log::max_level() >= log::LevelFilter::Info {
+        log::info!("[PERF_STAGE] {record}");
+    } else {
+        eprintln!("[PERF_STAGE] {record}");
+    }
 }
 
 impl Drop for PerformanceStage {
@@ -83,7 +95,6 @@ impl Drop for PerformanceStage {
             "footprint_mb": footprint.map(|(current, _)| current as f64 / 1e6),
             "peak_mb": footprint.map(|(_, peak)| peak as f64 / 1e6),
         });
-        eprintln!("[PERF_STAGE] {record}");
-        log::info!("[PERF_STAGE] {record}");
+        emit(&record);
     }
 }

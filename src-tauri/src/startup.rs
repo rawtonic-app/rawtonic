@@ -4,8 +4,74 @@ use crate::app_state::AppState;
 use crate::app_state::WindowState;
 use crate::launch_request::LaunchPayload;
 use std::fs;
+use std::io::Write;
 use std::panic;
+use std::sync::{OnceLock, mpsc};
 use tauri::Manager;
+
+enum LogMessage {
+    Line(String),
+    Flush(mpsc::SyncSender<()>),
+}
+
+static LOG_WRITER: OnceLock<mpsc::Sender<LogMessage>> = OnceLock::new();
+
+/// Log lines are written to stderr and the log file on a thread of their
+/// own. A write can block: on the Linux PC's btrfs one waited ~0.9 s for
+/// metadata space right after preview proxies were written, and fern writes
+/// every output under a lock all logging threads share, so the preview
+/// command, the preview worker and the main thread (which presents the
+/// webview) stood still with it — the first slider drag after opening a
+/// photo showed no frame for ~0.9 s (notes: parity-gaps/G55-performance.md).
+fn start_log_writer(file: Option<fs::File>) -> mpsc::Sender<LogMessage> {
+    let (sender, receiver) = mpsc::channel::<LogMessage>();
+    let _ = LOG_WRITER.set(sender.clone());
+    let spawned = std::thread::Builder::new()
+        .name("log-writer".into())
+        .spawn(move || {
+            let mut stderr = std::io::stderr();
+            let mut file = file.map(std::io::BufWriter::new);
+            while let Ok(message) = receiver.recv() {
+                // Write what is waiting, then flush once.
+                let mut next = Some(message);
+                while let Some(message) = next {
+                    match message {
+                        LogMessage::Line(line) => {
+                            let _ = stderr.write_all(line.as_bytes());
+                            if let Some(file) = file.as_mut() {
+                                let _ = file.write_all(line.as_bytes());
+                            }
+                        }
+                        LogMessage::Flush(done) => {
+                            if let Some(file) = file.as_mut() {
+                                let _ = file.flush();
+                            }
+                            let _ = done.send(());
+                        }
+                    }
+                    next = receiver.try_recv().ok();
+                }
+                if let Some(file) = file.as_mut() {
+                    let _ = file.flush();
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("Failed to start the log writer: {}", e);
+    }
+    sender
+}
+
+/// Waits (at most 2 s) until the lines logged so far are written: before the
+/// process ends.
+pub(crate) fn flush_logs() {
+    if let Some(sender) = LOG_WRITER.get() {
+        let (done, written) = mpsc::sync_channel(1);
+        if sender.send(LogMessage::Flush(done)).is_ok() {
+            let _ = written.recv_timeout(std::time::Duration::from_secs(2));
+        }
+    }
+}
 
 pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
     let log_dir = match app_handle.path().app_log_dir() {
@@ -32,7 +98,7 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
     let var = std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string());
     let level: log::LevelFilter = var.parse().unwrap_or(log::LevelFilter::Info);
 
-    let mut dispatch = fern::Dispatch::new()
+    let dispatch = fern::Dispatch::new()
         .format(|out, message, record| {
             out.finish(format_args!(
                 "{} [{}] {}",
@@ -41,17 +107,17 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
                 message
             ))
         })
-        .level(level)
-        .chain(std::io::stderr());
-
-    if let Some(file) = log_file {
-        dispatch = dispatch.chain(file);
-    } else {
+        .level(level);
+    if log_file.is_none() {
         eprintln!(
             "Failed to open log file at {:?}. Logging to console only.",
             log_file_path
         );
     }
+    let sender = start_log_writer(log_file);
+    let dispatch = dispatch.chain(fern::Output::call(move |record| {
+        let _ = sender.send(LogMessage::Line(format!("{}\n", record.args())));
+    }));
 
     if let Err(e) = dispatch.apply() {
         eprintln!("Failed to apply logger configuration: {}", e);
@@ -70,6 +136,7 @@ pub(crate) fn setup_logging(app_handle: &tauri::AppHandle) {
             |loc| format!("at {}:{}:{}", loc.file(), loc.line(), loc.column()),
         );
         log::error!("PANIC! {} - {}", location, message.trim());
+        flush_logs();
     }));
 
     log::info!(

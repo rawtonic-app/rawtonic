@@ -59,6 +59,7 @@ mod negative_conversion;
 mod performance;
 mod preset_converter;
 mod preview_cache;
+mod preview_jpeg;
 mod preview_proxy;
 mod preview_slot;
 mod proxy_worker;
@@ -913,6 +914,7 @@ pub fn run() {
                     api.prevent_exit();
                     let exit_code = code.unwrap_or(0);
                     window_state::flush();
+                    startup::flush_logs();
 
                     // libc exit handlers can tear down the GPU driver while
                     // its resources are still being dropped on worker threads.
@@ -924,6 +926,7 @@ pub fn run() {
                 }
                 tauri::RunEvent::Exit => {
                     window_state::flush();
+                    startup::flush_logs();
                     #[cfg(any(target_os = "macos", target_os = "linux"))]
                     unsafe { libc::_exit(0); }
 
