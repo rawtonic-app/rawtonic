@@ -29,6 +29,7 @@ import { registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/slider
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { interactivePreview } from '../utils/interactivePreview';
+import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
 import { useOsPlatform } from './useOsPlatform';
 
@@ -312,6 +313,7 @@ export function useImageProcessing(
           if (dragging) {
             const patch = interactivePreview(buffer);
             noteBrowserPreview(patch.url, returnedAt, inputAt, jobId);
+            if (os === 'linux' && showDraftPatch(patch, jobId)) return;
 
             setEditor((state) => {
               const previousUrl = state.interactivePatch?.url;
@@ -322,6 +324,7 @@ export function useImageProcessing(
             const blob = new Blob([buffer], { type: 'image/jpeg' });
             const url = URL.createObjectURL(blob);
             noteBrowserPreview(url, returnedAt, inputAt, jobId);
+            retireDraftPatches();
 
             if (currentPath !== selectedImagePathRef.current || jobId < latestRenderedJobIdRef.current) {
               URL.revokeObjectURL(url);

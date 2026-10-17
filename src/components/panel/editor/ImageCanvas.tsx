@@ -23,6 +23,7 @@ import { useRelightStore } from '../../../store/useRelightStore';
 import SpotOverlay from './SpotOverlay';
 import FaceRetouchOverlay from './FaceRetouchOverlay';
 import BrowserSplitImage from './BrowserSplitImage';
+import { clearDraftPatch, registerDraftPatchHost } from '../../../utils/browserDraftPatch';
 import { useDecodedPreview } from '../../../hooks/useDecodedPreview';
 import { toast } from 'react-toastify';
 import {
@@ -2870,8 +2871,12 @@ const ImageCanvas = memo(
     useEffect(() => {
       if (baseIsReady && !interactivePatch) {
         retainedPatchRef.current = null;
+        // The final frame is on screen: the last drag draft goes.
+        clearDraftPatch();
       }
     }, [baseIsReady, interactivePatch]);
+    // Another photo never shows this one's draft.
+    useEffect(() => clearDraftPatch, [selectedImage.path]);
 
     const cropImageTransforms = useMemo(() => {
       const rotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : adjustments.rotation || 0;
@@ -3060,6 +3065,19 @@ const ImageCanvas = memo(
                 <BrowserSplitImage path={selectedImage.path} adjustments={adjustments} size={imageRenderSize}
                   transform={transformState} enabled={!isWgpuActive && !isCropping && canRenderSource(selectedImage)} decoded={selectedImage.isDecoded} />
               </svg>
+              {/* Slider-drag drafts of the browser renderer (utils/browserDraftPatch.ts). */}
+              <div
+                ref={registerDraftPatchHost}
+                className="pointer-events-none"
+                style={{
+                  position: 'absolute',
+                  left: `${imageRenderSize.offsetX}px`,
+                  top: `${imageRenderSize.offsetY}px`,
+                  width: `${imageRenderSize.width}px`,
+                  height: `${imageRenderSize.height}px`,
+                  overflow: 'hidden',
+                }}
+              />
 
               {displayedMaskUrl && (
                 <img

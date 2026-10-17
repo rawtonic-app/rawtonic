@@ -321,6 +321,8 @@ pub fn run() {
                 });
             }
 
+            #[cfg(target_os = "linux")]
+            let mut webkit_dmabuf_forced = false;
             unsafe {
                 if let Some(backend) = &settings.processing_backend
                     && backend != "auto" {
@@ -329,10 +331,20 @@ pub fn run() {
 
                 #[cfg(target_os = "linux")]
                 {
-                    if settings.linux_gpu_optimization.unwrap_or(false) {
+                    let compatibility_mode = settings.linux_gpu_optimization.unwrap_or(false);
+                    if compatibility_mode {
                         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
                         std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
                         std::env::set_var("NODEVICE_SELECT", "1");
+                    }
+                    let nvidia_driver = std::fs::read_to_string("/sys/module/nvidia/version").ok();
+                    if startup::force_webkit_dmabuf_renderer(
+                        |name| std::env::var(name).ok(),
+                        nvidia_driver.as_deref(),
+                        compatibility_mode,
+                    ) {
+                        std::env::set_var("WEBKIT_FORCE_DMABUF_RENDERER", "1");
+                        webkit_dmabuf_forced = true;
                     }
                 }
 
@@ -366,6 +378,10 @@ pub fn run() {
             startup::setup_logging(&app_handle);
             for message in &carried_over.messages {
                 log::info!("{message}");
+            }
+            #[cfg(target_os = "linux")]
+            if webkit_dmabuf_forced {
+                log::info!("NVIDIA driver on Wayland: WebKit's accelerated (DMA-BUF) renderer forced on.");
             }
             #[cfg(feature = "qa-control")]
             if !is_headless {
