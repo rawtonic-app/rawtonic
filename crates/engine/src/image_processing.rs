@@ -6304,6 +6304,22 @@ mod editing_tool_tests {
     }
 
     #[test]
+    fn defringe_version_reaches_the_shader() {
+        let version = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).defringe[0][3]
+        };
+        // Recipes without the key keep the first detector.
+        assert_eq!(version(json!({"defringePurpleAmount": 10})), 1.0);
+        assert_eq!(version(json!({"defringePurpleAmount": 10, "defringeVersion": 2})), 2.0);
+        assert_eq!(version(json!({"defringeVersion": 7})), DEFRINGE_VERSION as f32);
+        // Layers' Defringe reads it too when the photo's Detail tool is hidden.
+        assert_eq!(
+            version(json!({"defringeVersion": 2, "sectionVisibility": {"details": false}})),
+            2.0
+        );
+    }
+
+    #[test]
     fn black_and_white_reads_the_mix() {
         let g = get_global_adjustments_from_json(
             &json!({"blackAndWhite": true, "grayMixer": {"red": -50, "magenta": 150}}),

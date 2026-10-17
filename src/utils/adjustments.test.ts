@@ -8,6 +8,7 @@ import {
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
   FRINGE_VERSION,
+  DEFRINGE_VERSION,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -87,6 +88,24 @@ describe('RAW detail defaults', () => {
     expect('fringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
     const versioned = { ...INITIAL_ADJUSTMENTS, fringeVersion: 1 } as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).fringeVersion).toBe(1);
+  });
+
+  it('keep the Defringe detector a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).defringeVersion).toBe(DEFRINGE_VERSION);
+    expect(initialAdjustmentsFor(false).defringeVersion).toBe(DEFRINGE_VERSION);
+    // A recipe without Defringe renders the same with either detector.
+    const unused = { ...INITIAL_ADJUSTMENTS, sharpness: 40 } as Adjustments;
+    expect(normalizeLoadedAdjustments(unused, true).defringeVersion).toBe(DEFRINGE_VERSION);
+    // One that uses it keeps the earlier detector (missing key).
+    const purple = { ...INITIAL_ADJUSTMENTS, defringePurpleAmount: 10 } as Adjustments;
+    expect(normalizeLoadedAdjustments(purple, true).defringeVersion).toBeUndefined();
+    expect('defringeVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(purple, true)))).toBe(false);
+    const layer = {
+      ...INITIAL_ADJUSTMENTS,
+      masks: [{ id: "m", name: "m", visible: true, invert: false, opacity: 100, subMasks: [], adjustments: { defringe: 50 } }],
+    } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(layer, true).defringeVersion).toBeUndefined();
+    expect(normalizeLoadedAdjustments({ ...purple, defringeVersion: 2 }, true).defringeVersion).toBe(2);
   });
 
   it('start new RAW edits with the automatic lateral CA where the lens data has none', () => {
