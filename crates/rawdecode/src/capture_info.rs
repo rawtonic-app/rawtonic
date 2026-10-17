@@ -46,6 +46,7 @@ const OLYMPUS_SENSOR_CALIBRATION: u16 = 0x0805;
 const OLYMPUS_DISTORTION: u16 = 0x150a;
 const OLYMPUS_CHROMATIC_ABERRATION: u16 = 0x150c;
 const PANASONIC_DISTORTION_INFO: u16 = 0x0119;
+const PANASONIC_CA_INFO: u16 = 0x011b;
 const OLYMPUS_ASPECT_FRAME: u16 = 0x1113;
 const SUB_IFDS: u16 = 0x014a;
 
@@ -293,6 +294,54 @@ pub fn panasonic_distortion_info(path: &str) -> Option<([i16; 16], Option<f64>)>
         }
         _ => None,
     };
+    Some((values, half_diagonal))
+}
+
+/// Panasonic's lateral CA data (RW2/RWL IFD0 tag 0x011b, undocumented):
+/// thirty-two signed 16-bit little-endian values, and the half-diagonal in
+/// pixels of the frame the raw data covers (the aspect-ratio crop when it
+/// holds a frame, else the sensor area). Layout in
+/// `embedded_lens::panasonic_chromatic`.
+pub fn panasonic_ca_info(path: &str) -> Option<([i16; 32], f64)> {
+    let mut file = File::open(path).ok()?;
+    let mut data = Vec::new();
+    file.by_ref().take(1 << 20).read_to_end(&mut data).ok()?;
+    let little = match data.get(..2)? {
+        b"II" => true,
+        b"MM" => false,
+        _ => return None,
+    };
+    let root_at = SliceIfd::new(&data, 0, little).u32(4)? as usize;
+    let root = SliceIfd::new(&data, root_at, little);
+    let bytes = root.bytes(PANASONIC_CA_INFO)?;
+    if bytes.len() != 64 {
+        return None;
+    }
+    let mut values = [0i16; 32];
+    for (i, value) in values.iter_mut().enumerate() {
+        *value = i16::from_le_bytes([bytes[2 * i], bytes[2 * i + 1]]);
+    }
+    let border = |tag: u16| root.shorts(tag).and_then(|v| v.first().copied());
+    // Some bodies (G7, G70) write the crop tags as zeros.
+    let half_diagonal = [
+        [0x002f, 0x0030, 0x0031, 0x0032],
+        [0x0004, 0x0005, 0x0006, 0x0007],
+    ]
+    .iter()
+    .find_map(|tags| {
+        match (
+            border(tags[0]),
+            border(tags[1]),
+            border(tags[2]),
+            border(tags[3]),
+        ) {
+            (Some(top), Some(left), Some(bottom), Some(right)) if bottom > top && right > left => {
+                let (w, h) = ((right - left) as f64, (bottom - top) as f64);
+                Some(0.5 * (w * w + h * h).sqrt())
+            }
+            _ => None,
+        }
+    })?;
     Some((values, half_diagonal))
 }
 

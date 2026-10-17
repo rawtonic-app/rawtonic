@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { invoke } from "@tauri-apps/api/core";
 import StudioLensCorrection from "./StudioLensCorrection";
 import { useEditorStore } from "../../store/useEditorStore";
-import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
+import { CAMERA_CA_VERSION, INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 let current: Adjustments;
@@ -150,7 +150,12 @@ describe("camera lens data", () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Enable profile corrections"));
     });
-    expect(current).toMatchObject({ lensCorrectionMode: "camera", lensDistortionParams: cameraParams, lensMaker: null });
+    expect(current).toMatchObject({
+      lensCorrectionMode: "camera",
+      lensDistortionParams: cameraParams,
+      lensMaker: null,
+      cameraCaVersion: CAMERA_CA_VERSION,
+    });
     expect(mockInvoke).not.toHaveBeenCalledWith("autodetect_lens", expect.anything());
     expect(screen.getByText(/Camera data \(Fujifilm\)/)).toBeTruthy();
     // Without a TCA curve in the camera data, its amount is not offered.

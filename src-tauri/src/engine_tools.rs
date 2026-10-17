@@ -161,22 +161,25 @@ fn print_lateral_ca() {
 }
 
 /// Tool: the camera's own lens data (`embedded_lens::read`) of the RAWs in
-/// `$LENS_FILES` (`;`-separated) as warp parameters, with the read time.
+/// `$LENS_FILES` (`;`-separated) as warp parameters, with the read time,
+/// then the parameters a recipe without `cameraCaVersion` gets.
 #[test]
 #[ignore = "tool: needs LENS_FILES"]
 fn print_embedded_lens() {
+    use rawtonic_engine::embedded_lens::{read, read_version, to_params};
+    let json = |p: Option<rawtonic_engine::lens_correction::LensDistortionParams>| {
+        p.map(|p| serde_json::to_string(&p).unwrap_or_default())
+            .unwrap_or_default()
+    };
     for path in std::env::var("LENS_FILES").unwrap().split(';') {
         let start = std::time::Instant::now();
-        let data = rawtonic_engine::embedded_lens::read(std::path::Path::new(path));
+        let data = read(std::path::Path::new(path));
         let elapsed = start.elapsed();
-        let params = data
-            .as_ref()
-            .and_then(rawtonic_engine::embedded_lens::to_params);
+        let legacy = read_version(std::path::Path::new(path), 0);
         println!(
-            "{path}\t{elapsed:?}\t{}",
-            params
-                .map(|p| serde_json::to_string(&p).unwrap_or_default())
-                .unwrap_or_default()
+            "{path}\t{elapsed:?}\t{}\t{}",
+            json(data.as_ref().and_then(to_params)),
+            json(legacy.as_ref().and_then(to_params))
         );
     }
 }

@@ -9,8 +9,8 @@
 //! r · k(r) / k(1), so the corners stay corners. Fujifilm: nine knots, k =
 //! 1 + value / 100; Sony: n knots at (i + ½) / n, k = 1 + value / 16384.
 //! Fujifilm vignetting: brightness in percent of the centre at the same knots
-//! (not yet checked against a flat field). Chromatic aberration values are
-//! read by neither model yet.
+//! (not yet checked against a flat field). Lateral chromatic aberration:
+//! Fujifilm, Sony and (since `cameraCaVersion` 1) Panasonic.
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
@@ -301,6 +301,65 @@ pub fn panasonic_curve(v: &[i16; 16], half_diagonal: Option<f64>) -> Option<Embe
     })
 }
 
+/// Units of Panasonic's CA shifts per pixel (fitted, see `panasonic_chromatic`).
+const PANASONIC_CA_UNITS_PER_PIXEL: f64 = 1200.0;
+
+/// Panasonic's lateral CA (RW2 IFD0 tag 0x011b, 32 values; undocumented,
+/// layout worked out by fitting `lateral_ca::estimate` on 333 raw.pixls.us
+/// RW2 files, notes: reference/lateral-ca.md): four knot radii in sensor
+/// pixels from the optical centre (values 17, 16, 4, 11; the last about the
+/// sensor's half-diagonal), and at those radii the red (values 12, 23, 8,
+/// 26) and blue (27, 10, 20, 29) image's radial shift against green, in
+/// 1/1200 pixel, negative outward. The shift is linear between the knots
+/// from 0 at the centre and continues along the last segment beyond the
+/// fourth knot. Values 0, 1, 30 and 31 change with every frame (checksums).
+/// The rest (frame counters, flags) is not used. Returns (radius relative
+/// to the frame's half-diagonal, red scale − 1, blue scale − 1) as
+/// `EmbeddedLensData::chromatic`.
+///
+/// Fit: one unit for all bodies; on 333 files the measured CA (mean |band
+/// median| over the radius bands) fell from 0.36 ‰ to 0.16 ‰, lower on 299,
+/// higher by more than 0.03 ‰ on 11 (LX7, LX100, FZ72, GF10 frames).
+pub fn panasonic_chromatic(v: &[i16; 32], half_diagonal: f64) -> Option<Vec<(f64, f64, f64)>> {
+    let knots = [v[17], v[16], v[4], v[11]].map(f64::from);
+    if knots[0] <= 0.0 || knots.windows(2).any(|w| w[1] <= w[0]) {
+        return None;
+    }
+    // Binned or oddly cropped frames (LX7 at half size) cover a different
+    // part of the sensor than the radii describe.
+    if !(0.7..=1.3).contains(&(half_diagonal / knots[3])) {
+        return None;
+    }
+    let red = [v[12], v[23], v[8], v[26]].map(f64::from);
+    let blue = [v[27], v[10], v[20], v[29]].map(f64::from);
+    let shift = |values: &[f64; 4], r: f64| -> f64 {
+        if r >= knots[3] {
+            let slope = (values[3] - values[2]) / (knots[3] - knots[2]);
+            return values[3] + slope * (r - knots[3]);
+        }
+        let (mut r0, mut s0) = (0.0, 0.0);
+        for (&r1, &s1) in knots.iter().zip(values) {
+            if r <= r1 {
+                return s0 + (s1 - s0) * (r - r0) / (r1 - r0);
+            }
+            (r0, s0) = (r1, s1);
+        }
+        s0
+    };
+    let curve: Vec<(f64, f64, f64)> = (1..=FORMULA_KNOTS)
+        .map(|i| {
+            let u = i as f64 / FORMULA_KNOTS as f64;
+            let r = u * half_diagonal;
+            let scale = |values: &[f64; 4]| -shift(values, r) / (PANASONIC_CA_UNITS_PER_PIXEL * r);
+            (u, scale(&red), scale(&blue))
+        })
+        .collect();
+    curve
+        .iter()
+        .all(|&(_, r, b)| r.abs() < 0.01 && b.abs() < 0.01)
+        .then_some(curve)
+}
+
 /// Olympus / OM System ImageProcessing distortion [k2, k4, k6, s] (ExifTool
 /// tag 0x150a): an output radius `r` (corner = 1) samples the camera's image
 /// at `r s (1 + k2 (r s)² + k4 (r s)⁴ + k6 (r s)⁶)`; `0 0 0 1` means none.
@@ -577,8 +636,30 @@ fn read_u32_be<R: Read + Seek>(reader: &mut R, at: u64) -> Option<u32> {
     Some(u32::from_be_bytes(bytes))
 }
 
+/// The recipe key naming which of the cameras' CA data a camera-mode recipe
+/// was made with.
+pub const CA_VERSION_KEY: &str = "cameraCaVersion";
+/// The newest: 1 (2026-10-17) adds Panasonic's (RW2 tag 0x011b). Recipes
+/// without the key were made with Fujifilm's and Sony's only; saving them
+/// again fills in the same parameters as before.
+pub const CA_VERSION: u64 = 1;
+
+/// The recipe's camera CA version: `cameraCaVersion`, 0 when missing.
+pub fn ca_version_of(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(CA_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+        .min(CA_VERSION)
+}
+
 /// The correction data stored in the RAW file, if any.
 pub fn read(path: &Path) -> Option<EmbeddedLensData> {
+    read_version(path, CA_VERSION)
+}
+
+/// The correction data as camera CA version `ca_version` read it.
+pub fn read_version(path: &Path, ca_version: u64) -> Option<EmbeddedLensData> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     let source = RawSource::new(path).ok()?;
     let mut reader = source.reader();
@@ -668,9 +749,23 @@ pub fn read(path: &Path) -> Option<EmbeddedLensData> {
         "dng" => sony_dng_lens(&source).or_else(|| adobe_profile(&source)),
         "cr3" => canon_ctmd_lens(path),
         "rw2" | "rwl" => {
-            let (values, half_diagonal) =
-                crate::capture_info::panasonic_distortion_info(path.to_str()?)?;
-            panasonic_curve(&values, half_diagonal)
+            let path = path.to_str()?;
+            let chromatic = crate::capture_info::panasonic_ca_info(path)
+                .filter(|_| ca_version >= 1)
+                .and_then(|(values, half_diagonal)| panasonic_chromatic(&values, half_diagonal));
+            let distortion = crate::capture_info::panasonic_distortion_info(path)
+                .and_then(|(values, half_diagonal)| panasonic_curve(&values, half_diagonal));
+            match distortion {
+                Some(data) => Some(EmbeddedLensData { chromatic, ..data }),
+                // Some bodies store CA data without distortion data (TZ81).
+                None => chromatic.map(|chromatic| EmbeddedLensData {
+                    maker: "Panasonic",
+                    distortion: vec![(0.5, 1.0), (1.0, 1.0)],
+                    vignetting: None,
+                    zoom: 1.0,
+                    chromatic: Some(chromatic),
+                }),
+            }
         }
         "nef" | "nrw" => {
             let ifd =
@@ -845,29 +940,59 @@ pub const CAMERA_MODE: &str = "camera";
 
 /// Parameters from the camera's data for `source`, if it carries any.
 pub fn params_for(source: &Path) -> Option<LensDistortionParams> {
+    params_for_version(source, CA_VERSION)
+}
+
+/// Parameters from the camera's data for a recipe: as its camera CA
+/// version reads them (`cameraCaVersion`), so a recipe saved again keeps
+/// rendering as it was made.
+pub fn params_for_recipe(
+    source: &Path,
+    adjustments: &serde_json::Value,
+) -> Option<LensDistortionParams> {
+    params_for_version(source, ca_version_of(adjustments))
+}
+
+fn is_panasonic(source: &Path) -> bool {
+    source
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("rw2") || e.eq_ignore_ascii_case("rwl"))
+}
+
+fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionParams> {
     // Read once per file (and modification time): opening a photograph,
     // its thumbnail and its export all ask, and reading the RAW header costs
     // several milliseconds.
     type Cache = std::sync::Mutex<
         std::collections::HashMap<
-            (std::path::PathBuf, std::time::SystemTime),
+            (std::path::PathBuf, std::time::SystemTime, u64),
             Option<LensDistortionParams>,
         >,
     >;
-    // Offline: the data the file had (source_facts).
+    // Offline: the data the file had (source_facts), read at the current
+    // version; version 0 had no Panasonic CA and no CA-only data.
     if let Some(facts) = crate::source_facts::registered(&source.to_string_lossy()) {
-        return facts.camera_lens.clone();
+        let params = facts.camera_lens.clone();
+        if ca_version == 0 && is_panasonic(source) {
+            return params
+                .map(LensDistortionParams::without_tca)
+                .filter(|p| !p.is_identity());
+        }
+        return params;
     }
     static CACHE: std::sync::OnceLock<Cache> = std::sync::OnceLock::new();
     let modified = std::fs::metadata(source).and_then(|m| m.modified()).ok();
-    let key = modified.map(|time| (source.to_path_buf(), time));
+    let key = modified.map(|time| (source.to_path_buf(), time, ca_version));
     let cache = CACHE.get_or_init(Default::default);
     if let Some(key) = &key
         && let Some(params) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(key)
     {
         return params.clone();
     }
-    let params = read(source).as_ref().and_then(to_params);
+    let params = read_version(source, ca_version)
+        .as_ref()
+        .and_then(to_params);
     if let Some(key) = key {
         let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
         if cache.len() > 4096 {
@@ -885,7 +1010,8 @@ pub fn params_for(source: &Path) -> Option<LensDistortionParams> {
 /// exactly: Camera Raw applies its own profile to them by default (R8 +
 /// EF 24-105: corners +0.47 EV, R50 V + RF 28: +0.76 EV), not to DSLRs.
 /// Saved recipes always carry a mode and are left as they are. Never-edited
-/// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`).
+/// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`),
+/// and with the camera's data its current `cameraCaVersion`.
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if !(adjustments.is_null() || adjustments.is_object())
         || adjustments.get("lensCorrectionMode").is_some()
@@ -901,6 +1027,7 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
         }
         adjustments["lensCorrectionMode"] = serde_json::json!(CAMERA_MODE);
         adjustments["lensDistortionParams"] = serde_json::to_value(params).unwrap_or_default();
+        adjustments[CA_VERSION_KEY] = serde_json::json!(CA_VERSION);
         return;
     }
     let Some((maker, model, params)) = lensfun_default(source) else {
@@ -1623,6 +1750,125 @@ mod tests {
         let full = panasonic_curve(&FZ330, Some(2500.0)).unwrap();
         let square = panasonic_curve(&FZ330, Some(2115.6)).unwrap();
         assert!(square.zoom < full.zoom && square.zoom > 1.0);
+    }
+
+    // Panasonic DMC-GX80 lateral CA data (RW2 tag 0x011b) of a raw.pixls.us
+    // frame: knots 963, 1926, 2407, 2888 px; red −838 … −1077, blue −1011 …
+    // −1307 (both images larger than green's).
+    const GX80_CA: [i16; 32] = [
+        -2952, -28394, 48, -16128, 2407, 832, 7168, 26559, -838, 2, -1011, 2888, -213, -513, 256,
+        24608, 1926, 963, 40, 1792, -847, 320, 22656, -600, -16442, -600, -1077, -501, -16384,
+        -1307, -10503, -6481,
+    ];
+
+    #[test]
+    fn panasonic_ca_shifts_are_read_at_the_knots() {
+        // 4592 × 3448 frame.
+        let hd = 0.5 * 4592f64.hypot(3448.0);
+        let curve = panasonic_chromatic(&GX80_CA, hd).unwrap();
+        assert_eq!(curve.len(), FORMULA_KNOTS);
+        // Sample 21 (r = 21/32 of the half-diagonal, 1884 px) lies between
+        // the first two knots: red shifted by −213 + (−600 + 213) · (1884 −
+        // 963) / 963 in 1/1200 px; its scale relative to green is sampled
+        // that much further out. Blue at sample 26 (2333 px) between −1011
+        // at 1926 and −847 at 2407.
+        let check = |i: usize, pick: fn(&(f64, f64, f64)) -> f64, knots: [f64; 4]| {
+            let r = i as f64 / 32.0 * hd;
+            let shift = knots[2] + (knots[3] - knots[2]) * (r - knots[0]) / (knots[1] - knots[0]);
+            assert!((pick(&curve[i - 1]) + shift / 1200.0 / r).abs() < 1e-12);
+        };
+        check(21, |p| p.1, [963.0, 1926.0, -213.0, -600.0]);
+        check(26, |p| p.2, [1926.0, 2407.0, -1011.0, -847.0]);
+        // Inside the first knot the shift grows linearly from the centre: a
+        // constant scale.
+        assert!((curve[0].1 - 213.0 / 1200.0 / 963.0).abs() < 1e-9);
+        let params = to_params(&EmbeddedLensData {
+            maker: "Panasonic",
+            distortion: vec![(0.5, 1.0), (1.0, 1.0)],
+            vignetting: None,
+            zoom: 1.0,
+            chromatic: Some(curve),
+        })
+        .unwrap();
+        assert!(!params.is_identity());
+        assert!(params.clone().without_tca().is_identity());
+    }
+
+    #[test]
+    fn implausible_panasonic_ca_data_is_ignored() {
+        let hd = 0.5 * 4592f64.hypot(3448.0);
+        // A frame binned to half size (LX7) reaches half the knots' radius.
+        assert!(panasonic_chromatic(&GX80_CA, hd / 2.0).is_none());
+        // Bodies without the data write zeros.
+        assert!(panasonic_chromatic(&[0; 32], hd).is_none());
+        let mut wild = GX80_CA;
+        wild[12] = i16::MIN;
+        assert!(panasonic_chromatic(&wild, hd).is_none());
+    }
+
+    /// A minimal RW2 header: IFD0 with the sensor borders, DistortionInfo
+    /// and the CA data.
+    fn rw2_header(distortion: &[i16; 16], ca: &[i16; 32]) -> Vec<u8> {
+        let mut entries: Vec<(u16, u16, u32, Vec<u8>)> = vec![
+            (0x0004, 3, 1, 8u32.to_le_bytes().to_vec()),
+            (0x0005, 3, 1, 8u32.to_le_bytes().to_vec()),
+            (0x0006, 3, 1, 3456u32.to_le_bytes().to_vec()),
+            (0x0007, 3, 1, 4600u32.to_le_bytes().to_vec()),
+        ];
+        let words = |v: &[i16]| v.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        entries.push((0x0119, 7, 32, words(distortion)));
+        entries.push((0x011b, 7, 64, words(ca)));
+        let mut out = b"IIU\0".to_vec();
+        out.extend(8u32.to_le_bytes());
+        out.extend((entries.len() as u16).to_le_bytes());
+        let mut data_at = 8 + 2 + 12 * entries.len() + 4;
+        let mut data: Vec<u8> = Vec::new();
+        for (tag, typ, count, value) in &entries {
+            out.extend(tag.to_le_bytes());
+            out.extend(typ.to_le_bytes());
+            out.extend(count.to_le_bytes());
+            if value.len() <= 4 {
+                let mut inline = value.clone();
+                inline.resize(4, 0);
+                out.extend(inline);
+            } else {
+                out.extend((data_at as u32).to_le_bytes());
+                data.extend(value);
+                data_at += value.len();
+            }
+        }
+        out.extend(0u32.to_le_bytes());
+        out.extend(data);
+        out
+    }
+
+    #[test]
+    fn recipes_without_the_camera_ca_version_keep_their_parameters() {
+        let temp = tempfile::tempdir().unwrap();
+        let with_distortion = temp.path().join("a.RW2");
+        std::fs::write(&with_distortion, rw2_header(&FZ330, &GX80_CA)).unwrap();
+        let old = params_for_recipe(&with_distortion, &serde_json::json!({})).unwrap();
+        let new = params_for_recipe(
+            &with_distortion,
+            &serde_json::json!({CA_VERSION_KEY: CA_VERSION}),
+        )
+        .unwrap();
+        assert_eq!(old, new.clone().without_tca());
+        assert_ne!(old, new);
+        assert_eq!(params_for(&with_distortion), Some(new));
+        // CA data without distortion data (TZ81): camera mode only with
+        // version 1.
+        let ca_only = temp.path().join("b.RW2");
+        std::fs::write(&ca_only, rw2_header(&[0; 16], &GX80_CA)).unwrap();
+        assert!(params_for_recipe(&ca_only, &serde_json::json!({})).is_none());
+        let params = params_for(&ca_only).unwrap();
+        assert!(params.clone().without_tca().is_identity());
+        // A never-edited recipe gets camera mode with the current version.
+        let mut never = serde_json::Value::Null;
+        apply_default(&mut never, &ca_only);
+        assert_eq!(never["lensCorrectionMode"], CAMERA_MODE);
+        assert_eq!(never[CA_VERSION_KEY], CA_VERSION);
+        assert_eq!(ca_version_of(&never), CA_VERSION);
     }
 
     #[test]

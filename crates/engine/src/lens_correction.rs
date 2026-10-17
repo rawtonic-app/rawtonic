@@ -207,6 +207,37 @@ impl LensDistortionParams {
         self
     }
 
+    /// The same parameters without lateral CA.
+    pub fn without_tca(self) -> Self {
+        Self {
+            tca_vr: 1.0,
+            tca_vb: 1.0,
+            tca_vr2: 0.0,
+            tca_vb2: 0.0,
+            ..self
+        }
+    }
+
+    /// No distortion, vignetting, CA or zoom: the warp leaves the image as
+    /// it is.
+    pub fn is_identity(&self) -> bool {
+        [
+            self.k1,
+            self.k2,
+            self.k3,
+            self.vig_k1,
+            self.vig_k2,
+            self.vig_k3,
+        ]
+        .iter()
+        .all(|v| v.abs() < 1e-12)
+            && (self.tca_vr - 1.0).abs() < 1e-12
+            && (self.tca_vb - 1.0).abs() < 1e-12
+            && self.tca_vr2.abs() < 1e-12
+            && self.tca_vb2.abs() < 1e-12
+            && is_unit_zoom(&self.zoom)
+    }
+
     /// The same parameters with a minimum zoom (at least 1).
     pub fn with_zoom(mut self, zoom: f64) -> Self {
         self.zoom = if zoom.is_finite() { zoom.max(1.0) } else { 1.0 };

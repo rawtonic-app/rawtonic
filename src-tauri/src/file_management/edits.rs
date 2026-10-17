@@ -40,7 +40,8 @@ pub fn resolve_lens_params_in_adjustments(
 
         // The camera's own data: no lens database entry to resolve.
         if mode == crate::embedded_lens::CAMERA_MODE {
-            match crate::embedded_lens::params_for(source) {
+            let recipe = Value::Object(map.clone());
+            match crate::embedded_lens::params_for_recipe(source, &recipe) {
                 Some(params) => {
                     map.insert(
                         "lensDistortionParams".to_string(),
