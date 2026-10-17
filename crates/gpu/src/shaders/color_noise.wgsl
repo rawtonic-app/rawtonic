@@ -32,7 +32,10 @@ struct ColorNoiseParams {
     aware_inv2: f32,
     // color_noise.rs `Tuning::aware_far`.
     aware_far: f32,
-    _pad1: f32,
+    // 1: the aware expansion's guide is the prepared level's
+    // (color_noise.rs `PreparedLevel::guide`, third_texture zw), 0: the
+    // finer sample's own chroma.
+    guide: f32,
     _pad2: f32,
     // Colour noise by brightness relative to the photo's (8 bins of
     // square-root luminance, color_noise.rs `profile_at`).
@@ -148,7 +151,8 @@ fn finest_energy(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // first_texture: the level's prepared detail (xy), local energy (z) and
 // chroma-edge ratio (w); second_texture: the coarser level rebuilt (xy);
-// third_texture: the detail's luminance-following part (xy);
+// third_texture: the detail's luminance-following part (xy) and the
+// aware expansion's guide (zw, with `params.guide`);
 // fourth_texture: the coarser level unfiltered (chroma xy, luminance z);
 // fifth_texture: the level itself unfiltered (chroma xy). As
 // color_noise.rs `ChromaPyramid::reconstruct` (`level_keep`,
@@ -169,6 +173,10 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
         // taken against the same weighted expansion of the unfiltered level.
         let plain = expand(fourth_texture, p, n, vec2<i32>(0));
         let f = textureLoad(fifth_texture, p, 0).xy;
+        var g = f;
+        if (params.guide > 0.5) {
+            g = textureLoad(third_texture, p, 0).zw;
+        }
         let rel = profile_at(plain.z);
         let inv2 = params.aware_inv2 / (rel * rel);
         let kp = p / 2;
@@ -193,7 +201,7 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
         for (var j: i32 = 0; j < 3; j = j + 1) {
             for (var i: i32 = 0; i < 3; i = i + 1) {
                 if (wx[i] * wy[j] == 0.0) { continue; }
-                let d = textureLoad(second_texture, vec2<i32>(xs[i], ys[j]), 0).xy - f;
+                let d = textureLoad(second_texture, vec2<i32>(xs[i], ys[j]), 0).xy - g;
                 let dd = dot(d, d);
                 nearest = min(nearest, dd);
                 farthest = max(farthest, dd);
@@ -211,7 +219,7 @@ fn reconstruct_level(@builtin(global_invocation_id) id: vec3<u32>) {
                 let ws = wx[i] * wy[j];
                 if (ws == 0.0 || use_plain) { continue; }
                 let q = vec2<i32>(xs[i], ys[j]);
-                let dq = textureLoad(second_texture, q, 0).xy - f;
+                let dq = textureLoad(second_texture, q, 0).xy - g;
                 let w = ws * exp(-(dot(dq, dq) - nearest) * inv2);
                 ra += w * textureLoad(second_texture, q, 0).xy;
                 ca += w * textureLoad(fourth_texture, q, 0).xy;

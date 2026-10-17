@@ -80,10 +80,12 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 3 (2026-10-16) keeps more 8–30 px colour texture
-/// where those scales of the photo are quiet ([`Tuning::quiet`],
+/// The newest version: 4 (2026-10-17) builds the pyramid's levels from
+/// linear mean colours, so dark noisy colours keep their hue
+/// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
+/// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 3;
+pub const VERSION: u64 = 4;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -139,6 +141,21 @@ pub struct Settings {
     pub amount: f32,
     pub detail: f32,
     pub smoothness: f32,
+}
+
+/// What decides which side of a colour edge an edge-aware expansion takes
+/// for a finer sample ([`Tuning::guide`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Guide {
+    /// The sample's own chroma (versions 2 and 3).
+    Own,
+    /// Its chroma smoothed over 3 × 3 (weights 1-2-1).
+    Mean,
+    /// The median of the 3 × 3 chroma, per channel.
+    Median,
+    /// Its own chroma unless that is farther than this multiple of the
+    /// level's colour noise from the 3 × 3 median, then the median.
+    Switch(f32),
 }
 
 /// The constants of the filter, chosen on the measurement harness.
@@ -239,6 +256,40 @@ pub struct Tuning {
     /// round 7). Version 3.
     pub coarse_noise_fall: f32,
     pub coarse_noise_from: usize,
+    /// Each pyramid level holds the chroma of its linear mean colour
+    /// ([`ChromaPyramid::linear_means`]) instead of the mean of its pixels'
+    /// square-root chroma. Square roots averaged pull a channel that is
+    /// weak against its noise towards zero, so dark noisy colours lost
+    /// their weakest channel once the noise was removed (a black cat's fur
+    /// turned blue when its shadows were lifted; red ÷ green 0.67 → 0.54 on
+    /// a flat synthetic patch of that colour; notes:
+    /// reference/color-noise-reference.md, round 8). Version 4.
+    pub linear_means: bool,
+    /// The guide of the edge-aware expansions: with each sample's own noisy
+    /// chroma, neighbours took opposite sides of a colour edge by chance,
+    /// leaving 2 px stair-steps along colour edges and isolated off-colour
+    /// pixels (notes: reference/color-noise-reference.md, round 8). Every
+    /// version so far takes the sample's own chroma; a robust guide traded
+    /// colour-edge contrast for fewer specks in every form measured (round
+    /// 9: a switched full-resolution guide, isolated specks −22 % for
+    /// colour edges −0.2 %, awaits a decision).
+    /// `guide_coarse`: rebuilding the coarse levels; `guide_finest`: the
+    /// full resolution (renderer); `guide_edge`: the finest detail kept only
+    /// by the finest edge guard is the guide's, not the pixel's own.
+    pub guide: Guide,
+    pub guide_coarse: bool,
+    pub guide_finest: bool,
+    pub guide_edge: bool,
+    /// On confident colour edges (where the edge guards keep the detail:
+    /// the coarser level's coherent chroma gradient when rebuilding the
+    /// coarse levels, the rebuilt level 1's gradient at full resolution)
+    /// the guide moves back to the sample's own chroma by the guards' gain.
+    pub guide_gate: bool,
+    /// The full-resolution detail (energy- and edge-kept) is the guide's
+    /// chroma instead of the pixel's own: with [`Guide::Switch`] only
+    /// pixels far from their 3 × 3 median (isolated off-colour pixels)
+    /// change.
+    pub guide_detail: bool,
 }
 
 impl Default for Tuning {
@@ -256,12 +307,19 @@ impl Tuning {
         if version <= 2 {
             return v2;
         }
-        Self {
+        let v3 = Self {
             quiet: [0.012, 2.5, 2.75],
             quiet_from: 3,
             coarse_noise_fall: 1.7,
             coarse_noise_from: 3,
             ..v2
+        };
+        if version == 3 {
+            return v3;
+        }
+        Self {
+            linear_means: true,
+            ..v3
         }
     }
 
@@ -291,7 +349,36 @@ impl Tuning {
             quiet_from: LEVELS,
             coarse_noise_fall: 0.0,
             coarse_noise_from: LEVELS,
+            linear_means: false,
+            guide: Guide::Own,
+            guide_coarse: false,
+            guide_finest: false,
+            guide_edge: false,
+            guide_gate: false,
+            guide_detail: false,
         }
+    }
+
+    /// The renderer's code of the finest guide (`color_noise_guide`): 0 its
+    /// own chroma, 1 mean, 2 median, 3 switch, + 4 when the edge-kept detail
+    /// is the guide's, + 8 with the edge gate; and the switch's squared
+    /// multiple.
+    pub fn finest_guide_code(&self) -> (f32, f32) {
+        if !self.guide_finest {
+            return (0.0, 0.0);
+        }
+        let (code, k2) = match self.guide {
+            Guide::Own => return (0.0, 0.0),
+            Guide::Mean => (1.0, 0.0),
+            Guide::Median => (2.0, 0.0),
+            Guide::Switch(k) => (3.0, k * k),
+        };
+        (
+            code + if self.guide_edge { 4.0 } else { 0.0 }
+                + if self.guide_gate { 8.0 } else { 0.0 }
+                + if self.guide_detail { 16.0 } else { 0.0 },
+            k2,
+        )
     }
 
     /// The colour noise each level is filtered by, from the pyramid's
@@ -980,7 +1067,7 @@ const BAND_ROWS: usize = 32;
 
 /// Level 1 of the chroma pyramid straight from the source (the
 /// full-resolution chroma plane is never stored) and its measurability.
-fn first_level(source: &Source) -> (Plane, Vec<bool>) {
+fn first_level(source: &Source, map: impl Fn([f32; 3]) -> Px + Sync) -> (Plane, Vec<bool>) {
     let (w, h) = (source.width, source.height);
     let (w2, h2) = (w.div_ceil(2), h.div_ceil(2));
     let mut data = vec![[0.0f32; CH]; w2 * h2];
@@ -999,7 +1086,7 @@ fn first_level(source: &Source) -> (Plane, Vec<bool>) {
             for r in 0..count {
                 let y = mirror(first + r as isize, h);
                 for (x, c) in line.iter_mut().enumerate() {
-                    *c = chroma_luma(source.pixel(x, y));
+                    *c = map(source.pixel(x, y));
                 }
                 for x in 0..w2 {
                     let mut sum = [0.0f32; CH];
@@ -1192,6 +1279,10 @@ pub struct ChromaPyramid {
     /// noise departs from the shot-noise model the renderer's luminance
     /// noise reduction assumes (read noise in the shadows).
     pub luma_profile: [f32; PROFILE_BINS],
+    /// Whether each level's chroma is that of its linear mean colour
+    /// ([`Tuning::linear_means`], version 4) rather than the mean of its
+    /// pixels' square-root chroma (versions 2 and 3).
+    pub linear_means: bool,
     /// The last tuning's prepared levels ([`ChromaPyramid::prepared`]).
     prepared: Mutex<Option<Arc<Prepared>>>,
 }
@@ -1206,6 +1297,7 @@ impl Clone for ChromaPyramid {
             luma_noise: self.luma_noise,
             profile: self.profile,
             luma_profile: self.luma_profile,
+            linear_means: self.linear_means,
             prepared: Mutex::new(self.cached_prepared()),
         }
     }
@@ -1216,12 +1308,24 @@ impl ChromaPyramid {
     /// sRGB-encoded) and measures its colour noise. `None` for images too
     /// small to filter.
     pub fn build(image: &DynamicImage, linear: bool) -> Option<Self> {
+        Self::build_with(image, linear, false)
+    }
+
+    /// [`ChromaPyramid::build`] for the filter of `tuning`
+    /// ([`Tuning::linear_means`]).
+    pub fn build_for(image: &DynamicImage, linear: bool, tuning: &Tuning) -> Option<Self> {
+        Self::build_with(image, linear, tuning.linear_means)
+    }
+
+    /// `linear_means`: each level's chroma from its linear mean colour
+    /// ([`ChromaPyramid::linear_means`]).
+    pub fn build_with(image: &DynamicImage, linear: bool, linear_means: bool) -> Option<Self> {
         let source = Source::new(image, linear);
         let (w, h) = (source.width, source.height);
         if w < 2 * BLOCK || h < 2 * BLOCK {
             return None;
         }
-        let (g1, mask1) = first_level(&source);
+        let (g1, mask1) = first_level(&source, chroma_luma);
         let mut levels = vec![g1];
         let mut masks = vec![mask1];
         for _ in 1..LEVELS {
@@ -1230,6 +1334,28 @@ impl ChromaPyramid {
             let mask = reduce_mask(masks.last().unwrap(), previous.width, previous.height);
             levels.push(next);
             masks.push(mask);
+        }
+        if linear_means {
+            // Each level's chroma from the level's linear mean colour, so a
+            // level without its finer detail keeps the mean colour of the
+            // pixels it covers; its luminance channel stays the mean of the
+            // encoded luminance (the luminance noise and profile, which the
+            // luminance noise reduction uses, are unchanged).
+            let (mut means, _) = first_level(&source, |rgb| rgb);
+            for (l, level) in levels.iter_mut().enumerate() {
+                if l > 0 {
+                    means = reduce(&means);
+                }
+                level
+                    .data
+                    .par_iter_mut()
+                    .zip(means.data.par_iter())
+                    .for_each(|(v, rgb)| {
+                        let [a, b] = chroma(*rgb);
+                        v[0] = a;
+                        v[1] = b;
+                    });
+            }
         }
 
         // Chroma (channels 0, 1) and luminance (channel 2) noise per level.
@@ -1323,6 +1449,7 @@ impl ChromaPyramid {
             luma_noise,
             profile,
             luma_profile,
+            linear_means,
             prepared: Mutex::new(None),
         })
     }
@@ -1371,7 +1498,13 @@ impl ChromaPyramid {
                             coarse,
                             y,
                             fine.width,
-                            |x| [line[x][0], line[x][1]],
+                            |x| {
+                                if level.guide.is_empty() {
+                                    [line[x][0], line[x][1]]
+                                } else {
+                                    level.guide[y * fine.width + x]
+                                }
+                            },
                             aware_inv2,
                             tuning.aware_far,
                             Some(&self.profile),
@@ -1543,6 +1676,29 @@ impl ChromaPyramid {
                         [sa * share, sb * share]
                     })
                     .collect();
+                let guide = if tuning.guide_coarse && tuning.guide != Guide::Own {
+                    let mut guide = guide_plane(
+                        w,
+                        h,
+                        |x, y| {
+                            let f = fine.at(x, y);
+                            [f[0], f[1]]
+                        },
+                        tuning.guide,
+                        noise[l - 1] * noise[l - 1],
+                    );
+                    if tuning.guide_gate && gradient.is_some() {
+                        // The chroma-edge guard's gain at Amount 25.
+                        guide.par_iter_mut().enumerate().for_each(|(i, g)| {
+                            let k = gain(edge[i], 1.0, steepness);
+                            let f = fine.data[i];
+                            *g = [g[0] + k * (f[0] - g[0]), g[1] + k * (f[1] - g[1])];
+                        });
+                    }
+                    guide
+                } else {
+                    Vec::new()
+                };
                 PreparedLevel {
                     width: w,
                     height: h,
@@ -1550,6 +1706,7 @@ impl ChromaPyramid {
                     size2,
                     edge,
                     follow,
+                    guide,
                 }
             })
             .collect();
@@ -1604,6 +1761,107 @@ pub struct PreparedLevel {
     /// The part of the detail that follows the luminance detail, where the
     /// luminance guard holds (zero elsewhere).
     pub follow: Vec<[f32; 2]>,
+    /// The guide of the aware expansion rebuilding this level
+    /// ([`Tuning::guide`] with `guide_coarse`); empty for the level's own
+    /// chroma.
+    pub guide: Vec<[f32; 2]>,
+}
+
+/// Median of nine values (Devillard's 19-exchange network; the renderer's
+/// `ms_median9` runs the same exchanges, so both agree exactly).
+#[inline]
+fn median9(mut p: [f32; 9]) -> f32 {
+    #[inline(always)]
+    fn sort(p: &mut [f32; 9], a: usize, b: usize) {
+        let (lo, hi) = (p[a].min(p[b]), p[a].max(p[b]));
+        p[a] = lo;
+        p[b] = hi;
+    }
+    for (a, b) in [
+        (1, 2),
+        (4, 5),
+        (7, 8),
+        (0, 1),
+        (3, 4),
+        (6, 7),
+        (1, 2),
+        (4, 5),
+        (7, 8),
+        (0, 3),
+        (5, 8),
+        (4, 7),
+        (3, 6),
+        (1, 4),
+        (2, 5),
+        (4, 7),
+        (4, 2),
+        (6, 4),
+        (4, 2),
+    ] {
+        sort(&mut p, a, b);
+    }
+    p[4]
+}
+
+/// The guide of one sample from its 3 × 3 chroma `n` (row by row, centre
+/// `n[4]`) for `guide` ([`Guide`]); `noise2` is the squared colour noise the
+/// switch compares with.
+#[inline]
+pub fn guide_of(n: &[[f32; 2]; 9], guide: Guide, noise2: f32) -> [f32; 2] {
+    match guide {
+        Guide::Own => n[4],
+        Guide::Mean => {
+            const W: [f32; 9] = [1.0, 2.0, 1.0, 2.0, 4.0, 2.0, 1.0, 2.0, 1.0];
+            let mut sum = [0.0f32; 2];
+            for (v, w) in n.iter().zip(W) {
+                sum[0] += w * v[0];
+                sum[1] += w * v[1];
+            }
+            [sum[0] / 16.0, sum[1] / 16.0]
+        }
+        Guide::Median | Guide::Switch(_) => {
+            let median = [
+                median9(std::array::from_fn(|i| n[i][0])),
+                median9(std::array::from_fn(|i| n[i][1])),
+            ];
+            match guide {
+                Guide::Switch(k) => {
+                    let (da, db) = (n[4][0] - median[0], n[4][1] - median[1]);
+                    if da * da + db * db > k * k * noise2 {
+                        median
+                    } else {
+                        n[4]
+                    }
+                }
+                _ => median,
+            }
+        }
+    }
+}
+
+/// [`guide_of`] for every sample of a `width` × `height` plane of chroma
+/// `at(x, y)` (borders clamped, as the renderer's loads are).
+pub fn guide_plane(
+    width: usize,
+    height: usize,
+    at: impl Fn(usize, usize) -> [f32; 2] + Sync,
+    guide: Guide,
+    noise2: f32,
+) -> Vec<[f32; 2]> {
+    (0..width * height)
+        .into_par_iter()
+        .map(|i| {
+            let (x, y) = (i % width, i / width);
+            let n: [[f32; 2]; 9] = std::array::from_fn(|k| {
+                let (dx, dy) = ((k % 3) as isize - 1, (k / 3) as isize - 1);
+                at(
+                    (x as isize + dx).clamp(0, width as isize - 1) as usize,
+                    (y as isize + dy).clamp(0, height as isize - 1) as usize,
+                )
+            });
+            guide_of(&n, guide, noise2)
+        })
+        .collect()
 }
 
 /// The squared chroma gradient (central differences) of a level times the
@@ -1710,6 +1968,34 @@ pub fn filtered_pixel(rgb: [f32; 3], level1: Px, rebuilt: Px, g: f32) -> [f32; 3
     let d = [c0[0] - level1[0], c0[1] - level1[1]];
     let a = rebuilt[0] + g * d[0];
     let b = rebuilt[1] + g * d[1];
+    with_chroma(rgb, lp, a, b)
+}
+
+/// [`filtered_pixel`] with the edge-kept detail from the guide
+/// ([`Tuning::guide_edge`]): the detail kept by the energy gain `g` is the
+/// pixel's own, the further share `edge` kept only by the finest edge guard
+/// is that of the guide chroma `guide` (renderer
+/// `apply_color_noise_multiscale`).
+pub fn filtered_pixel_guided(
+    rgb: [f32; 3],
+    level1: Px,
+    rebuilt: Px,
+    g: f32,
+    edge: f32,
+    guide: [f32; 2],
+) -> [f32; 3] {
+    let p = rgb.map(encode);
+    let lp = LUMA[0] * p[0] + LUMA[1] * p[1] + LUMA[2] * p[2];
+    let c0 = [p[0] - p[1], p[2] - p[1]];
+    let a = rebuilt[0] + g * (c0[0] - level1[0]) + edge * (guide[0] - level1[0]);
+    let b = rebuilt[1] + g * (c0[1] - level1[1]) + edge * (guide[1] - level1[1]);
+    with_chroma(rgb, lp, a, b)
+}
+
+/// The pixel `rgb` with square-root chroma (a, b) on its encoded luminance
+/// `lp`, its linear luminance kept.
+#[inline]
+fn with_chroma(rgb: [f32; 3], lp: f32, a: f32, b: f32) -> [f32; 3] {
     // Chroma with zero luminance from the two differences.
     let pg = -(LUMA[0] * a + LUMA[2] * b);
     let q = [lp + pg + a, lp + pg, lp + pg + b];
@@ -1731,7 +2017,7 @@ pub fn apply_to_linear(
     tuning: &Tuning,
 ) -> image::Rgb32FImage {
     let dynamic = DynamicImage::ImageRgb32F(image.clone());
-    let Some(pyramid) = ChromaPyramid::build(&dynamic, true) else {
+    let Some(pyramid) = ChromaPyramid::build_for(&dynamic, true, tuning) else {
         return image.clone();
     };
     let thresholds = tuning.thresholds(settings, &pyramid.noise_for(tuning));
@@ -1777,6 +2063,18 @@ pub fn apply_with(
     });
     let t2 = thresholds[0] * thresholds[0];
     let edge2 = tuning.finest_edge2(thresholds, &noise);
+    // The finest guide as the renderer takes it (`color_noise_guide`).
+    let (guide_code, k2) = tuning.finest_guide_code();
+    let guide = (guide_code > 0.0 && aware2 > 0.0).then(|| {
+        let mode = match tuning.guide {
+            Guide::Switch(_) => Guide::Switch(k2.sqrt()),
+            other => other,
+        };
+        guide_plane(w, h, |x, y| chroma(pixel(y * w + x)), mode, aware2)
+    });
+    let guide_edge = guide.is_some() && tuning.guide_edge;
+    let guide_gate = guide.is_some() && tuning.guide_gate;
+    let guide_detail = guide.is_some() && tuning.guide_detail;
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3)
         .enumerate()
@@ -1790,7 +2088,15 @@ pub fn apply_with(
                     level1,
                     y,
                     w,
-                    |x| chroma(pixel(y * w + x)),
+                    |x| match &guide {
+                        Some(guide) if guide_gate && edge2 > 0.0 => {
+                            let k = gain(level1_gradient2(&rebuilt, x, y), edge2, steepness);
+                            let (g, c) = (guide[y * w + x], chroma(pixel(y * w + x)));
+                            [g[0] * (1.0 - k) + c[0] * k, g[1] * (1.0 - k) + c[1] * k]
+                        }
+                        Some(guide) => guide[y * w + x],
+                        None => chroma(pixel(y * w + x)),
+                    },
                     1.0 / aware2,
                     tuning.aware_far,
                     None,
@@ -1807,6 +2113,47 @@ pub fn apply_with(
                     expand_at(&rebuilt, x, y)
                 };
                 let level1_at = expand_at(level1, x, y);
+                if guide_detail && let Some(guide) = &guide {
+                    let g = if edge2 > 0.0 {
+                        gain(size2[i], t2, steepness).max(gain(
+                            level1_gradient2(&rebuilt, x, y),
+                            edge2,
+                            steepness,
+                        ))
+                    } else {
+                        gain(size2[i], t2, steepness)
+                    };
+                    let v = filtered_pixel_guided(rgb, level1_at, rebuilt_at, 0.0, g, guide[i]);
+                    row[x * 3..x * 3 + 3].copy_from_slice(&v);
+                    continue;
+                }
+                if guide_edge && let Some(guide) = &guide {
+                    let g = gain(size2[i], t2, steepness);
+                    let edge = if edge2 > 0.0 {
+                        gain(level1_gradient2(&rebuilt, x, y), edge2, steepness)
+                    } else {
+                        0.0
+                    };
+                    let own = chroma(rgb);
+                    let guide = if guide_gate {
+                        [
+                            guide[i][0] * (1.0 - edge) + own[0] * edge,
+                            guide[i][1] * (1.0 - edge) + own[1] * edge,
+                        ]
+                    } else {
+                        guide[i]
+                    };
+                    let v = filtered_pixel_guided(
+                        rgb,
+                        level1_at,
+                        rebuilt_at,
+                        g,
+                        (edge - g).max(0.0),
+                        guide,
+                    );
+                    row[x * 3..x * 3 + 3].copy_from_slice(&v);
+                    continue;
+                }
                 let v = filtered_pixel(
                     rgb,
                     level1_at,
@@ -2071,6 +2418,7 @@ mod tests {
         use serde_json::json;
         assert!(multiscale(&json!({"colorNoiseVersion": 2}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 3}), false));
+        assert!(multiscale(&json!({"colorNoiseVersion": 4}), false));
         assert!(!multiscale(&json!({"colorNoiseVersion": 1}), true));
         // Saved colour noise reduction without a version: as before.
         assert!(!multiscale(&json!({"colorNoiseReduction": 25}), true));
@@ -2080,9 +2428,10 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 3);
+        assert_eq!(VERSION, 4);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
+        assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
         assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
@@ -2102,7 +2451,6 @@ mod tests {
             }
         }
         let v3 = Tuning::for_version(3);
-        assert_eq!(v3, Tuning::default());
         assert_eq!(
             Tuning {
                 quiet: v2.quiet,
@@ -2113,6 +2461,201 @@ mod tests {
             },
             v2
         );
+    }
+
+    #[test]
+    fn version_3_keeps_its_constants() {
+        // Version 3 recipes render exactly as before version 4: square-root
+        // means and each sample's own chroma as the aware guide.
+        let (v3, v4) = (Tuning::for_version(3), Tuning::for_version(4));
+        assert_eq!(v4, Tuning::default());
+        assert!(!v3.linear_means && v4.linear_means);
+        assert_eq!(v3.guide, Guide::Own);
+        assert!(!v3.guide_coarse && !v3.guide_finest && !v3.guide_edge);
+        assert_eq!(v3.finest_guide_code(), (0.0, 0.0));
+        assert_eq!(
+            Tuning {
+                linear_means: v3.linear_means,
+                guide: v3.guide,
+                guide_coarse: v3.guide_coarse,
+                guide_finest: v3.guide_finest,
+                guide_edge: v3.guide_edge,
+                ..v4
+            },
+            v3
+        );
+    }
+
+    /// Mean linear colour of an image.
+    fn mean_rgb(image: &Rgb32FImage) -> [f64; 3] {
+        let mut m = [0.0f64; 3];
+        for p in image.pixels() {
+            for c in 0..3 {
+                m[c] += f64::from(p[c]);
+            }
+        }
+        m.map(|v| v / f64::from(image.width() * image.height()))
+    }
+
+    /// A flat patch of linear colour `base` with Gaussian noise `sigma`.
+    fn flat_noisy(base: [f32; 3], sigma: f32, seed: u64) -> Rgb32FImage {
+        let mut rng = Rng(seed);
+        Rgb32FImage::from_fn(256, 256, |_, _| {
+            image::Rgb(std::array::from_fn(|c| base[c] + sigma * rng.gaussian()))
+        })
+    }
+
+    #[test]
+    fn dark_noisy_colours_keep_their_mean_with_version_4() {
+        // A black cat's bluish fur: red is weak against the noise. Versions
+        // 2 and 3 averaged square roots and lost the red (red ÷ green 0.67
+        // → 0.54); version 4's levels are the chroma of linear means.
+        let image = flat_noisy([0.004, 0.006, 0.010], 0.004, 3);
+        let settings = Settings {
+            amount: 0.5,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let ratio = |m: [f64; 3]| (m[0] / m[1], m[2] / m[1]);
+        let (r_in, b_in) = ratio(mean_rgb(&image));
+        let filtered = |version| {
+            ratio(mean_rgb(&apply_to_linear(
+                &image,
+                settings,
+                &Tuning::for_version(version),
+            )))
+        };
+        let (r3, b3) = filtered(3);
+        let (r4, b4) = filtered(4);
+        assert!(r3 < 0.85 * r_in && b3 > 1.1 * b_in, "v3 {r3} {b3}");
+        assert!(
+            (r4 / r_in - 1.0).abs() < 0.05 && (b4 / b_in - 1.0).abs() < 0.08,
+            "v4 {r4} {b4} vs {r_in} {b_in}"
+        );
+        // Brighter colours: exact within 1 %.
+        let image = flat_noisy([0.01, 0.02, 0.012], 0.006, 4);
+        let (r_in, b_in) = ratio(mean_rgb(&image));
+        let (r4, b4) = ratio(mean_rgb(&apply_to_linear(
+            &image,
+            settings,
+            &Tuning::for_version(4),
+        )));
+        assert!(
+            (r4 / r_in - 1.0).abs() < 0.01 && (b4 / b_in - 1.0).abs() < 0.01,
+            "{r4} {b4}"
+        );
+    }
+
+    #[test]
+    fn linear_means_change_only_the_chroma_of_the_levels() {
+        let image = DynamicImage::ImageRgb32F(noisy(128, 96, 0.02, true, 5));
+        let plain = ChromaPyramid::build_with(&image, true, false).unwrap();
+        let means = ChromaPyramid::build_for(&image, true, &Tuning::for_version(4)).unwrap();
+        assert!(means.linear_means && !plain.linear_means);
+        assert!(
+            !ChromaPyramid::build_for(&image, true, &Tuning::for_version(3))
+                .unwrap()
+                .linear_means
+        );
+        // Luminance, its noise and profile (the luminance noise reduction's)
+        // stay; the chroma moves.
+        assert_eq!(plain.luma_noise, means.luma_noise);
+        assert_eq!(plain.luma_profile, means.luma_profile);
+        let mut moved = 0;
+        for (a, b) in plain.levels.iter().zip(&means.levels) {
+            for (p, q) in a.data.iter().zip(&b.data) {
+                assert_eq!(p[2], q[2]);
+                moved += usize::from(p[0] != q[0] || p[1] != q[1]);
+            }
+        }
+        assert!(moved > 0);
+    }
+
+    #[test]
+    fn the_median_network_is_the_median() {
+        let mut rng = Rng(9);
+        for _ in 0..500 {
+            let p: [f32; 9] = std::array::from_fn(|_| rng.gaussian());
+            let mut sorted = p;
+            sorted.sort_by(f32::total_cmp);
+            assert_eq!(median9(p), sorted[4]);
+        }
+    }
+
+    #[test]
+    fn guides_follow_their_mode() {
+        // A straight colour step through the 3 × 3: the median keeps the
+        // centre's side, the mean mixes both; the switch keeps the centre's
+        // own chroma unless it stands out of its neighbourhood.
+        let (a, b) = ([0.1f32, 0.0], [-0.1f32, 0.05]);
+        let mut n = [a, a, b, a, a, b, a, a, b];
+        assert_eq!(guide_of(&n, Guide::Own, 1e-4), a);
+        assert_eq!(guide_of(&n, Guide::Median, 1e-4), a);
+        let mean = guide_of(&n, Guide::Mean, 1e-4);
+        assert!((mean[0] - 0.05).abs() < 1e-6 && (mean[1] - 0.0125).abs() < 1e-6);
+        n[4] = [0.104, 0.002];
+        assert_eq!(guide_of(&n, Guide::Switch(1.0), 1e-4), n[4]);
+        n[4] = [0.3, -0.2];
+        assert_eq!(guide_of(&n, Guide::Switch(1.0), 1e-4), a);
+        // Versions 2–4 take each sample's own chroma.
+        for version in 2..=VERSION {
+            let t = Tuning::for_version(version);
+            assert_eq!(t.guide, Guide::Own);
+            assert_eq!(t.finest_guide_code(), (0.0, 0.0));
+        }
+    }
+
+    #[test]
+    fn a_switched_guide_keeps_neighbours_on_one_side_of_a_colour_edge() {
+        // A diagonal colour step under strong colour noise (notes:
+        // reference/color-noise-reference.md, round 9): with each pixel's own
+        // chroma as the full-resolution guide, pixels next to the edge took
+        // the other side's colour by chance. Count pixels whose filtered
+        // chroma is far from all eight neighbours'.
+        let (w, h) = (192u32, 192u32);
+        let mut rng = Rng(11);
+        let image = Rgb32FImage::from_fn(w, h, |x, y| {
+            let base = if x + y < w {
+                [0.10f32, 0.12, 0.30]
+            } else {
+                [0.20, 0.30, 0.06]
+            };
+            image::Rgb(std::array::from_fn(|c| {
+                (base[c].sqrt() + 0.03 * rng.gaussian()).max(0.0).powi(2)
+            }))
+        });
+        let settings = Settings {
+            amount: 0.25,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let isolated = |tuning: &Tuning| {
+            let out = apply_to_linear(&image, settings, tuning);
+            let c = |x: u32, y: u32| chroma(out.get_pixel(x, y).0);
+            let mut n = 0;
+            for y in 1..h - 1 {
+                for x in 1..w - 1 {
+                    let p = c(x, y);
+                    let far = (-1i32..=1)
+                        .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
+                        .filter(|d| *d != (0, 0))
+                        .all(|(dx, dy)| {
+                            let q = c((x as i32 + dx) as u32, (y as i32 + dy) as u32);
+                            (p[0] - q[0]).hypot(p[1] - q[1]) > 0.03
+                        });
+                    n += usize::from(far);
+                }
+            }
+            n
+        };
+        let own = Tuning::for_version(4);
+        let switched = Tuning {
+            guide: Guide::Switch(1.0),
+            guide_finest: true,
+            ..own
+        };
+        let (with_own, with_switch) = (isolated(&own), isolated(&switched));
+        assert!(with_switch < with_own, "{with_own} → {with_switch}");
     }
 
     #[test]

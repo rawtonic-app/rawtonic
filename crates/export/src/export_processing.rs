@@ -1191,7 +1191,12 @@ pub fn process_image_for_export_pipeline(
     let global = &request.adjustments.global;
     let color_noise = (global.color_noise[0] > 0.0
         && (global.color_noise_reduction > 0.0 || global.luma_noise_reduction > 0.0))
-        .then_some(is_raw);
+        .then(|| {
+            (
+                is_raw,
+                rawtonic_gpu::gpu_processing::color_noise_tuning(global).1,
+            )
+        });
     let Some(uploaded) =
         upload_render_source(context, &transformed_image, unique_hash, color_noise)?
     else {

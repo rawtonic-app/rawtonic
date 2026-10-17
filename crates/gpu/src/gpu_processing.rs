@@ -211,7 +211,11 @@ struct ColorNoiseParams {
     aware_inv2: f32,
     /// `Tuning::aware_far`.
     aware_far: f32,
-    _pad: [f32; 2],
+    /// 1 when the aware expansion's guide is the prepared level's
+    /// (`PreparedLevel::guide`, in the luminance-following texture's zw),
+    /// 0 for the finer sample's own chroma.
+    guide: f32,
+    _pad: f32,
     /// The colour noise profile by brightness (`ChromaPyramid::profile`),
     /// for the finest level's energy and the aware expansion.
     profile: [f32; color_noise::PROFILE_BINS],
@@ -368,7 +372,7 @@ fn set_luma_profile(
 /// The colour noise version of a recipe's uniforms (`color_noise` x =
 /// version − 1, set by `image_processing`) and its filter constants; read
 /// before `color_noise_settings` may clear x.
-fn color_noise_tuning(
+pub fn color_noise_tuning(
     global: &crate::image_processing::GlobalAdjustments,
 ) -> (u64, color_noise::Tuning) {
     let version = global.color_noise[0].round().max(0.0) as u64 + 1;
@@ -397,6 +401,7 @@ fn color_noise_thresholds(
     global.color_noise[3] = tuning.finest_edge2(&thresholds, &noise);
     global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &noise);
     global.color_noise_aware_far = tuning.aware_far;
+    (global.color_noise_guide, global.color_noise_guide_k2) = tuning.finest_guide_code();
     (thresholds, base_sigma, key)
 }
 
@@ -451,7 +456,8 @@ impl ChromaGpu {
             edge2: 0.0,
             aware_inv2: 0.0,
             aware_far: 0.0,
-            _pad: [0.0; 2],
+            guide: 0.0,
+            _pad: 0.0,
             profile: pyramid.profile,
         };
         let device = &context.device;
@@ -567,10 +573,15 @@ impl ChromaGpu {
                 .levels
                 .iter()
                 .map(|level| {
+                    // The aware expansion's guide, where the tuning has one.
                     let data = level
                         .follow
                         .iter()
-                        .map(|f| [f[0], f[1], 0.0, 0.0])
+                        .enumerate()
+                        .map(|(i, f)| match level.guide.get(i) {
+                            Some(g) => [f[0], f[1], g[0], g[1]],
+                            None => [f[0], f[1], 0.0, 0.0],
+                        })
                         .collect();
                     rgba(
                         data,
@@ -614,6 +625,12 @@ impl ChromaGpu {
             }
         });
         let noise = pyramid.noise_for(tuning);
+        let prepared_guide: Vec<bool> = pyramid
+            .prepared(tuning)
+            .levels
+            .iter()
+            .map(|level| !level.guide.is_empty())
+            .collect();
         let smoothed = (base_sigma > 0.0).then(|| {
             chroma_plane_texture(
                 context,
@@ -632,7 +649,8 @@ impl ChromaGpu {
                 edge2: tuning.edge_scale2(l, thresholds[l], &noise),
                 aware_inv2: tuning.aware_inv2(l, thresholds, &noise),
                 aware_far: tuning.aware_far,
-                _pad: [0.0; 2],
+                guide: if prepared_guide[l - 1] { 1.0 } else { 0.0 },
+                _pad: 0.0,
                 profile: pyramid.profile,
             };
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -752,11 +770,25 @@ fn prepare_color_noise(
     if settings.is_none() && !luma_profile {
         return None;
     }
+    // A pyramid built for another version's levels (square-root or linear
+    // means, `Tuning::linear_means`) is built again while the source pixels
+    // exist; only its chroma differs, so without them it still serves.
+    if source.is_some()
+        && cache
+            .chroma
+            .as_ref()
+            .is_some_and(|p| p.linear_means != versioned.1.linear_means)
+    {
+        cache.chroma = None;
+        cache.chroma_gpu = None;
+    }
     if cache.chroma.is_none() {
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("color_noise_pyramid");
         cache.chroma = source
-            .and_then(|image| ChromaPyramid::build(image, global.is_raw_image != 0))
+            .and_then(|image| {
+                ChromaPyramid::build_for(image, global.is_raw_image != 0, &versioned.1)
+            })
             .map(Arc::new);
     }
     let Some(pyramid) = cache.chroma.clone() else {
@@ -5735,13 +5767,14 @@ pub struct UploadedImage(GpuImageCache);
 /// Uploads a CPU-readback source for [`process_and_get_dynamic_image_inner`].
 /// `None` means the image exceeds the GPU's texture limits; render it from
 /// [`RenderSource::Image`] instead, which renders it in windows.
-/// `color_noise` (Some(linear)) also builds the chroma pyramid the
-/// multi-scale colour noise reduction needs, while the CPU pixels exist.
+/// `color_noise` (Some((linear, tuning))) also builds the chroma pyramid
+/// the multi-scale colour noise reduction of that tuning needs, while the
+/// CPU pixels exist.
 pub fn upload_render_source(
     context: &GpuContext,
     image: &DynamicImage,
     transform_hash: u64,
-    color_noise: Option<bool>,
+    color_noise: Option<(bool, color_noise::Tuning)>,
 ) -> Result<Option<UploadedImage>, String> {
     let (width, height) = image.dimensions();
     let max_dim = context.limits.max_texture_dimension_2d;
@@ -5758,7 +5791,7 @@ pub fn upload_render_source(
     )?;
     let texture_view = texture.create_view(&Default::default());
     let chroma = color_noise
-        .and_then(|linear| ChromaPyramid::build(image, linear))
+        .and_then(|(linear, tuning)| ChromaPyramid::build_for(image, linear, &tuning))
         .map(Arc::new);
     Ok(Some(UploadedImage(GpuImageCache {
         texture,
@@ -6015,7 +6048,7 @@ fn render_in_windows(
     let luma_profile = luma_profile_wanted(&request.adjustments.uniforms.global);
     let settings = color_noise_settings(&mut request.adjustments.uniforms.global);
     let pyramid = (settings.is_some() || luma_profile)
-        .then(|| ChromaPyramid::build(image, is_raw))
+        .then(|| ChromaPyramid::build_for(image, is_raw, &tuning))
         .flatten();
     if luma_profile && let Some(pyramid) = &pyramid {
         set_luma_profile(&mut request.adjustments.uniforms.global, pyramid);

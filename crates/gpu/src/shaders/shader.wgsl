@@ -131,8 +131,12 @@ struct GlobalAdjustments {
     color_noise_aware2: f32,
     // color_noise.rs `Tuning::aware_far`.
     color_noise_aware_far: f32,
-    _pad_cg3: f32,
-    _pad_cg4: f32,
+    // The guide of that expansion (color_noise.rs `Tuning::finest_guide_code`):
+    // 0 the pixel's chroma, 1 3 x 3 mean, 2 3 x 3 median, 3 switch (median
+    // where the pixel is farther than sqrt(k2) noise from it); + 4: the detail
+    // kept only by the finest edge guard is the guide's.
+    color_noise_guide: f32,
+    color_noise_guide_k2: f32,
     color_grading_shadows: ColorGradeSettings,
     color_grading_midtones: ColorGradeSettings,
     color_grading_highlights: ColorGradeSettings,
@@ -3176,6 +3180,69 @@ fn ms_gain(size2: f32, threshold2: f32, steepness: f32) -> f32 {
     return 1.0 / (1.0 + pow(threshold2 / size2, steepness));
 }
 
+// Median of nine values per component (color_noise.rs `median9`: the same
+// 19 exchanges, so CPU and GPU agree exactly).
+fn ms_median9(q0: vec2<f32>, q1: vec2<f32>, q2: vec2<f32>, q3: vec2<f32>, q4: vec2<f32>,
+              q5: vec2<f32>, q6: vec2<f32>, q7: vec2<f32>, q8: vec2<f32>) -> vec2<f32> {
+    var p0 = q0; var p1 = q1; var p2 = q2; var p3 = q3; var p4 = q4;
+    var p5 = q5; var p6 = q6; var p7 = q7; var p8 = q8;
+    var t: vec2<f32>;
+    t = min(p1, p2); p2 = max(p1, p2); p1 = t;
+    t = min(p4, p5); p5 = max(p4, p5); p4 = t;
+    t = min(p7, p8); p8 = max(p7, p8); p7 = t;
+    t = min(p0, p1); p1 = max(p0, p1); p0 = t;
+    t = min(p3, p4); p4 = max(p3, p4); p3 = t;
+    t = min(p6, p7); p7 = max(p6, p7); p6 = t;
+    t = min(p1, p2); p2 = max(p1, p2); p1 = t;
+    t = min(p4, p5); p5 = max(p4, p5); p4 = t;
+    t = min(p7, p8); p8 = max(p7, p8); p7 = t;
+    t = min(p0, p3); p3 = max(p0, p3); p0 = t;
+    t = min(p5, p8); p8 = max(p5, p8); p5 = t;
+    t = min(p4, p7); p7 = max(p4, p7); p4 = t;
+    t = min(p3, p6); p6 = max(p3, p6); p3 = t;
+    t = min(p1, p4); p4 = max(p1, p4); p1 = t;
+    t = min(p2, p5); p5 = max(p2, p5); p2 = t;
+    t = min(p4, p7); p7 = max(p4, p7); p4 = t;
+    t = min(p4, p2); p2 = max(p4, p2); p4 = t;
+    t = min(p6, p4); p4 = max(p6, p4); p6 = t;
+    t = min(p4, p2); p2 = max(p4, p2); p4 = t;
+    return p4;
+}
+
+// The square-root chroma of the input at photo pixel `p` (clamped).
+fn ms_input_chroma(p: vec2<i32>, max_idx: vec2<i32>, is_raw: u32) -> vec2<f32> {
+    var q = load_input(clamp(p, vec2<i32>(0), max_idx)).rgb;
+    if (is_raw == 0u) { q = srgb_to_linear(q); }
+    let e = nr_encode(q);
+    return vec2<f32>(e.r - e.g, e.b - e.g);
+}
+
+// The guide of the finest aware expansion (color_noise.rs `guide_of`) for
+// mode 1 (mean), 2 (median) or 3 (switch) around the pixel of chroma `c0`.
+fn ms_guide(coords_i: vec2<i32>, c0: vec2<f32>, mode: f32, is_raw: u32) -> vec2<f32> {
+    let max_idx = vec2<i32>(input_dims()) - vec2<i32>(1);
+    let n0 = ms_input_chroma(coords_i + vec2<i32>(-1, -1), max_idx, is_raw);
+    let n1 = ms_input_chroma(coords_i + vec2<i32>(0, -1), max_idx, is_raw);
+    let n2 = ms_input_chroma(coords_i + vec2<i32>(1, -1), max_idx, is_raw);
+    let n3 = ms_input_chroma(coords_i + vec2<i32>(-1, 0), max_idx, is_raw);
+    let n5 = ms_input_chroma(coords_i + vec2<i32>(1, 0), max_idx, is_raw);
+    let n6 = ms_input_chroma(coords_i + vec2<i32>(-1, 1), max_idx, is_raw);
+    let n7 = ms_input_chroma(coords_i + vec2<i32>(0, 1), max_idx, is_raw);
+    let n8 = ms_input_chroma(coords_i + vec2<i32>(1, 1), max_idx, is_raw);
+    if (mode < 1.5) {
+        return (n0 + 2.0 * n1 + n2 + 2.0 * n3 + 4.0 * c0 + 2.0 * n5 + n6 + 2.0 * n7 + n8) / 16.0;
+    }
+    let median = ms_median9(n0, n1, n2, n3, c0, n5, n6, n7, n8);
+    if (mode < 2.5) {
+        return median;
+    }
+    let d = c0 - median;
+    if (dot(d, d) > adjustments.global.color_noise_guide_k2 * adjustments.global.color_noise_aware2) {
+        return median;
+    }
+    return c0;
+}
+
 fn apply_color_noise_multiscale(
     center_linear: vec3<f32>,
     coords_i: vec2<i32>,
@@ -3191,9 +3258,22 @@ fn apply_color_noise_multiscale(
     // against the plain expansion of level 1 (crisper colour edges than
     // expanding both alike, measured on real files).
     let aware2 = adjustments.global.color_noise_aware2;
+    // Version 4 may decide the side by a guide from the 3 x 3 chroma
+    // (color_noise.rs `Tuning::guide`).
+    let guide_code = u32(round(adjustments.global.color_noise_guide));
+    let edge2 = adjustments.global.color_noise.w;
+    var guide = c0;
     var center_e: vec4<f32>;
     if (aware2 > 0.0) {
-        center_e = ms_expand_aware(coords_i, c0, aware2);
+        if ((guide_code & 3u) != 0u) {
+            guide = ms_guide(coords_i, c0, f32(guide_code & 3u), is_raw);
+            if ((guide_code & 8u) != 0u && edge2 > 0.0) {
+                // On confident colour edges the pixel's own chroma.
+                let k = ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z);
+                guide = guide * (1.0 - k) + c0 * k;
+            }
+        }
+        center_e = ms_expand_aware(coords_i, guide, aware2);
     } else {
         center_e = ms_expand(coords_i);
     }
@@ -3205,11 +3285,27 @@ fn apply_color_noise_multiscale(
     var g0 = ms_gain(energy, t0 * t0, adjustments.global.color_noise.z);
     // Next to colour edges that survived the coarse levels the finest
     // detail stays.
-    let edge2 = adjustments.global.color_noise.w;
-    if (edge2 > 0.0) {
-        g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
+    var ab: vec2<f32>;
+    if ((guide_code & 16u) != 0u && aware2 > 0.0) {
+        // The detail is the guide's (with the switch: isolated off-colour
+        // pixels take their neighbourhood's median).
+        if (edge2 > 0.0) {
+            g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
+        }
+        ab = center_e.zw + g0 * (guide - center_e.xy);
+    } else if ((guide_code & 4u) != 0u && aware2 > 0.0) {
+        // The detail kept only by the edge guard is the guide's.
+        var edge = 0.0;
+        if (edge2 > 0.0) {
+            edge = max(ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z) - g0, 0.0);
+        }
+        ab = center_e.zw + g0 * (c0 - center_e.xy) + edge * (guide - center_e.xy);
+    } else {
+        if (edge2 > 0.0) {
+            g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
+        }
+        ab = center_e.zw + g0 * (c0 - center_e.xy);
     }
-    var ab = center_e.zw + g0 * (c0 - center_e.xy);
     // A layer with less colour noise reduction than the photo's returns
     // part of the pixel's own colour.
     let global_a = clamp(adjustments.global.color_noise_reduction, 0.0, 1.0);
