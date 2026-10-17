@@ -953,6 +953,23 @@ pub fn params_for_recipe(
     params_for_version(source, ca_version_of(adjustments))
 }
 
+/// The `source_facts` version from which `camera_lens` carries Panasonic
+/// lateral CA data (camera CA version 1).
+const PANASONIC_CA_FACTS: u32 = 3;
+
+/// Whether `params_for_recipe` gives the camera data the recipe reads. Not
+/// offline when the registered facts predate what its camera CA version
+/// reads (a Panasonic preview made before its CA data was read): saving then
+/// keeps the recipe's parameters instead of dropping the camera's CA
+/// correction.
+pub fn recipe_params_known(source: &Path, adjustments: &serde_json::Value) -> bool {
+    crate::source_facts::registered(&source.to_string_lossy()).is_none_or(|facts| {
+        facts.version >= PANASONIC_CA_FACTS
+            || ca_version_of(adjustments) == 0
+            || !is_panasonic(source)
+    })
+}
+
 fn is_panasonic(source: &Path) -> bool {
     source
         .extension()
@@ -1844,6 +1861,42 @@ mod tests {
         out.extend(0u32.to_le_bytes());
         out.extend(data);
         out
+    }
+
+    #[test]
+    fn offline_facts_from_before_panasonic_ca_do_not_answer_for_newer_recipes() {
+        use crate::source_facts::{SourceFacts, VERSION, forget, register};
+        let v1 = serde_json::json!({CA_VERSION_KEY: 1});
+        let v0 = serde_json::json!({});
+        let source = Path::new("/offline/volume/Job/Capture/P1000123.RW2");
+        let path = source.to_string_lossy();
+        assert!(
+            recipe_params_known(source, &v1),
+            "online: read from the file"
+        );
+        register(
+            &path,
+            SourceFacts {
+                version: 2,
+                ..Default::default()
+            },
+        );
+        assert!(!recipe_params_known(source, &v1));
+        assert!(recipe_params_known(source, &v0));
+        register(
+            &path,
+            SourceFacts {
+                version: VERSION,
+                ..Default::default()
+            },
+        );
+        assert!(recipe_params_known(source, &v1));
+        forget(&path);
+        // Other makers' facts had their data before.
+        let other = Path::new("/offline/volume/Job/Capture/DSCF0001.RAF");
+        register(&other.to_string_lossy(), SourceFacts::default());
+        assert!(recipe_params_known(other, &v1));
+        forget(&other.to_string_lossy());
     }
 
     #[test]

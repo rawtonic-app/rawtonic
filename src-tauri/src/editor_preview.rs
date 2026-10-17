@@ -207,6 +207,32 @@ fn share_lateral_ca(full: &DynamicImage, reduced: &DynamicImage, adjustments: &s
     }
 }
 
+/// Whether `reduced`, a reduced copy of a `full_dims` image, can be warped
+/// without measuring its automatic lateral CA itself: the shared estimate
+/// for this recipe's version and lens model is still cached, or the copy is
+/// not reduced. A cached preview base whose estimate is missing (Remove CA
+/// switched on, the lens model changed, or the estimate evicted) is rebuilt
+/// from the full-resolution image instead.
+fn lateral_ca_is_shared(
+    reduced: &DynamicImage,
+    full_dims: (u32, u32),
+    adjustments: &serde_json::Value,
+) -> bool {
+    let params = crate::image_processing::get_geometry_params_from_json(adjustments);
+    if !params.auto_ca || reduced.dimensions() == full_dims {
+        return true;
+    }
+    reduced.as_rgb32f().is_none_or(|reduced| {
+        rawtonic_engine::lateral_ca::is_shared(
+            reduced,
+            params.auto_ca_version,
+            params
+                .auto_ca_versus_own
+                .then(|| crate::image_processing::own_tca_model(&params)),
+        )
+    })
+}
+
 /// The preview base from `source`, a copy of the full-resolution image at
 /// `source_scale`: resampled to `scale` (if smaller), warped, cropped and
 /// rotated with the crop scaled accordingly. The returned GPU scale and crop
@@ -1764,7 +1790,14 @@ pub(crate) async fn generate_uncropped_preview(
 
         let pre_geometry_base = {
             let mut cache = state.geometry_cache.lock().unwrap();
-            if let Some(cached) = cache.get(&visual_hash).cloned() {
+            // The visual hash leaves the geometry out, so a hit may lack the
+            // full-resolution lateral CA estimate the export uses.
+            let full_dims = loaded_image.image.dimensions();
+            if let Some(cached) = cache
+                .get(&visual_hash)
+                .filter(|cached| lateral_ca_is_shared(cached, full_dims, &adjustments_clone))
+                .cloned()
+            {
                 cached
             } else {
                 let has_patches = crate::image_loader::has_base_retouch(&adjustments_clone);
@@ -2339,5 +2372,63 @@ mod preview_memory_tests {
                 prepare_interactive_preview(&original, 12, 1.4, interactive, Some(&small)).unwrap();
             assert!(Arc::ptr_eq(&small, &cached));
         }
+    }
+}
+
+#[cfg(test)]
+mod lateral_ca_sharing_tests {
+    use super::*;
+    use rawtonic_engine::lateral_ca;
+    use serde_json::json;
+
+    /// Rings and spokes with red rendered 0.8 ‰ larger than green.
+    fn photo(w: u32, h: u32) -> image::Rgb32FImage {
+        let (cx, cy) = ((w as f32 - 1.0) / 2.0, (h as f32 - 1.0) / 2.0);
+        let value = |x: f32, y: f32| {
+            let (dx, dy) = (x - cx, y - cy);
+            let rings = (((dx * dx + dy * dy).sqrt() / 23.0).sin() > 0.0) as u8 as f32;
+            let spokes = ((dy.atan2(dx) * 40.0).sin() > 0.0) as u8 as f32;
+            0.05 + 0.3 * rings + 0.15 * spokes
+        };
+        image::Rgb32FImage::from_fn(w, h, |x, y| {
+            let (x, y) = (x as f32, y as f32);
+            let red = value(cx + (x - cx) / 1.0008, cy + (y - cy) / 1.0008);
+            image::Rgb([red, value(x, y), value(x, y) * 0.8])
+        })
+    }
+
+    #[test]
+    fn a_cached_preview_base_warps_with_the_exports_estimate() {
+        let full = DynamicImage::ImageRgb32F(photo(3000, 2000));
+        let reduced = downscale_f32_image(&full, 1500, 1500);
+        let full_dims = full.dimensions();
+        let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
+        let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
+        // The geometry cache's hash is the same for both recipes.
+        assert_eq!(
+            calculate_visual_hash("/a.RW2", &off),
+            calculate_visual_hash("/a.RW2", &on)
+        );
+        // Built with Remove CA off, the base has no shared estimate: a hit
+        // with it on must rebuild rather than measure the reduced copy.
+        share_lateral_ca(&full, &reduced, &off);
+        assert!(lateral_ca_is_shared(&reduced, full_dims, &off));
+        assert!(!lateral_ca_is_shared(&reduced, full_dims, &on));
+        share_lateral_ca(&full, &reduced, &on);
+        assert!(lateral_ca_is_shared(&reduced, full_dims, &on));
+        // The preview's warp then uses the export's full-resolution estimate.
+        let (full_rgb, reduced_rgb) = (full.as_rgb32f().unwrap(), reduced.as_rgb32f().unwrap());
+        assert!(lateral_ca::estimate_for(full_rgb, 2, None).is_some());
+        assert_eq!(
+            lateral_ca::estimate_for(reduced_rgb, 2, None),
+            lateral_ca::estimate_for(full_rgb, 2, None)
+        );
+        // From version 3 a change of the lens data's own CA is another estimate.
+        let lens = |vr: f64| json!({"autoCaVersion": 3, "lensDistortionParams": {"tca_vr": vr, "tca_vb": 1.0}});
+        share_lateral_ca(&full, &reduced, &lens(1.0003));
+        assert!(lateral_ca_is_shared(&reduced, full_dims, &lens(1.0003)));
+        assert!(!lateral_ca_is_shared(&reduced, full_dims, &lens(1.0005)));
+        // Not reduced: the warp measures the image the export measures.
+        assert!(lateral_ca_is_shared(&reduced, reduced.dimensions(), &on));
     }
 }

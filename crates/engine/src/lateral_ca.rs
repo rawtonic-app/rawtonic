@@ -394,6 +394,14 @@ pub fn share_estimate(
     remember(image_key(reduced, version, own), value);
 }
 
+/// Whether the warp of `reduced` has an estimate to use without measuring
+/// the reduced copy itself: always for version 1, otherwise once
+/// `share_estimate` gave it one that is still cached (the cache keeps the
+/// latest 16 photos).
+pub fn is_shared(reduced: &Rgb32FImage, version: u64, own: Option<CaModel>) -> bool {
+    version < 2 || cached(image_key(reduced, version, own.filter(|_| version >= 3))).is_some()
+}
+
 /// The shift (pixels, outward positive) at which `plane` along the radius
 /// best matches `reference` in the patch: the position of the plane's
 /// feature relative to green's. Gain and offset are normalised, so colour

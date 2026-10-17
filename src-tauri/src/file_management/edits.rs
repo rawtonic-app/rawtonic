@@ -41,6 +41,9 @@ pub fn resolve_lens_params_in_adjustments(
         // The camera's own data: no lens database entry to resolve.
         if mode == crate::embedded_lens::CAMERA_MODE {
             let recipe = Value::Object(map.clone());
+            if !crate::embedded_lens::recipe_params_known(source, &recipe) {
+                return;
+            }
             match crate::embedded_lens::params_for_recipe(source, &recipe) {
                 Some(params) => {
                     map.insert(
@@ -887,6 +890,34 @@ pub(crate) fn load_metadata_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_offline_save_from_stale_facts_keeps_the_cameras_ca_correction() {
+        use rawtonic_engine::source_facts::{SourceFacts, forget, register};
+        // A Panasonic preview made before the CA data was read (facts
+        // version 2: no camera lens data for a CA-only TZ81).
+        let source = Path::new("/offline/volume/Job/Capture/P1000456.RW2");
+        let path = source.to_string_lossy();
+        register(
+            &path,
+            SourceFacts {
+                version: 2,
+                ..Default::default()
+            },
+        );
+        let params = serde_json::json!({"tca_vr": 1.0004, "tca_vb": 0.9997});
+        let mut adjustments = serde_json::json!({
+            "lensCorrectionMode": "camera", "cameraCaVersion": 1,
+            "lensDistortionParams": params,
+        });
+        resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
+        assert_eq!(adjustments["lensDistortionParams"], params);
+        // Recipes from before the CA data are rewritten from the facts.
+        adjustments["cameraCaVersion"] = serde_json::json!(0);
+        resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
+        assert!(adjustments.get("lensDistortionParams").is_none());
+        forget(&path);
+    }
 
     #[test]
     fn a_batch_save_reports_every_failed_photo() {
