@@ -865,7 +865,13 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         ),
         ("defringePurpleAmount", 10., 20., 0., json!({})),
         ("defringeGreenAmount", 10., 20., 0., json!({})),
-        ("defringePurpleAmount", 10., 20., 0., json!({"defringeVersion": 2})),
+        (
+            "defringePurpleAmount",
+            10.,
+            20.,
+            0.,
+            json!({"defringeVersion": 2}),
+        ),
     ] {
         for value in [lo, hi] {
             let mut profile = dependency.clone();

@@ -3896,7 +3896,10 @@ fn get_global_adjustments_from_json(
         defringe: if is_visible("details") {
             defringe_settings(js_adjustments)
         } else {
-            [[0.0, 0.0, 0.0, defringe_version(js_adjustments) as f32], [0.0; 4]]
+            [
+                [0.0, 0.0, 0.0, defringe_version(js_adjustments) as f32],
+                [0.0; 4],
+            ]
         },
         color_ranges: [[0.0; 4]; 32],
         color_range_count: [0; 4],
@@ -6311,8 +6314,14 @@ mod editing_tool_tests {
         };
         // Recipes without the key keep the first detector.
         assert_eq!(version(json!({"defringePurpleAmount": 10})), 1.0);
-        assert_eq!(version(json!({"defringePurpleAmount": 10, "defringeVersion": 2})), 2.0);
-        assert_eq!(version(json!({"defringeVersion": 7})), DEFRINGE_VERSION as f32);
+        assert_eq!(
+            version(json!({"defringePurpleAmount": 10, "defringeVersion": 2})),
+            2.0
+        );
+        assert_eq!(
+            version(json!({"defringeVersion": 7})),
+            DEFRINGE_VERSION as f32
+        );
         // Layers' Defringe reads it too when the photo's Detail tool is hidden.
         assert_eq!(
             version(json!({"defringeVersion": 2, "sectionVisibility": {"details": false}})),
