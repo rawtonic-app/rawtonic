@@ -82,15 +82,22 @@ export async function loadPresetLibrary() {
 }
 
 /** `photoWidth` × `photoHeight`: the open photo's own size, recorded with
- * the drawn masks a preset takes along (`frameDrawnMasks`). */
-export function usePresets(currentAdjustments: Adjustments, isRaw = false, photoWidth?: number, photoHeight?: number) {
+ * the drawn masks a preset takes along (`frameDrawnMasks`).
+ * `currentAdjustments` is read when a preset is saved: a subscription
+ * re-rendered the panel on every edit commit, ~10 per slider drag. */
+export function usePresets(
+  currentAdjustments: () => Adjustments,
+  isRaw = false,
+  photoWidth?: number,
+  photoHeight?: number,
+) {
   // Drawn masks a preset takes along keep the frame of the photo they were
   // drawn on, so other photos place them on the same part of themselves.
-  const framed = (adjustments: Partial<Adjustments>): Partial<Adjustments> =>
+  const framed = (adjustments: Partial<Adjustments>, current: Adjustments): Partial<Adjustments> =>
     adjustments.masks
       ? {
           ...adjustments,
-          masks: frameDrawnMasks(adjustments.masks, currentAdjustments, photoWidth, photoHeight),
+          masks: frameDrawnMasks(adjustments.masks, current, photoWidth, photoHeight),
         }
       : adjustments;
   const defaults = initialAdjustmentsFor(isRaw);
@@ -150,6 +157,7 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
   ) => {
     const GEOMETRY_KEYS = ADJUSTMENT_GROUPS.geometry.flatMap((group) => group.keys);
     const MASK_KEYS = ADJUSTMENT_GROUPS.masks.flatMap((group) => group.keys);
+    const current = currentAdjustments();
 
     const presetAdjustments: Partial<Adjustments> = {};
 
@@ -157,8 +165,8 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
       if (!includeMasks && MASK_KEYS.includes(key)) continue;
       if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
 
-      if (Object.prototype.hasOwnProperty.call(currentAdjustments, key)) {
-        const currentValue = currentAdjustments[key as keyof Adjustments];
+      if (Object.prototype.hasOwnProperty.call(current, key)) {
+        const currentValue = current[key as keyof Adjustments];
         const defaultValue = defaults[key as keyof Adjustments];
 
         if (presetType === 'tool') {
@@ -172,7 +180,7 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
     }
 
     const newPresetData: Preset = {
-      adjustments: framed(presetAdjustments),
+      adjustments: framed(presetAdjustments, current),
       id: crypto.randomUUID(),
       name,
       includeMasks,
@@ -296,6 +304,7 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
       GEOMETRY_KEYS.some((key) => existingPreset.adjustments?.[key] !== undefined) ??
       false;
     const presetType = existingPreset.presetType || 'style';
+    const current = currentAdjustments();
 
     const presetAdjustments: Partial<Adjustments> = {};
 
@@ -303,8 +312,8 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
       if (!includeMasks && MASK_KEYS.includes(key)) continue;
       if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
 
-      if (Object.prototype.hasOwnProperty.call(currentAdjustments, key)) {
-        const currentValue = currentAdjustments[key as keyof Adjustments];
+      if (Object.prototype.hasOwnProperty.call(current, key)) {
+        const currentValue = current[key as keyof Adjustments];
 
         if (presetType === 'tool') {
           const defaultValue = defaults[key as keyof Adjustments];
@@ -322,7 +331,7 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
       if (item.preset?.id === id) {
         updatedPreset = {
           ...item.preset,
-          adjustments: framed(presetAdjustments),
+          adjustments: framed(presetAdjustments, current),
           includeMasks,
           includeCropTransform,
           presetType,
@@ -336,7 +345,7 @@ export function usePresets(currentAdjustments: Adjustments, isRaw = false, photo
             found = true;
             updatedPreset = {
               ...child,
-              adjustments: framed(presetAdjustments),
+              adjustments: framed(presetAdjustments, current),
               includeMasks,
               includeCropTransform,
               presetType,

@@ -117,9 +117,10 @@ function NewPresetForm({
 /** Lightroom's Presets panel / Capture One's Styles and Presets: presets by
  * folder, a click applies one to the open photo or the selection, "+" saves
  * the current settings, the context menu renames, updates or deletes. */
+const currentAdjustments = () => useEditorStore.getState().adjustments;
+
 export default function StudioPresets() {
   const { t } = useTranslation();
-  const adjustments = useEditorStore((s) => s.adjustments);
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const selectionSize = useLibraryStore((s) => s.multiSelectedPaths.length);
   const { applyAdjustmentsToPaths, setAdjustments } = useEditorActions();
@@ -136,7 +137,7 @@ export default function StudioPresets() {
     movePreset,
     sortAllPresetsAlphabetically,
     isLoading,
-  } = usePresets(adjustments, Boolean(selectedImage?.isRaw), selectedImage?.width, selectedImage?.height);
+  } = usePresets(currentAdjustments, Boolean(selectedImage?.isRaw), selectedImage?.width, selectedImage?.height);
   // Lightroom's and Capture One's preview: hovering a preset shows the open
   // photo with it in the viewer, without applying it.
   const hoverTimer = useRef<number | null>(null);
@@ -185,7 +186,7 @@ export default function StudioPresets() {
     const open = selectedImage?.path;
     setAmount(
       targets.length === 1 && targets[0] === open && open
-        ? { path: open, preset, base: structuredClone(adjustments) as unknown as Record<string, unknown>, value: 100 }
+        ? { path: open, preset, base: structuredClone(currentAdjustments()) as unknown as Record<string, unknown>, value: 100 }
         : null,
     );
     applyAdjustmentsToPaths(structuredClone(preset.adjustments), targets);

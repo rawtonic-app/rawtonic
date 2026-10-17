@@ -8462,6 +8462,7 @@ fn multiscale_color_noise_latency_probe() {
                 transform_hash: 0,
                 chroma: None,
                 chroma_gpu: None,
+                spare: None,
             };
             let mut times = Vec::new();
             for frame in 0..12 {
@@ -8569,6 +8570,7 @@ fn multiscale_color_noise_rebuilds_alike_on_gpu_and_cpu() {
                 transform_hash: 0,
                 chroma: None,
                 chroma_gpu: None,
+                spare: None,
             };
             let profile = json!({"colorNoiseReduction": 60, "colorNoiseVersion": version});
             let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
@@ -8658,6 +8660,7 @@ fn multiscale_color_noise_version_switch_rebuilds_the_prepared_levels() {
             transform_hash: 0,
             chroma: None,
             chroma_gpu: None,
+            spare: None,
         }
     };
     let render = |source: &mut GpuImageCache, version: u64| {

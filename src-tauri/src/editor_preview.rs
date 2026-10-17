@@ -1205,23 +1205,7 @@ pub(crate) fn encode_browser_preview(
     image: &image::RgbaImage,
     quality: u8,
 ) -> Result<Vec<u8>, String> {
-    let mut compressor = turbojpeg::Compressor::new().map_err(|e| e.to_string())?;
-    compressor
-        .set_quality(i32::from(quality.clamp(1, 100)))
-        .map_err(|e| e.to_string())?;
-    // Keep colour detail in the final frame and in small interactive patches.
-    compressor
-        .set_subsamp(turbojpeg::Subsamp::None)
-        .map_err(|e| e.to_string())?;
-    compressor
-        .compress_to_vec(turbojpeg::Image {
-            pixels: image.as_raw().as_slice(),
-            width: image.width() as usize,
-            pitch: image.width() as usize * 4,
-            height: image.height() as usize,
-            format: turbojpeg::PixelFormat::RGBX,
-        })
-        .map_err(|e| e.to_string())
+    crate::preview_jpeg::encode_rgbx_444(image, quality)
 }
 
 pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
@@ -1255,7 +1239,8 @@ pub(crate) fn start_analytics_worker(app_handle: tauri::AppHandle) {
 }
 
 pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
-    std::thread::spawn(move || {
+    // Named for thread lists and profiles.
+    let spawned = std::thread::Builder::new().name("preview-worker".into()).spawn(move || {
         let jobs = &app_handle.state::<AppState>().inner().preview_jobs;
         let mut newest_sequence = None;
         let mut waiting: Option<PreviewJob> = None;
@@ -1340,6 +1325,9 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             }
         }
     });
+    if let Err(e) = spawned {
+        log::error!("Failed to start the preview worker: {}", e);
+    }
 }
 
 /// How long the preview worker waits for the primary's next frame before

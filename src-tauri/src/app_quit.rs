@@ -237,6 +237,7 @@ mod system_terminate {
         }
         let end = || {
             crate::window_state::flush();
+            crate::startup::flush_logs();
             unsafe { libc::_exit(0) };
         };
         std::thread::spawn(move || {
