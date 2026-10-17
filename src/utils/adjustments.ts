@@ -1090,7 +1090,7 @@ export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 export const TONE_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
-export const FRINGE_VERSION = 1;
+export const FRINGE_VERSION = 2;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;

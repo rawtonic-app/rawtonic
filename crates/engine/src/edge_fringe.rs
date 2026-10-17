@@ -30,13 +30,32 @@ use rayon::prelude::*;
 /// The recipe key naming the edge-fringe treatment a recipe was made with.
 pub const VERSION_KEY: &str = "fringeVersion";
 /// The newest treatment: 1 (2026-10-16) removes edge fringes as described
-/// above. Recipes without the key keep rendering without it.
-pub const VERSION: u64 = 1;
+/// above in 5 × 5 windows; 2 (2026-10-17) in 7 × 7 windows. Recipes without
+/// the key keep rendering without it, recipes with 1 as before.
+pub const VERSION: u64 = 2;
 
-/// Window radius at full resolution (5 × 5): wide enough to span a fringe
-/// on both sides of a thin line, narrow enough that a window seldom holds
-/// three different colours (7 × 7 dulled green leaves beside pink flowers).
-const RADIUS: f32 = 2.0;
+/// Window radius at full resolution: version 1's 5 × 5 spans a fringe on
+/// both sides of a thin line. A lateral-CA rest of 1–2 px beside an edge
+/// (bodies whose CA data under-state the CA, GF5) or a fringe on a 2–3 px
+/// line keeps colour in it, which the colour noise reduction then breaks
+/// into blotches along the edge; version 2's 7 × 7 removes those (bright-
+/// edge excess lower on 50 of 55 files, GF5 3.33 → 2.40, GH3 1.63 → 0.90,
+/// TZ96 1.89 → 0.97; neutral-edge chroma lower on 39, higher on 1; notes:
+/// reference/edge-fringes.md "Version 2"). On a noisy photo (luminance
+/// noise from half the edge test's start, about ISO 3200 and up) noise
+/// alone passes the edge test, the 7 × 7 model evens out the fine chroma
+/// noise unevenly and the colour noise reduction leaves blotches (EOS R10
+/// ISO 32000: 14 → 1560 isolated specks per Mpx), so version 2 keeps 5 × 5
+/// there and renders as version 1. `noise` is the full-resolution
+/// luminance noise (`luminance_noise`).
+fn radius_for(version: u64, noise: f32) -> f32 {
+    if version >= 2 && noise < 0.5 * EDGE_LOW {
+        3.0
+    } else {
+        2.0
+    }
+}
+
 /// Regularisation of the colour-on-luminance slope (square-root units²):
 /// windows with little luminance variation keep their mean colour.
 const EPS: f32 = 4e-4;
@@ -82,7 +101,8 @@ pub fn apply_for_recipe<'a>(
     adjustments: &serde_json::Value,
     scale: f32,
 ) -> Cow<'a, DynamicImage> {
-    if version_of(adjustments) == 0 || scale.is_nan() || scale < MIN_SCALE {
+    let version = version_of(adjustments);
+    if version == 0 || scale.is_nan() || scale < MIN_SCALE {
         return image;
     }
     if !matches!(
@@ -91,12 +111,26 @@ pub fn apply_for_recipe<'a>(
     ) {
         return image;
     }
-    let radius = ((RADIUS * scale.min(1.0)).round() as usize).max(1);
     let mut image = image;
     let (w, h) = (image.width() as usize, image.height() as usize);
+    // A reduced preview averages the noise down by about its scale.
+    let noise = |data: &[f32], stride| {
+        if version >= 2 {
+            luminance_noise(data, w, h, stride) / scale.min(1.0)
+        } else {
+            0.0
+        }
+    };
+    let radius = |noise| ((radius_for(version, noise) * scale.min(1.0)).round() as usize).max(1);
     match image.to_mut() {
-        DynamicImage::ImageRgb32F(img) => suppress(img.as_mut(), w, h, 3, radius),
-        DynamicImage::ImageRgba32F(img) => suppress(img.as_mut(), w, h, 4, radius),
+        DynamicImage::ImageRgb32F(img) => {
+            let r = radius(noise(img.as_raw(), 3));
+            suppress(img.as_mut(), w, h, 3, r)
+        }
+        DynamicImage::ImageRgba32F(img) => {
+            let r = radius(noise(img.as_raw(), 4));
+            suppress(img.as_mut(), w, h, 4, r)
+        }
         _ => {}
     }
     image
@@ -132,6 +166,31 @@ fn box_column(rows: &[f32], w: usize, first: usize, r: usize, out: &mut [f32]) {
             *o += v;
         }
     }
+}
+
+/// The photo's luminance noise (standard deviation, square-root units):
+/// from the median absolute difference of horizontal neighbours on every
+/// fourth row and second column, which edges and texture barely move.
+fn luminance_noise(data: &[f32], w: usize, h: usize, stride: usize) -> f32 {
+    if w < 2 {
+        return 0.0;
+    }
+    let lum = |i: usize| {
+        let px = &data[i * stride..i * stride + 3];
+        enc(0.25 * (px[0] + 2.0 * px[1] + px[2]))
+    };
+    let mut diffs: Vec<f32> = (0..h)
+        .step_by(4)
+        .flat_map(|y| (0..w - 1).step_by(2).map(move |x| y * w + x))
+        .map(|i| (lum(i + 1) - lum(i)).abs())
+        .collect();
+    if diffs.is_empty() {
+        return 0.0;
+    }
+    let mid = diffs.len() / 2;
+    let (_, median, _) = diffs.select_nth_unstable_by(mid, f32::total_cmp);
+    // Gaussian noise: median |difference| = 0.6745 · √2 · σ.
+    *median / (0.6745 * std::f32::consts::SQRT_2)
 }
 
 /// Removes edge fringes in place. `data` holds `w × h` pixels of `stride`
@@ -332,17 +391,40 @@ mod tests {
 
     #[test]
     fn fringes_beside_a_dark_line_lose_most_of_their_colour() {
-        for width in [1, 2, 3] {
+        for (version, width) in (1..=VERSION).flat_map(|v| [1, 2, 3].map(|w| (v, w))) {
             let before = branch(width);
-            let after = run(&before, VERSION);
+            let after = run(&before, version);
             for x in [17u32, 18 + width] {
                 let (c0, c1) = (
                     chroma(before.get_pixel(x, 20).0),
                     chroma(after.get_pixel(x, 20).0),
                 );
-                assert!(c1 < 0.4 * c0, "width {width} x {x}: chroma {c0} -> {c1}");
+                assert!(
+                    c1 < 0.4 * c0,
+                    "v{version} width {width} x {x}: chroma {c0} -> {c1}"
+                );
             }
         }
+    }
+
+    #[test]
+    fn version_2_also_clears_two_pixel_wide_fringes() {
+        // A lateral-CA rest of two pixels on each side of a dark line.
+        let before = Rgb32FImage::from_fn(40, 40, |x, _| match x {
+            18..=19 => image::Rgb([0.05, 0.05, 0.05]),
+            16..=17 => image::Rgb([0.55, 0.3, 0.3]),
+            20..=21 => image::Rgb([0.3, 0.55, 0.55]),
+            _ => image::Rgb([0.8, 0.8, 0.8]),
+        });
+        let left = |version| {
+            let after = run(&before, version);
+            [16u32, 17, 20, 21]
+                .iter()
+                .map(|&x| chroma(after.get_pixel(x, 20).0))
+                .sum::<f32>()
+        };
+        let (v1, v2) = (left(1), left(2));
+        assert!(v2 < 0.7 * v1, "fringe chroma v1 {v1} v2 {v2}");
     }
 
     #[test]
@@ -356,13 +438,18 @@ mod tests {
                     image::Rgb([0.7, 0.7, 0.7])
                 }
             });
-            let after = run(&before, VERSION);
-            for x in 18..(18 + width as u32).min(40) {
-                let (c0, c1) = (
-                    chroma(before.get_pixel(x, 20).0),
-                    chroma(after.get_pixel(x, 20).0),
-                );
-                assert!(c1 > 0.95 * c0, "width {width} x {x}: chroma {c0} -> {c1}");
+            for version in 1..=VERSION {
+                let after = run(&before, version);
+                for x in 18..(18 + width as u32).min(40) {
+                    let (c0, c1) = (
+                        chroma(before.get_pixel(x, 20).0),
+                        chroma(after.get_pixel(x, 20).0),
+                    );
+                    assert!(
+                        c1 > 0.95 * c0,
+                        "v{version} width {width} x {x}: chroma {c0} -> {c1}"
+                    );
+                }
             }
         }
     }
@@ -377,6 +464,49 @@ mod tests {
         assert_eq!(run(&noisy, VERSION), noisy);
         let fringed = branch(2);
         assert_eq!(run(&fringed, 0), fringed);
+    }
+
+    /// Flat grey with Gaussian-like noise of standard deviation `sigma` in
+    /// the square-root encoding (sum of uniforms from a fixed generator).
+    fn noisy_grey(sigma: f32) -> Rgb32FImage {
+        let mut state = 0x2545_f491_u32;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            state as f32 / u32::MAX as f32 - 0.5
+        };
+        Rgb32FImage::from_fn(96, 96, |_, _| {
+            let mut channel = || {
+                let n = (0..12).map(|_| uniform()).sum::<f32>();
+                (0.6 + sigma * n).max(0.0).powi(2)
+            };
+            image::Rgb([channel(), channel(), channel()])
+        })
+    }
+
+    #[test]
+    fn the_noise_estimate_follows_the_noise() {
+        for sigma in [0.005f32, 0.02, 0.05] {
+            let img = noisy_grey(sigma);
+            let noise = luminance_noise(img.as_raw(), 96, 96, 3);
+            // Luminance averages four channel samples: about half the noise.
+            let expected = sigma * (6.0f32).sqrt() / 4.0;
+            assert!(
+                (noise / expected - 1.0).abs() < 0.25,
+                "sigma {sigma}: noise {noise} vs {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn version_2_renders_noisy_photos_as_version_1() {
+        let noisy = noisy_grey(0.05);
+        assert_eq!(run(&noisy, 2), run(&noisy, 1));
+        let clean = noisy_grey(0.004);
+        assert!(luminance_noise(clean.as_raw(), 96, 96, 3) < 0.5 * EDGE_LOW);
+        assert_eq!(radius_for(2, 0.004), 3.0);
+        assert_eq!(radius_for(1, 0.004), 2.0);
     }
 
     #[test]
@@ -395,7 +525,8 @@ mod tests {
         // one band.
         let mut whole = img.clone();
         let (w, h) = (img.width() as usize, img.height() as usize);
-        let changes = suppress_band(img.as_raw(), w, h, 3, 2, 0, h);
+        let radius = radius_for(VERSION, luminance_noise(img.as_raw(), w, h, 3)) as usize;
+        let changes = suppress_band(img.as_raw(), w, h, 3, radius, 0, h);
         for (i, red, blue) in changes {
             whole.as_mut()[i * 3] = red;
             whole.as_mut()[i * 3 + 2] = blue;
