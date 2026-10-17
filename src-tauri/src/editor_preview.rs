@@ -1274,6 +1274,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             newest_sequence = job.sequence.or(newest_sequence);
 
             let state = app_handle.state::<AppState>();
+            let warm = draft_warmup_of(&job);
             let responder = job.responder;
             crate::multi_view_prefetch::note_preview(job.is_interactive);
             #[cfg(feature = "performance-profiling")]
@@ -1312,7 +1313,17 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
             if let Err(e) = &result {
                 log::error!("Preview worker error: {}", e);
             }
+            let rendered = result.is_ok();
             let _ = responder.send(result);
+            if let Some(warm) = warm.filter(|_| rendered && !crate::multi_view::live_pending()) {
+                // A request within the pause goes first; the warm-up waits
+                // for the next final frame then.
+                match jobs.take_timeout(DRAFT_WARMUP_IDLE) {
+                    Some(next) => waiting = Some(next),
+                    None => warm_draft_source(&app_handle, warm),
+                }
+                continue;
+            }
             // Edit all selected: one other cell after each frame of the
             // primary, unless its next frame is already asked for.
             if crate::multi_view::live_pending() {
@@ -1327,6 +1338,68 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
     });
     if let Err(e) = spawned {
         log::error!("Failed to start the preview worker: {}", e);
+    }
+}
+
+/// A fit view's final frame, to render once more as a drag draft.
+struct DraftWarmup {
+    adjustments: serde_json::Value,
+    target_resolution: Option<u32>,
+    generation: usize,
+}
+
+/// Quiet time after a final frame before the drag-draft source is prepared.
+const DRAFT_WARMUP_IDLE: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Linux (browser drafts): a drag's first draft built its smaller source —
+/// downscale, upload and chroma pyramid, 64–90 ms on the Linux PC — so the
+/// first move after opening a photograph lagged. Once a fit view's final
+/// frame is done and the worker stays idle, a discarded draft render builds
+/// that source ahead (the final one stays as the GPU cache's spare). Only
+/// while none is prepared, so drags and their release frames do not repeat
+/// it (notes: parity-gaps/G55-performance.md).
+fn draft_warmup_of(job: &PreviewJob) -> Option<DraftWarmup> {
+    (cfg!(target_os = "linux")
+        && !job.is_interactive
+        && job.roi.is_none()
+        && job.mask_overlay.is_none()
+        && !job.crop_edit)
+        .then(|| DraftWarmup {
+            adjustments: job.adjustments.clone(),
+            target_resolution: job.target_resolution,
+            generation: job.generation,
+        })
+}
+
+fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
+    let state = app_handle.state::<AppState>();
+    let prepared = state
+        .cached_preview
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_none_or(|cached| cached.small_image.is_some());
+    if prepared {
+        return;
+    }
+    let started = std::time::Instant::now();
+    let result = process_preview_job(
+        app_handle,
+        state,
+        warm.adjustments,
+        true,
+        warm.target_resolution,
+        None,
+        false,
+        false,
+        None,
+        None,
+        false,
+        warm.generation,
+    );
+    match result {
+        Ok(_) => log::info!("Drag draft source prepared in {:.1?}", started.elapsed()),
+        Err(e) => log::warn!("Preparing the drag draft source failed: {}", e),
     }
 }
 
@@ -2075,6 +2148,34 @@ mod split_view_tests {
 #[cfg(test)]
 mod preview_memory_tests {
     use super::*;
+
+    #[test]
+    fn only_final_fit_frames_warm_the_drag_draft_source() {
+        let job =
+            |is_interactive: bool, roi: Option<(f32, f32, f32, f32)>, crop_edit: bool| PreviewJob {
+                generation: 3,
+                sequence: None,
+                adjustments: serde_json::json!({"exposure": 1.0}),
+                is_interactive,
+                target_resolution: Some(1920),
+                roi,
+                request_analytics: true,
+                compute_waveform: false,
+                active_waveform_channel: None,
+                mask_overlay: None,
+                crop_edit,
+                responder: tokio::sync::oneshot::channel().0,
+            };
+        let warm = draft_warmup_of(&job(false, None, false));
+        assert_eq!(warm.is_some(), cfg!(target_os = "linux"));
+        if let Some(warm) = warm {
+            assert_eq!(warm.adjustments, serde_json::json!({"exposure": 1.0}));
+            assert_eq!((warm.target_resolution, warm.generation), (Some(1920), 3));
+        }
+        assert!(draft_warmup_of(&job(true, None, false)).is_none());
+        assert!(draft_warmup_of(&job(false, Some((0.0, 0.0, 0.5, 0.5)), false)).is_none());
+        assert!(draft_warmup_of(&job(false, None, true)).is_none());
+    }
 
     #[test]
     fn browser_drag_limits_work_without_reducing_explicit_full_quality() {
