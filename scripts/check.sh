@@ -106,6 +106,10 @@ if [ "$DEPS" = 1 ]; then
   fi
 fi
 rm -rf "$LOGDIR"
+# A full pass on a clean tree lets scripts/ship.sh skip re-running the check.
+if [ "$CHANGED" = 0 ] && [ "$QUICK" = 0 ] && [ -z "$(git status --porcelain)" ]; then
+  git rev-parse HEAD >"$(git rev-parse --git-dir)/rawtonic-check-passed"
+fi
 if [ "$CHANGED" = 1 ]; then
   printf '\nChanged-scope checks passed (run the full check before merging).\n'
 else
