@@ -1041,6 +1041,18 @@ fn export(args: ExportArgs) -> Result<()> {
     let mut failed = Vec::new();
     for ((photo, output), recipe) in jobs.iter().zip(recipes) {
         let (source, _) = parse_virtual_path(photo);
+        // PROTOTYPE G20-H: the decode's camera matrix for camera-RGB lateral CA.
+        if std::env::var_os("RAWTONIC_PROTO_CA_APPLY_CAM").is_some()
+            || std::env::var_os("RAWTONIC_PROTO_CA_EST_CAM").is_some()
+        {
+            let color = std::fs::read(&source)
+                .ok()
+                .and_then(|bytes| rawtonic_rawdecode::raw_processing::image_color(&bytes));
+            eprintln!("proto camera_to_srgb {:?}", color.as_ref().map(|c| c.camera_to_srgb));
+            *rawtonic_engine::image_processing::PROTO_CAMERA_TO_BASE
+                .write()
+                .unwrap() = color.map(|c| c.camera_to_srgb);
+        }
         let result = exporter.export(&rawtonic_export::file_export::FileExport {
             source: &source,
             output,

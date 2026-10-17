@@ -1683,6 +1683,58 @@ fn develop_rgb_mosaic(
     } else {
         crate::demosaic::demosaic(&mosaic, roi_w, roi_h, &pattern)
     };
+    // PROTOTYPE G20-H: lateral CA corrected before demosaicing: the red and
+    // blue sites take their channel at the CA-corrected position (from a
+    // first demosaic), then the mosaic is demosaiced again.
+    if bin == 1
+        && let Some(model) = std::env::var("RAWTONIC_PROTO_MOSAIC_CA").ok().and_then(|v| {
+            let v: Vec<f32> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            (v.len() == 4).then(|| [v[0], v[1], v[2], v[3]])
+        })
+    {
+        let frame = raw_image
+            .crop_area
+            .and_then(|crop| crop_within_active(crop, raw_image.active_area))
+            .filter(|c| !c.is_empty() && c.p.x + c.d.w <= roi_w && c.p.y + c.d.h <= roi_h)
+            .unwrap_or_else(|| {
+                rawler::imgop::Rect::new(
+                    rawler::imgop::Point::new(0, 0),
+                    rawler::imgop::Dim2::new(roi_w, roi_h),
+                )
+            });
+        let cx = frame.p.x as f32 + frame.d.w as f32 / 2.0;
+        let cy = frame.p.y as f32 + frame.d.h as f32 / 2.0;
+        let inv_hd2 = 4.0 / ((frame.d.w * frame.d.w + frame.d.h * frame.d.h) as f32);
+        let plane = |x: f32, y: f32, c: usize| -> f32 {
+            let x = x.clamp(0.0, roi_w as f32 - 1.001);
+            let y = y.clamp(0.0, roi_h as f32 - 1.001);
+            let (xi, yi) = (x.floor() as usize, y.floor() as usize);
+            let (fx, fy) = (x - xi as f32, y - yi as f32);
+            let at = |x: usize, y: usize| rgb[y * roi_w + x][c];
+            (at(xi, yi) * (1.0 - fx) + at(xi + 1, yi) * fx) * (1.0 - fy)
+                + (at(xi, yi + 1) * (1.0 - fx) + at(xi + 1, yi + 1) * fx) * fy
+        };
+        let mut shifted = mosaic.clone();
+        shifted
+            .par_chunks_mut(roi_w)
+            .enumerate()
+            .for_each(|(r, line)| {
+                for (c, dst) in line.iter_mut().enumerate() {
+                    let color = pattern.color(r as isize, c as isize);
+                    let (v, v2) = match color {
+                        0 => (model[0], model[1]),
+                        2 => (model[2], model[3]),
+                        _ => continue,
+                    };
+                    let (dx, dy) = (c as f32 - cx, r as f32 - cy);
+                    let k = v + v2 * (dx * dx + dy * dy) * inv_hd2;
+                    *dst = plane(cx + dx * k, cy + dy * k, color);
+                }
+            });
+        log::info!("PROTO mosaic CA {model:?} centre {cx} {cy}");
+        drop(rgb);
+        rgb = crate::demosaic::demosaic(&shifted, roi_w, roi_h, &pattern);
+    }
     let (out_w, out_h) = (roi_w / bin, roi_h / bin);
     drop(mosaic);
     // Tile buffers were freed on the worker threads, whose allocator heaps

@@ -741,6 +741,49 @@ struct TcaContext<'a> {
     /// frame's end, `src_width` the columns held (the row stride).
     row0: f32,
     col0: f32,
+    /// PROTOTYPE G20-H: (base → camera RGB, camera RGB → base); the shift
+    /// is applied to camera channels.
+    cam: Option<&'a ([[f32; 3]; 3], [[f32; 3]; 3])>,
+}
+
+/// PROTOTYPE G20-H: white-balanced camera RGB → base image (linear sRGB)
+/// of the photo being rendered; with `RAWTONIC_PROTO_CA_APPLY_CAM` /
+/// `RAWTONIC_PROTO_CA_EST_CAM` lateral CA is corrected / estimated in
+/// camera RGB.
+pub static PROTO_CAMERA_TO_BASE: std::sync::RwLock<Option<[[f32; 3]; 3]>> =
+    std::sync::RwLock::new(None);
+
+fn proto_cam() -> Option<([[f32; 3]; 3], [[f32; 3]; 3])> {
+    let m = (*PROTO_CAMERA_TO_BASE.read().ok()?)?;
+    let n = NaMatrix3::new(
+        m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2],
+    );
+    let i = n.try_inverse()?;
+    let inv = std::array::from_fn(|r| std::array::from_fn(|c| i[(r, c)]));
+    Some((inv, m))
+}
+
+fn proto_env(name: &str) -> bool {
+    std::env::var_os(name).is_some()
+}
+
+/// PROTOTYPE G20-H: the image in camera RGB for the CA estimate.
+fn proto_est_image(image: &Rgb32FImage) -> Option<Rgb32FImage> {
+    let (to_cam, to_base) = proto_cam()?;
+    if !proto_env("RAWTONIC_PROTO_CA_EST_CAM") {
+        return None;
+    }
+    if proto_env("RAWTONIC_PROTO_CA_COST_BASE") {
+        *crate::lateral_ca::PROTO_COST_TO_BASE.write().unwrap() = Some(to_base);
+    }
+    let mut cam = image.clone();
+    for p in cam.pixels_mut() {
+        let v = p.0;
+        p.0 = std::array::from_fn(|r| {
+            to_cam[r][0] * v[0] + to_cam[r][1] * v[1] + to_cam[r][2] * v[2]
+        });
+    }
+    Some(cam)
 }
 
 #[inline(always)]
@@ -825,6 +868,20 @@ fn interpolate_pixel_with_tca(
         }
     };
 
+    if let Some((to_cam, to_base)) = tca.cam {
+        let at = |x: f32, y: f32, row: &[f32; 3]| -> f32 {
+            (0..3).map(|c| row[c] * sample_channel(x, y, c)).sum()
+        };
+        let cam = [
+            at(rx, ry, &to_cam[0]),
+            at(gx, gy, &to_cam[1]),
+            at(bx, by, &to_cam[2]),
+        ];
+        for (c, row) in to_base.iter().enumerate() {
+            pixel_out[c] = row[0] * cam[0] + row[1] * cam[1] + row[2] * cam[2];
+        }
+        return;
+    }
     pixel_out[0] = sample_channel(rx, ry, 0);
     pixel_out[1] = sample_channel(gx, gy, 1);
     pixel_out[2] = sample_channel(bx, by, 2);
@@ -1022,6 +1079,7 @@ struct WarpKernel {
     vr2: f32,
     vb2: f32,
     has_tca: bool,
+    cam: Option<([[f32; 3]; 3], [[f32; 3]; 3])>,
     vk1: f64,
     vk2: f64,
     vk3: f64,
@@ -1071,8 +1129,9 @@ impl WarpKernel {
             // Version 3 against the lens data's own TCA: the photo's own
             // measurement only where it leaves clearly fewer fringes.
             src_img.and_then(|image| {
+                let cam = proto_est_image(image);
                 crate::lateral_ca::estimate_for(
-                    image,
+                    cam.as_ref().unwrap_or(image),
                     params.auto_ca_version,
                     Some(own_tca_model(params)),
                 )
@@ -1083,7 +1142,11 @@ impl WarpKernel {
             Some(
                 src_img
                     .and_then(|image| {
-                        crate::lateral_ca::estimate_cached(image, params.auto_ca_version)
+                        let cam = proto_est_image(image);
+                        crate::lateral_ca::estimate_cached(
+                            cam.as_ref().unwrap_or(image),
+                            params.auto_ca_version,
+                        )
                     })
                     .unwrap_or(crate::lateral_ca::CaModel::NONE),
             )
@@ -1097,7 +1160,11 @@ impl WarpKernel {
                 (vr, vb, vr2, vb2, params.lens_tca_enabled)
             }
         };
-        let has_tca = tca_on
+        if std::env::var_os("RAWTONIC_CA_PROFILE").is_some() {
+            println!("  warp tca {vr},{vr2},{vb},{vb2} on {tca_on} size {width}x{height}");
+        }
+        let has_tca = !proto_env("RAWTONIC_PROTO_NO_WARP_CA")
+            && tca_on
             && ((vr - 1.0).abs() > 1e-5
                 || (vb - 1.0).abs() > 1e-5
                 || vr2.abs() > 1e-6
@@ -1132,6 +1199,7 @@ impl WarpKernel {
             vr2,
             vb2,
             has_tca,
+            cam: proto_cam().filter(|_| proto_env("RAWTONIC_PROTO_CA_APPLY_CAM")),
             vk1,
             vk2,
             vk3,
@@ -1303,6 +1371,7 @@ impl WarpKernel {
             vb2: self.vb2,
             row0: row0 as f32,
             col0,
+            cam: self.cam.as_ref(),
         };
         for pixel in row.as_chunks_mut::<3>().0.iter_mut() {
             if let Some((src_x, src_y)) = self.source_point(&current_vec) {

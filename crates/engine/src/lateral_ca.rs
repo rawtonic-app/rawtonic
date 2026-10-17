@@ -768,15 +768,38 @@ fn fringe_cost(image: &Rgb32FImage, centres: &[(f32, f32)], model: CaModel) -> (
                 (value(c, xi, yi) * (1.0 - fx) + value(c, xi + 1, yi) * fx) * (1.0 - fy)
                     + (value(c, xi, yi + 1) * (1.0 - fx) + value(c, xi + 1, yi + 1) * fx) * fy
             };
+            let lin = |c: usize, x: f32, y: f32| -> f32 {
+                let x = x.clamp(0.0, w as f32 - 1.001);
+                let y = y.clamp(0.0, h as f32 - 1.001);
+                let (xi, yi) = (x.floor() as usize, y.floor() as usize);
+                let (fx, fy) = (x - xi as f32, y - yi as f32);
+                let at = |x: usize, y: usize| raw[(y * w as usize + x) * 3 + c];
+                (at(xi, yi) * (1.0 - fx) + at(xi + 1, yi) * fx) * (1.0 - fy)
+                    + (at(xi, yi + 1) * (1.0 - fx) + at(xi + 1, yi + 1) * fx) * fy
+            };
+            let to_base = proto_cost_matrix();
             let n = side * side;
             let (mut y_, mut u, mut v) = (vec![0.0f32; n], vec![0.0f32; n], vec![0.0f32; n]);
             for j in 0..side {
                 for i in 0..side {
                     let (x, y) = (px - CHECK_HALF + i as i64, py - CHECK_HALF + j as i64);
-                    let g = value(1, x, y);
                     let (rx, ry) = modelled(model.red, x as f32, y as f32, cx, cy, inv_hd2);
                     let (bx, by) = modelled(model.blue, x as f32, y as f32, cx, cy, inv_hd2);
-                    let (r, b) = (sample(0, rx, ry), sample(2, bx, by));
+                    let (r, g, b) = if let Some(m) = to_base {
+                        let cam = [
+                            lin(0, rx, ry),
+                            lin(1, x as f32, y as f32),
+                            lin(2, bx, by),
+                        ];
+                        let o: [f32; 3] = std::array::from_fn(|k| {
+                            (m[k][0] * cam[0] + m[k][1] * cam[1] + m[k][2] * cam[2])
+                                .max(0.0)
+                                .sqrt()
+                        });
+                        (o[0], o[1], o[2])
+                    } else {
+                        (sample(0, rx, ry), value(1, x, y), sample(2, bx, by))
+                    };
                     let k = j * side + i;
                     y_[k] = ((r * r + 2.0 * g * g + b * b) / 4.0).sqrt();
                     u[k] = r - g;
@@ -819,6 +842,15 @@ fn fringe_cost(image: &Rgb32FImage, centres: &[(f32, f32)], model: CaModel) -> (
             (sum, count)
         })
         .reduce(|| (0.0, 0), |a, b| (a.0 + b.0, a.1 + b.1))
+}
+
+/// PROTOTYPE G20-H: camera RGB → base matrix; when set, `fringe_cost`
+/// judges a camera-RGB image's candidates in the base (sRGB) space.
+pub static PROTO_COST_TO_BASE: std::sync::RwLock<Option<[[f32; 3]; 3]>> =
+    std::sync::RwLock::new(None);
+
+fn proto_cost_matrix() -> Option<[[f32; 3]; 3]> {
+    *PROTO_COST_TO_BASE.read().ok()?
 }
 
 /// Luminance standard deviation (square-root units) of a 5 × 5 window from
