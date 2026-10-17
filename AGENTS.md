@@ -44,7 +44,7 @@ npx vitest run src/hooks/useThumbnails.test.ts   # single frontend test file (-t
 npm run build
 npm run i18n:check
 scripts/check.sh --brief       # every gate before a merge into main; CI repeats it on Linux after the merge. --brief: one line per step, failures show their last 40 lines
-scripts/ship.sh [--title T] [--body-file F] [--no-merge]   # from a clean branch worktree: full check (skipped if it passed on this HEAD) → push → PR → merge --no-ff into main → delete branch + worktree
+scripts/ship.sh [--title T] [--body-file F] [--no-merge] [--keep-worktree] [--dry-run]   # from a clean branch worktree: full check (skipped if it passed on this HEAD) → push → PR → merge --no-ff into main → delete remote branch; removes worktree + local branch only when called from outside it (never from inside it or an Orca worktree — agents: send your final report, then run the removal command from the last line). Last line: `ship: merged PR #N as <sha>; …` / `ship: FAILED …`
 scripts/check.sh --brief --changed   # while working: only the gates/Rust packages (and dependents) the change touches; never a substitute for the full run. --quick skips Rust tests
 
 cargo fmt --all --check

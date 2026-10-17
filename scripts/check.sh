@@ -76,6 +76,7 @@ rust_tests() {
     return
   fi
   # Changed scope: those packages' tests; doc tests are left to the full check.
+  # shellcheck disable=SC2086  # one package per word
   filter=$(printf '%s\n' $RUST_PKGS | sed 's/.*/package(&)/' | paste -sd '|' -)
   cargo nextest run --workspace --locked --no-fail-fast --no-tests=pass -E "$filter"
 }
@@ -93,6 +94,10 @@ if [ "$RUST" = 1 ]; then
   run "rust: clippy" cargo clippy --workspace --all-targets --locked -- -D warnings
   run "rust: layering" scripts/check_layering.sh
   if [ "$QUICK" = 0 ]; then run "rust: tests" rust_tests; fi
+fi
+run "scripts: ship.sh test" sh scripts/ship_test.sh
+if command -v shellcheck >/dev/null 2>&1; then
+  run "scripts: shellcheck" shellcheck scripts/*.sh scripts/git-hooks/pre-push
 fi
 if [ "$DEPS" = 1 ]; then
   if command -v cargo-deny >/dev/null 2>&1; then
