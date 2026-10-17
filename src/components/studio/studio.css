@@ -331,6 +331,12 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* Sized by its column, never by its content: as a layout boundary, a
+     change inside (a slider move, a commit) is laid out here instead of
+     from the document root through every flex container (WebKitGTK spent
+     ~17 % of its main thread on that during drags; notes: parity-gaps/
+     G55-performance.md). */
+  contain: strict;
 }
 .studio-histogram {
   padding: 10px 13px 7px;
@@ -440,6 +446,11 @@
   scrollbar-color: #55575b transparent;
   min-height: 0;
   flex: 1;
+}
+.studio-tools-scroll {
+  /* Layout boundary like .studio-develop: tool changes leave the histogram
+     and tabs alone. */
+  contain: strict;
 }
 .studio-navigation {
   height: 100%;
@@ -607,6 +618,8 @@
   background: #202123;
 }
 .adjustment-track {
+  /* Sized by its grid cell: a moving thumb is laid out within the track. */
+  contain: layout size;
   width: 100%;
   min-width: 0;
   height: 20px;

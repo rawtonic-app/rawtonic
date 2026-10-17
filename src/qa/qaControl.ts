@@ -10,6 +10,7 @@ import {
   queueDialogAnswers,
 } from "./dialogAnswers";
 import { useEditorStore } from "../store/useEditorStore";
+import { onDraftShown } from "../utils/browserDraftPatch";
 import { useLibraryStore } from "../store/useLibraryStore";
 import { useProcessStore } from "../store/useProcessStore";
 import { useSettingsStore } from "../store/useSettingsStore";
@@ -345,6 +346,20 @@ async function rangeSequence(params: Params) {
   const rect = target.getBoundingClientRect();
   const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
   const original = target.value;
+  // `measure`: animation frames and browser drafts shown between press and
+  // release, for builds without performance profiling (production React, no
+  // [PERF] records) — counts in the webview, not presented display frames.
+  const frames: number[] = [];
+  const drafts: number[] = [];
+  let measuring = params.measure === true;
+  const frame = () => {
+    if (!measuring) return;
+    frames.push(performance.now());
+    requestAnimationFrame(frame);
+  };
+  const stopDrafts = measuring ? onDraftShown(() => drafts.push(performance.now())) : () => {};
+  if (measuring) requestAnimationFrame(frame);
+  const pressed = performance.now();
   target.focus();
   firePointer(target, 'down', x, y, 1, modifiers(params));
   // Let the range's dragging state reach the renderer before its first input.
@@ -368,7 +383,22 @@ async function rangeSequence(params: Params) {
     target.dispatchEvent(new Event('input', { bubbles: true }));
     firePointer(target, 'up', x, y, 0, modifiers(params));
   }
-  return { start_epoch_ms: startEpoch, end_epoch_ms: Date.now(), input_times_ms: inputTimes, restored: target.value === original };
+  const released = performance.now();
+  const result = { start_epoch_ms: startEpoch, end_epoch_ms: Date.now(), input_times_ms: inputTimes, restored: target.value === original };
+  if (!measuring) return result;
+  measuring = false;
+  stopDrafts();
+  // As pointer sessions count them: each frame in the drag with its gap to the one before.
+  const intervals = frames.slice(1).map((t, i) => [t, t - frames[i]])
+    .filter(([t]) => t >= pressed && t <= released).map(([, gap]) => gap).sort((a, b) => a - b);
+  const at = (q: number) => intervals[Math.min(intervals.length - 1, Math.floor(intervals.length * q))] ?? 0;
+  return {
+    ...result,
+    frames: intervals.length,
+    frame_p50_ms: at(0.5),
+    frame_p95_ms: at(0.95),
+    drafts_shown: drafts.filter((t) => t >= pressed && t <= released).length,
+  };
 }
 
 /** Value at `store.path.to.value` ("editor.selectedImage.path"). */

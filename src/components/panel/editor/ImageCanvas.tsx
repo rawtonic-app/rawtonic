@@ -3092,6 +3092,11 @@ const ImageCanvas = memo(
                   width: `${imageRenderSize.width}px`,
                   height: `${imageRenderSize.height}px`,
                   overflow: 'hidden',
+                  // Its own compositing layer: a new draft repaints only
+                  // itself, not the viewer's layer under it (WebKitGTK
+                  // painted ~20 % of its main thread during drags; notes:
+                  // parity-gaps/G55-performance.md).
+                  willChange: 'transform',
                 }}
               />
 
