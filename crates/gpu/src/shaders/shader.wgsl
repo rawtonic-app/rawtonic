@@ -134,7 +134,9 @@ struct GlobalAdjustments {
     // The guide of that expansion (color_noise.rs `Tuning::finest_guide_code`):
     // 0 the pixel's chroma, 1 3 x 3 mean, 2 3 x 3 median, 3 switch (median
     // where the pixel is farther than sqrt(k2) noise from it); + 4: the detail
-    // kept only by the finest edge guard is the guide's.
+    // kept only by the finest edge guard is the guide's, + 8 edge gate, + 16
+    // all detail the guide's; + 32: the detail against the aware expansion
+    // of level 1 (version 6, color_noise.rs `Tuning::finest_detail_aware`).
     color_noise_guide: f32,
     color_noise_guide_k2: f32,
     color_grading_shadows: ColorGradeSettings,
@@ -3094,8 +3096,9 @@ fn ms_expand(p: vec2<i32>) -> vec4<f32> {
 // level-1 sample's weight also scaled by exp(-d^2 / aware2), d the distance
 // of its rebuilt chroma from `guide` (the pixel's chroma), so the
 // reconstruction keeps to the pixel's side of a colour edge (color_noise.rs
-// `expand_aware`).
-fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
+// `expand_aware`). With `both_aware` (version 6) level 1 takes the same
+// weights.
+fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32, both_aware: bool) -> vec4<f32> {
     let n = vec2<i32>(adjustments.global.color_noise_window.zw) - vec2<i32>(1);
     let origin = vec2<i32>(adjustments.global.color_noise_window.xy);
     let last = vec2<i32>(textureDimensions(chroma_pyramid_texture)) - vec2<i32>(1);
@@ -3149,6 +3152,9 @@ fn ms_expand_aware(p: vec2<i32>, guide: vec2<f32>, aware2: f32) -> vec4<f32> {
             out += w * t;
             sw += w;
         }
+    }
+    if (both_aware) {
+        return out / sw;
     }
     // Level 1 (xy) plainly, its reconstruction (zw) aware.
     return vec4<f32>(plain.xy, out.zw / sw);
@@ -3254,9 +3260,9 @@ fn apply_color_noise_multiscale(
     let p = nr_encode(center_linear);
     let lp = get_luma(p);
     let c0 = vec2<f32>(p.r - p.g, p.b - p.g);
-    // Only the reconstruction expands aware: the detail stays the pixel
-    // against the plain expansion of level 1 (crisper colour edges than
-    // expanding both alike, measured on real files).
+    // Versions 2-5 expand only the reconstruction aware: the detail stays
+    // the pixel against the plain expansion of level 1, which overshoots
+    // next to colour edges; version 6 expands level 1 alike.
     let aware2 = adjustments.global.color_noise_aware2;
     // Version 5 decides the side by a guide from the 3 x 3 chroma
     // (color_noise.rs `Tuning::guide`).
@@ -3273,7 +3279,7 @@ fn apply_color_noise_multiscale(
                 guide = guide * (1.0 - k) + c0 * k;
             }
         }
-        center_e = ms_expand_aware(coords_i, guide, aware2);
+        center_e = ms_expand_aware(coords_i, guide, aware2, (guide_code & 32u) != 0u);
     } else {
         center_e = ms_expand(coords_i);
     }

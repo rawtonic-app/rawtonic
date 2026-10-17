@@ -80,7 +80,11 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 5 (2026-10-17) decides at full resolution which side
+/// The newest version: 6 (2026-10-17) measures the finest detail against
+/// the same edge-aware expansion of level 1 the reconstruction takes, so a
+/// colour edge no longer gets a halo and dark sides of colour edges no
+/// longer blotchy rims ([`Tuning::finest_detail_aware`]); 5 (2026-10-17)
+/// decides at full resolution which side
 /// of a colour edge a pixel's aware expansion takes by its 3 × 3 median when
 /// its own chroma is an outlier (fewer isolated colour specks;
 /// [`Tuning::guide`]); 4 (2026-10-17) builds the pyramid's levels from
@@ -88,7 +92,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 5;
+pub const VERSION: u64 = 6;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -294,6 +298,22 @@ pub struct Tuning {
     /// pixels far from their 3 × 3 median (isolated off-colour pixels)
     /// change.
     pub guide_detail: bool,
+    /// The full-resolution detail is measured against the same edge-aware
+    /// expansion of level 1 (same weights) as the reconstruction, as the
+    /// coarse levels' detail already is. Against the plain expansion
+    /// (versions 2–5) the pixel next to a colour edge kept the other side's
+    /// share of level 1 as "detail": added to an aware reconstruction that
+    /// took its own side, it overshot past its own colour (a halo of the
+    /// complementary colour, strongest as saturated rims on the dark side of
+    /// an edge in the square-root encoding) and a pixel whose noisy chroma
+    /// picked the wrong side snapped to that side's colour (blotches along
+    /// edges, coloured thin dark lines). Measured on the edge-fringe and
+    /// lateral-CA sets (bright-edge excess chroma lower on 36 of 37 files;
+    /// Lumix GX850 13.6 → 9.7 %) and on 55 high-ISO files (fewer isolated
+    /// specks, closer to RawNIND ground truth); colour transitions are
+    /// 0.1–0.45 px wider than version 5's, which snapped them to a side
+    /// (notes: reference/color-noise-reference.md, round 11). Version 6.
+    pub finest_detail_aware: bool,
 }
 
 impl Default for Tuning {
@@ -328,10 +348,17 @@ impl Tuning {
         if version == 4 {
             return v4;
         }
-        Self {
+        let v5 = Self {
             guide: Guide::Switch(1.0),
             guide_finest: true,
             ..v4
+        };
+        if version == 5 {
+            return v5;
+        }
+        Self {
+            finest_detail_aware: true,
+            ..v5
         }
     }
 
@@ -368,19 +395,22 @@ impl Tuning {
             guide_edge: false,
             guide_gate: false,
             guide_detail: false,
+            finest_detail_aware: false,
         }
     }
 
     /// The renderer's code of the finest guide (`color_noise_guide`): 0 its
     /// own chroma, 1 mean, 2 median, 3 switch, + 4 when the edge-kept detail
-    /// is the guide's, + 8 with the edge gate; and the switch's squared
-    /// multiple.
+    /// is the guide's, + 8 with the edge gate, + 16 when all detail is the
+    /// guide's; + 32 with the detail against the aware expansion
+    /// ([`Tuning::finest_detail_aware`]); and the switch's squared multiple.
     pub fn finest_guide_code(&self) -> (f32, f32) {
+        let aware = if self.finest_detail_aware { 32.0 } else { 0.0 };
         if !self.guide_finest {
-            return (0.0, 0.0);
+            return (aware, 0.0);
         }
         let (code, k2) = match self.guide {
-            Guide::Own => return (0.0, 0.0),
+            Guide::Own => return (aware, 0.0),
             Guide::Mean => (1.0, 0.0),
             Guide::Median => (2.0, 0.0),
             Guide::Switch(k) => (3.0, k * k),
@@ -388,7 +418,8 @@ impl Tuning {
         (
             code + if self.guide_edge { 4.0 } else { 0.0 }
                 + if self.guide_gate { 8.0 } else { 0.0 }
-                + if self.guide_detail { 16.0 } else { 0.0 },
+                + if self.guide_detail { 16.0 } else { 0.0 }
+                + aware,
             k2,
         )
     }
@@ -2076,8 +2107,8 @@ pub fn apply_with(
     let t2 = thresholds[0] * thresholds[0];
     let edge2 = tuning.finest_edge2(thresholds, &noise);
     // The finest guide as the renderer takes it (`color_noise_guide`).
-    let (guide_code, k2) = tuning.finest_guide_code();
-    let guide = (guide_code > 0.0 && aware2 > 0.0).then(|| {
+    let (_, k2) = tuning.finest_guide_code();
+    let guide = (tuning.guide_finest && tuning.guide != Guide::Own && aware2 > 0.0).then(|| {
         let mode = match tuning.guide {
             Guide::Switch(_) => Guide::Switch(k2.sqrt()),
             other => other,
@@ -2124,7 +2155,14 @@ pub fn apply_with(
                 } else {
                     expand_at(&rebuilt, x, y)
                 };
-                let level1_at = expand_at(level1, x, y);
+                // Version 6: the detail against the same weighted expansion
+                // of level 1 as the reconstruction.
+                let level1_at = if aware2 > 0.0 && tuning.finest_detail_aware {
+                    let c = scratch.coarse[x];
+                    [c[0], c[1], 0.0]
+                } else {
+                    expand_at(level1, x, y)
+                };
                 if guide_detail && let Some(guide) = &guide {
                     let g = if edge2 > 0.0 {
                         gain(size2[i], t2, steepness).max(gain(
@@ -2432,6 +2470,7 @@ mod tests {
         assert!(multiscale(&json!({"colorNoiseVersion": 3}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 4}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 5}), false));
+        assert!(multiscale(&json!({"colorNoiseVersion": 6}), false));
         assert!(!multiscale(&json!({"colorNoiseVersion": 1}), true));
         // Saved colour noise reduction without a version: as before.
         assert!(!multiscale(&json!({"colorNoiseReduction": 25}), true));
@@ -2441,11 +2480,12 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 5);
+        assert_eq!(VERSION, 6);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
         assert_eq!(version(&json!({"colorNoiseVersion": 4}), true), 4);
+        assert_eq!(version(&json!({"colorNoiseVersion": 5}), true), 5);
         assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
@@ -2504,7 +2544,6 @@ mod tests {
         // Version 4 recipes render exactly as before version 5: each
         // sample's own chroma as the full-resolution aware guide.
         let (v4, v5) = (Tuning::for_version(4), Tuning::for_version(5));
-        assert_eq!(v5, Tuning::default());
         assert_eq!(v4.guide, Guide::Own);
         assert!(!v4.guide_finest);
         assert_eq!(v4.finest_guide_code(), (0.0, 0.0));
@@ -2543,6 +2582,84 @@ mod tests {
         })
     }
 
+    #[test]
+    fn version_5_keeps_its_constants() {
+        // Version 5 recipes render exactly as before version 6: the finest
+        // detail against the plain expansion of level 1.
+        let (v5, v6) = (Tuning::for_version(5), Tuning::for_version(6));
+        assert_eq!(v6, Tuning::default());
+        assert!(!v5.finest_detail_aware && v6.finest_detail_aware);
+        assert_eq!(v5.finest_guide_code(), (3.0, 1.0));
+        assert_eq!(v6.finest_guide_code(), (35.0, 1.0));
+        assert_eq!(
+            Tuning {
+                finest_detail_aware: v5.finest_detail_aware,
+                ..v6
+            },
+            v5
+        );
+        for version in 2..=4 {
+            assert!(!Tuning::for_version(version).finest_detail_aware);
+        }
+    }
+
+    #[test]
+    fn version_6_keeps_colour_edges_free_of_halos() {
+        // A dark grey area beside a yellow one under colour noise (notes:
+        // reference/color-noise-reference.md, round 11). Measured against
+        // the plain expansion of level 1, the finest detail of a dark pixel
+        // next to the edge held part of the yellow side; added to the aware
+        // reconstruction of its own side, it pushed the pixel past the dark
+        // grey, away from yellow (a blue rim). Mean chroma per column, in
+        // the direction from yellow to dark, beyond the dark plateau.
+        let (w, h) = (96u32, 256u32);
+        let edge = 49u32;
+        let dark = [0.02f32, 0.02, 0.02];
+        let yellow = [0.55f32, 0.45, 0.04];
+        let mut rng = Rng(5);
+        let image = Rgb32FImage::from_fn(w, h, |x, _| {
+            let base = if x < edge { dark } else { yellow };
+            image::Rgb(std::array::from_fn(|c| {
+                (base[c].sqrt() + 0.02 * rng.gaussian()).max(0.0).powi(2)
+            }))
+        });
+        let settings = Settings {
+            amount: 0.25,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let (cd, cy) = (chroma(dark), chroma(yellow));
+        let away = {
+            let d = [cd[0] - cy[0], cd[1] - cy[1]];
+            let n = d[0].hypot(d[1]);
+            [d[0] / n, d[1] / n]
+        };
+        let overshoot = |tuning: &Tuning| {
+            let out = apply_to_linear(&image, settings, tuning);
+            let column = |x: u32| {
+                let mut m = [0.0f32; 2];
+                for y in 0..h {
+                    let c = chroma(out.get_pixel(x, y).0);
+                    m[0] += c[0] / h as f32;
+                    m[1] += c[1] / h as f32;
+                }
+                m
+            };
+            let plateau = column(edge - 12);
+            (edge - 3..edge)
+                .map(|x| {
+                    let c = column(x);
+                    (c[0] - plateau[0]) * away[0] + (c[1] - plateau[1]) * away[1]
+                })
+                .fold(f32::MIN, f32::max)
+        };
+        let (v5, v6) = (
+            overshoot(&Tuning::for_version(5)),
+            overshoot(&Tuning::for_version(6)),
+        );
+        println!("overshoot past the dark side: version 5 {v5:.4}, version 6 {v6:.4}");
+        assert!(v5 > 0.05 && v6 < 0.1 * v5, "{v5} → {v6}");
+    }
     #[test]
     fn dark_noisy_colours_keep_their_mean_with_version_4() {
         // A black cat's bluish fur: red is weak against the noise. Versions
