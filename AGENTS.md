@@ -21,6 +21,7 @@ Several agents may work on this repository, one after another or in parallel. Sh
 - **One agent per worktree.** Each piece of work gets its own branch and worktree (e.g. `../rawtonic-wt/<name>`); agents meet through commits and merges, not half-finished files.
 - **Before stopping or handing over:** commit (a `wip:` commit is fine on a branch) and push the branch, and write down state, next step and open problems where `CLAUDE.local.md` says, so the next agent can continue without this chat.
 - **Knowledge:** lessons, pitfalls, measurement methods and user decisions go into the shared notes named in `CLAUDE.local.md` (or this file, if they are public and general), not into an agent-specific memory.
+- **Second-model review.** A different model reviews every change before it is merged: `scripts/ship.sh` runs `scripts/review.sh` (Codex, read-only) and merges only on `approve` for that exact HEAD; the verdict goes into the PR. Fix blocking findings and ship again; `--no-review REASON` only when the reviewer is unavailable or the change is docs-only, with the reason in the PR. Before a large work package (more than about a day, or several crates), write the plan and get `scripts/review.sh --plan FILE` to approve it before building. The review checks above all: special cases for one camera, file or test image instead of general solutions; parameters fitted to the evaluation set; changes spread over unrelated files or crates; version keys or compatibility layers that guard nothing; claims without measurements (criteria: `scripts/review/prompt.md`).
 - **Enforcement** belongs in git hooks and `scripts/check.sh`, which every agent runs; agent-specific hooks or settings are only conveniences.
 
 ## Legal guardrails (check before implementing, so work is not redone)
@@ -44,7 +45,8 @@ npx vitest run src/hooks/useThumbnails.test.ts   # single frontend test file (-t
 npm run build
 npm run i18n:check
 scripts/check.sh --brief       # every gate before a merge into main; CI repeats it on Linux after the merge. --brief: one line per step, failures show their last 40 lines
-scripts/ship.sh [--title T] [--body-file F] [--no-merge] [--keep-worktree] [--dry-run]   # from a clean branch worktree: full check (skipped if it passed on this HEAD) → push → PR → merge --no-ff into main → delete remote branch; removes worktree + local branch only when called from outside it (never from inside it or an Orca worktree — agents: send your final report, then run the removal command from the last line). Last line: `ship: merged PR #N as <sha>; …` / `ship: FAILED …`
+scripts/ship.sh [--title T] [--body-file F] [--no-merge] [--keep-worktree] [--dry-run] [--no-review REASON]   # from a clean branch worktree: full check (skipped if it passed on this HEAD) → second-model review (scripts/review.sh; skipped if it approved this HEAD) → push → PR → merge --no-ff into main → delete remote branch; removes worktree + local branch only when called from outside it (never from inside it or an Orca worktree — agents: send your final report, then run the removal command from the last line). Last line: `ship: merged PR #N as <sha>; …` / `ship: FAILED …`
+scripts/review.sh [--base REF] | --plan FILE   # second-model review (Codex, read-only) of REF..HEAD or of a plan; exit 0 = approve; verdict stored per HEAD for ship.sh
 scripts/check.sh --brief --changed   # while working: only the gates/Rust packages (and dependents) the change touches; never a substitute for the full run. --quick skips Rust tests
 
 cargo fmt --all --check
