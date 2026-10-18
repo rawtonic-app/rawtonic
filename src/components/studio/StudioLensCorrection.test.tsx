@@ -149,6 +149,28 @@ describe("Lens correction tool", () => {
     expect(current).toMatchObject({ lensMaker: null, lensModel: null, lensDistortionParams: null });
   });
 
+  it("commits nothing from a lookup started before the tool was closed", async () => {
+    const waiting: Record<string, (v: unknown) => void> = {};
+    mockInvoke.mockImplementation((command, args) => {
+      const a = args as Record<string, unknown>;
+      if (command === "get_lensfun_makers") return Promise.resolve(["Sony"]);
+      if (command === "get_lensfun_lenses_for_maker") return Promise.resolve(["FE 85mm F1.8", "FE 50mm F1.8"]);
+      if (command === "get_lens_distortion_params")
+        return new Promise((resolve) => { waiting[a.model as string] = resolve; });
+      return Promise.resolve(undefined);
+    });
+    current = { ...INITIAL_ADJUSTMENTS, lensMaker: "Sony", lensCorrectionMode: "manual" };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    await act(async () => { fireEvent.change(screen.getByLabelText("Lens model"), { target: { value: "FE 85mm F1.8" } }); });
+    cleanup();
+    await renderTool();
+    await act(async () => { fireEvent.change(screen.getByLabelText("Lens model"), { target: { value: "FE 50mm F1.8" } }); });
+    await act(async () => waiting["FE 85mm F1.8"]({ k1: 0.85 }));
+    await act(async () => waiting["FE 50mm F1.8"]({ k1: 0.05 }));
+    expect(current).toMatchObject({ lensModel: "FE 50mm F1.8", lensDistortionParams: { k1: 0.05 } });
+  });
+
   it("disables the amounts without a profile", async () => {
     await renderTool();
     const sliders = screen.getAllByRole("slider") as HTMLInputElement[];

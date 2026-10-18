@@ -85,7 +85,7 @@ it('does not apply auto results to the same path while its source is loading', a
   expect(useEditorStore.getState().adjustments).toBe(recipe);
 });
 
-it.each(['lens', 'paste'] as const)('ignores delayed %s metadata when the user switches during its reload', async (kind) => {
+it.each(['lens'] as const)('ignores delayed %s metadata when the user switches during its reload', async (kind) => {
   const { result } = renderHook(useEditorActions);
   act(() => {
     if (kind === 'lens') result.current.handleAutoLensCorrection(['/first.dng']);
@@ -506,6 +506,18 @@ it('pastes a lens choice without parameters, so each photo looks up its own', as
 
 
 describe('a lens choice pasted onto the open photo', () => {
+  // Each paste waits for the previous one's batch write: settle them.
+  afterEach(async () => {
+    for (let round = 0; round < 5; round++) {
+      const open = pending.filter((r) => !r.settled);
+      if (open.length === 0) break;
+      for (const request of open) {
+        request.settled = true;
+        await act(async () => request.resolve(undefined));
+      }
+      await act(async () => {});
+    }
+  });
   const paste = async (copied: Record<string, unknown>, keys: string[]) => {
     useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, ...copied } });
     useSettingsStore.setState({ appSettings: {
@@ -543,6 +555,15 @@ describe('a lens choice pasted onto the open photo', () => {
     act(() => updateAdjustments({ cameraCaVersion: 0 }));
     await finish(Invokes.ResolveLensProfile, { lensMaker: null, lensModel: null, lensDistortionParams: { k1: -0.02 } });
     expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ pending: true });
+  });
+
+  it('is not read back after the batch write, so switching it off meanwhile stays off', async () => {
+    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
+    act(() => updateAdjustments({ lensCorrectionMode: 'manual', lensMaker: null, lensModel: null, lensDistortionParams: null }));
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await act(async () => {});
+    expect(pending.some((r) => r.command === Invokes.LoadMetadata)).toBe(false);
+    expect(useEditorStore.getState().adjustments).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
   });
 
   it('fills a pending entry in again when undo or redo restores it', async () => {

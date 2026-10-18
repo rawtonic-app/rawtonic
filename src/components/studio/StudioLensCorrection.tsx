@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
@@ -35,6 +35,12 @@ interface CameraLensProfile {
   params: Adjustments["lensDistortionParams"];
   vignetting: boolean;
 }
+
+/** The lens tool's lookups, counted across its mounts: only the latest
+ * commits (StudioLensCorrection). */
+let lensToolRequest = 0;
+const lensFields = (recipe: Adjustments) =>
+  JSON.stringify([recipe.lensCorrectionMode, recipe.lensMaker, recipe.lensModel]);
 
 /** Lightroom's Lens Corrections (Profile) / Capture One's Lens Correction:
  * profile corrections from the lens database, detected from the photo's EXIF
@@ -116,12 +122,11 @@ export default function StudioLensCorrection() {
   // Only the latest lens lookup commits (every lens action, reset and
   // switching off start a new one), and only while the recipe's lens is as
   // it was when the lookup started: saves keep the parameters they get.
-  const lensRequest = useRef(0);
-  const lensFields = (recipe: Adjustments) =>
-    JSON.stringify([recipe.lensCorrectionMode, recipe.lensMaker, recipe.lensModel]);
-  const begin = () => ({ request: ++lensRequest.current, lens: lensFields(useEditorStore.getState().adjustments) });
+  const begin = () => ({ request: ++lensToolRequest, lens: lensFields(useEditorStore.getState().adjustments) });
   const stillAsked = (asked: { request: number; lens: string }, prev: Adjustments) =>
-    asked.request === lensRequest.current && lensFields(prev) === asked.lens;
+    asked.request === lensToolRequest && lensFields(prev) === asked.lens;
+  // A lookup the tool started before it closed commits nothing.
+  useEffect(() => () => void ++lensToolRequest, []);
 
   const enable = async () => {
     const asked = begin();

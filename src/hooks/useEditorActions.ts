@@ -592,19 +592,8 @@ export function useEditorActions() {
         .then((failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
-          if (selectedImage && updated.includes(selectedImage.path)
-            && isCurrentEditorImage(selectedImage.path)) {
-            invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
-              if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
-                setAdjustments((prev: Adjustments) => ({
-                  ...prev,
-                  lensMaker: meta.adjustments!.lensMaker,
-                  lensModel: meta.adjustments!.lensModel,
-                  lensDistortionParams: meta.adjustments!.lensDistortionParams,
-                }));
-              }
-            });
-          }
+          // The open photo's pasted lens choice is filled in by its own
+          // lookup (pending lens parameters), not read back from this write.
         })
         .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
     },
