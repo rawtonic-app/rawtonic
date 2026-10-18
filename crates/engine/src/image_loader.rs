@@ -62,9 +62,9 @@ pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
 }
 
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
-/// without the key are version 1). Version 3 (the mixed-precision model)
-/// becomes the default once the model pack carries its files.
-pub const AI_DENOISE_VERSION: u8 = 2;
+/// without the key are version 1): 3, the mixed-precision model, since the
+/// model pack carries it (pack-2026-10-18).
+pub const AI_DENOISE_VERSION: u8 = 3;
 /// The newest AI Denoise version this build renders.
 pub const AI_DENOISE_LATEST: u8 = 3;
 

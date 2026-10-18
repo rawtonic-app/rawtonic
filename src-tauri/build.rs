@@ -194,7 +194,7 @@ fn main() {
             // (docs/MODELS.md); scripts/models/install_models.sh --runtime
             // also puts them here.
             let base_url =
-                "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-08/";
+                "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-18/";
             let download_url = format!("{}{}", base_url, download_filename);
             println!("cargo:warning=URL: {}", download_url);
 

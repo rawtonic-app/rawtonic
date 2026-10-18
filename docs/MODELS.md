@@ -43,7 +43,7 @@ weights tensor by tensor.
 | CUDA plugin execution provider 0.2.0, CUDA 13 (`…providers_cuda-0.2.0-cuda13-{linux,windows}-x86_64`) | NVIDIA GPUs, optional (`install_models.sh --cuda`), with the user's own CUDA 13 and cuDNN 9 | Microsoft's GitHub release `plugin-ep-cuda/v0.2.0`, unchanged. | MIT (no NVIDIA library included) | Built 2026-10-10, in the pack |
 | `siglip2_vision.onnx`, `siglip2_tags.bin` (+ `siglip2_text.onnx`, `siglip2_tokenizer.json` for own tags) | Auto tags | Rawtonic's export of Google's SigLIP 2 B/16 (`google/siglip2-base-patch16-224`, revision 75de2d5) by `scripts/models/export_siglip2.py`; reproducible (same SHA-256 in two exports). Replaced the inherited CLIP (OpenAI ViT-B/32, model card: deployed use "out of scope") on 2026-10-08. | Apache-2.0 | In the pack |
 | `nlmf_coreml_*` (Core ML package), `nlmf.onnx` | AI Denoise (Detail → Noise reduction) | Nonlocal MatchFilter (Sánchez-Beeckman and Buades, MIT), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise at revision af6bf36, unchanged (hashes from its `distribution.json`) | MIT | In the pack |
-| `nlmf_mixed640_coreml_*` (Core ML package) | AI Denoise version 3 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible (same SHA-256 in two conversions). Version 3 needs it; new edits stay on version 2 (`nlmf_coreml_*`) until it is in the pack. | MIT | Prepared 2026-10-18, not yet in the pack (uploading it is the user's decision) |
+| `nlmf_mixed640_coreml_*` (Core ML package) | AI Denoise version 3 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible (same SHA-256 in three conversions). Version 3, the default for new RAW edits, runs it; version 1 and 2 recipes keep `nlmf_coreml_*`. | MIT | In the pack (from pack-2026-10-18) |
 | `skyseg_upernet_convnext_t.onnx` | Sky mask | Rawtonic's export of UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint from facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny`, revision 876ffc5) by `scripts/models/export_sky.py`; sky probability of ADE20K class 2, fp16 storage, reproducible (same SHA-256 in two exports). | MIT (Meta) | In the pack since 2026-10-09 |
 | `skyseg_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Sky mask on macOS (fast path) | The same UperNet + ConvNeXt-T checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sky_coreml.py` (the export's graph; ML program, fp32, 237 MB; reproducible with `PYTHONHASHSEED=0`: same SHA-256 in three conversions). Probabilities equal to PyTorch's (largest difference < 1e-4, mask IoU 1.0 on 13 photos), 0.06 s on the GPU of an M5 Pro against 0.35-0.8 s on the CPU. Used when installed; without these files, or if Core ML fails, the app uses the ONNX model. | MIT | Built 2026-10-10, in the pack |
 | `skyseg-u2net.onnx` | Sky mask (inherited) | Byte-identical to `JianyuanWang/skyseg` (a re-upload tagged MIT); originally from xiongzhu666's Sky-Segmentation repo (MIT code). The author states the model was trained on ADE20K plus private company data; the README does not license the ONNX file. | Unclear | Replaced 2026-10-09 |
@@ -788,7 +788,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-10-08` of
+The pack is the release `pack-2026-10-18` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -802,9 +802,14 @@ for QA builds), use
 A new pack is a new release (new tag): build it with
 `build_model_pack.py`, upload every top-level file as an asset, then change
 `MODEL_PACK_URL`, the SHA-256 constants and `install_models.sh`'s tag in one
-commit. New models so far went into the existing release `pack-2026-10-08`
-as added assets with an updated `models.json` (BiRefNet, sky, SAM 2.1),
-which keeps older builds working. Check SAM with the ignored tests
+commit. `build_model_pack.py --previous DIR` carries an earlier pack's
+files (downloaded with `gh release download`) over unchanged, checked
+against its `models.json`, and builds only what it lacks; that keeps the
+files older builds load. `pack-2026-10-18` is `pack-2026-10-08` plus
+`nlmf_mixed640_coreml_*` (built that way); `pack-2026-10-08` stays
+unchanged for the builds that point to it. Before that, new models went
+into the existing release `pack-2026-10-08` as added assets with an
+updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
 `subject_masks_follow_the_box_in_every_aspect_ratio` (`AI_MODELS`,
 `ORT_DYLIB_PATH`) and `print_sam_mask_quality` (also `SAM_EVAL`, a list of
 `image;mask` lines).
@@ -862,8 +867,8 @@ which keeps older builds working. Check SAM with the ignored tests
 - **AI Denoise versions 2 and 3 (2026-10-18, macOS, M5 Pro; notes:
   benchmark-results/ai-denoise-mac-2026-10-18.json, task DN).** `aiDenoiseVersion`
   2 is the new slider on the first package, 3 the same slider on the
-  mixed-precision 640 px package (the default once the pack carries it; no
-  version falls back to another model). Version 1 recipes render as before
+  mixed-precision 640 px package (the default for new RAW edits since
+  pack-2026-10-18 carries it; no version falls back to another model). Version 1 recipes render as before
   (a fresh version 1 result is byte-identical to main's):
   - *Slider.* The slider now sets the noise the network is told about
     instead of only blending its result: at 50 the full result at 0.8 × the

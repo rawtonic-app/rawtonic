@@ -37,7 +37,7 @@ const CORE_ML_FILES: [(&str, &str, &str); 3] = [
     ),
 ];
 /// The mixed-precision 640 px package of version 3
-/// (scripts/models/convert_nlmf_coreml.py; not yet in the model pack).
+/// (scripts/models/convert_nlmf_coreml.py; in the packs from pack-2026-10-18).
 #[cfg(target_os = "macos")]
 const CORE_ML_MIXED_FILES: [(&str, &str, &str); 3] = [
     (
