@@ -70,6 +70,28 @@ pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("ai-denoise-cache"))
 }
 
+/// Where `AppState::ai_denoiser` keeps the denoiser of `model`
+/// (`AiDenoiseSettings::model`): ONNX Runtime (Windows, Linux) has one model
+/// for every version.
+pub fn slot(model: usize) -> usize {
+    if cfg!(target_os = "macos") {
+        model.min(1)
+    } else {
+        0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_model_has_a_slot_and_onnx_shares_one() {
+        assert_eq!(super::slot(0), 0);
+        let mixed = super::slot(1);
+        assert_eq!(mixed, if cfg!(target_os = "macos") { 1 } else { 0 });
+        assert!(super::slot(7) < 2);
+    }
+}
+
 /// The denoiser of AI Denoise `model` (`AiDenoiseSettings::model`: 0 the
 /// first package, 1 the mixed-precision one), downloading and loading it on
 /// first use. No fallback between them: a version renders with its model or
@@ -78,12 +100,7 @@ pub async fn denoiser(
     app_handle: &tauri::AppHandle,
     model: usize,
 ) -> Result<Arc<dyn MosaicDenoiser>, String> {
-    // ONNX Runtime (Windows, Linux) has one model for every version.
-    let slot = if cfg!(target_os = "macos") {
-        model.min(1)
-    } else {
-        0
-    };
+    let slot = slot(model);
     let state = app_handle.state::<AppState>();
     if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
         return Ok(denoiser);

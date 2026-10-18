@@ -132,6 +132,10 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
 impl AiDenoiseSettings {
     /// The model this version runs: 0 the first package (`nlmf_coreml_*`,
     /// the ONNX model elsewhere), 1 the mixed-precision package (version 3).
+    /// Version 2 stays on the first package: between its introduction and
+    /// this split the model pack never carried the mixed package, so the
+    /// app rendered every version 2 edit with the first one (the macOS CLI
+    /// refused such recipes instead).
     pub fn model(&self) -> usize {
         usize::from(self.version >= 3)
     }

@@ -162,7 +162,7 @@ pub(crate) fn load_export_base_image(
 ) -> Result<DynamicImage, String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
-        let denoiser = state.ai_denoiser.lock().unwrap()[ai.model()]
+        let denoiser = state.ai_denoiser.lock().unwrap()[crate::ai_denoise::slot(ai.model())]
             .clone()
             .ok_or_else(|| {
                 format!(
