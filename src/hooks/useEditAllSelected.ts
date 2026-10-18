@@ -68,7 +68,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       liveTimer = null;
       lastSentAt = performance.now();
       const others = selectionRef.current.filter((path) => path !== source?.path);
-      const patch = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
+      // The cells develop the values with the primary's sharpening response.
+      const patch =
+        others.length > 0 ? livePatch(withSharpenVersion({ ...inflight, ...pending }, source?.adjustments)) : null;
       const key = JSON.stringify(patch);
       if (key === sent) return;
       sent = key;

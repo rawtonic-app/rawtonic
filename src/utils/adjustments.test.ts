@@ -225,6 +225,8 @@ describe('RAW detail defaults', () => {
     const layered = { masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
     expect(withSharpenVersion(layered, {} as Adjustments).sharpenVersion).toBe(1);
     expect('sharpenVersion' in withSharpenVersion({ exposure: 1 }, {} as Adjustments)).toBe(false);
+    // A change back to no key (undo) is response 1, explicitly.
+    expect(withSharpenVersion({ sharpenVersion: undefined }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(1);
   });
 });
 

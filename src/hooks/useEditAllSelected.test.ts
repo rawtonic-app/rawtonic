@@ -155,6 +155,21 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.5 } }]);
   });
 
+  it('sends the primary\'s sharpening response with sharpening edits, and response 1 for an undo to none', async () => {
+    useEditorStore.setState((state) => ({ adjustments: { ...state.adjustments, sharpenVersion: 2 } as Adjustments }));
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ sharpness: 80 });
+    // Live and written alike, so cells of response-1 photographs do not jump.
+    expect(live()).toEqual([{ sharpness: 80, sharpenVersion: 2 }]);
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { sharpness: 80, sharpenVersion: 2 } }]);
+    // Undo to a recipe from before the key: the others go back to response 1 too.
+    edit({ sharpenVersion: undefined });
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    await act(async () => { await Promise.resolve(); });
+    expect(pasted().at(-1)).toEqual({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { sharpenVersion: 1 } });
+  });
+
   describe('live on the other cells', () => {
     it('sends the changes not yet written while the primary is edited', () => {
       renderHook(() => useEditAllSelected(true, selection));

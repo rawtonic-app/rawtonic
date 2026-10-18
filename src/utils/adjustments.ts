@@ -1258,6 +1258,11 @@ export const withSharpenVersion = <T extends Partial<Adjustments>>(
   picked: T,
   source?: Partial<Adjustments>,
 ): T & Pick<Partial<Adjustments>, 'sharpenVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it) would
+  // vanish in JSON too: it is response 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'sharpenVersion') && picked.sharpenVersion == null) {
+    return { ...picked, sharpenVersion: 1 };
+  }
   const sharpens =
     SHARPEN_RESPONSE_KEYS.some((key) => picked[key] !== undefined) ||
     (picked.masks ?? []).some((mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0);
