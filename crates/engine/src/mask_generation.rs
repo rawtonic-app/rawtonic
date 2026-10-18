@@ -4707,6 +4707,12 @@ pub fn generate_mask_bitmap(
 /// A layer's mask. Layers before `maskVersion` 2, and version 2 layers whose
 /// every step is exact at 8 bits (see `precise::needs_wide`), keep the 8-bit
 /// mask; other version 2 layers are computed in floating point.
+/// Whether `generate_layer_mask` gives this layer a 16-bit mask, known
+/// before generating it.
+pub fn layer_mask_is_wide(mask_def: &MaskDefinition) -> bool {
+    mask_def.produces_bitmap() && mask_def.precise() && precise::needs_wide(mask_def)
+}
+
 pub fn generate_layer_mask(
     mask_def: &MaskDefinition,
     width: u32,

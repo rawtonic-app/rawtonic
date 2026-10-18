@@ -1333,6 +1333,95 @@ fn cached_preview_pixels_match_full_preparation() {
     );
 }
 
+/// Exports upload their masks layer by layer (`MaskUploader`, any order)
+/// and free the bitmaps before rendering: the pixels must be those of a
+/// render from the bitmaps, 8- and 16-bit, byte and half-float arrays.
+#[test]
+#[ignore = "requires a native GPU; streamed export masks against bitmaps"]
+fn uploaded_masks_render_like_bitmaps() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2304, 512).unwrap();
+    let (width, height) = (640u32, 400u32);
+    let view = input(&context, width, height, 17);
+    let coverage: Vec<f32> = (0..width * height)
+        .map(|i| 0.1 + 0.7 * (i % width) as f32 / width as f32)
+        .collect();
+    let wide = Arc::new(MaskBitmap::from_coverage(width, height, &coverage));
+    let bytes = upload_test_masks(width, height, 3);
+    let profile = layer_sums_profile(0.2, 0.5);
+    let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+    let mut checked = 0;
+    for masks in [
+        bytes.clone(),
+        vec![
+            Arc::clone(&bytes[0]),
+            Arc::clone(&wide),
+            Arc::clone(&bytes[2]),
+        ],
+        vec![Arc::clone(&bytes[1])],
+    ] {
+        for precision in [
+            RenderOutputPrecision::EightBit,
+            RenderOutputPrecision::SixteenBit,
+        ] {
+            let render = |masks: &[Arc<MaskBitmap>], uploaded: Option<&UploadedMasks>| {
+                let (pixels, ..) = processor
+                    .run_in_window(
+                        &view,
+                        width,
+                        height,
+                        Roi {
+                            x: 0,
+                            y: 0,
+                            width,
+                            height,
+                        },
+                        RenderRequest {
+                            adjustments: adjustments.clone(),
+                            mask_bitmaps: masks,
+                            lut: None,
+                            roi: None,
+                        },
+                        false,
+                        precision,
+                        ReadbackShader::Export,
+                        None,
+                        None,
+                        uploaded,
+                    )
+                    .unwrap();
+                match pixels {
+                    RenderedPixels::U8(pixels) => pixels.iter().map(|v| *v as u16).collect(),
+                    RenderedPixels::U16(pixels) => pixels,
+                }
+            };
+            let expected = render(&masks, None);
+            let wide_array = masks.iter().any(|mask| mask.wide().is_some());
+            let mut uploader = MaskUploader::new(&context, width, height, masks.len(), wide_array);
+            // Last layer first, as parallel generators may finish.
+            for index in (0..masks.len()).rev() {
+                uploader.push_at(&context, index, &masks[index]).unwrap();
+            }
+            let uploaded = uploader.finish(&context).unwrap();
+            assert!(
+                render(&[], Some(&uploaded)) == expected,
+                "{} layers",
+                masks.len()
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 6);
+    // A layer missing or the array's precision wrong is an error, not a render.
+    let mut uploader = MaskUploader::new(&context, width, height, 2, false);
+    uploader.push_at(&context, 0, &bytes[0]).unwrap();
+    assert!(uploader.push_at(&context, 1, &wide).is_err());
+    assert!(uploader.finish(&context).is_err());
+    let mut uploader = MaskUploader::new(&context, width, height, 1, true);
+    uploader.push_at(&context, 0, &bytes[0]).unwrap();
+    assert!(uploader.finish(&context).is_err());
+}
+
 /// 16-bit masks (`maskVersion` 2) in the half-float array: cached and fully
 /// prepared renders, export and display paths agree as for byte masks, a
 /// byte layer beside a 16-bit one keeps its pixels, and the 16-bit gradient
@@ -1470,6 +1559,22 @@ fn prepare_preview_pipeline(processor: &GpuProcessor, features: usize) {
             features,
             true,
             true,
+            false,
+        )
+        .unwrap()
+    });
+}
+
+fn prepare_layer_sum_pipeline(processor: &GpuProcessor, features: usize) {
+    processor.layer_sum_pipelines[features].get_or_init(|| {
+        create_preview_pipeline(
+            &processor.context.device,
+            &processor.preview_shader,
+            &processor.preview_layout,
+            features,
+            true,
+            true,
+            true,
         )
         .unwrap()
     });
@@ -1482,6 +1587,7 @@ fn prepare_legacy_curve_pipeline(processor: &GpuProcessor, features: usize) {
             &processor.preview_shader,
             &processor.preview_layout,
             features,
+            false,
             false,
             false,
         )
@@ -1497,6 +1603,7 @@ fn prepare_unprepared_layer_pipeline(processor: &GpuProcessor, features: usize) 
             &processor.preview_layout,
             features,
             true,
+            false,
             false,
         )
         .unwrap()
@@ -3587,6 +3694,137 @@ fn changed_area(
         .sum()
 }
 
+fn layer_sums_profile(exposure: f64, layer_exposure: f64) -> serde_json::Value {
+    let masks: Vec<_> = (0..12)
+        .map(|i| {
+            let adjustments = match i % 4 {
+                0 => json!({"exposure":if i == 4 { layer_exposure } else { 0.6 },"clarity":30,"saturation":-20}),
+                1 => json!({"temperature":-20,"contrast":25,"structure":-15,"highlights":-30}),
+                2 => json!({"hsl":{"blues":{"hue":20,"saturation":-30}},"shadows":25,"tint":10}),
+                _ => json!({"exposure":-0.4,"vibrance":30,"hue":-10,"curves":{"red":[{"x":0,"y":0},{"x":140,"y":100},{"x":255,"y":255}]}}),
+            };
+            local_mask(&format!("sums-{i}"), adjustments)
+        })
+        .collect();
+    json!({"exposure":exposure,"sharpness":40,"clarity":25,"masks":masks})
+}
+
+#[test]
+#[ignore = "requires a native GPU; layer sums against the per-layer loop"]
+fn layer_sums_match_per_layer_loop() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2600, 400).unwrap();
+    processor.layer_sums_enabled.store(true, Ordering::Relaxed);
+    let reference = GpuProcessor::new(context.clone(), 2600, 400).unwrap();
+    // Two horizontal tiles, so the sums are addressed across the seam.
+    let (width, height) = (2500, 300);
+    let view = input(&context, width, height, 29);
+    let masks = upload_test_masks(width, height, 12);
+    let features = preview_features(&get_all_adjustments_from_json(
+        &layer_sums_profile(0.0, 0.6),
+        true,
+        Some(1),
+    ));
+    for processor in [&processor, &reference] {
+        prepare_preview_pipeline(processor, features);
+    }
+    prepare_layer_sum_pipeline(&processor, features);
+    let frame =
+        |processor: &GpuProcessor, profile: &serde_json::Value, masks: &[Arc<MaskBitmap>]| {
+            let (_, w, h, x, y) = processor
+                .run(
+                    &view,
+                    width,
+                    height,
+                    RenderRequest {
+                        adjustments: get_all_adjustments_from_json(profile, true, Some(1)),
+                        mask_bitmaps: masks,
+                        lut: None,
+                        roi: None,
+                    },
+                    true,
+                    RenderOutputPrecision::EightBit,
+                )
+                .unwrap();
+            read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d { x, y, z: 0 },
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+        };
+    let counts = || {
+        processor
+            .layer_sum_frames
+            .each_ref()
+            .map(|c| c.load(Ordering::Relaxed))
+    };
+    let compare = |label: &str, profile: &serde_json::Value, masks: &[Arc<MaskBitmap>]| {
+        let actual = frame(&processor, profile, masks);
+        let expected = frame(&reference, profile, masks);
+        let (worst, at) = actual
+            .iter()
+            .zip(&expected)
+            .map(|(a, e)| a.abs_diff(*e))
+            .enumerate()
+            .max_by_key(|(_, d)| *d)
+            .map(|(i, d)| (d, i))
+            .unwrap();
+        // The sums add the layers in another order than the loop: at most a
+        // rounding step of the 8-bit display output.
+        assert!(worst <= 1, "{label}: {worst} levels apart at byte {at}");
+    };
+
+    // A global slider drag: the third frame on computes the sums.
+    for step in 0..6 {
+        compare(
+            "global drag",
+            &layer_sums_profile(0.1 + 0.05 * step as f64, 0.6),
+            &masks,
+        );
+    }
+    let [all, excluded] = counts();
+    assert!(
+        all >= 3 && excluded == 0,
+        "global drag frames from sums: {all}/{excluded}"
+    );
+
+    // A slider on layer 4: the sums leave that layer out.
+    for step in 0..6 {
+        compare(
+            "layer drag",
+            &layer_sums_profile(0.35, 0.1 * step as f64),
+            &masks,
+        );
+    }
+    let [after, excluded] = counts();
+    assert!(
+        after - all >= 4 && excluded >= 4,
+        "layer drag frames from sums: {}/{excluded}",
+        after - all
+    );
+
+    // A brush stroke changes a mask every frame: the loop renders it.
+    let mut stroke = masks.clone();
+    for step in 0..4u32 {
+        stroke = painted(
+            &stroke,
+            5,
+            (100 + step * 300..400 + step * 300, 40..120),
+            200,
+        );
+        compare("stroke", &layer_sums_profile(0.35, 0.5), &stroke);
+    }
+    assert_eq!(counts()[0], after, "a stroke must not use stale sums");
+}
+
 #[test]
 #[ignore = "requires a native GPU; partial display frames against complete renders"]
 fn partial_display_frames_match_complete_renders() {
@@ -5226,6 +5464,7 @@ fn pipeline_compilation_probe() {
             features,
             true,
             true,
+            false,
         )
         .unwrap();
         println!(
@@ -9286,6 +9525,8 @@ fn many_layer_frame_probe() {
         }
         let warm = get_all_adjustments_from_json(&base, true, Some(1));
         prepare_preview_pipeline(&processor, preview_features(&warm));
+        prepare_layer_sum_pipeline(&processor, preview_features(&warm));
+        processor.layer_sums_enabled.store(true, Ordering::Relaxed);
         // A live stroke on the top layer: a new brush layer (Auto Mask v3, as
         // the app paints) in place of the last one, one point per move.
         let mut brush_base = base.clone();
@@ -9302,7 +9543,15 @@ fn many_layer_frame_probe() {
             );
         }
         type Scenario<'a> = (&'a str, Box<dyn Fn(usize) -> serde_json::Value + 'a>);
-        let scenarios: [Scenario; 3] = [
+        let scenarios: [Scenario; 4] = [
+            (
+                "slider_global",
+                Box::new(|f| {
+                    let mut v = base.clone();
+                    v["exposure"] = json!(0.01 * f as f64);
+                    v
+                }),
+            ),
             (
                 "slider_first_layer",
                 Box::new(|f| {

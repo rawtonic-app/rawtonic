@@ -1,3 +1,9 @@
+// The app's allocator, so exports free memory as the app does (the export
+// crate returns freed pages through it, `allocator::release_freed_memory`).
+#[cfg(not(all(target_os = "windows", target_arch = "aarch64")))]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use rawtonic_catalog::{Library, Mode};

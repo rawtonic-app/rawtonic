@@ -20,6 +20,9 @@ override DIRECT_CURVES: bool = false;
 // Prepare curve polynomials and active-layer flags once per preview recipe;
 // read scalar and grading values without per-pixel mask-struct copies.
 override PREPARED_LAYERS: bool = false;
+// Display frames whose layer slider sums come from one pass (layer_sums.wgsl)
+// instead of the per-layer loop (gpu_processing.rs `layer_sums_buffer`).
+override LAYER_SUMS: bool = false;
 
 struct CurveSegment {
     endpoints: vec4<f32>,
@@ -327,6 +330,14 @@ struct AllAdjustments {
 // size) one dispatch renders. Workgroups are numbered flat, row by row of a
 // RENDER_REGION_GROUPS_X-wide grid, and assigned to the regions in order.
 @group(0) @binding(16) var<storage, read> render_regions: array<vec4<u32>>;
+
+// Display frames: the layers' slider sums per pixel (layer_sums.wgsl). Header:
+// vec4 0 holds the bit set of the sliders some layer sets (LAYER_SUM_PARAMS,
+// two words), unused, and the pixel count; vec4 1 the width, the mask index
+// of a layer left out of the sums and whether there is one; vec4s 2-5 that
+// layer's values in the slots. The sums follow, one vec4 of four slots per
+// pixel (preview_layers.rs `LayerSumsPlan`).
+@group(0) @binding(24) var<storage, read> layer_sums: array<vec4<f32>>;
 
 /// The photo's size; the input texture may hold only a window of it. Taken
 /// from the texture otherwise: Metal compiled neighbouring arithmetic
@@ -4786,6 +4797,17 @@ fn any_layer_has(flag: u32) -> bool {
     return !PREPARED_LAYERS || (prepared_layers[0].flags.y & flag) != 0u;
 }
 
+// One slider's sum over the layers (0 when no layer sets it): its slot is
+// the number of active sliders before it in the header's bit set.
+fn layer_sum(param: u32, bits: vec2<u32>, s0: vec4<f32>, s1: vec4<f32>, s2: vec4<f32>, s3: vec4<f32>) -> f32 {
+    let word = select(bits.x, bits.y, param >= 32u);
+    let bit = 1u << (param % 32u);
+    if ((word & bit) == 0u) { return 0.0; }
+    let slot = countOneBits(word & (bit - 1u)) + select(0u, countOneBits(bits.x), param >= 32u);
+    let v = select(select(s0, s1, slot >= 4u), select(s2, s3, slot >= 12u), slot >= 8u);
+    return v[slot % 4u];
+}
+
 fn get_mask_influence(mask_index: u32, coords: vec2<u32>) -> f32 {
     return textureLoad(mask_textures, vec2<i32>(coords) - vec2<i32>(adjustments.source_window.xy), i32(mask_index), 0).r;
 }
@@ -5817,7 +5839,80 @@ fn main(
 
     var t_moire = adjustments.global.moire.x;
     var t_moire_step = adjustments.global.moire.y;
-    for (var i = 0u; ENABLE_MASKS && any_layer_has(1u) && i < adjustments.mask_count; i = i + 1u) {
+    // While the masks stay the same, the layers' sums come from one pass
+    // (layer_sums.wgsl) instead of a loop over every layer; a layer whose
+    // slider is moving is left out of them and added here from the header.
+    if (ENABLE_MASKS && LAYER_SUMS) {
+        let header = layer_sums[0];
+        let bits = bitcast<vec2<u32>>(header.xy);
+        let pixels = bitcast<u32>(header.w);
+        let vec4_count = (countOneBits(bits.x) + countOneBits(bits.y) + 3u) / 4u;
+        let sum_coord = vec2<u32>(vec2<i32>(absolute_coord) - vec2<i32>(adjustments.source_window.xy));
+        let sum_pixel = 6u + sum_coord.y * bitcast<u32>(layer_sums[1].x) + sum_coord.x;
+        var s0 = layer_sums[sum_pixel];
+        var s1 = vec4<f32>(0.0);
+        var s2 = vec4<f32>(0.0);
+        var s3 = vec4<f32>(0.0);
+        if (vec4_count > 1u) { s1 = layer_sums[sum_pixel + pixels]; }
+        if (vec4_count > 2u) { s2 = layer_sums[sum_pixel + 2u * pixels]; }
+        if (vec4_count > 3u) { s3 = layer_sums[sum_pixel + 3u * pixels]; }
+        if (bitcast<u32>(layer_sums[1].z) != 0u) {
+            let influence = get_mask_influence(bitcast<u32>(layer_sums[1].y), absolute_coord);
+            if (influence > 0.001) {
+                s0 += layer_sums[2] * influence;
+                s1 += layer_sums[3] * influence;
+                s2 += layer_sums[4] * influence;
+                s3 += layer_sums[5] * influence;
+            }
+        }
+        t_exposure += layer_sum(0u, bits, s0, s1, s2, s3);
+        t_brightness += layer_sum(1u, bits, s0, s1, s2, s3);
+        t_contrast += layer_sum(2u, bits, s0, s1, s2, s3);
+        t_highlights += layer_sum(3u, bits, s0, s1, s2, s3);
+        t_shadows += layer_sum(4u, bits, s0, s1, s2, s3);
+        t_whites += layer_sum(5u, bits, s0, s1, s2, s3);
+        t_blacks += layer_sum(6u, bits, s0, s1, s2, s3);
+        t_saturation += layer_sum(7u, bits, s0, s1, s2, s3);
+        t_temperature += layer_sum(8u, bits, s0, s1, s2, s3);
+        t_tint += layer_sum(9u, bits, s0, s1, s2, s3);
+        t_vibrance += layer_sum(10u, bits, s0, s1, s2, s3);
+        t_hue += layer_sum(11u, bits, s0, s1, s2, s3);
+        t_luma_nr += layer_sum(12u, bits, s0, s1, s2, s3);
+        t_color_nr += layer_sum(13u, bits, s0, s1, s2, s3);
+        t_clarity += layer_sum(14u, bits, s0, s1, s2, s3);
+        t_dehaze += layer_sum(15u, bits, s0, s1, s2, s3);
+        t_structure += layer_sum(16u, bits, s0, s1, s2, s3);
+        t_glow += layer_sum(17u, bits, s0, s1, s2, s3);
+        t_halation += layer_sum(18u, bits, s0, s1, s2, s3);
+        t_flare += layer_sum(19u, bits, s0, s1, s2, s3);
+        t_defringe += layer_sum(20u, bits, s0, s1, s2, s3);
+        t_sharpness += layer_sum(21u, bits, s0, s1, s2, s3);
+        h0_h += layer_sum(22u, bits, s0, s1, s2, s3);
+        h0_s += layer_sum(23u, bits, s0, s1, s2, s3);
+        h0_l += layer_sum(24u, bits, s0, s1, s2, s3);
+        h1_h += layer_sum(25u, bits, s0, s1, s2, s3);
+        h1_s += layer_sum(26u, bits, s0, s1, s2, s3);
+        h1_l += layer_sum(27u, bits, s0, s1, s2, s3);
+        h2_h += layer_sum(28u, bits, s0, s1, s2, s3);
+        h2_s += layer_sum(29u, bits, s0, s1, s2, s3);
+        h2_l += layer_sum(30u, bits, s0, s1, s2, s3);
+        h3_h += layer_sum(31u, bits, s0, s1, s2, s3);
+        h3_s += layer_sum(32u, bits, s0, s1, s2, s3);
+        h3_l += layer_sum(33u, bits, s0, s1, s2, s3);
+        h4_h += layer_sum(34u, bits, s0, s1, s2, s3);
+        h4_s += layer_sum(35u, bits, s0, s1, s2, s3);
+        h4_l += layer_sum(36u, bits, s0, s1, s2, s3);
+        h5_h += layer_sum(37u, bits, s0, s1, s2, s3);
+        h5_s += layer_sum(38u, bits, s0, s1, s2, s3);
+        h5_l += layer_sum(39u, bits, s0, s1, s2, s3);
+        h6_h += layer_sum(40u, bits, s0, s1, s2, s3);
+        h6_s += layer_sum(41u, bits, s0, s1, s2, s3);
+        h6_l += layer_sum(42u, bits, s0, s1, s2, s3);
+        h7_h += layer_sum(43u, bits, s0, s1, s2, s3);
+        h7_s += layer_sum(44u, bits, s0, s1, s2, s3);
+        h7_l += layer_sum(45u, bits, s0, s1, s2, s3);
+    }
+    for (var i = 0u; ENABLE_MASKS && !LAYER_SUMS && any_layer_has(1u) && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 1u) == 0u) { continue; }
         let influence = get_mask_influence(i, absolute_coord);
         if (influence > 0.001) {

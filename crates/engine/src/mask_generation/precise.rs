@@ -1143,6 +1143,33 @@ mod tests {
     }
 
     #[test]
+    fn wide_masks_are_known_before_generating() {
+        // Exports size their GPU mask array from `layer_mask_is_wide` before
+        // any mask exists; a wrong answer changes the exported bytes.
+        let geometry = PhotoGeometry::default();
+        for version in [None, Some(2), Some(3)] {
+            for refine in [None, Some(12.0)] {
+                for opacity in [100.0, 61.0] {
+                    for sub in [radial(), brush()] {
+                        let mut def = layer(version, refine, opacity, sub);
+                        for invert in [false, true] {
+                            def.invert = invert;
+                            let mask =
+                                generate_layer_mask(&def, 80, 60, 1.0, (0.0, 0.0), &geometry, None)
+                                    .unwrap();
+                            assert_eq!(
+                                layer_mask_is_wide(&def),
+                                mask.wide().is_some(),
+                                "version {version:?} refine {refine:?} opacity {opacity} invert {invert}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn version_two_opacity_from_the_cache_matches_a_fresh_mask() {
         let geometry = PhotoGeometry::default();
         for sub in [radial(), brush()] {
