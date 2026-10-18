@@ -180,9 +180,13 @@ fn resolve_lens_choice(
                         map.remove("lensModel");
                     }
                 }
+            } else if readable(source) {
+                // A file that opens without EXIF: nothing to detect, for good.
+                map.remove("lensMaker");
+                map.remove("lensModel");
             } else {
-                // Nothing to detect from (offline without EXIF): not a
-                // lookup that found nothing; tried again later.
+                // Nothing to detect from yet (offline, no cached EXIF): not
+                // a lookup that found nothing; tried again later.
                 return false;
             }
         }
@@ -389,6 +393,28 @@ mod tests {
         );
         assert!(is_unresolved(&recipe));
         assert!(recipe.get("lensDistortionParams").is_none());
+    }
+
+    #[test]
+    fn auto_on_a_readable_file_without_exif_finds_no_profile_and_exports() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (db, _) = zoom_db(tmp.path());
+        let scan = tmp.path().join("scan.png");
+        std::fs::write(&scan, b"no exif").unwrap();
+        let mut recipe = serde_json::json!({
+            "lensCorrectionMode": "auto", "lensMaker": "Canon", "lensModel": "old",
+            "lensDistortionParams": {"k1": 0.01},
+        });
+        resolve_lens_params_in_adjustments(&mut recipe, LensLookup::Fresh, &None, Some(&db), &scan);
+        assert!(!is_unresolved(&recipe));
+        assert!(recipe.get("lensModel").is_none());
+        assert!(recipe.get("lensDistortionParams").is_none());
+        // A recipe left unresolved by an earlier offline save exports.
+        let mut saved_offline = serde_json::json!({
+            "lensCorrectionMode": "auto", "lensProfileFor": LENS_UNRESOLVED,
+        });
+        resolve_unresolved(&mut saved_offline, &None, Some(&db), &scan).unwrap();
+        assert!(!is_unresolved(&saved_offline));
     }
 
     #[test]
