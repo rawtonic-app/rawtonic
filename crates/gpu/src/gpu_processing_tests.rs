@@ -1738,6 +1738,84 @@ fn preview_render_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
+fn sharpen_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the amount moves a little every frame so the detail stage
+    // is computed again, as during a slider drag. Responses 1 and 2
+    // alternate within one process (response 1's path is unchanged).
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        for (name, base) in [
+            ("a40d25", json!({"sharpness":40})),
+            ("a80d25", json!({"sharpness":80})),
+            ("a150d25", json!({"sharpness":150})),
+            ("a80d100", json!({"sharpness":80,"sharpenDetail":100})),
+            (
+                "a120d100r2",
+                json!({"sharpness":120,"sharpenDetail":100,"sharpenRadius":2.0}),
+            ),
+            ("a120d25r0.5", json!({"sharpness":120,"sharpenRadius":0.5})),
+        ] {
+            let mut times = [Vec::new(), Vec::new()];
+            for frame in 0..frames + 2 {
+                for version in [1, 2] {
+                    let mut profile = base.clone();
+                    let amount = profile["sharpness"].as_f64().unwrap();
+                    // Amount 40 stays exact (both responses share its path).
+                    if amount != 40.0 {
+                        profile["sharpness"] = json!(amount + 0.01 * frame as f64);
+                    } else {
+                        profile["sharpnessThreshold"] = json!(15.0 + 0.01 * frame as f64);
+                    }
+                    profile["sharpenVersion"] = json!(version);
+                    let start = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            display,
+                            if display {
+                                RenderOutputPrecision::EightBit
+                            } else {
+                                RenderOutputPrecision::SixteenBit
+                            },
+                        )
+                        .unwrap();
+                    context
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    // The first two frames warm shaders and caches.
+                    if frame >= 2 {
+                        times[version - 1].push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+            let median = |t: &mut Vec<f64>| {
+                t.sort_by(f64::total_cmp);
+                t[t.len() / 2]
+            };
+            let (v1, v2) = (median(&mut times[0]), median(&mut times[1]));
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"setting":name,"v1_ms":v1,"v2_ms":v2,
+                    "change_pct":(v2 / v1 - 1.0) * 100.0,"frames":frames})
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; synthetic input, not a portable acceptance benchmark"]
 fn editing_tools_timing_probe() {
     let context = context();
