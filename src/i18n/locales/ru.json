@@ -1290,6 +1290,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Автонастройка",
+        "auto_straighten": "Автовыравнивание",
         "auto_white_balance": "Автоматический баланс белого",
         "brush_size_down": "Уменьшить размер кисти",
         "brush_size_up": "Увеличить размер кисти",
@@ -1657,6 +1658,10 @@
         "size": "Размер кадра",
         "straightenTool": "Инструмент выравнивания"
       },
+      "autoStraighten": "Авто",
+      "autoStraightenFailed": "Не удалось выполнить автовыравнивание: {{error}}",
+      "autoStraightenNoLines": "Не найдено прямых линий для выравнивания фото",
+      "autoStraightenTitle": "Выровнять фото по горизонту или вертикалям и подогнать кадрирование",
       "flipHorizontal": "Отразить по горизонтали",
       "flipVertical": "Отразить по вертикали",
       "grid": {

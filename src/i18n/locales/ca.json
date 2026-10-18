@@ -1234,6 +1234,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Ajust automàtic",
+        "auto_straighten": "Redreça automàticament",
         "auto_white_balance": "Balanç de blancs automàtic",
         "brush_size_down": "Reduir mida del pinzell",
         "brush_size_up": "Augmentar mida del pinzell",
@@ -1601,6 +1602,10 @@
         "size": "Mida del retall",
         "straightenTool": "Eina Redreça"
       },
+      "autoStraighten": "Auto",
+      "autoStraightenFailed": "No s’ha pogut redreçar automàticament: {{error}}",
+      "autoStraightenNoLines": "No s’han trobat línies rectes per anivellar la foto",
+      "autoStraightenTitle": "Anivella la foto per l’horitzó o les verticals i ajusta el retall",
       "flipHorizontal": "Gira horitzontalment",
       "flipVertical": "Gira verticalment",
       "grid": {

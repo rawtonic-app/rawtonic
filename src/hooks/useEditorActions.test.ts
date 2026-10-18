@@ -490,3 +490,39 @@ describe('slider drag drafts', () => {
     unregister();
   });
 });
+
+describe('Auto straighten', () => {
+  const answer = { rotation: -2.4, crop: { unit: 'px', x: 120, y: 80, width: 3760, height: 2840 }, support: 1.2 };
+
+  it('applies the rotation and crop it was asked for', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('done');
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2.4, crop: answer.crop });
+  });
+
+  it('drops the answer when the crop changed meanwhile or the photograph is another', async () => {
+    const { result } = renderHook(useEditorActions);
+    const outcomes: string[] = [];
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => useEditorStore.setState({
+      adjustments: { ...useEditorStore.getState().adjustments, crop: { unit: 'px', x: 0, y: 0, width: 100, height: 100 } },
+    }));
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => select('/second.dng'));
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcomes).toEqual(['stale', 'stale']);
+    expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+  });
+
+  it('reports a photograph without straight lines', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    await finish(Invokes.CalculateAutoStraighten, null);
+    expect(outcome).toBe('none');
+  });
+});

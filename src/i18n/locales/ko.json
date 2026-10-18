@@ -1143,6 +1143,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "자동 보정",
+        "auto_straighten": "자동 수평 맞추기",
         "auto_white_balance": "자동 화이트 밸런스",
         "brush_size_down": "브러시 크기 줄이기",
         "brush_size_up": "브러시 크기 늘리기",
@@ -1510,6 +1511,10 @@
         "size": "자르기 크기",
         "straightenTool": "수평 맞추기 도구"
       },
+      "autoStraighten": "자동",
+      "autoStraightenFailed": "자동 수평 맞추기 실패: {{error}}",
+      "autoStraightenNoLines": "수평을 맞출 직선을 찾지 못했습니다",
+      "autoStraightenTitle": "수평선이나 수직선을 기준으로 사진 수평을 맞추고 자르기를 조정합니다",
       "flipHorizontal": "좌우 반전",
       "flipVertical": "상하 반전",
       "grid": {

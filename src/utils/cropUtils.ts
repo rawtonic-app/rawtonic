@@ -377,3 +377,18 @@ export function zoomCrop(
 
   return bestCrop;
 }
+
+/** Recipe keys that decide a crop's frame: geometry before the crop, the
+ * orientation, the straightening and the crop itself. Auto straighten's
+ * answer is only applied while these are as they were asked for. */
+export const REFRAMING_KEYS = [
+  'rotation', 'crop', 'aspectRatio', 'orientationSteps', 'flipHorizontal', 'flipVertical',
+  'transformDistortion', 'transformVertical', 'transformHorizontal', 'transformRotate',
+  'transformAspect', 'transformScale', 'transformXOffset', 'transformYOffset',
+  'lensCorrectionMode', 'lensDistortionParams', 'lensDistortionAmount', 'lensDistortionEnabled',
+  'guidedPerspective',
+] as const;
+
+export function reframingInputs(adjustments: Record<string, unknown>): string {
+  return JSON.stringify(REFRAMING_KEYS.map((key) => adjustments[key] ?? null));
+}

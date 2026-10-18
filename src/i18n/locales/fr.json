@@ -1234,6 +1234,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Réglage automatique",
+        "auto_straighten": "Redresser automatiquement",
         "auto_white_balance": "Balance des blancs automatique",
         "brush_size_down": "Diminuer la taille du pinceau",
         "brush_size_up": "Augmenter la taille du pinceau",
@@ -1601,6 +1602,10 @@
         "size": "Taille du recadrage",
         "straightenTool": "Outil Redresser"
       },
+      "autoStraighten": "Auto",
+      "autoStraightenFailed": "Échec du redressement automatique : {{error}}",
+      "autoStraightenNoLines": "Aucune ligne droite trouvée pour redresser la photo",
+      "autoStraightenTitle": "Redresser la photo d’après l’horizon ou les verticales et ajuster le recadrage",
       "flipHorizontal": "Retourner horizontalement",
       "flipVertical": "Retourner verticalement",
       "grid": {

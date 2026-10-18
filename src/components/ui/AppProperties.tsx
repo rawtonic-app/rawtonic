@@ -95,6 +95,7 @@ export enum Invokes {
   IsTetheringSupported = 'is_tethering_supported',
   AutodetectLens = 'autodetect_lens',
   CalculateUpright = 'calculate_upright',
+  CalculateAutoStraighten = 'calculate_auto_straighten',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
   GetLensfunLensesForMaker = 'get_lensfun_lenses_for_maker',

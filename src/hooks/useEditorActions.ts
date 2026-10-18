@@ -23,7 +23,7 @@ import {
   withAiDenoiseVersion,
   withGrainStructure,
 } from '../utils/adjustments';
-import { calculateCenteredCrop } from '../utils/cropUtils';
+import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -290,6 +290,25 @@ export function useEditorActions() {
     } catch (err) {
       toast.error(`Failed to apply auto adjustments: ${err}`);
     }
+  }, [setAdjustments]);
+
+  /** Auto straighten (the crop tool's Auto): the backend levels the photo
+   * from its horizon or verticals and fits the crop without empty corners.
+   * The answer belongs to the photograph and the frame it was asked for:
+   * it is dropped when either changed meanwhile. One history step. */
+  const handleAutoStraighten = useCallback(async (): Promise<'done' | 'none' | 'stale'> => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.isReady) return 'stale';
+    const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
+    const result = await invoke<{ rotation: number; crop: Adjustments['crop'] } | null>(
+      Invokes.CalculateAutoStraighten,
+      { adjustments },
+    );
+    const now = useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
+    if (!isCurrentEditorImage(selectedImage.path) || reframingInputs(now) !== asked) return 'stale';
+    if (!result) return 'none';
+    setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
+    return 'done';
   }, [setAdjustments]);
 
   // Background only: a layer's white balance is a relative local correction.
@@ -675,6 +694,7 @@ export function useEditorActions() {
     handleRotate,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
+    handleAutoStraighten,
     handleLutSelect,
     setLutPreviewOverride,
     handleResetAdjustments,

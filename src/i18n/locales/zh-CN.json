@@ -1143,6 +1143,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "自动调整",
+        "auto_straighten": "自动拉直",
         "auto_white_balance": "自动白平衡",
         "brush_size_down": "减小画笔大小",
         "brush_size_up": "增大画笔大小",
@@ -1510,6 +1511,10 @@
         "size": "裁剪尺寸",
         "straightenTool": "拉直工具"
       },
+      "autoStraighten": "自动",
+      "autoStraightenFailed": "自动拉直失败：{{error}}",
+      "autoStraightenNoLines": "未找到可用于拉直照片的直线",
+      "autoStraightenTitle": "根据地平线或垂直线将照片拉直并调整裁剪",
       "flipHorizontal": "水平翻转",
       "flipVertical": "垂直翻转",
       "grid": {

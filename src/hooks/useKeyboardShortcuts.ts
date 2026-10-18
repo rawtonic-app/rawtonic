@@ -3,6 +3,7 @@ import { toast } from 'react-toastify';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
+import { runAutoStraighten } from '../utils/autoStraighten';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -64,6 +65,7 @@ export const useKeyboardShortcuts = ({
     toggleSplitView,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
+    handleAutoStraighten,
   } = useEditorActions();
   const { handleRate, handleSetColorLabel } = useLibraryActions();
 
@@ -448,6 +450,13 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           void handleAutoWhiteBalance();
+        },
+      },
+      auto_straighten: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady,
+        execute: (e) => {
+          e.preventDefault();
+          void runAutoStraighten(handleAutoStraighten);
         },
       },
       toggle_fullscreen: {
@@ -957,5 +966,6 @@ export const useKeyboardShortcuts = ({
     toggleSplitView,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
+    handleAutoStraighten,
   ]);
 };
