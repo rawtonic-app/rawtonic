@@ -340,6 +340,25 @@ pub mod synthetic {
     /// A minimal uncompressed 12-bit RGGB DNG (little-endian TIFF), written
     /// here so the test needs no photograph.
     pub fn synthetic_dng() -> Vec<u8> {
+        let samples: Vec<u16> = (0..HEIGHT)
+            .flat_map(|y| (0..WIDTH).map(move |x| sample(x, y)))
+            .collect();
+        mosaic_dng(WIDTH, HEIGHT, (2, 2), &[0, 1, 1, 2], &samples)
+    }
+
+    /// An uncompressed 12-bit mosaic DNG of `samples` (row-major, black 256,
+    /// white 4095) with the CFA pattern `cfa` (0 red, 1 green, 2 blue) of
+    /// `cfa_size` (columns, rows): 2 x 2 Bayer or 6 x 6 X-Trans. The
+    /// benchmarks' fallback when no RAW fixtures are present.
+    pub fn mosaic_dng(
+        width: u32,
+        height: u32,
+        cfa_size: (u16, u16),
+        cfa: &[u8],
+        samples: &[u16],
+    ) -> Vec<u8> {
+        assert_eq!(samples.len(), (width * height) as usize);
+        assert_eq!(cfa.len(), cfa_size.0 as usize * cfa_size.1 as usize);
         enum V {
             Short(Vec<u16>),
             Long(Vec<u32>),
@@ -348,9 +367,7 @@ pub mod synthetic {
             Rational(Vec<(u32, u32)>),
             SRational(Vec<(i32, i32)>),
         }
-        let pixels: Vec<u8> = (0..HEIGHT)
-            .flat_map(|y| (0..WIDTH).flat_map(move |x| sample(x, y).to_le_bytes()))
-            .collect();
+        let pixels: Vec<u8> = samples.iter().flat_map(|v| v.to_le_bytes()).collect();
         let matrix = [
             (8000, 10000),
             (-2500, 10000),
@@ -364,8 +381,8 @@ pub mod synthetic {
         ];
         let mut tags: Vec<(u16, V)> = vec![
             (254, V::Long(vec![0])),
-            (256, V::Long(vec![WIDTH])),
-            (257, V::Long(vec![HEIGHT])),
+            (256, V::Long(vec![width])),
+            (257, V::Long(vec![height])),
             (258, V::Short(vec![16])),
             (259, V::Short(vec![1])),
             (262, V::Short(vec![32803])),
@@ -374,11 +391,11 @@ pub mod synthetic {
             (273, V::Long(vec![0])),
             (274, V::Short(vec![6])),
             (277, V::Short(vec![1])),
-            (278, V::Long(vec![HEIGHT])),
+            (278, V::Long(vec![height])),
             (279, V::Long(vec![pixels.len() as u32])),
             (284, V::Short(vec![1])),
-            (33421, V::Short(vec![2, 2])),
-            (33422, V::Byte(vec![0, 1, 1, 2])),
+            (33421, V::Short(vec![cfa_size.1, cfa_size.0])),
+            (33422, V::Byte(cfa.to_vec())),
             (50706, V::Byte(vec![1, 4, 0, 0])),
             (50708, V::Ascii("Rawtonic Synthetic Mosaic")),
             (50714, V::Short(vec![256])),
@@ -490,6 +507,22 @@ mod tests {
         assert_eq!(facts.camera_matrices.len(), 1);
         assert!(facts.camera_matrices.values().next().unwrap()[0] == 0.8);
         assert!(!facts.gain_table_map);
+    }
+
+    #[test]
+    fn mosaic_dng_keeps_an_xtrans_pattern() {
+        // The benchmarks' X-Trans stand-in (crates/rawdecode/benches).
+        let cfa = [
+            1, 1, 0, 1, 1, 2, 1, 1, 2, 1, 1, 0, 2, 0, 1, 0, 2, 1, //
+            1, 1, 2, 1, 1, 0, 1, 1, 0, 1, 1, 2, 0, 2, 1, 2, 0, 1,
+        ];
+        let samples: Vec<u16> = (0..96 * 72).map(|i| 300 + (i * 7 % 3000) as u16).collect();
+        let fp = fingerprint(&mosaic_dng(96, 72, (6, 6), &cfa, &samples), true);
+        assert_eq!(fp.failed, None, "{:?}", fp.error);
+        let facts = fp.facts.expect("facts");
+        assert_eq!(facts.raw_size, [96, 72]);
+        assert_eq!(facts.cfa.as_deref().map(str::len), Some(36));
+        assert_eq!(fp.developed.expect("developed").size, [72, 96]);
     }
 
     #[test]

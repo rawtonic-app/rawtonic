@@ -1,7 +1,7 @@
 #!/bin/sh
 # Every quality gate, run locally before a merge into main (the same checks
 # as CI, which runs on Linux after the merge). Stops at the first failure.
-# Usage: scripts/check.sh [--quick] [--brief] [--changed]
+# Usage: scripts/check.sh [--quick] [--brief] [--changed] [--bench]
 #   --quick    skip the Rust test suite
 #   --brief    one line per step; a failing step prints only its last 40 lines
 #              (full log path given) — keeps agent context small
@@ -9,15 +9,20 @@
 #              change against origin/main (or $CHECK_BASE) touches
 #              (scripts/changed_scope.py);
 #              for use while working — run the full check before merging
+#   --bench    also the hot-path benchmarks A/B against origin/main (or
+#              $CHECK_BASE), failing on a slowdown beyond the noise band
+#              (scripts/bench/ab.sh; ~25 min with its builds, so opt-in: run it before
+#              shipping a performance-sensitive change)
 # Rust tests use cargo-nextest when installed (faster), else cargo test.
 set -eu
 cd "$(dirname "$0")/.."
-QUICK=0; BRIEF=0; CHANGED=0
+QUICK=0; BRIEF=0; CHANGED=0; BENCH=0
 for arg in "$@"; do
   case "$arg" in
     --quick) QUICK=1 ;;
     --brief) BRIEF=1 ;;
     --changed) CHANGED=1 ;;
+    --bench) BENCH=1 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -109,6 +114,10 @@ if [ "$DEPS" = 1 ]; then
   else
     printf '\n== dependencies: skipped (cargo-deny not installed)\n'
   fi
+fi
+if [ "$BENCH" = 1 ]; then
+  run "benchmarks: A/B against ${CHECK_BASE:-origin/main}" \
+    scripts/bench/ab.sh --base "${CHECK_BASE:-origin/main}" --fail-on-slower
 fi
 rm -rf "$LOGDIR"
 # A full pass on a clean tree lets scripts/ship.sh skip re-running the check.
