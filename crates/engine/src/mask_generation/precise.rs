@@ -61,7 +61,7 @@ pub(super) fn layer_mask(
                 height as usize,
                 radius * scale,
                 &sampler,
-                &RefineTuning::DEFAULT,
+                &RefineTuning::for_version(def.mask_version),
             );
         }
         MaskBitmap::from_coverage(width, height, &coverage)
@@ -494,6 +494,10 @@ pub(super) struct RefineTuning {
     residual: (f32, f32),
     /// Width of the fade back to the mask at the band's edge.
     taper: f32,
+    /// `maskVersion` 3: where the foreground colour is a mix of the
+    /// backgrounds on both sides of the mask, the side it is mostly made of
+    /// is the subject (a thin stroke inside a soft edge).
+    both_sides: bool,
 }
 
 impl RefineTuning {
@@ -502,8 +506,23 @@ impl RefineTuning {
         separation: (0.02, 0.06),
         residual: (0.5, 1.0),
         taper: 0.25,
+        both_sides: false,
     };
+
+    pub(super) fn for_version(version: Option<u32>) -> Self {
+        Self {
+            both_sides: version.is_some_and(|v| v >= 3),
+            ..Self::DEFAULT
+        }
+    }
 }
+
+/// `maskVersion` 3: how far past a pixel (in radii) the sure background on
+/// the far side of the mask is looked for.
+const REFINE_FAR_REACH: f32 = 4.0;
+/// `maskVersion` 3: the foreground colour must be at least this much more
+/// one side's than the other's to choose that side as the subject.
+const REFINE_MIX_MARGIN: f32 = 0.1;
 
 /// Share of the deepest distance from the 50% line at which the sure
 /// regions start when the radius reaches farther.
@@ -518,6 +537,13 @@ const SURE_SHARE: f32 = 0.8;
 /// mask is thinner than the radius, its deepest part is the sure region. Where
 /// F and B are alike, or the colour is far from their line, the mask keeps
 /// its own coverage; the band's edge fades back to the mask.
+///
+/// `maskVersion` 3 (`RefineTuning::both_sides`), for a mask thinner than the
+/// radius: a thin stroke inside a soft edge has the subject's interior
+/// outside it too, so B on one side is the subject. Where F lies on the line between the nearest B and the sure
+/// background on the far side of the mask, F is their mix and the side it
+/// is mostly made of becomes the foreground, the other the background.
+/// notes: reference/local-masks-baseline.md "Task AA".
 pub(super) fn refine_edge(
     coverage: &mut [f32],
     width: usize,
@@ -596,29 +622,101 @@ pub(super) fn refine_edge(
         radius.min(SURE_SHARE * deepest(1.0)),
         radius.min(SURE_SHARE * deepest(-1.0)),
     );
+    // Version 3 reads the far side only where the whole mask lies within
+    // the band (a thin stroke); a wider mask has a sure foreground of its
+    // own.
+    let both_sides = tuning.both_sides && deepest(1.0) < radius;
     let sure_f: Vec<bool> = (0..w * h)
         .map(|i| signed[i] >= depth_f.max(1.0) && finite(i))
         .collect();
     let sure_b: Vec<bool> = (0..w * h)
         .map(|i| signed[i] <= -depth_b.max(1.0) && finite(i))
         .collect();
-    let mean_f = sure_mean(&colours, &sure_f, w, h, smoothing);
-    let mean_b = sure_mean(&colours, &sure_b, w, h, smoothing);
     let (_, nearest_f) = distance_transform(&sure_f, w, h);
-    let (_, nearest_b) = distance_transform(&sure_b, w, h);
+    let (to_sure_b, nearest_b) = distance_transform(&sure_b, w, h);
+    // The sure background on the far side of a pixel from its nearest one:
+    // marched away from the nearest along the line through both, in steps
+    // of the distance to the nearest sure background (which cannot skip
+    // one).
+    let far_side = |i: usize| -> Option<usize> {
+        let nb = nearest_b[i] as usize;
+        let (x, y) = ((i % w) as f32, (i / w) as f32);
+        let (bx, by) = ((nb % w) as f32, (nb / w) as f32);
+        let (vx, vy) = (x - bx, y - by);
+        let len = vx.hypot(vy);
+        if len < 0.5 {
+            return None;
+        }
+        let (vx, vy) = (vx / len, vy / len);
+        let reach = REFINE_FAR_REACH * radius;
+        let mut t = 1.0f32;
+        while t <= reach {
+            let (qx, qy) = (x + vx * t, y + vy * t);
+            if qx < 0.0 || qy < 0.0 || qx > (w - 1) as f32 || qy > (h - 1) as f32 {
+                return None;
+            }
+            let q = qy.round() as usize * w + qx.round() as usize;
+            let d = to_sure_b[q].sqrt();
+            if d <= 1.0 {
+                let hit = nearest_b[q] as usize;
+                return (hit != u32::MAX as usize).then_some(hit);
+            }
+            t += d.max(1.0);
+        }
+        None
+    };
 
-    let refined: Vec<(usize, f32)> = (0..w * h)
+    // The band's pixels with their nearest sure foreground and background
+    // (and the far side's); the averaged colours are needed only there.
+    let band: Vec<(usize, usize, usize, Option<usize>)> = (0..w * h)
         .into_par_iter()
         .filter_map(|i| {
-            let distance = signed[i].abs();
-            if distance >= radius || !finite(i) {
+            if signed[i].abs() >= radius || !finite(i) {
                 return None;
             }
             let (nf, nb) = (nearest_f[i], nearest_b[i]);
             if nf == u32::MAX || nb == u32::MAX {
                 return None;
             }
-            let (f, b, c) = (mean_f[nf as usize], mean_b[nb as usize], colours[i]);
+            let far = if both_sides { far_side(i) } else { None };
+            Some((i, nf as usize, nb as usize, far))
+        })
+        .collect();
+    let mean_f = SureMeans::at(
+        &colours,
+        &sure_f,
+        w,
+        h,
+        smoothing,
+        band.iter().map(|p| p.1).collect(),
+    );
+    let mean_b = SureMeans::at(
+        &colours,
+        &sure_b,
+        w,
+        h,
+        smoothing,
+        band.iter()
+            .flat_map(|p| std::iter::once(p.2).chain(p.3))
+            .collect(),
+    );
+
+    let refined: Vec<(usize, f32)> = band
+        .par_iter()
+        .filter_map(|&(i, nf, nb, far)| {
+            let distance = signed[i].abs();
+            let (mut f, mut b, c) = (mean_f.get(nf), mean_b.get(nb), colours[i]);
+            if let Some(far) = far {
+                let b2 = mean_b.get(far);
+                if let Some((t, true)) = line_share(f, b, b2, AUTO_MASK_BAND)
+                    && (0.1..0.9).contains(&t)
+                    && (t - 0.5).abs() >= REFINE_MIX_MARGIN
+                {
+                    // f is a mix of b and b2: the one it is mostly made of
+                    // is the subject.
+                    (f, b) = if t >= 0.5 { (b, b2) } else { (b2, b) };
+                }
+            }
             let d = [f[0] - b[0], f[1] - b[1], f[2] - b[2]];
             let dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
             if dd <= 1e-12 {
@@ -646,42 +744,99 @@ pub(super) fn refine_edge(
     }
 }
 
-/// Each sure pixel's colour averaged with the sure pixels around it
-/// (normalised Gaussian convolution); other pixels are left zero.
-fn sure_mean(
-    colours: &[[f32; 3]],
-    sure: &[bool],
-    width: usize,
-    height: usize,
-    sigma: f32,
-) -> Vec<[f32; 3]> {
-    let mut weight: Vec<f32> = sure.iter().map(|s| *s as u8 as f32).collect();
-    gaussian_blur(&mut weight, width, height, sigma);
-    let channels: Vec<Vec<f32>> = (0..3)
-        .into_par_iter()
-        .map(|c| {
-            let mut channel: Vec<f32> = colours
-                .iter()
-                .zip(sure)
-                .map(|(colour, s)| if *s { colour[c] } else { 0.0 })
+/// Share of `a` in `c` on the line from `b` to `a`, and whether `c` lies
+/// within `band` × |a − b| of that line.
+fn line_share(c: [f32; 3], a: [f32; 3], b: [f32; 3], band: f32) -> Option<(f32, bool)> {
+    let axis = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    let len_sq = axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2];
+    if len_sq <= 1e-12 {
+        return None;
+    }
+    let d = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+    let t = (d[0] * axis[0] + d[1] * axis[1] + d[2] * axis[2]) / len_sq;
+    let r = [d[0] - t * axis[0], d[1] - t * axis[1], d[2] - t * axis[2]];
+    let r_sq = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+    Some((t, r_sq < band * band * len_sq))
+}
+
+/// Sure pixels' colours averaged with the sure pixels around them
+/// (normalised Gaussian convolution), computed only at the pixels asked
+/// for. Each value is bit for bit what blurring the whole region would give
+/// there (`gaussian_blur`'s kernel, border clamping and order of sums);
+/// other pixels read zero.
+struct SureMeans {
+    indices: Vec<usize>,
+    means: Vec<[f32; 3]>,
+}
+
+impl SureMeans {
+    fn at(
+        colours: &[[f32; 3]],
+        sure: &[bool],
+        width: usize,
+        height: usize,
+        sigma: f32,
+        mut indices: Vec<usize>,
+    ) -> Self {
+        indices.par_sort_unstable();
+        indices.dedup();
+        let radius = (sigma * 3.0).ceil() as isize;
+        let kernel: Vec<f32> = {
+            let raw: Vec<f32> = (-radius..=radius)
+                .map(|i| (-(i * i) as f32 / (2.0 * sigma * sigma)).exp())
                 .collect();
-            gaussian_blur(&mut channel, width, height, sigma);
-            channel
-        })
-        .collect();
-    (0..width * height)
-        .map(|i| {
-            if sure[i] && weight[i] > 0.0 {
-                [
-                    channels[0][i] / weight[i],
-                    channels[1][i] / weight[i],
-                    channels[2][i] / weight[i],
-                ]
-            } else {
-                [0.0; 3]
-            }
-        })
-        .collect()
+            let sum: f32 = raw.iter().sum();
+            raw.into_iter().map(|k| k / sum).collect()
+        };
+        let means = indices
+            .par_iter()
+            .map(|&i| {
+                if !sure[i] {
+                    return [0.0; 3];
+                }
+                let (x, y) = ((i % width) as isize, (i / width) as isize);
+                // Per channel (weight, r, g, b): the row sums first, then
+                // the column sum over them, as the separable blur does.
+                let mut total = [0.0f32; 4];
+                for (ky, wy) in kernel.iter().enumerate() {
+                    let yy = (y + ky as isize - radius).clamp(0, height as isize - 1) as usize;
+                    let mut row = [0.0f32; 4];
+                    for (kx, wx) in kernel.iter().enumerate() {
+                        let xx = (x + kx as isize - radius).clamp(0, width as isize - 1) as usize;
+                        let j = yy * width + xx;
+                        let (s, c) = if sure[j] {
+                            (1.0, colours[j])
+                        } else {
+                            (0.0, [0.0; 3])
+                        };
+                        row[0] += s * wx;
+                        row[1] += c[0] * wx;
+                        row[2] += c[1] * wx;
+                        row[3] += c[2] * wx;
+                    }
+                    for k in 0..4 {
+                        total[k] += row[k] * wy;
+                    }
+                }
+                if total[0] > 0.0 {
+                    [
+                        total[1] / total[0],
+                        total[2] / total[0],
+                        total[3] / total[0],
+                    ]
+                } else {
+                    [0.0; 3]
+                }
+            })
+            .collect();
+        Self { indices, means }
+    }
+
+    fn get(&self, i: usize) -> [f32; 3] {
+        self.indices
+            .binary_search(&i)
+            .map_or([0.0; 3], |k| self.means[k])
+    }
 }
 
 #[cfg(test)]
@@ -782,6 +937,126 @@ mod tests {
                     "offset {offset}, x {x}: {value} vs {expected}"
                 );
             }
+        }
+    }
+
+    /// `SureMeans` the old way: the whole region blurred.
+    fn sure_mean(
+        colours: &[[f32; 3]],
+        sure: &[bool],
+        width: usize,
+        height: usize,
+        sigma: f32,
+    ) -> Vec<[f32; 3]> {
+        let mut weight: Vec<f32> = sure.iter().map(|s| *s as u8 as f32).collect();
+        gaussian_blur(&mut weight, width, height, sigma);
+        let channels: Vec<Vec<f32>> = (0..3)
+            .into_par_iter()
+            .map(|c| {
+                let mut channel: Vec<f32> = colours
+                    .iter()
+                    .zip(sure)
+                    .map(|(colour, s)| if *s { colour[c] } else { 0.0 })
+                    .collect();
+                gaussian_blur(&mut channel, width, height, sigma);
+                channel
+            })
+            .collect();
+        (0..width * height)
+            .map(|i| {
+                if sure[i] && weight[i] > 0.0 {
+                    [
+                        channels[0][i] / weight[i],
+                        channels[1][i] / weight[i],
+                        channels[2][i] / weight[i],
+                    ]
+                } else {
+                    [0.0; 3]
+                }
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sure_means_match_blurring_the_whole_region() {
+        let (w, h) = (90usize, 70usize);
+        let colours: Vec<[f32; 3]> = (0..w * h)
+            .map(|i| {
+                let (x, y) = ((i % w) as f32, (i / w) as f32);
+                [
+                    (x * 0.37).sin().abs(),
+                    (y * 0.11).cos().abs(),
+                    ((x + y) * 0.05).fract(),
+                ]
+            })
+            .collect();
+        let sure: Vec<bool> = (0..w * h)
+            .map(|i| (i * 7919) % 13 < 9 && i % w > 3)
+            .collect();
+        for sigma in [0.75f32, 3.3] {
+            let whole = sure_mean(&colours, &sure, w, h, sigma);
+            let lazy = SureMeans::at(&colours, &sure, w, h, sigma, (0..w * h).rev().collect());
+            for (i, mean) in whole.iter().enumerate() {
+                assert_eq!(lazy.get(i), *mean, "sigma {sigma}, pixel {i}");
+            }
+        }
+    }
+
+    #[test]
+    fn refine_edge_v3_reads_a_thin_masks_far_side() {
+        // A thin stroke 8 px inside a 40 px wide soft edge: its sure
+        // foreground is itself a mix, and its inner outside is the subject.
+        // Version 2 takes that outside for background and drops the subject;
+        // version 3 keeps it and follows the photo's own mix.
+        let (width, height) = (240usize, 20usize);
+        let lut = srgb8_linear_lut();
+        let encode = |linear: f32| {
+            (0..256)
+                .min_by(|a, b| {
+                    (lut[*a] - linear)
+                        .abs()
+                        .total_cmp(&(lut[*b] - linear).abs())
+                })
+                .unwrap() as u8
+        };
+        let share = |x: f32| (0.5 - (x + 0.5 - 120.0) / 40.0).clamp(0.0, 1.0);
+        let image = image::RgbaImage::from_fn(width as u32, height as u32, |x, _| {
+            let a = share(x as f32);
+            Rgba([encode(0.8 * a), encode(0.05), encode(0.7 * (1.0 - a)), 255])
+        });
+        let source = ParametricMaskSource::new(
+            Arc::new(DynamicImage::ImageRgba8(image)),
+            (width as f64, height as f64),
+        )
+        .unwrap();
+        let sampler = SourceSampler::new(&source, 1.0, (0.0, 0.0));
+        let stroke: Vec<f32> = (0..width * height)
+            .map(|i| (((i % width) as f32 + 0.5 - 112.0).abs() < 20.0) as u8 as f32)
+            .collect();
+        let refined = |version: Option<u32>| {
+            let mut mask = stroke.clone();
+            refine_edge(
+                &mut mask,
+                width,
+                height,
+                30.0,
+                &sampler,
+                &RefineTuning::for_version(version),
+            );
+            mask[10 * width..11 * width].to_vec()
+        };
+        let (v2, v3) = (refined(Some(2)), refined(Some(3)));
+        let mean = |row: &[f32], xs: std::ops::Range<usize>| {
+            row[xs.clone()].iter().sum::<f32>() / xs.len() as f32
+        };
+        assert!(mean(&v2, 94..100) < 0.6, "version 2 {:?}", &v2[94..100]);
+        assert!(mean(&v3, 94..100) > 0.9, "version 3 {:?}", &v3[94..100]);
+        for (x, value) in v3.iter().enumerate().take(128).skip(104) {
+            let expected = share(x as f32);
+            assert!(
+                (value - expected).abs() < 0.1,
+                "x {x}: {value} vs {expected}"
+            );
         }
     }
 
@@ -919,7 +1194,7 @@ mod tests {
             )
             .unwrap();
             let sampler = SourceSampler::new(&source, 1.0, (0.0, 0.0));
-            let mask: Vec<f32> = (0..width * height)
+            let disc: Vec<f32> = (0..width * height)
                 .map(|i| {
                     let (x, y) = ((i % width) as f32, (i / width) as f32);
                     let d = ((x - width as f32 / 2.0).powi(2) + (y - height as f32 / 2.0).powi(2))
@@ -927,25 +1202,38 @@ mod tests {
                     (d < height as f32 * 0.4) as u8 as f32
                 })
                 .collect();
-            let mut times = Vec::new();
-            for _ in 0..5 {
-                let mut m = mask.clone();
-                let start = std::time::Instant::now();
-                refine_edge(
-                    &mut m,
-                    width as usize,
-                    height as usize,
-                    radius,
-                    &sampler,
-                    &RefineTuning::DEFAULT,
-                );
-                times.push(start.elapsed().as_secs_f64() * 1000.0);
+            // A thin stroke (narrower than the radius) across the photo.
+            let stroke: Vec<f32> = (0..width * height)
+                .map(|i| {
+                    let (x, y) = ((i % width) as f32, (i / width) as f32);
+                    let centre =
+                        height as f32 / 2.0 + (x / width as f32 * 9.0).sin() * radius * 3.0;
+                    ((y - centre).abs() < radius * 0.7) as u8 as f32
+                })
+                .collect();
+            for (shape, mask) in [("disc", &disc), ("thin stroke", &stroke)] {
+                for version in [2, 3] {
+                    let mut times = Vec::new();
+                    for _ in 0..5 {
+                        let mut m = mask.clone();
+                        let start = std::time::Instant::now();
+                        refine_edge(
+                            &mut m,
+                            width as usize,
+                            height as usize,
+                            radius,
+                            &sampler,
+                            &RefineTuning::for_version(Some(version)),
+                        );
+                        times.push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                    times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    println!(
+                        "refine_edge {width}x{height} radius {radius}, {shape}, version {version}: median {:.1} ms (min {:.1}, max {:.1})",
+                        times[2], times[0], times[4]
+                    );
+                }
             }
-            times.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            println!(
-                "refine_edge {width}x{height} radius {radius}: median {:.1} ms (min {:.1}, max {:.1})",
-                times[2], times[0], times[4]
-            );
         }
     }
 

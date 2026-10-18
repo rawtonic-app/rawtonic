@@ -44,12 +44,13 @@ pub struct MaskDefinition {
     pub adjustments: Value,
     pub sub_masks: Vec<SubMask>,
     /// 2: the layer's mask is computed in floating point and kept at 16 bits
-    /// (`mask_generation::generate_layer_mask`). Absent (every layer before
-    /// 2026-10-18): the 8-bit mask, unchanged.
+    /// (`mask_generation::generate_layer_mask`). 3: the same, with Refine
+    /// edge also reading a thin mask's far side (`precise::refine_edge`).
+    /// Absent (every layer before 2026-10-18): the 8-bit mask, unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mask_version: Option<u32>,
     /// Refine edge: radius in pixels of the full-resolution photo within
-    /// which the mask's edge follows the photo's (`maskVersion` 2 only).
+    /// which the mask's edge follows the photo's (`maskVersion` 2 and up).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refine_edge: Option<f32>,
 }
