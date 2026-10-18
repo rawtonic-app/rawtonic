@@ -615,6 +615,20 @@ pub(crate) async fn export_images_impl(
                 };
 
                 hydrate_adjustments(&state, &mut js_adjustments);
+                // The open photo's lens choice may still be looked up for the
+                // editor: the export looks it up as the save would.
+                if is_current_edit && crate::file_management::lens_pending(&js_adjustments) {
+                    let exif =
+                        crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path)
+                            .exif;
+                    let lens_db = crate::lens_correction::global_lens_db();
+                    crate::file_management::resolve_pending_lens(
+                        &mut js_adjustments,
+                        &exif,
+                        lens_db.as_deref(),
+                        &source_path,
+                    );
+                }
                 // A never-edited photo exports with the camera's lens data,
                 // as Develop shows it (profile corrections on by default).
                 crate::embedded_lens::apply_default(&mut js_adjustments, &source_path);

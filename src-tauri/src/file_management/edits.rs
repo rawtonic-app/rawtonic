@@ -52,6 +52,36 @@ fn chooses_lens(pasted: &Value) -> bool {
     })
 }
 
+/// A recipe rendered from the editor's state (an export of the open photo)
+/// whose lens parameters are still pending (a new lens choice looked up
+/// meanwhile): looked up as its save would, so the export never renders a
+/// lens choice without its correction. Other recipes are left alone.
+pub fn resolve_pending_lens(
+    adjustments: &mut Value,
+    exif_data: &Option<HashMap<String, String>>,
+    lens_db: Option<&crate::lens_correction::LensDatabase>,
+    source: &Path,
+) {
+    if lens_pending(adjustments) {
+        resolve_lens_params_in_adjustments(
+            adjustments,
+            LensLookup::Keep,
+            exif_data,
+            lens_db,
+            source,
+        );
+    }
+}
+
+/// Whether a recipe's lens parameters are marked pending.
+pub fn lens_pending(adjustments: &Value) -> bool {
+    adjustments
+        .get("lensDistortionParams")
+        .and_then(|params| params.get("pending"))
+        .and_then(Value::as_bool)
+        == Some(true)
+}
+
 /// The parameters of a database lens for a photo with `exif`: its focal
 /// length, aperture, distance and the body's crop factor from the 35 mm
 /// equivalent. The editor's lens lookup and the save use the same numbers.
@@ -115,11 +145,7 @@ pub fn resolve_lens_params_in_adjustments(
     lens_db: Option<&crate::lens_correction::LensDatabase>,
     source: &Path,
 ) {
-    let pending = adjustments
-        .get("lensDistortionParams")
-        .and_then(|params| params.get("pending"))
-        .and_then(Value::as_bool)
-        == Some(true);
+    let pending = lens_pending(adjustments);
     let keep = matches!(lookup, LensLookup::Keep) && !pending;
     if pending && let Some(map) = adjustments.as_object_mut() {
         map.remove("lensDistortionParams");
@@ -1046,6 +1072,15 @@ mod tests {
             "lensModel": model, "lensDistortionParams": {"pending": true}});
         resolve(&mut chosen, LensLookup::Keep);
         assert_eq!(chosen["lensDistortionParams"], current);
+        // An export of the editor's state resolves pending parameters too.
+        let mut exported = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": model, "lensDistortionParams": {"pending": true}});
+        resolve_pending_lens(&mut exported, &exif, Some(&db), source);
+        assert_eq!(exported["lensDistortionParams"], current);
+        let mut untouched = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": "RF 28mm F2.8 (old name)", "lensDistortionParams": old_params});
+        resolve_pending_lens(&mut untouched, &exif, Some(&db), source);
+        assert_eq!(untouched["lensDistortionParams"], old_params);
         // Pasted onto this photo, a lens choice is looked up for it.
         let mut pasted = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
             "lensModel": model, "lensDistortionParams": old_params});
