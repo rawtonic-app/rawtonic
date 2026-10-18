@@ -86,7 +86,10 @@ impl Driver for MockDriver {
 
     fn open(&mut self, port: Option<&str>) -> Result<Box<dyn Camera>, TetherError> {
         if port.is_some_and(|p| p != self.spec.port) {
-            return Err(TetherError::new(ErrorKind::NotFound, "No camera on that port."));
+            return Err(TetherError::new(
+                ErrorKind::NotFound,
+                "No camera on that port.",
+            ));
         }
         if self.spec.busy {
             return Err(TetherError::new(
@@ -110,7 +113,12 @@ impl Driver for MockDriver {
             body,
             settings: vec![
                 setting("iso", "ISO", "100", &["100", "200", "400", "800"]),
-                setting("shutterspeed", "Shutter speed", "1/125", &["1/60", "1/125", "1/250"]),
+                setting(
+                    "shutterspeed",
+                    "Shutter speed",
+                    "1/125",
+                    &["1/60", "1/125", "1/250"],
+                ),
                 setting("aperture", "Aperture", "f/8", &["f/4", "f/5.6", "f/8"]),
             ],
         }))
@@ -231,7 +239,9 @@ impl Camera for MockCamera {
             .settings
             .iter_mut()
             .find(|s| s.key == key)
-            .ok_or_else(|| TetherError::new(ErrorKind::Unsupported, format!("No setting {key}.")))?;
+            .ok_or_else(|| {
+                TetherError::new(ErrorKind::Unsupported, format!("No setting {key}."))
+            })?;
         if !setting.choices.iter().any(|c| c == value) {
             return Err(TetherError::new(
                 ErrorKind::BadValue,

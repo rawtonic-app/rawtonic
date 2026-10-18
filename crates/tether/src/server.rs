@@ -318,7 +318,9 @@ impl<W: Write> Server<W> {
             partial.abandon();
             std::process::exit(70);
         }
-        let published = partial.write(&data).and_then(|()| partial.publish(expected));
+        let published = partial
+            .write(&data)
+            .and_then(|()| partial.publish(expected));
         let path = match published {
             Ok(path) => path,
             Err(e) => return self.storage_failed(&file, e),

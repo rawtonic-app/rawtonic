@@ -30,6 +30,7 @@ pub struct Client {
     stdin: Mutex<Option<ChildStdin>>,
     waiting: Waiting,
     next: AtomicU64,
+    ended: Arc<AtomicBool>,
 }
 
 const LOG_TAIL: usize = 20;
@@ -90,7 +91,8 @@ impl Client {
         // its exit (another process started meanwhile can hold a copy of
         // its pipe, so the output may never end).
         let end = {
-            let (waiting, on_incoming, ended) = (waiting.clone(), on_incoming.clone(), ended.clone());
+            let (waiting, on_incoming, ended) =
+                (waiting.clone(), on_incoming.clone(), ended.clone());
             move || {
                 if ended.swap(true, Ordering::AcqRel) {
                     return;
@@ -162,6 +164,7 @@ impl Client {
             stdin: Mutex::new(stdin),
             waiting,
             next: AtomicU64::new(1),
+            ended,
         };
         match client.request(Request::Hello, Duration::from_secs(10))? {
             Reply::Hello { protocol, library } if protocol == PROTOCOL => Ok((client, library)),
@@ -197,12 +200,17 @@ impl Client {
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 self.waiting.lock().unwrap().remove(&id);
                 Err(TetherError::new(
-                    ErrorKind::Timeout,
+                    ErrorKind::Unresponsive,
                     "The camera did not answer in time.",
                 ))
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => Err(helper_gone()),
         }
+    }
+
+    /// Whether the helper still runs.
+    pub fn alive(&self) -> bool {
+        !self.ended.load(Ordering::Acquire)
     }
 
     /// Ends the helper at once (it hangs in the camera library, say).

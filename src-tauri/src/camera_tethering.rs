@@ -1,547 +1,828 @@
-#![allow(unused_variables)]
-
-use serde::Serialize;
-use std::collections::HashMap;
+//! Tethered shooting (G46; Capture One's Camera tool): the Tauri side of
+//! `rawtonic_tether`. The camera library runs in the helper process
+//! `rawtonic-tether` next to the app's executable; a crash or a hung USB
+//! transfer there ends only the helper, and the next command starts a new
+//! one.
+//!
+//! Every photo the helper downloads into the session's transfer folder
+//! (`rawtonic_tether::staging`) goes through the hot folder's
+//! `ingest_capture`: the verified no-clobber ingest into Capture with the
+//! session's filename template, and the next-capture adjustments, rating
+//! and keywords in the same transaction. What a photo is given is kept with
+//! its transfer file before the ingest starts, so after a crash it is
+//! ingested again with exactly that (and a copy the crash left unrecorded
+//! is recorded, not copied twice). The transfer copy is removed only once
+//! the photo is in the library. Nothing on the camera is deleted.
+use crate::hot_folder::{self, CaptureSettings, NextCapture, NextCaptureMetadata};
+use rawtonic_catalog::{ImportKind, Library};
+use rawtonic_tether::client::{Client, Incoming};
+use rawtonic_tether::protocol::{
+    CameraInfo, CameraStatus, Captured, ErrorKind, Event, Reply, Request, Setting, TetherError,
+};
+use rawtonic_tether::staging;
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 use tauri::ipc::Response;
+use tauri::{AppHandle, Emitter};
 
-#[cfg(feature = "tethering")]
-use crate::app_state::AppState;
-#[cfg(feature = "tethering")]
-use tauri::Manager;
+const QUICK: Duration = Duration::from_secs(15);
+const SLOW: Duration = Duration::from_secs(45);
+/// A capture request returns once the shutter fired; a camera that waits
+/// for the photo itself (no separate trigger) takes the exposure time too.
+const CAPTURE: Duration = Duration::from_secs(90);
 
-#[derive(Serialize)]
-pub struct CameraConfigChoice {
-    pub name: String,
-    pub current_value: String,
-    pub choices: Vec<String>,
+/// What the next photo is ingested with.
+#[derive(Debug, Clone)]
+struct CaptureConfig {
+    template: String,
+    settings: CaptureSettings,
 }
 
-#[cfg(feature = "tethering")]
-pub struct CameraSession {
-    pub context: Option<gphoto2::Context>,
-    pub camera: Option<gphoto2::Camera>,
+/// What a photo was given, kept with its transfer file before its ingest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Record {
+    sequence: u64,
+    template: String,
+    settings: CaptureSettings,
 }
 
-#[cfg(not(feature = "tethering"))]
-pub struct CameraSession {}
+struct Connection {
+    session: PathBuf,
+    status: CameraStatus,
+    config: Arc<Mutex<CaptureConfig>>,
+}
 
-impl CameraSession {
-    pub fn new() -> Self {
-        #[cfg(feature = "tethering")]
-        {
-            Self {
-                context: gphoto2::Context::new().ok(),
-                camera: None,
+struct Helper {
+    client: Arc<Client>,
+    library: Option<String>,
+    /// Where the helper's photos go (the connection's ingest), shared with
+    /// the callback that hears them.
+    ingest: Arc<Mutex<Option<mpsc::Sender<(Captured, Instant)>>>>,
+    connection: Option<Connection>,
+}
+
+/// The running helper. Never held while waiting for the helper: its reader
+/// thread may need it meanwhile.
+static HELPER: Mutex<Option<Helper>> = Mutex::new(None);
+/// The newest live-view frame.
+static FRAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+
+fn text(e: TetherError) -> String {
+    e.message
+}
+
+/// The helper's path, its arguments and environment. `RAWTONIC_TETHER_HELPER`
+/// overrides the path; `RAWTONIC_TETHER_MOCK` (a mock script, for tests and
+/// QA without a camera) starts the mock camera. Bundled camera drivers
+/// (packaging) are passed in libgphoto2's variables.
+fn helper_command() -> Result<(PathBuf, Vec<OsString>, Vec<(OsString, OsString)>), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().ok_or("no executable folder")?;
+    let path = std::env::var_os("RAWTONIC_TETHER_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| dir.join(rawtonic_tether::HELPER));
+    if !path.is_file() {
+        return Err("Tethering is not available in this build (no tether helper).".into());
+    }
+    let args = if std::env::var_os("RAWTONIC_TETHER_MOCK").is_some() {
+        vec!["--mock".into()]
+    } else {
+        vec![]
+    };
+    let mut envs = Vec::new();
+    for libs in [
+        dir.join("../Resources/gphoto2"),
+        dir.join("../lib/rawtonic/gphoto2"),
+    ] {
+        if libs.join("camlibs").is_dir() {
+            envs.push(("CAMLIBS".into(), libs.join("camlibs").into()));
+            envs.push(("IOLIBS".into(), libs.join("iolibs").into()));
+            break;
+        }
+    }
+    Ok((path, args, envs))
+}
+
+/// Emits the helper's events; photos go to the connection's ingest.
+fn on_incoming(
+    app: AppHandle,
+    ingest: Arc<Mutex<Option<mpsc::Sender<(Captured, Instant)>>>>,
+) -> impl Fn(Incoming) + Send + Sync + 'static {
+    move |incoming| match incoming {
+        Incoming::Event(Event::Captured { captured }) => {
+            let received = Instant::now();
+            let sent = ingest
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|tx| tx.send((captured.clone(), received)).is_ok());
+            if sent != Some(true) {
+                // Kept in the transfer folder; ingested on the next connect.
+                log::warn!(
+                    "Tether: {} arrived without a session; kept for the next connect",
+                    captured.path.display()
+                );
             }
         }
-        #[cfg(not(feature = "tethering"))]
-        {
-            Self {}
+        Incoming::Event(Event::CaptureFailed { error }) => {
+            let _ = app.emit("tether-capture-failed", error);
+        }
+        Incoming::Event(Event::SettingsChanged) => {
+            let _ = app.emit("tether-settings-changed", ());
+        }
+        Incoming::Event(Event::Disconnected { error }) => {
+            let _ = app.emit(
+                "tether-state",
+                json!({ "connected": false, "error": error }),
+            );
+        }
+        Incoming::Event(Event::LiveViewStopped { error }) => {
+            let _ = app.emit("tether-live-view-stopped", error);
+        }
+        Incoming::LiveView(jpeg) => *FRAME.lock().unwrap() = Some(jpeg),
+        Incoming::Exited(log) => {
+            log::warn!("Tether helper ended. Last log lines:\n{log}");
+            let error = TetherError::new(
+                ErrorKind::Disconnected,
+                "The tether helper stopped. Connect the camera again.",
+            );
+            let _ = app.emit(
+                "tether-state",
+                json!({ "connected": false, "error": error }),
+            );
         }
     }
 }
 
-unsafe impl Send for CameraSession {}
-unsafe impl Sync for CameraSession {}
-
-#[tauri::command]
-pub async fn tether_list_cameras() -> Result<Vec<String>, String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            let context = gphoto2::Context::new()
-                .map_err(|e| format!("Failed to create gphoto2 context: {}", e))?;
-            let cameras = gphoto2::Camera::autodetect(&context).map_err(|e| e.to_string())?;
-            Ok(cameras
-                .into_iter()
-                .map(|c| format!("{} ({})", c.model, c.port))
-                .collect())
-        })
-        .await
-        .map_err(|e| format!("Task panicked: {}", e))?
+/// The running helper's client (started when there is none or the last one
+/// ended).
+fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
+    let mut helper = HELPER.lock().unwrap();
+    if let Some(h) = helper.as_ref() {
+        if h.client.alive() {
+            return Ok(h.client.clone());
+        }
+        log::info!("Tether helper gone; starting a new one");
     }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
+    let (path, args, envs) = helper_command()?;
+    let ingest = Arc::new(Mutex::new(None));
+    let (client, library) = Client::spawn(
+        &path,
+        &args,
+        &envs,
+        on_incoming(app.clone(), ingest.clone()),
+    )
+    .map_err(text)?;
+    let client = Arc::new(client);
+    *helper = Some(Helper {
+        client: client.clone(),
+        library,
+        ingest,
+        connection: None,
+    });
+    Ok(client)
 }
 
-#[tauri::command]
-pub async fn tether_connect(app_handle: tauri::AppHandle) -> Result<String, String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            let state = app_handle.state::<AppState>();
-
-            {
-                let mut session = state.camera_session.lock().unwrap();
-                session.camera = None;
+/// Sends a request to the helper; one that hangs is ended (its next use
+/// starts a new helper).
+fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply, String> {
+    let client = client(app)?;
+    match client.request(request, timeout) {
+        Err(e) if e.kind == ErrorKind::Unresponsive => {
+            client.kill();
+            Err(format!(
+                "{} The tether helper was stopped; connect the camera again.",
+                e.message
+            ))
+        }
+        Err(e) if e.kind == ErrorKind::Disconnected => {
+            if let Some(h) = HELPER.lock().unwrap().as_mut() {
+                h.connection = None;
             }
-
-            std::thread::sleep(std::time::Duration::from_millis(150));
-
-            let context = gphoto2::Context::new()
-                .map_err(|e| format!("Failed to initialize gphoto2 context: {}", e))?;
-
-            let cameras = gphoto2::Camera::autodetect(&context).map_err(|e| e.to_string())?;
-            let descriptor = cameras.into_iter().next().ok_or("No camera found")?;
-
-            let camera = match gphoto2::Camera::open(&context, &descriptor.model, &descriptor.port)
-            {
-                Ok(cam) => cam,
-                Err(_) => {
-                    std::thread::sleep(std::time::Duration::from_millis(300));
-                    gphoto2::Camera::open(&context, &descriptor.model, &descriptor.port)
-                        .map_err(|e| format!("Failed to connect to camera: {}", e))?
-                }
-            };
-
-            if let Ok(widget) = camera.get_single_config(&context, "capturetarget") {
-                let choices = widget.choices().unwrap_or_default();
-                if let Some(ram_choice) = choices.iter().find(|c| {
-                    let lower = c.to_lowercase();
-                    lower.contains("ram") || lower.contains("sdram")
-                }) {
-                    let _ = widget.set_choice(ram_choice);
-                    let _ = camera.set_single_config(&context, "capturetarget", &widget);
-                }
-            }
-
-            for drive_key in &["drivemode", "drive-mode"] {
-                if let Ok(widget) = camera.get_single_config(&context, drive_key) {
-                    let choices = widget.choices().unwrap_or_default();
-                    if let Some(single_choice) = choices.iter().find(|c| {
-                        let lower = c.to_lowercase();
-                        lower.contains("single") || lower == "1" || lower.contains("standard")
-                    }) {
-                        let _ = widget.set_choice(single_choice);
-                        let _ = camera.set_single_config(&context, drive_key, &widget);
-                        break;
-                    }
-                }
-            }
-
-            let _ = camera.capture_preview(&context);
-
-            for _ in 0..15 {
-                if let Ok(event) =
-                    camera.wait_for_event(&context, std::time::Duration::from_millis(30))
-                    && let gphoto2::CameraEvent::Timeout = event
-                {
-                    break;
-                }
-            }
-
-            let model_name = descriptor.model.clone();
-
-            {
-                let mut session = state.camera_session.lock().unwrap();
-                session.context = Some(context);
-                session.camera = Some(camera);
-            }
-
-            Ok(format!("Connected to {}", model_name))
-        })
-        .await
-        .map_err(|e| format!("Task panicked: {}", e))?
+            Err(e.message)
+        }
+        other => other.map_err(text),
     }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
 }
 
-#[tauri::command]
-pub async fn tether_get_settings(
-    app_handle: tauri::AppHandle,
-) -> Result<HashMap<String, CameraConfigChoice>, String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            use gphoto2::widget::WidgetValue;
-
-            let state = app_handle.state::<AppState>();
-            let session = state.camera_session.lock().unwrap();
-            let camera = session.camera.as_ref().ok_or("No camera connected")?;
-            let context = session.context.as_ref().ok_or("No context initialized")?;
-
-            let keys_to_query: [(&str, &[&str]); 8] = [
-                ("iso", &["iso", "iso-speed", "ISO"]),
-                (
-                    "shutterspeed",
-                    &["shutterspeed", "exposure-time", "exposurespeed"],
-                ),
-                ("aperture", &["f-number", "aperture", "fnumber"]),
-                ("whitebalance", &["whitebalance", "white-balance"]),
-                (
-                    "colortemperature",
-                    &[
-                        "colortemperature",
-                        "colortemp",
-                        "wbcolortemperature",
-                        "whitebalancetemperature",
-                    ],
-                ),
-                (
-                    "exposurecompensation",
-                    &["exposurecompensation", "exposurebias", "exposure-bias"],
-                ),
-                (
-                    "exposuremode",
-                    &[
-                        "autoexposuremode",
-                        "expprogram",
-                        "shootingmode",
-                        "exposure-program",
-                    ],
-                ),
-                (
-                    "meteringmode",
-                    &["meteringmode", "metering-mode", "exposuremeteringmode"],
-                ),
-            ];
-
-            let mut attempts = 0;
-            let mut map = HashMap::new();
-
-            while attempts < 3 {
-                map.clear();
-
-                for &b_key in &["batterylevel", "battery", "battery-level"] {
-                    if let Ok(widget) = camera.get_single_config(context, b_key) {
-                        let current_value = match widget.value() {
-                            Ok(WidgetValue::Choice(s)) => s,
-                            Ok(WidgetValue::Text(s)) => s,
-                            Ok(WidgetValue::Range(f)) => f.to_string(),
-                            _ => continue,
-                        };
-                        map.insert(
-                            "batterylevel".to_string(),
-                            CameraConfigChoice {
-                                name: "batterylevel".to_string(),
-                                current_value,
-                                choices: vec![],
-                            },
-                        );
-                        break;
-                    }
-                }
-
-                for (frontend_key, aliases) in keys_to_query.iter() {
-                    for &camera_key in *aliases {
-                        if let Ok(widget) = camera.get_single_config(context, camera_key) {
-                            let current_value = match widget.value() {
-                                Ok(WidgetValue::Choice(s)) => s,
-                                Ok(WidgetValue::Text(s)) => s,
-                                Ok(WidgetValue::Range(f)) => f.to_string(),
-                                _ => continue,
-                            };
-
-                            let choices = widget.choices().unwrap_or_default();
-
-                            map.insert(
-                                frontend_key.to_string(),
-                                CameraConfigChoice {
-                                    name: frontend_key.to_string(),
-                                    current_value,
-                                    choices,
-                                },
-                            );
-                            break;
-                        }
-                    }
-                }
-
-                let has_glitched_values = map.values().any(|cfg| {
-                    cfg.current_value.contains("65535")
-                        || cfg.current_value.contains("Unknown value 0000")
-                });
-
-                if !has_glitched_values && !map.is_empty() {
-                    break;
-                }
-
-                attempts += 1;
-                let _ = camera.wait_for_event(context, std::time::Duration::from_millis(200));
-            }
-
-            Ok(map)
-        })
+async fn blocking<T: Send + 'static>(
+    f: impl FnOnce() -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f)
         .await
-        .map_err(|e| format!("Task panicked: {}", e))?
-    }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
+        .map_err(|e| e.to_string())?
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TetherCameras {
+    /// libgphoto2's version (`None`: the mock camera).
+    pub library: Option<String>,
+    pub cameras: Vec<CameraInfo>,
+}
+
+/// Starts the helper if needed and lists the cameras on USB. Fails when
+/// this build has no helper, or the helper does not answer as this app's.
 #[tauri::command]
-pub async fn tether_set_setting(
-    app_handle: tauri::AppHandle,
-    setting_name: String,
-    value: String,
+pub async fn tether_cameras(app: AppHandle) -> Result<TetherCameras, String> {
+    blocking(move || {
+        let Reply::Cameras { cameras } = request(&app, Request::ListCameras, SLOW)? else {
+            return Err("Unexpected answer from the tether helper.".into());
+        };
+        let library = HELPER
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|h| h.library.clone());
+        Ok(TetherCameras { library, cameras })
+    })
+    .await
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TetherStatus {
+    pub session: PathBuf,
+    pub camera: CameraStatus,
+}
+
+/// Tells the interface (`AppHandle::emit` in the app).
+type Notify = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+
+fn notify_app(app: AppHandle) -> Notify {
+    Arc::new(move |name: &str, value: serde_json::Value| {
+        let _ = app.emit(name, value);
+    })
+}
+
+/// A connection's ingest: one library connection, the captures of the
+/// connection form one import batch. First ingests what an earlier run
+/// left in the transfer folder.
+fn spawn_ingest(
+    notify: Notify,
+    session: PathBuf,
+    config: Arc<Mutex<CaptureConfig>>,
+    photos: mpsc::Receiver<(Captured, Instant)>,
 ) -> Result<(), String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            use gphoto2::widget::WidgetType;
-
-            let state = app_handle.state::<AppState>();
-            let session = state.camera_session.lock().unwrap();
-            let camera = session.camera.as_ref().ok_or("No camera connected")?;
-            let context = session.context.as_ref().ok_or("No context initialized")?;
-
-            let aliases: &[&str] = match setting_name.as_str() {
-                "iso" => &["iso", "iso-speed", "ISO"],
-                "shutterspeed" => &["shutterspeed", "exposure-time", "exposurespeed"],
-                "aperture" => &["f-number", "aperture", "fnumber"],
-                "whitebalance" => &["whitebalance", "white-balance"],
-                "colortemperature" => &[
-                    "colortemperature",
-                    "colortemp",
-                    "wbcolortemperature",
-                    "whitebalancetemperature",
-                ],
-                "exposurecompensation" => {
-                    &["exposurecompensation", "exposurebias", "exposure-bias"]
+    let root = staging::root(&session);
+    std::thread::Builder::new()
+        .name("tether-ingest".into())
+        .spawn(move || {
+            let lib = match Library::open(&session) {
+                Ok(lib) => lib,
+                Err(e) => {
+                    notify("tether-error", json!(format!("{e:#}")));
+                    return;
                 }
-                "exposuremode" => &[
-                    "autoexposuremode",
-                    "expprogram",
-                    "shootingmode",
-                    "exposure-program",
-                ],
-                "meteringmode" => &["meteringmode", "metering-mode", "exposuremeteringmode"],
-                _ => &[],
             };
-
-            let mut applied = false;
-            let mut last_err = None;
-
-            for &camera_key in aliases {
-                if let Ok(widget) = camera.get_single_config(context, camera_key)
-                    && let Ok(widget_type) = widget.widget_type()
-                {
-                    let set_ok = match widget_type {
-                        WidgetType::Radio | WidgetType::Menu => widget.set_choice(&value).is_ok(),
-                        WidgetType::Text => widget.set_text(&value).is_ok(),
-                        _ => {
-                            let clean_val = value.replace("K", "").trim().to_string();
-                            if let Ok(parsed_f) = clean_val.parse::<f32>() {
-                                widget
-                                    .set_value(&gphoto2::widget::WidgetValue::Range(parsed_f))
-                                    .is_ok()
-                            } else {
-                                false
-                            }
-                        }
-                    };
-
-                    if set_ok {
-                        match camera.set_single_config(context, camera_key, &widget) {
-                            Ok(_) => {
-                                applied = true;
-                                break;
-                            }
-                            Err(e) => {
-                                let msg = e.to_string().to_lowercase();
-                                if msg.contains("read-only")
-                                    || msg.contains("readonly")
-                                    || msg.contains("locked")
-                                {
-                                    last_err = Some(format!(
-                                        "{} is physically locked (e.g. physical dial).",
-                                        setting_name
-                                    ));
-                                } else {
-                                    last_err =
-                                        Some(format!("Failed to set {}: {}", setting_name, e));
-                                }
-                            }
-                        }
+            let _batch = lib.import_batch(ImportKind::Tether);
+            let mut ingest = Ingest {
+                notify: &*notify,
+                lib: &lib,
+                root: &root,
+                config: &config,
+                previous: None,
+            };
+            match staging::recover(&root) {
+                Ok(recovered) => {
+                    for path in recovered.incomplete {
+                        log::warn!("Tether: incomplete download kept at {}", path.display());
+                        notify("tether-incomplete", json!(path));
+                    }
+                    for path in recovered.complete {
+                        ingest.one(&path, None);
                     }
                 }
+                Err(e) => log::warn!("Tether: the transfer folder cannot be read: {e}"),
             }
-
-            if !applied {
-                if let Some(err) = last_err {
-                    return Err(err);
-                }
-                return Err(format!("Failed to set {} to {}", setting_name, value));
+            while let Ok((captured, received)) = photos.recv() {
+                ingest.one(&captured.path.clone(), Some((captured, received)));
             }
-
-            Ok(())
         })
-        .await
-        .map_err(|e| format!("Task panicked: {}", e))?
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// One photo the tether brought in, for the interface.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TetherCaptured {
+    pub camera_name: String,
+    pub destination: Option<PathBuf>,
+    pub asset_id: Option<String>,
+    pub skipped: bool,
+    pub error: Option<String>,
+    /// Fired by the app (else on the body, or left from an earlier run).
+    pub requested: bool,
+    /// From the app's request (or the camera's report) to: the camera's
+    /// report, the complete download, the photo in the library.
+    pub ms_to_event: Option<u64>,
+    pub ms_to_downloaded: Option<u64>,
+    pub ms_to_ingested: Option<u64>,
+}
+
+struct Ingest<'a> {
+    notify: &'a (dyn Fn(&str, serde_json::Value) + Send + Sync),
+    lib: &'a Library,
+    root: &'a Path,
+    config: &'a Mutex<CaptureConfig>,
+    /// The last capture (Copy from last capture).
+    previous: Option<String>,
+}
+
+impl Ingest<'_> {
+    /// The record kept with a transfer file, written now if there is none.
+    fn record(&self, path: &Path) -> Result<Record, String> {
+        if let Ok(Some(value)) = staging::read_record(self.root, path)
+            && let Ok(record) = serde_json::from_value(value)
+        {
+            return Ok(record);
+        }
+        let config = self.config.lock().unwrap().clone();
+        let record = Record {
+            sequence: self.lib.summary().map(|s| s.assets as u64 + 1).unwrap_or(1),
+            template: config.template,
+            settings: hot_folder::resolved(self.lib, &config.settings, self.previous.as_deref()),
+        };
+        let value = serde_json::to_value(&record).map_err(|e| e.to_string())?;
+        staging::write_record(self.root, path, &value).map_err(|e| e.to_string())?;
+        // A record written meanwhile (never, with one ingest per session)
+        // would stand; read back what is kept.
+        match staging::read_record(self.root, path) {
+            Ok(Some(value)) => serde_json::from_value(value).map_err(|e| e.to_string()),
+            _ => Ok(record),
+        }
     }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
+
+    fn one(&mut self, path: &Path, captured: Option<(Captured, Instant)>) {
+        let camera_name = captured
+            .as_ref()
+            .map(|(c, _)| c.camera_name.clone())
+            .or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))
+            .unwrap_or_default();
+        let (result, asset) = match self.record(path) {
+            Ok(record) => hot_folder::ingest_capture(
+                self.lib,
+                path,
+                &record.template,
+                record.sequence,
+                &record.settings,
+                None,
+                None,
+                &AtomicBool::new(false),
+            ),
+            Err(e) => (
+                hot_folder::Imported {
+                    source: path.into(),
+                    destination: None,
+                    skipped: false,
+                    error: Some(format!("The capture could not be prepared: {e}")),
+                },
+                None,
+            ),
+        };
+        if asset.is_some() || result.skipped {
+            // In the library (or a verified duplicate of a photo there).
+            if let Err(e) = staging::finish(self.root, path) {
+                log::warn!("Tether: transfer copy {} not removed: {e}", path.display());
+            }
+        } else if let Some(error) = &result.error {
+            log::warn!(
+                "Tether: {} kept in the transfer folder, ingested on the next connect: {error}",
+                path.display()
+            );
+        }
+        if let Some(asset) = &asset {
+            self.previous = Some(asset.clone());
+        }
+        let timing = captured.as_ref();
+        let event = TetherCaptured {
+            camera_name,
+            destination: result.destination,
+            asset_id: asset,
+            skipped: result.skipped,
+            error: result.error,
+            requested: timing.is_some_and(|(c, _)| c.requested),
+            ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
+            ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
+            ms_to_ingested: timing
+                .map(|(c, received)| c.ms_to_downloaded + received.elapsed().as_millis() as u64),
+        };
+        (self.notify)("tether-captured", json!(event));
+    }
+}
+
+fn capture_settings(
+    next_capture: NextCapture,
+    metadata: Option<NextCaptureMetadata>,
+) -> Result<CaptureSettings, String> {
+    Ok(CaptureSettings {
+        next_capture,
+        metadata: metadata.unwrap_or_default().cleaned()?,
+    })
+}
+
+fn check_template(template: &str) -> Result<(), String> {
+    rawtonic_naming::render(template, &rawtonic_naming::Context::new("A.ARW", 1))
+        .map(|_| ())
+        .map_err(|e| format!("Filename template: {e}"))
+}
+
+/// Opens the camera on `port` (the first one when `None`) for the library
+/// in `directory`: its photos are ingested into that session's Capture.
+#[tauri::command]
+pub async fn tether_connect(
+    directory: String,
+    port: Option<String>,
+    template: String,
+    next_capture: NextCapture,
+    metadata: Option<NextCaptureMetadata>,
+    app: AppHandle,
+) -> Result<TetherStatus, String> {
+    blocking(move || {
+        check_template(&template)?;
+        let settings = capture_settings(next_capture, metadata)?;
+        let session = Path::new(&directory)
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        drop(Library::open(&session).map_err(|e| format!("{e:#}"))?);
+        // The earlier connection's ingest finishes what it has.
+        disconnect_locally();
+        let Reply::Connected { status } = request(
+            &app,
+            Request::Connect {
+                port,
+                staging: staging::root(&session),
+            },
+            SLOW,
+        )?
+        else {
+            return Err("Unexpected answer from the tether helper.".into());
+        };
+        let config = Arc::new(Mutex::new(CaptureConfig { template, settings }));
+        let (tx, rx) = mpsc::channel();
+        spawn_ingest(notify_app(app.clone()), session.clone(), config.clone(), rx)?;
+        let mut helper = HELPER.lock().unwrap();
+        let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
+        *helper.ingest.lock().unwrap() = Some(tx);
+        helper.connection = Some(Connection {
+            session: session.clone(),
+            status: status.clone(),
+            config,
+        });
+        Ok(TetherStatus {
+            session,
+            camera: status,
+        })
+    })
+    .await
+}
+
+/// Forgets the connection here (its ingest ends after the photos it has).
+fn disconnect_locally() {
+    if let Some(h) = HELPER.lock().unwrap().as_mut() {
+        h.ingest.lock().unwrap().take();
+        h.connection = None;
+    }
+    FRAME.lock().unwrap().take();
 }
 
 #[tauri::command]
-pub async fn tether_autofocus(app_handle: tauri::AppHandle) -> Result<(), String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            let state = app_handle.state::<AppState>();
-            let session = state.camera_session.lock().unwrap();
-            let camera = session.camera.as_ref().ok_or("No camera connected")?;
-            let context = session.context.as_ref().ok_or("No context initialized")?;
+pub async fn tether_disconnect(app: AppHandle) -> Result<(), String> {
+    blocking(move || {
+        let running = HELPER.lock().unwrap().is_some();
+        if running {
+            let _ = request(&app, Request::Disconnect, QUICK);
+        }
+        disconnect_locally();
+        Ok(())
+    })
+    .await
+}
 
-            let mut triggered_key = None;
-
-            for &af_key in &["autofocusdrive", "autofocus", "eosviewfinder"] {
-                if let Ok(widget) = camera.get_single_config(context, af_key) {
-                    let mut success = false;
-
-                    if widget.set_choice("1").is_ok() || widget.set_choice("On").is_ok() {
-                        if camera.set_single_config(context, af_key, &widget).is_ok() {
-                            success = true;
-                        }
-                    } else if widget
-                        .set_value(&gphoto2::widget::WidgetValue::Toggle(true))
-                        .is_ok()
-                        && camera.set_single_config(context, af_key, &widget).is_ok()
-                    {
-                        success = true;
-                    }
-
-                    if success {
-                        triggered_key = Some(af_key);
-                        break;
-                    }
-                }
-            }
-
-            let _ = camera.wait_for_event(context, std::time::Duration::from_millis(1000));
-
-            if let Some(key) = triggered_key
-                && let Ok(widget) = camera.get_single_config(context, key)
-            {
-                let _ = widget.set_choice("0");
-                let _ = widget.set_choice("Off");
-                let _ = widget.set_value(&gphoto2::widget::WidgetValue::Toggle(false));
-                let _ = camera.set_single_config(context, key, &widget);
-            }
-
-            Ok(())
-        })
-        .await
-        .map_err(|e| format!("Task panicked: {}", e))?
-    }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
+/// The connected camera, if any (for a window opened later).
+#[tauri::command]
+pub fn tether_status() -> Option<TetherStatus> {
+    let helper = HELPER.lock().unwrap();
+    let connection = helper.as_ref()?.connection.as_ref()?;
+    Some(TetherStatus {
+        session: connection.session.clone(),
+        camera: connection.status.clone(),
+    })
 }
 
 #[tauri::command]
-pub async fn tether_get_preview(app_handle: tauri::AppHandle) -> Result<Response, String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            let state = app_handle.state::<AppState>();
-            let session = state.camera_session.lock().unwrap();
-            let camera = session.camera.as_ref().ok_or("No camera connected")?;
-            let context = session.context.as_ref().ok_or("No context initialized")?;
-
-            let file = camera
-                .capture_preview(context)
-                .map_err(|e| format!("Failed to capture preview: {}", e))?;
-
-            let data = file.data().map_err(|e| e.to_string())?;
-
-            Ok(Response::new(data.to_vec()))
-        })
-        .await
-        .map_err(|e| format!("Task panicked: {}", e))?
-    }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
+pub async fn tether_settings(app: AppHandle) -> Result<Vec<Setting>, String> {
+    blocking(move || match request(&app, Request::Settings, SLOW)? {
+        Reply::Settings { settings } => Ok(settings),
+        _ => Err("Unexpected answer from the tether helper.".into()),
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn tether_capture(
-    app_handle: tauri::AppHandle,
-    destination_folder: Option<String>,
-) -> Result<String, String> {
-    #[cfg(feature = "tethering")]
-    {
-        tauri::async_runtime::spawn_blocking(move || {
-            let state = app_handle.state::<AppState>();
-            let session = state.camera_session.lock().unwrap();
-            let camera = session.camera.as_ref().ok_or("No camera connected")?;
-            let context = session.context.as_ref().ok_or("No context initialized")?;
-
-            while let Ok(event) =
-                camera.wait_for_event(context, std::time::Duration::from_millis(10))
-            {
-                if let gphoto2::CameraEvent::Timeout = event {
-                    break;
-                }
-            }
-
-            let camera_file_path = camera
-                .capture_image(context)
-                .map_err(|e| format!("Capture failed: {}", e))?;
-
-            let file = camera
-                .download(context, &camera_file_path)
-                .map_err(|e| format!("Download failed: {}", e))?;
-
-            let save_dir = destination_folder
-                .unwrap_or_else(|| std::env::temp_dir().to_string_lossy().to_string());
-            let data = file.data().map_err(|e| e.to_string())?;
-            let output_path = save_capture(
-                std::path::Path::new(&save_dir),
-                &camera_file_path.name,
-                data,
-            )?;
-
-            // Only a capture saved and read back in full leaves the camera.
-            let _ = camera.delete_file(context, &camera_file_path.folder, &camera_file_path.name);
-
-            Ok(output_path.to_string_lossy().to_string())
-        })
-        .await
-        .map_err(|e| format!("Task panicked: {}", e))?
-    }
-    #[cfg(not(feature = "tethering"))]
-    Err("Tethering is not supported in this build.".into())
+pub async fn tether_set_setting(key: String, value: String, app: AppHandle) -> Result<(), String> {
+    blocking(move || request(&app, Request::SetSetting { key, value }, QUICK).map(|_| ())).await
 }
 
-/// Saves a downloaded capture without replacing an earlier one of the same
-/// name (cameras restart their numbering): `NAME.EXT`, else `NAME_1.EXT` …,
-/// written through a synced temporary file and published no-clobber. Fails
-/// unless the saved file reads back with the downloaded size.
-#[cfg_attr(not(feature = "tethering"), allow(dead_code))]
-pub(crate) fn save_capture(
-    folder: &std::path::Path,
-    name: &str,
-    data: &[u8],
-) -> Result<std::path::PathBuf, String> {
-    let path =
-        rawtonic_ingest::choose_destination(folder, name, rawtonic_ingest::CollisionPolicy::Suffix)
-            .map_err(|e| format!("Failed to save captured file: {e}"))?
-            .ok_or("Failed to save captured file: no free name")?;
-    rawtonic_export::output::write_new_output(&path, data)
-        .map_err(|e| format!("Failed to save captured file: {e}"))?;
-    let written = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    if written != data.len() as u64 {
-        return Err(format!(
-            "Captured file saved incompletely ({written} of {} bytes); it stays on the camera",
-            data.len()
-        ));
-    }
-    Ok(path)
+/// Fires the shutter; the photo arrives as `tether-captured`.
+#[tauri::command]
+pub async fn tether_capture(app: AppHandle) -> Result<(), String> {
+    blocking(move || request(&app, Request::Capture, CAPTURE).map(|_| ())).await
+}
+
+#[tauri::command]
+pub async fn tether_autofocus(app: AppHandle) -> Result<(), String> {
+    blocking(move || request(&app, Request::Autofocus, QUICK).map(|_| ())).await
+}
+
+#[tauri::command]
+pub async fn tether_live_view(on: bool, app: AppHandle) -> Result<(), String> {
+    blocking(move || {
+        if !on {
+            FRAME.lock().unwrap().take();
+        }
+        request(&app, Request::LiveView { on }, QUICK).map(|_| ())
+    })
+    .await
+}
+
+/// The newest live-view frame (a camera JPEG), empty when there is none
+/// yet. Each frame is handed out once.
+#[tauri::command]
+pub fn tether_live_view_frame() -> Response {
+    Response::new(FRAME.lock().unwrap().take().unwrap_or_default())
+}
+
+/// Changes what the next photos are ingested with.
+#[tauri::command]
+pub fn tether_next_capture(
+    template: String,
+    next_capture: NextCapture,
+    metadata: Option<NextCaptureMetadata>,
+) -> Result<(), String> {
+    check_template(&template)?;
+    let settings = capture_settings(next_capture, metadata)?;
+    let helper = HELPER.lock().unwrap();
+    let connection = helper
+        .as_ref()
+        .and_then(|h| h.connection.as_ref())
+        .ok_or("No camera is connected.")?;
+    *connection.config.lock().unwrap() = CaptureConfig { template, settings };
+    Ok(())
 }
 
 #[cfg(test)]
-mod capture_tests {
-    use super::save_capture;
+mod tests {
+    use super::*;
+    use rawtonic_catalog::Mode;
+    use rawtonic_tether::mock::MockSpec;
+    use std::collections::HashSet;
+    use std::fs;
+
+    /// The helper binary cargo built for the workspace (`--workspace`
+    /// builds it for the tether crate's own tests).
+    fn helper_binary() -> PathBuf {
+        let deps = std::env::current_exe().unwrap();
+        let path = deps
+            .parent()
+            .and_then(Path::parent)
+            .unwrap()
+            .join(rawtonic_tether::HELPER);
+        assert!(
+            path.is_file(),
+            "{} is missing: run the tests with --workspace (it builds the tether helper)",
+            path.display()
+        );
+        path
+    }
+
+    fn session(root: &Path) -> PathBuf {
+        let dir = root.join("Job");
+        Library::create(&dir, "Job", Mode::Session).unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    fn settings(rating: u8, keyword: &str) -> CaptureSettings {
+        CaptureSettings {
+            next_capture: NextCapture::Defaults,
+            metadata: NextCaptureMetadata {
+                rating,
+                keywords: vec![keyword.into()],
+            },
+        }
+    }
+
+    /// Collects what the ingest tells the interface.
+    fn collector() -> (Notify, mpsc::Receiver<(String, serde_json::Value)>) {
+        let (tx, rx) = mpsc::channel();
+        let tx = Mutex::new(tx);
+        let notify: Notify = Arc::new(move |name: &str, value| {
+            let _ = tx.lock().unwrap().send((name.to_string(), value));
+        });
+        (notify, rx)
+    }
+
+    fn captured(
+        rx: &mpsc::Receiver<(String, serde_json::Value)>,
+        n: usize,
+    ) -> Vec<TetherCapturedSeen> {
+        let mut seen = Vec::new();
+        while seen.len() < n {
+            let (name, value) = rx.recv_timeout(Duration::from_secs(30)).expect("a capture");
+            if name == "tether-captured" {
+                seen.push(serde_json::from_value(value).unwrap());
+            }
+        }
+        seen
+    }
+
+    #[derive(Debug, Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TetherCapturedSeen {
+        asset_id: Option<String>,
+        destination: Option<PathBuf>,
+        error: Option<String>,
+        skipped: bool,
+        ms_to_ingested: Option<u64>,
+    }
+
+    /// The photographs in Capture (not their XMP and editor sidecars).
+    fn photos_in_capture(session: &Path) -> usize {
+        fs::read_dir(session.join("Capture"))
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.ends_with(".ARW") && !name.contains(".ARW.")
+            })
+            .count()
+    }
+
+    fn incoming_left(session: &Path) -> usize {
+        fs::read_dir(staging::root(session).join(staging::INCOMING))
+            .map(|d| d.count())
+            .unwrap_or(0)
+    }
 
     #[test]
-    fn a_capture_never_replaces_an_earlier_one_with_the_same_name() {
-        let dir = tempfile::tempdir().unwrap();
-        let first = save_capture(dir.path(), "DSC00001.ARW", b"first").unwrap();
-        let second = save_capture(dir.path(), "DSC00001.ARW", b"second shot").unwrap();
-        assert_eq!(first.file_name().unwrap(), "DSC00001.ARW");
-        assert_eq!(second.file_name().unwrap(), "DSC00001_1.ARW");
-        assert_eq!(std::fs::read(first).unwrap(), b"first");
-        assert_eq!(std::fs::read(second).unwrap(), b"second shot");
+    fn two_hundred_shots_arrive_once_each_with_their_metadata() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let spec = MockSpec {
+            file_size: 16 * 1024,
+            restart_numbering_every: Some(50),
+            body_shots_ms: vec![300, 900],
+            ..MockSpec::default()
+        };
+        let (photos_tx, photos_rx) = mpsc::channel::<(Captured, Instant)>();
+        let photos_tx = Mutex::new(photos_tx);
+        let (client, _) = Client::spawn(
+            &helper_binary(),
+            &["--mock".into()],
+            &[(
+                "RAWTONIC_TETHER_MOCK".into(),
+                serde_json::to_string(&spec).unwrap().into(),
+            )],
+            move |incoming| {
+                if let Incoming::Event(Event::Captured { captured }) = incoming {
+                    let _ = photos_tx.lock().unwrap().send((captured, Instant::now()));
+                }
+            },
+        )
+        .unwrap();
+        client
+            .request(
+                Request::Connect {
+                    port: None,
+                    staging: staging::root(&session),
+                },
+                SLOW,
+            )
+            .unwrap();
+        let (notify, seen) = collector();
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(3, "tether"),
+        }));
+        spawn_ingest(notify, session.clone(), config, photos_rx).unwrap();
+        for _ in 0..198 {
+            client.request(Request::Capture, CAPTURE).unwrap();
+        }
+        // 198 from the app and 2 fired on the body.
+        let seen = captured(&seen, 200);
+        assert!(
+            seen.iter().all(|c| c.error.is_none() && !c.skipped),
+            "{seen:?}"
+        );
+        assert!(seen.iter().all(|c| c.ms_to_ingested.is_some()));
+        let destinations: HashSet<PathBuf> = seen
+            .iter()
+            .map(|c| c.destination.clone().unwrap())
+            .collect();
+        assert_eq!(destinations.len(), 200, "no photo replaced another");
+        let lib = Library::open(&session).unwrap();
+        let assets = lib.assets(None).unwrap();
+        assert_eq!(assets.len(), 200);
+        let ids: HashSet<String> = seen.iter().map(|c| c.asset_id.clone().unwrap()).collect();
+        assert_eq!(ids.len(), 200);
+        for asset in &assets {
+            assert_eq!(asset.rating, 3, "{}", asset.rel_path);
+            assert!(asset.rel_path.starts_with("Capture/"), "{}", asset.rel_path);
+        }
+        // The camera restarted its numbering every 50 shots: the later ones
+        // got the collision suffix, never an earlier file's place.
+        assert!(
+            destinations
+                .iter()
+                .any(|d| d.ends_with("Capture/DSC00001_3.ARW"))
+        );
+        assert_eq!(photos_in_capture(&session), 200);
+        assert_eq!(incoming_left(&session), 0, "every transfer copy removed");
+    }
+
+    #[test]
+    fn a_crash_between_copy_and_commit_is_recorded_once_with_what_it_was_given() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let root = staging::root(&session);
+        // A download the helper published, with the record the ingest
+        // kept before it started...
+        let mut partial = staging::Partial::create(&root, 1, "DSC00007.ARW").unwrap();
+        partial.write(b"the shot that crashed").unwrap();
+        let staged = partial.publish(21).unwrap();
+        let record = Record {
+            sequence: 1,
+            template: "{seq}_{orig}".into(),
+            settings: settings(4, "before"),
+        };
+        staging::write_record(&root, &staged, &serde_json::to_value(&record).unwrap()).unwrap();
+        // ...and the verified copy that crash left in Capture, unrecorded.
+        let orphan = session.join("Capture").join("1_DSC00007.ARW");
+        fs::write(&orphan, b"the shot that crashed").unwrap();
+        // Meanwhile another import advanced the sequence...
+        let other = tmp.path().join("Other.ARW");
+        fs::write(&other, b"another photo").unwrap();
+        {
+            let lib = Library::open(&session).unwrap();
+            let (r, _) = hot_folder::ingest_capture(
+                &lib,
+                &other,
+                "{orig}",
+                1,
+                &CaptureSettings::default(),
+                None,
+                None,
+                &AtomicBool::new(false),
+            );
+            assert!(r.error.is_none());
+        }
+        // ...and the next-capture settings changed.
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}_{seq}".into(),
+            settings: settings(1, "after"),
+        }));
+        let (notify, seen) = collector();
+        let (_tx, rx) = mpsc::channel();
+        spawn_ingest(notify, session.clone(), config, rx).unwrap();
+        let seen = captured(&seen, 1);
+        assert!(seen[0].error.is_none(), "{seen:?}");
+        assert_eq!(seen[0].destination.as_deref(), Some(orphan.as_path()));
+        let lib = Library::open(&session).unwrap();
+        let asset = lib.asset_at(&orphan).unwrap().expect("recorded");
+        assert_eq!(asset.rating, 4, "with what it was given before the crash");
+        assert_eq!(photos_in_capture(&session), 2, "no second copy");
+        assert!(!staged.exists());
+        assert_eq!(incoming_left(&session), 0);
+    }
+
+    #[test]
+    fn a_partial_download_is_never_ingested() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let root = staging::root(&session);
+        let mut partial = staging::Partial::create(&root, 1, "DSC00001.ARW").unwrap();
+        partial.write(b"half").unwrap();
+        partial.abandon();
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: CaptureSettings::default(),
+        }));
+        let (notify, seen) = collector();
+        let (_tx, rx) = mpsc::channel();
+        spawn_ingest(notify, session.clone(), config, rx).unwrap();
+        let (name, path) = seen.recv_timeout(Duration::from_secs(10)).unwrap();
+        assert_eq!(name, "tether-incomplete");
+        let path = PathBuf::from(path.as_str().unwrap());
+        assert!(path.starts_with(root.join(staging::INCOMPLETE)));
+        assert_eq!(fs::read(&path).unwrap(), b"half");
+        assert!(seen.recv_timeout(Duration::from_millis(300)).is_err());
+        assert_eq!(photos_in_capture(&session), 0);
     }
 }

@@ -12,7 +12,11 @@ use std::path::PathBuf;
 pub const PROTOCOL: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Request {
     Hello,
     /// The cameras on USB.
@@ -124,6 +128,9 @@ pub enum ErrorKind {
     NotConnected,
     /// The camera did not answer in time.
     Timeout,
+    /// The helper did not answer in time (it hangs in the camera library);
+    /// the app ends it.
+    Unresponsive,
     /// Writing the download failed (disk full, permissions).
     Storage,
     /// The helper and the app do not match, or a message was malformed.
@@ -156,7 +163,11 @@ impl std::fmt::Display for TetherError {
 impl std::error::Error for TetherError {}
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Reply {
     Ok,
     Hello {
@@ -176,21 +187,37 @@ pub enum Reply {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "type",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Event {
-    Captured { captured: Captured },
+    Captured {
+        captured: Captured,
+    },
     /// A shot was asked for or reported but did not arrive.
-    CaptureFailed { error: TetherError },
+    CaptureFailed {
+        error: TetherError,
+    },
     /// The camera reported changed settings (a dial turned): read them again.
     SettingsChanged,
     /// The camera is gone; it has to be connected again.
-    Disconnected { error: TetherError },
+    Disconnected {
+        error: TetherError,
+    },
     /// Live view stopped on its own (the camera refused a frame).
-    LiveViewStopped { error: TetherError },
+    LiveViewStopped {
+        error: TetherError,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "message", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "message",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Message {
     Reply {
         id: u64,

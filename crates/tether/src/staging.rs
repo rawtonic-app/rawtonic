@@ -50,7 +50,10 @@ fn real_dir(dir: &Path) -> io::Result<()> {
             dir.display()
         ))),
         Ok(meta) if meta.is_dir() => Ok(()),
-        Ok(_) => Err(io::Error::other(format!("{} is not a folder", dir.display()))),
+        Ok(_) => Err(io::Error::other(format!(
+            "{} is not a folder",
+            dir.display()
+        ))),
         Err(e) if e.kind() == io::ErrorKind::NotFound => fs::create_dir(dir),
         Err(e) => Err(e),
     }
@@ -257,7 +260,10 @@ mod tests {
         a.write(b"new").unwrap();
         let a = a.publish(3).unwrap();
         assert_eq!(a, root.join(INCOMING).join("00000002").join("A.ARW"));
-        assert_eq!(fs::read(root.join(INCOMING).join("00000001").join("A.ARW")).unwrap(), b"old");
+        assert_eq!(
+            fs::read(root.join(INCOMING).join("00000001").join("A.ARW")).unwrap(),
+            b"old"
+        );
     }
 
     #[cfg(unix)]
@@ -329,7 +335,13 @@ mod tests {
             let mut p = Partial::create(&root, 9, hostile).unwrap();
             p.write(b"x").unwrap();
             let p = p.publish(1).unwrap();
-            assert!(p.file_name().unwrap().to_string_lossy().starts_with("capture-"), "{hostile}");
+            assert!(
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("capture-"),
+                "{hostile}"
+            );
             assert_eq!(p.parent().unwrap().parent().unwrap(), root.join(INCOMING));
         }
         let mut odd = Partial::create(&root, 5, "../x.ARW").unwrap();

@@ -100,7 +100,9 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
     let out = PathBuf::from(arg(args, "--out").ok_or("probe needs --out DIR")?);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
     let out = out.canonicalize().map_err(|e| e.to_string())?;
-    let shots: u32 = arg(args, "--shots").and_then(|s| s.parse().ok()).unwrap_or(5);
+    let shots: u32 = arg(args, "--shots")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
     let interval = Duration::from_millis(
         arg(args, "--interval-ms")
             .and_then(|s| s.parse().ok())
@@ -155,7 +157,10 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
         && let Some(iso) = settings.iter().find(|s| s.key == "iso" && !s.read_only)
         && let Some(i) = iso.choices.iter().position(|c| *c == iso.value)
     {
-        let other = iso.choices.get(i + 1).or(iso.choices.get(i.wrapping_sub(1)));
+        let other = iso
+            .choices
+            .get(i + 1)
+            .or(iso.choices.get(i.wrapping_sub(1)));
         if let Some(other) = other {
             let set = |value: &str| {
                 let t = Instant::now();
@@ -182,7 +187,9 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
         }
     }
     let drain = |until: Instant, events: &mut Vec<Value>| {
-        while let Ok((at, incoming)) = rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
+        while let Ok((at, incoming)) =
+            rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+        {
             match incoming {
                 Incoming::Event(Event::Captured { captured }) => {
                     let mut v = serde_json::to_value(&captured).unwrap();
@@ -209,7 +216,10 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
     report["fires"] = json!(fires);
     if body_seconds > 0 {
         eprintln!("probe: press the shutter on the camera now ({body_seconds} s)");
-        drain(Instant::now() + Duration::from_secs(body_seconds), &mut events);
+        drain(
+            Instant::now() + Duration::from_secs(body_seconds),
+            &mut events,
+        );
     }
     report["captured"] = json!(events);
     let t = Instant::now();

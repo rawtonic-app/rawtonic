@@ -25,12 +25,12 @@ performance-profiling = [
 ]
 # Loopback QA control channel (src/qa_control.rs); never in release bundles.
 qa-control = []
-tethering = ["dep:gphoto2"]
 
 [dependencies]
 rawtonic-catalog = { path = "../crates/catalog", version = "0.1.0" }
 rawtonic-metadata = { path = "../crates/metadata", version = "0.1.0" }
 rawtonic-ingest = { path = "../crates/ingest", version = "0.1.0" }
+rawtonic-tether = { path = "../crates/tether", version = "0.1.0" }
 rawtonic-naming = { path = "../crates/naming", version = "0.1.0" }
 rawtonic-engine = { path = "../crates/engine", version = "0.1.0" }
 rawtonic-merge = { path = "../crates/merge", version = "0.1.0" }
@@ -111,9 +111,6 @@ sysinfo = "0.39.6"
 trash = "5.2.6"
 tauri-plugin-single-instance = "2.4.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "rustls"] }
-
-[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
-gphoto2 = { git = "https://github.com/CyberTimon/libgphoto2-rs", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc = "0.2"

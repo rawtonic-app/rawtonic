@@ -142,7 +142,11 @@ impl GphotoCamera {
 
     /// The camera's widget for one of our settings (its first alias the
     /// camera has).
-    fn find(&mut self, key: &'static str, aliases: &[&str]) -> Option<(String, gphoto2::widget::Widget)> {
+    fn find(
+        &mut self,
+        key: &'static str,
+        aliases: &[&str],
+    ) -> Option<(String, gphoto2::widget::Widget)> {
         if let Some(name) = self.names.get(key).cloned() {
             return self.widget(&name).map(|w| (name, w));
         }

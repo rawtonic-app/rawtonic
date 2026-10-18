@@ -74,7 +74,10 @@ mod tests {
                 payload: b"{}".to_vec()
             })
         );
-        assert_eq!(read(&mut input).unwrap().unwrap().payload, [0xff, 0xd8, 0xff]);
+        assert_eq!(
+            read(&mut input).unwrap().unwrap().payload,
+            [0xff, 0xd8, 0xff]
+        );
         assert_eq!(read(&mut input).unwrap(), None);
     }
 

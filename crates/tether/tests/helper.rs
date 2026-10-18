@@ -59,7 +59,10 @@ impl Helper {
     }
 
     fn capture(&self) {
-        assert_eq!(self.client.request(Request::Capture, WAIT).unwrap(), Reply::Ok);
+        assert_eq!(
+            self.client.request(Request::Capture, WAIT).unwrap(),
+            Reply::Ok
+        );
     }
 
     /// Events until `n` photos arrived (or `WAIT` passed, or the helper
@@ -133,11 +136,22 @@ fn every_shot_arrives_once_under_the_cameras_own_name_even_when_numbering_restar
     let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
     assert_eq!(
         names,
-        ["DSC00001.ARW", "DSC00002.ARW", "DSC00003.ARW", "DSC00001.ARW", "DSC00002.ARW", "DSC00003.ARW", "DSC00001.ARW"]
+        [
+            "DSC00001.ARW",
+            "DSC00002.ARW",
+            "DSC00003.ARW",
+            "DSC00001.ARW",
+            "DSC00002.ARW",
+            "DSC00003.ARW",
+            "DSC00001.ARW"
+        ]
     );
     let paths: HashSet<&PathBuf> = photos.iter().map(|p| &p.path).collect();
     assert_eq!(paths.len(), 7, "each photo in its own file");
-    let contents: HashSet<Vec<u8>> = photos.iter().map(|p| std::fs::read(&p.path).unwrap()).collect();
+    let contents: HashSet<Vec<u8>> = photos
+        .iter()
+        .map(|p| std::fs::read(&p.path).unwrap())
+        .collect();
     assert_eq!(contents.len(), 7, "no photo replaced another");
     for p in &photos {
         assert!(p.requested);
@@ -157,7 +171,11 @@ fn shots_fired_on_the_body_are_downloaded_too() {
     helper.connect().unwrap();
     let (photos, _) = helper.photos(2);
     assert_eq!(photos.len(), 2);
-    assert!(photos.iter().all(|p| !p.requested && p.ms_to_event.is_none()));
+    assert!(
+        photos
+            .iter()
+            .all(|p| !p.requested && p.ms_to_event.is_none())
+    );
 }
 
 #[test]
@@ -221,7 +239,11 @@ fn a_camera_another_program_holds_is_reported_as_busy() {
     let helper = start(&spec, dir.path());
     assert_eq!(helper.connect().unwrap_err().kind, ErrorKind::Busy);
     assert_eq!(
-        helper.client.request(Request::Capture, WAIT).unwrap_err().kind,
+        helper
+            .client
+            .request(Request::Capture, WAIT)
+            .unwrap_err()
+            .kind,
         ErrorKind::NotConnected
     );
 }
@@ -235,7 +257,8 @@ fn settings_fixed_on_the_body_are_shown_and_refused() {
     };
     let helper = start(&spec, dir.path());
     helper.connect().unwrap();
-    let Reply::Settings { settings } = helper.client.request(Request::Settings, WAIT).unwrap() else {
+    let Reply::Settings { settings } = helper.client.request(Request::Settings, WAIT).unwrap()
+    else {
         panic!()
     };
     assert!(settings.iter().any(|s| s.key == "aperture" && s.read_only));
@@ -248,7 +271,10 @@ fn settings_fixed_on_the_body_are_shown_and_refused() {
             WAIT,
         )
     };
-    assert_eq!(set("aperture", "f/4").unwrap_err().kind, ErrorKind::ReadOnly);
+    assert_eq!(
+        set("aperture", "f/4").unwrap_err().kind,
+        ErrorKind::ReadOnly
+    );
     assert_eq!(set("iso", "12").unwrap_err().kind, ErrorKind::BadValue);
     assert_eq!(set("iso", "400").unwrap(), Reply::Ok);
 }
@@ -270,7 +296,11 @@ fn an_unplugged_camera_is_reported_and_closed() {
         other => panic!("{other:?}"),
     }
     assert_eq!(
-        helper.client.request(Request::Capture, WAIT).unwrap_err().kind,
+        helper
+            .client
+            .request(Request::Capture, WAIT)
+            .unwrap_err()
+            .kind,
         ErrorKind::NotConnected
     );
 }
@@ -290,7 +320,11 @@ fn a_crash_mid_download_leaves_no_file_to_ingest_and_keeps_the_part() {
     assert_eq!(photos.len(), 1);
     assert_eq!(other.last(), Some(&None), "the helper ended");
     assert_eq!(
-        helper.client.request(Request::Capture, WAIT).unwrap_err().kind,
+        helper
+            .client
+            .request(Request::Capture, WAIT)
+            .unwrap_err()
+            .kind,
         ErrorKind::Disconnected
     );
     let recovered = staging::recover(&helper.staging).unwrap();
