@@ -8,8 +8,14 @@ import type { Adjustments } from './adjustments';
  * registers a renderer for the moves in between; the draft is committed
  * (with its history step) on the interval, before any other edit, and when
  * the drag ends, so the store ends with exactly the last move.
+ *
+ * 250 ms (4 Hz): displays linked to the dragged value (colour-wheel puck,
+ * region curve under the tone curve, refinement enable states) follow at
+ * that rate, the photo and the dragged control itself on every move. At
+ * 100 ms these commits were nearly all of the ~95 ms React per 1 s drag on
+ * Linux (user decision 2026-10-18, option B; notes: parity-gaps/G55).
  */
-export const COMMIT_INTERVAL_MS = 100;
+export const COMMIT_INTERVAL_MS = 250;
 
 /** Renders a drag's uncommitted adjustments; false if it cannot (then the
  * update commits at once, as without drafts). */

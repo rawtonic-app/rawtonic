@@ -435,6 +435,41 @@ describe('slider drag drafts', () => {
     unregister();
   });
 
+  it('commits a 1 s drag at 60 Hz at most four times a second, renders every move and ends on the last', () => {
+    vi.useFakeTimers();
+    const rendered: number[] = [];
+    const unregister = registerSliderDraftRenderer((_, adjustments) => {
+      rendered.push(adjustments.exposure);
+      return true;
+    });
+    // Distinct committed recipes (a commit nested in the release's own
+    // store update reaches a listener twice).
+    const committed = new Set<unknown>();
+    useEditorStore.setState({ isSliderDragging: true });
+    const before = useEditorStore.getState().adjustments;
+    const unsubscribe = useEditorStore.subscribe(({ adjustments }) => {
+      if (adjustments !== before) committed.add(adjustments);
+    });
+    const moves = Array.from({ length: 60 }, (_, i) => -2 + (i + 1) / 20);
+    for (const exposure of moves) {
+      updateAdjustments({ exposure });
+      vi.advanceTimersByTime(1000 / 60);
+    }
+    expect(rendered).toEqual(moves);
+    // Linked displays (wheel puck, region curve) follow at 4 Hz, not 10.
+    expect(COMMIT_INTERVAL_MS).toBe(250);
+    // The interval restarts at the first move after a commit: 3 in the second.
+    expect(committed.size).toBe(3);
+    useEditorStore.setState({ isSliderDragging: false });
+    expect(committed.size).toBe(4);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(moves[59]);
+    // One undo step for the whole drag, as before.
+    act(() => debouncedSetHistory.flush());
+    expect(useEditorStore.getState().history.map((r) => r.exposure)).toEqual([-2, moves[59]]);
+    unsubscribe();
+    unregister();
+  });
+
   it('commits each move when no renderer takes the draft', () => {
     const unregister = registerSliderDraftRenderer(() => false);
     useEditorStore.setState({ isSliderDragging: true });
