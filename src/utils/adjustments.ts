@@ -523,6 +523,10 @@ export interface Adjustments {
     vig_k3: number;
   } | null;
   lensMaker: string | null;
+  /** The lens choice `lensDistortionParams` were resolved for; written by
+   * the backend's save (edits.rs, LensLookup) and never copied: a save keeps
+   * the parameters while it matches the recipe's lens choice. */
+  lensProfileFor?: string | null;
   lensModel: string | null;
   lumaNoiseReduction: number;
   /** Lightroom's noise reduction refinements (0–100): luminance Detail
@@ -1611,6 +1615,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensBlurMinDepth',
   'lensBlurMinFade',
   'lensDistortionParams',
+  'lensProfileFor',
   'sectionVisibility',
   'showClipping',
 ];
