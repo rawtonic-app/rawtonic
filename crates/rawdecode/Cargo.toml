@@ -26,3 +26,11 @@ sha2.workspace = true
 
 [dev-dependencies]
 pollster = "1.0"
+criterion = { version = "0.8.2", default-features = false, features = ["cargo_bench_support"] }
+
+# Hot-path benchmarks (docs/DEVELOPMENT.md "Benchmarks"); the synthetic
+# fallback inputs need `test-support`.
+[[bench]]
+name = "decode"
+harness = false
+required-features = ["test-support"]

@@ -46,6 +46,8 @@ The opt-in AI build (`RAWTONIC_BUNDLE_ONNX=1`) bundles Microsoft's [ONNX Runtime
 
 **AI models** are not part of the source or the app; they download on first use from Rawtonic's model pack, each under its own license (MIT or Apache-2.0). Origins, hashes and licenses: `docs/MODELS.md`, license texts in `licenses/models/`.
 
+**Benchmark fixtures** are not part of the source or the app: `scripts/bench/fetch_fixtures.sh` downloads three sample RAW files from raw.pixls.us (CC0) for the hot-path benchmarks (docs/DEVELOPMENT.md "Benchmarks"); criterion (Apache-2.0 OR MIT), the benchmark harness, is a development dependency only and is not shipped.
+
 **Icons and fonts** come with the inherited frontend; see the dependency inventory below for the npm packages that ship them.
 
 Other open-source projects studied for ideas are not distributed; no code was taken from them unless listed above.
@@ -79,8 +81,10 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | alloc-no-stdlib | 3.0.0 | BSD-3-Clause |
 | alloc-stdlib | 0.2.4 | BSD-3-Clause |
 | alloc-stdlib | 0.3.0 | BSD-3-Clause |
+| alloca | 0.4.0 | MIT |
 | allocator-api2 | 0.2.21 | MIT OR Apache-2.0 |
 | android_system_properties | 0.1.6 | MIT OR Apache-2.0 |
+| anes | 0.1.6 | MIT OR Apache-2.0 |
 | anstream | 1.0.0 | MIT OR Apache-2.0 |
 | anstyle | 1.0.14 | MIT OR Apache-2.0 |
 | anstyle-parse | 1.0.0 | MIT OR Apache-2.0 |
@@ -156,6 +160,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | cargo-platform | 0.1.9 | MIT OR Apache-2.0 |
 | cargo_metadata | 0.19.2 | MIT |
 | cargo_toml | 1.0.1 | Apache-2.0 OR MIT |
+| cast | 0.3.0 | MIT OR Apache-2.0 |
 | castaway | 0.2.4 | MIT |
 | cc | 1.4.4 | MIT OR Apache-2.0 |
 | cesu8 | 1.1.0 | Apache-2.0/MIT |
@@ -165,6 +170,9 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | cfg_aliases | 0.2.2 | MIT |
 | chacha20 | 0.10.2 | MIT OR Apache-2.0 |
 | chrono | 0.4.45 | MIT OR Apache-2.0 |
+| ciborium | 0.2.2 | Apache-2.0 |
+| ciborium-io | 0.2.2 | Apache-2.0 |
+| ciborium-ll | 0.2.2 | Apache-2.0 |
 | clap | 4.6.7 | MIT OR Apache-2.0 |
 | clap_builder | 4.6.7 | MIT OR Apache-2.0 |
 | clap_derive | 4.6.7 | MIT OR Apache-2.0 |
@@ -188,6 +196,8 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | crc | 3.4.0 | MIT OR Apache-2.0 |
 | crc-catalog | 2.5.0 | MIT OR Apache-2.0 |
 | crc32fast | 1.5.0 | MIT OR Apache-2.0 |
+| criterion | 0.8.2 | Apache-2.0 OR MIT |
+| criterion-plot | 0.8.2 | Apache-2.0 OR MIT |
 | crossbeam-channel | 0.5.16 | MIT OR Apache-2.0 |
 | crossbeam-deque | 0.8.7 | MIT OR Apache-2.0 |
 | crossbeam-epoch | 0.9.20 | MIT OR Apache-2.0 |
@@ -367,6 +377,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | is-docker | 0.2.0 | MIT |
 | is-wsl | 0.4.0 | MIT |
 | is_terminal_polyfill | 1.70.2 | MIT OR Apache-2.0 |
+| itertools | 0.13.0 | MIT OR Apache-2.0 |
 | itertools | 0.14.0 | MIT OR Apache-2.0 |
 | itoa | 1.0.18 | MIT OR Apache-2.0 |
 | javascriptcore-rs | 1.1.2 | MIT |
@@ -512,6 +523,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | once_cell_polyfill | 1.70.2 | MIT OR Apache-2.0 |
 | onig | 6.5.3 | MIT |
 | onig_sys | 69.9.3 | MIT |
+| oorandom | 11.1.5 | MIT |
 | open | 5.4.1 | MIT |
 | openssl-probe | 0.2.1 | MIT OR Apache-2.0 |
 | option-ext | 0.2.0 | MPL-2.0 |
@@ -521,6 +533,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ort-sys | 2.0.0-rc.12 | MIT OR Apache-2.0 |
 | os_info | 3.15.0 | MIT |
 | os_pipe | 1.2.3 | MIT |
+| page_size | 0.6.0 | MIT/Apache-2.0 |
 | pango | 0.18.3 | MIT |
 | pango-sys | 0.18.0 | MIT |
 | parking | 2.2.1 | Apache-2.0 OR MIT |
@@ -743,6 +756,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | time-core | 0.1.9 | MIT OR Apache-2.0 |
 | time-macros | 0.2.32 | MIT OR Apache-2.0 |
 | tinystr | 0.8.4 | Unicode-3.0 |
+| tinytemplate | 1.2.1 | Apache-2.0 OR MIT |
 | tinyvec | 1.12.0 | Zlib OR Apache-2.0 OR MIT |
 | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib |
 | to_method | 1.1.0 | CC0-1.0 |

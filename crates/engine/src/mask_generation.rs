@@ -2449,6 +2449,13 @@ fn clear_brush_prefixes() {
     with_brush_prefixes(VecDeque::clear);
 }
 
+/// Empties the brush prefix cache, so a benchmark times every brush
+/// rasterization in full (`test-support`; crates/engine/benches/develop.rs).
+#[cfg(feature = "test-support")]
+pub fn clear_brush_prefix_cache() {
+    clear_brush_prefixes();
+}
+
 /// Longest cached exact prefix of `lines` for this geometry, marked recent.
 fn brush_prefix(geometry: BrushGeometry, lines: &[BrushLine]) -> Option<(GrayImage, usize)> {
     with_brush_prefixes(|prefixes| brush_prefix_in(prefixes, geometry, lines))

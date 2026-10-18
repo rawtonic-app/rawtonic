@@ -131,6 +131,30 @@ cargo test -p rawtonic-gpu --locked -- --ignored gpu_processing::preview_tests
 
 They check that the display shader variants, the fallback variant and the CPU-readback export path give the same pixels, and properties of the renderer such as tone order (`camera_raw_shadow_gains_stay_smooth_down_to_black`). A run takes a few minutes; `post_idle_partial_frame_probe` alone runs for over a minute. Compare full-resolution exports of the changed build against the previous commit as well (`rawtonic export` on copies of public sample RAWs, byte for byte): edits the change should not touch must stay identical.
 
+### Benchmarks (hot CPU paths)
+
+Criterion benchmarks guard the CPU paths whose speed users feel; run them A/B against the base before shipping a change that could make any of them slower:
+
+| Bench target | Package | Groups |
+|---|---|---|
+| `decode` | `rawtonic-rawdecode` | `raw_decode/{bayer,xtrans}/…` (file bytes in memory → oriented linear RGB, CPU demosaic), `demosaic/{bayer,xtrans}/…` (demosaic alone, X-Trans with its fine-grain smoothing) |
+| `develop` | `rawtonic-engine` | `color_nr_v6/{pyramid,cpu_filter_6mp}` (the chroma pyramid every development builds; the whole CPU filter on a 6 MP centre), `lens/{edge_fringe_v2,lateral_ca_estimate_v2}`, `mask/{brush_stroke_preview,auto_mask_v2_stroke_preview,refine_edge_10_preview,refine_edge_40_full}` (one whole stroke on a 1536 px preview with the brush cache emptied; Refine edge on a radial layer) |
+| `encode` | `rawtonic-export` | `export_encode/{jpeg_q90,jpeg_q100,tiff_16bit}` (full-resolution sRGB encode with ICC profile) |
+
+Inputs: public RAW files from raw.pixls.us (CC0: Nikon D7200 NEF, Canon EOS R10 CR3, Fujifilm X-T3 RAF), fetched outside the repository and checked by SHA-256 — never commit them. Without them every benchmark runs on a synthetic 6000 × 4000 stand-in (an uncompressed DNG, or the scene it is made from), and its id says `synthetic_…`, so results on fixtures and on stand-ins never mix. The develop and encode groups work on the developed NEF.
+
+```sh
+scripts/bench/fetch_fixtures.sh ~/bench-fixtures      # ~117 MB; prints the export line
+export RAWTONIC_BENCH_FIXTURES=~/bench-fixtures
+cargo bench -p rawtonic-engine --features test-support --bench develop -- color_nr   # one target, filtered
+scripts/bench/ab.sh                                   # working tree vs origin/main, all targets
+scripts/bench/ab.sh --base HEAD~1 --bench develop --filter mask --rounds 3
+```
+
+`scripts/bench/ab.sh` builds the bench targets of the base commit (in a temporary worktree) and of the working tree into the same target directory (path crates do not clobber each other; only the changed crates are rebuilt), then runs them alternately (base, head, head, base, … with `--rounds N` runs per side, default 2) and prints a table: median of each side (median of its runs' medians), change, noise band and verdict. The band is the larger of the spread between one side's runs and criterion's 95 % confidence interval of a run's median, at least 1 %; a change inside it says `noise`, outside it `faster` or `SLOWER`. `--fail-on-slower` exits 3 on any `SLOWER` row; `scripts/check.sh --bench` runs exactly that against `origin/main` (or `$CHECK_BASE`) after the other gates. It is opt-in because a full A/B takes BENCH_AB_MINUTES on a 6-core Ryzen 5 3600X, plus the release builds. The JSON of the table is in `target/bench-ab/ab.json`.
+
+How to read it: measure on an idle machine (the script prints the load average) and compare only runs from the same machine; a `SLOWER` row needs the cause found or the cost accepted and recorded, never a re-run until it passes. A benchmark added after the base shows as `only head`. Benchmark ids carry their input and version (`color_nr_v6`, `edge_fringe_v2`), so a new filter version gets its own entry beside the old one rather than replacing it. The benchmarks never register a GPU, so X-Trans decode and demosaic time the CPU path (the app demosaics X-Trans on the GPU when it has one). They are type-checked by `clippy --all-targets` in every check run; the `test-support` features they need (the synthetic DNG writer, emptying the brush cache) are not enabled in the app.
+
 [Fixture instructions](testing/README.md) describe `APP_FIXTURES`, GPU gating and golden comparisons. [Packaging](../packaging/README.md) records signing, Linux and tethering blockers. AI is optional; missing ONNX runtime produces an error, with an opt-in build path documented there.
 
 ## Architecture and implementation
