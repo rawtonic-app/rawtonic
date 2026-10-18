@@ -9621,7 +9621,10 @@ fn many_layer_frame_probe() {
         ];
         let only = std::env::var("RAWTONIC_M6_ONLY").ok();
         for (name, make) in &scenarios {
-            if only.as_ref().is_some_and(|only| !only.split(',').any(|o| o == *name)) {
+            if only
+                .as_ref()
+                .is_some_and(|only| !only.split(',').any(|o| o == *name))
+            {
                 continue;
             }
             // One cache per scenario, warmed by a first (cold) move.
