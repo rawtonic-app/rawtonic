@@ -156,8 +156,14 @@ pub fn resolve_lens_params_in_adjustments(
             .and_then(|v| v.as_str())
             .unwrap_or("manual");
 
-        // The camera's own data: no lens database entry to resolve.
+        // The camera's own data: no lens database entry to resolve. An
+        // editor save keeps it as it arrives too (whether the camera data is
+        // used can depend on the lens database: Canon's CTMD tables give way
+        // to a lensfun profile).
         if mode == crate::embedded_lens::CAMERA_MODE {
+            if keep {
+                return;
+            }
             let recipe = Value::Object(map.clone());
             if !crate::embedded_lens::recipe_params_known(source, &recipe) {
                 return;
@@ -1030,6 +1036,13 @@ mod tests {
             source,
         );
         assert!(adjustments.get("lensDistortionParams").is_none());
+        // An editor save keeps camera parameters as they arrive, also where a
+        // lookup would now give none (here: facts without camera data).
+        let kept = serde_json::json!({"lensCorrectionMode": "camera", "cameraCaVersion": 0,
+            "lensDistortionParams": params});
+        let mut saved = kept.clone();
+        resolve_lens_params_in_adjustments(&mut saved, LensLookup::Keep, &None, None, source);
+        assert_eq!(saved, kept);
         forget(&path);
     }
 
