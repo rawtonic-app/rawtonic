@@ -20,12 +20,15 @@ use crate::gpu_processing::{
     GpuContext, GpuImageCache, GpuProcessorState, ReadbackShader, RenderOutputPrecision,
     RenderRequest, RenderSource, process_and_get_dynamic_image_inner, upload_render_source,
 };
-use crate::image_processing::{AllAdjustments, get_all_adjustments_from_json};
+use crate::image_processing::{
+    AllAdjustments, get_all_adjustments_with_masks, mask_definitions_from_json,
+};
 use crate::lut::Lut;
 use crate::mask_generation::{
     MaskBitmap, MaskDefinition, PhotoGeometry, generate_layer_mask, prepare_parametric_mask_source,
 };
 use crate::output_color_space::OutputColorSpace;
+use rayon::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(try_from = "u8", into = "u8")]
@@ -1135,10 +1138,7 @@ pub fn process_image_for_export_pipeline(
     #[cfg(feature = "performance-profiling")]
     let masks_stage = crate::performance::PerformanceStage::new("export_masks");
 
-    let mask_definitions: Vec<MaskDefinition> = js_adjustments
-        .get("masks")
-        .and_then(|m| serde_json::from_value(m.clone()).ok())
-        .unwrap_or_default();
+    let mask_definitions = mask_definitions_from_json(js_adjustments);
 
     let warped_image = mask_definitions
         .iter()
@@ -1148,8 +1148,11 @@ pub fn process_image_for_export_pipeline(
     let (photo_w, photo_h) = source.pristine.dimensions();
     let mask_geometry = PhotoGeometry::from_adjustments(js_adjustments)
         .with_photo_size(photo_w as f64, photo_h as f64);
+    // Layers are independent: generated side by side, as some (Auto Mask
+    // strokes) keep few cores busy (notes: WP6 of
+    // plans/local-adjustments-g29-g31.md). Collected in layer order.
     let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
-        .iter()
+        .par_iter()
         .filter_map(|def| {
             generate_layer_mask(
                 def,
@@ -1168,7 +1171,8 @@ pub fn process_image_for_export_pipeline(
     drop(masks_stage);
 
     let tm_override = (env.tonemapper_override)(is_raw);
-    let mut all_adjustments = get_all_adjustments_from_json(js_adjustments, is_raw, tm_override);
+    let mut all_adjustments =
+        get_all_adjustments_with_masks(js_adjustments, is_raw, tm_override, &mask_definitions);
     crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path);
     all_adjustments.global.show_clipping = 0;
     set_output_color_space(&mut all_adjustments, color_space);

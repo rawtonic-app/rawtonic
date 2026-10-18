@@ -2568,7 +2568,12 @@ struct RelightDepthViews {
     scene: wgpu::TextureView,
 }
 
-const MASK_CACHE_BYTES: usize = 256 * 1024 * 1024;
+/// The display's mask array stays allocated between frames up to this size.
+/// Only the texture counts: the masks it keeps are the ones the mask bitmap
+/// cache holds for the same frame. 32 16-bit layers of a 2304 × 1536 preview
+/// take 226 MB; above the budget every frame allocates and uploads the whole
+/// array again (notes: WP6 of plans/local-adjustments-g29-g31.md).
+const MASK_CACHE_BYTES: usize = 1024 * 1024 * 1024;
 
 /// Texture format of a mask array holding a 16-bit layer (`maskVersion` 2).
 /// Half floats need no optional device feature (R16Unorm does); they keep
@@ -4417,13 +4422,10 @@ impl GpuProcessor {
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let budget = MASK_CACHE_BYTES;
-        let retained_bytes = masks.iter().try_fold(texture_bytes, |bytes, mask| {
-            bytes.checked_add(mask.byte_len())
-        });
 
         // Readback jobs use transient textures and cannot evict the foreground
         // entry. Oversized display jobs release it before allocating their array.
-        if !output_to_display || retained_bytes.is_none_or(|bytes| bytes > budget) {
+        if !output_to_display || texture_bytes > budget {
             if output_to_display {
                 *self.mask_cache.lock().unwrap_or_else(|e| e.into_inner()) = None;
             }
@@ -4437,7 +4439,6 @@ impl GpuProcessor {
             ));
         }
 
-        let retained_bytes = retained_bytes.unwrap();
         let mut cache = self.mask_cache.lock().unwrap_or_else(|e| e.into_inner());
         let matches_geometry = cache.as_ref().is_some_and(|cache| {
             cache.width == width
@@ -4461,7 +4462,7 @@ impl GpuProcessor {
                 height,
                 wide,
                 masks: masks.to_vec(),
-                bytes: retained_bytes,
+                bytes: texture_bytes,
             });
             let cache = cache.as_ref().unwrap();
             debug_assert!(cache.bytes <= budget);
@@ -4482,7 +4483,7 @@ impl GpuProcessor {
             }
             cache.masks[index] = Arc::clone(mask);
         }
-        cache.bytes = retained_bytes;
+        cache.bytes = texture_bytes;
         debug_assert!(cache.bytes <= budget);
         Ok((
             cache.view.clone(),

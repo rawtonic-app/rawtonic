@@ -24,12 +24,14 @@ use crate::image_processing::apply_coarse_rotation;
 use crate::image_processing::apply_flip;
 use crate::image_processing::apply_geometry_warp;
 use crate::image_processing::downscale_f32_image;
-use crate::image_processing::get_all_adjustments_from_json;
 use crate::image_processing::get_or_init_gpu_context;
 use crate::image_processing::process_and_get_dynamic_image;
 use crate::image_processing::resolve_tonemapper_override;
 use crate::image_processing::resolve_tonemapper_override_from_handle;
 use crate::image_processing::warp_image_geometry;
+use crate::image_processing::{
+    get_all_adjustments_from_json, get_all_adjustments_with_masks, mask_definitions_from_json,
+};
 use crate::lut_processing;
 use crate::mask_generation::MaskDefinition;
 use crate::mask_generation::get_cached_or_generate_mask;
@@ -940,10 +942,7 @@ pub(crate) fn process_preview_job(
     drop(setup_stage);
     #[cfg(feature = "performance-profiling")]
     let mask_stage = crate::performance::PerformanceStage::new("preview_mask_bitmaps");
-    let mask_definitions: Vec<MaskDefinition> = adjustments_clone
-        .get("masks")
-        .and_then(|m| serde_json::from_value(m.clone()).ok())
-        .unwrap_or_default();
+    let mask_definitions = mask_definitions_from_json(&adjustments_clone);
 
     let scaled_crop_offset = (
         unscaled_crop_offset.0 * effective_scale,
@@ -1032,7 +1031,7 @@ pub(crate) fn process_preview_job(
     let is_raw = loaded_image.is_raw;
     let tm_override = resolve_tonemapper_override_from_handle(app_handle, is_raw);
     let mut final_adjustments =
-        get_all_adjustments_from_json(&adjustments_clone, is_raw, tm_override);
+        get_all_adjustments_with_masks(&adjustments_clone, is_raw, tm_override, &mask_definitions);
     crate::baseline_exposure::apply_base_look(&mut final_adjustments.global, &loaded_image.path);
     final_adjustments.global.detail_scale = effective_scale;
     let lut_path = adjustments_clone["lutPath"].as_str();
@@ -1733,7 +1732,7 @@ fn render_split_before_blocking(
 pub(crate) async fn apply_adjustments(
     preview_channel: Option<tauri::ipc::JavaScriptChannelId>,
     webview: tauri::Webview,
-    js_adjustments: serde_json::Value,
+    mut js_adjustments: serde_json::Value,
     is_interactive: bool,
     target_resolution: Option<u32>,
     roi: Option<(f32, f32, f32, f32)>,
@@ -1756,6 +1755,9 @@ pub(crate) async fn apply_adjustments(
             "interactive": is_interactive
         })
     );
+    // On receipt: a later request may refer to these strokes even if this
+    // job is superseded before it runs.
+    rawtonic_engine::mask_parameters::hydrate(&mut js_adjustments)?;
     let (tx, rx) = tokio::sync::oneshot::channel();
 
     let kept = state.preview_jobs.submit(PreviewJob {

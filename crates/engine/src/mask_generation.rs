@@ -5155,10 +5155,23 @@ impl MaskBitmapCache {
             self.retained_bytes -= old.image.byte_len();
         }
 
+        // Least recently used first, but never a mask someone else still
+        // holds (the GPU's mask array, the frame being prepared): dropping
+        // it frees nothing, and a stack of layers larger than the budget
+        // would then miss on every layer of every frame (notes: WP6 of
+        // plans/local-adjustments-g29-g31.md). Held masks may exceed the
+        // budget until they are released.
         while self.entries.len() >= self.entry_limit
-            || bytes > self.byte_budget - self.retained_bytes
+            || self.retained_bytes + bytes > self.byte_budget
         {
-            let old = self.entries.pop_front().unwrap();
+            let Some(index) = self
+                .entries
+                .iter()
+                .position(|entry| Arc::strong_count(&entry.image) == 1)
+            else {
+                break;
+            };
+            let old = self.entries.remove(index).unwrap();
             self.retained_bytes -= old.image.byte_len();
         }
 
@@ -5183,11 +5196,24 @@ fn mask_bitmap_key(
         visible: bool,
         invert: bool,
         opacity: f32,
-        sub_masks: &'a [SubMask],
+        sub_masks: Vec<SubMaskFields<'a>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         mask_version: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         refine_edge: Option<f32>,
+    }
+
+    /// A component without its parameters, which are hashed as values: a
+    /// brush layer's thousands of points written as JSON text were most of
+    /// a many-layer preview's mask stage.
+    #[derive(Serialize)]
+    struct SubMaskFields<'a> {
+        id: &'a str,
+        mask_type: &'a str,
+        visible: bool,
+        invert: bool,
+        opacity: f32,
+        mode: SubMaskMode,
     }
 
     struct HashWriter<'a>(&'a mut DefaultHasher);
@@ -5210,12 +5236,26 @@ fn mask_bitmap_key(
             visible: def.visible,
             invert: def.invert,
             opacity: def.opacity,
-            sub_masks: &def.sub_masks,
+            sub_masks: def
+                .sub_masks
+                .iter()
+                .map(|sub| SubMaskFields {
+                    id: &sub.id,
+                    mask_type: &sub.mask_type,
+                    visible: sub.visible,
+                    invert: sub.invert,
+                    opacity: sub.opacity,
+                    mode: sub.mode,
+                })
+                .collect(),
             mask_version: def.mask_version,
             refine_edge: def.refine_edge,
         },
     )
     .expect("writing mask fields into an infallible hasher cannot fail");
+    for sub in &def.sub_masks {
+        crate::mask_parameters::content_hash(&sub.parameters).hash(&mut hasher);
+    }
 
     width.hash(&mut hasher);
     height.hash(&mut hasher);
@@ -5263,6 +5303,10 @@ pub fn cached_or_generated_mask(
     warped_image: Option<&ParametricMaskSource>,
 ) -> Result<Option<Arc<MaskBitmap>>, String> {
     validate_mask_source(def, warped_image)?;
+    // A hidden or empty layer has no mask; its key would hash every stroke.
+    if !def.produces_bitmap() {
+        return Ok(None);
+    }
     let key = mask_bitmap_key(
         def,
         width,
@@ -5298,10 +5342,17 @@ pub fn cached_or_generated_mask(
             cache.lock().unwrap().get(&key)
         })
         .flatten();
+    let resolved;
     let generated = match full_opacity {
         Some(full) => Some(Arc::new(full.with_opacity(def.opacity, def.precise()))),
         None => generate_layer_mask(
-            def,
+            match with_resolved_parameters(def) {
+                Some(def) => {
+                    resolved = def;
+                    &resolved
+                }
+                None => def,
+            },
             width,
             height,
             scale,
@@ -5317,6 +5368,31 @@ pub fn cached_or_generated_mask(
     }
 
     Ok(generated)
+}
+
+/// `def` with the brush strokes its references stand for
+/// (`mask_parameters`), if it has any.
+fn with_resolved_parameters(def: &MaskDefinition) -> Option<MaskDefinition> {
+    let resolved: Vec<_> = def
+        .sub_masks
+        .iter()
+        .map(|sub| crate::mask_parameters::resolve(&sub.parameters))
+        .collect();
+    resolved
+        .iter()
+        .any(Option::is_some)
+        .then(|| MaskDefinition {
+            sub_masks: def
+                .sub_masks
+                .iter()
+                .zip(resolved)
+                .map(|(sub, parameters)| SubMask {
+                    parameters: parameters.map_or_else(|| sub.parameters.clone(), |p| (*p).clone()),
+                    ..sub.clone()
+                })
+                .collect(),
+            ..def.clone()
+        })
 }
 
 /// The mask `cached_or_generated_mask` keeps for these arguments, without
@@ -5761,11 +5837,11 @@ mod mask_bitmap_cache_tests {
     fn cache_evicts_least_recently_used_pixels_to_fit_byte_budget() {
         let mut cache = MaskBitmapCache::new();
         cache.byte_budget = 8;
-        let image = Arc::new(MaskBitmap::from(GrayImage::new(2, 2)));
-        cache.insert(key(1), Arc::clone(&image));
-        cache.insert(key(2), Arc::clone(&image));
+        let image = || Arc::new(MaskBitmap::from(GrayImage::new(2, 2)));
+        cache.insert(key(1), image());
+        cache.insert(key(2), image());
         assert!(cache.get(&key(1)).is_some());
-        cache.insert(key(3), Arc::clone(&image));
+        cache.insert(key(3), image());
 
         assert!(cache.get(&key(2)).is_none());
         assert!(cache.get(&key(1)).is_some());
@@ -5777,6 +5853,34 @@ mod mask_bitmap_cache_tests {
         assert!(cache.get(&key(3)).is_none());
         assert!(Arc::ptr_eq(&cache.get(&key(1)).unwrap(), &replacement));
         assert_eq!(cache.retained_bytes, 6);
+    }
+
+    #[test]
+    fn cache_keeps_masks_still_held_elsewhere_over_its_budget() {
+        // A frame holds every layer's mask (and the GPU's mask array keeps
+        // the previous frame's): evicting them frees nothing, and with more
+        // layers than the budget holds every layer would miss every frame.
+        let mut cache = MaskBitmapCache::new();
+        cache.byte_budget = 8;
+        let held: Vec<_> = (0..3)
+            .map(|_| Arc::new(MaskBitmap::from(GrayImage::new(2, 2))))
+            .collect();
+        for (id, image) in held.iter().enumerate() {
+            cache.insert(key(id as u64), Arc::clone(image));
+        }
+        for (id, image) in held.iter().enumerate() {
+            assert!(Arc::ptr_eq(&cache.get(&key(id as u64)).unwrap(), image));
+        }
+        assert_eq!(cache.retained_bytes, 12);
+
+        // Once released, the least recently used make room again.
+        drop(held);
+        cache.insert(key(3), Arc::new(MaskBitmap::from(GrayImage::new(2, 2))));
+        assert!(cache.get(&key(0)).is_none());
+        assert!(cache.get(&key(1)).is_none());
+        assert!(cache.get(&key(2)).is_some());
+        assert!(cache.get(&key(3)).is_some());
+        assert_eq!(cache.retained_bytes, 8);
     }
 
     #[test]

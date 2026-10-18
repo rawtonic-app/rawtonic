@@ -76,9 +76,11 @@ impl MaskDefinition {
             || self.sub_masks.iter().any(|sm| {
                 matches!(sm.mask_type.as_str(), "color" | "luminance" | "luma-range")
                     || (sm.mask_type == "brush"
-                        && sm.parameters["lines"]
-                            .as_array()
-                            .is_some_and(|lines| lines.iter().any(|l| l["autoMask"] == true)))
+                        && crate::mask_parameters::with_resolved(&sm.parameters, |p| {
+                            p["lines"]
+                                .as_array()
+                                .is_some_and(|lines| lines.iter().any(|l| l["autoMask"] == true))
+                        }))
             })
     }
 }

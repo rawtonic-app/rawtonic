@@ -174,6 +174,29 @@ fn has_scalars(m: &MaskAdjustments) -> bool {
             .iter()
             .any(|h| h.hue != 0.0 || h.saturation != 0.0 || h.luminance != 0.0)
 }
+/// Detail and effect sliders: summed per pixel only when a layer sets one.
+fn has_detail(m: &MaskAdjustments) -> bool {
+    [
+        m.luma_noise_reduction,
+        m.color_noise_reduction,
+        m.clarity,
+        m.dehaze,
+        m.structure,
+        m.glow_amount,
+        m.halation_amount,
+        m.flare_amount,
+        m.defringe,
+        m.sharpness,
+        m.moire[0],
+    ]
+    .iter()
+    .any(|v| *v != 0.0)
+}
+fn has_hsl(m: &MaskAdjustments) -> bool {
+    m.hsl
+        .iter()
+        .any(|h| h.hue != 0.0 || h.saturation != 0.0 || h.luminance != 0.0)
+}
 fn has_grade(grades: [ColorGradeSettings; 4]) -> bool {
     grades
         .iter()
@@ -303,8 +326,14 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
             ])) << 1)
             | (u32::from(has_curves) << 2)
             | (u32::from(m.grading_active != 0) << 4)
-            | (u32::from(m.color_range_count != 0) << 5);
+            | (u32::from(m.color_range_count != 0) << 5)
+            | (u32::from(has_detail(m)) << 6)
+            | (u32::from(has_hsl(m)) << 7);
     }
+    // The global slot's second word: the steps any layer has.
+    layers[0].flags[1] = layers[1..]
+        .iter()
+        .fold(0, |any, layer| any | layer.flags[0]);
     layers
 }
 
