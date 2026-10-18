@@ -206,6 +206,14 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     defaultCombo: ['alt', 'KeyM'],
     section: 'view',
   },
+  {
+    // Show only the selected layer (or component); neither Lightroom nor
+    // Capture One has a solo (notes: parity-gaps/G29-layers.md, D1).
+    action: 'toggle_layer_solo',
+    description: 'settings.keybinds.actions.toggle_layer_solo',
+    defaultCombo: ['KeyH'],
+    section: 'view',
+  },
   { action: 'rate_0', description: 'settings.keybinds.actions.rate_0', defaultCombo: ['Digit0'], section: 'rating' },
   { action: 'rate_1', description: 'settings.keybinds.actions.rate_1', defaultCombo: ['Digit1'], section: 'rating' },
   { action: 'rate_2', description: 'settings.keybinds.actions.rate_2', defaultCombo: ['Digit2'], section: 'rating' },

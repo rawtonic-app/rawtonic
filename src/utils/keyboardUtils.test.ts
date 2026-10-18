@@ -27,8 +27,8 @@ describe('keybinds', () => {
   });
 
   it('drop the defaults once the user assigns a key, and an empty key disables', () => {
-    const map = buildComboMap({ tool_brush: ['KeyH'], show_original: [] });
-    expect(map.get('KeyH')).toEqual(['tool_brush']);
+    const map = buildComboMap({ tool_brush: ['KeyG'], show_original: [] });
+    expect(map.get('KeyG')).toEqual(['tool_brush']);
     expect(map.has('KeyB')).toBe(false);
     expect(map.has('KeyK')).toBe(false);
     expect(map.has('Backslash')).toBe(false);

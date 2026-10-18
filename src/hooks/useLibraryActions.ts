@@ -205,6 +205,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
         isWbPickerActive: false,
         colorPickerTarget: null,
         colorRangeShow: null,
+        layerSolo: null,
         activeColorRangeId: null,
       });
     }

@@ -54,3 +54,16 @@ it("compares copies by value and shared layers by reference", () => {
   };
   expect(step(withPainted, { masks: [more as unknown as typeof sky] })).toBe(`${t("studio.develop.history.mask")} · Sky`);
 });
+
+it("names an Auto Mask upgrade", () => {
+  const lines = [{ brushSize: 50, points: [{ x: 1, y: 2 }], tool: "brush", autoMask: true }];
+  const brush = { id: "b", type: "brush", mode: "additive", visible: true, invert: false, opacity: 100, parameters: { lines } };
+  const painted = { ...sky, subMasks: [brush] } as Adjustments["masks"][number];
+  const upgraded = {
+    ...painted,
+    subMasks: [{ ...brush, parameters: { lines: [{ ...lines[0], autoMaskVersion: 3 }] } }],
+  } as Adjustments["masks"][number];
+  expect(step({ ...base, masks: [painted] }, { masks: [upgraded] })).toBe("Auto Mask upgraded · Sky");
+  const other = { ...painted, subMasks: [{ ...brush, invert: true }] } as Adjustments["masks"][number];
+  expect(step({ ...base, masks: [painted] }, { masks: [other] })).toBe("Mask · Sky");
+});

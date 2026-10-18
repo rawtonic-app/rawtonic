@@ -28,6 +28,7 @@ import { useMultiViewStore } from '../../store/useMultiViewStore';
 import { useAiMasking } from '../../hooks/useAiMasking';
 import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskOverlay';
 import { requestLiveMaskRender, withLiveMaskContainer, type LiveStroke } from '../../utils/liveMaskRender';
+import { applyLayerSolo } from '../../utils/layerSolo';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
@@ -132,6 +133,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const isLoading = useLibraryStore((s) => s.isViewLoading);
   const selectedImage = useEditorStore((s) => s.selectedImage);
   const adjustments = useEditorStore((s) => s.adjustments);
+  const layerSolo = useEditorStore((s) => s.layerSolo);
   const finalPreviewUrl = useEditorStore((s) => s.finalPreviewUrl);
   const uncroppedAdjustedPreviewUrl = useEditorStore((s) => s.uncroppedAdjustedPreviewUrl);
   const interactivePatch = useEditorStore((s) => s.interactivePatch);
@@ -1744,7 +1746,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     let maskDefForOverlay = null;
 
     if (activePanel === Panel.Masks && activeMaskContainerId) {
-      const activeMask = adjustments.masks?.find((c: MaskContainer) => c.id === activeMaskContainerId);
+      // A soloed component is the only one the overlay shows, as on the photo.
+      const activeMask = applyLayerSolo(adjustments.masks ?? [], layerSolo).find(
+        (c: MaskContainer) => c.id === activeMaskContainerId,
+      );
       if (activeMask) {
         maskDefForOverlay = {
           ...activeMask,
@@ -1763,6 +1768,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     activePanel,
     activeMaskContainerId,
     imageRenderSize,
+    layerSolo,
   ]);
 
   useEffect(() => {

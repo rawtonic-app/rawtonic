@@ -1282,6 +1282,7 @@
         "toggle_export": "Basculer le panneau d'exportation",
         "toggle_folder_tree": "Afficher/Masquer le panneau d'arborescence des dossiers",
         "toggle_fullscreen": "Basculer en plein écran",
+        "toggle_layer_solo": "Afficher uniquement le calque ou masque sélectionné",
         "toggle_left_panel": "Afficher/Masquer le panneau gauche",
         "toggle_library_exif": "Basculer la superposition EXIF",
         "toggle_mask_grayscale": "Masque en niveaux de gris",
@@ -1723,6 +1724,7 @@
         "whiteBalance": "Balance des blancs"
       },
       "history": {
+        "autoMaskUpgraded": "Masque auto mis à jour",
         "current": "Actuel",
         "empty": "L'historique du développement s'affiche ici.",
         "layerAdded": "Nouveau calque {{name}}",
@@ -1743,6 +1745,7 @@
         "delete": "Supprimer {{name}}",
         "dragOrder": "Faites glisser pour changer l'ordre des calques",
         "drawMaskInside": "Dessiner le masque à l'intérieur",
+        "eyeTitle": "Afficher ou masquer ; {{alt}}-clic n'affiche que ce calque",
         "fromSelection": "Nouveau calque à partir d'une sélection",
         "groups": {
           "draw": "Dessiner",
@@ -1771,7 +1774,9 @@
           "eraseMask": "Effacer le masque",
           "moveDown": "Descendre le calque",
           "moveUp": "Monter le calque",
-          "rename": "Renommer le calque…"
+          "rename": "Renommer le calque…",
+          "solo": "Afficher uniquement ce calque",
+          "upgradeAutoMask": "Passer au masque auto actuel (version {{from}} → {{to}})"
         },
         "nameOf": "Nom de {{name}}",
         "new": "Nouveau calque",
@@ -1795,6 +1800,8 @@
         "noneYet": "Aucun calque. Ajoutez-en un avec + ou dans l'onglet Calques.",
         "quickAria": "Nouveau calque en un clic",
         "select": "Sélectionner {{name}}",
+        "soloEnd": "Tout afficher",
+        "soloShowing": "Seul {{name}} est affiché",
         "toggle": "Afficher/masquer {{name}}"
       },
       "layout": {
@@ -2506,6 +2513,7 @@
         "nearLimit": "Limite proche"
       },
       "erase": "Effacer",
+      "eyeTitle": "Afficher ou masquer ; {{alt}}-clic n'affiche que ce masque",
       "hints": {
         "color": "Cliquez sur la couleur à sélectionner.",
         "object": "Tracez un cadre autour de l'objet."

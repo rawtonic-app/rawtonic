@@ -1191,6 +1191,7 @@
         "toggle_export": "書き出しパネルの表示/非表示",
         "toggle_folder_tree": "フォルダーツリーパネルの切り替え",
         "toggle_fullscreen": "全画面表示の切り替え",
+        "toggle_layer_solo": "選択したレイヤーまたはマスクのみ表示",
         "toggle_left_panel": "左パネルの表示/非表示",
         "toggle_library_exif": "EXIF重ね合わせ表示の表示/非表示",
         "toggle_mask_grayscale": "マスクをグレースケールで表示",
@@ -1632,6 +1633,7 @@
         "whiteBalance": "ホワイトバランス"
       },
       "history": {
+        "autoMaskUpgraded": "自動マスクを更新",
         "current": "現在",
         "empty": "現像の履歴がここに表示されます。",
         "layerAdded": "新規レイヤー {{name}}",
@@ -1652,6 +1654,7 @@
         "delete": "{{name}}を削除",
         "dragOrder": "ドラッグしてレイヤーの順序を変更",
         "drawMaskInside": "マスクを内側に描画",
+        "eyeTitle": "表示/非表示。{{alt}}-クリックでこのレイヤーのみ表示",
         "fromSelection": "選択範囲から新規レイヤー",
         "groups": {
           "draw": "描画",
@@ -1680,7 +1683,9 @@
           "eraseMask": "マスクを消去",
           "moveDown": "レイヤーを下へ",
           "moveUp": "レイヤーを上へ",
-          "rename": "レイヤー名を変更…"
+          "rename": "レイヤー名を変更…",
+          "solo": "このレイヤーのみ表示",
+          "upgradeAutoMask": "現在の自動マスクに更新（バージョン {{from}} → {{to}}）"
         },
         "nameOf": "{{name}}の名前",
         "new": "新規レイヤー",
@@ -1704,6 +1709,8 @@
         "noneYet": "レイヤーはまだありません。+ または「レイヤー」タブで追加します。",
         "quickAria": "ワンクリックで新規レイヤー",
         "select": "{{name}}を選択",
+        "soloEnd": "すべて表示",
+        "soloShowing": "{{name}} のみ表示中",
         "toggle": "{{name}}の表示を切り替え"
       },
       "layout": {
@@ -2373,6 +2380,7 @@
         "nearLimit": "近側の限界"
       },
       "erase": "消去",
+      "eyeTitle": "表示/非表示。{{alt}}-クリックでこのマスクのみ表示",
       "hints": {
         "color": "選択する色をクリックしてください。",
         "object": "オブジェクトを囲むようにドラッグしてください。"

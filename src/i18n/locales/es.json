@@ -1282,6 +1282,7 @@
         "toggle_export": "Alternar panel de Exportación",
         "toggle_folder_tree": "Alternar panel de árbol de carpetas",
         "toggle_fullscreen": "Alternar pantalla completa",
+        "toggle_layer_solo": "Mostrar solo la capa o máscara seleccionada",
         "toggle_left_panel": "Alternar panel izquierdo",
         "toggle_library_exif": "Alternar superposición EXIF",
         "toggle_mask_grayscale": "Máscara en escala de grises",
@@ -1723,6 +1724,7 @@
         "whiteBalance": "Balance de blancos"
       },
       "history": {
+        "autoMaskUpgraded": "Máscara automática actualizada",
         "current": "Actual",
         "empty": "Aquí aparece el historial de revelado.",
         "layerAdded": "Nueva capa {{name}}",
@@ -1743,6 +1745,7 @@
         "delete": "Eliminar {{name}}",
         "dragOrder": "Arrastra para cambiar el orden de las capas",
         "drawMaskInside": "Dibujar máscara dentro",
+        "eyeTitle": "Mostrar u ocultar; {{alt}}-clic muestra solo esta capa",
         "fromSelection": "Nueva capa a partir de una selección",
         "groups": {
           "draw": "Dibujar",
@@ -1771,7 +1774,9 @@
           "eraseMask": "Borrar máscara",
           "moveDown": "Bajar capa",
           "moveUp": "Subir capa",
-          "rename": "Cambiar nombre de capa…"
+          "rename": "Cambiar nombre de capa…",
+          "solo": "Mostrar solo esta capa",
+          "upgradeAutoMask": "Actualizar a la máscara automática actual (versión {{from}} → {{to}})"
         },
         "nameOf": "Nombre de {{name}}",
         "new": "Nueva capa",
@@ -1795,6 +1800,8 @@
         "noneYet": "Aún no hay capas. Añade una con + o en la pestaña Capas.",
         "quickAria": "Capa nueva con un clic",
         "select": "Seleccionar {{name}}",
+        "soloEnd": "Mostrar todo",
+        "soloShowing": "Solo se muestra {{name}}",
         "toggle": "Mostrar/ocultar {{name}}"
       },
       "layout": {
@@ -2506,6 +2513,7 @@
         "nearLimit": "Límite cercano"
       },
       "erase": "Borrar",
+      "eyeTitle": "Mostrar u ocultar; {{alt}}-clic muestra solo esta máscara",
       "hints": {
         "color": "Haz clic en el color que quieres seleccionar.",
         "object": "Arrastra un recuadro alrededor del objeto."

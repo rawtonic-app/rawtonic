@@ -8,6 +8,7 @@ import { PercentCrop, Crop } from 'react-image-crop';
 import { invoke } from '@tauri-apps/api/core';
 import { Adjustments, Coord, MaskContainer, GuideLine, GuideOrientation } from '../../../utils/adjustments';
 import type { LiveStroke } from '../../../utils/liveMaskRender';
+import { AUTO_MASK_VERSION } from '../../../utils/autoMaskUpgrade';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
 import { RenderSize } from '../../../hooks/useImageRenderSize';
@@ -225,11 +226,6 @@ interface ColorSample extends Partial<FrameGeometry> {
 
 /** Lightroom's colour range takes up to five samples. */
 const MAX_COLOR_SAMPLES = 5;
-
-/** Auto Mask method of new strokes: 3 is edge-aware with the stroke's dabs
- * modelled together (crates/engine `stroke_models_v3`); strokes with 2 or
- * without it keep their version. */
-const AUTO_MASK_VERSION = 3;
 
 /** Dab placement of new strokes: 2 ends a stroke at its last point (and the
  * live stroke at the pointer) and lays plain Capture One tips' dabs closer;
