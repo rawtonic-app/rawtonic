@@ -85,6 +85,7 @@ impl FileExporter {
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);
         hydrate_adjustments_from_cache(&mut HashMap::new(), &mut js_adjustments);
+        crate::exif_processing::resolve_unresolved_lens(&mut js_adjustments, job.source)?;
         rawtonic_engine::embedded_lens::apply_default(&mut js_adjustments, job.source);
         let is_raw = is_raw_file(&source_path_str);
 

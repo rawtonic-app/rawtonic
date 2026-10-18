@@ -15,6 +15,7 @@ use little_exif::metadata::Metadata;
 use little_exif::rational::{iR64, uR64};
 use rawler::decoders::RawMetadata;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct CachedExifEntry {
@@ -1564,6 +1565,21 @@ pub fn read_exif_data_from_bytes(path: &str, file_bytes: &[u8]) -> HashMap<Strin
         }
     }
     exif_data
+}
+
+/// A recipe saved while its photo could not be read gets its lens
+/// parameters resolved from the photo before it renders
+/// (`rawtonic_engine::lens_recipe::resolve_unresolved`).
+pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), String> {
+    if !rawtonic_engine::lens_recipe::is_unresolved(recipe) {
+        return Ok(());
+    }
+    let exif = std::fs::read(source)
+        .ok()
+        .map(|bytes| read_exif_data_from_bytes(&source.to_string_lossy(), &bytes))
+        .filter(|exif| !exif.is_empty());
+    let lens_db = rawtonic_engine::lens_correction::global_lens_db();
+    rawtonic_engine::lens_recipe::resolve_unresolved(recipe, &exif, lens_db.as_deref(), source)
 }
 
 #[cfg(test)]

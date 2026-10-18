@@ -26,271 +26,9 @@ use std::thread;
 use tauri::AppHandle;
 use tauri::Manager;
 
-/// How a save treats the lens parameters a recipe carries.
-pub enum LensLookup<'a> {
-    /// An editor save or a batch edit: the parameters, or their absence,
-    /// stay as they are while they were resolved for the recipe's current
-    /// lens choice (`lensProfileFor`, written here) — an unrelated edit, an
-    /// undo. A recipe from before that key keeps them while its lens choice
-    /// and parameters are those saved (`previous`). A changed choice (lens
-    /// tool, paste, preset, preset Amount, the camera data's CA version) is
-    /// resolved. So a Lensfun update — a renamed lens, a re-measured profile,
-    /// a newly covered lens — reaches a saved edit only through a new choice.
-    Keep { previous: Option<&'a Value> },
-    /// Resolved again in the current database: Auto lens correction.
-    Fresh,
-}
-
-/// What a recipe's lens parameters were resolved for (`lens_profile_stamp`).
-pub const LENS_PROFILE_FOR: &str = "lensProfileFor";
-/// `lensProfileFor` of a recipe whose lens could not be resolved yet.
-const LENS_UNRESOLVED: &str = "unresolved";
-
-/// What a recipe's lens parameters were resolved for, and the parameters:
-/// the mode and the lens (chosen or detected), for the camera's own data its
-/// CA version, then the parameters themselves (normalised; none when there
-/// are none). Parameters cleared or changed by anything but a resolution no
-/// longer match it.
-fn lens_profile_stamp(recipe: &Value) -> String {
-    let field = |key: &str| {
-        recipe
-            .get(key)
-            .filter(|v| !v.is_null())
-            .cloned()
-            .unwrap_or(Value::Null)
-    };
-    let mode = recipe
-        .get("lensCorrectionMode")
-        .and_then(Value::as_str)
-        .unwrap_or("manual");
-    let params = recipe
-        .get("lensDistortionParams")
-        .filter(|p| !p.is_null())
-        .map(|p| {
-            serde_json::from_value::<crate::lens_correction::LensDistortionParams>(p.clone())
-                .ok()
-                .and_then(|params| serde_json::to_value(params).ok())
-                .unwrap_or_else(|| p.clone())
-        })
-        .unwrap_or(Value::Null);
-    let stamp = if mode == crate::embedded_lens::CAMERA_MODE {
-        serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY), params])
-    } else {
-        serde_json::json!([mode, field("lensMaker"), field("lensModel"), params])
-    };
-    stamp.to_string()
-}
-
-/// A recipe handed to the editor: one saved before `lensProfileFor` gets it
-/// in memory, so undo and redo carry it too (its parameters were resolved
-/// for its lens choice when it was saved).
-pub fn stamp_loaded_lens_profile(adjustments: &mut Value) {
-    if adjustments.is_object() && adjustments.get(LENS_PROFILE_FOR).is_none() {
-        adjustments[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(adjustments));
-    }
-}
-
-pub fn resolve_lens_params_in_adjustments(
-    adjustments: &mut Value,
-    lookup: LensLookup,
-    exif_data: &Option<HashMap<String, String>>,
-    lens_db: Option<&crate::lens_correction::LensDatabase>,
-    source: &Path,
-) {
-    if !adjustments.is_object() {
-        return;
-    }
-    let stamp = lens_profile_stamp(adjustments);
-    let keep = match lookup {
-        LensLookup::Keep { previous } => {
-            match adjustments.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
-                Some(resolved) => resolved == stamp,
-                // Only a recipe saved before the key, or one resolved for
-                // this very choice and these parameters, vouches for them;
-                // never one marked unresolved.
-                None => previous.is_some_and(|previous| {
-                    match previous.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
-                        None => lens_profile_stamp(previous) == stamp,
-                        Some(resolved) => resolved == stamp,
-                    }
-                }),
-            }
-        }
-        LensLookup::Fresh => false,
-    };
-    if keep || resolve_lens_choice(adjustments, exif_data, lens_db, source) {
-        let stamp = lens_profile_stamp(adjustments);
-        adjustments[LENS_PROFILE_FOR] = serde_json::json!(stamp);
-    } else {
-        // Not resolved (no database or camera facts yet): marked, so every
-        // later save tries again.
-        adjustments[LENS_PROFILE_FOR] = serde_json::json!(LENS_UNRESOLVED);
-    }
-}
-
-/// Resolves the recipe's lens choice; false when it could not (no camera
-/// facts or no lens database yet), so it is tried again on the next save.
-fn resolve_lens_choice(
-    adjustments: &mut Value,
-    exif_data: &Option<HashMap<String, String>>,
-    lens_db: Option<&crate::lens_correction::LensDatabase>,
-    source: &Path,
-) -> bool {
-    if let Some(map) = adjustments.as_object_mut() {
-        let mode = map
-            .get("lensCorrectionMode")
-            .and_then(|v| v.as_str())
-            .unwrap_or("manual");
-
-        // The camera's own data: no lens database entry to resolve.
-        if mode == crate::embedded_lens::CAMERA_MODE {
-            let recipe = Value::Object(map.clone());
-            if !crate::embedded_lens::recipe_params_known(source, &recipe) {
-                return false;
-            }
-            match crate::embedded_lens::params_for_recipe(source, &recipe) {
-                Some(params) => {
-                    map.insert(
-                        "lensDistortionParams".to_string(),
-                        serde_json::to_value(params).unwrap_or_default(),
-                    );
-                }
-                None => {
-                    map.remove("lensDistortionParams");
-                }
-            }
-            return true;
-        }
-        let Some(db) = lens_db else {
-            return false;
-        };
-
-        if mode == "auto" {
-            if let Some(exif) = exif_data {
-                let exif_maker = exif.get("Make").map(|s| s.as_str()).unwrap_or("");
-                let exif_model = exif.get("LensModel").map(|s| s.as_str()).unwrap_or("");
-                let exif_camera_model = exif.get("Model").map(|s| s.as_str()).unwrap_or("");
-                {
-                    if let Some((detected_maker, detected_model)) =
-                        crate::lens_correction::find_best_lens_match(
-                            db,
-                            exif_maker,
-                            exif_model,
-                            exif_camera_model,
-                        )
-                    {
-                        map.insert(
-                            "lensMaker".to_string(),
-                            serde_json::to_value(&detected_maker).unwrap(),
-                        );
-                        map.insert(
-                            "lensModel".to_string(),
-                            serde_json::to_value(&detected_model).unwrap(),
-                        );
-                    } else {
-                        map.remove("lensMaker");
-                        map.remove("lensModel");
-                    }
-                }
-            } else {
-                // Nothing to detect from (offline without EXIF): not a
-                // lookup that found nothing; tried again later.
-                return false;
-            }
-        }
-
-        {
-            let has_valid_lens = match (
-                map.get("lensMaker").and_then(|v| v.as_str()),
-                map.get("lensModel").and_then(|v| v.as_str()),
-            ) {
-                (Some(maker), Some(model)) if !maker.is_empty() && !model.is_empty() => {
-                    // A photo that cannot be read (offline) has camera facts
-                    // still to come: not resolved at a guessed focal length,
-                    // tried again on the next save. A readable file without
-                    // EXIF never gets them; it takes the fallback for good.
-                    if exif_data.is_none() && !source.is_file() {
-                        return false;
-                    }
-                    let mut focal_length = 50.0;
-                    let mut aperture = None;
-                    let mut distance = None;
-
-                    if let Some(exif) = exif_data {
-                        if let Some(fl_str) = exif
-                            .get("FocalLength")
-                            .or(exif.get("FocalLengthIn35mmFilm"))
-                            && let Ok(fl) = fl_str.replace(" mm", "").trim().parse::<f32>()
-                        {
-                            focal_length = fl;
-                        }
-                        if let Some(ap_str) = exif.get("ApertureValue").or(exif.get("FNumber"))
-                            && let Ok(ap) = ap_str.replace("f/", "").trim().parse::<f32>()
-                        {
-                            aperture = Some(ap);
-                        }
-                        if let Some(dist_str) = exif.get("SubjectDistance")
-                            && let Ok(dist) = dist_str.replace(" m", "").trim().parse::<f32>()
-                        {
-                            distance = Some(dist);
-                        }
-                    }
-
-                    // The body's crop factor from the 35 mm equivalent.
-                    let camera_crop = exif_data.as_ref().and_then(|exif| {
-                        let number = |key: &str| {
-                            exif.get(key)?
-                                .replace("mm", "")
-                                .trim()
-                                .parse::<f32>()
-                                .ok()
-                                .filter(|v| *v > 0.0)
-                        };
-                        Some(number("FocalLengthIn35mmFilm")? / number("FocalLength")?)
-                    });
-                    if let Some(params) = crate::lens_correction::resolve_lens_params(
-                        db,
-                        maker,
-                        model,
-                        focal_length,
-                        aperture,
-                        distance,
-                        camera_crop.filter(|c| (0.5..=8.0).contains(c)),
-                    ) {
-                        map.insert(
-                            "lensDistortionParams".to_string(),
-                            serde_json::to_value(params).unwrap(),
-                        );
-                        true
-                    } else {
-                        false
-                    }
-                }
-                _ => false,
-            };
-
-            if !has_valid_lens {
-                map.remove("lensDistortionParams");
-            }
-            // A lens named as before a database rename (a saved edit, a
-            // preset, copied settings) resolves to the renamed entry
-            // (`find_lens_by_display_name`) and takes its current name.
-            if has_valid_lens
-                && let (Some(maker), Some(model)) = (
-                    map.get("lensMaker").and_then(|v| v.as_str()),
-                    map.get("lensModel").and_then(|v| v.as_str()),
-                )
-                && let Some((current, _)) =
-                    crate::lens_correction::find_lens_by_display_name(db, maker, model)
-                && current != model
-            {
-                map.insert("lensModel".to_string(), serde_json::json!(current));
-            }
-        }
-        return true;
-    }
-    false
-}
+pub use rawtonic_engine::lens_recipe::{
+    LensLookup, resolve_lens_params_in_adjustments, stamp_loaded_lens_profile,
+};
 
 /// Off the main thread: it opens the session catalog, reads settings and
 /// writes sidecars, and a busy database must not stall the interface. The
@@ -1026,12 +764,19 @@ pub(crate) fn load_metadata_blocking(
     // For the editor only (not written): its history carries it (see
     // LensLookup::Keep).
     stamp_loaded_lens_profile(&mut metadata.adjustments);
+    // Saved while the photo could not be read: resolved now if it can be,
+    // so the editor shows the correction (saved with the next edit).
+    let _ = rawtonic_export::exif_processing::resolve_unresolved_lens(
+        &mut metadata.adjustments,
+        &source_path,
+    );
     Ok(metadata)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
 
     #[test]
     fn an_offline_save_from_stale_facts_keeps_the_cameras_ca_correction() {

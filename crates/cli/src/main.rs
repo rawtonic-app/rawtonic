@@ -317,6 +317,11 @@ fn with_face_retouch(
     )?;
     // The geometry as the export renders it (the camera's lens correction
     // filled in), so the faces' frame matches the render's.
+    rawtonic_export::exif_processing::resolve_unresolved_lens(
+        &mut recipe,
+        std::path::Path::new(source),
+    )
+    .map_err(anyhow::Error::msg)?;
     rawtonic_engine::embedded_lens::apply_default(&mut recipe, std::path::Path::new(source));
     let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
         &std::sync::Arc::new(base),
