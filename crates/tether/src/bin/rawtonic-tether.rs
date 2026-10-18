@@ -149,7 +149,10 @@ fn version() -> Result<(), String> {
     }
     #[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
     {
-        println!("{}", json!({ "protocol": rawtonic_tether::protocol::PROTOCOL, "libgphoto2": null }));
+        println!(
+            "{}",
+            json!({ "protocol": rawtonic_tether::protocol::PROTOCOL, "libgphoto2": null })
+        );
         Ok(())
     }
 }

@@ -100,7 +100,8 @@ export function useTauriListeners({
 
   /** A capture the hot folder or the tether brought in: it joined their
    * import batch (Previous Import) and is selected in the Library, as in
-   * Capture One — with `inDevelop`, also opened when Develop is showing. */
+   * Capture One — with `inDevelop` (tether), also opened when Develop is
+   * showing, and its folder shown when another one is. */
   const showCapture = (
     { destination, skipped, error }: { destination: string | null; skipped: boolean; error: string | null },
     inDevelop: boolean,
@@ -110,8 +111,16 @@ export function useTauriListeners({
     const { currentFolderPath, setLibrary } = useLibraryStore.getState();
     const folder = destination.slice(0, Math.max(destination.lastIndexOf('/'), destination.lastIndexOf('\\')));
     void refs.current.refreshAllFolderTrees();
-    if (currentFolderPath !== folder) return;
-    void Promise.resolve(refs.current.refreshImageList()).then(() => {
+    // A tethered capture brings its folder into view (Capture One's viewer
+    // follows the captures); a hot folder capture does not move the view.
+    const shown =
+      currentFolderPath === folder
+        ? Promise.resolve(refs.current.refreshImageList())
+        : inDevelop
+          ? Promise.resolve(refs.current.handleSelectSubfolder(folder))
+          : null;
+    if (!shown) return;
+    void shown.then(() => {
       if (useUIStore.getState().activeView !== 'editor')
         setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
       else if (inDevelop) refs.current.handleImageSelect?.(destination, true);

@@ -406,7 +406,7 @@ export default function TetherPanel({
             <p className="tether-last" role="status">
               {last.error
                 ? t("session.tether.lastFailed", { file: last.cameraName })
-                : last.msToIngested !== null
+                : last.requested && last.msToIngested !== null
                   ? t("session.tether.lastTiming", { file: last.cameraName, ms: last.msToIngested })
                   : t("session.tether.lastIn", { file: last.cameraName })}
             </p>
