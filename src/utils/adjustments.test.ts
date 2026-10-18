@@ -12,6 +12,7 @@ import {
   SHARPEN_VERSION,
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
+  withSharpenVersion,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -198,6 +199,24 @@ describe('RAW detail defaults', () => {
     expect(load({}, false)).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: 80, sharpenVersion: 1 })).toBe(1);
     expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
+  });
+
+  it('copy the sharpening response explicitly with sharpening values', () => {
+    // From a photo with response 1 (no key): 1, so a version-2 target renders as the source did.
+    expect(withSharpenVersion({ sharpness: 80 }, { sharpness: 80 } as Adjustments).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpnessThreshold: 30 }, {} as Adjustments).sharpenVersion).toBe(1);
+    expect(JSON.parse(JSON.stringify(withSharpenVersion({ sharpenDetail: 100 }, {} as Adjustments))).sharpenVersion).toBe(1);
+    // From a photo with response 2: 2.
+    expect(withSharpenVersion({ sharpness: 80 }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(2);
+    // Values that carry their own key keep it.
+    expect(withSharpenVersion({ sharpness: 80, sharpenVersion: 2 }, {} as Adjustments).sharpenVersion).toBe(2);
+    // Presets from before the key (no source): 1 unless they render the same with 2.
+    expect(withSharpenVersion({ sharpness: 80 }).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpness: 40 }).sharpenVersion).toBe(SHARPEN_VERSION);
+    // Layers that sharpen count; nothing sharpening, no key.
+    const layered = { masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
+    expect(withSharpenVersion(layered, {} as Adjustments).sharpenVersion).toBe(1);
+    expect('sharpenVersion' in withSharpenVersion({ exposure: 1 }, {} as Adjustments)).toBe(false);
   });
 });
 

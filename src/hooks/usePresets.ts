@@ -10,6 +10,7 @@ import {
   initialAdjustmentsFor,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withSharpenVersion,
 } from '../utils/adjustments';
 import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
 import { frameDrawnMasks } from '../utils/maskGeometry';
@@ -181,7 +182,7 @@ export function usePresets(
     }
 
     const newPresetData: Preset = {
-      adjustments: framed(withAiDenoiseVersion(presetAdjustments, current), current),
+      adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
       id: crypto.randomUUID(),
       name,
       includeMasks,
@@ -332,7 +333,7 @@ export function usePresets(
       if (item.preset?.id === id) {
         updatedPreset = {
           ...item.preset,
-          adjustments: framed(withAiDenoiseVersion(presetAdjustments, current), current),
+          adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
           includeMasks,
           includeCropTransform,
           presetType,
@@ -346,7 +347,7 @@ export function usePresets(
             found = true;
             updatedPreset = {
               ...child,
-              adjustments: framed(withAiDenoiseVersion(presetAdjustments, current), current),
+              adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
               includeMasks,
               includeCropTransform,
               presetType,

@@ -9,7 +9,7 @@ import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import type { Adjustments } from '../utils/adjustments';
+import { withSharpenVersion, type Adjustments } from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
  * other photographs (a slider drag writes once it pauses or ends). */
@@ -99,7 +99,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const write = ++writes;
       // Written at the switch to another primary (see below): that one may
       // be one of the others, still opening.
-      const done = applyRef.current(changes, others, { openingNow: true });
+      const done = applyRef.current(withSharpenVersion(changes, from.adjustments), others, { openingNow: true });
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (write === writes) inflight = shownBefore;

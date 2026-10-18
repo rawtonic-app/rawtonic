@@ -1212,26 +1212,64 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
   return used ? undefined : DEFRINGE_VERSION;
 };
 
+/** Whether a recipe renders the same with either sharpening response: no
+ * sharpening, or Amount 40 with Radius, Detail, Masking and Falloff at their
+ * defaults, and no layer that changes the amount. */
+const sharpensAlikeInBothVersions = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
+  // RAW recipes without an amount sharpen at the RAW default (40).
+  const amount = values.sharpness ?? (isRaw ? RAW_DETAIL_DEFAULTS.sharpness : 0);
+  const atDefaults =
+    (values.sharpenRadius ?? 1) === 1 &&
+    (values.sharpenDetail ?? 25) === 25 &&
+    (values.sharpenMasking ?? 0) === 0 &&
+    (values.sharpnessFalloff ?? 0) === 0;
+  const layerSharpens = (values.masks ?? []).some(
+    (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0,
+  );
+  return (amount <= 0 || (amount === 40 && atDefaults)) && !layerSharpens;
+};
+
 /** The sharpening response of a saved recipe: its own; else the current one
- * when it renders the same with it (no sharpening, or Amount 40 with Radius,
- * Detail, Masking and Falloff at their defaults, and no layer that changes
- * the amount), the earlier one otherwise (missing key). */
+ * when it renders the same with it, the earlier one otherwise (missing key). */
 const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
   if (loaded.sharpenVersion !== undefined && loaded.sharpenVersion !== null) {
     return loaded.sharpenVersion;
   }
-  // RAW recipes without an amount sharpen at the RAW default (40).
-  const amount = loaded.sharpness ?? (isRaw ? RAW_DETAIL_DEFAULTS.sharpness : 0);
-  const atDefaults =
-    (loaded.sharpenRadius ?? 1) === 1 &&
-    (loaded.sharpenDetail ?? 25) === 25 &&
-    (loaded.sharpenMasking ?? 0) === 0 &&
-    (loaded.sharpnessFalloff ?? 0) === 0;
-  const photoSame = amount <= 0 || (amount === 40 && atDefaults);
-  const layerSharpens = (loaded.masks ?? []).some(
-    (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0,
-  );
-  return photoSame && !layerSharpens ? SHARPEN_VERSION : undefined;
+  return sharpensAlikeInBothVersions(loaded, isRaw) ? SHARPEN_VERSION : undefined;
+};
+
+/** Keys whose values mean what the sharpening response makes of them. */
+const SHARPEN_RESPONSE_KEYS = [
+  'sharpness',
+  'sharpnessThreshold',
+  'sharpenRadius',
+  'sharpenDetail',
+  'sharpenMasking',
+  'sharpnessFalloff',
+] as const;
+
+/** Sharpening values mean what their response makes of them, so wherever they
+ * are copied (paste, tool copy, Edit all selected, presets) the response goes
+ * along explicitly — a missing key would vanish in JSON and the target would
+ * keep its own: the source's (1 when it has none), else — presets from before
+ * the key — 1 unless the values render the same with the current one. Layers
+ * count when their sharpening amount is set. */
+export const withSharpenVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'sharpenVersion'> => {
+  const sharpens =
+    SHARPEN_RESPONSE_KEYS.some((key) => picked[key] !== undefined) ||
+    (picked.masks ?? []).some((mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0);
+  if (!sharpens || (picked.sharpenVersion !== undefined && picked.sharpenVersion !== null)) {
+    return picked;
+  }
+  const version = source
+    ? (source.sharpenVersion ?? 1)
+    : sharpensAlikeInBothVersions(picked, true)
+      ? SHARPEN_VERSION
+      : 1;
+  return { ...picked, sharpenVersion: version };
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
