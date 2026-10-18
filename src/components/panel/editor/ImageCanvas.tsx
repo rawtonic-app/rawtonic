@@ -99,6 +99,10 @@ interface DrawnLine {
   autoMask?: boolean;
   /** Auto Mask method; absent = 1 (old strokes, Lightroom imports), 2 = edge-aware. */
   autoMaskVersion?: number;
+  /** Dab placement; absent = 1 (old strokes), 2 = a dab at the last point and,
+   * for Capture One tips without Auto Mask, denser dabs (crates/engine
+   * `DabTip::dab_version_2`). */
+  dabVersion?: number;
   /** The photo's geometry the stroke was painted in (see `ShapeFrame`). */
   frame?: ShapeFrame;
   points: Array<Coord>;
@@ -226,6 +230,11 @@ const MAX_COLOR_SAMPLES = 5;
  * modelled together (crates/engine `stroke_models_v3`); strokes with 2 or
  * without it keep their version. */
 const AUTO_MASK_VERSION = 3;
+
+/** Dab placement of new strokes: 2 ends a stroke at its last point (and the
+ * live stroke at the pointer) and lays plain Capture One tips' dabs closer;
+ * strokes without it keep version 1. */
+const DAB_VERSION = 2;
 
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -1391,6 +1400,12 @@ const ImageCanvas = memo(
     const activeStrokeIndex = useRef<number | null>(null);
 
     const [cursorPreview, setCursorPreview] = useState<CursorPreview>({ x: 0, y: 0, visible: false });
+    // While the brush rings show, they follow the pointer by moving their
+    // Konva node on its own layer: a render of the canvas per move held up
+    // the pointer events after it (the state keeps visibility and the last
+    // position React drew).
+    const cursorPosition = useRef<Coord>({ x: 0, y: 0 });
+    const brushCursorRef = useRef<Konva.Group>(null);
     const [straightenLine, setStraightenLine] = useState<{ start: Coord; end: Coord } | null>(null);
     const isStraightening = useRef(false);
 
@@ -1616,7 +1631,8 @@ const ImageCanvas = memo(
     const [gestureAnchor, setGestureAnchor] = useState<CursorPreview | null>(null);
     const gestureActive = brushGesture !== null;
     useEffect(() => {
-      setGestureAnchor(gestureActive ? cursorPreview : null);
+      setGestureAnchor(gestureActive ? { ...cursorPosition.current, visible: true } : null);
+      if (!gestureActive) setCursorPreview((p: CursorPreview) => ({ ...p, ...cursorPosition.current }));
       // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the cursor when the gesture starts, not its later moves
     }, [gestureActive]);
 
@@ -1967,6 +1983,7 @@ const ImageCanvas = memo(
           hardness: strokeHardness,
           autoMask: strokeAutoMask,
           autoMaskVersion: strokeAutoMaskVersion,
+          dabVersion: DAB_VERSION,
           frame: drawingFrame,
           points: stroke.points.slice(),
           tool: line.tool,
@@ -2181,6 +2198,7 @@ const ImageCanvas = memo(
               hardness: strokeHardness,
               autoMask: strokeAutoMask,
               autoMaskVersion: strokeAutoMaskVersion,
+              dabVersion: DAB_VERSION,
               frame: drawingFrame,
               points: interpolatedPoints,
               tool: effectiveTool,
@@ -2303,7 +2321,16 @@ const ImageCanvas = memo(
 
         if (isToolActive) {
           if (pos) {
-            setCursorPreview({ x: pos.x, y: pos.y, visible: true });
+            cursorPosition.current = pos;
+            const rings = brushCursorRef.current;
+            if (rings && cursorPreview.visible) {
+              if (!brushGesture) {
+                rings.position(pos);
+                rings.getLayer()?.batchDraw();
+              }
+            } else {
+              setCursorPreview({ x: pos.x, y: pos.y, visible: true });
+            }
           } else {
             setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
           }
@@ -2457,6 +2484,8 @@ const ImageCanvas = memo(
         brushImageSpaceSize,
         getCanvasPointer,
         renderShapesLive,
+        cursorPreview.visible,
+        brushGesture,
         uncroppedImageRenderSize?.width,
         uncroppedImageRenderSize?.height,
       ],
@@ -2666,6 +2695,7 @@ const ImageCanvas = memo(
           hardness: strokeHardness,
           autoMask: strokeAutoMask,
           autoMaskVersion: strokeAutoMaskVersion,
+          dabVersion: DAB_VERSION,
           frame: drawingFrame,
           points: line.points.map((p: Coord) => ({
             x: p.x / scale + cropX,
@@ -2858,7 +2888,7 @@ const ImageCanvas = memo(
     const handleMouseEnter = useCallback(() => {
       setPointerOverImage(true);
       if (isToolActive) {
-        setCursorPreview((p: CursorPreview) => ({ ...p, visible: true }));
+        setCursorPreview({ ...cursorPosition.current, visible: true });
       }
     }, [isToolActive]);
 
@@ -3369,9 +3399,17 @@ const ImageCanvas = memo(
                           listening={false}
                         />
                       )}
+                    </Group>
+                  </Group>
+                </Layer>
+                {/* The brush rings on their own canvas: moving them redraws only it. */}
+                <Layer listening={false}>
+                  <Group scaleX={maxSafeScale} scaleY={maxSafeScale}>
+                    <Group x={groupOffsetX} y={groupOffsetY}>
                       {isBrushActive &&
                         cursorPreview.visible && (
                           <Group
+                            ref={brushCursorRef}
                             listening={false}
                             x={(brushGesture ? gestureAnchor ?? cursorPreview : cursorPreview).x}
                             y={(brushGesture ? gestureAnchor ?? cursorPreview : cursorPreview).y}
