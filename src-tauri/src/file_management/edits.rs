@@ -205,6 +205,13 @@ fn resolve_lens_choice(
                 map.get("lensModel").and_then(|v| v.as_str()),
             ) {
                 (Some(maker), Some(model)) if !maker.is_empty() && !model.is_empty() => {
+                    // A photo that cannot be read (offline) has camera facts
+                    // still to come: not resolved at a guessed focal length,
+                    // tried again on the next save. A readable file without
+                    // EXIF never gets them; it takes the fallback for good.
+                    if exif_data.is_none() && !source.is_file() {
+                        return false;
+                    }
                     let mut focal_length = 50.0;
                     let mut aperture = None;
                     let mut distance = None;
@@ -1335,6 +1342,85 @@ mod tests {
         resolve(&mut fresh, LensLookup::Fresh);
         assert_eq!(fresh["lensModel"], serde_json::json!(rf28));
         assert_eq!(fresh["lensDistortionParams"], current(&rf28));
+    }
+
+    #[test]
+    fn a_manual_lens_on_an_offline_photo_resolves_once_its_exif_is_there() {
+        use crate::lens_correction::{lenses_for_maker, load_lensfun_dir};
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("lenses.xml"),
+            r#"<lensdatabase><lens>
+                <maker>Canon</maker><model>Canon RF 24-70mm F2.8L IS USM</model><mount>Canon RF</mount>
+                <cropfactor>1.0</cropfactor>
+                <calibration>
+                    <distortion model="ptlens" focal="24" a="0.03" b="-0.09" c="0.06"/>
+                    <distortion model="ptlens" focal="70" a="0.002" b="0.004" c="-0.003"/>
+                </calibration>
+            </lens></lensdatabase>"#,
+        )
+        .unwrap();
+        let db = load_lensfun_dir(tmp.path());
+        let lenses = lenses_for_maker(&db, "Canon");
+        let zoom = lenses[0].get_display_name(&lenses);
+        let at = |focal: f32| {
+            let params = crate::lens_correction::resolve_lens_params(
+                &db, "Canon", &zoom, focal, None, None, None,
+            );
+            serde_json::to_value(params.unwrap()).unwrap()
+        };
+        assert_ne!(at(24.0), at(50.0));
+        let choice = serde_json::json!({
+            "lensCorrectionMode": "manual",
+            "lensMaker": "Canon",
+            "lensModel": zoom,
+        });
+
+        // Offline, no cached EXIF: marked unresolved, not resolved at 50 mm.
+        let offline = Path::new("/offline/volume/Job/Capture/IMG_0002.CR3");
+        let mut saved = choice.clone();
+        resolve_lens_params_in_adjustments(
+            &mut saved,
+            LensLookup::Keep { previous: None },
+            &None,
+            Some(&db),
+            offline,
+        );
+        assert_eq!(saved[LENS_PROFILE_FOR], serde_json::json!(LENS_UNRESOLVED));
+        assert!(saved.get("lensDistortionParams").is_none());
+
+        // Back online: the next save resolves at the photo's focal length.
+        let exif = Some(HashMap::from([(
+            "FocalLength".to_string(),
+            "24 mm".to_string(),
+        )]));
+        let previous = saved.clone();
+        resolve_lens_params_in_adjustments(
+            &mut saved,
+            LensLookup::Keep {
+                previous: Some(&previous),
+            },
+            &exif,
+            Some(&db),
+            offline,
+        );
+        assert_eq!(saved["lensDistortionParams"], at(24.0));
+        assert_ne!(saved[LENS_PROFILE_FOR], serde_json::json!(LENS_UNRESOLVED));
+
+        // A readable file without EXIF never gets a focal length: the
+        // fallback is resolved and kept.
+        let no_exif = tmp.path().join("scan.tif");
+        std::fs::write(&no_exif, b"no exif").unwrap();
+        let mut scan = choice.clone();
+        resolve_lens_params_in_adjustments(
+            &mut scan,
+            LensLookup::Keep { previous: None },
+            &None,
+            Some(&db),
+            &no_exif,
+        );
+        assert_eq!(scan["lensDistortionParams"], at(50.0));
+        assert_ne!(scan[LENS_PROFILE_FOR], serde_json::json!(LENS_UNRESOLVED));
     }
 
     #[test]
