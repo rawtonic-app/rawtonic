@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "react-i18next";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
@@ -113,7 +113,18 @@ export default function StudioLensCorrection() {
       },
     ).catch(() => null);
 
+  // Only the latest lens lookup commits, and only while the recipe's lens is
+  // as it was when the lookup started (a later choice, a maker change, a
+  // reset or switching off wins): saves keep the parameters they get.
+  const lensRequest = useRef(0);
+  const lensFields = (recipe: Adjustments) =>
+    JSON.stringify([recipe.lensCorrectionMode, recipe.lensMaker, recipe.lensModel]);
+  const begin = () => ({ request: ++lensRequest.current, lens: lensFields(useEditorStore.getState().adjustments) });
+  const stillAsked = (asked: { request: number; lens: string }, prev: Adjustments) =>
+    asked.request === lensRequest.current && lensFields(prev) === asked.lens;
+
   const enable = async () => {
+    const asked = begin();
     // The camera's own data first (Capture One, in-camera JPEGs), then the
     // lens database.
     if (camera) return applyCamera(camera);
@@ -142,19 +153,24 @@ export default function StudioLensCorrection() {
       const [maker, model] = found;
       const distortion = await params(maker, model);
       if (!stillOpen()) return;
-      setAdjustments((prev) => ({
-        ...prev,
-        lensMaker: maker,
-        lensModel: model,
-        lensDistortionParams: distortion,
-        lensCorrectionMode: "auto",
-      }));
+      setAdjustments((prev) =>
+        stillAsked(asked, prev)
+          ? {
+              ...prev,
+              lensMaker: maker,
+              lensModel: model,
+              lensDistortionParams: distortion,
+              lensCorrectionMode: "auto",
+            }
+          : prev,
+      );
       setStatus("idle");
     } catch {
       if (stillOpen()) setStatus("not_found");
     }
   };
-  const chooseMaker = (maker: string) =>
+  const chooseMaker = (maker: string) => {
+    begin();
     setAdjustments((prev) => ({
       ...prev,
       lensMaker: maker || null,
@@ -162,18 +178,24 @@ export default function StudioLensCorrection() {
       lensDistortionParams: null,
       lensCorrectionMode: "manual",
     }));
+  };
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
     const path = selectedImage?.path;
     if (!maker || !path) return;
+    const asked = begin();
     const distortion = model ? await params(maker, model) : null;
     if (!isCurrentEditorImage(path)) return;
-    setAdjustments((prev) => ({
-      ...prev,
-      lensModel: model || null,
-      lensDistortionParams: distortion,
-      lensCorrectionMode: "manual",
-    }));
+    setAdjustments((prev) =>
+      stillAsked(asked, prev)
+        ? {
+            ...prev,
+            lensModel: model || null,
+            lensDistortionParams: distortion,
+            lensCorrectionMode: "manual",
+          }
+        : prev,
+    );
   };
   const amount = (
     label: string,

@@ -105,6 +105,34 @@ describe("Lens correction tool", () => {
     expect(current).toMatchObject({ lensMaker: "Fujifilm", lensModel: "XF 23mm", lensCorrectionMode: "manual" });
   });
 
+  it("commits only the latest lens choice, and none once the maker changed", async () => {
+    const waiting: Record<string, (v: unknown) => void> = {};
+    mockInvoke.mockImplementation((command, args) => {
+      const a = args as Record<string, unknown>;
+      if (command === "get_lensfun_makers") return Promise.resolve(["Sony", "Fujifilm"]);
+      if (command === "get_lensfun_lenses_for_maker")
+        return Promise.resolve(a.maker === "Sony" ? ["FE 85mm F1.8", "FE 50mm F1.8"] : ["XF 23mm"]);
+      if (command === "get_lens_distortion_params")
+        return new Promise((resolve) => { waiting[a.model as string] = resolve; });
+      return Promise.resolve(undefined);
+    });
+    current = { ...INITIAL_ADJUSTMENTS, lensMaker: "Sony", lensCorrectionMode: "manual" };
+    useEditorStore.setState({ adjustments: current });
+    await renderTool();
+    const model = () => screen.getByLabelText("Lens model");
+    // A, then B; A answers last.
+    await act(async () => { fireEvent.change(model(), { target: { value: "FE 85mm F1.8" } }); });
+    await act(async () => { fireEvent.change(model(), { target: { value: "FE 50mm F1.8" } }); });
+    await act(async () => waiting["FE 50mm F1.8"]({ k1: 0.05 }));
+    await act(async () => waiting["FE 85mm F1.8"]({ k1: 0.85 }));
+    expect(current).toMatchObject({ lensModel: "FE 50mm F1.8", lensDistortionParams: { k1: 0.05 } });
+    // A choice still being looked up when the maker changes commits nothing.
+    await act(async () => { fireEvent.change(model(), { target: { value: "FE 85mm F1.8" } }); });
+    await act(async () => { fireEvent.change(screen.getByLabelText("Lens make"), { target: { value: "Fujifilm" } }); });
+    await act(async () => waiting["FE 85mm F1.8"]({ k1: 0.85 }));
+    expect(current).toMatchObject({ lensMaker: "Fujifilm", lensModel: null, lensDistortionParams: null });
+  });
+
   it("disables the amounts without a profile", async () => {
     await renderTool();
     const sliders = screen.getAllByRole("slider") as HTMLInputElement[];
