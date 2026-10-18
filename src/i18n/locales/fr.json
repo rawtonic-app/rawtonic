@@ -2233,6 +2233,8 @@
         "title": "Plage de luminance"
       },
       "paintAria": "Peindre sur le masque",
+      "refineEdge": "Affiner le bord",
+      "refineEdgeTitle": "Dans ce rayon (pixels de la photo entière), le bord du calque suit celui de la photo : cheveux, poils et feuilles gardent leur contour doux",
       "select": {
         "aria": "Calque",
         "background": "Arrière-plan",

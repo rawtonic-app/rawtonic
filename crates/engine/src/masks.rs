@@ -43,6 +43,15 @@ pub struct MaskDefinition {
     pub opacity: f32,
     pub adjustments: Value,
     pub sub_masks: Vec<SubMask>,
+    /// 2: the layer's mask is computed in floating point and kept at 16 bits
+    /// (`mask_generation::generate_layer_mask`). Absent (every layer before
+    /// 2026-10-18): the 8-bit mask, unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask_version: Option<u32>,
+    /// Refine edge: radius in pixels of the full-resolution photo within
+    /// which the mask's edge follows the photo's (`maskVersion` 2 only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refine_edge: Option<f32>,
 }
 
 impl MaskDefinition {
@@ -50,14 +59,26 @@ impl MaskDefinition {
         self.visible && !self.sub_masks.is_empty()
     }
 
+    /// The mask is computed at 16 bits (`maskVersion` 2).
+    pub fn precise(&self) -> bool {
+        self.mask_version.is_some_and(|version| version >= 2)
+    }
+
+    /// The Refine edge radius in full-resolution pixels, when it applies.
+    pub fn refine_radius(&self) -> Option<f32> {
+        self.refine_edge
+            .filter(|radius| self.precise() && radius.is_finite() && *radius > 0.0)
+    }
+
     pub fn requires_warped_image(&self) -> bool {
-        self.sub_masks.iter().any(|sm| {
-            matches!(sm.mask_type.as_str(), "color" | "luminance" | "luma-range")
-                || (sm.mask_type == "brush"
-                    && sm.parameters["lines"]
-                        .as_array()
-                        .is_some_and(|lines| lines.iter().any(|l| l["autoMask"] == true)))
-        })
+        self.refine_radius().is_some()
+            || self.sub_masks.iter().any(|sm| {
+                matches!(sm.mask_type.as_str(), "color" | "luminance" | "luma-range")
+                    || (sm.mask_type == "brush"
+                        && sm.parameters["lines"]
+                            .as_array()
+                            .is_some_and(|lines| lines.iter().any(|l| l["autoMask"] == true)))
+            })
     }
 }
 

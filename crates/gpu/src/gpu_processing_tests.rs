@@ -1,5 +1,5 @@
 use super::*;
-use crate::mask_generation::{MaskDefinition, PhotoGeometry, generate_mask_bitmap};
+use crate::mask_generation::{MaskBitmap, MaskDefinition, PhotoGeometry, generate_layer_mask};
 use serde_json::json;
 use std::sync::atomic::Ordering;
 
@@ -174,7 +174,7 @@ fn generated_profile_masks(
     profile: &serde_json::Value,
     width: u32,
     height: u32,
-) -> Vec<Arc<GrayImage>> {
+) -> Vec<Arc<MaskBitmap>> {
     let definitions: Vec<MaskDefinition> = profile
         .get("masks")
         .and_then(|masks| serde_json::from_value(masks.clone()).ok())
@@ -182,7 +182,7 @@ fn generated_profile_masks(
     definitions
         .iter()
         .filter_map(|definition| {
-            generate_mask_bitmap(
+            generate_layer_mask(
                 definition,
                 width,
                 height,
@@ -1208,10 +1208,10 @@ fn cached_preview_pixels_match_full_preparation() {
             input(&context, width, height, 47),
         ];
         let mask_bitmaps = [
-            Arc::new(ImageBuffer::from_fn(width, height, |x, _| {
+            masked(ImageBuffer::from_fn(width, height, |x, _| {
                 Luma([((x % 127) * 2) as u8])
             })),
-            Arc::new(ImageBuffer::from_fn(width, height, |_, y| {
+            masked(ImageBuffer::from_fn(width, height, |_, y| {
                 Luma([255 - ((y % 127) * 2) as u8])
             })),
         ];
@@ -1331,6 +1331,134 @@ fn cached_preview_pixels_match_full_preparation() {
     println!(
         "{comparisons} GPU comparisons passed: exact 8/16-bit exports, preview delta <= 1/255, masks, ROI, tiles and source changes"
     );
+}
+
+/// 16-bit masks (`maskVersion` 2) in the half-float array: cached and fully
+/// prepared renders, export and display paths agree as for byte masks, a
+/// byte layer beside a 16-bit one keeps its pixels, and the 16-bit gradient
+/// reaches the shader finer than its bytes.
+#[test]
+#[ignore = "requires a native GPU; compares 16-bit mask renders across paths"]
+fn wide_mask_renders_match_across_paths() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 2304, 512).unwrap();
+    let (width, height) = (640u32, 400u32);
+    let view = input(&context, width, height, 5);
+    // A gentle ramp over the whole width: 8-bit steps every 2.5 px.
+    let coverage: Vec<f32> = (0..width * height)
+        .map(|i| 0.2 + 0.4 * (i % width) as f32 / width as f32)
+        .collect();
+    let wide = Arc::new(MaskBitmap::from_coverage(width, height, &coverage));
+    let bytes = masked((*wide).clone().into_bytes());
+    let byte_layer = masked(ImageBuffer::from_fn(width, height, |_, y| {
+        Luma([255 - ((y % 127) * 2) as u8])
+    }));
+    let profile = json!({"masks":[
+        {"id":"a","name":"A","visible":true,"invert":false,"opacity":100,"subMasks":[all_sub_mask()],"adjustments":{"exposure":3.0,"saturation":40}},
+        {"id":"b","name":"B","visible":true,"invert":false,"opacity":100,"subMasks":[all_sub_mask()],"adjustments":{"highlights":-35,"curves":custom_curve()}}
+    ]});
+    let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+    prepare_preview_pipeline(&processor, preview_features(&adjustments));
+    let render = |masks: &[Arc<MaskBitmap>], display: bool, precision| {
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: masks,
+                    lut: None,
+                    roi: None,
+                },
+                display,
+                precision,
+            )
+            .unwrap()
+    };
+    let u16_pixels = |pixels: RenderedPixels| match pixels {
+        RenderedPixels::U16(pixels) => pixels,
+        RenderedPixels::U8(_) => unreachable!(),
+    };
+    for masks in [
+        vec![Arc::clone(&wide), Arc::clone(&byte_layer)],
+        vec![Arc::clone(&bytes), Arc::clone(&byte_layer)],
+    ] {
+        processor
+            .force_full_preparation
+            .store(false, Ordering::Relaxed);
+        let first = u16_pixels(render(&masks, false, RenderOutputPrecision::SixteenBit).0);
+        let cached = u16_pixels(render(&masks, false, RenderOutputPrecision::SixteenBit).0);
+        processor
+            .force_full_preparation
+            .store(true, Ordering::Relaxed);
+        let reference = u16_pixels(render(&masks, false, RenderOutputPrecision::SixteenBit).0);
+        processor
+            .force_full_preparation
+            .store(false, Ordering::Relaxed);
+        assert_eq!(first, reference);
+        assert_eq!(cached, reference);
+        let (pixels, ..) = render(&masks, false, RenderOutputPrecision::EightBit);
+        let RenderedPixels::U8(export) = pixels else {
+            unreachable!()
+        };
+        let (_, w, h, x, y) = render(&masks, true, RenderOutputPrecision::EightBit);
+        let preview = read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d { x, y, z: 0 },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap();
+        let max_delta = preview
+            .iter()
+            .zip(&export)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        assert!(max_delta <= 1, "preview max channel delta {max_delta}");
+    }
+    // On a flat grey photo, along a row the 16-bit ramp gives more distinct
+    // output levels than its bytes (where every 2.5 px share one level).
+    let grey = grey_texture(
+        &context,
+        width,
+        height,
+        &vec![0.18; (width * height) as usize],
+    );
+    let row_levels = |masks: &[Arc<MaskBitmap>]| {
+        let (pixels, ..) = processor
+            .run(
+                &grey,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: masks,
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let pixels = u16_pixels(pixels);
+        let row = &pixels[200 * width as usize * 4..201 * width as usize * 4];
+        row.chunks(4)
+            .map(|p| p[1])
+            .collect::<std::collections::BTreeSet<u16>>()
+            .len()
+    };
+    let fine = row_levels(&[Arc::clone(&wide), Arc::clone(&byte_layer)]);
+    let coarse = row_levels(&[Arc::clone(&bytes), Arc::clone(&byte_layer)]);
+    assert!(fine > coarse * 2, "16-bit {fine} levels vs bytes {coarse}");
+    println!("wide masks: {fine} output levels per row vs {coarse} from bytes");
 }
 
 fn prepare_preview_pipeline(processor: &GpuProcessor, features: usize) {
@@ -1535,7 +1663,7 @@ fn complex_preview_timing_probe() {
         ),
     ] {
         let view = input(&context, width, height, 3);
-        let mask = Arc::new(ImageBuffer::from_fn(width, height, |x, _| {
+        let mask = masked(ImageBuffer::from_fn(width, height, |x, _| {
             Luma([((x % 127) * 2) as u8])
         }));
         for (profile_name, profile) in &profiles {
@@ -1779,7 +1907,7 @@ fn direct_curve_preview_matches_legacy_specialization() {
     ];
     let masks: Vec<_> = (0..MAX_MASKS)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 let coverage = match (x + y + i as u32) % 5 {
                     0 => 0,
                     1 => 1,
@@ -1894,7 +2022,7 @@ fn curve_preview_timing_probe() {
     let view = input(&context, width, height, 3);
     let masks: Vec<_> = (0..20)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 Luma([(((x + y * 3 + i * 7) % 127) * 2) as u8])
             }))
         })
@@ -1979,10 +2107,10 @@ fn mask_upload_profile(count: usize) -> serde_json::Value {
     json!({"masks":masks})
 }
 
-fn upload_test_masks(width: u32, height: u32, count: usize) -> Vec<Arc<image::GrayImage>> {
+fn upload_test_masks(width: u32, height: u32, count: usize) -> Vec<Arc<MaskBitmap>> {
     (0..count)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 Luma([((x * (i as u32 + 1) + y * 3 + i as u32 * 41) % 256) as u8])
             }))
         })
@@ -1995,7 +2123,7 @@ fn assert_mask_upload_frame(
     processor: &GpuProcessor,
     view: &wgpu::TextureView,
     dimensions: (u32, u32),
-    masks: &[Arc<image::GrayImage>],
+    masks: &[Arc<MaskBitmap>],
     roi: Option<Roi>,
     output_expectation: (bool, usize),
     label: &str,
@@ -2073,7 +2201,7 @@ fn mask_texture_cache_tracks_content_and_preserves_foreground() {
     let view = input(&context, width, height, 3);
     let second_view = input(&context, width, height, 47);
     let mut masks = upload_test_masks(width, height, 2);
-    let frame = |masks: &[Arc<image::GrayImage>], writes, label| {
+    let frame = |masks: &[Arc<MaskBitmap>], writes, label| {
         assert_mask_upload_frame(
             &processor,
             &view,
@@ -2089,7 +2217,7 @@ fn mask_texture_cache_tracks_content_and_preserves_foreground() {
     assert_eq!(original, frame(&masks, 0, "warm"));
     let cloned_handles = masks.clone();
     assert_eq!(original, frame(&cloned_handles, 0, "Arc clones"));
-    Arc::make_mut(&mut masks[0]).fill(255);
+    Arc::make_mut(&mut masks[0]).bytes_mut().fill(255);
     let edited = frame(&masks, 1, "one changed layer");
     assert_ne!(original, edited, "edit fixture must change pixels");
     masks.swap(0, 1);
@@ -2346,7 +2474,7 @@ fn prepared_layers_match_previous_preview() {
     ];
     let masks: Vec<_> = (0..MAX_MASKS)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 let coverage = match (x + y + i as u32) % 5 {
                     0 => 0,
                     1 => 1,
@@ -2461,7 +2589,7 @@ fn layer_preview_timing_probe() {
     let view = input(&context, width, height, 3);
     let masks: Vec<_> = (0..20)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 Luma([(((x + y * 3 + i * 7) % 127) * 2) as u8])
             }))
         })
@@ -2540,7 +2668,7 @@ fn curve_tables_match_exact_display_curves() {
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let masks: Vec<_> = (0..20)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 Luma([(((x * 5 + y * 3 + i * 11) % 256) as u8)])
             }))
         })
@@ -2642,7 +2770,7 @@ fn recipe_preview_timing_probe() {
     let view = input(&context, width, height, 3);
     let masks: Vec<_> = (0..32)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 Luma([(((x + y * 3 + i * 7) % 127) * 2) as u8])
             }))
         })
@@ -2825,7 +2953,7 @@ fn export_specialization_preserves_general_pixels() {
     let mut comparisons = 0;
     for (width, height) in [(127, 93), (2176, 64)] {
         let view = input(&context, width, height, 17);
-        let mask = Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+        let mask = masked(ImageBuffer::from_fn(width, height, |x, y| {
             Luma([((x * 3 + y * 7) % 256) as u8])
         }));
         // Camera Raw look (mode 3): DJI stand-ins (flag 0), neutral colour
@@ -3035,7 +3163,7 @@ fn export_direct_curves_preserve_dense_general_pixels() {
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let masks: Vec<_> = (0..MAX_MASKS)
         .map(|i| {
-            Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+            masked(ImageBuffer::from_fn(width, height, |x, y| {
                 Luma([match (x + y + i as u32) % 5 {
                     0 => 0,
                     1 => 1,
@@ -3221,8 +3349,8 @@ fn display_color_sample_uses_developed_output_and_clamps_edges() {
 }
 
 fn brute_force_changed_bands(
-    previous: &[Arc<GrayImage>],
-    current: &[Arc<GrayImage>],
+    previous: &[Arc<MaskBitmap>],
+    current: &[Arc<MaskBitmap>],
     height: u32,
 ) -> Vec<Option<Roi>> {
     let mut bands = vec![None; (height as usize).div_ceil(DIRTY_BAND_ROWS)];
@@ -3270,7 +3398,7 @@ fn changed_mask_bands_match_a_pixel_scan() {
     let mut checked = 0;
     for (width, height) in [(1, 1), (1, 130), (9, 1), (37, 200), (300, 7), (5, 197)] {
         let pattern = |seed: u32| {
-            Arc::new(ImageBuffer::from_fn(width, height, move |x, y| {
+            masked(ImageBuffer::from_fn(width, height, move |x, y| {
                 Luma([((x * 7 + y * 13 + seed) % 256) as u8])
             }))
         };
@@ -3284,7 +3412,7 @@ fn changed_mask_bands_match_a_pixel_scan() {
         for _ in 0..200 {
             let mut current = previous.clone();
             for mask in current.iter_mut() {
-                let mask = Arc::make_mut(mask);
+                let mask = Arc::make_mut(mask).bytes_mut();
                 for _ in 0..(next() % 5) {
                     let x = next() % width;
                     let y = next() % height;
@@ -3425,13 +3553,13 @@ fn partial_frame_profile(count: usize, exposure: f64) -> serde_json::Value {
 }
 
 fn painted(
-    masks: &[Arc<GrayImage>],
+    masks: &[Arc<MaskBitmap>],
     layer: usize,
     region: (std::ops::Range<u32>, std::ops::Range<u32>),
     value: u8,
-) -> Vec<Arc<GrayImage>> {
+) -> Vec<Arc<MaskBitmap>> {
     let mut masks = masks.to_vec();
-    let mask = Arc::make_mut(&mut masks[layer]);
+    let mask = Arc::make_mut(&mut masks[layer]).bytes_mut();
     for y in region.1 {
         for x in region.0.clone() {
             mask.put_pixel(x, y, Luma([value]));
@@ -3440,7 +3568,11 @@ fn painted(
     masks
 }
 
-fn changed_area(previous: &[Arc<GrayImage>], current: &[Arc<GrayImage>], roi: Option<Roi>) -> u64 {
+fn changed_area(
+    previous: &[Arc<MaskBitmap>],
+    current: &[Arc<MaskBitmap>],
+    roi: Option<Roi>,
+) -> u64 {
     let height = current[0].height();
     let bounds = roi.unwrap_or(Roi {
         x: 0,
@@ -3480,7 +3612,7 @@ fn partial_display_frames_match_complete_renders() {
     let frame = |processor: &GpuProcessor,
                  view: &wgpu::TextureView,
                  adjustments: AllAdjustments,
-                 masks: &[Arc<GrayImage>],
+                 masks: &[Arc<MaskBitmap>],
                  roi: Option<Roi>| {
         let (_, w, h, x, y) = processor
             .run(
@@ -3516,7 +3648,7 @@ fn partial_display_frames_match_complete_renders() {
     let mut check = |label: &str,
                      view: &wgpu::TextureView,
                      adjustments: AllAdjustments,
-                     masks: &[Arc<GrayImage>],
+                     masks: &[Arc<MaskBitmap>],
                      roi: Option<Roi>,
                      expected_pixels: u64| {
         let actual = frame(&processor, view, adjustments, masks, roi);
@@ -3729,7 +3861,7 @@ fn readback_pixels(
     view: &wgpu::TextureView,
     (width, height): (u32, u32),
     adjustments: AllAdjustments,
-    masks: &[Arc<GrayImage>],
+    masks: &[Arc<MaskBitmap>],
     precision: RenderOutputPrecision,
     shader: ReadbackShader,
 ) -> RenderedPixels {
@@ -4048,7 +4180,7 @@ fn post_idle_partial_frame_probe() {
     let mut masks = upload_test_masks(width, height, 20);
     let device = &context.device;
     let wait = || device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    let render = |masks: &[Arc<GrayImage>]| {
+    let render = |masks: &[Arc<MaskBitmap>]| {
         processor
             .run(
                 &view,
@@ -4179,10 +4311,10 @@ fn post_idle_partial_frame_probe() {
     }
 }
 
-fn diagonal_stroke(masks: &[Arc<GrayImage>], value: u8) -> Vec<Arc<GrayImage>> {
+fn diagonal_stroke(masks: &[Arc<MaskBitmap>], value: u8) -> Vec<Arc<MaskBitmap>> {
     // The in-app diagonal: about 2100x780 preview pixels with a 32-pixel radius.
     let mut masks = masks.to_vec();
-    let mask = Arc::make_mut(&mut masks[0]);
+    let mask = Arc::make_mut(&mut masks[0]).bytes_mut();
     for step in 0..100u32 {
         let x = 60 + step * 21;
         let y = 1600 - step * 78 / 10;
@@ -4205,7 +4337,7 @@ fn partial_frame_cpu_timing_probe() {
     let adjustments = get_all_adjustments_from_json(&sharpened_curve_stack(20), true, Some(1));
     prepare_preview_pipeline(&processor, preview_features(&adjustments));
     let mut masks = upload_test_masks(width, height, 20);
-    let render = |masks: &[Arc<GrayImage>]| {
+    let render = |masks: &[Arc<MaskBitmap>]| {
         processor
             .run(
                 &view,
@@ -4420,7 +4552,7 @@ fn linear_drag_region_probe() {
             .iter()
             .map(|def| {
                 Arc::new(
-                    generate_mask_bitmap(
+                    generate_layer_mask(
                         def,
                         width,
                         height,
@@ -4440,7 +4572,7 @@ fn linear_drag_region_probe() {
         Some(1),
     );
     prepare_preview_pipeline(&processor, preview_features(&adjustments));
-    let render = |masks: &[Arc<GrayImage>]| {
+    let render = |masks: &[Arc<MaskBitmap>]| {
         let start = Instant::now();
         processor
             .run(
@@ -4511,7 +4643,7 @@ fn linear_drag_region_probe() {
         // Bitmaps first: generating them between frames would idle the GPU,
         // which then clocks down. Frames follow at the 60 Hz pointer rate.
         let base = masks_for(state(0));
-        let states: Vec<Vec<Arc<GrayImage>>> = (0..=24u32)
+        let states: Vec<Vec<Arc<MaskBitmap>>> = (0..=24u32)
             .map(|step| {
                 let mut masks = base.clone();
                 if step > 0 {
@@ -4600,7 +4732,7 @@ fn shape_layer_cost_probe() {
         .iter()
         .map(|def| {
             Arc::new(
-                generate_mask_bitmap(
+                generate_layer_mask(
                     def,
                     width,
                     height,
@@ -4696,7 +4828,7 @@ fn detail_default_cost_probe() {
         .iter()
         .map(|def| {
             Arc::new(
-                generate_mask_bitmap(
+                generate_layer_mask(
                     def,
                     width,
                     height,
@@ -4920,7 +5052,7 @@ fn detail_cache_timing_probe() {
             .iter()
             .map(|def| {
                 Arc::new(
-                    generate_mask_bitmap(
+                    generate_layer_mask(
                         def,
                         width,
                         height,
@@ -4941,7 +5073,7 @@ fn detail_cache_timing_probe() {
     prepare_preview_pipeline(&processor, preview_features(&adjustments));
     let base = masks_for((328.0, 11.0, 2092.0, 745.0, 500.0));
     // A wide gradient moved at the 60 Hz pointer rate.
-    let states: Vec<Vec<Arc<GrayImage>>> = (0..=48u32)
+    let states: Vec<Vec<Arc<MaskBitmap>>> = (0..=48u32)
         .map(|step| {
             let t = step as f32;
             let mut masks = base.clone();
@@ -4957,7 +5089,7 @@ fn detail_cache_timing_probe() {
         })
         .collect();
     let cpu = std::cell::Cell::new(0.0);
-    let render = |adjustments: AllAdjustments, masks: &[Arc<GrayImage>]| {
+    let render = |adjustments: AllAdjustments, masks: &[Arc<MaskBitmap>]| {
         let start = Instant::now();
         processor
             .run(
@@ -5044,10 +5176,10 @@ fn detail_cache_timing_probe() {
     // The floor: one changed pixel per frame.
     let mut tiny = states[48].clone();
     for step in 0..32u32 {
-        let mut mask = (*tiny[1]).clone();
+        let mut mask = (*tiny[1]).clone().into_bytes();
         let pixel = mask.get_pixel_mut(900 + step, 700);
         pixel.0[0] = pixel.0[0].wrapping_add(1);
-        tiny[1] = Arc::new(mask);
+        tiny[1] = masked(mask);
         processor
             .force_inline_detail
             .store(step % 2 == 0, Ordering::Relaxed);
@@ -5116,7 +5248,7 @@ fn pipeline_compilation_probe() {
         .iter()
         .map(|def| {
             Arc::new(
-                generate_mask_bitmap(
+                generate_layer_mask(
                     def,
                     width,
                     height,
@@ -6822,7 +6954,7 @@ fn relight_masks_and_imported_patterns() {
     let context = context();
     let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
     let view = input(&context, width, height, 23);
-    let left_half = Arc::new(GrayImage::from_fn(width, height, |x, _| {
+    let left_half = masked(GrayImage::from_fn(width, height, |x, _| {
         image::Luma([if x < width / 2 { 255 } else { 0 }])
     }));
     let render = |profile: &serde_json::Value| {
@@ -7942,7 +8074,7 @@ fn chunk_test_render(
     if let Some(level) = profile["testNoiseLevel"].as_f64() {
         adjustments.uniforms.global.noise_level = level as f32;
     }
-    let mask = Arc::new(ImageBuffer::from_fn(width, height, |x, y| {
+    let mask = masked(ImageBuffer::from_fn(width, height, |x, y| {
         Luma([((x * 3 + y * 7) % 256) as u8])
     }));
     let masks = if adjustments.mask_count > 0 {
@@ -9047,4 +9179,9 @@ fn high_iso_noise_reduction_leaves_no_speckles_near_bright_objects() {
         e_fixed > 0.93 * e_plain,
         "edges softened: {e_plain:.2} -> {e_fixed:.2}"
     );
+}
+
+/// A byte mask as the renderer takes it.
+fn masked(image: GrayImage) -> Arc<MaskBitmap> {
+    Arc::new(image.into())
 }

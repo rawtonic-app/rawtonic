@@ -19,6 +19,8 @@ use std::sync::{Arc, Weak};
 
 pub use crate::masks::{MaskDefinition, SubMask, SubMaskMode, default_opacity};
 
+mod precise;
+
 /// Image before orientation, flip, rotation and crop, sampled in original-image
 /// coordinates. Fast RAW decodes and background previews can use fewer pixels.
 #[derive(Clone)]
@@ -4168,6 +4170,124 @@ fn scale_mask_opacity(mask: &mut GrayImage, opacity: f32) {
 /// Bytes per parallel task of whole-mask passes (a few rows of a preview).
 const MASK_PASS_CHUNK: usize = 64 * 1024;
 
+/// A layer's mask: 8-bit coverage (overlays, thumbnails, and the develop
+/// pass of 8-bit layers) and, for `maskVersion` 2 layers whose coverage is
+/// finer than 8 bits, the 16-bit coverage the develop pass uses instead.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaskBitmap {
+    bytes: GrayImage,
+    wide: Option<Vec<u16>>,
+}
+
+impl MaskBitmap {
+    /// A 16-bit mask from coverage in 0–1 (row-major, `width` × `height`).
+    pub fn from_coverage(width: u32, height: u32, coverage: &[f32]) -> Self {
+        debug_assert_eq!(coverage.len(), width as usize * height as usize);
+        let bytes = coverage
+            .par_iter()
+            .map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)
+            .collect();
+        let wide = coverage
+            .par_iter()
+            .map(|v| (v.clamp(0.0, 1.0) * 65535.0).round() as u16)
+            .collect();
+        Self {
+            bytes: GrayImage::from_raw(width, height, bytes).unwrap(),
+            wide: Some(wide),
+        }
+    }
+
+    /// The 16-bit coverage (row-major) of a 16-bit mask.
+    pub fn wide(&self) -> Option<&[u16]> {
+        self.wide.as_deref()
+    }
+
+    pub fn into_bytes(self) -> GrayImage {
+        self.bytes
+    }
+
+    /// The 8-bit pixels to edit in place; a 16-bit mask becomes an 8-bit one.
+    pub fn bytes_mut(&mut self) -> &mut GrayImage {
+        self.wide = None;
+        &mut self.bytes
+    }
+
+    /// The part `x`, `y`, `width` × `height` of the mask.
+    pub fn crop(&self, x: u32, y: u32, width: u32, height: u32) -> Self {
+        let bytes = image::imageops::crop_imm(&self.bytes, x, y, width, height).to_image();
+        let wide = self.wide.as_ref().map(|wide| {
+            let stride = self.bytes.width() as usize;
+            (y..y + height)
+                .flat_map(|row| {
+                    let start = row as usize * stride + x as usize;
+                    wide[start..start + width as usize].iter().copied()
+                })
+                .collect()
+        });
+        Self { bytes, wide }
+    }
+
+    /// The full-opacity mask scaled by a layer opacity, as the layer's own
+    /// mask is made: `scale_mask_opacity` on 8-bit layers, in floating point
+    /// on `maskVersion` 2 layers (`precise`).
+    fn with_opacity(&self, opacity: f32, precise: bool) -> Self {
+        let multiplier = (opacity / 100.0).clamp(0.0, 1.0);
+        match &self.wide {
+            None if !precise => {
+                let mut bytes = self.bytes.clone();
+                scale_mask_opacity(&mut bytes, opacity);
+                Self { bytes, wide: None }
+            }
+            None => {
+                // `from_coverage` of each byte value, looked up: a brush layer
+                // below full opacity costs no more per stroke than before.
+                let coverage = |value: usize| value as f32 / 255.0 * multiplier;
+                let bytes: [u8; 256] =
+                    std::array::from_fn(|v| (coverage(v).clamp(0.0, 1.0) * 255.0).round() as u8);
+                let wide: [u16; 256] =
+                    std::array::from_fn(|v| (coverage(v).clamp(0.0, 1.0) * 65535.0).round() as u16);
+                let raw = self.bytes.as_raw();
+                Self {
+                    bytes: GrayImage::from_raw(
+                        self.bytes.width(),
+                        self.bytes.height(),
+                        raw.par_iter().map(|v| bytes[*v as usize]).collect(),
+                    )
+                    .unwrap(),
+                    wide: Some(raw.par_iter().map(|v| wide[*v as usize]).collect()),
+                }
+            }
+            Some(wide) => {
+                let coverage: Vec<f32> = wide
+                    .par_iter()
+                    .map(|v| *v as f32 / 65535.0 * multiplier)
+                    .collect();
+                Self::from_coverage(self.bytes.width(), self.bytes.height(), &coverage)
+            }
+        }
+    }
+
+    /// Bytes the mask holds.
+    pub fn byte_len(&self) -> usize {
+        self.bytes.as_raw().len() + self.wide.as_ref().map_or(0, |wide| wide.len() * 2)
+    }
+}
+
+impl From<GrayImage> for MaskBitmap {
+    fn from(bytes: GrayImage) -> Self {
+        Self { bytes, wide: None }
+    }
+}
+
+impl std::ops::Deref for MaskBitmap {
+    type Target = GrayImage;
+
+    fn deref(&self) -> &GrayImage {
+        &self.bytes
+    }
+}
+
+/// A layer's 8-bit mask (`generate_layer_mask`'s 8-bit coverage).
 pub fn generate_mask_bitmap(
     mask_def: &MaskDefinition,
     width: u32,
@@ -4177,10 +4297,68 @@ pub fn generate_mask_bitmap(
     geometry: &PhotoGeometry,
     warped_image: Option<&ParametricMaskSource>,
 ) -> Option<GrayImage> {
+    generate_layer_mask(
+        mask_def,
+        width,
+        height,
+        scale,
+        crop_offset,
+        geometry,
+        warped_image,
+    )
+    .map(MaskBitmap::into_bytes)
+}
+
+/// A layer's mask. Layers before `maskVersion` 2, and version 2 layers whose
+/// every step is exact at 8 bits (see `precise::needs_wide`), keep the 8-bit
+/// mask; other version 2 layers are computed in floating point.
+pub fn generate_layer_mask(
+    mask_def: &MaskDefinition,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    geometry: &PhotoGeometry,
+    warped_image: Option<&ParametricMaskSource>,
+) -> Option<MaskBitmap> {
     if !mask_def.produces_bitmap() {
         return None;
     }
+    if mask_def.precise() && precise::needs_wide(mask_def) {
+        return Some(precise::layer_mask(
+            mask_def,
+            width,
+            height,
+            scale,
+            crop_offset,
+            geometry,
+            warped_image,
+        ));
+    }
+    Some(MaskBitmap::from(eight_bit_mask(
+        mask_def,
+        mask_def.opacity,
+        width,
+        height,
+        scale,
+        crop_offset,
+        geometry,
+        warped_image,
+    )))
+}
 
+/// The 8-bit mask of a layer that produces one, with the layer at `opacity`.
+#[allow(clippy::too_many_arguments)]
+fn eight_bit_mask(
+    mask_def: &MaskDefinition,
+    opacity: f32,
+    width: u32,
+    height: u32,
+    scale: f32,
+    crop_offset: (f32, f32),
+    geometry: &PhotoGeometry,
+    warped_image: Option<&ParametricMaskSource>,
+) -> GrayImage {
     // Starts empty: an additive first sub-mask is the result itself, while
     // subtracting from or intersecting with zero coverage stays zero.
     let mut final_mask: Option<GrayImage> = None;
@@ -4228,9 +4406,9 @@ pub fn generate_mask_bitmap(
     if mask_def.invert {
         invert_mask(&mut final_mask);
     }
-    scale_mask_opacity(&mut final_mask, mask_def.opacity);
+    scale_mask_opacity(&mut final_mask, opacity);
 
-    Some(final_mask)
+    final_mask
 }
 
 /// How the overlay draws the mask: Capture One's Mask Color (a colour with an
@@ -4640,7 +4818,7 @@ impl Eq for MaskBitmapKey {}
 
 struct MaskBitmapEntry {
     key: MaskBitmapKey,
-    image: Arc<GrayImage>,
+    image: Arc<MaskBitmap>,
 }
 
 /// Keeps immutable mask pixels shared between preview jobs and bounded in memory.
@@ -4673,7 +4851,7 @@ impl MaskBitmapCache {
         clear_brush_prefixes();
     }
 
-    fn get(&mut self, key: &MaskBitmapKey) -> Option<Arc<GrayImage>> {
+    fn get(&mut self, key: &MaskBitmapKey) -> Option<Arc<MaskBitmap>> {
         let index = self.entries.iter().position(|entry| entry.key == *key)?;
         let entry = self.entries.remove(index)?;
         let image = Arc::clone(&entry.image);
@@ -4681,22 +4859,22 @@ impl MaskBitmapCache {
         Some(image)
     }
 
-    fn insert(&mut self, key: MaskBitmapKey, image: Arc<GrayImage>) {
-        let bytes = image.as_raw().len();
+    fn insert(&mut self, key: MaskBitmapKey, image: Arc<MaskBitmap>) {
+        let bytes = image.byte_len();
         if self.entry_limit == 0 || self.byte_budget == 0 || bytes > self.byte_budget {
             return;
         }
 
         if let Some(index) = self.entries.iter().position(|entry| entry.key == key) {
             let old = self.entries.remove(index).unwrap();
-            self.retained_bytes -= old.image.as_raw().len();
+            self.retained_bytes -= old.image.byte_len();
         }
 
         while self.entries.len() >= self.entry_limit
             || bytes > self.byte_budget - self.retained_bytes
         {
             let old = self.entries.pop_front().unwrap();
-            self.retained_bytes -= old.image.as_raw().len();
+            self.retained_bytes -= old.image.byte_len();
         }
 
         self.retained_bytes += bytes;
@@ -4721,6 +4899,10 @@ fn mask_bitmap_key(
         invert: bool,
         opacity: f32,
         sub_masks: &'a [SubMask],
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mask_version: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refine_edge: Option<f32>,
     }
 
     struct HashWriter<'a>(&'a mut DefaultHasher);
@@ -4744,6 +4926,8 @@ fn mask_bitmap_key(
             invert: def.invert,
             opacity: def.opacity,
             sub_masks: &def.sub_masks,
+            mask_version: def.mask_version,
+            refine_edge: def.refine_edge,
         },
     )
     .expect("writing mask fields into an infallible hasher cannot fail");
@@ -4792,7 +4976,7 @@ pub fn cached_or_generated_mask(
     crop_offset: (f32, f32),
     geometry: &PhotoGeometry,
     warped_image: Option<&ParametricMaskSource>,
-) -> Result<Option<Arc<GrayImage>>, String> {
+) -> Result<Option<Arc<MaskBitmap>>, String> {
     validate_mask_source(def, warped_image)?;
     let key = mask_bitmap_key(
         def,
@@ -4830,12 +5014,8 @@ pub fn cached_or_generated_mask(
         })
         .flatten();
     let generated = match full_opacity {
-        Some(full) => {
-            let mut mask = (*full).clone();
-            scale_mask_opacity(&mut mask, def.opacity);
-            Some(Arc::new(mask))
-        }
-        None => generate_mask_bitmap(
+        Some(full) => Some(Arc::new(full.with_opacity(def.opacity, def.precise()))),
+        None => generate_layer_mask(
             def,
             width,
             height,
@@ -4866,7 +5046,7 @@ pub fn peek_cached_mask(
     crop_offset: (f32, f32),
     geometry: &PhotoGeometry,
     warped_image: Option<&ParametricMaskSource>,
-) -> Option<Arc<GrayImage>> {
+) -> Option<Arc<MaskBitmap>> {
     let key = mask_bitmap_key(
         def,
         width,
@@ -5093,6 +5273,8 @@ mod mask_bitmap_cache_tests {
                         visible: true,
                         invert,
                         opacity: 100.0 - opacity / 2.0,
+                        mask_version: None,
+                        refine_edge: None,
                         adjustments: json!({}),
                         sub_masks: vec![
                             sub("radial", &radial, first_mode, !invert, opacity),
@@ -5235,6 +5417,8 @@ mod mask_bitmap_cache_tests {
             visible: true,
             invert: false,
             opacity: 100.0,
+            mask_version: None,
+            refine_edge: None,
             adjustments: json!({"exposure": 0.0}),
             sub_masks: vec![SubMask {
                 id: "sub-mask".into(),
@@ -5273,7 +5457,7 @@ mod mask_bitmap_cache_tests {
     #[test]
     fn cache_shares_pixels_and_clear_keeps_borrowers_alive() {
         let mut cache = MaskBitmapCache::new();
-        let image = Arc::new(GrayImage::from_pixel(2, 2, Luma([17])));
+        let image = Arc::new(MaskBitmap::from(GrayImage::from_pixel(2, 2, Luma([17]))));
         cache.insert(key(1), Arc::clone(&image));
         let first = cache.get(&key(1)).unwrap();
         let second = cache.get(&key(1)).unwrap();
@@ -5292,7 +5476,7 @@ mod mask_bitmap_cache_tests {
     fn cache_evicts_least_recently_used_pixels_to_fit_byte_budget() {
         let mut cache = MaskBitmapCache::new();
         cache.byte_budget = 8;
-        let image = Arc::new(GrayImage::new(2, 2));
+        let image = Arc::new(MaskBitmap::from(GrayImage::new(2, 2)));
         cache.insert(key(1), Arc::clone(&image));
         cache.insert(key(2), Arc::clone(&image));
         assert!(cache.get(&key(1)).is_some());
@@ -5303,7 +5487,7 @@ mod mask_bitmap_cache_tests {
         assert!(cache.get(&key(3)).is_some());
         assert_eq!(cache.retained_bytes, 8);
 
-        let replacement = Arc::new(GrayImage::new(3, 2));
+        let replacement = Arc::new(MaskBitmap::from(GrayImage::new(3, 2)));
         cache.insert(key(1), Arc::clone(&replacement));
         assert!(cache.get(&key(3)).is_none());
         assert!(Arc::ptr_eq(&cache.get(&key(1)).unwrap(), &replacement));
@@ -5314,9 +5498,9 @@ mod mask_bitmap_cache_tests {
     fn cache_rejects_oversized_masks_without_evicting_useful_entries() {
         let mut cache = MaskBitmapCache::new();
         cache.byte_budget = 4;
-        let image = Arc::new(GrayImage::new(2, 2));
+        let image = Arc::new(MaskBitmap::from(GrayImage::new(2, 2)));
         cache.insert(key(1), Arc::clone(&image));
-        cache.insert(key(2), Arc::new(GrayImage::new(3, 2)));
+        cache.insert(key(2), Arc::new(MaskBitmap::from(GrayImage::new(3, 2))));
 
         assert!(Arc::ptr_eq(&cache.get(&key(1)).unwrap(), &image));
         assert!(cache.get(&key(2)).is_none());
@@ -5337,7 +5521,7 @@ mod mask_bitmap_cache_tests {
         let mut cache = MaskBitmapCache::new();
         cache.entry_limit = 2;
         for id in 0..3 {
-            cache.insert(key(id), Arc::new(GrayImage::new(0, 0)));
+            cache.insert(key(id), Arc::new(MaskBitmap::from(GrayImage::new(0, 0))));
         }
 
         assert!(cache.get(&key(0)).is_none());
@@ -5444,7 +5628,7 @@ mod mask_bitmap_cache_tests {
                 raw_curve: false,
             }),
         );
-        let image = Arc::new(GrayImage::new(8, 6));
+        let image = Arc::new(MaskBitmap::from(GrayImage::new(8, 6)));
         cache.insert(cache_key, Arc::clone(&image));
 
         assert_eq!(Arc::strong_count(&source), 1);
@@ -6563,7 +6747,11 @@ mod derived_opacity_tests {
             )
             .unwrap()
             .unwrap();
-            assert_eq!(*derived, expected, "opacity {opacity}, invert {invert}");
+            assert_eq!(
+                *derived,
+                expected.into(),
+                "opacity {opacity}, invert {invert}"
+            );
         }
     }
 }

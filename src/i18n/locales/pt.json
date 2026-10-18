@@ -2233,6 +2233,8 @@
         "title": "Faixa de luminância"
       },
       "paintAria": "Pintar na máscara",
+      "refineEdge": "Refinar borda",
+      "refineEdgeTitle": "Dentro deste raio (pixels da foto inteira) a borda da camada segue a da foto: cabelo, pelo e folhas mantêm o contorno suave",
       "select": {
         "aria": "Camada",
         "background": "Fundo",

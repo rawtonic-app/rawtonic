@@ -282,6 +282,8 @@ pub async fn invoke_generative_replace_with_mask_def(
         visible: patch_definition.visible,
         invert: patch_definition.invert,
         opacity: 100.0,
+        mask_version: None,
+        refine_edge: None,
         adjustments: serde_json::Value::Null,
         sub_masks: patch_definition.sub_masks.clone(),
     };

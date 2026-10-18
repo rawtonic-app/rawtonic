@@ -2,7 +2,7 @@
 //! and app-state access stay here, the logic lives in the engine crate.
 pub use rawtonic_engine::mask_generation::*;
 
-use image::{DynamicImage, GrayImage};
+use image::DynamicImage;
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::Manager;
@@ -346,7 +346,7 @@ pub fn get_cached_or_generate_mask(
     crop_offset: (f32, f32),
     geometry: &PhotoGeometry,
     warped_image: Option<&ParametricMaskSource>,
-) -> Result<Option<Arc<GrayImage>>, String> {
+) -> Result<Option<Arc<MaskBitmap>>, String> {
     cached_or_generated_mask(
         &state.mask_cache,
         def,

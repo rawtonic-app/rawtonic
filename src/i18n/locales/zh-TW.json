@@ -2128,6 +2128,8 @@
         "title": "亮度範圍"
       },
       "paintAria": "在遮色片上繪製",
+      "refineEdge": "調整邊緣",
+      "refineEdgeTitle": "在此半徑（整張相片的像素）內，圖層邊緣貼合相片中的邊緣：頭髮、毛髮和樹葉保持柔和輪廓",
       "select": {
         "aria": "圖層",
         "background": "背景",
