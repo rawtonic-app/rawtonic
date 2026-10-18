@@ -228,6 +228,20 @@ pub fn generate_thumbnail_data(
         }
         (_, metadata) => (metadata, adjustments),
     };
+    // Lens parameters saved while the photo could not be read: resolved for
+    // the render (and its cache key) now that it can be.
+    let (metadata, adjustments) = if rawtonic_engine::lens_recipe::is_unresolved(&adjustments) {
+        let mut recipe = adjustments;
+        let _ =
+            rawtonic_export::exif_processing::resolve_unresolved_lens(&mut recipe, &source_path);
+        let metadata = metadata.map(|mut meta| {
+            meta.adjustments = recipe.clone();
+            meta
+        });
+        (metadata, recipe)
+    } else {
+        (metadata, adjustments)
+    };
 
     if is_raw
         && adjustments.is_null()

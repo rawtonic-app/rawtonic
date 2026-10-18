@@ -1705,7 +1705,7 @@ pub(crate) async fn activate_photo(
     if recipe.is_null() {
         recipe = serde_json::json!({});
     }
-    crate::embedded_lens::apply_default(&mut recipe, &source_path);
+    let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, &source_path);
     // Shown size: the crop, else the photograph turned by its orientation.
     let crop: Option<image_processing::Crop> = serde_json::from_value(recipe["crop"].clone()).ok();
     let steps = recipe["orientationSteps"].as_u64().unwrap_or(0);

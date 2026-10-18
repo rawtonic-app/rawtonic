@@ -615,13 +615,12 @@ pub(crate) async fn export_images_impl(
                 };
 
                 hydrate_adjustments(&state, &mut js_adjustments);
-                rawtonic_export::exif_processing::resolve_unresolved_lens(
+                // A never-edited photo exports with the camera's lens data,
+                // as Develop shows it (profile corrections on by default).
+                rawtonic_export::exif_processing::prepare_recipe_lens(
                     &mut js_adjustments,
                     &source_path,
                 )?;
-                // A never-edited photo exports with the camera's lens data,
-                // as Develop shows it (profile corrections on by default).
-                crate::embedded_lens::apply_default(&mut js_adjustments, &source_path);
                 let is_raw = is_raw_file(&source_path_str);
                 let original_path = std::path::Path::new(&source_path_str);
                 let file_date = exif_processing::get_creation_date_from_path(original_path);
@@ -1260,11 +1259,10 @@ pub async fn estimate_export_sizes(
         let mut js_adjustments = metadata.adjustments;
         // An estimate: a lens that cannot be resolved yet only leaves it
         // without the correction.
-        let _ = rawtonic_export::exif_processing::resolve_unresolved_lens(
+        let _ = rawtonic_export::exif_processing::prepare_recipe_lens(
             &mut js_adjustments,
             Path::new(&source_path_str),
         );
-        crate::embedded_lens::apply_default(&mut js_adjustments, Path::new(&source_path_str));
 
         const ESTIMATE_DIM: u32 = 1280;
 

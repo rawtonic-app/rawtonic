@@ -233,7 +233,7 @@ fn recipe_of(path: &str) -> serde_json::Value {
     if !recipe.is_object() {
         recipe = serde_json::json!({});
     }
-    crate::embedded_lens::apply_default(&mut recipe, &source_path);
+    let _ = rawtonic_export::exif_processing::prepare_recipe_lens(&mut recipe, &source_path);
     recipe
 }
 
