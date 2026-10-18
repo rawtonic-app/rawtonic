@@ -305,9 +305,10 @@ pub struct AppState {
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
     pub full_warped_cache: Mutex<Option<FullWarpedMaskCache>>,
-    /// Held while the editor photo's `full_warped_cache` entry is built, so a
-    /// stroke arriving during a prewarm waits for it instead of building twice.
-    pub full_warped_build: Mutex<()>,
+    /// The editor photo's `full_warped_cache` builds in progress, so a stroke
+    /// arriving during a prewarm of the same warp waits for it instead of
+    /// building twice.
+    pub full_warped_build: crate::editor_preview::BuildSlot<crate::editor_preview::WarpBuildKey>,
     /// The photo whose full-resolution mask source the editor wants built
     /// ahead of the first Auto Mask stroke (`prewarm_mask_source`).
     pub mask_source_wanted: Mutex<Option<String>>,

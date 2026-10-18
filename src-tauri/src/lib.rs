@@ -663,7 +663,7 @@ pub fn run() {
             load_image_generation: Arc::new(AtomicUsize::new(0)),
             preview_generation: AtomicUsize::new(0),
             full_warped_cache: Mutex::new(None),
-            full_warped_build: Mutex::new(()),
+            full_warped_build: Default::default(),
             mask_source_wanted: Mutex::new(None),
             patched_warped_cache: Mutex::new(None),
             full_transformed_cache: Mutex::new(None),

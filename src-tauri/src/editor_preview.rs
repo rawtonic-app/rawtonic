@@ -555,7 +555,8 @@ fn full_warped_image(
                 .and_then(|cache| cache.get(source, is_raw, geo_hash)),
         )
     };
-    cached_or_built(lookup, &state.full_warped_build, prewarm, || {
+    let key = (Arc::as_ptr(source) as usize, is_raw, geo_hash);
+    cached_or_built(&state.full_warped_build, key, lookup, prewarm, || {
         let warped = crate::mask_generation::prepare_shared_warped_mask_image(
             source,
             is_raw,
@@ -593,33 +594,75 @@ fn full_warped_image(
     })
 }
 
-/// The cached value `lookup` finds (it also tells whether the photo is the
-/// editor's), else `build`'s. Builds for the editor photo run one at a time
-/// under `build_lock`: a stroke arriving during a prewarm of the same photo
-/// waits for it and reuses it. A photo that stopped being the editor's while
-/// waiting is built without the lock (as any other photo), or not at all for
-/// a `prewarm`, so stale work never holds up the photo being edited.
-fn cached_or_built<T>(
+/// The key of a full-resolution warp build: source image, raw curve, geometry.
+pub(crate) type WarpBuildKey = (usize, bool, u64);
+
+/// The editor photo's warp builds in progress, by key, so a caller waits only
+/// for a build that will serve it.
+#[derive(Default)]
+pub(crate) struct BuildSlot<K> {
+    building: std::sync::Mutex<Vec<K>>,
+    done: std::sync::Condvar,
+}
+
+impl<K: PartialEq> BuildSlot<K> {
+    fn is_building(&self, key: &K) -> bool {
+        self.building
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(key)
+    }
+}
+
+/// Ends a build in a `BuildSlot` (also on unwind) and wakes its waiters.
+struct BuildingGuard<'a, K: PartialEq> {
+    slot: &'a BuildSlot<K>,
+    key: K,
+}
+
+impl<K: PartialEq> Drop for BuildingGuard<'_, K> {
+    fn drop(&mut self) {
+        let mut building = self.slot.building.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = building.iter().position(|k| *k == self.key) {
+            building.swap_remove(i);
+        }
+        self.slot.done.notify_all();
+    }
+}
+
+/// The cached value `lookup` finds (it also tells whether the photo is still
+/// the editor's), else `build`'s. For the editor photo, a caller whose `key`
+/// is being built waits for that build and reuses it (a stroke during a
+/// prewarm); any other key builds at once, so a build for a photo or
+/// geometry the user already left never holds up the current one. A photo
+/// that is not (or no longer) the editor's is built without caching, or not
+/// at all for a `prewarm`.
+fn cached_or_built<K: PartialEq + Clone, T>(
+    slot: &BuildSlot<K>,
+    key: K,
     lookup: impl Fn() -> (bool, Option<T>),
-    build_lock: &std::sync::Mutex<()>,
     prewarm: bool,
     build: impl FnOnce() -> T,
 ) -> Option<T> {
-    let (current, cached) = lookup();
-    if cached.is_some() {
-        return cached;
-    }
-    if current {
-        let _build = build_lock.lock().unwrap_or_else(|e| e.into_inner());
+    let mut building = slot.building.lock().unwrap_or_else(|e| e.into_inner());
+    loop {
         let (current, cached) = lookup();
         if cached.is_some() {
             return cached;
         }
-        if current {
-            return Some(build());
+        if !current {
+            drop(building);
+            return (!prewarm).then(build);
         }
+        if !building.contains(&key) {
+            break;
+        }
+        building = slot.done.wait(building).unwrap_or_else(|e| e.into_inner());
     }
-    (!prewarm).then(build)
+    building.push(key.clone());
+    drop(building);
+    let _guard = BuildingGuard { slot, key };
+    Some(build())
 }
 
 /// The editor wants the Auto Mask source of `path` built ahead of the first
@@ -697,8 +740,9 @@ fn rewarm_mask_source(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .is_some_and(|cache| cache.get(&loaded.image, loaded.is_raw, geo_hash).is_some());
-    // A build already running (a prewarm or a stroke) is left to finish.
-    if cached || state.full_warped_build.try_lock().is_err() {
+    // The same build already running (a prewarm or a stroke) serves it.
+    let key = (Arc::as_ptr(&loaded.image) as usize, loaded.is_raw, geo_hash);
+    if cached || state.full_warped_build.is_building(&key) {
         return;
     }
     let recipe: serde_json::Map<String, serde_json::Value> = adjustments
@@ -2679,103 +2723,112 @@ mod lateral_ca_sharing_tests {
 
 #[cfg(test)]
 mod mask_source_build_tests {
-    use super::cached_or_built;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use super::{BuildSlot, cached_or_built};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
 
-    /// The editor photo and its cached build, as `full_warped_image` sees them.
+    /// The editor photo (a key) and its cached build, as `full_warped_image`
+    /// sees them.
+    #[derive(Default)]
     struct Editor {
-        current: AtomicBool,
+        current: Mutex<u32>,
         cached: Mutex<Option<u32>>,
-        lock: Mutex<()>,
+        slot: BuildSlot<u32>,
         builds: AtomicUsize,
     }
 
     impl Editor {
-        fn new() -> Arc<Self> {
-            Arc::new(Self {
-                current: AtomicBool::new(true),
-                cached: Mutex::new(None),
-                lock: Mutex::new(()),
-                builds: AtomicUsize::new(0),
+        fn new(current: u32) -> Arc<Self> {
+            let editor = Self::default();
+            *editor.current.lock().unwrap() = current;
+            Arc::new(editor)
+        }
+
+        fn open(&self, key: u32) {
+            *self.current.lock().unwrap() = key;
+        }
+
+        /// The source of `key`, built after `gate` releases it.
+        fn get(&self, key: u32, prewarm: bool, gate: Option<mpsc::Receiver<()>>) -> Option<u32> {
+            let lookup = || {
+                let current = *self.current.lock().unwrap() == key;
+                let cached = *self.cached.lock().unwrap();
+                (current, cached.filter(|&c| current && c == key))
+            };
+            cached_or_built(&self.slot, key, lookup, prewarm, || {
+                self.builds.fetch_add(1, Ordering::SeqCst);
+                if let Some(gate) = gate {
+                    gate.recv().unwrap();
+                }
+                if *self.current.lock().unwrap() == key {
+                    *self.cached.lock().unwrap() = Some(key);
+                }
+                key
             })
         }
 
-        fn lookup(&self) -> (bool, Option<u32>) {
-            let current = self.current.load(Ordering::SeqCst);
-            (
-                current,
-                current.then(|| *self.cached.lock().unwrap()).flatten(),
-            )
+        fn spawn(
+            self: &Arc<Self>,
+            key: u32,
+            prewarm: bool,
+            gate: Option<mpsc::Receiver<()>>,
+        ) -> std::thread::JoinHandle<Option<u32>> {
+            let editor = Arc::clone(self);
+            std::thread::spawn(move || editor.get(key, prewarm, gate))
         }
 
-        fn get(self: &Arc<Self>, prewarm: bool, gate: Option<mpsc::Receiver<()>>) -> Option<u32> {
-            cached_or_built(
-                || self.lookup(),
-                &self.lock,
-                prewarm,
-                || {
-                    self.builds.fetch_add(1, Ordering::SeqCst);
-                    if let Some(gate) = gate {
-                        gate.recv().unwrap();
-                    }
-                    if self.current.load(Ordering::SeqCst) {
-                        *self.cached.lock().unwrap() = Some(7);
-                    }
-                    7
-                },
-            )
-        }
-    }
-
-    /// Waits until a thread has queued on the build lock behind the first build.
-    fn wait_until_blocked(editor: &Editor) {
-        for _ in 0..200 {
-            if editor.lock.try_lock().is_err() {
-                break;
+        fn wait_for_builds(&self, n: usize) {
+            for _ in 0..500 {
+                if self.builds.load(Ordering::SeqCst) >= n {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(1));
             }
-            std::thread::sleep(Duration::from_millis(1));
+            panic!("build {n} did not start");
         }
-        std::thread::sleep(Duration::from_millis(20));
     }
 
     #[test]
     fn a_stroke_during_a_prewarm_waits_for_it_and_reuses_it() {
-        let editor = Editor::new();
+        let editor = Editor::new(1);
         let (release, gate) = mpsc::channel();
-        let prewarm = {
-            let editor = Arc::clone(&editor);
-            std::thread::spawn(move || editor.get(true, Some(gate)))
-        };
-        wait_until_blocked(&editor);
-        let stroke = {
-            let editor = Arc::clone(&editor);
-            std::thread::spawn(move || editor.get(false, None))
-        };
-        std::thread::sleep(Duration::from_millis(20));
+        let prewarm = editor.spawn(1, true, Some(gate));
+        editor.wait_for_builds(1);
+        let stroke = editor.spawn(1, false, None);
+        std::thread::sleep(Duration::from_millis(30));
+        assert!(!stroke.is_finished());
         release.send(()).unwrap();
-        assert_eq!(prewarm.join().unwrap(), Some(7));
-        assert_eq!(stroke.join().unwrap(), Some(7));
+        assert_eq!(prewarm.join().unwrap(), Some(1));
+        assert_eq!(stroke.join().unwrap(), Some(1));
         assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn a_prewarm_queued_for_a_photo_no_longer_edited_builds_nothing() {
-        let editor = Editor::new();
+    fn a_new_photo_or_geometry_builds_at_once_while_an_old_build_runs() {
+        let editor = Editor::new(1);
         let (release, gate) = mpsc::channel();
-        let first = {
-            let editor = Arc::clone(&editor);
-            std::thread::spawn(move || editor.get(true, Some(gate)))
-        };
-        wait_until_blocked(&editor);
-        let stale = {
-            let editor = Arc::clone(&editor);
-            std::thread::spawn(move || editor.get(true, None))
-        };
-        std::thread::sleep(Duration::from_millis(20));
-        // The user opens another photo while the queued prewarm waits.
-        editor.current.store(false, Ordering::SeqCst);
+        let old = editor.spawn(1, true, Some(gate));
+        editor.wait_for_builds(1);
+        // The user opens photo 2 (or changes the geometry: another key).
+        editor.open(2);
+        assert_eq!(editor.get(2, true, None), Some(2));
+        assert_eq!(editor.get(2, false, None), Some(2), "cached");
+        release.send(()).unwrap();
+        old.join().unwrap();
+        assert_eq!(editor.builds.load(Ordering::SeqCst), 2);
+        assert_eq!(*editor.cached.lock().unwrap(), Some(2));
+    }
+
+    #[test]
+    fn a_prewarm_waiting_for_a_photo_no_longer_edited_builds_nothing() {
+        let editor = Editor::new(1);
+        let (release, gate) = mpsc::channel();
+        let first = editor.spawn(1, true, Some(gate));
+        editor.wait_for_builds(1);
+        let stale = editor.spawn(1, true, None);
+        std::thread::sleep(Duration::from_millis(30));
+        editor.open(2);
         release.send(()).unwrap();
         first.join().unwrap();
         assert_eq!(stale.join().unwrap(), None);
@@ -2783,12 +2836,30 @@ mod mask_source_build_tests {
     }
 
     #[test]
-    fn other_photos_build_without_the_lock_and_without_a_prewarm() {
-        let editor = Editor::new();
-        editor.current.store(false, Ordering::SeqCst);
-        let _held = editor.lock.lock().unwrap();
-        assert_eq!(editor.get(false, None), Some(7));
-        assert_eq!(editor.get(true, None), None);
+    fn other_photos_build_without_caching_and_never_for_a_prewarm() {
+        let editor = Editor::new(2);
+        assert_eq!(editor.get(1, false, None), Some(1));
+        assert_eq!(editor.get(1, true, None), None);
         assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
+        assert_eq!(*editor.cached.lock().unwrap(), None);
+    }
+
+    #[test]
+    fn waiters_wake_when_a_build_panics() {
+        let editor = Editor::new(1);
+        let failed = {
+            let editor = Arc::clone(&editor);
+            std::thread::spawn(move || {
+                cached_or_built(
+                    &editor.slot,
+                    1,
+                    || (true, None::<u32>),
+                    false,
+                    || panic!("build failed"),
+                )
+            })
+        };
+        assert!(failed.join().is_err());
+        assert_eq!(editor.get(1, false, None), Some(1));
     }
 }
