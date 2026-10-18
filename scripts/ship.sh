@@ -148,7 +148,7 @@ for f in v["findings"]:
 fi
 if PR_URL=$(gh pr view "$BRANCH" --repo rawtonic-app/rawtonic --json url --jq .url 2>/dev/null); then
   say "pull request exists: $PR_URL"
-  gh pr comment "$PR_URL" --body-file "$NOTE" >/dev/null || warn "review note not added to $PR_URL"
+  gh pr comment "$PR_URL" --body-file "$NOTE" >/dev/null || die "review note not added to $PR_URL; nothing merged"
 else
   BODY=$(mktemp "${TMPDIR:-/tmp}/rawtonic-pr.XXXXXX")
   if [ -n "$BODY_FILE" ]; then cat "$BODY_FILE" >"$BODY"; else git log --reverse --format='- %s' origin/main..HEAD >"$BODY"; fi
