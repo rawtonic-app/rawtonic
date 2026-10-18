@@ -1251,9 +1251,9 @@ const SHARPEN_RESPONSE_KEYS = [
 /** Sharpening values mean what their response makes of them, so wherever they
  * are copied (paste, tool copy, Edit all selected, presets) the response goes
  * along explicitly — a missing key would vanish in JSON and the target would
- * keep its own: the source's (1 when it has none), else — presets from before
- * the key — 1 unless the values render the same with the current one. Layers
- * count when their sharpening amount is set. */
+ * keep its own: the source's, else 1 (a source or preset from before the key;
+ * partial values cannot tell whether the target would render the same).
+ * Layers count when their sharpening amount is set. */
 export const withSharpenVersion = <T extends Partial<Adjustments>>(
   picked: T,
   source?: Partial<Adjustments>,
@@ -1264,12 +1264,7 @@ export const withSharpenVersion = <T extends Partial<Adjustments>>(
   if (!sharpens || (picked.sharpenVersion !== undefined && picked.sharpenVersion !== null)) {
     return picked;
   }
-  const version = source
-    ? (source.sharpenVersion ?? 1)
-    : sharpensAlikeInBothVersions(picked, true)
-      ? SHARPEN_VERSION
-      : 1;
-  return { ...picked, sharpenVersion: version };
+  return { ...picked, sharpenVersion: source?.sharpenVersion ?? 1 };
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one

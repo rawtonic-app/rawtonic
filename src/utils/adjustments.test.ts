@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { blendPreset } from './presetAmount';
 import {
   ADJUSTMENT_GROUPS,
   COLOR_NOISE_VERSION,
@@ -210,9 +211,16 @@ describe('RAW detail defaults', () => {
     expect(withSharpenVersion({ sharpness: 80 }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(2);
     // Values that carry their own key keep it.
     expect(withSharpenVersion({ sharpness: 80, sharpenVersion: 2 }, {} as Adjustments).sharpenVersion).toBe(2);
-    // Presets from before the key (no source): 1 unless they render the same with 2.
+    // Presets from before the key (apply, preview, preset Amount: no source): 1,
+    // whatever the values — a Radius-only preset must not move a version-1
+    // photo at Amount 80 to response 2.
     expect(withSharpenVersion({ sharpness: 80 }).sharpenVersion).toBe(1);
-    expect(withSharpenVersion({ sharpness: 40 }).sharpenVersion).toBe(SHARPEN_VERSION);
+    expect(withSharpenVersion({ sharpness: 40 }).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpenRadius: 1 }).sharpenVersion).toBe(1);
+    const target = { sharpness: 80, sharpenRadius: 1 } as Partial<Adjustments>;
+    expect({ ...target, ...withSharpenVersion({ sharpenRadius: 1 }) }.sharpenVersion).toBe(1);
+    // A preset at full Amount takes its version; blending keeps version keys whole.
+    expect(blendPreset({ sharpness: 80 }, withSharpenVersion({ sharpenRadius: 2 }), 1).sharpenVersion).toBe(1);
     // Layers that sharpen count; nothing sharpening, no key.
     const layered = { masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
     expect(withSharpenVersion(layered, {} as Adjustments).sharpenVersion).toBe(1);
