@@ -178,6 +178,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "sharpenRadius",
         "sharpenDetail",
         "sharpenMasking",
+        "sharpenVersion",
         "lumaNoiseDetail",
         "lumaNoiseContrast",
         "colorNoiseDetail",

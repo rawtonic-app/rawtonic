@@ -2775,6 +2775,14 @@ fn apply_sharpen(
         return mix(color, b1_lin, clamp(-amount * 0.5, 0.0, 1.0));
     }
 
+    let extended = adjustments.global.sharpen_radius_offset != 0.0
+        || adjustments.global.sharpen_detail_offset != 0.0
+        || adjustments.global.sharpen_masking > 0.0;
+    // Response 2 (`sharpen_falloff.w`) away from Amount 40 with the other
+    // controls at their defaults, where it equals the default path below.
+    if (adjustments.global.sharpen_falloff.w >= 2.0 && (extended || abs(amount - 0.8) > 1e-6)) {
+        return apply_sharpen_v2(color, coords_i, amount, threshold, is_raw);
+    }
     // Lightroom's Radius / Detail / Masking away from their defaults
     // (1.0 / 25 / 0) take the extended path; the default path below is the
     // calibrated one, unchanged, so default exports stay bit-identical.
@@ -2943,6 +2951,136 @@ fn apply_sharpen_extended(
     let strength = amount * (1.0 + SHARPEN_PROGRESSION * amount) * SHARPEN_GAIN
         * detail_gain * radius_gain * pow(1.0 + max(detail, 0.0), SHARPEN_DETAIL_FINE);
     let l_sharp = max(l + limited * gate * strength, l * 0.4);
+    let shadow_floor_lr = select(0.03, 0.10, is_raw == 1u);
+    let protect = smoothstep(0.0, shadow_floor_lr, l) * (1.0 - smoothstep(0.92, 1.0, l));
+    let l_out = max(mix(l, l_sharp, protect), 0.0);
+    let ratio_lr = l_out / max(l, 1e-4);
+    if (is_raw == 1u) {
+        return color * (ratio_lr * ratio_lr);
+    }
+    return srgb_to_linear(max(color_enc * ratio_lr, vec3<f32>(0.0)));
+}
+
+// Sharpening response 2 (`sharpenVersion` 2, notes: reference/detail.md
+// "Sharpening response 2"). Version 1 let the halo ceiling (limit ×
+// strength) grow linearly with the amount, and the Detail tilt and edge
+// damping without bound: above Amount 80 its halos reached twice Camera
+// Raw's and the coarse band inverted at Detail 100. Here the unsharp mask
+// x = g·d is limited to a ceiling H, delta = x / (1 + (|x| / H)^n)^(1/n),
+// with r = amount / 0.8 (slider / 40):
+// - g ∝ r^q: the small-signal gain grows as Camera Raw's does on low-contrast
+//   detail (q 1.75 from Detail 25 up, falling to 0.9 at Detail 0);
+// - H ∝ r^0.05: Camera Raw's halos barely grow with the amount;
+// - the Detail tilt stops growing at r = 1.4, and below Detail 100 the
+//   amount adds a tilt of its own (0.1 per r above 1, fading out towards
+//   Detail 100): Camera Raw's medium and coarse bands lag the fine one at
+//   high amounts at every Detail;
+// - Detail's gain is concave between 25 and 100 (Detail 50 was 10 % strong);
+// - edge damping grows with r instead of r².
+// At Amount 40, Detail 25, Radius 1, Masking 0 every factor is 1 and the
+// maths is the default path's; `apply_sharpen` keeps that path there.
+const SHARPEN_V2_GAIN_PROGRESSION: f32 = 1.75;
+const SHARPEN_V2_GAIN_PROGRESSION_LOW: f32 = 0.85;
+const SHARPEN_V2_HALO_AMOUNT: f32 = 0.05;
+const SHARPEN_V2_TILT_AMOUNT_CAP: f32 = 1.4;
+const SHARPEN_V2_TILT_FROM_AMOUNT: f32 = 0.1;
+const SHARPEN_V2_DETAIL_CONCAVE: f32 = 0.5;
+const SHARPEN_V2_EDGE_AMOUNT: f32 = 1.0;
+// The default path's gain and halo ceiling at Amount 40: 1.2 · 0.8 · (1 + 0.8 · 0.8)
+// and 0.08 / (1 + 0.8 · 0.8) times that gain.
+const SHARPEN_V2_GAIN_40: f32 = 1.5744;
+const SHARPEN_V2_HALO_40: f32 = 0.0768;
+
+fn apply_sharpen_v2(
+    color: vec3<f32>,
+    coords_i: vec2<i32>,
+    amount: f32,
+    threshold: f32,
+    is_raw: u32
+) -> vec3<f32> {
+    var color_enc = color;
+    if (is_raw == 0u) {
+        color_enc = linear_to_srgb_extended(color);
+    }
+    let l = select(get_luma(color_enc), sqrt(max(get_luma(color), 0.0)), is_raw == 1u);
+
+    let radius = 1.0 + adjustments.global.sharpen_radius_offset;
+    let detail = adjustments.global.sharpen_detail_offset / 25.0;
+    let masking = adjustments.global.sharpen_masking;
+    let detail_scale = select(1.0, adjustments.global.detail_scale, adjustments.global.detail_scale > 0.0);
+    let radius_shape = select(sqrt(radius), radius, radius >= 1.0);
+    let radius_gain = select(pow(radius, -0.75), pow(radius, -0.85), radius >= 1.0);
+    let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
+    let r = amount / 0.8;
+    let detail_up = clamp(detail / 3.0, 0.0, 1.0);
+    let tilt = select(
+        SHARPEN_DETAIL_TILT_LOW * detail,
+        SHARPEN_DETAIL_TILT * pow(max(detail, 1e-6), SHARPEN_DETAIL_TILT_EXPONENT)
+            * pow(min(r, SHARPEN_V2_TILT_AMOUNT_CAP), SHARPEN_DETAIL_TILT_AMOUNT),
+        detail > 0.0,
+    ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up), detail >= 0.0);
+    let reach = select(
+        select(2, 3, tilt != 0.0),
+        min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
+        radius > 1.0,
+    );
+
+    let dims_s = vec2<i32>(input_dims()) - vec2<i32>(1);
+    var blur_sum = 0.0;
+    var blur_sq = 0.0;
+    var blur_w = 0.0;
+    var wide_sum = 0.0;
+    var wide_w = 0.0;
+    for (var sy = -reach; sy <= reach; sy = sy + 1) {
+        for (var sx = -reach; sx <= reach; sx = sx + 1) {
+            let w = exp(-f32(sx * sx + sy * sy) / (2.0 * sigma * sigma));
+            let c = clamp(coords_i + vec2<i32>(sx, sy), vec2<i32>(0), dims_s);
+            let p = sharpen_perc(load_input(c).rgb, is_raw);
+            blur_sum += p * w;
+            blur_sq += p * p * w;
+            blur_w += w;
+            if (tilt != 0.0) {
+                let w2 = exp(-f32(sx * sx + sy * sy) / (8.0 * sigma * sigma));
+                wide_sum += p * w2;
+                wide_w += w2;
+            }
+        }
+    }
+    let mean = blur_sum / blur_w;
+    var d = sharpen_detail(l, mean, is_raw);
+    if (tilt != 0.0) {
+        let band = (mean - wide_sum / wide_w) * select(1.0, nr_fine_keep, nr_active);
+        d -= tilt * band;
+    }
+    let t_gate = max(threshold * SHARPEN_THRESHOLD_SCALE, 1e-4);
+    var gate = smoothstep(t_gate * 0.2, t_gate, abs(d));
+    let spread = sqrt(max(blur_sq / blur_w - mean * mean, 0.0));
+    if (masking > 0.0) {
+        let t_mask = masking * sqrt(masking / 50.0) * SHARPEN_MASK_SCALE;
+        gate *= smoothstep(0.5 * t_mask, 1.5 * t_mask, spread);
+    }
+    if (detail > 0.0) {
+        let excess = max(spread / SHARPEN_EDGE_SPREAD - 1.0, 0.0);
+        gate /= 1.0 + SHARPEN_EDGE_DAMP * detail / 3.0 * pow(r, SHARPEN_V2_EDGE_AMOUNT) * excess;
+    }
+    let progression = select(
+        SHARPEN_V2_GAIN_PROGRESSION + SHARPEN_V2_GAIN_PROGRESSION_LOW * detail,
+        SHARPEN_V2_GAIN_PROGRESSION,
+        detail > 0.0,
+    );
+    let detail_gain = select(
+        exp2(SHARPEN_DETAIL_GAIN_LOW * detail),
+        pow(1.0 + detail, SHARPEN_DETAIL_GAIN_HIGH * (1.0 - SHARPEN_V2_DETAIL_CONCAVE * (1.0 - detail_up))),
+        detail > 0.0,
+    );
+    let scale = detail_gain * radius_gain * pow(1.0 + max(detail, 0.0), SHARPEN_DETAIL_FINE);
+    let gain = SHARPEN_V2_GAIN_40 * pow(r, progression) * scale;
+    let ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale
+        * exp2(select(0.0, SHARPEN_DETAIL_HALO_HIGH, detail > 0.0) * detail);
+    let knee = 1.0 + (SHARPEN_DETAIL_KNEE - 1.0) * detail_up;
+    let x = gain * d;
+    let delta = x / pow(1.0 + pow(abs(x) / ceiling, knee), 1.0 / knee);
+    let l_sharp = max(l + delta * gate, l * 0.4);
     let shadow_floor_lr = select(0.03, 0.10, is_raw == 1u);
     let protect = smoothstep(0.0, shadow_floor_lr, l) * (1.0 - smoothstep(0.92, 1.0, l));
     let l_out = max(mix(l, l_sharp, protect), 0.0);

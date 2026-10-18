@@ -9,6 +9,7 @@ import {
   TONE_VERSION,
   FRINGE_VERSION,
   DEFRINGE_VERSION,
+  SHARPEN_VERSION,
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
   AUTO_CA_VERSION,
@@ -174,6 +175,29 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);
     const old = { shadows: 80, toneVersion: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(old, true).toneVersion).toBe(1);
+  });
+
+  it('keep the sharpening response a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).sharpenVersion).toBe(SHARPEN_VERSION);
+    expect(initialAdjustmentsFor(false).sharpenVersion).toBe(SHARPEN_VERSION);
+    const load = (recipe: object, isRaw = true) =>
+      normalizeLoadedAdjustments(recipe as unknown as Adjustments, isRaw).sharpenVersion;
+    // Renders differently with response 2: the earlier response, key absent.
+    expect(load({ sharpness: 80 })).toBeUndefined();
+    expect('sharpenVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ sharpness: 80 } as unknown as Adjustments, true)))).toBe(false);
+    expect(load({ sharpness: 40, sharpenDetail: 100 })).toBeUndefined();
+    expect(load({ sharpenRadius: 2 })).toBeUndefined();
+    expect(load({ sharpenMasking: 30 })).toBeUndefined();
+    expect(load({ sharpnessFalloff: 50 })).toBeUndefined();
+    expect(load({ sharpness: 0, masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] })).toBeUndefined();
+    // The same with either response: the current one.
+    expect(load({})).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: 40 })).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: 0, sharpenDetail: 100 })).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: -20 })).toBe(SHARPEN_VERSION);
+    expect(load({}, false)).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: 80, sharpenVersion: 1 })).toBe(1);
+    expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
   });
 });
 

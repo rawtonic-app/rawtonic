@@ -25,6 +25,12 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ["defringeVersion"],
   defringeGreenAmount: ["defringeVersion"],
+  // The sharpening means what the recipe's sharpening response makes of it.
+  sharpness: ["sharpenVersion"],
+  sharpenRadius: ["sharpenVersion"],
+  sharpenDetail: ["sharpenVersion"],
+  sharpenMasking: ["sharpenVersion"],
+  sharpnessFalloff: ["sharpenVersion"],
   // AI Denoise means what the recipe's AI Denoise version makes of it.
   aiDenoise: ["aiDenoiseVersion"],
 };

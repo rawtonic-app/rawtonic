@@ -820,6 +820,29 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         ("sharpenDetail", 0., 100., 25., json!({"sharpness":70})),
         ("sharpenMasking", 100., 100., 0., json!({"sharpness":70})),
         ("sharpnessFalloff", 50., 100., 0., json!({"sharpness":70})),
+        // Sharpening response 2 (`sharpenVersion`).
+        ("sharpness", 60., 150., 0., json!({"sharpenVersion":2})),
+        (
+            "sharpenRadius",
+            0.5,
+            3.,
+            1.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
+        (
+            "sharpenDetail",
+            0.,
+            100.,
+            25.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
+        (
+            "sharpenMasking",
+            100.,
+            100.,
+            0.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
         ("moireAmount", 50., 100., 0., json!({})),
         ("moirePattern", 0., 100., 30., json!({"moireAmount":100})),
         ("lumaNoiseReduction", 30., 100., 0., json!({})),
@@ -1102,6 +1125,64 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         }
     }
     println!("{checked} individual control endpoint/reset GPU probes passed");
+}
+
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 1 and 2"]
+fn sharpen_version_2_keeps_amount_40_and_caps_halos() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 256, 128).unwrap();
+    let view = input(&context, 256, 128, 5);
+    let render = |profile: serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                256,
+                128,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let recipe = |amount: f64, version: u64| {
+        json!({"sharpness": amount, "lumaNoiseReduction": 0, "colorNoiseReduction": 0,
+            "sharpenVersion": version})
+    };
+    // At Amount 40 with the other controls at their defaults both responses
+    // are the same path, bit for bit.
+    assert_eq!(render(recipe(40., 2)), render(recipe(40., 1)));
+    // Above it they differ, and response 2 keeps the strongest change (the
+    // halo) below response 1's, whose ceiling grew with the amount.
+    let flat = render(recipe(0., 1));
+    let strongest = |pixels: &[u16]| {
+        let mut change: Vec<i32> = pixels
+            .iter()
+            .zip(&flat)
+            .map(|(a, b)| (*a as i32 - *b as i32).abs())
+            .collect();
+        change.sort_unstable();
+        change[change.len() * 99 / 100]
+    };
+    let v1 = render(recipe(150., 1));
+    let v2 = render(recipe(150., 2));
+    assert_ne!(v1, v2);
+    assert!(
+        strongest(&v2) < strongest(&v1),
+        "halo {} not below response 1's {}",
+        strongest(&v2),
+        strongest(&v1)
+    );
 }
 
 fn context() -> GpuContext {

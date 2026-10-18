@@ -561,6 +561,13 @@ export interface Adjustments {
    * the layers' Defringe; 1 or missing on recipes that used Defringe before
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
+  /** Sharpening response (crates/engine/src/image_processing.rs
+   * `SHARPEN_VERSION`): 2 = halos nearly constant over the amount, gain and
+   * Detail tilt after Camera Raw at high amounts; 1 or missing on recipes
+   * that sharpened differently before it = the earlier response (both are
+   * the same at Amount 40 with Radius, Detail and Masking at their
+   * defaults). Photo-wide (layers follow it). */
+  sharpenVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1132,6 +1139,9 @@ export const FRINGE_VERSION = 2;
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;
 
+/** The sharpening response new edits start with (notes: reference/detail.md). */
+export const SHARPEN_VERSION = 2;
+
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */
 export const AI_DENOISE_VERSION = 3;
@@ -1177,6 +1187,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         cameraCaVersion: CAMERA_CA_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        sharpenVersion: SHARPEN_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
       }
     : {
@@ -1184,6 +1195,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        sharpenVersion: SHARPEN_VERSION,
       };
 
 /** The Defringe detector of a saved recipe: its own; else the current one
@@ -1198,6 +1210,28 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
     (loaded.defringeGreenAmount ?? 0) > 0 ||
     (loaded.masks ?? []).some((mask) => ((mask?.adjustments?.defringe as number | undefined) ?? 0) > 0);
   return used ? undefined : DEFRINGE_VERSION;
+};
+
+/** The sharpening response of a saved recipe: its own; else the current one
+ * when it renders the same with it (no sharpening, or Amount 40 with Radius,
+ * Detail, Masking and Falloff at their defaults, and no layer that changes
+ * the amount), the earlier one otherwise (missing key). */
+const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
+  if (loaded.sharpenVersion !== undefined && loaded.sharpenVersion !== null) {
+    return loaded.sharpenVersion;
+  }
+  // RAW recipes without an amount sharpen at the RAW default (40).
+  const amount = loaded.sharpness ?? (isRaw ? RAW_DETAIL_DEFAULTS.sharpness : 0);
+  const atDefaults =
+    (loaded.sharpenRadius ?? 1) === 1 &&
+    (loaded.sharpenDetail ?? 25) === 25 &&
+    (loaded.sharpenMasking ?? 0) === 0 &&
+    (loaded.sharpnessFalloff ?? 0) === 0;
+  const photoSame = amount <= 0 || (amount === 40 && atDefaults);
+  const layerSharpens = (loaded.masks ?? []).some(
+    (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0,
+  );
+  return photoSame && !layerSharpens ? SHARPEN_VERSION : undefined;
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
@@ -1343,6 +1377,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     toneVersion: loadedToneVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
+    sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
     aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
     // Saved recipes keep rendering as they were made: no pass unless they
     // carry the key (never-edited RAWs get it in useImageLoader).
@@ -1477,6 +1512,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'sharpenRadius',
         'sharpenDetail',
         'sharpenMasking',
+        'sharpenVersion',
       ],
     },
     {
