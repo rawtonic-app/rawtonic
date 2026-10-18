@@ -9595,8 +9595,10 @@ fn many_layer_frame_probe() {
             (
                 "solo_step",
                 Box::new(|f| {
+                    // The first (warm-up) frame shows every layer, as the
+                    // editor does before a solo, so their masks are cached.
                     let mut v = base.clone();
-                    solo(&mut v, Some(f % layers));
+                    solo(&mut v, (f > 0).then(|| f % layers));
                     v
                 }),
             ),
