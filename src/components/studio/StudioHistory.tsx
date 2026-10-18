@@ -4,6 +4,10 @@ import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { ToolGroup } from "./StudioDevelop";
 import { describeHistoryStep } from "./historyLabels";
 
+/** Labels of steps already named: a step's recipe object never changes, so
+ * each new step is described once rather than every step on every change. */
+const labels = new WeakMap<object, { before: object; language: string; label: string }>();
+
 /** Lightroom's Develop history: every recorded step of the open photograph,
  * named by what it changed; a click returns to that step (undo/redo move
  * through the same list). */
@@ -21,10 +25,18 @@ export default function StudioHistory() {
     >
       {image ? (
         history.map((entry, i) => {
-          const label =
-            i === 0
-              ? t("studio.develop.history.opened")
-              : describeHistoryStep(history[i - 1], entry, t, i18n.language);
+          let label: string;
+          if (i === 0) {
+            label = t("studio.develop.history.opened");
+          } else {
+            const known = labels.get(entry);
+            if (known && known.before === history[i - 1] && known.language === i18n.language) {
+              label = known.label;
+            } else {
+              label = describeHistoryStep(history[i - 1], entry, t, i18n.language);
+              labels.set(entry, { before: history[i - 1], language: i18n.language, label });
+            }
+          }
           return (
           <button
             key={i}

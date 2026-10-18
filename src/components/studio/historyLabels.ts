@@ -53,8 +53,30 @@ const TOOLS: [match: RegExp, label: ParseKeys][] = [
 /** Keys that change with an edit but say nothing about it. */
 const IGNORED = new Set(["showClipping", "masks"]);
 
-const same = (a: unknown, b: unknown) =>
-  a === b || JSON.stringify(a) === JSON.stringify(b);
+/** Whether two values write out as the same JSON. Unchanged parts of a
+ * recipe are the same objects from step to step, so they are compared by
+ * reference and only what changed is written out: a painted layer's strokes
+ * are not serialised for every step's label. */
+function same(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, i) => same(item, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keysA = Object.keys(a).filter((key) => a[key] !== undefined);
+    const keysB = Object.keys(b).filter((key) => b[key] !== undefined);
+    return (
+      keysA.length === keysB.length &&
+      keysA.every((key, i) => key === keysB[i] && same(a[key], b[key]))
+    );
+  }
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" &&
+  value !== null &&
+  Object.getPrototypeOf(value) === Object.prototype;
 
 function changedKeys(before: object, after: object) {
   const a = before as Record<string, unknown>;
