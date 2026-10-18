@@ -4333,9 +4333,10 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
 pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
 /// The newest response: 2 (2026-10-19) keeps the halo ceiling nearly
 /// constant over the amount, grows the small-signal gain as Camera Raw's
-/// does and bounds the Detail tilt, so high amounts follow Camera Raw
-/// without its halos growing past it (notes: reference/detail.md
-/// "Sharpening response 2"); at Amount 40 with Radius, Detail and Masking
+/// does and bounds the Detail tilt, so high amounts follow Camera Raw's
+/// band gains with halos that grow far less than version 1's (at most 2.7
+/// Oklab L ×100 above Camera Raw's on the measured frames, version 1 up to
+/// 21; notes: reference/detail.md "Sharpening response 2"); at Amount 40 with Radius, Detail and Masking
 /// at their defaults it renders as 1. Photo-wide: layers' sharpening amounts
 /// follow it. Recipes without the key keep version 1.
 pub const SHARPEN_VERSION: u64 = 2;
