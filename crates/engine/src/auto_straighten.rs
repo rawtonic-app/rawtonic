@@ -141,6 +141,7 @@ pub fn roll_parts(
 /// New candidate: horizon cluster and vertical vanishing point, combined by
 /// support; no answer when neither has enough or they disagree evenly.
 pub fn roll_tilt(segments: &[Segment], width: f64, height: f64) -> Option<Tilt> {
+    let diagonal = width.hypot(height);
     let (horizontal, vertical) = roll_parts(segments, width, height);
     let horizontal = horizontal.filter(|h| h.support > 0.25);
     let vertical = vertical
@@ -152,8 +153,9 @@ pub fn roll_tilt(segments: &[Segment], width: f64, height: f64) -> Option<Tilt> 
             support: h.support + v.support,
         }),
         // Verticals are the stronger evidence: horizontals recede with
-        // perspective. A horizon line across most of the frame wins.
-        (Some(h), Some(v)) if h.support > 0.6 && h.support > v.support => Some(h),
+        // perspective. One straight line across half the width or more (a
+        // horizon) wins over weak verticals.
+        (Some(h), Some(v)) if h.support * diagonal >= 0.5 * width && v.support < 1.0 => Some(h),
         (Some(h), Some(v)) if 2.0 * v.support > 1.5 * h.support => Some(v),
         (Some(h), Some(v)) if h.support > 1.5 * 2.0 * v.support => Some(h),
         (Some(_), Some(_)) => None,
