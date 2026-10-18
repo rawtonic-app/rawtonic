@@ -10,7 +10,10 @@
 # $(git rev-parse --git-dir)/rawtonic-review/<HEAD>.json; scripts/ship.sh reads
 # it and puts its summary into the pull request. A review with another --base
 # covers only part of the branch and is not stored.
-# The reviewer runs read-only (`codex exec --sandbox read-only`). For tests,
+# The reviewer runs read-only (`codex exec --sandbox read-only`) with the same
+# model and reasoning effort on every machine (RAWTONIC_REVIEW_MODEL,
+# RAWTONIC_REVIEW_EFFORT override them), so a verdict does not depend on
+# which host's ~/.codex/config.toml happened to run it. For tests,
 # RAWTONIC_REVIEWER names a command that reads the prompt on stdin and writes
 # the verdict JSON (scripts/review/verdict.schema.json) to the file in $1.
 set -eu
@@ -53,8 +56,10 @@ if [ -n "${RAWTONIC_REVIEWER:-}" ]; then
   # shellcheck disable=SC2086  # a command with arguments on purpose
   $RAWTONIC_REVIEWER "$OUT" <"$PROMPT" || { echo "review: reviewer command failed" >&2; exit 3; }
 elif command -v codex >/dev/null 2>&1; then
-  printf '== review: codex (read-only) on %s\n' "${PLAN:-$BASE..HEAD}"
+  MODEL=${RAWTONIC_REVIEW_MODEL:-gpt-6.1-sol}; EFFORT=${RAWTONIC_REVIEW_EFFORT:-high}
+  printf '== review: codex %s (%s, read-only) on %s\n' "$MODEL" "$EFFORT" "${PLAN:-$BASE..HEAD}"
   codex exec --sandbox read-only --ephemeral --color never -C "$(pwd -P)" \
+    -m "$MODEL" -c "model_reasoning_effort=\"$EFFORT\"" \
     --output-schema "$DIR/verdict.schema.json" -o "$OUT" - <"$PROMPT" >"$LOG" 2>&1 ||
     { tail -n 20 "$LOG" >&2; echo "review: codex failed (logged in? usage limit?)" >&2; exit 3; }
 else
