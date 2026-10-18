@@ -821,8 +821,28 @@ pub fn find_best_lens_match(
     {
         return Some(hit);
     }
+    if let Some(hit) =
+        without_model_code(clean_model).and_then(|name| find_lens_by_fuzzy_model(db, maker, name))
+    {
+        return Some(hit);
+    }
 
     find_lens_by_camera_mount(db, maker, camera_model).map(|lens| lens_result(db, lens))
+}
+
+/// The EXIF lens name without a trailing maker's model code ("17-70mm F/2.8
+/// DiIII-A VC RXD B070X" → "… VC RXD"), which lensfun's names often lack or
+/// spell for another mount ("B070"): the fuzzy match needs every character
+/// of the EXIF name in the lensfun name. A code mixes letters and digits and
+/// is no focal length or aperture.
+fn without_model_code(name: &str) -> Option<&str> {
+    let (rest, code) = name.trim().rsplit_once(' ')?;
+    let is_code = code.len() >= 4
+        && code.chars().all(|c| c.is_ascii_alphanumeric())
+        && code.chars().any(|c| c.is_ascii_digit())
+        && code.chars().any(|c| c.is_ascii_alphabetic())
+        && !code.to_ascii_lowercase().contains("mm");
+    (is_code && rest.trim().len() >= 4).then(|| rest.trim())
 }
 
 fn find_lens_by_fuzzy_model(
@@ -914,7 +934,7 @@ pub fn embedded_lens_db() -> LensDatabase {
         cameras: Vec::new(),
         lenses: Vec::new(),
     };
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lensfun_db");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db");
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         if let Ok(xml) = fs::read_to_string(entry.path())
             && let Ok(mut db) = quick_xml::de::from_str::<LensDatabase>(&xml)
@@ -1098,6 +1118,106 @@ mod tests {
         let x: f64 = 1.0 / 1.6;
         let expected = 1.0 - 2.0777 * x.powi(2) + 2.2485 * x.powi(4) - 1.0106 * x.powi(6);
         assert!((brightness(&apsc, 1.0) - expected).abs() < 1e-4);
+    }
+
+    /// Prints the lens matched for each line of `$LENS_MATCH_CASES` (make,
+    /// camera model and EXIF lens model, tab-separated) in the database at
+    /// `$LENSFUN_DIR`: to compare two database versions.
+    #[test]
+    #[ignore = "tool: needs LENS_MATCH_CASES and LENSFUN_DIR"]
+    fn print_lens_matches() {
+        let db = load_lensfun_dir(std::path::Path::new(&std::env::var("LENSFUN_DIR").unwrap()));
+        let cases = fs::read_to_string(std::env::var("LENS_MATCH_CASES").unwrap()).unwrap();
+        for line in cases.lines() {
+            let mut fields = line.split('\t');
+            let (make, camera, lens) = (
+                fields.next().unwrap_or(""),
+                fields.next().unwrap_or(""),
+                fields.next().unwrap_or(""),
+            );
+            let found = find_best_lens_match(&db, make, lens, camera);
+            println!("MATCH\t{make}\t{camera}\t{lens}\t{found:?}");
+        }
+    }
+
+    /// EXIF names from public sample RAWs (raw.pixls.us) against the bundled
+    /// database: lenses matched before its update keep their entry (the
+    /// Sony 16-50 kit zoom under its new name, same calibration), and lenses
+    /// the update added are found (16-50 II, the Tamron 17-70 on Fujifilm X),
+    /// also when the EXIF name ends in the maker's model code (B070X, F013).
+    #[test]
+    fn bundled_database_matches_sample_raw_lenses() {
+        let db = embedded_lens_db();
+        let cases = [
+            (
+                "FUJIFILM",
+                "X-T5",
+                "XF18mmF2 R",
+                Some(("Fujifilm", "XF 18mm f/2 R")),
+            ),
+            (
+                "NIKON CORPORATION",
+                "NIKON Z 8",
+                "NIKKOR Z 14-24mm f/2.8 S",
+                Some(("Nikon", "Nikkor Z 14-24mm f/2.8 S")),
+            ),
+            (
+                "SONY",
+                "ILCE-7M4",
+                "FE 50mm F2.5 G",
+                Some(("Sony", "FE 50mm f/2.5 G")),
+            ),
+            (
+                "SONY",
+                "ILCE-7CR",
+                "24-70mm F2.8 DG DN | Art 019",
+                Some(("Sigma", "24-70mm F2.8 DG DN | Art 019")),
+            ),
+            (
+                "NIKON CORPORATION",
+                "NIKON Z f",
+                "TAMRON 35-150mm F/2-2.8 Di III VXD A058Z",
+                Some(("Tamron", "35-150mm F/2-2.8 Di III VXD")),
+            ),
+            (
+                "SONY",
+                "ILCE-5100",
+                "E PZ 16-50mm F3.5-5.6 OSS",
+                Some(("Sony", "E 16-50mm f/3.5-5.6 OSS PZ (Vers. I/II)")),
+            ),
+            (
+                "SONY",
+                "ILCE-6400A",
+                "E PZ 16-50mm F3.5-5.6 OSS II",
+                Some(("Sony", "E 16-50mm f/3.5-5.6 OSS PZ (Vers. I/II)")),
+            ),
+            (
+                "FUJIFILM",
+                "X-T30 III",
+                "17-70mm F/2.8 DiIII-A VC RXD B070X",
+                Some(("Tamron", "17-70mm F/2.8 Di III-A VC RXD")),
+            ),
+            (
+                "SIGMA",
+                "SIGMA fp L",
+                "TAMRON SP 45mm F/1.8 Di VC USD F013",
+                Some(("Tamron", "SP 45mm F/1.8 Di VC USD")),
+            ),
+        ];
+        for (make, camera, lens, expected) in cases {
+            let found = find_best_lens_match(&db, make, lens, camera);
+            let expected = expected.map(|(m, l)| (m.to_string(), l.to_string()));
+            assert_eq!(found, expected, "{make} {camera} {lens}");
+        }
+        // A model code is dropped only when nothing matched with it, and
+        // only a letters-and-digits code, never a focal length or aperture.
+        assert_eq!(
+            without_model_code("17-70mm F/2.8 DiIII-A VC RXD B070X"),
+            Some("17-70mm F/2.8 DiIII-A VC RXD")
+        );
+        assert_eq!(without_model_code("RF 50mm F1.4"), None);
+        assert_eq!(without_model_code("XF 18mm F2 R"), None);
+        assert_eq!(without_model_code("EF 70-200mm"), None);
     }
 
     #[test]

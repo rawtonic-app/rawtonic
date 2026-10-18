@@ -26,12 +26,39 @@ use std::thread;
 use tauri::AppHandle;
 use tauri::Manager;
 
+/// A saved edit keeps the lens profile it was made with: when the lens choice
+/// and its parameters arrive as they were saved, they are not looked up
+/// again, so a Lensfun database update (a renamed lens, a re-measured
+/// profile) reaches new edits and a new lens choice only, never a photo
+/// whose unrelated slider moved. Numbers are compared as numbers (the
+/// webview writes 1.0 as 1).
+fn lens_profile_unchanged(adjustments: &Value, previous: Option<&Value>) -> bool {
+    let Some(previous) = previous else {
+        return false;
+    };
+    let params = |recipe: &Value| {
+        recipe.get("lensDistortionParams").and_then(|v| {
+            serde_json::from_value::<crate::lens_correction::LensDistortionParams>(v.clone()).ok()
+        })
+    };
+    let Some(saved) = params(previous) else {
+        return false;
+    };
+    params(adjustments) == Some(saved)
+        && ["lensCorrectionMode", "lensMaker", "lensModel"]
+            .iter()
+            .all(|key| adjustments.get(key) == previous.get(key))
+}
+
+/// `previous`: the photo's recipe as saved before this edit, if any.
 pub fn resolve_lens_params_in_adjustments(
     adjustments: &mut Value,
+    previous: Option<&Value>,
     exif_data: &Option<HashMap<String, String>>,
     lens_db: Option<&crate::lens_correction::LensDatabase>,
     source: &Path,
 ) {
+    let unchanged = lens_profile_unchanged(adjustments, previous);
     if let Some(map) = adjustments.as_object_mut() {
         let mode = map
             .get("lensCorrectionMode")
@@ -55,6 +82,9 @@ pub fn resolve_lens_params_in_adjustments(
                     map.remove("lensDistortionParams");
                 }
             }
+            return;
+        }
+        if unchanged {
             return;
         }
 
@@ -194,6 +224,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
         let lens_db_guard = crate::lens_correction::global_lens_db();
         resolve_lens_params_in_adjustments(
             &mut final_adjustments,
+            Some(&metadata.adjustments),
             &metadata.exif,
             lens_db_guard.as_deref(),
             &source_path,
@@ -474,6 +505,7 @@ pub async fn apply_adjustments_to_paths(
 
                 resolve_lens_params_in_adjustments(
                     &mut new_adjustments,
+                    Some(&previous),
                     &existing_metadata.exif,
                     lens_db.as_deref(),
                     source_path,
@@ -527,8 +559,10 @@ pub async fn apply_auto_lens_correction_to_paths(
                     obj.insert("lensVignetteEnabled".to_string(), serde_json::json!(true));
                 }
 
+                // Detected again on the user's request: from the current database.
                 resolve_lens_params_in_adjustments(
                     &mut existing_metadata.adjustments,
+                    None,
                     &existing_metadata.exif,
                     lens_db.as_deref(),
                     source_path,
@@ -910,13 +944,62 @@ mod tests {
             "lensCorrectionMode": "camera", "cameraCaVersion": 1,
             "lensDistortionParams": params,
         });
-        resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
+        resolve_lens_params_in_adjustments(&mut adjustments, None, &None, None, source);
         assert_eq!(adjustments["lensDistortionParams"], params);
         // Recipes from before the CA data are rewritten from the facts.
         adjustments["cameraCaVersion"] = serde_json::json!(0);
-        resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
+        resolve_lens_params_in_adjustments(&mut adjustments, None, &None, None, source);
         assert!(adjustments.get("lensDistortionParams").is_none());
         forget(&path);
+    }
+
+    /// A Lensfun update that renames a lens or re-measures its profile
+    /// does not reach a saved edit through an unrelated change; a new lens
+    /// choice, or a recipe without saved parameters, is looked up.
+    #[test]
+    fn a_saved_edit_keeps_its_lens_profile_across_database_updates() {
+        use crate::lens_correction::{lenses_for_maker, load_lensfun_dir};
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("lenses.xml"),
+            r#"<lensdatabase><lens>
+                <maker>Canon</maker><model>Canon RF 28mm F2.8 STM</model><mount>Canon RF</mount>
+                <cropfactor>1.0</cropfactor>
+                <calibration><distortion model="ptlens" focal="28" a="0.023" b="-0.084" c="0.053"/></calibration>
+            </lens></lensdatabase>"#,
+        )
+        .unwrap();
+        let db = load_lensfun_dir(tmp.path());
+        let lenses = lenses_for_maker(&db, "Canon");
+        let model = lenses[0].get_display_name(&lenses);
+        let exif = Some(HashMap::from([(
+            "FocalLength".to_string(),
+            "28 mm".to_string(),
+        )]));
+        let source = Path::new("/photos/IMG_0001.CR3");
+        let current = crate::lens_correction::resolve_lens_params(
+            &db, "Canon", &model, 28.0, None, None, None,
+        );
+        let current = serde_json::to_value(current.unwrap()).unwrap();
+        // Saved with an older database: its own numbers, a name since renamed.
+        let old_params = serde_json::json!({"k1": 0.02, "k2": -0.08, "k3": 0.05, "model": 1,
+            "tca_vr": 1, "tca_vb": 1, "vig_k1": 0, "vig_k2": 0, "vig_k3": 0});
+        let saved = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": "RF 28mm F2.8 (old name)", "lensDistortionParams": old_params});
+        let mut edit = saved.clone();
+        edit["exposure"] = serde_json::json!(0.3);
+        resolve_lens_params_in_adjustments(&mut edit, Some(&saved), &exif, Some(&db), source);
+        assert_eq!(edit["lensDistortionParams"], old_params);
+        // Choosing the lens again looks it up in the current database.
+        let mut chosen = saved.clone();
+        chosen["lensModel"] = serde_json::json!(model);
+        resolve_lens_params_in_adjustments(&mut chosen, Some(&saved), &exif, Some(&db), source);
+        assert_eq!(chosen["lensDistortionParams"], current);
+        // So does a recipe saved without parameters, or a fresh lookup.
+        let mut fresh = chosen.clone();
+        fresh["lensDistortionParams"] = old_params.clone();
+        resolve_lens_params_in_adjustments(&mut fresh, None, &exif, Some(&db), source);
+        assert_eq!(fresh["lensDistortionParams"], current);
     }
 
     #[test]
