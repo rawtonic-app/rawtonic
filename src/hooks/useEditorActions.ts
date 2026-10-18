@@ -23,7 +23,7 @@ import {
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
-import { pendingLens, refreshLensProfile } from '../utils/lensProfile';
+import { isPendingLens, lensChoice, lookUpLensProfile, pendingLens } from '../utils/lensProfile';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -162,6 +162,36 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
 // A drag's last moves commit as it ends, before the final render.
 useEditorStore.subscribe((state, previous) => {
   if (previous.isSliderDragging && !state.isSliderDragging) flushSliderDraft();
+});
+
+// Pending lens parameters of the open photograph (a new lens choice, or one
+// an undo or redo restored) are filled in with what its save would look up,
+// for the preview; without a history step, so undo and redo restore the
+// pending mark and it is filled in again. A later choice, an undo or
+// switching the correction off wins over a lookup still running.
+let lensLookupFor: string | null = null;
+useEditorStore.subscribe((state) => {
+  const image = state.selectedImage;
+  const adjustments = state.adjustments;
+  if (!image?.isReady || !isPendingLens(adjustments.lensDistortionParams)) return;
+  const choice = lensChoice(adjustments);
+  const key = `${image.path}\n${choice}`;
+  if (lensLookupFor === key) return;
+  lensLookupFor = key;
+  void lookUpLensProfile(image.path, adjustments)
+    .then((lens) =>
+      useEditorStore.getState().setEditor((now) =>
+        now.selectedImage?.path === image.path
+          && isPendingLens(now.adjustments.lensDistortionParams)
+          && lensChoice(now.adjustments) === choice
+          ? { adjustments: { ...now.adjustments, ...lens } }
+          : now,
+      ),
+    )
+    .catch(() => {})
+    .finally(() => {
+      if (lensLookupFor === key) lensLookupFor = null;
+    });
 });
 
 /** Commits a slider drag's draft (sliderDraft.ts) for `path`. */
@@ -537,13 +567,11 @@ export function useEditorActions() {
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
         const merged = { ...adjustments, ...adjustmentsToApply };
         // A pasted lens choice is committed at once with its parameters
-        // pending (the save looks them up for this photo); the preview's
-        // are filled in when found.
-        const choosesLens = ['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply);
-        if (choosesLens) Object.assign(merged, pendingLens(merged));
+        // pending: the save looks them up for this photo, and they are filled
+        // in for the preview when found (below).
+        if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply))
+          Object.assign(merged, pendingLens(merged));
         setAdjustments(merged);
-        if (choosesLens)
-          refreshLensProfile(selectedImage.path, selectedImage.exif ?? {}, merged, isCurrentEditorImage, setAdjustments);
       }
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(

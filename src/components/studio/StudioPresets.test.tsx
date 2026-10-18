@@ -215,65 +215,24 @@ describe("preset amount", () => {
     expect(next).toMatchObject({ contrast: 20, saturation: -50, exposure: 0.5 });
   });
 
-  describe("a preset that switches the lens", () => {
+  it("commits a lens a preset's amount switches to with its parameters pending", async () => {
     const lensPreset: UserPreset = { preset: { id: "fe50", name: "FE 50 look", adjustments: {
-      lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G",
+      lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G", exposure: 1,
     }, presetType: "tool" } };
-    const params = { k1: 0.01, k2: 0, k3: 0, model: 1, tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0 };
     const sigma = { lensCorrectionMode: "manual", lensMaker: "Sigma", lensModel: "35mm F1.4 DG DN | Art",
-      lensDistortionParams: { ...params, k1: -0.03 } };
-    let lookup: { resolve: (v: unknown) => void; reject: (e: unknown) => void };
-    beforeEach(() => {
-      mockInvoke.mockImplementation((command) => {
-        if (command === "load_presets") return Promise.resolve([lensPreset]);
-        if (command === "get_lens_distortion_params")
-          return new Promise((resolve, reject) => { lookup = { resolve, reject }; });
-        return Promise.resolve(undefined);
-      });
-      useEditorStore.setState({
-        selectedImage: { path: "/job/a.arw", isReady: true, exif: { FocalLength: "50.0 mm" } } as never,
-        adjustments: { ...INITIAL_ADJUSTMENTS, ...sigma } as never,
-      });
-    });
-    const amountTo = async (value: string) => {
-      fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value } });
-      await act(async () => {});
-    };
-    const start = async () => {
-      await renderTool();
-      fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
-      setAdjustments.mockReset();
-      await amountTo("80");
-    };
-    const run = (call: number, current: Record<string, unknown>) =>
-      (setAdjustments.mock.calls[call][0] as (c: Record<string, unknown>) => Record<string, unknown>)(current);
-
-    it("commits the new lens at once with its parameters pending, then fills them in", async () => {
-      await start();
-      const committed = run(0, { ...INITIAL_ADJUSTMENTS, ...sigma });
-      expect(committed).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: { pending: true } });
-      expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", expect.objectContaining({
-        maker: "Sony", model: "FE 50mm f/2.5 G", path: "/job/a.arw",
-      }));
-      await act(async () => lookup.resolve(params));
-      expect(run(1, committed)).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: params });
-    });
-
-    it("fills in nothing once another lens is chosen, or for a photo left meanwhile", async () => {
-      await start();
-      const committed = run(0, { ...INITIAL_ADJUSTMENTS, ...sigma });
-      await act(async () => lookup.resolve(params));
-      // The recipe moved on to another lens (another preset, the lens tool, undo).
-      const later = { ...committed, lensModel: "FE 85mm F1.8", lensDistortionParams: { pending: true } };
-      expect(run(1, later)).toBe(later);
-      const undone = { ...INITIAL_ADJUSTMENTS, ...sigma };
-      expect(run(1, undone)).toBe(undone);
-      setAdjustments.mockReset();
-      await amountTo("90");
-      useEditorStore.setState({ selectedImage: { path: "/job/b.arw", isReady: true } as never });
-      await act(async () => lookup.resolve(params));
-      expect(setAdjustments).toHaveBeenCalledTimes(1);
-    });
+      lensDistortionParams: { k1: -0.03 } };
+    mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? [lensPreset] : undefined));
+    useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, ...sigma } as never });
+    await renderTool();
+    fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
+    const slider = screen.getByLabelText("Preset amount");
+    const commit = () => (setAdjustments.mock.lastCall![0] as (c: Record<string, unknown>) => Record<string, unknown>)(
+      { ...INITIAL_ADJUSTMENTS, ...sigma });
+    fireEvent.change(slider, { target: { value: "80" } });
+    expect(commit()).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: { pending: true } });
+    // Back to the base's lens: its own parameters.
+    fireEvent.change(slider, { target: { value: "0" } });
+    expect(commit()).toMatchObject(sigma);
   });
 
   it("offers no amount when a preset goes to several photographs", async () => {

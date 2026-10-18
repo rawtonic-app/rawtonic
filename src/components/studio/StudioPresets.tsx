@@ -12,7 +12,7 @@ import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { withAiDenoiseVersion, withGrainStructure, type Adjustments } from "../../utils/adjustments";
-import { lensChoice, pendingLens, refreshLensProfile } from "../../utils/lensProfile";
+import { lensChoice, pendingLens } from "../../utils/lensProfile";
 
 type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
 
@@ -203,19 +203,11 @@ export default function StudioPresets() {
     );
     // The base's lens parameters belong to its lens choice: another choice
     // is committed with its parameters pending (the save looks them up for
-    // this photo), and the preview's are filled in when found.
+    // this photo; the editor fills them in for the preview).
     const next = { ...amount.base, ...blended } as Partial<Adjustments>;
     const switchesLens = lensChoice(next) !== lensChoice(amount.base as Partial<Adjustments>);
     if (switchesLens) Object.assign(blended, pendingLens(next));
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
-    if (switchesLens)
-      refreshLensProfile(
-        selectedImage.path,
-        selectedImage.exif ?? {},
-        next,
-        (path) => useEditorStore.getState().selectedImage?.path === path,
-        setAdjustments,
-      );
   };
   const exportPreset = async (preset: Preset) => {
     const path = await save({

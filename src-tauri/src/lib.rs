@@ -845,6 +845,7 @@ pub fn run() {
             tagging::remove_tag_for_paths,
             culling::cull_images,
             lens_correction::get_lensfun_makers,
+            lens_correction::resolve_lens_profile,
             embedded_lens::get_camera_lens_profile,
             upright::calculate_upright,
             image_loader::load_image_proxy,

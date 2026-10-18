@@ -506,51 +506,49 @@ it('pastes a lens choice without parameters, so each photo looks up its own', as
 
 
 describe('a lens choice pasted onto the open photo', () => {
-  const paste = async (copied: Record<string, unknown>, keys: string[], exif: Record<string, string> = {
-    Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4', FocalLength: '50.0 mm',
-  }) => {
-    useEditorStore.setState({
-      copiedAdjustments: { ...INITIAL_ADJUSTMENTS, ...copied },
-      selectedImage: { ...photo('/first.dng'), exif },
-    });
+  const paste = async (copied: Record<string, unknown>, keys: string[]) => {
+    useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, ...copied } });
     useSettingsStore.setState({ appSettings: {
       copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: keys },
     } as AppSettings });
     const { result } = renderHook(useEditorActions);
     await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
   };
+  const found = { lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 } };
 
-  it('is committed at once with the other settings and its parameters pending, then filled in', async () => {
+  it('is committed at once with the other settings and filled in with what its save looks up', async () => {
     await paste({ lensCorrectionMode: 'auto', contrast: 10 }, ['lensCorrectionMode', 'contrast']);
     expect(useEditorStore.getState().adjustments).toMatchObject({
       contrast: 10, lensCorrectionMode: 'auto', lensDistortionParams: { pending: true },
     });
-    await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
-    await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
-    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.GetLensDistortionParams, expect.objectContaining({ path: '/first.dng' }));
-    expect(useEditorStore.getState().adjustments).toMatchObject({
-      contrast: 10, lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 },
-    });
+    await finish(Invokes.ResolveLensProfile, found);
+    const request = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ResolveLensProfile);
+    expect(request?.[1]).toMatchObject({ path: '/first.dng', adjustments: { lensCorrectionMode: 'auto' } });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ contrast: 10, ...found });
   });
 
   it('keeps edits made meanwhile and fills in nothing once the lens is switched off', async () => {
     await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
     act(() => updateAdjustments({ exposure: 3 }));
-    await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
-    await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
-    expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 3, lensDistortionParams: { k1: 0.01 } });
+    await finish(Invokes.ResolveLensProfile, found);
+    expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 3, ...found });
     await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
     act(() => updateAdjustments({ lensCorrectionMode: 'manual', lensMaker: null, lensModel: null, lensDistortionParams: null }));
-    await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
-    await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
+    await finish(Invokes.ResolveLensProfile, found);
     expect(useEditorStore.getState().adjustments).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
   });
 
-  it('takes the camera data for a camera lens choice', async () => {
-    await paste({ lensCorrectionMode: 'camera' }, ['lensCorrectionMode'], {});
-    await finish(Invokes.GetCameraLensProfile, { params: { k1: -0.02 } });
-    expect(useEditorStore.getState().adjustments).toMatchObject({
-      lensCorrectionMode: 'camera', lensDistortionParams: { k1: -0.02 }, cameraCaVersion: 1,
-    });
+  it('fills a pending entry in again when undo or redo restores it', async () => {
+    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
+    act(() => debouncedSetHistory.flush());
+    // Undone before the lookup answered: that answer is dropped.
+    act(() => useEditorStore.getState().undo());
+    await finish(Invokes.ResolveLensProfile, found);
+    expect(useEditorStore.getState().adjustments.lensDistortionParams).not.toEqual(found.lensDistortionParams);
+    // Redo brings the pending entry back: looked up again.
+    act(() => useEditorStore.getState().redo());
+    expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ pending: true });
+    await finish(Invokes.ResolveLensProfile, found);
+    expect(useEditorStore.getState().adjustments).toMatchObject(found);
   });
 });
