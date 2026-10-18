@@ -187,6 +187,28 @@ SUBJECT_COREML_EXPORT = [
     "python", str(Path(__file__).resolve().parent / "convert_birefnet_coreml.py"),
 ]
 
+# AI Denoise version 2 on macOS: the same MatchFilter checkpoint converted by
+# convert_nlmf_coreml.py from the authors' release (mixed precision, 640 px
+# tiles; reproducible, same SHA-256 in two conversions). Prepared
+# 2026-10-18; not yet uploaded to a pack release (the app falls back to
+# nlmf_coreml_* without it).
+MATCHFILTER_MIXED_ENTRY = {
+    "used_by": "AI Denoise version 2 (raw Bayer mosaic, Core ML, macOS)",
+    "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, release v1.0.0 checkpoint rawnoise_25_15_9nbr), converted by convert_nlmf_coreml.py (Core ML, convolutions fp16, matching fp32, 640 px tiles) with RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW denoise/, commit 2375e17)",
+    "license": "MIT",
+    "license_files": ["nonlocal-matchfilter-MIT.txt", "nonlocal-matchfilter-NOTICE.txt"],
+}
+MATCHFILTER_MIXED_SHA256 = {
+    "nlmf_mixed640_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "nlmf_mixed640_coreml_model.mlmodel": "a4da084674a43eb69f33e94e73c9454a993867ee5d5e38ed4afaec8dcda8d4f6",
+    "nlmf_mixed640_coreml_weight.bin": "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
+}
+MATCHFILTER_MIXED_EXPORT = [
+    "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
+    "--with", "numpy==2.2.6", "--with", "einops==0.8.1", "--with", "omegaconf==2.3.0",
+    "python", str(Path(__file__).resolve().parent / "convert_nlmf_coreml.py"),
+]
+
 SAM_ENTRY = {
     "used_by": "Subject mask (point/box prompts; builds before 2026-10-09)",
     "source": "Segment Anything ViT-B checkpoint sam_vit_b_01ec64.pth (Meta), exported by scripts/models/export_sam.py",
@@ -428,6 +450,11 @@ def main() -> None:
     subprocess.run(SUBJECT_COREML_EXPORT + [str(subject_coreml), "--precision", "fp16"], check=True)
     for name, expected in SUBJECT_COREML_SHA256.items():
         entries.append(place(subject_coreml / name, args.out, name, expected) | SUBJECT_COREML_ENTRY)
+
+    nlmf_mixed = args.cache / "nlmf-mixed"
+    subprocess.run(MATCHFILTER_MIXED_EXPORT + [str(nlmf_mixed)], check=True)
+    for name, expected in MATCHFILTER_MIXED_SHA256.items():
+        entries.append(place(nlmf_mixed / name, args.out, name, expected) | MATCHFILTER_MIXED_ENTRY)
 
     faces = args.cache / "faces-out"
     subprocess.run(FACES_EXPORT + [str(faces), "--cache", str(args.cache / "faces")], check=True)

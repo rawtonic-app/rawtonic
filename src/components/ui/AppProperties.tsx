@@ -527,6 +527,8 @@ export interface LoadImageResult {
   is_raw: boolean;
   /** AI Denoise amount the source was developed with (0 … 100). */
   ai_denoise?: number;
+  /** Its `aiDenoiseVersion` (1 when off). */
+  ai_denoise_version?: number;
   /** Why the recipe's AI Denoise could not be applied. */
   ai_denoise_error?: string | null;
   /** The RAW is offline; the photograph opened on its 1:1 or Standard preview. */
@@ -580,6 +582,8 @@ export interface SelectedImage {
   isDecoded?: boolean;
   /** AI Denoise amount the decoded source carries (0 … 100). */
   aiDenoise?: number;
+  /** Its `aiDenoiseVersion` (missing: 1). */
+  aiDenoiseVersion?: number;
   /** An AI Denoise amount that failed for this source (not retried). */
   aiDenoiseFailed?: number;
   /** The decoded source was developed for the multi-scale colour noise

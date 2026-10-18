@@ -21,13 +21,18 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser;
 
 pub use tiles::{HALO, TILE};
 
 /// The model package's folder name in the app's model folder.
 pub const CORE_ML_PACKAGE: &str = "nlmf.mlpackage";
+/// The mixed-precision package of the same network with 640 px tiles (AI
+/// Denoise version 2): convolutions in float16, the feature matching in
+/// float32; 2.6× faster than `CORE_ML_PACKAGE` per tile and 1.4× fewer
+/// samples through the halo (scripts/models/convert_nlmf_coreml.py).
+pub const CORE_ML_MIXED_PACKAGE: &str = "nlmf_mixed640.mlpackage";
 /// The ONNX model's file name there.
 pub const ONNX_MODEL: &str = "nlmf.onnx";
 
@@ -42,8 +47,13 @@ pub trait Backend: Send + Sync {
     /// Part of the cache key for backends whose results differ from the
     /// CPU's in the last bits (a GPU), so a cached result is the one this
     /// backend computes; empty for the CPU and Core ML (keys unchanged).
-    fn cache_tag(&self) -> &'static str {
-        ""
+    fn cache_tag(&self) -> String {
+        String::new()
+    }
+
+    /// Tile edge the network takes, in packed pixels.
+    fn tile(&self) -> usize {
+        TILE
     }
 }
 
@@ -79,6 +89,21 @@ impl MatchFilter {
         ))
     }
 
+    /// Core ML with the mixed-precision package at `package` (AI Denoise
+    /// version 2): GPU only, where it is fastest (the Neural Engine runs it
+    /// 4× slower); its results are cached apart from the first package's.
+    #[cfg(target_os = "macos")]
+    pub fn core_ml_mixed(package: &Path, cache_dir: Option<PathBuf>) -> Result<Self> {
+        Ok(Self::new(
+            Box::new(coreml::CoreMl::load_tagged(
+                package,
+                coreml::ComputeUnits::CpuAndGpu,
+                "coreml-mixed",
+            )?),
+            cache_dir,
+        ))
+    }
+
     /// ONNX Runtime with the model at `model` (the runtime must be loaded).
     pub fn onnx(model: &Path, cache_dir: Option<PathBuf>) -> Result<Self> {
         Ok(Self::new(Box::new(onnx::Onnx::load(model)?), cache_dir))
@@ -99,7 +124,27 @@ impl MosaicDenoiser for MatchFilter {
         height: usize,
         pattern: [u8; 4],
     ) -> Result<Vec<f32>> {
-        let key = cache_key(self.backend.cache_tag(), mosaic, width, height, pattern);
+        self.denoise_scaled(mosaic, width, height, pattern, 1.0)
+    }
+
+    fn denoise_scaled(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+    ) -> Result<Vec<f32>> {
+        ensure!(
+            noise_scale.is_finite() && noise_scale > 0.0,
+            "noise scale {noise_scale}"
+        );
+        // Scale 1 keeps the keys results were cached under before scales.
+        let mut tag = self.backend.cache_tag();
+        if noise_scale != 1.0 {
+            tag.push_str(&format!("|noise×{noise_scale}"));
+        }
+        let key = cache_key(&tag, mosaic, width, height, pattern);
         if let Some(path) = self.cache_path(key)
             && let Some(cached) = read_cache(&path, mosaic.len())
         {
@@ -108,13 +153,13 @@ impl MosaicDenoiser for MatchFilter {
         let started = std::time::Instant::now();
         let planes = tiles::pack(mosaic, width, height, pattern);
         let profile = noise::estimate(&planes)?;
-        let denoised = tiles::run(&planes, &profile, self.backend.as_ref())?;
+        let denoised = tiles::run(&planes, &profile, self.backend.as_ref(), noise_scale)?;
         let mut out = tiles::unpack(&denoised, width, height, pattern);
         for v in &mut out {
             *v = half::f16::from_f32(v.clamp(0.0, 1.0)).to_f32();
         }
         eprintln!(
-            "MatchFilter: {width}x{height} in {:.1} s, noise (shot, read) {:?}",
+            "MatchFilter: {width}x{height} in {:.1} s, noise (shot, read) {:?} ×{noise_scale}",
             started.elapsed().as_secs_f32(),
             profile.channels
         );
@@ -249,6 +294,48 @@ mod tests {
             assert_eq!(out, again, "the cached result equals the fresh one");
         }
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 4);
+    }
+
+    /// `Identity` on 400 px tiles.
+    struct WideIdentity;
+
+    impl Backend for WideIdentity {
+        fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
+            Ok(input[..4 * 400 * 400].to_vec())
+        }
+
+        fn tile(&self) -> usize {
+            400
+        }
+    }
+
+    #[test]
+    fn the_tile_is_the_backends_and_noise_scales_cache_apart() {
+        let (w, h) = (900, 620);
+        let mosaic = noisy_mosaic(w, h);
+        let dir = tempfile::tempdir().unwrap();
+        let filter = MatchFilter::new(Box::new(WideIdentity), Some(dir.path().to_path_buf()));
+        let plain = filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        for (a, b) in plain.iter().zip(&mosaic) {
+            assert!((a - b).abs() < 1e-3, "{a} vs {b}");
+        }
+        let scaled = filter
+            .denoise_scaled(&mosaic, w, h, [0, 1, 1, 2], 0.8)
+            .unwrap();
+        assert_eq!(
+            plain, scaled,
+            "an identity network ignores the noise planes"
+        );
+        assert_eq!(
+            fs::read_dir(dir.path()).unwrap().count(),
+            2,
+            "one cache file per scale"
+        );
+        assert!(
+            filter
+                .denoise_scaled(&mosaic, w, h, [0, 1, 1, 2], 0.0)
+                .is_err()
+        );
     }
 }
 

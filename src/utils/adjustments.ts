@@ -438,6 +438,10 @@ export interface Adjustments {
   moirePattern?: number;
   /** AI Denoise of the RAW mosaic, 0 … 100 (applied when the photo is developed). */
   aiDenoise?: number;
+  /** How AI Denoise reads its amount (crates/engine/src/image_loader.rs
+   * `ai_denoise_settings`): 2 = 50 has Camera Raw Denoise's default effect,
+   * faster model; missing = 1 (recipes from before it). */
+  aiDenoiseVersion?: number;
   blacks: number;
   brightness: number;
   centré: number;
@@ -1112,6 +1116,10 @@ export const FRINGE_VERSION = 2;
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;
 
+/** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
+ * benchmark-results/ai-denoise-mac-2026-10-18). */
+export const AI_DENOISE_VERSION = 2;
+
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;
 /** The automatic lateral CA new RAW edits start with (notes: reference/lateral-ca.md). */
@@ -1153,6 +1161,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         cameraCaVersion: CAMERA_CA_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        aiDenoiseVersion: AI_DENOISE_VERSION,
       }
     : {
         ...INITIAL_ADJUSTMENTS,
@@ -1173,6 +1182,16 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
     (loaded.defringeGreenAmount ?? 0) > 0 ||
     (loaded.masks ?? []).some((mask) => ((mask?.adjustments?.defringe as number | undefined) ?? 0) > 0);
   return used ? undefined : DEFRINGE_VERSION;
+};
+
+/** The AI Denoise version of a saved recipe: its own; else the current one
+ * when it does not use AI Denoise (the key only matters above 0), the
+ * earlier one otherwise (missing key). */
+const loadedAiDenoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
+  if (loaded.aiDenoiseVersion !== undefined && loaded.aiDenoiseVersion !== null) {
+    return loaded.aiDenoiseVersion;
+  }
+  return isRaw && (loaded.aiDenoise ?? 0) <= 0 ? AI_DENOISE_VERSION : undefined;
 };
 
 /** The tone-slider response of a saved recipe: its own; else the current
@@ -1308,6 +1327,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     toneVersion: loadedToneVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
+    aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
     // Saved recipes keep rendering as they were made: no pass unless they
     // carry the key (never-edited RAWs get it in useImageLoader).
     fringeVersion: loadedAdjustments.fringeVersion,
@@ -1454,6 +1474,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'colorNoiseSmoothness',
         'colorNoiseVersion',
         'aiDenoise',
+        'aiDenoiseVersion',
       ],
     },
     {

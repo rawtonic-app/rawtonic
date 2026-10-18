@@ -534,6 +534,7 @@ export function useImageProcessing(
   // filter differs from the source's (src/utils/aiDenoise.ts), then render.
   const sourceDevelop = sourceDevelopToApply(selectedImage, adjustments, isSliderDragging);
   const developAiDenoise = sourceDevelop?.aiDenoise ?? null;
+  const developAiDenoiseVersion = sourceDevelop?.aiDenoiseVersion;
   const developMultiscale = sourceDevelop?.multiscale;
   // The newest develop request: it alone clears the busy note, on every way
   // it ends (done, failed, cancelled, photograph switched).
@@ -542,9 +543,12 @@ export function useImageProcessing(
     const path = useEditorStore.getState().selectedImage?.path;
     if (developAiDenoise === null || !path) return;
     const amount = developAiDenoise;
+    const version = developAiDenoiseVersion;
     const multiscale = developMultiscale;
     const current = useEditorStore.getState().selectedImage;
-    const changesAiDenoise = amount !== Math.round(current?.aiDenoise ?? 0);
+    const changesAiDenoise =
+      amount !== Math.round(current?.aiDenoise ?? 0) ||
+      (amount > 0 && (version ?? 1) !== (current?.aiDenoiseVersion ?? 1));
     const changesFilter = multiscale !== current?.colorNoiseMultiscale;
     const request = ++sourceDevelopRequestRef.current;
     const settleBusy = () => {
@@ -552,7 +556,7 @@ export function useImageProcessing(
         setEditor({ aiDenoiseBusy: false });
     };
     if (changesAiDenoise) setEditor({ aiDenoiseBusy: true });
-    invoke<number>(Invokes.ApplyAiDenoise, { path, amount, multiscale })
+    invoke<number>(Invokes.ApplyAiDenoise, { path, amount, version, multiscale })
       .then((applied) => {
         const editor = useEditorStore.getState();
         if (editor.selectedImage?.path !== path) return settleBusy();
@@ -561,6 +565,7 @@ export function useImageProcessing(
           selectedImage: {
             ...editor.selectedImage,
             aiDenoise: Math.round(applied),
+            aiDenoiseVersion: applied > 0 ? (version ?? 1) : 1,
             ...(multiscale === undefined ? {} : { colorNoiseMultiscale: multiscale }),
           },
         });
@@ -594,7 +599,7 @@ export function useImageProcessing(
         if (changesAiDenoise) toastAiError(err, `AI Denoise failed: ${err}`);
         else console.error('Developing the source again failed:', err);
       });
-  }, [developAiDenoise, developMultiscale, setEditor, previewQueue, currentResRef]);
+  }, [developAiDenoise, developAiDenoiseVersion, developMultiscale, setEditor, previewQueue, currentResRef]);
 
   const applyAdjustments = useCallback(
     (currentAdjustments: Adjustments, dragging: boolean = false, targetRes?: number) => {

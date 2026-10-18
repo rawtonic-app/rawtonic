@@ -8,8 +8,10 @@ import { colorNoiseMultiscale, type Adjustments } from './adjustments';
  * truth, so undo, paste and presets develop the source again too.
  */
 export function aiDenoiseToApply(
-  image: Pick<SelectedImage, 'isDecoded' | 'isRaw' | 'aiDenoise' | 'aiDenoiseFailed'> | null,
-  adjustments: Pick<Adjustments, 'aiDenoise'> & { sectionVisibility?: Record<string, boolean | undefined> },
+  image: Pick<SelectedImage, 'isDecoded' | 'isRaw' | 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseFailed'> | null,
+  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> & {
+    sectionVisibility?: Record<string, boolean | undefined>;
+  },
   dragging: boolean,
 ): number | null {
   if (!image?.isDecoded || !image.isRaw || dragging) return null;
@@ -19,7 +21,9 @@ export function aiDenoiseToApply(
   const switchedOff = visibility.details === false || visibility.noiseReduction === false;
   const wanted = switchedOff ? 0 : Math.round(Math.min(100, Math.max(0, adjustments.aiDenoise ?? 0)));
   const have = Math.round(image.aiDenoise ?? 0);
-  if (wanted === have || wanted === image.aiDenoiseFailed) return null;
+  // The version only matters with AI Denoise on (reset or paste can change it).
+  const sameVersion = wanted === 0 || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
+  if ((wanted === have && sameVersion) || wanted === image.aiDenoiseFailed) return null;
   return wanted;
 }
 
@@ -27,6 +31,8 @@ export function aiDenoiseToApply(
 export interface SourceDevelop {
   /** AI Denoise amount (0 … 100). */
   aiDenoise: number;
+  /** Its `aiDenoiseVersion` (undefined: 1). */
+  aiDenoiseVersion?: number;
   /** For the multi-scale colour noise filter: without the decode-time chroma
    * clean-up (undefined: the stored recipe's filter). */
   multiscale?: boolean;
@@ -45,12 +51,13 @@ export function sourceDevelopToApply(
     | 'isDecoded'
     | 'isRaw'
     | 'aiDenoise'
+    | 'aiDenoiseVersion'
     | 'aiDenoiseFailed'
     | 'colorNoiseMultiscale'
     | 'colorNoiseMultiscaleFailed'
     | 'offline'
   > | null,
-  adjustments: Pick<Adjustments, 'aiDenoise'> &
+  adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> &
     Pick<Partial<Adjustments>, 'colorNoiseVersion' | 'colorNoiseReduction'> & {
       sectionVisibility?: Record<string, boolean | undefined>;
     },
@@ -64,5 +71,10 @@ export function sourceDevelopToApply(
   // A filter whose development failed before is not retried.
   const multiscale = wanted === image.colorNoiseMultiscaleFailed ? have : wanted;
   if (aiDenoise === null && multiscale === have) return null;
-  return { aiDenoise: aiDenoise ?? Math.round(image.aiDenoise ?? 0), multiscale };
+  const version = aiDenoise === null ? image.aiDenoiseVersion : adjustments.aiDenoiseVersion;
+  return {
+    aiDenoise: aiDenoise ?? Math.round(image.aiDenoise ?? 0),
+    ...(version !== undefined && version !== null ? { aiDenoiseVersion: version } : {}),
+    multiscale,
+  };
 }

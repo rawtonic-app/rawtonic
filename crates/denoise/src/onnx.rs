@@ -44,11 +44,12 @@ impl Backend for Onnx {
         })
     }
 
-    fn cache_tag(&self) -> &'static str {
+    fn cache_tag(&self) -> String {
         match self.provider() {
             Provider::Cpu => "",
             Provider::WebGpu => "webgpu",
             Provider::Cuda => "cuda",
         }
+        .to_string()
     }
 }

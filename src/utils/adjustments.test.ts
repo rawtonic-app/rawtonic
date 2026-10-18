@@ -9,6 +9,7 @@ import {
   TONE_VERSION,
   FRINGE_VERSION,
   DEFRINGE_VERSION,
+  AI_DENOISE_VERSION,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -106,6 +107,18 @@ describe('RAW detail defaults', () => {
     } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layer, true).defringeVersion).toBeUndefined();
     expect(normalizeLoadedAdjustments({ ...purple, defringeVersion: 2 }, true).defringeVersion).toBe(2);
+  });
+
+  it('keep the AI Denoise version a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).aiDenoiseVersion).toBe(AI_DENOISE_VERSION);
+    // Without AI Denoise the version does not change the render: the current one.
+    const unused = { ...INITIAL_ADJUSTMENTS, aiDenoise: 0 } as Adjustments;
+    expect(normalizeLoadedAdjustments(unused, true).aiDenoiseVersion).toBe(AI_DENOISE_VERSION);
+    // With it, a recipe without the key stays on version 1 (missing key).
+    const used = { ...INITIAL_ADJUSTMENTS, aiDenoise: 60 } as Adjustments;
+    expect(normalizeLoadedAdjustments(used, true).aiDenoiseVersion).toBeUndefined();
+    expect('aiDenoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(used, true)))).toBe(false);
+    expect(normalizeLoadedAdjustments({ ...used, aiDenoiseVersion: 2 }, true).aiDenoiseVersion).toBe(2);
   });
 
   it('start new RAW edits with the automatic lateral CA where the lens data has none', () => {

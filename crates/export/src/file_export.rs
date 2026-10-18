@@ -20,7 +20,7 @@ use crate::gpu_processing::{GpuContext, GpuImageCache, GpuProcessorState};
 use crate::output::write_new_output;
 use rawtonic_engine::file_io::read_file_mapped;
 use rawtonic_engine::formats::is_raw_file;
-use rawtonic_engine::image_loader::{BaseImageOptions, ai_denoise_amount, load_base_image};
+use rawtonic_engine::image_loader::{BaseImageOptions, ai_denoise_settings, load_base_image};
 use rawtonic_rawdecode::mosaic_denoise::{MosaicDenoise, MosaicDenoiser};
 
 /// One export: `output` must not exist; its extension, else `format`,
@@ -45,7 +45,8 @@ pub struct FileExporter {
     processor: Mutex<Option<GpuProcessorState>>,
     image_cache: Mutex<Option<GpuImageCache>>,
     /// For recipes with AI Denoise; without it such exports fail.
-    mosaic_denoiser: Option<Arc<dyn MosaicDenoiser>>,
+    /// AI Denoise's denoisers by `aiDenoiseVersion` (index 0: version 1).
+    mosaic_denoisers: [Option<Arc<dyn MosaicDenoiser>>; 2],
 }
 
 impl FileExporter {
@@ -66,13 +67,19 @@ impl FileExporter {
             context: GpuContext::headless()?,
             processor: Mutex::new(None),
             image_cache: Mutex::new(None),
-            mosaic_denoiser: None,
+            mosaic_denoisers: [None, None],
         })
     }
 
-    /// The denoiser for recipes with AI Denoise (`aiDenoise` > 0).
-    pub fn with_mosaic_denoiser(mut self, denoiser: Arc<dyn MosaicDenoiser>) -> Self {
-        self.mosaic_denoiser = Some(denoiser);
+    /// The denoiser for recipes with AI Denoise (`aiDenoise` > 0) of
+    /// `version` (`aiDenoiseVersion`, `ai_denoise_settings`).
+    pub fn with_mosaic_denoiser(mut self, version: u8, denoiser: Arc<dyn MosaicDenoiser>) -> Self {
+        if let Some(slot) = self
+            .mosaic_denoisers
+            .get_mut(version.saturating_sub(1) as usize)
+        {
+            *slot = Some(denoiser);
+        }
         self
     }
 
@@ -87,15 +94,17 @@ impl FileExporter {
         // The recipe's colour noise filter decides the decode-time chroma
         // clean-up (skipped for the multi-scale filter).
         let mut base = job.base.clone().for_recipe(&js_adjustments, is_raw);
-        let amount = ai_denoise_amount(&js_adjustments);
-        if amount > 0.0 && is_raw {
-            let denoiser = self.mosaic_denoiser.clone().ok_or_else(|| {
-                format!(
-                    "{} uses AI Denoise, but the denoising model is not available",
-                    job.source.display()
-                )
-            })?;
-            base.mosaic_denoise = Some(MosaicDenoise::new(denoiser, amount));
+        if let Some(ai) = ai_denoise_settings(&js_adjustments).filter(|_| is_raw) {
+            let denoiser = self.mosaic_denoisers[ai.version as usize - 1]
+                .clone()
+                .ok_or_else(|| {
+                    format!(
+                        "{} uses AI Denoise, but the denoising model is not available",
+                        job.source.display()
+                    )
+                })?;
+            base.mosaic_denoise =
+                Some(MosaicDenoise::new(denoiser, ai.blend).with_noise_scale(ai.noise_scale));
         }
         let pristine_source = match read_file_mapped(job.source) {
             Ok(mmap) => load_base_image(&mmap, &source_path_str, false, &base, None)

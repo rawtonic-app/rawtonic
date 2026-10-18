@@ -24,6 +24,21 @@ pub trait MosaicDenoiser: Send + Sync {
         height: usize,
         pattern: [u8; 4],
     ) -> Result<Vec<f32>>;
+
+    /// `denoise` for noise `noise_scale` times the photo's: below 1 the
+    /// network keeps more, above 1 it smooths more. Denoisers without such
+    /// a control ignore it.
+    fn denoise_scaled(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+    ) -> Result<Vec<f32>> {
+        let _ = noise_scale;
+        self.denoise(mosaic, width, height, pattern)
+    }
 }
 
 /// A denoiser and how much of its result to keep (0 … 1).
@@ -31,6 +46,9 @@ pub trait MosaicDenoiser: Send + Sync {
 pub struct MosaicDenoise {
     pub denoiser: Arc<dyn MosaicDenoiser>,
     pub amount: f32,
+    /// The noise the denoiser is told about, relative to the photo's
+    /// (`MosaicDenoiser::denoise_scaled`); 1 for AI Denoise version 1.
+    pub noise_scale: f32,
     /// Set once a development ran the denoiser (it skips non-Bayer sensors).
     pub applied: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -40,8 +58,14 @@ impl MosaicDenoise {
         Self {
             denoiser,
             amount,
+            noise_scale: 1.0,
             applied: Arc::default(),
         }
+    }
+
+    pub fn with_noise_scale(mut self, noise_scale: f32) -> Self {
+        self.noise_scale = noise_scale;
+        self
     }
 
     /// Whether a development ran the denoiser.
@@ -54,6 +78,7 @@ impl std::fmt::Debug for MosaicDenoise {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("MosaicDenoise")
             .field("amount", &self.amount)
+            .field("noise_scale", &self.noise_scale)
             .finish_non_exhaustive()
     }
 }
@@ -85,7 +110,13 @@ pub(crate) fn apply<T: Copy>(
         let row = &data[y * width + left..y * width + left + aw];
         mosaic.extend(row.iter().map(|&v| level(v)));
     }
-    let denoised = denoise.denoiser.denoise(&mosaic, aw, ah, pattern)?;
+    let denoised = if denoise.noise_scale == 1.0 {
+        denoise.denoiser.denoise(&mosaic, aw, ah, pattern)?
+    } else {
+        denoise
+            .denoiser
+            .denoise_scaled(&mosaic, aw, ah, pattern, denoise.noise_scale)?
+    };
     anyhow::ensure!(
         denoised.len() == mosaic.len(),
         "denoiser returned {} samples for {}",

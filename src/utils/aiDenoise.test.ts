@@ -22,6 +22,20 @@ describe('aiDenoiseToApply', () => {
     expect(aiDenoiseToApply({ ...decoded, aiDenoise: 60 }, recipe, false)).toBe(0);
   });
 
+  it('develops again when the AI Denoise version changes with AI Denoise on', () => {
+    const v1Source = { ...decoded, aiDenoise: 60 };
+    expect(aiDenoiseToApply(v1Source, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toBe(60);
+    expect(aiDenoiseToApply(v1Source, { aiDenoise: 60, aiDenoiseVersion: 1 }, false)).toBeNull();
+    expect(aiDenoiseToApply({ ...v1Source, aiDenoiseVersion: 2 }, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toBeNull();
+    // Off: the version does not matter.
+    expect(aiDenoiseToApply(decoded, { aiDenoise: 0, aiDenoiseVersion: 2 }, false)).toBeNull();
+    expect(sourceDevelopToApply({ ...v1Source, colorNoiseMultiscale: true }, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toEqual({
+      aiDenoise: 60,
+      aiDenoiseVersion: 2,
+      multiscale: true,
+    });
+  });
+
   it('skips non-RAW photos and an amount that failed before', () => {
     expect(aiDenoiseToApply({ ...decoded, isRaw: false }, { aiDenoise: 60 }, false)).toBeNull();
     expect(aiDenoiseToApply({ ...decoded, aiDenoiseFailed: 60 }, { aiDenoise: 60 }, false)).toBeNull();
