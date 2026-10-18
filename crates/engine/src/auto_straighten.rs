@@ -8,6 +8,9 @@ use std::f64::consts::PI;
 
 use crate::upright::{Segment, vanishing_point, wrap_half_turn};
 
+/// The largest tilt (degrees) Auto straighten corrects.
+pub const MAX_TILT: f64 = 10.0;
+
 /// Segments within this angle of an axis count as horizontal or vertical.
 const NEAR_AXIS: f64 = 20.0 * PI / 180.0;
 
@@ -163,7 +166,9 @@ pub fn roll_tilt(segments: &[Segment], width: f64, height: f64) -> Option<Tilt> 
         (None, Some(v)) => Some(v),
         (None, None) => None,
     }?;
-    (chosen.tilt.abs() <= 15f64.to_radians()).then_some(chosen)
+    // Larger tilts are rare in hand-held photos and their evidence is more
+    // often a leaning object than the scene: no answer (manual straighten).
+    (chosen.tilt.abs() <= MAX_TILT.to_radians()).then_some(chosen)
 }
 
 /// RapidRAW v1.6.6's estimator (auto_straighten.rs, AGPL-3.0, CyberTimon and
