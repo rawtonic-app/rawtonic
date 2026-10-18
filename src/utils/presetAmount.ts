@@ -2,8 +2,9 @@
  * Lightroom's preset Amount: a preset applied at less than full strength
  * blends each of its settings with the photo's settings before it was
  * applied. Numbers move part of the way; nested settings (HSL, grading)
- * blend per value; other settings (curves, masks, profiles, switches) take
- * the preset's value from half strength on.
+ * blend per value; other settings (curves, masks, profiles, switches, and
+ * the `…Version` keys that say how a recipe reads its values) take the
+ * preset's value from half strength on.
  */
 export function blendPreset(
   base: Record<string, unknown>,
@@ -22,5 +23,10 @@ export function blendPreset(
     }
     return a >= 0.5 ? to : from;
   };
-  return Object.fromEntries(Object.entries(preset).map(([key, value]) => [key, blend(base[key], value)]));
+  return Object.fromEntries(
+    Object.entries(preset).map(([key, value]) => [
+      key,
+      key.endsWith('Version') ? (a >= 0.5 ? value : base[key]) : blend(base[key], value),
+    ]),
+  );
 }

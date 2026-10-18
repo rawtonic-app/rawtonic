@@ -10,6 +10,7 @@ import {
   FRINGE_VERSION,
   DEFRINGE_VERSION,
   AI_DENOISE_VERSION,
+  withAiDenoiseVersion,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -107,6 +108,17 @@ describe('RAW detail defaults', () => {
     } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(layer, true).defringeVersion).toBeUndefined();
     expect(normalizeLoadedAdjustments({ ...purple, defringeVersion: 2 }, true).defringeVersion).toBe(2);
+  });
+
+  it('carry the AI Denoise version with a copied amount', () => {
+    // The source's version goes along.
+    expect(withAiDenoiseVersion({ aiDenoise: 60 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(2);
+    // Presets and recipes from before the key: version 1 above 0, the current one at 0.
+    expect(withAiDenoiseVersion({ aiDenoise: 60 }).aiDenoiseVersion).toBe(1);
+    expect(withAiDenoiseVersion({ aiDenoise: 0 }).aiDenoiseVersion).toBe(AI_DENOISE_VERSION);
+    expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 3 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(3);
+    // Nothing to carry without an amount.
+    expect('aiDenoiseVersion' in withAiDenoiseVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
   });
 
   it('keep the AI Denoise version a saved recipe rendered with', () => {

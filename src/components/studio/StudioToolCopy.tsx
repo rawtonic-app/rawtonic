@@ -25,6 +25,8 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ["defringeVersion"],
   defringeGreenAmount: ["defringeVersion"],
+  // AI Denoise means what the recipe's AI Denoise version makes of it.
+  aiDenoise: ["aiDenoiseVersion"],
 };
 
 function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
