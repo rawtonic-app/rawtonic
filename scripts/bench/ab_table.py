@@ -7,10 +7,10 @@ base and head (median of the rounds' medians), the change and its noise
 band. The band is the larger of
   - the spread of one side's round medians ((max - min) / median), and
   - criterion's 95 % confidence interval of one run's median (half width),
-over both sides, at least --min-band (default 3 %: separate runs of the
-same binary differ by up to ~2 % on an otherwise idle 6-core machine, more
-than criterion's interval within one run shows). A change inside the band
-is noise.
+over both sides, at least --min-band (default 3 %: on a 6-core machine
+separate runs of the same binary differed by up to 1.6 %, an untouched path
+of a rebuilt crate by 2.3 % — more than criterion's interval within one run
+shows). A change inside the band is noise.
 
 Usage: scripts/bench/ab_table.py WORK [--json OUT] [--min-band PCT] [--fail-on-slower]
 Exit status 3 with --fail-on-slower when a benchmark is slower beyond its band.

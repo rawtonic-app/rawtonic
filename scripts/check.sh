@@ -11,7 +11,7 @@
 #              for use while working — run the full check before merging
 #   --bench    also the hot-path benchmarks A/B against origin/main (or
 #              $CHECK_BASE), failing on a slowdown beyond the noise band
-#              (scripts/bench/ab.sh; ~25 min, so opt-in: run it before
+#              (scripts/bench/ab.sh; ~25 min with its builds, so opt-in: run it before
 #              shipping a performance-sensitive change)
 # Rust tests use cargo-nextest when installed (faster), else cargo test.
 set -eu

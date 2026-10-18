@@ -13,7 +13,8 @@
 #   --keep            keep the base worktree and bench binaries
 # Inputs: $RAWTONIC_BENCH_FIXTURES (scripts/bench/fetch_fixtures.sh), else
 # synthetic stand-ins. Work files: $RAWTONIC_BENCH_WORK (default
-# target/bench-ab); both sides build into the head's target dir.
+# target/bench-ab; the table is kept as ab.md and ab.json there); both
+# sides build into the head's target dir.
 # Cost: two release builds of the benches (one if the base is already
 # built), then about 3 minutes per round and side for all three benches.
 set -eu
@@ -44,7 +45,7 @@ WORK=${RAWTONIC_BENCH_WORK:-$TARGET/bench-ab}
 BASE_SHA=$(git rev-parse --verify "$BASE^{commit}")
 HEAD_SHA=$(git rev-parse HEAD)
 DIRTY=''; [ -z "$(git status --porcelain)" ] || DIRTY=' + uncommitted changes'
-rm -rf "$WORK/criterion" "$WORK/bin"
+rm -rf "$WORK/criterion" "$WORK/bin" "$WORK/status"
 mkdir -p "$WORK/bin/base" "$WORK/bin/head"
 BASE_SRC=$WORK/base-src
 
@@ -127,7 +128,16 @@ while [ "$round" -le "$ROUNDS" ]; do
   round=$((round + 1))
 done
 
-echo
-echo "base $BASE ($(git rev-parse --short "$BASE_SHA")) vs head $(git rev-parse --short HEAD)$DIRTY, $ROUNDS rounds, $(uname -sm)"
-echo
-python3 -I "$ROOT/scripts/bench/ab_table.py" "$WORK" --json "$WORK/ab.json" --min-band "$MIN_BAND" $FAIL
+# The table also goes to $WORK/ab.md (check.sh --brief shows no output of
+# a passing step).
+status=0
+{
+  echo
+  echo "base $BASE ($(git rev-parse --short "$BASE_SHA")) vs head $(git rev-parse --short HEAD)$DIRTY, $ROUNDS rounds, $(uname -sm)"
+  echo
+  # shellcheck disable=SC2086  # FAIL is one optional word
+  python3 -I "$ROOT/scripts/bench/ab_table.py" "$WORK" --json "$WORK/ab.json" --min-band "$MIN_BAND" $FAIL ||
+    echo "exit $?" >"$WORK/status"
+} | tee "$WORK/ab.md"
+[ ! -f "$WORK/status" ] || { status=$(cut -d' ' -f2 "$WORK/status"); rm -f "$WORK/status"; }
+exit "$status"
