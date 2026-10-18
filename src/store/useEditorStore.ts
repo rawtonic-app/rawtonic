@@ -145,6 +145,10 @@ interface EditorState {
    * values arrive and replace them in place; they stay inert meanwhile.
    * See `panelsShowReady`. */
   panelsHeld: boolean;
+  /** The open photograph whose recipe a batch edit (Auto straighten) is
+   * writing: its edits, undo/redo and autosave wait until the batch has
+   * reloaded it. */
+  heldRecipePath: string | null;
   /** The native display shows the uncropped crop-editing frame. */
   nativeCropFrame: boolean;
   /** One tool's copied values (Capture One's per-tool copy/apply). */
@@ -250,6 +254,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   hasRenderedFirstFrame: false,
   holdingNativeFrame: false,
   panelsHeld: false,
+  heldRecipePath: null,
   nativeCropFrame: false,
   toolClipboard: null,
   nativeMaskOverlay: null,
@@ -274,6 +279,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   undo: () => {
     debouncedSetHistory.flush();
     set((state) => {
+      if (state.heldRecipePath && state.heldRecipePath === state.selectedImage?.path) return state;
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
@@ -286,6 +292,7 @@ export const useEditorStore = create<EditorState>((set) => ({
     // A pending edit branches history and invalidates the old redo chain.
     debouncedSetHistory.flush();
     set((state) => {
+      if (state.heldRecipePath && state.heldRecipePath === state.selectedImage?.path) return state;
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };

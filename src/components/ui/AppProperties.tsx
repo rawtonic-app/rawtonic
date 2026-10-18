@@ -96,6 +96,7 @@ export enum Invokes {
   AutodetectLens = 'autodetect_lens',
   CalculateUpright = 'calculate_upright',
   CalculateAutoStraighten = 'calculate_auto_straighten',
+  ApplyAutoStraightenToPaths = 'apply_auto_straighten_to_paths',
   GetCameraLensProfile = 'get_camera_lens_profile',
   GetLensDistortionParams = 'get_lens_distortion_params',
   GetLensfunLensesForMaker = 'get_lensfun_lenses_for_maker',

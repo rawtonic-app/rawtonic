@@ -41,6 +41,7 @@ import {
   User,
   Album as AlbumIcon,
   PencilSparkles,
+  Ruler,
 } from 'lucide-react';
 import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
@@ -69,6 +70,7 @@ import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/stud
 import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
+import { runAutoStraighten, runAutoStraightenPaths } from '../utils/autoStraighten';
 import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
@@ -101,6 +103,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
   const {
     handleAutoAdjustments,
     handleAutoLensCorrection,
+    handleAutoStraighten,
+    handleAutoStraightenPaths,
     handleResetAdjustments,
     handleCopyAdjustments,
     handlePasteAdjustments,
@@ -262,6 +266,12 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               disabled: !selectedImage?.isReady,
             },
             {
+              label: t('contextMenus.editor.autoStraighten'),
+              icon: Ruler,
+              onClick: () => void runAutoStraighten(handleAutoStraighten),
+              disabled: !selectedImage?.isReady,
+            },
+            {
               label: t('contextMenus.editor.convertNegative'),
               icon: Film,
               onClick: () => {
@@ -362,6 +372,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handlePasteAdjustments,
       handleAutoAdjustments,
       handleAutoLensCorrection,
+      handleAutoStraighten,
       handleRate,
       handleSetColorLabel,
       handleTagsChanged,
@@ -656,6 +667,11 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               onClick: () => handleAutoLensCorrection(finalSelection),
             },
             {
+              label: t('contextMenus.thumbnail.autoStraighten', { count: selectionCount }),
+              icon: Ruler,
+              onClick: () => void runAutoStraightenPaths(handleAutoStraightenPaths, finalSelection),
+            },
+            {
               label: conversionLabel,
               icon: Film,
               disabled: selectionCount === 0,
@@ -884,6 +900,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleCopyAdjustments,
       handlePasteAdjustments,
       handleAutoLensCorrection,
+      handleAutoStraightenPaths,
       handleRate,
       handleSetColorLabel,
       handleTagsChanged,

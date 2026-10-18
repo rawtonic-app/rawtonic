@@ -849,6 +849,7 @@ pub fn run() {
             embedded_lens::get_camera_lens_profile,
             upright::calculate_upright,
             auto_straighten::calculate_auto_straighten,
+            file_management::apply_auto_straighten_to_paths,
             image_loader::load_image_proxy,
             editor_preview::activate_photo,
             multi_view::set_multi_view,

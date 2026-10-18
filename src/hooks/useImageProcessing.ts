@@ -794,6 +794,8 @@ export function useImageProcessing(
       const hasAdjustmentsChanged = prev.adjustments !== adjustments;
 
       if (hasAdjustmentsChanged) {
+        // A batch edit is writing this recipe; it reloads it afterwards.
+        if (useEditorStore.getState().heldRecipePath === selectedImage.path) return;
         debouncedSave(selectedImage.path, adjustments);
 
         const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);

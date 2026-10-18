@@ -71,6 +71,14 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   return pending;
 }, 300);
 
+/** `apply_auto_straighten_to_paths` (StraightenReport in edits.rs). */
+export interface StraightenReport {
+  straightened: string[];
+  noLines: string[];
+  changed: string[];
+  failed: [string, string][];
+}
+
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
 
@@ -178,6 +186,8 @@ function commitDraft(path: string, adjustments: Adjustments) {
 export function updateAdjustments(value: AdjustmentsUpdate) {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
+  // A batch edit is writing this photograph's recipe (heldRecipePath).
+  if (image && current.heldRecipePath === image.path) return;
   if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
     const prev = draftFor(image.path) ?? current.adjustments;
     const next = keepDrawnMasksOnPhoto(
@@ -310,6 +320,67 @@ export function useEditorActions() {
     setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
     return 'done';
   }, [setAdjustments]);
+
+  /** Auto straighten for a selection (Library, filmstrip), one photo at a
+   * time in the backend. The open photograph, when selected, is held: its
+   * slider draft and edits are saved first, it takes no edits, undo or
+   * autosave while the batch writes, and it is reloaded with the result as
+   * one undoable step. Resolves with what was done, or null. */
+  const handleAutoStraightenPaths = useCallback(
+    async (paths?: string[]): Promise<StraightenReport | null> => {
+      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
+      const { selectedImage } = useEditorStore.getState();
+      const pathsToUpdate =
+        paths && paths.length > 0
+          ? paths
+          : multiSelectedPaths.length > 0
+            ? multiSelectedPaths
+            : selectedImage
+              ? [selectedImage.path]
+              : [];
+      if (pathsToUpdate.length === 0) return null;
+      if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return null;
+      const open = selectedImage && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
+      const release = () =>
+        useEditorStore
+          .getState()
+          .setEditor((state) => (state.heldRecipePath === open ? { heldRecipePath: null } : state));
+      if (open) {
+        useEditorStore.getState().setEditor({ heldRecipePath: open });
+        flushSliderDraft();
+        debouncedSetHistory.flush();
+        await flushRecipeSaves();
+      }
+      try {
+        pathsToUpdate.forEach((p) => globalImageCache.delete(p));
+        const report = await afterRecipeSaves(pathsToUpdate, () =>
+          invoke<StraightenReport>(Invokes.ApplyAutoStraightenToPaths, { paths: pathsToUpdate }),
+        );
+        if (open && report.straightened.includes(open) && isCurrentEditorImage(open)) {
+          const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: open });
+          if (isCurrentEditorImage(open) && meta.adjustments && !meta.adjustments.is_null) {
+            const loaded = normalizeLoadedAdjustments(meta.adjustments, !!selectedImage?.isRaw);
+            useEditorStore.getState().pushHistory(loaded);
+            useEditorStore.getState().setEditor({ adjustments: loaded });
+          }
+        }
+        if (libraryActivePath && report.straightened.includes(libraryActivePath)
+          && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
+          const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+          if (useLibraryStore.getState().libraryActivePath === libraryActivePath
+            && meta.adjustments && !meta.adjustments.is_null) {
+            setLibrary({
+              libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+            });
+          }
+        }
+        return report;
+      } finally {
+        release();
+      }
+    },
+    [],
+  );
 
   // Background only: a layer's white balance is a relative local correction.
   const handleAutoWhiteBalance = useCallback(async () => {
@@ -695,6 +766,7 @@ export function useEditorActions() {
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten,
+    handleAutoStraightenPaths,
     handleLutSelect,
     setLutPreviewOverride,
     handleResetAdjustments,

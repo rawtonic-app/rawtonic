@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "Bild autom. anpassen",
       "autoLensCorrection": "Autom. Objektivkorrektur",
+      "autoStraighten": "Automatisch ausrichten",
       "cancel": "Abbrechen",
       "colorLabel": "Farbmarkierung",
       "confirmReset": "Zurücksetzen bestätigen",
@@ -187,6 +188,8 @@
       "autoAdjust_other": "Bilder autom. anpassen",
       "autoLensCorrection_one": "Autom. Objektivkorrektur",
       "autoLensCorrection_other": "Autom. Objektivkorrektur",
+      "autoStraighten_one": "Automatisch ausrichten",
+      "autoStraighten_other": "Automatisch ausrichten",
       "collage_one": "Bild rahmen",
       "collage_other": "Collage erstellen",
       "confirmDelete": "Löschen bestätigen",
@@ -1551,6 +1554,7 @@
         "straightenTool": "Ausrichten-Werkzeug"
       },
       "autoStraighten": "Auto",
+      "autoStraightenBatch": "Ausgerichtet: {{straightened}} · keine geraden Linien: {{noLines}} · inzwischen geändert: {{changed}} · fehlgeschlagen: {{failed}}",
       "autoStraightenFailed": "Automatisches Ausrichten fehlgeschlagen: {{error}}",
       "autoStraightenNoLines": "Keine geraden Linien gefunden, an denen sich das Foto ausrichten lässt",
       "autoStraightenTitle": "Foto am Horizont oder an Senkrechten ausrichten und den Zuschnitt anpassen",

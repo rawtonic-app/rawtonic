@@ -526,3 +526,61 @@ describe('Auto straighten', () => {
     expect(outcome).toBe('none');
   });
 });
+
+describe('Auto straighten for a selection', () => {
+  const report = { straightened: ['/first.dng'], noLines: [], changed: [], failed: [] };
+
+  it('saves an edit made just before it first, holds the open photo, then reloads it as one step', async () => {
+    const taken = useEditorStore.getState().adjustments;
+    const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: taken }));
+    try {
+      // An edit whose 300 ms debounced save has not fired yet.
+      const edited = { ...taken, exposure: 0.8 };
+      useEditorStore.setState({ adjustments: edited });
+      const { result } = renderHook(useEditorActions);
+      let done: unknown;
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng', '/other.dng']).then((r) => { done = r; }); });
+      await act(async () => {});
+      expect(pending.map(({ command }) => command)).toEqual([Invokes.SaveMetadataAndUpdateThumbnail]);
+      expect(vi.mocked(invoke).mock.calls[0][1]).toEqual({ path: '/first.dng', adjustments: edited });
+      expect(useEditorStore.getState().heldRecipePath).toBe('/first.dng');
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      // Held: edits and undo do nothing while the batch writes.
+      updateAdjustments({ exposure: 2 });
+      act(() => useEditorStore.getState().undo());
+      expect(useEditorStore.getState().adjustments).toBe(edited);
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+      const straightened = { ...edited, rotation: -1.5, crop: { unit: 'px', x: 4, y: 3, width: 3990, height: 2994 } };
+      await finish(Invokes.LoadMetadata, { adjustments: straightened });
+      // The Library's active photograph is this one too.
+      await finish(Invokes.LoadMetadata, { adjustments: straightened });
+      expect(done).toEqual(report);
+      expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1.5, exposure: 0.8 });
+      expect(useEditorStore.getState().heldRecipePath).toBeNull();
+      // One undoable step back to the edit before it.
+      act(() => useEditorStore.getState().undo());
+      expect(useEditorStore.getState().adjustments.rotation ?? 0).toBe(0);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('releases the hold when the batch fails', async () => {
+    const { result } = renderHook(useEditorActions);
+    let error: unknown;
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']).catch((e) => { error = e; }); });
+    await act(async () => {});
+    const request = pending.find((r) => r.command === Invokes.ApplyAutoStraightenToPaths);
+    expect(request).toBeDefined();
+    await act(async () => {
+      vi.mocked(invoke).mockImplementation(() => Promise.reject(new Error('unused')));
+    });
+    // Reject the batch.
+    const failing = pending.find((r) => r.command === Invokes.ApplyAutoStraightenToPaths)!;
+    failing.settled = true;
+    await act(async () => (failing.resolve as (v: unknown) => void)(Promise.reject(new Error('disk full'))));
+    await act(async () => {});
+    expect(String(error)).toContain('disk full');
+    expect(useEditorStore.getState().heldRecipePath).toBeNull();
+  });
+});

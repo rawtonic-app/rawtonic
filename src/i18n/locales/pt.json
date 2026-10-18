@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "Ajuste Automático",
       "autoLensCorrection": "Correção automática de lente",
+      "autoStraighten": "Endireitar automaticamente",
       "cancel": "Cancelar",
       "colorLabel": "Rótulo de Cor",
       "confirmReset": "Confirmar Redefinição",
@@ -190,6 +191,9 @@
       "autoLensCorrection_one": "Correção automática de lente",
       "autoLensCorrection_many": "Correção automática de lente",
       "autoLensCorrection_other": "Correção automática de lente",
+      "autoStraighten_one": "Endireitar automaticamente",
+      "autoStraighten_many": "Endireitar automaticamente",
+      "autoStraighten_other": "Endireitar automaticamente",
       "collage_one": "Emoldurar Imagem",
       "collage_many": "Criar Colagem",
       "collage_other": "Criar Colagem",
@@ -1603,6 +1607,7 @@
         "straightenTool": "Ferramenta Endireitar"
       },
       "autoStraighten": "Auto",
+      "autoStraightenBatch": "Endireitadas: {{straightened}} · sem linhas retas: {{noLines}} · alteradas entretanto: {{changed}} · com falha: {{failed}}",
       "autoStraightenFailed": "Falha ao endireitar automaticamente: {{error}}",
       "autoStraightenNoLines": "Nenhuma linha reta encontrada para nivelar a foto",
       "autoStraightenTitle": "Nivelar a foto pelo horizonte ou pelas verticais e ajustar o recorte",

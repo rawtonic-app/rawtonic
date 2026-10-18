@@ -187,6 +187,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let state = app_handle.state::<AppState>();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
 
+    let turn = sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
 
     let mut final_adjustments = adjustments;
@@ -205,6 +206,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
         .map_err(|e| e.to_string())?;
+    drop(turn);
 
     if let Ok(settings) = load_settings(app_handle.clone())
         && settings.enable_xmp_sync.unwrap_or(false)
@@ -347,6 +349,7 @@ fn edit_sidecars(
         .par_iter()
         .filter_map(|path| {
             let (source_path, sidecar_path) = parse_virtual_path(path);
+            let _turn = sidecar_field_edit();
             let saved = edit(path, &source_path, &sidecar_path)
                 .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
             match saved {
@@ -540,6 +543,153 @@ pub async fn apply_auto_lens_correction_to_paths(
     .await
 }
 
+/// What a batch Auto straighten did.
+#[derive(Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StraightenReport {
+    pub straightened: Vec<String>,
+    /// No straight lines to level by: left as they were.
+    pub no_lines: Vec<String>,
+    /// Their frame (crop, geometry) changed while they were analysed, twice:
+    /// left as they were.
+    pub changed: Vec<String>,
+    pub failed: Vec<(String, String)>,
+}
+
+enum Straighten {
+    Done(ImageMetadata),
+    NoLines,
+    Changed,
+}
+
+/// Auto straighten's answer for one photo: analysed on a fast decode with
+/// the defaults its render adds (lens profile of a never-edited RAW). The
+/// recipe it was analysed for, the answer (None: no lines) and the photo's
+/// full size.
+type Analysed = (
+    Value,
+    Option<crate::auto_straighten::Straightened>,
+    (u32, u32),
+);
+
+fn analyse_straighten(
+    path: &str,
+    settings: &crate::app_settings::AppSettings,
+) -> Result<Analysed, String> {
+    let (source_path, sidecar_path) = parse_virtual_path(path);
+    let name = source_path.to_string_lossy().to_string();
+    let analysed = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+    let mut developed = if analysed.is_object() {
+        analysed.clone()
+    } else {
+        serde_json::json!({})
+    };
+    crate::embedded_lens::apply_default(&mut developed, &source_path);
+    let bytes = fs::read(&source_path).map_err(|e| e.to_string())?;
+    let image = image_loader::load_base_image_from_bytes(&bytes, &name, true, settings, None)
+        .map_err(|e| e.to_string())?;
+    let factor = if is_raw_file(&source_path) {
+        crate::raw_processing::get_fast_demosaic_scale_factor(&bytes, image.width(), image.height())
+    } else {
+        1.0
+    };
+    let size = (
+        (image.width() as f32 / factor).round() as u32,
+        (image.height() as f32 / factor).round() as u32,
+    );
+    let result = crate::auto_straighten::straighten_recipe(&image, size.0, size.1, &developed);
+    Ok((analysed, result, size))
+}
+
+/// Writes an answer under the recipe guard, on the recipe as it is now and
+/// only if its frame (crop, geometry) is still the one analysed: only
+/// `rotation` and `crop` change, legacy drawn masks stay on the photo. None
+/// when the frame changed meanwhile (nothing written).
+fn commit_straighten(
+    path: &str,
+    analysed: &Value,
+    result: &crate::auto_straighten::Straightened,
+    size: (u32, u32),
+) -> Result<Option<ImageMetadata>, String> {
+    let (source_path, sidecar_path) = parse_virtual_path(path);
+    let _turn = sidecar_field_edit();
+    let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
+    let inputs = crate::auto_straighten::reframing_inputs;
+    if inputs(&metadata.adjustments) != inputs(analysed) {
+        return Ok(None);
+    }
+    let previous = metadata.adjustments.clone();
+    if !metadata.adjustments.is_object() {
+        metadata.adjustments = serde_json::json!({});
+    }
+    metadata.adjustments["rotation"] = serde_json::json!(result.rotation);
+    metadata.adjustments["crop"] = serde_json::json!({
+        "unit": "px",
+        "x": result.crop.x,
+        "y": result.crop.y,
+        "width": result.crop.width,
+        "height": result.crop.height,
+    });
+    crate::mask_generation::keep_drawn_masks_on_photo(
+        &previous,
+        &mut metadata.adjustments,
+        Some((size.0 as f64, size.1 as f64)),
+    );
+    save_sidecar(path, &metadata)?;
+    Ok(Some(metadata))
+}
+
+/// One photo: analysed and committed; analysed once more when its frame
+/// changed meanwhile.
+fn straighten_photo(
+    path: &str,
+    settings: &crate::app_settings::AppSettings,
+) -> Result<Straighten, String> {
+    for _ in 0..2 {
+        let (analysed, result, size) = analyse_straighten(path, settings)?;
+        let Some(result) = result else {
+            return Ok(Straighten::NoLines);
+        };
+        if let Some(metadata) = commit_straighten(path, &analysed, &result, size)? {
+            return Ok(Straighten::Done(metadata));
+        }
+    }
+    Ok(Straighten::Changed)
+}
+
+/// Auto straighten for the selected photos, one at a time (one decode in
+/// memory). The webview holds the open photo's editor and has its pending
+/// saves written before calling this, and reloads it afterwards.
+#[tauri::command]
+pub async fn apply_auto_straighten_to_paths(
+    paths: Vec<String>,
+    app_handle: AppHandle,
+) -> Result<StraightenReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let xmp = xmp_sync(&app_handle);
+        let mut report = StraightenReport::default();
+        for path in &paths {
+            match straighten_photo(path, &settings) {
+                Ok(Straighten::Done(metadata)) => {
+                    if let Some(create_if_missing) = xmp {
+                        let (source_path, _) = parse_virtual_path(path);
+                        sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
+                    }
+                    report.straightened.push(path.clone());
+                }
+                Ok(Straighten::NoLines) => report.no_lines.push(path.clone()),
+                Ok(Straighten::Changed) => report.changed.push(path.clone()),
+                Err(e) => report.failed.push((path.clone(), e)),
+            }
+        }
+        regenerate_thumbnails(app_handle, report.straightened.clone());
+        report
+    })
+    .await
+    .map_err(|e| format!("Auto straighten failed: {e}"))
+}
+
 /// Decodes each photo for its auto adjustments, so it waits until every
 /// recipe is written (or failed) and makes the thumbnails from the decoded
 /// photos meanwhile.
@@ -716,10 +866,11 @@ fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
 
 static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Rating, colour label and keyword edits read a photo's sidecar, change
-/// one field and write it back. They run on blocking workers (no longer one
-/// after the other on the main thread), so they take turns through this
-/// guard: none overwrites another's change.
+/// Edits that read a photo's recipe sidecar, change it and write it back
+/// take turns through this guard, so none publishes a recipe read before
+/// another's write: rating, colour label and keyword edits (for their whole
+/// batch), the editor's save, each photo of a batch edit (`edit_sidecars`)
+/// and Auto straighten's commit.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()
@@ -917,6 +1068,99 @@ mod tests {
         resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
         assert!(adjustments.get("lensDistortionParams").is_none());
         forget(&path);
+    }
+
+    fn straightened() -> crate::auto_straighten::Straightened {
+        crate::auto_straighten::Straightened {
+            rotation: -2.5,
+            crop: crate::auto_straighten::CropRect {
+                x: 10.0,
+                y: 8.0,
+                width: 380.0,
+                height: 250.0,
+            },
+            support: 1.0,
+        }
+    }
+
+    fn photo_with_recipe(dir: &Path, recipe: Value) -> (String, std::path::PathBuf) {
+        let photo = dir.join("IMG_1.jpg");
+        std::fs::write(&photo, b"jpeg").unwrap();
+        let path = photo.to_string_lossy().into_owned();
+        let (_, sidecar) = parse_virtual_path(&path);
+        let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
+        metadata.rating = 2;
+        metadata.adjustments = recipe;
+        save_sidecar(&path, &metadata).unwrap();
+        (path, sidecar)
+    }
+
+    /// Auto straighten's commit changes only rotation and crop, on the recipe
+    /// as it is then: a rating or exposure saved meanwhile stays.
+    #[test]
+    fn auto_straighten_commits_on_the_current_recipe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let analysed = serde_json::json!({"exposure": 1.0});
+        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
+        let mut meanwhile = crate::exif_processing::load_sidecar(&sidecar);
+        meanwhile.rating = 5;
+        meanwhile.adjustments["contrast"] = serde_json::json!(20);
+        save_sidecar(&path, &meanwhile).unwrap();
+        let written = commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
+        assert!(written.is_some());
+        let now = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(now.rating, 5);
+        assert_eq!(now.adjustments["contrast"], serde_json::json!(20));
+        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
+        assert_eq!(now.adjustments["crop"]["width"], serde_json::json!(380.0));
+    }
+
+    /// A crop or geometry saved while the photo was analysed wins: nothing
+    /// is written.
+    #[test]
+    fn auto_straighten_does_not_overwrite_a_changed_frame() {
+        let tmp = tempfile::tempdir().unwrap();
+        let analysed = serde_json::json!({"exposure": 1.0});
+        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
+        let mut meanwhile = crate::exif_processing::load_sidecar(&sidecar);
+        meanwhile.adjustments["crop"] =
+            serde_json::json!({"unit": "px", "x": 0, "y": 0, "width": 100, "height": 100});
+        save_sidecar(&path, &meanwhile).unwrap();
+        let before = std::fs::read(&sidecar).unwrap();
+        assert!(
+            commit_straighten(&path, &analysed, &straightened(), (400, 266))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+    }
+
+    /// A rating edit that read the recipe before the commit and writes after
+    /// it would lose the straightening; the shared guard makes the commit
+    /// wait for it, so both survive.
+    #[test]
+    fn a_rating_edit_holding_the_guard_and_auto_straighten_both_survive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let analysed = serde_json::json!({"exposure": 1.0});
+        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
+        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
+        let rating = {
+            let (path, sidecar) = (path.clone(), sidecar.clone());
+            std::thread::spawn(move || {
+                let _turn = sidecar_field_edit();
+                let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
+                locked_tx.send(()).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                metadata.rating = 4;
+                save_sidecar(&path, &metadata).unwrap();
+            })
+        };
+        locked_rx.recv().unwrap();
+        commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
+        rating.join().unwrap();
+        let now = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(now.rating, 4);
+        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
     }
 
     #[test]
