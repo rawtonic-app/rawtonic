@@ -133,6 +133,22 @@ describe("Lens correction tool", () => {
     expect(current).toMatchObject({ lensMaker: "Fujifilm", lensModel: null, lensDistortionParams: null });
   });
 
+  it("commits nothing when the tool is reset while the lens is detected", async () => {
+    let answer: (v: unknown) => void = () => {};
+    mockInvoke.mockImplementation((command) => {
+      if (command === "get_lensfun_makers") return Promise.resolve(["Sony"]);
+      if (command === "autodetect_lens") return Promise.resolve(["Sony", "FE 85mm F1.8"]);
+      if (command === "get_lens_distortion_params") return new Promise((resolve) => { answer = resolve; });
+      return Promise.resolve(null);
+    });
+    await renderTool();
+    await act(async () => { fireEvent.click(screen.getByLabelText("Enable profile corrections")); });
+    // (The switch itself is disabled while the lens is detected.)
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Reset/ })); });
+    await act(async () => answer(distortion));
+    expect(current).toMatchObject({ lensMaker: null, lensModel: null, lensDistortionParams: null });
+  });
+
   it("disables the amounts without a profile", async () => {
     await renderTool();
     const sliders = screen.getAllByRole("slider") as HTMLInputElement[];

@@ -113,9 +113,9 @@ export default function StudioLensCorrection() {
       },
     ).catch(() => null);
 
-  // Only the latest lens lookup commits, and only while the recipe's lens is
-  // as it was when the lookup started (a later choice, a maker change, a
-  // reset or switching off wins): saves keep the parameters they get.
+  // Only the latest lens lookup commits (every lens action, reset and
+  // switching off start a new one), and only while the recipe's lens is as
+  // it was when the lookup started: saves keep the parameters they get.
   const lensRequest = useRef(0);
   const lensFields = (recipe: Adjustments) =>
     JSON.stringify([recipe.lensCorrectionMode, recipe.lensMaker, recipe.lensModel]);
@@ -223,24 +223,25 @@ export default function StudioLensCorrection() {
     <ToolGroup
       title="Lens correction"
       label={t("studio.lens.title")}
-      onReset={() =>
+      onReset={() => {
+        begin();
         setAdjustments((prev) => ({
           ...prev,
           ...LENS_PROFILE_OFF,
           diffractionCorrection: undefined,
-        }))
-      }
+        }));
+      }}
     >
       <label className="studio-check studio-lens-enable">
         <input
           type="checkbox"
           checked={enabled}
           disabled={!ready || status === "detecting"}
-          onChange={(e) =>
-            e.target.checked
-              ? void enable()
-              : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }))
-          }
+          onChange={(e) => {
+            if (e.target.checked) return void enable();
+            begin();
+            setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
+          }}
         />
         {t("studio.lens.enable")}
       </label>
