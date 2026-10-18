@@ -16,6 +16,35 @@ import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { registerQuitFlush } from '../utils/quit';
 
+/** The settings a preset takes from `current`: the copyable keys (masks and
+ * geometry only when asked), for a tool preset only those that differ from
+ * `defaults`. The sharpening response is left out here: it goes along only
+ * with sharpening values (`withSharpenVersion`), never on its own, so an
+ * exposure preset never switches a photo's sharpening. */
+export function collectPresetAdjustments(
+  current: Partial<Adjustments>,
+  defaults: Partial<Adjustments>,
+  {
+    includeMasks,
+    includeCropTransform,
+    presetType,
+  }: { includeMasks: boolean; includeCropTransform: boolean; presetType: 'tool' | 'style' },
+): Partial<Adjustments> {
+  const GEOMETRY_KEYS = ADJUSTMENT_GROUPS.geometry.flatMap((group) => group.keys);
+  const MASK_KEYS = ADJUSTMENT_GROUPS.masks.flatMap((group) => group.keys);
+  const presetAdjustments: Partial<Adjustments> = {};
+  for (const key of COPYABLE_ADJUSTMENT_KEYS) {
+    if (!includeMasks && MASK_KEYS.includes(key)) continue;
+    if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
+    if (key === 'sharpenVersion') continue;
+    if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
+    const currentValue = current[key as keyof Adjustments];
+    if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
+    presetAdjustments[key] = currentValue;
+  }
+  return withSharpenVersion(presetAdjustments, current);
+}
+
 export enum PresetListType {
   Folder = 'folder',
   Preset = 'preset',
@@ -157,29 +186,13 @@ export function usePresets(
     includeCropTransform: boolean = false,
     presetType: 'tool' | 'style' = 'style',
   ) => {
-    const GEOMETRY_KEYS = ADJUSTMENT_GROUPS.geometry.flatMap((group) => group.keys);
-    const MASK_KEYS = ADJUSTMENT_GROUPS.masks.flatMap((group) => group.keys);
     const current = currentAdjustments();
 
-    const presetAdjustments: Partial<Adjustments> = {};
-
-    for (const key of COPYABLE_ADJUSTMENT_KEYS) {
-      if (!includeMasks && MASK_KEYS.includes(key)) continue;
-      if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
-
-      if (Object.prototype.hasOwnProperty.call(current, key)) {
-        const currentValue = current[key as keyof Adjustments];
-        const defaultValue = defaults[key as keyof Adjustments];
-
-        if (presetType === 'tool') {
-          if (!sameAdjustmentValue(currentValue, defaultValue)) {
-            presetAdjustments[key] = currentValue;
-          }
-        } else {
-          presetAdjustments[key] = currentValue;
-        }
-      }
-    }
+    const presetAdjustments = collectPresetAdjustments(current, defaults, {
+      includeMasks,
+      includeCropTransform,
+      presetType,
+    });
 
     const newPresetData: Preset = {
       adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
@@ -295,7 +308,6 @@ export function usePresets(
     if (!existingPreset) return null;
 
     const GEOMETRY_KEYS = ADJUSTMENT_GROUPS.geometry.flatMap((group) => group.keys);
-    const MASK_KEYS = ADJUSTMENT_GROUPS.masks.flatMap((group) => group.keys);
 
     const includeMasks =
       existingPreset.includeMasks ??
@@ -308,25 +320,11 @@ export function usePresets(
     const presetType = existingPreset.presetType || 'style';
     const current = currentAdjustments();
 
-    const presetAdjustments: Partial<Adjustments> = {};
-
-    for (const key of COPYABLE_ADJUSTMENT_KEYS) {
-      if (!includeMasks && MASK_KEYS.includes(key)) continue;
-      if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
-
-      if (Object.prototype.hasOwnProperty.call(current, key)) {
-        const currentValue = current[key as keyof Adjustments];
-
-        if (presetType === 'tool') {
-          const defaultValue = defaults[key as keyof Adjustments];
-          if (!sameAdjustmentValue(currentValue, defaultValue)) {
-            presetAdjustments[key] = currentValue;
-          }
-        } else {
-          presetAdjustments[key] = currentValue;
-        }
-      }
-    }
+    const presetAdjustments = collectPresetAdjustments(current, defaults, {
+      includeMasks,
+      includeCropTransform,
+      presetType,
+    });
 
     let updatedPreset: Preset | null = null;
     const updatedPresets = presets.map((item: UserPreset) => {

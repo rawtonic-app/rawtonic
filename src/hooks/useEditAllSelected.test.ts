@@ -170,6 +170,13 @@ describe('Edit all selected', () => {
     expect(pasted().at(-1)).toEqual({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { sharpenVersion: 1 } });
   });
 
+  it('does not send a sharpening response live for a mask-only edit', () => {
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ masks: [{ id: 'm', adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>);
+    // Drawn masks are written framed, not shown live: nothing to send.
+    expect(live().filter((patch) => patch && 'sharpenVersion' in patch)).toEqual([]);
+  });
+
   describe('live on the other cells', () => {
     it('sends the changes not yet written while the primary is edited', () => {
       renderHook(() => useEditAllSelected(true, selection));
