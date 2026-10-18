@@ -195,18 +195,20 @@ SUBJECT_COREML_EXPORT = [
 
 # AI Denoise version 3 on macOS: the same MatchFilter checkpoint converted by
 # convert_nlmf_coreml.py from the authors' release (mixed precision, 640 px
-# tiles; reproducible, same SHA-256 in three conversions). In the packs
-# from pack-2026-10-18.
+# tiles, macOS 13 like the app; reproducible). In the packs from
+# pack-2026-10-18. That release also holds a macOS 15 build of it
+# (nlmf_mixed640_coreml_*, model a4da0846…), uploaded first and used by no
+# build; it is carried over with the pack, not built again.
 MATCHFILTER_MIXED_ENTRY = {
-    "used_by": "AI Denoise version 3 (raw Bayer mosaic, Core ML, macOS)",
-    "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, release v1.0.0 checkpoint rawnoise_25_15_9nbr), converted by convert_nlmf_coreml.py (Core ML, convolutions fp16, matching fp32, 640 px tiles) with RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW denoise/, commit 2375e17)",
+    "used_by": "AI Denoise version 3 (raw Bayer mosaic, Core ML, macOS 13 and later)",
+    "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, release v1.0.0 checkpoint rawnoise_25_15_9nbr), converted by convert_nlmf_coreml.py (Core ML for macOS 13, convolutions fp16, matching fp32, 640 px tiles) with RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW denoise/, commit 2375e17)",
     "license": "MIT",
     "license_files": ["nonlocal-matchfilter-MIT.txt", "nonlocal-matchfilter-NOTICE.txt"],
 }
 MATCHFILTER_MIXED_SHA256 = {
-    "nlmf_mixed640_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
-    "nlmf_mixed640_coreml_model.mlmodel": "a4da084674a43eb69f33e94e73c9454a993867ee5d5e38ed4afaec8dcda8d4f6",
-    "nlmf_mixed640_coreml_weight.bin": "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
+    "nlmf_mixed640_macos13_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "nlmf_mixed640_macos13_coreml_model.mlmodel": "e466563ad1dba0ee8d143b43c930dee9852b77e2cbb492f7b89cde991044c164",
+    "nlmf_mixed640_macos13_coreml_weight.bin": "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
 }
 MATCHFILTER_MIXED_EXPORT = [
     "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
@@ -445,6 +447,8 @@ def main() -> None:
 
         checkpoint = fetch(SAM_CHECKPOINT["url"], SAM_CHECKPOINT["sha256"], args.cache)
         for path in export(checkpoint, args.cache / "sam"):
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(path, args.out, path.name) | SAM_ENTRY | {"checkpoint_sha256": SAM_CHECKPOINT["sha256"]})
 
     if todo(SAM2_SHA256):
@@ -452,6 +456,8 @@ def main() -> None:
 
         checkpoint = fetch(SAM2_CHECKPOINT["url"], SAM2_CHECKPOINT["sha256"], args.cache)
         for path in export_sam2(checkpoint, "tiny", args.cache / "sam2"):
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(path, args.out, path.name, SAM2_SHA256[path.name]) | SAM2_ENTRY
                            | {"checkpoint_sha256": SAM2_CHECKPOINT["sha256"]})
 
@@ -459,6 +465,8 @@ def main() -> None:
         from export_siglip2 import export as export_siglip2
 
         for path in export_siglip2(args.cache / "siglip2"):
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(path, args.out, path.name) | {"used_by": SIGLIP_USE[path.name]} | SIGLIP_ENTRY)
 
     if todo({"skyseg_upernet_convnext_t.onnx": SKY_SHA256}):
@@ -472,6 +480,8 @@ def main() -> None:
                                                      str(sky_coreml)],
                        check=True, env=os.environ | {"PYTHONHASHSEED": "0"})
         for name, expected in SKY_COREML_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(sky_coreml / name, args.out, name, expected) | SKY_COREML_ENTRY)
 
     if todo({"birefnet_subject.onnx": SUBJECT_SHA256}):
@@ -483,18 +493,24 @@ def main() -> None:
         subject_coreml = args.cache / "subject-coreml"
         subprocess.run(SUBJECT_COREML_EXPORT + [str(subject_coreml), "--precision", "fp16"], check=True)
         for name, expected in SUBJECT_COREML_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(subject_coreml / name, args.out, name, expected) | SUBJECT_COREML_ENTRY)
 
     if todo(MATCHFILTER_MIXED_SHA256):
         nlmf_mixed = args.cache / "nlmf-mixed"
         subprocess.run(MATCHFILTER_MIXED_EXPORT + [str(nlmf_mixed)], check=True)
         for name, expected in MATCHFILTER_MIXED_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(nlmf_mixed / name, args.out, name, expected) | MATCHFILTER_MIXED_ENTRY)
 
     if todo(FACES_SHA256):
         faces = args.cache / "faces-out"
         subprocess.run(FACES_EXPORT + [str(faces), "--cache", str(args.cache / "faces")], check=True)
         for name, expected in FACES_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
             entries.append(place(faces / name, args.out, name, expected) | {"used_by": FACES_USE[name]} | FACES_ENTRY)
 
     for archive_name, member, name, expected in ORT + ORT123:
