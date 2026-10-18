@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Adjustments, Coord, MaskContainer, GuideLine, GuideOrientation } from '../../../utils/adjustments';
 import type { LiveStroke } from '../../../utils/liveMaskRender';
 import { AUTO_MASK_VERSION } from '../../../utils/autoMaskUpgrade';
+import { autoMaskPrewarmPath } from '../../../utils/autoMaskPrewarm';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
 import { RenderSize } from '../../../hooks/useImageRenderSize';
@@ -1580,6 +1581,16 @@ const ImageCanvas = memo(
     const strokeHardness = isFlowMask ? undefined : brushSettings?.hardness;
     const strokeAutoMask = !isFlowMask && brushSettings?.autoMask ? true : undefined;
     const strokeAutoMaskVersion = strokeAutoMask ? AUTO_MASK_VERSION : undefined;
+
+    // An Auto Mask stroke reads the full-resolution photo as it looks before
+    // develop. Building it (~0.3 s for 40 MP) delayed the first stroke's first
+    // dab; while the layers panel is open with Auto Mask on, the backend builds
+    // it in the background (same pixels, only earlier) from the recipe of its
+    // last preview, and keeps it built when the source or geometry changes.
+    const warmPath = autoMaskPrewarmPath(isMasking, brushSettings?.autoMask, selectedImage);
+    useEffect(() => {
+      invoke(Invokes.PrewarmMaskSource, { path: warmPath }).catch(() => {});
+    }, [warmPath]);
 
     // Capture One's brush cursor: the inner ring is the brush size (50%
     // coverage), the outer one where the soft edge ends, r(1 + s) for softness

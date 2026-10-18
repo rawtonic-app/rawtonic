@@ -759,10 +759,11 @@ fn prepare_warped_mask_image<'a>(
     is_raw: bool,
     adjustments: &Value,
 ) -> Cow<'a, DynamicImage> {
-    let mut image = Cow::Borrowed(source);
-    if is_raw {
-        crate::image_processing::apply_cpu_default_raw_processing(image.to_mut());
-    }
+    let image = if is_raw {
+        Cow::Owned(crate::image_processing::cpu_default_raw_processed(source))
+    } else {
+        Cow::Borrowed(source)
+    };
     crate::image_processing::apply_geometry_warp(image, adjustments)
 }
 
@@ -6408,6 +6409,26 @@ mod mask_bitmap_cache_tests {
         let expected = crate::image_processing::apply_geometry_warp(expected, &adjustments);
         assert_eq!(actual.image.as_bytes(), expected.as_bytes());
         assert_eq!(image.as_bytes(), before);
+    }
+
+    #[test]
+    fn raw_curve_from_borrowed_source_matches_in_place_curve() {
+        let value = |x: u32, y: u32, c: u32| (x * 7 + y * 13 + c * 5) as f32 / 40.0 - 0.3;
+        let rgb = DynamicImage::ImageRgb32F(image::Rgb32FImage::from_fn(9, 5, |x, y| {
+            image::Rgb([value(x, y, 0), value(x, y, 1), value(x, y, 2)])
+        }));
+        let rgba = DynamicImage::ImageRgba32F(image::Rgba32FImage::from_fn(9, 5, |x, y| {
+            image::Rgba([value(x, y, 0), value(x, y, 1), value(x, y, 2), 0.5])
+        }));
+        let bytes = DynamicImage::ImageRgb8(image::RgbImage::from_fn(9, 5, |x, y| {
+            image::Rgb([(x * 20) as u8, (y * 40) as u8, 200])
+        }));
+        for image in [rgb, rgba, bytes] {
+            let mut expected = image.clone();
+            crate::image_processing::apply_cpu_default_raw_processing(&mut expected);
+            let actual = crate::image_processing::cpu_default_raw_processed(&image);
+            assert_eq!(actual.as_bytes(), expected.as_bytes());
+        }
     }
 
     #[test]

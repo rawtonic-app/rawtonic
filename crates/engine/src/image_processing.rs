@@ -1841,28 +1841,51 @@ pub fn inverse_transform_point(
     (x, y)
 }
 
-pub fn apply_cpu_default_raw_processing(image: &mut DynamicImage) {
-    let mut f32_image = image.to_rgb32f();
-
+/// The CPU default raw curve of one channel value.
+#[inline]
+fn default_raw_curve(value: f32) -> f32 {
     const GAMMA: f32 = 2.38;
     const INV_GAMMA: f32 = 1.0 / GAMMA;
     const CONTRAST: f32 = 1.28;
+    ((value.powf(INV_GAMMA) - 0.5) * CONTRAST + 0.5).clamp(0.0, 1.0)
+}
 
+pub fn apply_cpu_default_raw_processing(image: &mut DynamicImage) {
+    let mut f32_image = image.to_rgb32f();
     f32_image.par_chunks_mut(3).for_each(|pixel_chunk| {
-        let r_gamma = pixel_chunk[0].powf(INV_GAMMA);
-        let g_gamma = pixel_chunk[1].powf(INV_GAMMA);
-        let b_gamma = pixel_chunk[2].powf(INV_GAMMA);
-
-        let r_contrast = (r_gamma - 0.5) * CONTRAST + 0.5;
-        let g_contrast = (g_gamma - 0.5) * CONTRAST + 0.5;
-        let b_contrast = (b_gamma - 0.5) * CONTRAST + 0.5;
-
-        pixel_chunk[0] = r_contrast.clamp(0.0, 1.0);
-        pixel_chunk[1] = g_contrast.clamp(0.0, 1.0);
-        pixel_chunk[2] = b_contrast.clamp(0.0, 1.0);
+        for channel in pixel_chunk {
+            *channel = default_raw_curve(*channel);
+        }
     });
-
     *image = DynamicImage::ImageRgb32F(f32_image);
+}
+
+/// `apply_cpu_default_raw_processing` into a new image. A float source is read
+/// in place instead of being copied first (two 40 MP copies were ~a third of
+/// an Auto Mask source build); the values are the same.
+pub fn cpu_default_raw_processed(image: &DynamicImage) -> DynamicImage {
+    let (source, channels): (&[f32], usize) = match image {
+        DynamicImage::ImageRgb32F(source) => (source.as_raw(), 3),
+        DynamicImage::ImageRgba32F(source) => (source.as_raw(), 4),
+        _ => {
+            let mut copy = image.clone();
+            apply_cpu_default_raw_processing(&mut copy);
+            return copy;
+        }
+    };
+    let (width, height) = image.dimensions();
+    let mut values = vec![0.0_f32; width as usize * height as usize * 3];
+    values
+        .par_chunks_mut(3)
+        .zip(source.par_chunks(channels))
+        .for_each(|(out, pixel)| {
+            for (out, value) in out.iter_mut().zip(pixel) {
+                *out = default_raw_curve(*value);
+            }
+        });
+    DynamicImage::ImageRgb32F(
+        Rgb32FImage::from_raw(width, height, values).expect("buffer matches the dimensions"),
+    )
 }
 
 pub fn apply_srgb_to_linear(mut image: DynamicImage) -> DynamicImage {
