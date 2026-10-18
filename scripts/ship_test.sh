@@ -23,6 +23,7 @@ cat >"$T/bin/gh" <<'EOF'
 # gh stub: no pull request exists until `gh pr create`.
 case "$1 $2" in
   "pr view") [ -f "$GH_STATE" ] && cat "$GH_STATE" || exit 1 ;;
+  "pr comment") while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$GH_STATE.comment"; shift; done ;;
   "pr create")
     while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$GH_STATE.body"; shift; done
     echo https://github.com/rawtonic-app/rawtonic/pull/7 | tee "$GH_STATE" ;;
@@ -74,7 +75,7 @@ new_branch() {
     *) mkdir -p "$gd/rawtonic-review"
        echo '{"verdict": "approve", "summary": "ok", "findings": []}' >"$gd/rawtonic-review/$head.json" ;;
   esac
-  rm -f "$T/gh-$1" "$T/gh-$1.body"
+  rm -f "$T/gh-$1" "$T/gh-$1.body" "$T/gh-$1.comment"
 }
 ship() { # name dir args... (runs ship.sh of worktree NAME from DIR)
   name=$1 dir=$2; shift 2
@@ -148,7 +149,24 @@ grep -q "stub approve" "$T/gh-unreviewed1.body" || fail "review summary missing 
 new_branch unreviewed2
 RAWTONIC_REVIEWER=false ship unreviewed2 "$T/main" --no-review "docs only" || fail "--no-review exited $?"
 expect_last "$T/out" "ship: merged PR #7 as *"
-grep -q "Skipped: docs only" "$T/gh-unreviewed2.body" || fail "--no-review reason missing from the pull request"
+grep -q "Skipped for .*: docs only" "$T/gh-unreviewed2.body" || fail "--no-review reason missing from the pull request"
+
+# 11. A partial review (--base) is not stored and so does not approve the branch.
+new_branch unreviewed3
+echo more >"$T/wt-unreviewed3/more.txt"
+git -C "$T/wt-unreviewed3" add more.txt
+git -C "$T/wt-unreviewed3" commit -q -m "feat: more"
+git -C "$T/wt-unreviewed3" rev-parse HEAD >"$(git -C "$T/wt-unreviewed3" rev-parse --git-dir)/rawtonic-check-passed"
+(cd "$T/wt-unreviewed3" && RAWTONIC_REVIEWER=review-approve sh scripts/review.sh --base HEAD~1) >/dev/null 2>&1 ||
+  fail "partial review exited $?"
+RAWTONIC_REVIEWER=review-changes_requested ship unreviewed3 "$T/main" && fail "partial review approved the whole branch"
+expect_last "$T/out" "ship: FAILED during review (exit 1)*"
+
+# 12. An existing pull request (opened with --no-merge) gets the new verdict as a comment.
+new_branch reship
+ship reship "$T/wt-reship" --no-merge || fail "--no-merge exited $?"
+ship reship "$T/main" || fail "re-ship exited $?"
+grep -q "Verdict on" "$T/gh-reship.comment" || fail "existing pull request got no review comment"
 
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"

@@ -126,31 +126,38 @@ if [ "$DRY" = 1 ]; then
   exit 0
 fi
 
+# Push and merge exactly the commit that was checked and reviewed.
+[ "$(git rev-parse HEAD)" = "$HEAD_SHA" ] || die "HEAD moved during the check or review; ship again"
+
 STEP=push
 say "push $BRANCH"
-git push -q -u origin "$BRANCH"
+git push -q -u origin "$HEAD_SHA:refs/heads/$BRANCH"
 
 STEP="pull request"
+NOTE=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review-note.XXXXXX")
+if [ -n "$NO_REVIEW" ]; then
+  printf '## Second-model review\n\nSkipped for %s: %s\n' "$HEAD_SHA" "$NO_REVIEW" >"$NOTE"
+else
+  python3 -c '
+import json, sys
+v = json.load(open(sys.argv[1]))
+print("## Second-model review\n\nVerdict on %s: **%s**. %s" % (sys.argv[2], v["verdict"], v["summary"]))
+for f in v["findings"]:
+    print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
+' "$VERDICT_FILE" "$HEAD_SHA" >"$NOTE"
+fi
 if PR_URL=$(gh pr view "$BRANCH" --repo rawtonic-app/rawtonic --json url --jq .url 2>/dev/null); then
   say "pull request exists: $PR_URL"
+  gh pr comment "$PR_URL" --body-file "$NOTE" >/dev/null || warn "review note not added to $PR_URL"
 else
   BODY=$(mktemp "${TMPDIR:-/tmp}/rawtonic-pr.XXXXXX")
   if [ -n "$BODY_FILE" ]; then cat "$BODY_FILE" >"$BODY"; else git log --reverse --format='- %s' origin/main..HEAD >"$BODY"; fi
-  if [ -n "$NO_REVIEW" ]; then
-    printf '\n## Second-model review\n\nSkipped: %s\n' "$NO_REVIEW" >>"$BODY"
-  else
-    python3 -c '
-import json, sys
-v = json.load(open(sys.argv[1]))
-print("\n## Second-model review\n\nVerdict: **%s**. %s" % (v["verdict"], v["summary"]))
-for f in v["findings"]:
-    print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
-' "$VERDICT_FILE" >>"$BODY"
-  fi
+  { printf '\n'; cat "$NOTE"; } >>"$BODY"
   PR_URL=$(gh pr create --repo rawtonic-app/rawtonic --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY")
   rm -f "$BODY"
   say "pull request: $PR_URL"
 fi
+rm -f "$NOTE"
 PR_NUM=${PR_URL##*/}
 if [ "$MERGE" = 0 ]; then
   result "opened PR #$PR_NUM ($PR_URL); not merged (--no-merge)"
@@ -162,7 +169,7 @@ say "merge into main ($MAIN_DIR)"
 [ -z "$(git -C "$MAIN_DIR" status --porcelain --untracked-files=no)" ] || die "main checkout has uncommitted changes; merge by hand"
 git -C "$MAIN_DIR" pull -q --ff-only origin main
 SUMMARY=$(printf '%s' "$TITLE" | sed 's/^[a-z]*\(([^)]*)\)\{0,1\}!\{0,1\}: //')
-if ! git -C "$MAIN_DIR" merge -q --no-ff "$BRANCH" -m "Merge pull request #$PR_NUM: $SUMMARY"; then
+if ! git -C "$MAIN_DIR" merge -q --no-ff "$HEAD_SHA" -m "Merge pull request #$PR_NUM: $SUMMARY"; then
   git -C "$MAIN_DIR" merge --abort
   die "merge conflict with main; rebase $BRANCH onto origin/main and ship again"
 fi

@@ -6,8 +6,10 @@
 #   scripts/review.sh [--base REF]   review the commits REF..HEAD (default origin/main)
 #   scripts/review.sh --plan FILE    review a plan before implementing it
 # Exit: 0 approve, 1 changes requested, 2 usage, 3 reviewer unavailable.
-# A code verdict is stored as $(git rev-parse --git-dir)/rawtonic-review/<HEAD>.json;
-# scripts/ship.sh reads it and puts its summary into the pull request.
+# A verdict on the whole branch (default base) is stored as
+# $(git rev-parse --git-dir)/rawtonic-review/<HEAD>.json; scripts/ship.sh reads
+# it and puts its summary into the pull request. A review with another --base
+# covers only part of the branch and is not stored.
 # The reviewer runs read-only (`codex exec --sandbox read-only`). For tests,
 # RAWTONIC_REVIEWER names a command that reads the prompt on stdin and writes
 # the verdict JSON (scripts/review/verdict.schema.json) to the file in $1.
@@ -15,10 +17,10 @@ set -eu
 cd "$(dirname "$0")/.."
 DIR=scripts/review
 
-BASE=origin/main; PLAN=''
+BASE=origin/main; PLAN=''; FULL=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --base) BASE=$2; shift 2 ;;
+    --base) BASE=$2; FULL=0; shift 2 ;;
     --plan) PLAN=$2; shift 2 ;;
     *) echo "review: unknown option: $1" >&2; exit 2 ;;
   esac
@@ -26,7 +28,8 @@ done
 
 PROMPT=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review.XXXXXX")
 OUT=$(mktemp "${TMPDIR:-/tmp}/rawtonic-verdict.XXXXXX")
-trap 'rm -f "$PROMPT" "$OUT"' EXIT
+LOG=$(mktemp "${TMPDIR:-/tmp}/rawtonic-review-log.XXXXXX")
+trap 'rm -f "$PROMPT" "$OUT" "$LOG"' EXIT
 
 if [ -n "$PLAN" ]; then
   [ -f "$PLAN" ] || { echo "review: no such plan: $PLAN" >&2; exit 2; }
@@ -35,10 +38,11 @@ else
   [ -z "$(git status --porcelain)" ] || { echo "review: uncommitted changes; commit them first" >&2; exit 2; }
   git rev-parse -q --verify "$BASE" >/dev/null || { echo "review: unknown base $BASE" >&2; exit 2; }
   [ -n "$(git log --oneline "$BASE"..HEAD)" ] || { echo "review: no commits in $BASE..HEAD" >&2; exit 2; }
+  HEAD_SHA=$(git rev-parse HEAD)
   {
     cat "$DIR/prompt.md"
     printf '\n## The change\n\nReview the commits `%s..HEAD` (HEAD %s). Read them with `git log %s..HEAD` and `git diff %s...HEAD`.\n\n' \
-      "$BASE" "$(git rev-parse HEAD)" "$BASE" "$BASE"
+      "$BASE" "$HEAD_SHA" "$BASE" "$BASE"
     git log --format='- %s' "$BASE"..HEAD
     printf '\n'
     git diff --stat "$BASE"...HEAD
@@ -51,8 +55,8 @@ if [ -n "${RAWTONIC_REVIEWER:-}" ]; then
 elif command -v codex >/dev/null 2>&1; then
   printf '== review: codex (read-only) on %s\n' "${PLAN:-$BASE..HEAD}"
   codex exec --sandbox read-only --ephemeral --color never -C "$(pwd -P)" \
-    --output-schema "$DIR/verdict.schema.json" -o "$OUT" - <"$PROMPT" >/dev/null ||
-    { echo "review: codex failed (logged in? usage limit?)" >&2; exit 3; }
+    --output-schema "$DIR/verdict.schema.json" -o "$OUT" - <"$PROMPT" >"$LOG" 2>&1 ||
+    { tail -n 20 "$LOG" >&2; echo "review: codex failed (logged in? usage limit?)" >&2; exit 3; }
 else
   echo "review: codex not found; install it (npm i -g @openai/codex) and run 'codex login'" >&2
   exit 3
@@ -68,9 +72,14 @@ for f in v["findings"]:
 ' "$OUT") || { echo "review: unreadable verdict" >&2; exit 3; }
 
 if [ -z "$PLAN" ]; then
-  STORE="$(git rev-parse --git-dir)/rawtonic-review"
-  mkdir -p "$STORE"
-  cp "$OUT" "$STORE/$(git rev-parse HEAD).json"
+  # The verdict belongs to the commit that was reviewed, not to a later one.
+  [ "$(git rev-parse HEAD)" = "$HEAD_SHA" ] && [ -z "$(git status --porcelain)" ] ||
+    { echo "review: the branch changed during the review; review again" >&2; exit 2; }
+  if [ "$FULL" = 1 ]; then
+    STORE="$(git rev-parse --git-dir)/rawtonic-review"
+    mkdir -p "$STORE"
+    cp "$OUT" "$STORE/$HEAD_SHA.json"
+  fi
 fi
 printf 'review: %s\n' "$VERDICT"
 [ "$VERDICT" = approve ]
