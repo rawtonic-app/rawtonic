@@ -105,7 +105,15 @@ pub fn resolve_lens_params_in_adjustments(
         LensLookup::Keep { previous } => {
             match adjustments.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
                 Some(resolved) => resolved == stamp,
-                None => previous.is_some_and(|previous| lens_profile_stamp(previous) == stamp),
+                // Only a recipe saved before the key, or one resolved for
+                // this very choice and these parameters, vouches for them;
+                // never one marked unresolved.
+                None => previous.is_some_and(|previous| {
+                    match previous.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
+                        None => lens_profile_stamp(previous) == stamp,
+                        Some(resolved) => resolved == stamp,
+                    }
+                }),
             }
         }
         LensLookup::Fresh => false,
@@ -185,8 +193,9 @@ fn resolve_lens_choice(
                     }
                 }
             } else {
-                map.remove("lensMaker");
-                map.remove("lensModel");
+                // Nothing to detect from (offline without EXIF): not a
+                // lookup that found nothing; tried again later.
+                return false;
             }
         }
 
@@ -1278,6 +1287,48 @@ mod tests {
         );
         assert_eq!(again["lensDistortionParams"], current(&rf50));
         assert_ne!(again[LENS_PROFILE_FOR], serde_json::json!(LENS_UNRESOLVED));
+        // Consecutive saves of the same unstamped recipe while it cannot be
+        // resolved keep retrying (the first one vouches for nothing).
+        let unstamped = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": rf50});
+        let mut first = unstamped.clone();
+        resolve_lens_params_in_adjustments(
+            &mut first,
+            LensLookup::Keep { previous: None },
+            &exif,
+            None,
+            source,
+        );
+        let mut second = unstamped.clone();
+        resolve(
+            &mut second,
+            LensLookup::Keep {
+                previous: Some(&first),
+            },
+        );
+        assert_eq!(second["lensDistortionParams"], current(&rf50));
+        // Auto without EXIF to detect from (offline) is not "no profile
+        // found": unresolved, detected once the EXIF is there.
+        let mut offline = serde_json::json!({"lensCorrectionMode": "auto"});
+        resolve_lens_params_in_adjustments(
+            &mut offline,
+            LensLookup::Fresh,
+            &None,
+            Some(&db),
+            source,
+        );
+        assert_eq!(
+            offline[LENS_PROFILE_FOR],
+            serde_json::json!(LENS_UNRESOLVED)
+        );
+        let previous = offline.clone();
+        resolve(
+            &mut offline,
+            LensLookup::Keep {
+                previous: Some(&previous),
+            },
+        );
+        assert_eq!(offline["lensModel"], serde_json::json!(rf28));
         // Auto lens correction detects and resolves afresh.
         let mut fresh = edit.clone();
         fresh["lensCorrectionMode"] = serde_json::json!("auto");
