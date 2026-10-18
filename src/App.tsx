@@ -394,6 +394,7 @@ function App() {
     handleSelectSubfolder,
     refreshImageList: handleLibraryRefresh,
     markGenerated,
+    handleImageSelect,
   });
 
 

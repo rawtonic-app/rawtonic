@@ -652,7 +652,7 @@ export default function SettingsPanel({
     setLayoutResetMessage(t('settings.data.statuses.resettingLayout'));
     try {
       const resetWorkspaceLayout = useUIStore.getState().resetWorkspaceLayout;
-      const defaultWorkspace = resetWorkspaceLayout(false);
+      const defaultWorkspace = resetWorkspaceLayout();
 
       await onSettingsChange({
         ...appSettings,

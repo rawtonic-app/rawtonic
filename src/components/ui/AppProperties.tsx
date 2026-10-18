@@ -92,7 +92,6 @@ export enum Invokes {
   HandleImportLegacyPresetsFromFile = 'handle_import_legacy_presets_from_file',
   ImportFiles = 'import_files',
   InvokeGenerativeReplaseWithMaskDef = 'invoke_generative_replace_with_mask_def',
-  IsTetheringSupported = 'is_tethering_supported',
   AutodetectLens = 'autodetect_lens',
   CalculateUpright = 'calculate_upright',
   GetCameraLensProfile = 'get_camera_lens_profile',
@@ -185,12 +184,17 @@ export enum Invokes {
   SaveAlbums = 'save_albums',
   AddToAlbum = 'add_to_album',
   GetAlbumImages = 'get_album_images',
-  TetherListCameras = 'tether_list_cameras',
-  TetherConnect = 'tether_connect',
-  TetherGetSettings = 'tether_get_settings',
-  TetherSetSetting = 'tether_set_setting',
+  TetherAutofocus = 'tether_autofocus',
+  TetherCameras = 'tether_cameras',
   TetherCapture = 'tether_capture',
-  TetherGetPreview = 'tether_get_preview',
+  TetherConnect = 'tether_connect',
+  TetherDisconnect = 'tether_disconnect',
+  TetherLiveView = 'tether_live_view',
+  TetherLiveViewFrame = 'tether_live_view_frame',
+  TetherNextCapture = 'tether_next_capture',
+  TetherSetSetting = 'tether_set_setting',
+  TetherSettings = 'tether_settings',
+  TetherStatus = 'tether_status',
 }
 
 export enum ExifOverlay {
@@ -207,7 +211,6 @@ export enum Panel {
   Metadata = 'metadata',
   Presets = 'presets',
   FolderTree = 'folderTree',
-  Tethering = 'tethering',
 }
 
 export type PanelRegion = 'leftTop' | 'leftBottom' | 'rightTop' | 'rightBottom';

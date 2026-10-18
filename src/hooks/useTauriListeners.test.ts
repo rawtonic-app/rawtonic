@@ -315,3 +315,29 @@ it('shows ingested photographs in the grid as they arrive, listing the folder ag
   await act(() => vi.advanceTimersByTimeAsync(2000));
   expect(refreshImageList).toHaveBeenCalledTimes(listed);
 });
+
+it("shows a tethered capture at once: selected in the Library, opened when Develop is showing", async () => {
+  const handleImageSelect = vi.fn();
+  const refreshImageList = vi.fn(async () => {});
+  useLibraryStore.getState().setLibrary({ currentFolderPath: "/job/Capture", multiSelectedPaths: [] });
+  useUIStore.getState().setUI({ activeView: "library" });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList, markGenerated: vi.fn(), handleImageSelect,
+  }));
+  await vi.waitFor(() => expect(callbacks.has("tether-captured")).toBe(true));
+  const capture = (destination: string, extra: object = {}) =>
+    act(() => callbacks.get("tether-captured")!({
+      payload: { destination, skipped: false, error: null, ...extra },
+    }));
+  capture("/job/Capture/A.ARW");
+  await vi.waitFor(() => expect(useLibraryStore.getState().libraryActivePath).toBe("/job/Capture/A.ARW"));
+  expect(handleImageSelect).not.toHaveBeenCalled();
+  useUIStore.getState().setUI({ activeView: "editor" });
+  capture("/job/Capture/B.ARW");
+  await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/B.ARW", true));
+  capture("/job/Capture/C.ARW", { error: "Disk full" });
+  await Promise.resolve();
+  expect(handleImageSelect).toHaveBeenCalledTimes(1);
+  useUIStore.getState().setUI({ activeView: "library" });
+});
