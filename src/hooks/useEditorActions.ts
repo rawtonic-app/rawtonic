@@ -17,13 +17,13 @@ import {
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   PasteMode,
+  LensAdjustment,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
-import { isPendingLens, lensChoice, lookUpLensProfile, pendingLens } from '../utils/lensProfile';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -162,36 +162,6 @@ function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preser
 // A drag's last moves commit as it ends, before the final render.
 useEditorStore.subscribe((state, previous) => {
   if (previous.isSliderDragging && !state.isSliderDragging) flushSliderDraft();
-});
-
-// Pending lens parameters of the open photograph (a new lens choice, or one
-// an undo or redo restored) are filled in with what its save would look up,
-// for the preview; without a history step, so undo and redo restore the
-// pending mark and it is filled in again. A later choice, an undo or
-// switching the correction off wins over a lookup still running.
-let lensLookupFor: string | null = null;
-useEditorStore.subscribe((state) => {
-  const image = state.selectedImage;
-  const adjustments = state.adjustments;
-  if (!image?.isReady || !isPendingLens(adjustments.lensDistortionParams)) return;
-  const choice = lensChoice(adjustments);
-  const key = `${image.path}\n${choice}`;
-  if (lensLookupFor === key) return;
-  lensLookupFor = key;
-  void lookUpLensProfile(image.path, adjustments)
-    .then((lens) =>
-      useEditorStore.getState().setEditor((now) =>
-        now.selectedImage?.path === image.path
-          && isPendingLens(now.adjustments.lensDistortionParams)
-          && lensChoice(now.adjustments) === choice
-          ? { adjustments: { ...now.adjustments, ...lens } }
-          : now,
-      ),
-    )
-    .catch(() => {})
-    .finally(() => {
-      if (lensLookupFor === key) lensLookupFor = null;
-    });
 });
 
 /** Commits a slider drag's draft (sliderDraft.ts) for `path`. */
@@ -565,14 +535,9 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        const merged = { ...adjustments, ...adjustmentsToApply };
-        // A pasted lens choice is committed at once with its parameters
-        // pending: the save looks them up for this photo, and they are filled
-        // in for the preview when found (below).
-        if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply))
-          Object.assign(merged, pendingLens(merged));
-        setAdjustments(merged);
+        setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
+
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
@@ -592,8 +557,19 @@ export function useEditorActions() {
         .then((failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
-          // The open photo's pasted lens choice is filled in by its own
-          // lookup (pending lens parameters), not read back from this write.
+          if (selectedImage && updated.includes(selectedImage.path)
+            && isCurrentEditorImage(selectedImage.path)) {
+            invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
+              if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
+                setAdjustments((prev: Adjustments) => ({
+                  ...prev,
+                  lensMaker: meta.adjustments!.lensMaker,
+                  lensModel: meta.adjustments!.lensModel,
+                  lensDistortionParams: meta.adjustments!.lensDistortionParams,
+                }));
+              }
+            });
+          }
         })
         .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
     },
@@ -624,10 +600,10 @@ export function useEditorActions() {
         }
       }
 
-      // A pasted lens choice brings no parameters for these photos (they are
-      // never copied): each save looks them up for its own photo.
-      if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply)) {
-        adjustmentsToApply.lensDistortionParams = null;
+      if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
+        if (!adjustmentsToApply.lensMaker) {
+          adjustmentsToApply.lensDistortionParams = null;
+        }
       }
 
       if (Object.keys(adjustmentsToApply).length === 0) {

@@ -36,12 +36,6 @@ interface CameraLensProfile {
   vignetting: boolean;
 }
 
-/** The lens tool's lookups, counted across its mounts: only the latest
- * commits (StudioLensCorrection). */
-let lensToolRequest = 0;
-const lensFields = (recipe: Adjustments) =>
-  JSON.stringify([recipe.lensCorrectionMode, recipe.lensMaker, recipe.lensModel]);
-
 /** Lightroom's Lens Corrections (Profile) / Capture One's Lens Correction:
  * profile corrections from the lens database, detected from the photo's EXIF
  * or chosen by maker and model, with amounts for distortion, vignetting and
@@ -104,8 +98,6 @@ export default function StudioLensCorrection() {
       cameraCaVersion: CAMERA_CA_VERSION,
     }));
 
-  // With the photo's path the parameters are looked up from its EXIF as a
-  // save would (crop factor included): the save keeps what arrives.
   const params = (maker: string, model: string) =>
     invoke<Adjustments["lensDistortionParams"]>(
       Invokes.GetLensDistortionParams,
@@ -115,21 +107,10 @@ export default function StudioLensCorrection() {
         focalLength: exifNumber(exif.FocalLength),
         aperture: exifNumber(exif.FNumber),
         distance: exifNumber(exif.SubjectDistance),
-        path: selectedImage?.path ?? null,
       },
     ).catch(() => null);
 
-  // Only the latest lens lookup commits (every lens action, reset and
-  // switching off start a new one), and only while the recipe's lens is as
-  // it was when the lookup started: saves keep the parameters they get.
-  const begin = () => ({ request: ++lensToolRequest, lens: lensFields(useEditorStore.getState().adjustments) });
-  const stillAsked = (asked: { request: number; lens: string }, prev: Adjustments) =>
-    asked.request === lensToolRequest && lensFields(prev) === asked.lens;
-  // A lookup the tool started before it closed commits nothing.
-  useEffect(() => () => void ++lensToolRequest, []);
-
   const enable = async () => {
-    const asked = begin();
     // The camera's own data first (Capture One, in-camera JPEGs), then the
     // lens database.
     if (camera) return applyCamera(camera);
@@ -158,24 +139,19 @@ export default function StudioLensCorrection() {
       const [maker, model] = found;
       const distortion = await params(maker, model);
       if (!stillOpen()) return;
-      setAdjustments((prev) =>
-        stillAsked(asked, prev)
-          ? {
-              ...prev,
-              lensMaker: maker,
-              lensModel: model,
-              lensDistortionParams: distortion,
-              lensCorrectionMode: "auto",
-            }
-          : prev,
-      );
+      setAdjustments((prev) => ({
+        ...prev,
+        lensMaker: maker,
+        lensModel: model,
+        lensDistortionParams: distortion,
+        lensCorrectionMode: "auto",
+      }));
       setStatus("idle");
     } catch {
       if (stillOpen()) setStatus("not_found");
     }
   };
-  const chooseMaker = (maker: string) => {
-    begin();
+  const chooseMaker = (maker: string) =>
     setAdjustments((prev) => ({
       ...prev,
       lensMaker: maker || null,
@@ -183,24 +159,18 @@ export default function StudioLensCorrection() {
       lensDistortionParams: null,
       lensCorrectionMode: "manual",
     }));
-  };
   const chooseModel = async (model: string) => {
     const maker = adjustments.lensMaker;
     const path = selectedImage?.path;
     if (!maker || !path) return;
-    const asked = begin();
     const distortion = model ? await params(maker, model) : null;
     if (!isCurrentEditorImage(path)) return;
-    setAdjustments((prev) =>
-      stillAsked(asked, prev)
-        ? {
-            ...prev,
-            lensModel: model || null,
-            lensDistortionParams: distortion,
-            lensCorrectionMode: "manual",
-          }
-        : prev,
-    );
+    setAdjustments((prev) => ({
+      ...prev,
+      lensModel: model || null,
+      lensDistortionParams: distortion,
+      lensCorrectionMode: "manual",
+    }));
   };
   const amount = (
     label: string,
@@ -228,25 +198,24 @@ export default function StudioLensCorrection() {
     <ToolGroup
       title="Lens correction"
       label={t("studio.lens.title")}
-      onReset={() => {
-        begin();
+      onReset={() =>
         setAdjustments((prev) => ({
           ...prev,
           ...LENS_PROFILE_OFF,
           diffractionCorrection: undefined,
-        }));
-      }}
+        }))
+      }
     >
       <label className="studio-check studio-lens-enable">
         <input
           type="checkbox"
           checked={enabled}
           disabled={!ready || status === "detecting"}
-          onChange={(e) => {
-            if (e.target.checked) return void enable();
-            begin();
-            setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }));
-          }}
+          onChange={(e) =>
+            e.target.checked
+              ? void enable()
+              : setAdjustments((prev) => ({ ...prev, ...LENS_PROFILE_OFF }))
+          }
         />
         {t("studio.lens.enable")}
       </label>

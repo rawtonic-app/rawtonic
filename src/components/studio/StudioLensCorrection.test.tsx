@@ -70,7 +70,6 @@ describe("Lens correction tool", () => {
       focalLength: 85,
       aperture: 2.5,
       distance: 0,
-      path: "/job/a.arw",
     });
     expect(current).toMatchObject({
       lensMaker: "Sony",
@@ -103,72 +102,6 @@ describe("Lens correction tool", () => {
       fireEvent.change(screen.getByLabelText("Lens model"), { target: { value: "XF 23mm" } });
     });
     expect(current).toMatchObject({ lensMaker: "Fujifilm", lensModel: "XF 23mm", lensCorrectionMode: "manual" });
-  });
-
-  it("commits only the latest lens choice, and none once the maker changed", async () => {
-    const waiting: Record<string, (v: unknown) => void> = {};
-    mockInvoke.mockImplementation((command, args) => {
-      const a = args as Record<string, unknown>;
-      if (command === "get_lensfun_makers") return Promise.resolve(["Sony", "Fujifilm"]);
-      if (command === "get_lensfun_lenses_for_maker")
-        return Promise.resolve(a.maker === "Sony" ? ["FE 85mm F1.8", "FE 50mm F1.8"] : ["XF 23mm"]);
-      if (command === "get_lens_distortion_params")
-        return new Promise((resolve) => { waiting[a.model as string] = resolve; });
-      return Promise.resolve(undefined);
-    });
-    current = { ...INITIAL_ADJUSTMENTS, lensMaker: "Sony", lensCorrectionMode: "manual" };
-    useEditorStore.setState({ adjustments: current });
-    await renderTool();
-    const model = () => screen.getByLabelText("Lens model");
-    // A, then B; A answers last.
-    await act(async () => { fireEvent.change(model(), { target: { value: "FE 85mm F1.8" } }); });
-    await act(async () => { fireEvent.change(model(), { target: { value: "FE 50mm F1.8" } }); });
-    await act(async () => waiting["FE 50mm F1.8"]({ k1: 0.05 }));
-    await act(async () => waiting["FE 85mm F1.8"]({ k1: 0.85 }));
-    expect(current).toMatchObject({ lensModel: "FE 50mm F1.8", lensDistortionParams: { k1: 0.05 } });
-    // A choice still being looked up when the maker changes commits nothing.
-    await act(async () => { fireEvent.change(model(), { target: { value: "FE 85mm F1.8" } }); });
-    await act(async () => { fireEvent.change(screen.getByLabelText("Lens make"), { target: { value: "Fujifilm" } }); });
-    await act(async () => waiting["FE 85mm F1.8"]({ k1: 0.85 }));
-    expect(current).toMatchObject({ lensMaker: "Fujifilm", lensModel: null, lensDistortionParams: null });
-  });
-
-  it("commits nothing when the tool is reset while the lens is detected", async () => {
-    let answer: (v: unknown) => void = () => {};
-    mockInvoke.mockImplementation((command) => {
-      if (command === "get_lensfun_makers") return Promise.resolve(["Sony"]);
-      if (command === "autodetect_lens") return Promise.resolve(["Sony", "FE 85mm F1.8"]);
-      if (command === "get_lens_distortion_params") return new Promise((resolve) => { answer = resolve; });
-      return Promise.resolve(null);
-    });
-    await renderTool();
-    await act(async () => { fireEvent.click(screen.getByLabelText("Enable profile corrections")); });
-    // (The switch itself is disabled while the lens is detected.)
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Reset/ })); });
-    await act(async () => answer(distortion));
-    expect(current).toMatchObject({ lensMaker: null, lensModel: null, lensDistortionParams: null });
-  });
-
-  it("commits nothing from a lookup started before the tool was closed", async () => {
-    const waiting: Record<string, (v: unknown) => void> = {};
-    mockInvoke.mockImplementation((command, args) => {
-      const a = args as Record<string, unknown>;
-      if (command === "get_lensfun_makers") return Promise.resolve(["Sony"]);
-      if (command === "get_lensfun_lenses_for_maker") return Promise.resolve(["FE 85mm F1.8", "FE 50mm F1.8"]);
-      if (command === "get_lens_distortion_params")
-        return new Promise((resolve) => { waiting[a.model as string] = resolve; });
-      return Promise.resolve(undefined);
-    });
-    current = { ...INITIAL_ADJUSTMENTS, lensMaker: "Sony", lensCorrectionMode: "manual" };
-    useEditorStore.setState({ adjustments: current });
-    await renderTool();
-    await act(async () => { fireEvent.change(screen.getByLabelText("Lens model"), { target: { value: "FE 85mm F1.8" } }); });
-    cleanup();
-    await renderTool();
-    await act(async () => { fireEvent.change(screen.getByLabelText("Lens model"), { target: { value: "FE 50mm F1.8" } }); });
-    await act(async () => waiting["FE 85mm F1.8"]({ k1: 0.85 }));
-    await act(async () => waiting["FE 50mm F1.8"]({ k1: 0.05 }));
-    expect(current).toMatchObject({ lensModel: "FE 50mm F1.8", lensDistortionParams: { k1: 0.05 } });
   });
 
   it("disables the amounts without a profile", async () => {

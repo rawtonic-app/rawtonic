@@ -26,144 +26,20 @@ use std::thread;
 use tauri::AppHandle;
 use tauri::Manager;
 
-/// How a save treats the lens parameters it carries.
-pub enum LensLookup {
-    /// The editor's recipe: its lens parameters, or their absence, are kept
-    /// exactly as they arrive, except parameters marked pending
-    /// (`{"pending": true}`), which the editor sets when it changes the lens
-    /// choice (paste, preset, preset amount) and which are looked up here.
-    /// Everything else it saves — an unrelated edit, an undo — carries the
-    /// parameters the photo had, so a Lensfun update (a renamed lens, a
-    /// re-measured profile, a newly covered lens) reaches a saved edit only
-    /// through a new lens choice.
-    Keep,
-    /// Looked up in the current database: Auto lens correction, and a lens
-    /// choice pasted or synced from another photo (its parameters belong to
-    /// that photo).
-    Fresh,
-}
-
-/// Whether pasted, synced or preset adjustments choose a lens.
-fn chooses_lens(pasted: &Value) -> bool {
-    pasted.as_object().is_some_and(|pasted| {
-        ["lensCorrectionMode", "lensMaker", "lensModel"]
-            .iter()
-            .any(|key| pasted.contains_key(*key))
-    })
-}
-
-/// A recipe rendered from the editor's state (an export of the open photo)
-/// whose lens parameters are still pending (a new lens choice looked up
-/// meanwhile): looked up as its save would, so the export never renders a
-/// lens choice without its correction. Other recipes are left alone.
-pub fn resolve_pending_lens(
-    adjustments: &mut Value,
-    exif_data: &Option<HashMap<String, String>>,
-    lens_db: Option<&crate::lens_correction::LensDatabase>,
-    source: &Path,
-) {
-    if lens_pending(adjustments) {
-        resolve_lens_params_in_adjustments(
-            adjustments,
-            LensLookup::Keep,
-            exif_data,
-            lens_db,
-            source,
-        );
-    }
-}
-
-/// Whether a recipe's lens parameters are marked pending.
-pub fn lens_pending(adjustments: &Value) -> bool {
-    adjustments
-        .get("lensDistortionParams")
-        .and_then(|params| params.get("pending"))
-        .and_then(Value::as_bool)
-        == Some(true)
-}
-
-/// The parameters of a database lens for a photo with `exif`: its focal
-/// length, aperture, distance and the body's crop factor from the 35 mm
-/// equivalent. The editor's lens lookup and the save use the same numbers.
-pub fn lens_params_for_exif(
-    db: &crate::lens_correction::LensDatabase,
-    maker: &str,
-    model: &str,
-    exif_data: &Option<HashMap<String, String>>,
-) -> Option<crate::lens_correction::LensDistortionParams> {
-    let mut focal_length = 50.0;
-    let mut aperture = None;
-    let mut distance = None;
-
-    if let Some(exif) = exif_data {
-        if let Some(fl_str) = exif
-            .get("FocalLength")
-            .or(exif.get("FocalLengthIn35mmFilm"))
-            && let Ok(fl) = fl_str.replace(" mm", "").trim().parse::<f32>()
-        {
-            focal_length = fl;
-        }
-        if let Some(ap_str) = exif.get("ApertureValue").or(exif.get("FNumber"))
-            && let Ok(ap) = ap_str.replace("f/", "").trim().parse::<f32>()
-        {
-            aperture = Some(ap);
-        }
-        if let Some(dist_str) = exif.get("SubjectDistance")
-            && let Ok(dist) = dist_str.replace(" m", "").trim().parse::<f32>()
-        {
-            distance = Some(dist);
-        }
-    }
-
-    // The body's crop factor from the 35 mm equivalent.
-    let camera_crop = exif_data.as_ref().and_then(|exif| {
-        let number = |key: &str| {
-            exif.get(key)?
-                .replace("mm", "")
-                .trim()
-                .parse::<f32>()
-                .ok()
-                .filter(|v| *v > 0.0)
-        };
-        Some(number("FocalLengthIn35mmFilm")? / number("FocalLength")?)
-    });
-    crate::lens_correction::resolve_lens_params(
-        db,
-        maker,
-        model,
-        focal_length,
-        aperture,
-        distance,
-        camera_crop.filter(|c| (0.5..=8.0).contains(c)),
-    )
-}
-
 pub fn resolve_lens_params_in_adjustments(
     adjustments: &mut Value,
-    lookup: LensLookup,
     exif_data: &Option<HashMap<String, String>>,
     lens_db: Option<&crate::lens_correction::LensDatabase>,
     source: &Path,
 ) {
-    let pending = lens_pending(adjustments);
-    let keep = matches!(lookup, LensLookup::Keep) && !pending;
-    if pending && let Some(map) = adjustments.as_object_mut() {
-        map.remove("lensDistortionParams");
-    }
     if let Some(map) = adjustments.as_object_mut() {
         let mode = map
             .get("lensCorrectionMode")
             .and_then(|v| v.as_str())
             .unwrap_or("manual");
 
-        // The camera's own data: no lens database entry to resolve. An
-        // editor save keeps it as it arrives too (whether the camera data is
-        // used can depend on the lens database: Canon's CTMD tables give way
-        // to a lensfun profile).
+        // The camera's own data: no lens database entry to resolve.
         if mode == crate::embedded_lens::CAMERA_MODE {
-            if keep {
-                return;
-            }
             let recipe = Value::Object(map.clone());
             if !crate::embedded_lens::recipe_params_known(source, &recipe) {
                 return;
@@ -179,9 +55,6 @@ pub fn resolve_lens_params_in_adjustments(
                     map.remove("lensDistortionParams");
                 }
             }
-            return;
-        }
-        if keep {
             return;
         }
 
@@ -220,32 +93,62 @@ pub fn resolve_lens_params_in_adjustments(
 
         if let Some(db) = lens_db {
             let has_valid_lens = match (
-                map.get("lensMaker")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                map.get("lensModel")
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
+                map.get("lensMaker").and_then(|v| v.as_str()),
+                map.get("lensModel").and_then(|v| v.as_str()),
             ) {
                 (Some(maker), Some(model)) if !maker.is_empty() && !model.is_empty() => {
-                    // A lens named as it was before a database rename gets
-                    // its current name.
-                    if let Some((current, _)) =
-                        crate::lens_correction::find_lens_by_display_name(db, &maker, &model)
-                        && current != model
-                    {
-                        map.insert("lensModel".to_string(), serde_json::json!(current));
-                    }
-                    let model = map["lensModel"].as_str().unwrap_or(&model).to_string();
-                    match lens_params_for_exif(db, &maker, &model, exif_data) {
-                        Some(params) => {
-                            map.insert(
-                                "lensDistortionParams".to_string(),
-                                serde_json::to_value(params).unwrap(),
-                            );
-                            true
+                    let mut focal_length = 50.0;
+                    let mut aperture = None;
+                    let mut distance = None;
+
+                    if let Some(exif) = exif_data {
+                        if let Some(fl_str) = exif
+                            .get("FocalLength")
+                            .or(exif.get("FocalLengthIn35mmFilm"))
+                            && let Ok(fl) = fl_str.replace(" mm", "").trim().parse::<f32>()
+                        {
+                            focal_length = fl;
                         }
-                        None => false,
+                        if let Some(ap_str) = exif.get("ApertureValue").or(exif.get("FNumber"))
+                            && let Ok(ap) = ap_str.replace("f/", "").trim().parse::<f32>()
+                        {
+                            aperture = Some(ap);
+                        }
+                        if let Some(dist_str) = exif.get("SubjectDistance")
+                            && let Ok(dist) = dist_str.replace(" m", "").trim().parse::<f32>()
+                        {
+                            distance = Some(dist);
+                        }
+                    }
+
+                    // The body's crop factor from the 35 mm equivalent.
+                    let camera_crop = exif_data.as_ref().and_then(|exif| {
+                        let number = |key: &str| {
+                            exif.get(key)?
+                                .replace("mm", "")
+                                .trim()
+                                .parse::<f32>()
+                                .ok()
+                                .filter(|v| *v > 0.0)
+                        };
+                        Some(number("FocalLengthIn35mmFilm")? / number("FocalLength")?)
+                    });
+                    if let Some(params) = crate::lens_correction::resolve_lens_params(
+                        db,
+                        maker,
+                        model,
+                        focal_length,
+                        aperture,
+                        distance,
+                        camera_crop.filter(|c| (0.5..=8.0).contains(c)),
+                    ) {
+                        map.insert(
+                            "lensDistortionParams".to_string(),
+                            serde_json::to_value(params).unwrap(),
+                        );
+                        true
+                    } else {
+                        false
                     }
                 }
                 _ => false,
@@ -253,6 +156,20 @@ pub fn resolve_lens_params_in_adjustments(
 
             if !has_valid_lens {
                 map.remove("lensDistortionParams");
+            }
+            // A lens named as before a database rename (a saved edit, a
+            // preset, copied settings) resolves to the renamed entry
+            // (`find_lens_by_display_name`) and takes its current name.
+            if has_valid_lens
+                && let (Some(maker), Some(model)) = (
+                    map.get("lensMaker").and_then(|v| v.as_str()),
+                    map.get("lensModel").and_then(|v| v.as_str()),
+                )
+                && let Some((current, _)) =
+                    crate::lens_correction::find_lens_by_display_name(db, maker, model)
+                && current != model
+            {
+                map.insert("lensModel".to_string(), serde_json::json!(current));
             }
         }
     }
@@ -291,7 +208,6 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
         let lens_db_guard = crate::lens_correction::global_lens_db();
         resolve_lens_params_in_adjustments(
             &mut final_adjustments,
-            LensLookup::Keep,
             &metadata.exif,
             lens_db_guard.as_deref(),
             &source_path,
@@ -570,16 +486,8 @@ pub async fn apply_adjustments_to_paths(
                     size,
                 );
 
-                // A pasted lens choice (or a preset's) is looked up for this
-                // photo: its parameters belong to the photo copied from.
-                let lookup = if chooses_lens(adjustments) {
-                    LensLookup::Fresh
-                } else {
-                    LensLookup::Keep
-                };
                 resolve_lens_params_in_adjustments(
                     &mut new_adjustments,
-                    lookup,
                     &existing_metadata.exif,
                     lens_db.as_deref(),
                     source_path,
@@ -633,10 +541,8 @@ pub async fn apply_auto_lens_correction_to_paths(
                     obj.insert("lensVignetteEnabled".to_string(), serde_json::json!(true));
                 }
 
-                // Detected again on the user's request: from the current database.
                 resolve_lens_params_in_adjustments(
                     &mut existing_metadata.adjustments,
-                    LensLookup::Fresh,
                     &existing_metadata.exif,
                     lens_db.as_deref(),
                     source_path,
@@ -1018,41 +924,20 @@ mod tests {
             "lensCorrectionMode": "camera", "cameraCaVersion": 1,
             "lensDistortionParams": params,
         });
-        resolve_lens_params_in_adjustments(
-            &mut adjustments,
-            LensLookup::Fresh,
-            &None,
-            None,
-            source,
-        );
+        resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
         assert_eq!(adjustments["lensDistortionParams"], params);
         // Recipes from before the CA data are rewritten from the facts.
         adjustments["cameraCaVersion"] = serde_json::json!(0);
-        resolve_lens_params_in_adjustments(
-            &mut adjustments,
-            LensLookup::Fresh,
-            &None,
-            None,
-            source,
-        );
+        resolve_lens_params_in_adjustments(&mut adjustments, &None, None, source);
         assert!(adjustments.get("lensDistortionParams").is_none());
-        // An editor save keeps camera parameters as they arrive, also where a
-        // lookup would now give none (here: facts without camera data).
-        let kept = serde_json::json!({"lensCorrectionMode": "camera", "cameraCaVersion": 0,
-            "lensDistortionParams": params});
-        let mut saved = kept.clone();
-        resolve_lens_params_in_adjustments(&mut saved, LensLookup::Keep, &None, None, source);
-        assert_eq!(saved, kept);
         forget(&path);
     }
 
-    /// A Lensfun update that renames a lens, re-measures its profile or
-    /// newly covers it reaches a saved edit only through a new lens choice:
-    /// an editor save keeps the parameters, or their absence, as they arrive
-    /// (unrelated edit, undo to either); a pasted lens choice and Auto lens
-    /// correction are looked up for the photo.
+    /// A lens chosen under a name the database has since extended (Lensfun
+    /// renamed the Sony E PZ 16-50 by appending "(Vers. I/II)") keeps its
+    /// correction and takes the current name.
     #[test]
-    fn a_saved_edit_keeps_its_lens_profile_across_database_updates() {
+    fn a_lens_named_as_before_a_database_rename_keeps_its_correction() {
         use crate::lens_correction::{lenses_for_maker, load_lensfun_dir};
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -1066,66 +951,16 @@ mod tests {
         .unwrap();
         let db = load_lensfun_dir(tmp.path());
         let lenses = lenses_for_maker(&db, "Canon");
-        let model = lenses[0].get_display_name(&lenses);
-        let exif = Some(HashMap::from([
-            ("Make".to_string(), "Canon".to_string()),
-            ("LensModel".to_string(), "RF28mm F2.8 STM".to_string()),
-            ("FocalLength".to_string(), "28 mm".to_string()),
-        ]));
-        let source = Path::new("/photos/IMG_0001.CR3");
-        let current = lens_params_for_exif(&db, "Canon", &model, &exif);
-        let current = serde_json::to_value(current.unwrap()).unwrap();
-        let resolve = |recipe: &mut Value, lookup: LensLookup| {
-            resolve_lens_params_in_adjustments(recipe, lookup, &exif, Some(&db), source)
-        };
-        // Saved with an older database: its own numbers, a name since renamed
-        // (an unrelated edit, or an undo back to it).
-        let old_params = serde_json::json!({"k1": 0.02, "k2": -0.08, "k3": 0.05, "model": 1,
-            "tca_vr": 1, "tca_vb": 1, "vig_k1": 0, "vig_k2": 0, "vig_k3": 0});
-        let mut edit = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
-            "lensModel": "RF 28mm F2.8 (old name)", "lensDistortionParams": old_params,
-            "exposure": 0.3});
-        resolve(&mut edit, LensLookup::Keep);
-        assert_eq!(edit["lensDistortionParams"], old_params);
-        // A "no profile found" (or an undo back to it) stays so after the
-        // database learns the lens.
-        let mut none_found = serde_json::json!({"lensCorrectionMode": "auto", "exposure": 0.3});
-        resolve(&mut none_found, LensLookup::Keep);
-        assert!(none_found.get("lensDistortionParams").is_none());
-        assert!(none_found.get("lensModel").is_none());
-        // A lens choice the editor marked pending is looked up on save.
-        let mut chosen = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
-            "lensModel": model, "lensDistortionParams": {"pending": true}});
-        resolve(&mut chosen, LensLookup::Keep);
-        assert_eq!(chosen["lensDistortionParams"], current);
-        // An export of the editor's state resolves pending parameters too.
-        let mut exported = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
-            "lensModel": model, "lensDistortionParams": {"pending": true}});
-        resolve_pending_lens(&mut exported, &exif, Some(&db), source);
-        assert_eq!(exported["lensDistortionParams"], current);
-        let mut untouched = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
-            "lensModel": "RF 28mm F2.8 (old name)", "lensDistortionParams": old_params});
-        resolve_pending_lens(&mut untouched, &exif, Some(&db), source);
-        assert_eq!(untouched["lensDistortionParams"], old_params);
-        // Pasted onto this photo, a lens choice is looked up for it.
-        let mut pasted = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
-            "lensModel": model, "lensDistortionParams": old_params});
-        assert!(chooses_lens(&serde_json::json!({"lensModel": model})));
-        assert!(!chooses_lens(&serde_json::json!({"exposure": 1.0})));
-        resolve(&mut pasted, LensLookup::Fresh);
-        assert_eq!(pasted["lensDistortionParams"], current);
-        // A lens chosen under a name the database has since extended (a
-        // preset, copied settings) finds the renamed entry and its name.
-        let mut renamed = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+        let current_name = lenses[0].get_display_name(&lenses);
+        let exif = Some(HashMap::from([(
+            "FocalLength".to_string(),
+            "28 mm".to_string(),
+        )]));
+        let mut recipe = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
             "lensModel": "RF 28mm F2.8"});
-        resolve(&mut renamed, LensLookup::Fresh);
-        assert_eq!(renamed["lensModel"], serde_json::json!(model));
-        assert_eq!(renamed["lensDistortionParams"], current);
-        // Auto lens correction detects and looks up again.
-        let mut fresh = serde_json::json!({"lensCorrectionMode": "auto"});
-        resolve(&mut fresh, LensLookup::Fresh);
-        assert_eq!(fresh["lensModel"], serde_json::json!(model));
-        assert_eq!(fresh["lensDistortionParams"], current);
+        resolve_lens_params_in_adjustments(&mut recipe, &exif, Some(&db), Path::new("/p/IMG.CR3"));
+        assert_eq!(recipe["lensModel"], serde_json::json!(current_name));
+        assert!(recipe["lensDistortionParams"].is_object());
     }
 
     #[test]

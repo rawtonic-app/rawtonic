@@ -85,7 +85,7 @@ it('does not apply auto results to the same path while its source is loading', a
   expect(useEditorStore.getState().adjustments).toBe(recipe);
 });
 
-it.each(['lens'] as const)('ignores delayed %s metadata when the user switches during its reload', async (kind) => {
+it.each(['lens', 'paste'] as const)('ignores delayed %s metadata when the user switches during its reload', async (kind) => {
   const { result } = renderHook(useEditorActions);
   act(() => {
     if (kind === 'lens') result.current.handleAutoLensCorrection(['/first.dng']);
@@ -488,95 +488,5 @@ describe('slider drag drafts', () => {
     const { adjustments } = useEditorStore.getState();
     expect([adjustments.exposure, adjustments.contrast]).toEqual([0.5, 10]);
     unregister();
-  });
-});
-
-it('pastes a lens choice without parameters, so each photo looks up its own', async () => {
-  useEditorStore.setState({ copiedAdjustments: {
-    ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'manual', lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G',
-  } });
-  useSettingsStore.setState({ appSettings: {
-    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode', 'lensMaker', 'lensModel'] },
-  } as AppSettings });
-  const { result } = renderHook(useEditorActions);
-  await act(async () => result.current.handlePasteAdjustments(['/other.dng']));
-  const paste = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
-  expect(paste?.[1]).toMatchObject({ adjustments: { lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: null } });
-});
-
-
-describe('a lens choice pasted onto the open photo', () => {
-  // Each paste waits for the previous one's batch write: settle them.
-  afterEach(async () => {
-    for (let round = 0; round < 5; round++) {
-      const open = pending.filter((r) => !r.settled);
-      if (open.length === 0) break;
-      for (const request of open) {
-        request.settled = true;
-        await act(async () => request.resolve(undefined));
-      }
-      await act(async () => {});
-    }
-  });
-  const paste = async (copied: Record<string, unknown>, keys: string[]) => {
-    useEditorStore.setState({ copiedAdjustments: { ...INITIAL_ADJUSTMENTS, ...copied } });
-    useSettingsStore.setState({ appSettings: {
-      copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: keys },
-    } as AppSettings });
-    const { result } = renderHook(useEditorActions);
-    await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
-  };
-  const found = { lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 } };
-
-  it('is committed at once with the other settings and filled in with what its save looks up', async () => {
-    await paste({ lensCorrectionMode: 'auto', contrast: 10 }, ['lensCorrectionMode', 'contrast']);
-    expect(useEditorStore.getState().adjustments).toMatchObject({
-      contrast: 10, lensCorrectionMode: 'auto', lensDistortionParams: { pending: true },
-    });
-    await finish(Invokes.ResolveLensProfile, found);
-    const request = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ResolveLensProfile);
-    expect(request?.[1]).toMatchObject({ path: '/first.dng', adjustments: { lensCorrectionMode: 'auto' } });
-    expect(useEditorStore.getState().adjustments).toMatchObject({ contrast: 10, ...found });
-  });
-
-  it('keeps edits made meanwhile and fills in nothing once the lens is switched off', async () => {
-    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
-    act(() => updateAdjustments({ exposure: 3 }));
-    await finish(Invokes.ResolveLensProfile, found);
-    expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 3, ...found });
-    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
-    act(() => updateAdjustments({ lensCorrectionMode: 'manual', lensMaker: null, lensModel: null, lensDistortionParams: null }));
-    await finish(Invokes.ResolveLensProfile, found);
-    expect(useEditorStore.getState().adjustments).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
-  });
-
-  it('fills in no camera data looked up for another CA version', async () => {
-    await paste({ lensCorrectionMode: 'camera', cameraCaVersion: 1 }, ['lensCorrectionMode', 'cameraCaVersion']);
-    act(() => updateAdjustments({ cameraCaVersion: 0 }));
-    await finish(Invokes.ResolveLensProfile, { lensMaker: null, lensModel: null, lensDistortionParams: { k1: -0.02 } });
-    expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ pending: true });
-  });
-
-  it('is not read back after the batch write, so switching it off meanwhile stays off', async () => {
-    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
-    act(() => updateAdjustments({ lensCorrectionMode: 'manual', lensMaker: null, lensModel: null, lensDistortionParams: null }));
-    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
-    await act(async () => {});
-    expect(pending.some((r) => r.command === Invokes.LoadMetadata)).toBe(false);
-    expect(useEditorStore.getState().adjustments).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
-  });
-
-  it('fills a pending entry in again when undo or redo restores it', async () => {
-    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
-    act(() => debouncedSetHistory.flush());
-    // Undone before the lookup answered: that answer is dropped.
-    act(() => useEditorStore.getState().undo());
-    await finish(Invokes.ResolveLensProfile, found);
-    expect(useEditorStore.getState().adjustments.lensDistortionParams).not.toEqual(found.lensDistortionParams);
-    // Redo brings the pending entry back: looked up again.
-    act(() => useEditorStore.getState().redo());
-    expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ pending: true });
-    await finish(Invokes.ResolveLensProfile, found);
-    expect(useEditorStore.getState().adjustments).toMatchObject(found);
   });
 });

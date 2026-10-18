@@ -215,41 +215,6 @@ describe("preset amount", () => {
     expect(next).toMatchObject({ contrast: 20, saturation: -50, exposure: 0.5 });
   });
 
-  it("commits a lens a preset's amount switches to with its parameters pending", async () => {
-    const lensPreset: UserPreset = { preset: { id: "fe50", name: "FE 50 look", adjustments: {
-      lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G", exposure: 1,
-    }, presetType: "tool" } };
-    const sigma = { lensCorrectionMode: "manual", lensMaker: "Sigma", lensModel: "35mm F1.4 DG DN | Art",
-      lensDistortionParams: { k1: -0.03 } };
-    mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? [lensPreset] : undefined));
-    useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, ...sigma } as never });
-    await renderTool();
-    fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
-    const slider = screen.getByLabelText("Preset amount");
-    const commit = () => (setAdjustments.mock.lastCall![0] as (c: Record<string, unknown>) => Record<string, unknown>)(
-      { ...INITIAL_ADJUSTMENTS, ...sigma });
-    fireEvent.change(slider, { target: { value: "80" } });
-    expect(commit()).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: { pending: true } });
-    // Back to the base's lens: its own parameters.
-    fireEvent.change(slider, { target: { value: "0" } });
-    expect(commit()).toMatchObject(sigma);
-  });
-
-  it("marks the camera's data pending when a preset's amount changes its CA version", async () => {
-    const cameraPreset: UserPreset = { preset: { id: "cam", name: "Camera data", adjustments: {
-      lensCorrectionMode: "camera", cameraCaVersion: 1,
-    }, presetType: "tool" } };
-    const v0 = { lensCorrectionMode: "camera", cameraCaVersion: 0, lensDistortionParams: { k1: -0.02 } };
-    mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? [cameraPreset] : undefined));
-    useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, ...v0 } as never });
-    await renderTool();
-    fireEvent.click(screen.getByRole("button", { name: /Camera data/ }));
-    fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "80" } });
-    const commit = (setAdjustments.mock.lastCall![0] as (c: Record<string, unknown>) => Record<string, unknown>)(
-      { ...INITIAL_ADJUSTMENTS, ...v0 });
-    expect(commit).toMatchObject({ cameraCaVersion: 1, lensDistortionParams: { pending: true } });
-  });
-
   it("offers no amount when a preset goes to several photographs", async () => {
     useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw", "/job/b.arw"] });
     await renderTool();
