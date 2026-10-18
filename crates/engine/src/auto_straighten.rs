@@ -464,10 +464,263 @@ pub fn reframe_crop(
     None
 }
 
+/// Analysis size (long side), as Upright's.
+pub const ANALYSIS_SIDE: u32 = 1400;
+
+/// What Auto straighten sets: the recipe's `rotation` (degrees) and the
+/// crop (pixels of the developed frame), and the line support it rests on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Straightened {
+    pub rotation: f64,
+    pub crop: CropRect,
+    pub support: f64,
+}
+
+/// The rotation that levels `image` (the photo as decoded, any size) under
+/// `adjustments`, analysed on the photo as developed before its fine
+/// rotation and crop: lens and perspective geometry, orientation steps and
+/// flips. Segments next to empty borders of the warp are left out (the
+/// border is a straight edge of no structure). None without enough lines.
+pub fn level_rotation(
+    image: &image::DynamicImage,
+    adjustments: &serde_json::Value,
+) -> Option<Tilt> {
+    use crate::image_processing::{
+        apply_coarse_rotation, apply_flip, apply_geometry_warp, geometry_valid_pixels,
+        get_geometry_params_from_json,
+    };
+    let (w, h) = (image.width(), image.height());
+    let scale = (ANALYSIS_SIDE as f64 / w.max(h) as f64).min(1.0);
+    let (pw, ph) = (
+        ((w as f64 * scale).round() as u32).max(1),
+        ((h as f64 * scale).round() as u32).max(1),
+    );
+    let proxy = crate::image_processing::thumbnail(image, pw, ph);
+    let steps = adjustments["orientationSteps"].as_u64().unwrap_or(0) as u8;
+    let (flip_h, flip_v) = (
+        adjustments["flipHorizontal"].as_bool().unwrap_or(false),
+        adjustments["flipVertical"].as_bool().unwrap_or(false),
+    );
+    let developed = apply_flip(
+        apply_coarse_rotation(apply_geometry_warp(&proxy, adjustments), steps),
+        flip_h,
+        flip_v,
+    )
+    .into_owned();
+    let (gray, gw, gh) = crate::upright::analysis_image(&developed, ANALYSIS_SIDE);
+    let segments =
+        crate::upright::detect_segments(&gray, gw, gh, (gw as f64).hypot(gh as f64) * 0.02);
+    // The warp's empty borders, oriented like the analysis image.
+    let params = get_geometry_params_from_json(adjustments);
+    let segments: Vec<Segment> = match geometry_valid_pixels(&params, pw, ph) {
+        None => segments,
+        Some(mask) => {
+            let mask = image::GrayImage::from_raw(pw, ph, mask.iter().map(|&v| v * 255).collect())?;
+            let mask = apply_flip(
+                apply_coarse_rotation(image::DynamicImage::ImageLuma8(mask), steps),
+                flip_h,
+                flip_v,
+            )
+            .into_owned()
+            .into_luma8();
+            let (mw, mh) = mask.dimensions();
+            let (sx, sy) = (mw as f64 / gw as f64, mh as f64 / gh as f64);
+            let near_border = |x: f64, y: f64| {
+                let (cx, cy) = ((x * sx) as i64, (y * sy) as i64);
+                (-3..=3).any(|dy| {
+                    (-3..=3).any(|dx| {
+                        let (px, py) = (cx + dx, cy + dy);
+                        px < 0
+                            || py < 0
+                            || px >= mw as i64
+                            || py >= mh as i64
+                            || mask.get_pixel(px as u32, py as u32)[0] == 0
+                    })
+                })
+            };
+            segments
+                .into_iter()
+                .filter(|s| {
+                    let (mx, my) = s.midpoint();
+                    !(near_border(s.x1, s.y1) && near_border(s.x2, s.y2) || near_border(mx, my))
+                })
+                .collect()
+        }
+    };
+    roll_tilt(&segments, gw as f64, gh as f64)
+}
+
+/// Auto straighten for a photo decoded at `source_width` × `source_height`
+/// (`analysed`: the same photo, any size): the levelling rotation and the
+/// crop reframed from the recipe's current crop (or the whole frame at the
+/// recipe's aspect ratio). The result replaces `rotation`, so a second run
+/// gives the same answer.
+pub fn straighten_recipe(
+    analysed: &image::DynamicImage,
+    source_width: u32,
+    source_height: u32,
+    adjustments: &serde_json::Value,
+) -> Option<Straightened> {
+    let tilt = level_rotation(analysed, adjustments)?;
+    let rotation = -tilt.tilt.to_degrees();
+    let rotation = (rotation * 100.0).round() / 100.0;
+    let previous = adjustments["rotation"].as_f64().unwrap_or(0.0);
+    let frame = FrameValidity::new(adjustments, source_width, source_height, rotation);
+    let (w, h) = (frame.width as f64, frame.height as f64);
+    let start =
+        serde_json::from_value::<crate::image_processing::Crop>(adjustments["crop"].clone())
+            .ok()
+            .filter(|c| c.width > 0.0 && c.height > 0.0)
+            .map(|c| CropRect {
+                x: c.x,
+                y: c.y,
+                width: c.width,
+                height: c.height,
+            })
+            .unwrap_or_else(|| {
+                // The whole frame, or the largest centred crop of the chosen ratio.
+                let ratio = adjustments["aspectRatio"]
+                    .as_f64()
+                    .filter(|r| *r > 0.0)
+                    .unwrap_or(w / h);
+                let (cw, ch) = if w / h > ratio {
+                    (h * ratio, h)
+                } else {
+                    (w, w / ratio)
+                };
+                CropRect {
+                    x: (w - cw) / 2.0,
+                    y: (h - ch) / 2.0,
+                    width: cw,
+                    height: ch,
+                }
+            });
+    let crop = reframe_crop(&frame, start, rotation - previous)?;
+    Some(Straightened {
+        rotation,
+        crop,
+        support: tilt.support,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::upright::{analysis_image, detect_segments};
+
+    /// A synthetic photo: a smooth brightness ramp (photos have continuous
+    /// histograms; the analysis equalises by rank) with dark bars along
+    /// `lines` (pixel coordinates).
+    fn drawn(width: u32, height: u32, lines: &[(f64, f64, f64, f64)]) -> image::DynamicImage {
+        let mut img = image::RgbImage::new(width, height);
+        for y in 0..height {
+            for x in 0..width {
+                let level = (90.0 + 140.0 * (x + y) as f64 / (width + height) as f64) as u8;
+                img.put_pixel(x, y, image::Rgb([level; 3]));
+                let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
+                for &(x1, y1, x2, y2) in lines {
+                    let (dx, dy) = (x2 - x1, y2 - y1);
+                    let t =
+                        (((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+                    let d = (px - x1 - t * dx).hypot(py - y1 - t * dy);
+                    if d < 2.5 {
+                        img.put_pixel(x, y, image::Rgb([40, 40, 40]));
+                    }
+                }
+            }
+        }
+        image::DynamicImage::ImageRgb8(img)
+    }
+
+    /// Building verticals of a camera rolled by `roll` (degrees, clockwise
+    /// on screen) whose vanishing point lies `distance` diagonals above the
+    /// centre (infinity: parallel), as the photo shows them.
+    fn verticals(width: f64, height: f64, roll: f64, distance: f64) -> Vec<(f64, f64, f64, f64)> {
+        let (cx, cy) = (width / 2.0, height / 2.0);
+        let (s, c) = roll.to_radians().sin_cos();
+        // Upwards on screen, turned by the roll.
+        let up = (s, -c);
+        [0.15, 0.3, 0.45, 0.6, 0.75, 0.88]
+            .iter()
+            .map(|&f| {
+                let base = (
+                    cx + (f - 0.5) * width * 0.9 * c,
+                    cy + 0.35 * height + (f - 0.5) * width * 0.9 * s,
+                );
+                let towards = if distance.is_finite() {
+                    let vp = (
+                        cx + up.0 * distance * width.hypot(height),
+                        cy + up.1 * distance * width.hypot(height),
+                    );
+                    let (dx, dy) = (vp.0 - base.0, vp.1 - base.1);
+                    let n = dx.hypot(dy);
+                    (dx / n, dy / n)
+                } else {
+                    up
+                };
+                let length = 0.7 * height;
+                (
+                    base.0,
+                    base.1,
+                    base.0 + towards.0 * length,
+                    base.1 + towards.1 * length,
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn verticals_level_the_photo_also_when_they_converge() {
+        let (w, h) = (900u32, 600u32);
+        for (roll, distance) in [
+            (3.0, f64::INFINITY),
+            (-2.0, f64::INFINITY),
+            (4.0, 3.0),
+            (-6.0, 2.0),
+        ] {
+            let image = drawn(w, h, &verticals(w as f64, h as f64, roll, distance));
+            let tilt = level_rotation(&image, &serde_json::json!({})).expect("lines found");
+            let rotation = -tilt.tilt.to_degrees();
+            assert!(
+                (rotation + roll).abs() < 0.15,
+                "roll {roll} at {distance}: {rotation}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_horizon_levels_the_photo_and_no_lines_give_no_answer() {
+        let (w, h) = (900u32, 600u32);
+        let a = 2.5f64.to_radians();
+        let horizon = [(
+            20.0,
+            300.0 - 430.0 * a.tan(),
+            880.0,
+            300.0 + 430.0 * a.tan(),
+        )];
+        let tilt =
+            level_rotation(&drawn(w, h, &horizon), &serde_json::json!({})).expect("horizon found");
+        assert!((tilt.tilt.to_degrees() - 2.5).abs() < 0.1, "{tilt:?}");
+        assert!(level_rotation(&drawn(w, h, &[]), &serde_json::json!({})).is_none());
+    }
+
+    /// A perspective correction leaves empty borders whose straight edges
+    /// are no structure; the answer stays the photo's own and repeats.
+    #[test]
+    fn empty_warp_borders_are_ignored_and_auto_repeats() {
+        let (w, h) = (900u32, 600u32);
+        let image = drawn(w, h, &verticals(w as f64, h as f64, 2.0, f64::INFINITY));
+        let recipe = serde_json::json!({"transformScale": 80.0});
+        let first = straighten_recipe(&image, w, h, &recipe).expect("straightened");
+        assert!((first.rotation + 2.0).abs() < 0.15, "{first:?}");
+        let mut again = recipe.clone();
+        again["rotation"] = serde_json::json!(first.rotation);
+        again["crop"] = serde_json::json!({"x": first.crop.x, "y": first.crop.y,
+            "width": first.crop.width, "height": first.crop.height, "unit": "px"});
+        let second = straighten_recipe(&image, w, h, &again).expect("straightened again");
+        assert_eq!(first.rotation, second.rotation);
+        assert_eq!(first.crop, second.crop);
+    }
 
     /// The reframed crop holds only photo in the real CPU render (geometry
     /// warp, orientation, flips, rotation) of a white source: every pixel
