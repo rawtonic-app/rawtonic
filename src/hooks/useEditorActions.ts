@@ -17,7 +17,6 @@ import {
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   PasteMode,
-  LensAdjustment,
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
@@ -600,10 +599,10 @@ export function useEditorActions() {
         }
       }
 
-      if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
-        if (!adjustmentsToApply.lensMaker) {
-          adjustmentsToApply.lensDistortionParams = null;
-        }
+      // A pasted lens choice brings no parameters for these photos (they are
+      // never copied): each save looks them up for its own photo.
+      if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply)) {
+        adjustmentsToApply.lensDistortionParams = null;
       }
 
       if (Object.keys(adjustmentsToApply).length === 0) {

@@ -70,6 +70,7 @@ describe("Lens correction tool", () => {
       focalLength: 85,
       aperture: 2.5,
       distance: 0,
+      path: "/job/a.arw",
     });
     expect(current).toMatchObject({
       lensMaker: "Sony",

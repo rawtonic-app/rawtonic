@@ -98,6 +98,8 @@ export default function StudioLensCorrection() {
       cameraCaVersion: CAMERA_CA_VERSION,
     }));
 
+  // With the photo's path the parameters are looked up from its EXIF as a
+  // save would (crop factor included): the save keeps what arrives.
   const params = (maker: string, model: string) =>
     invoke<Adjustments["lensDistortionParams"]>(
       Invokes.GetLensDistortionParams,
@@ -107,6 +109,7 @@ export default function StudioLensCorrection() {
         focalLength: exifNumber(exif.FocalLength),
         aperture: exifNumber(exif.FNumber),
         distance: exifNumber(exif.SubjectDistance),
+        path: selectedImage?.path ?? null,
       },
     ).catch(() => null);
 

@@ -490,3 +490,16 @@ describe('slider drag drafts', () => {
     unregister();
   });
 });
+
+it('pastes a lens choice without parameters, so each photo looks up its own', async () => {
+  useEditorStore.setState({ copiedAdjustments: {
+    ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'manual', lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G',
+  } });
+  useSettingsStore.setState({ appSettings: {
+    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode', 'lensMaker', 'lensModel'] },
+  } as AppSettings });
+  const { result } = renderHook(useEditorActions);
+  await act(async () => result.current.handlePasteAdjustments(['/other.dng']));
+  const paste = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
+  expect(paste?.[1]).toMatchObject({ adjustments: { lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: null } });
+});

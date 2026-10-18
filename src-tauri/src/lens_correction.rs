@@ -70,6 +70,9 @@ pub fn autodetect_lens(
     }
 }
 
+/// The parameters of a database lens for the editor. With the photo's `path`
+/// they come from its EXIF exactly as a save would look them up (crop factor
+/// included), so the editor's preview, the saved recipe and its export agree.
 #[tauri::command]
 pub fn get_lens_distortion_params(
     maker: String,
@@ -77,17 +80,28 @@ pub fn get_lens_distortion_params(
     focal_length: f32,
     aperture: Option<f32>,
     distance: Option<f32>,
+    path: Option<String>,
 ) -> Result<Option<LensDistortionParams>, String> {
     let db_guard = global_lens_db();
-    if let Some(db) = db_guard.as_deref() {
-        let maker_lenses = lenses_for_maker(db, &maker);
-
-        if let Some(lens) = maker_lenses
-            .iter()
-            .find(|l| l.get_display_name(&maker_lenses) == model)
-        {
-            return Ok(lens.get_distortion_params(focal_length, aperture, distance, None));
-        }
+    let Some(db) = db_guard.as_deref() else {
+        return Ok(None);
+    };
+    if let Some(path) = path {
+        let (source, sidecar) = crate::file_management::parse_virtual_path(&path);
+        let metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar, &source);
+        return Ok(crate::file_management::lens_params_for_exif(
+            db,
+            &maker,
+            &model,
+            &metadata.exif,
+        ));
+    }
+    let maker_lenses = lenses_for_maker(db, &maker);
+    if let Some(lens) = maker_lenses
+        .iter()
+        .find(|l| l.get_display_name(&maker_lenses) == model)
+    {
+        return Ok(lens.get_distortion_params(focal_length, aperture, distance, None));
     }
     Ok(None)
 }
