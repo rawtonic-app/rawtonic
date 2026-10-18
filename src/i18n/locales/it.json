@@ -2233,6 +2233,8 @@
         "title": "Gamma di luminanza"
       },
       "paintAria": "Dipingi sulla maschera",
+      "refineEdge": "Rifinisci bordo",
+      "refineEdgeTitle": "Entro questo raggio (pixel della foto intera) il bordo del livello segue quello della foto: capelli, pelo e foglie mantengono il contorno morbido",
       "select": {
         "aria": "Livello",
         "background": "Sfondo",

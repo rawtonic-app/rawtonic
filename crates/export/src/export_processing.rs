@@ -23,7 +23,7 @@ use crate::gpu_processing::{
 use crate::image_processing::{AllAdjustments, get_all_adjustments_from_json};
 use crate::lut::Lut;
 use crate::mask_generation::{
-    MaskDefinition, PhotoGeometry, generate_mask_bitmap, prepare_parametric_mask_source,
+    MaskBitmap, MaskDefinition, PhotoGeometry, generate_layer_mask, prepare_parametric_mask_source,
 };
 use crate::output_color_space::OutputColorSpace;
 
@@ -1148,10 +1148,10 @@ pub fn process_image_for_export_pipeline(
     let (photo_w, photo_h) = source.pristine.dimensions();
     let mask_geometry = PhotoGeometry::from_adjustments(js_adjustments)
         .with_photo_size(photo_w as f64, photo_h as f64);
-    let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+    let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
         .iter()
         .filter_map(|def| {
-            generate_mask_bitmap(
+            generate_layer_mask(
                 def,
                 img_w,
                 img_h,

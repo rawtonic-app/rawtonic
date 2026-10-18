@@ -4,7 +4,7 @@ import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
-import { INITIAL_MASK_CONTAINER } from "../../utils/adjustments";
+import { INITIAL_MASK_CONTAINER, MASK_VERSION } from "../../utils/adjustments";
 import { addComponentBeforeLumaRange, createSubMask } from "../../utils/maskUtils";
 import { Mask, SubMaskMode, ToolType } from "../panel/right/Masks";
 import { createComponents, type MaskKind } from "../../utils/maskKinds";
@@ -129,6 +129,7 @@ export function useStudioTools() {
         ...prev.masks,
         {
           ...structuredClone(INITIAL_MASK_CONTAINER),
+          maskVersion: MASK_VERSION,
           id,
           name: i18n.t("studio.develop.layers.defaultName", {
             number: prev.masks.length + 1,

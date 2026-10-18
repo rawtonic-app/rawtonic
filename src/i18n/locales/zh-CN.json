@@ -2128,6 +2128,8 @@
         "title": "亮度范围"
       },
       "paintAria": "在蒙版上绘制",
+      "refineEdge": "优化边缘",
+      "refineEdgeTitle": "在此半径（整张照片的像素）内，图层边缘贴合照片中的边缘：头发、毛发和树叶保持柔和轮廓",
       "select": {
         "aria": "图层",
         "background": "背景",

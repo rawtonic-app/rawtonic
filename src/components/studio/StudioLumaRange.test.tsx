@@ -129,3 +129,33 @@ describe("brush auto mask", () => {
     expect(useEditorStore.getState().brushSettings?.autoMask).toBe(true);
   });
 });
+
+describe("refine edge", () => {
+  it("sets the radius on the layer and moves it to the 16-bit mask", () => {
+    render(<StudioLayerControls />);
+    const type = (value: string) => {
+      const field = screen.getByTitle(/layer's edge follows the photo's own edge/).querySelector("input[type=text]")!;
+      fireEvent.focus(field);
+      fireEvent.change(field, { target: { value } });
+      fireEvent.blur(field);
+    };
+    type("40");
+    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: 2 });
+    type("0");
+    expect(layerOf().refineEdge).toBeUndefined();
+    expect(layerOf().maskVersion).toBe(2);
+  });
+
+  it("gives new layers the 16-bit mask and leaves older ones alone", () => {
+    let tools: ReturnType<typeof useStudioTools> | undefined;
+    const Probe = () => {
+      tools = useStudioTools();
+      return null;
+    };
+    render(<Probe />);
+    tools!.addLayer(Mask.Radial);
+    const masks = useEditorStore.getState().adjustments.masks;
+    expect(masks[0].maskVersion).toBeUndefined();
+    expect(masks[1].maskVersion).toBe(2);
+  });
+});

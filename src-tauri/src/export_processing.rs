@@ -28,7 +28,7 @@ use crate::lut_processing::{
     convert_image_to_cube_lut, generate_identity_lut_image, get_or_load_lut,
 };
 use crate::mask_generation::{
-    MaskDefinition, PhotoGeometry, generate_mask_bitmap, prepare_parametric_mask_source,
+    MaskBitmap, MaskDefinition, PhotoGeometry, generate_mask_bitmap, prepare_parametric_mask_source,
 };
 
 use crate::adjustment_utils::{apply_all_transformations, hydrate_adjustments};
@@ -328,7 +328,7 @@ fn export_masks_for_image(
             ensure_export_not_cancelled(cancellation_token)?;
             let single_adjustments = build_single_mask_adjustments(&all_adjustments, i);
             let full_white_mask = ImageBuffer::from_fn(img_w, img_h, |_, _| Luma([255u8]));
-            let single_bitmaps: Vec<Arc<image::GrayImage>> = vec![Arc::new(full_white_mask)];
+            let single_bitmaps: Vec<Arc<MaskBitmap>> = vec![Arc::new(full_white_mask.into())];
 
             let processed = process_and_get_dynamic_image_with_precision(
                 context,
@@ -1171,7 +1171,7 @@ pub async fn estimate_export_sizes(
             loaded_image.image.width() as f64,
             loaded_image.image.height() as f64,
         );
-        let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
                 get_cached_or_generate_mask(
@@ -1331,7 +1331,7 @@ pub async fn estimate_export_sizes(
             original_image.width() as f64 / raw_scale_factor as f64,
             original_image.height() as f64 / raw_scale_factor as f64,
         );
-        let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
                 get_cached_or_generate_mask(

@@ -29,7 +29,7 @@ use crate::gpu_processing::{
 };
 use crate::image_processing::{self, get_all_adjustments_from_json};
 use crate::mask_generation::{
-    MaskDefinition, ParametricMaskSource, PhotoGeometry, generate_mask_bitmap,
+    MaskBitmap, MaskDefinition, ParametricMaskSource, PhotoGeometry, generate_layer_mask,
     prepare_parametric_mask_source,
 };
 use crate::preview_cache::PreviewBase;
@@ -618,10 +618,10 @@ fn develop_rgba(
         input.facts.full_width as f64,
         input.facts.full_height as f64,
     );
-    let mask_bitmaps: Vec<Arc<image::GrayImage>> = masks
+    let mask_bitmaps: Vec<Arc<MaskBitmap>> = masks
         .iter()
         .filter_map(|def| {
-            generate_mask_bitmap(
+            generate_layer_mask(
                 def,
                 width,
                 height,

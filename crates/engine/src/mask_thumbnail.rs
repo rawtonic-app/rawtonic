@@ -153,6 +153,8 @@ pub fn component_thumbnail_definition(component: &SubMask) -> MaskDefinition {
         visible: true,
         invert: false,
         opacity: 100.0,
+        mask_version: None,
+        refine_edge: None,
         adjustments: Value::Null,
         sub_masks: vec![SubMask {
             visible: true,

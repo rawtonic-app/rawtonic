@@ -11,6 +11,7 @@ use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::image_processing::{AllAdjustments, MAX_MASKS, Point};
 use crate::lut::Lut;
+use crate::mask_generation::MaskBitmap;
 use rawtonic_engine::color_noise::{self, ChromaPyramid};
 use rayon::prelude::*;
 
@@ -910,7 +911,7 @@ pub enum ReadbackShader {
 
 pub struct RenderRequest<'a> {
     pub adjustments: rawtonic_engine::image_processing::PreparedAdjustments,
-    pub mask_bitmaps: &'a [Arc<GrayImage>],
+    pub mask_bitmaps: &'a [Arc<MaskBitmap>],
     pub lut: Option<Arc<Lut>>,
     pub roi: Option<Roi>,
 }
@@ -968,14 +969,14 @@ impl DisplayGeometry {
 /// it follows zoom and pan with the image and never crosses IPC.
 #[derive(Clone)]
 pub struct DisplayMaskOverlay {
-    pub mask: Arc<GrayImage>,
+    pub mask: Arc<MaskBitmap>,
     pub style: crate::mask_generation::OverlayStyle,
 }
 
 struct OverlayTexture {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
-    mask: Arc<GrayImage>,
+    mask: Arc<MaskBitmap>,
 }
 
 /// The split view's unedited render (the "before" side), kept on the GPU.
@@ -2554,7 +2555,9 @@ struct MaskTextureCache {
     view: wgpu::TextureView,
     width: u32,
     height: u32,
-    masks: Vec<Arc<GrayImage>>,
+    /// 16-bit layers (`MASK_WIDE_FORMAT`) rather than bytes.
+    wide: bool,
+    masks: Vec<Arc<MaskBitmap>>,
     bytes: usize,
 }
 
@@ -2566,6 +2569,40 @@ struct RelightDepthViews {
 }
 
 const MASK_CACHE_BYTES: usize = 256 * 1024 * 1024;
+
+/// Texture format of a mask array holding a 16-bit layer (`maskVersion` 2).
+/// Half floats need no optional device feature (R16Unorm does); they keep
+/// 11 significant bits, so steps are at most 1/2048 near full coverage and
+/// finer below. Byte layers in such an array are uploaded as v / 255.
+const MASK_WIDE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R16Float;
+
+/// A layer's coverage in `range` (texel indices) as half-float bits for
+/// `MASK_WIDE_FORMAT`.
+fn mask_halves(mask: &MaskBitmap, range: std::ops::Range<usize>) -> Vec<u16> {
+    static FROM_BYTE: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    static FROM_WIDE: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    match mask.wide() {
+        Some(wide) => {
+            let table = FROM_WIDE.get_or_init(|| {
+                (0..=u16::MAX)
+                    .map(|v| f16::from_f32(v as f32 / 65535.0).to_bits())
+                    .collect()
+            });
+            wide[range].par_iter().map(|v| table[*v as usize]).collect()
+        }
+        None => {
+            let table = FROM_BYTE.get_or_init(|| {
+                (0..=u8::MAX)
+                    .map(|v| f16::from_f32(v as f32 / 255.0).to_bits())
+                    .collect()
+            });
+            mask.as_raw()[range]
+                .iter()
+                .map(|v| table[*v as usize])
+                .collect()
+        }
+    }
+}
 
 /// How a frame's mask texture relates to the previous display frame's.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2592,7 +2629,7 @@ const RENDER_REGION_GROUPS_X: u32 = 256;
 /// searched byte by byte.
 const DIFFERENCE_CHUNK: usize = 32;
 
-fn first_difference(a: &[u8], b: &[u8]) -> Option<usize> {
+fn first_difference<T: PartialEq>(a: &[T], b: &[T]) -> Option<usize> {
     debug_assert_eq!(a.len(), b.len());
     let (index, (a, b)) = a
         .chunks(DIFFERENCE_CHUNK)
@@ -2603,7 +2640,7 @@ fn first_difference(a: &[u8], b: &[u8]) -> Option<usize> {
     Some(index * DIFFERENCE_CHUNK + offset)
 }
 
-fn last_difference(a: &[u8], b: &[u8]) -> Option<usize> {
+fn last_difference<T: PartialEq>(a: &[T], b: &[T]) -> Option<usize> {
     debug_assert_eq!(a.len(), b.len());
     let (index, (chunk_a, chunk_b)) = a
         .rchunks(DIFFERENCE_CHUNK)
@@ -2687,15 +2724,54 @@ fn add_changed_mask_bands(
     bands: &mut [Option<Roi>],
 ) -> Option<(u32, u32)> {
     debug_assert_eq!(previous.dimensions(), current.dimensions());
-    let width = current.width() as usize;
+    add_changed_bands(
+        previous.as_raw(),
+        current.as_raw(),
+        current.width() as usize,
+        bands,
+    )
+}
+
+/// `add_changed_mask_bands` for two layers' masks: their 16-bit coverage
+/// when both have it, every row when only one has.
+fn add_changed_layer_bands(
+    previous: &MaskBitmap,
+    current: &MaskBitmap,
+    bands: &mut [Option<Roi>],
+) -> Option<(u32, u32)> {
+    match (previous.wide(), current.wide()) {
+        (None, None) => add_changed_mask_bands(previous, current, bands),
+        (Some(old), Some(new)) => add_changed_bands(old, new, current.width() as usize, bands),
+        _ => {
+            let (width, height) = current.dimensions();
+            let all = |y: u32| Roi {
+                x: 0,
+                y,
+                width,
+                height: 1,
+            };
+            for y in 0..height {
+                let band = &mut bands[y as usize / DIRTY_BAND_ROWS];
+                *band = Some(union_roi(*band, all(y)));
+            }
+            (height > 0).then_some((0, height))
+        }
+    }
+}
+
+fn add_changed_bands<T: PartialEq>(
+    previous: &[T],
+    current: &[T],
+    width: usize,
+    bands: &mut [Option<Roi>],
+) -> Option<(u32, u32)> {
     if width == 0 {
         return None;
     }
     let mut rows_changed: Option<(u32, u32)> = None;
     let rows = previous
-        .as_raw()
         .chunks_exact(width)
-        .zip(current.as_raw().chunks_exact(width));
+        .zip(current.chunks_exact(width));
     for (y, (old_row, new_row)) in rows.enumerate() {
         // Slice equality is a vectorized memcmp; only differing rows are searched.
         if old_row == new_row {
@@ -4128,7 +4204,13 @@ impl GpuProcessor {
         Ok(view)
     }
 
-    fn create_mask_texture(&self, width: u32, height: u32, layers: u32) -> wgpu::Texture {
+    fn create_mask_texture(
+        &self,
+        width: u32,
+        height: u32,
+        layers: u32,
+        wide: bool,
+    ) -> wgpu::Texture {
         self.context
             .device
             .create_texture(&wgpu::TextureDescriptor {
@@ -4141,27 +4223,46 @@ impl GpuProcessor {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                // GrayImage uploads below contain one unorm byte per texel.
-                format: wgpu::TextureFormat::R8Unorm,
+                // One unorm byte per texel, or a half float for 16-bit masks.
+                format: if wide {
+                    MASK_WIDE_FORMAT
+                } else {
+                    wgpu::TextureFormat::R8Unorm
+                },
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             })
     }
 
-    fn upload_mask_layer(&self, texture: &wgpu::Texture, layer: usize, mask: &GrayImage) {
-        self.upload_mask_rows(texture, layer, mask, 0, mask.height());
+    fn upload_mask_layer(
+        &self,
+        texture: &wgpu::Texture,
+        layer: usize,
+        mask: &MaskBitmap,
+        wide: bool,
+    ) {
+        self.upload_mask_rows(texture, layer, mask, 0, mask.height(), wide);
     }
 
     fn upload_mask_rows(
         &self,
         texture: &wgpu::Texture,
         layer: usize,
-        mask: &GrayImage,
+        mask: &MaskBitmap,
         first_row: u32,
         rows: u32,
+        wide: bool,
     ) {
         let width = mask.width();
         let start = first_row as usize * width as usize;
+        let range = start..start + rows as usize * width as usize;
+        let halves;
+        let (data, texel_bytes) = if wide {
+            halves = mask_halves(mask, range);
+            (bytemuck::cast_slice::<u16, u8>(&halves), 2)
+        } else {
+            (&mask.as_raw()[range], 1)
+        };
         self.context.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture,
@@ -4173,10 +4274,10 @@ impl GpuProcessor {
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &mask.as_raw()[start..start + rows as usize * width as usize],
+            data,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(width),
+                bytes_per_row: Some(width * texel_bytes),
                 rows_per_image: Some(rows),
             },
             wgpu::Extent3d {
@@ -4189,19 +4290,13 @@ impl GpuProcessor {
         {
             self.mask_upload_layers
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            self.mask_upload_bytes.fetch_add(
-                width as usize * rows as usize,
-                std::sync::atomic::Ordering::Relaxed,
-            );
+            self.mask_upload_bytes
+                .fetch_add(data.len(), std::sync::atomic::Ordering::Relaxed);
         }
         #[cfg(feature = "performance-profiling")]
         MASK_UPLOAD_COUNTS.with(|counts| {
             let (layers, rows_sum, bytes) = counts.get();
-            counts.set((
-                layers + 1,
-                rows_sum + rows as usize,
-                bytes + width as usize * rows as usize,
-            ));
+            counts.set((layers + 1, rows_sum + rows as usize, bytes + data.len()));
         });
     }
 
@@ -4218,7 +4313,7 @@ impl GpuProcessor {
         &self,
         width: u32,
         height: u32,
-        masks: &[Arc<GrayImage>],
+        masks: &[Arc<MaskBitmap>],
         output_to_display: bool,
         force_full_preparation: bool,
     ) -> Result<(wgpu::TextureView, MaskTextureUpdate), String> {
@@ -4254,8 +4349,12 @@ impl GpuProcessor {
         }
 
         let layer_count = masks.len().max(2);
+        // One 16-bit layer makes the whole array half floats; without one the
+        // array stays bytes, as before 16-bit masks.
+        let wide = masks.iter().any(|mask| mask.wide().is_some());
         let layer_bytes = (width as usize)
             .checked_mul(height as usize)
+            .and_then(|texels| texels.checked_mul(if wide { 2 } else { 1 }))
             .ok_or_else(|| "Mask texture dimensions exceed addressable memory.".to_string())?;
         let texture_bytes = layer_bytes
             .checked_mul(layer_count)
@@ -4271,7 +4370,12 @@ impl GpuProcessor {
         if force_full_preparation || force_mask_upload {
             let mut data = Vec::with_capacity(texture_bytes);
             for mask in masks {
-                data.extend_from_slice(mask.as_raw());
+                if wide {
+                    let texels = mask.as_raw().len();
+                    data.extend_from_slice(bytemuck::cast_slice(&mask_halves(mask, 0..texels)));
+                } else {
+                    data.extend_from_slice(mask.as_raw());
+                }
             }
             data.resize(texture_bytes, 0);
             let texture = self.context.device.create_texture_with_data(
@@ -4286,7 +4390,11 @@ impl GpuProcessor {
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R8Unorm,
+                    format: if wide {
+                        MASK_WIDE_FORMAT
+                    } else {
+                        wgpu::TextureFormat::R8Unorm
+                    },
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                     view_formats: &[],
                 },
@@ -4310,7 +4418,7 @@ impl GpuProcessor {
         #[cfg(not(test))]
         let budget = MASK_CACHE_BYTES;
         let retained_bytes = masks.iter().try_fold(texture_bytes, |bytes, mask| {
-            bytes.checked_add(mask.as_raw().len())
+            bytes.checked_add(mask.byte_len())
         });
 
         // Readback jobs use transient textures and cannot evict the foreground
@@ -4319,9 +4427,9 @@ impl GpuProcessor {
             if output_to_display {
                 *self.mask_cache.lock().unwrap_or_else(|e| e.into_inner()) = None;
             }
-            let texture = self.create_mask_texture(width, height, layer_count as u32);
+            let texture = self.create_mask_texture(width, height, layer_count as u32, wide);
             for (index, mask) in masks.iter().enumerate() {
-                self.upload_mask_layer(&texture, index, mask);
+                self.upload_mask_layer(&texture, index, mask, wide);
             }
             return Ok((
                 texture.create_view(&view_descriptor),
@@ -4332,15 +4440,18 @@ impl GpuProcessor {
         let retained_bytes = retained_bytes.unwrap();
         let mut cache = self.mask_cache.lock().unwrap_or_else(|e| e.into_inner());
         let matches_geometry = cache.as_ref().is_some_and(|cache| {
-            cache.width == width && cache.height == height && cache.masks.len() == masks.len()
+            cache.width == width
+                && cache.height == height
+                && cache.wide == wide
+                && cache.masks.len() == masks.len()
         });
         if !matches_geometry {
             // Actual mask count is part of the identity, including 2 -> 1 when
             // allocation depth stays at two: the unused layer must become zero.
             *cache = None;
-            let texture = self.create_mask_texture(width, height, layer_count as u32);
+            let texture = self.create_mask_texture(width, height, layer_count as u32, wide);
             for (index, mask) in masks.iter().enumerate() {
-                self.upload_mask_layer(&texture, index, mask);
+                self.upload_mask_layer(&texture, index, mask, wide);
             }
             let view = texture.create_view(&view_descriptor);
             *cache = Some(MaskTextureCache {
@@ -4348,6 +4459,7 @@ impl GpuProcessor {
                 view,
                 width,
                 height,
+                wide,
                 masks: masks.to_vec(),
                 bytes: retained_bytes,
             });
@@ -4364,9 +4476,9 @@ impl GpuProcessor {
             // A brush stroke usually changes a small part of one layer: upload
             // only its rows and report the pixels a display frame must redo.
             if let Some((top, bottom)) =
-                add_changed_mask_bands(&cache.masks[index], mask, &mut bands)
+                add_changed_layer_bands(&cache.masks[index], mask, &mut bands)
             {
-                self.upload_mask_rows(&cache.texture, index, mask, top, bottom - top);
+                self.upload_mask_rows(&cache.texture, index, mask, top, bottom - top, wide);
             }
             cache.masks[index] = Arc::clone(mask);
         }
@@ -6229,20 +6341,9 @@ fn render_in_windows(
             *window,
             INPUT_UPLOAD_BAND_ROWS,
         )?;
-        let window_masks: Vec<Arc<GrayImage>> = masks
+        let window_masks: Vec<Arc<MaskBitmap>> = masks
             .iter()
-            .map(|mask| {
-                Arc::new(
-                    image::imageops::crop_imm(
-                        mask.as_ref(),
-                        window.x,
-                        window.y,
-                        window.width,
-                        window.height,
-                    )
-                    .to_image(),
-                )
-            })
+            .map(|mask| Arc::new(mask.crop(window.x, window.y, window.width, window.height)))
             .collect();
         let input_view = texture.create_view(&Default::default());
         let mut adjustments = request.adjustments.clone();

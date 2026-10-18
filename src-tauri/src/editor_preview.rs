@@ -35,7 +35,7 @@ use crate::mask_generation::MaskDefinition;
 use crate::mask_generation::get_cached_or_generate_mask;
 use crate::mask_generation::prepare_parametric_mask_source;
 use crate::mask_generation::resolve_warped_image_for_masks;
-use crate::mask_generation::{PhotoGeometry, generate_mask_bitmap};
+use crate::mask_generation::{MaskBitmap, PhotoGeometry, generate_layer_mask};
 use crate::preview_cache;
 use base64::Engine as _;
 use base64::engine::general_purpose;
@@ -1008,7 +1008,7 @@ pub(crate) fn process_preview_job(
         display.next_frame_uncropped = crop_edit;
         display.next_frame_split_key = split_frame_key(&loaded_image.path, &adjustments_clone);
     }
-    let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+    let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
         .iter()
         .filter_map(|def| {
             get_cached_or_generate_mask(
@@ -1936,7 +1936,7 @@ pub(crate) async fn generate_uncropped_preview(
                 loaded_image.image.width() as f64,
                 loaded_image.image.height() as f64,
             );
-        let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
                 get_cached_or_generate_mask(
@@ -2069,10 +2069,10 @@ pub(crate) async fn generate_preview_for_path(
             pristine_source.width() as f64,
             pristine_source.height() as f64,
         );
-        let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
-                generate_mask_bitmap(
+                generate_layer_mask(
                     def,
                     img_w,
                     img_h,

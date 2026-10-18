@@ -953,6 +953,8 @@ fn composite_ai_patches_at(
                     visible: true,
                     invert: patch_info.invert,
                     opacity: 100.0,
+                    mask_version: None,
+                    refine_edge: None,
                     adjustments: Value::Null,
                     sub_masks: patch_info.sub_masks,
                 };

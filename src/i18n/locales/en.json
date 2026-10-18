@@ -2174,6 +2174,8 @@
         "title": "Luma range"
       },
       "paintAria": "Paint on the mask",
+      "refineEdge": "Refine edge",
+      "refineEdgeTitle": "Within this radius (pixels of the full photo) the layer's edge follows the photo's own edge: hair, fur and leaves keep their soft outline",
       "select": {
         "aria": "Layer",
         "background": "Background",

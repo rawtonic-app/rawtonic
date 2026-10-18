@@ -2174,6 +2174,8 @@
         "title": "Luminanzbereich"
       },
       "paintAria": "Auf die Maske malen",
+      "refineEdge": "Kante verfeinern",
+      "refineEdgeTitle": "In diesem Radius (Pixel des ganzen Fotos) folgt die Kante der Ebene der Kante im Foto: Haare, Fell und Blätter behalten ihren weichen Umriss",
       "select": {
         "aria": "Ebene",
         "background": "Hintergrund",

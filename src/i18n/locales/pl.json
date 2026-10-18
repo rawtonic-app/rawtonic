@@ -2296,6 +2296,8 @@
         "title": "Zakres luminancji"
       },
       "paintAria": "Maluj na masce",
+      "refineEdge": "Popraw krawędź",
+      "refineEdgeTitle": "W tym promieniu (piksele całego zdjęcia) krawędź warstwy podąża za krawędzią na zdjęciu: włosy, sierść i liście zachowują miękki kontur",
       "select": {
         "aria": "Warstwa",
         "background": "Tło",

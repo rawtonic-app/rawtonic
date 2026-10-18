@@ -2233,6 +2233,8 @@
         "title": "Rang de luminància"
       },
       "paintAria": "Pinta a la màscara",
+      "refineEdge": "Refina la vora",
+      "refineEdgeTitle": "Dins d'aquest radi (píxels de la foto sencera) la vora de la capa segueix la de la foto: cabells, pelatge i fulles mantenen el contorn suau",
       "select": {
         "aria": "Capa",
         "background": "Fons",

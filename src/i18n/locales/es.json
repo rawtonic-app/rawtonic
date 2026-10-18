@@ -2233,6 +2233,8 @@
         "title": "Rango de luminancia"
       },
       "paintAria": "Pintar en la máscara",
+      "refineEdge": "Refinar borde",
+      "refineEdgeTitle": "Dentro de este radio (píxeles de la foto completa) el borde de la capa sigue el de la foto: pelo, pelaje y hojas conservan su contorno suave",
       "select": {
         "aria": "Capa",
         "background": "Fondo",

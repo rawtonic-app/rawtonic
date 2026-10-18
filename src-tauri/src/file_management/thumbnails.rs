@@ -20,9 +20,9 @@ use crate::image_processing::apply_geometry_warp;
 use crate::image_processing::apply_rotation;
 use crate::image_processing::get_all_adjustments_from_json;
 use crate::load_settings;
-use crate::mask_generation::MaskDefinition;
 use crate::mask_generation::ParametricMaskSource;
 use crate::mask_generation::prepare_parametric_mask_source;
+use crate::mask_generation::{MaskBitmap, MaskDefinition};
 use anyhow::Result;
 use image::DynamicImage;
 use image::GenericImageView;
@@ -471,7 +471,7 @@ pub fn generate_thumbnail_data(
                     base_w as f64 / total_scale as f64,
                     base_h as f64 / total_scale as f64,
                 );
-        let mask_bitmaps: Vec<Arc<image::GrayImage>> = mask_definitions
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
             .iter()
             .filter_map(|def| {
                 crate::mask_generation::get_cached_or_generate_mask(

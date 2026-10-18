@@ -7,6 +7,7 @@ import { featherOf, type RadialParams } from "../../utils/radialMask";
 import AdjustmentControl from "./AdjustmentControl";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 import { createSubMask, DEFAULT_LUMA_RANGE } from "../../utils/maskUtils";
+import { MASK_VERSION } from "../../utils/adjustments";
 import { Mask } from "../panel/right/Masks";
 import {
   BRUSH_SIZE_MAX,
@@ -90,6 +91,34 @@ export default function StudioLayerControls({
             }))
           }
         />
+      )}
+      {!brushOnly && (
+        // Capture One's Refine Mask: near its edge the layer follows the
+        // photo's own edges (notes: reference/local-masks-baseline.md "WP5").
+        // It needs the 16-bit mask, so it moves an older layer to version 2.
+        <div title={t("studio.layers.refineEdgeTitle")}>
+          <AdjustmentControl
+            label={t("studio.layers.refineEdge")}
+            min={0}
+            max={200}
+            unit="px"
+            value={layer.refineEdge ?? 0}
+            defaultValue={0}
+            onInteraction={onInteraction}
+            onChange={(radius) =>
+              setAdjustments((prev) => ({
+                ...prev,
+                masks: prev.masks.map((m) => {
+                  if (m.id !== layer.id) return m;
+                  const { refineEdge: _old, ...rest } = m;
+                  return radius > 0
+                    ? { ...rest, maskVersion: MASK_VERSION, refineEdge: radius }
+                    : rest;
+                }),
+              }))
+            }
+          />
+        </div>
       )}
       {radialMask && (
         // Capture One sets a radial gradient's feathering on the canvas; the
