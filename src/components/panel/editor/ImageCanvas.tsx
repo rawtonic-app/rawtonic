@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Adjustments, Coord, MaskContainer, GuideLine, GuideOrientation } from '../../../utils/adjustments';
 import type { LiveStroke } from '../../../utils/liveMaskRender';
 import { AUTO_MASK_VERSION } from '../../../utils/autoMaskUpgrade';
+import { autoMaskPrewarmPath } from '../../../utils/autoMaskPrewarm';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
 import { RenderSize } from '../../../hooks/useImageRenderSize';
@@ -1585,14 +1586,13 @@ const ImageCanvas = memo(
     // develop. Building it (~0.3 s for 40 MP) delayed the first stroke's first
     // dab; while the layers panel is open with Auto Mask on, the backend builds
     // it in the background (same pixels, only earlier).
-    const warmAutoMaskSource = Boolean(isMasking && brushSettings?.autoMask && selectedImage?.isReady);
-    const warmPath = selectedImage?.path;
+    const warmPath = autoMaskPrewarmPath(isMasking, brushSettings?.autoMask, selectedImage);
     useEffect(() => {
-      if (!warmAutoMaskSource || !warmPath) return;
+      if (!warmPath) return;
       // The layers do not change the source; the rest of the recipe keys it.
       const jsAdjustments = { ...useEditorStore.getState().adjustments, masks: [] };
       invoke(Invokes.PrewarmMaskSource, { path: warmPath, jsAdjustments }).catch(() => {});
-    }, [warmAutoMaskSource, warmPath]);
+    }, [warmPath]);
 
     // Capture One's brush cursor: the inner ring is the brush size (50%
     // coverage), the outer one where the soft edge ends, r(1 + s) for softness
