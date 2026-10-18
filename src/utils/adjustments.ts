@@ -439,8 +439,9 @@ export interface Adjustments {
   /** AI Denoise of the RAW mosaic, 0 … 100 (applied when the photo is developed). */
   aiDenoise?: number;
   /** How AI Denoise reads its amount (crates/engine/src/image_loader.rs
-   * `ai_denoise_settings`): 2 = 50 has Camera Raw Denoise's default effect,
-   * faster model; missing = 1 (recipes from before it). */
+   * `ai_denoise_settings`): 2 = 50 has about Camera Raw Denoise's default
+   * effect; 3 = the same on the faster model; missing = 1 (recipes from
+   * before it). */
   aiDenoiseVersion?: number;
   blacks: number;
   brightness: number;

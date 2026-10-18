@@ -45,7 +45,7 @@ pub struct FileExporter {
     processor: Mutex<Option<GpuProcessorState>>,
     image_cache: Mutex<Option<GpuImageCache>>,
     /// For recipes with AI Denoise; without it such exports fail.
-    /// AI Denoise's denoisers by `aiDenoiseVersion` (index 0: version 1).
+    /// AI Denoise's denoisers by model (`AiDenoiseSettings::model`).
     mosaic_denoisers: [Option<Arc<dyn MosaicDenoiser>>; 2],
 }
 
@@ -71,13 +71,10 @@ impl FileExporter {
         })
     }
 
-    /// The denoiser for recipes with AI Denoise (`aiDenoise` > 0) of
-    /// `version` (`aiDenoiseVersion`, `ai_denoise_settings`).
-    pub fn with_mosaic_denoiser(mut self, version: u8, denoiser: Arc<dyn MosaicDenoiser>) -> Self {
-        if let Some(slot) = self
-            .mosaic_denoisers
-            .get_mut(version.saturating_sub(1) as usize)
-        {
+    /// The denoiser for recipes with AI Denoise (`aiDenoise` > 0) whose
+    /// version runs `model` (`AiDenoiseSettings::model`).
+    pub fn with_mosaic_denoiser(mut self, model: usize, denoiser: Arc<dyn MosaicDenoiser>) -> Self {
+        if let Some(slot) = self.mosaic_denoisers.get_mut(model) {
             *slot = Some(denoiser);
         }
         self
@@ -95,14 +92,12 @@ impl FileExporter {
         // clean-up (skipped for the multi-scale filter).
         let mut base = job.base.clone().for_recipe(&js_adjustments, is_raw);
         if let Some(ai) = ai_denoise_settings(&js_adjustments).filter(|_| is_raw) {
-            let denoiser = self.mosaic_denoisers[ai.version as usize - 1]
-                .clone()
-                .ok_or_else(|| {
-                    format!(
-                        "{} uses AI Denoise, but the denoising model is not available",
-                        job.source.display()
-                    )
-                })?;
+            let denoiser = self.mosaic_denoisers[ai.model()].clone().ok_or_else(|| {
+                format!(
+                    "{} uses AI Denoise, but the denoising model is not available",
+                    job.source.display()
+                )
+            })?;
             base.mosaic_denoise =
                 Some(MosaicDenoise::new(denoiser, ai.blend).with_noise_scale(ai.noise_scale));
         }

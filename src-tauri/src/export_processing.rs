@@ -162,7 +162,7 @@ pub(crate) fn load_export_base_image(
 ) -> Result<DynamicImage, String> {
     let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
     let denoise = if let Some(ai) = ai {
-        let denoiser = state.ai_denoiser.lock().unwrap()[usize::from(ai.version) - 1]
+        let denoiser = state.ai_denoiser.lock().unwrap()[ai.model()]
             .clone()
             .ok_or_else(|| {
                 format!(
@@ -210,15 +210,15 @@ pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(
     app_handle: &tauri::AppHandle,
     recipes: impl IntoIterator<Item = V>,
 ) {
-    let versions: std::collections::BTreeSet<u8> = recipes
+    let models: std::collections::BTreeSet<usize> = recipes
         .into_iter()
         .filter_map(|adjustments| {
             rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow())
-                .map(|ai| ai.version)
+                .map(|ai| ai.model())
         })
         .collect();
-    for version in versions {
-        if let Err(e) = crate::ai_denoise::denoiser(app_handle, version).await {
+    for model in models {
+        if let Err(e) = crate::ai_denoise::denoiser(app_handle, model).await {
             log::warn!("AI Denoise unavailable for this export: {e}");
         }
     }

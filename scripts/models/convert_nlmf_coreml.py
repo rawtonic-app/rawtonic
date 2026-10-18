@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Convert Nonlocal MatchFilter (MIT) into the mixed-precision Core ML
-program AI Denoise version 2 runs on macOS.
+program AI Denoise version 3 runs on macOS.
 
 The authors' raw-noise checkpoint (MIA-UIB/nonlocal-matchfilter release
 v1.0.0, rawnoise_25_15_9nbr.ckpt, SHA-256 pinned) in the pure-PyTorch form
