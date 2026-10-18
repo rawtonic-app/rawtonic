@@ -215,6 +215,31 @@ describe("preset amount", () => {
     expect(next).toMatchObject({ contrast: 20, saturation: -50, exposure: 0.5 });
   });
 
+  it("looks up the lens a preset's amount chooses for the open photo", async () => {
+    const lensPreset: UserPreset = { preset: { id: "fe50", name: "FE 50 look", adjustments: {
+      lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G",
+    }, presetType: "tool" } };
+    const params = { k1: 0.01, k2: 0, k3: 0, model: 1, tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0 };
+    mockInvoke.mockImplementation(async (command) =>
+      command === "load_presets" ? [lensPreset] : command === "get_lens_distortion_params" ? params : undefined);
+    useEditorStore.setState({
+      selectedImage: { path: "/job/a.arw", isReady: true, exif: { FocalLength: "50.0 mm", FNumber: "2.5" } } as never,
+      adjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: "manual", lensMaker: "Sigma",
+        lensModel: "35mm F1.4 DG DN | Art", lensDistortionParams: { ...params, k1: -0.03 } },
+    });
+    await renderTool();
+    fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
+    fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "80" } });
+    await act(async () => {});
+    expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", expect.objectContaining({
+      maker: "Sony", model: "FE 50mm f/2.5 G", path: "/job/a.arw",
+    }));
+    const patch = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
+    const now = { lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G",
+      lensDistortionParams: { ...params, k1: -0.03 } };
+    expect(patch(now)).toMatchObject({ lensDistortionParams: params });
+  });
+
   it("offers no amount when a preset goes to several photographs", async () => {
     useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw", "/job/b.arw"] });
     await renderTool();

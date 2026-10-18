@@ -503,3 +503,21 @@ it('pastes a lens choice without parameters, so each photo looks up its own', as
   const paste = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
   expect(paste?.[1]).toMatchObject({ adjustments: { lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: null } });
 });
+
+it('looks up a lens choice pasted onto the open photo for it', async () => {
+  useEditorStore.setState({
+    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'auto' },
+    selectedImage: { ...photo('/first.dng'), exif: { Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4', FocalLength: '50.0 mm' } },
+  });
+  useSettingsStore.setState({ appSettings: {
+    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode'] },
+  } as AppSettings });
+  const { result } = renderHook(useEditorActions);
+  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
+  await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
+  await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
+  expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.GetLensDistortionParams, expect.objectContaining({ path: '/first.dng' }));
+  expect(useEditorStore.getState().adjustments).toMatchObject({
+    lensCorrectionMode: 'auto', lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 },
+  });
+});

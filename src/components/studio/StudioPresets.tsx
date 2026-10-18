@@ -11,7 +11,8 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
-import { withAiDenoiseVersion, withGrainStructure } from "../../utils/adjustments";
+import { withAiDenoiseVersion, withGrainStructure, type Adjustments } from "../../utils/adjustments";
+import { lensChoice, lookUpLensProfile } from "../../utils/lensProfile";
 
 type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
 
@@ -201,6 +202,20 @@ export default function StudioPresets() {
       value / 100,
     );
     setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
+    // The base's lens parameters belong to its lens choice; another one is
+    // looked up for this photo (saves keep the parameters they get).
+    const next = { ...amount.base, ...blended } as Partial<Adjustments>;
+    if (selectedImage && lensChoice(next) !== lensChoice(amount.base as Partial<Adjustments>)) {
+      const path = selectedImage.path;
+      void lookUpLensProfile(path, selectedImage.exif ?? {}, next)
+        .then((lens) => {
+          if (!lens || useEditorStore.getState().selectedImage?.path !== path) return;
+          setAdjustments((current) =>
+            lensChoice(current) === lensChoice(next) ? { ...current, ...lens } : current,
+          );
+        })
+        .catch(() => {});
+    }
   };
   const exportPreset = async (preset: Preset) => {
     const path = await save({

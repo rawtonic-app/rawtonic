@@ -27,34 +27,28 @@ use tauri::AppHandle;
 use tauri::Manager;
 
 /// How a save treats the lens parameters it carries.
-pub enum LensLookup<'a> {
-    /// The editor's or a batch edit's recipe: parameters that arrive are kept
-    /// — the editor got them for this photo from the database
-    /// (`get_lens_distortion_params` with its path), from its saved recipe
-    /// or from its history (undo) — so a Lensfun update, a renamed lens or a
-    /// re-measured profile, reaches a saved edit only through a new lens
-    /// choice. Missing parameters are looked up, except a saved "no profile
-    /// found" (same lens choice saved without parameters), which stays until
-    /// the lens is chosen or detected again. `previous`: the photo's recipe
-    /// as saved before this edit.
-    Keep { previous: Option<&'a Value> },
-    /// Looked up again in the current database (Auto lens correction).
+pub enum LensLookup {
+    /// The editor's recipe: its lens parameters, or their absence, are kept
+    /// exactly as they arrive. The editor looks them up itself whenever the
+    /// lens choice changes (lens tool, paste, preset, preset amount), from
+    /// the photo's EXIF as a lookup here would; everything else it saves —
+    /// an unrelated edit, an undo — carries the parameters the photo had.
+    /// So a Lensfun update (a renamed lens, a re-measured profile, a newly
+    /// covered lens) reaches a saved edit only through a new lens choice.
+    Keep,
+    /// Looked up in the current database: Auto lens correction, and a lens
+    /// choice pasted or synced from another photo (its parameters belong to
+    /// that photo).
     Fresh,
 }
 
-fn has_lens_params(recipe: &Value) -> bool {
-    recipe
-        .get("lensDistortionParams")
-        .is_some_and(|params| !params.is_null())
-}
-
-fn same_lens_choice(a: &Value, b: &Value) -> bool {
-    ["lensCorrectionMode", "lensMaker", "lensModel"]
-        .iter()
-        .all(|key| {
-            let value = |recipe: &Value| recipe.get(*key).filter(|v| !v.is_null()).cloned();
-            value(a) == value(b)
-        })
+/// Whether pasted, synced or preset adjustments choose a lens.
+fn chooses_lens(pasted: &Value) -> bool {
+    pasted.as_object().is_some_and(|pasted| {
+        ["lensCorrectionMode", "lensMaker", "lensModel"]
+            .iter()
+            .any(|key| pasted.contains_key(*key))
+    })
 }
 
 /// The parameters of a database lens for a photo with `exif`: its focal
@@ -120,15 +114,7 @@ pub fn resolve_lens_params_in_adjustments(
     lens_db: Option<&crate::lens_correction::LensDatabase>,
     source: &Path,
 ) {
-    let keep = match lookup {
-        LensLookup::Keep { previous } => {
-            has_lens_params(adjustments)
-                || previous.is_some_and(|previous| {
-                    !has_lens_params(previous) && same_lens_choice(adjustments, previous)
-                })
-        }
-        LensLookup::Fresh => false,
-    };
+    let keep = matches!(lookup, LensLookup::Keep);
     if let Some(map) = adjustments.as_object_mut() {
         let mode = map
             .get("lensCorrectionMode")
@@ -251,9 +237,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
         let lens_db_guard = crate::lens_correction::global_lens_db();
         resolve_lens_params_in_adjustments(
             &mut final_adjustments,
-            LensLookup::Keep {
-                previous: Some(&metadata.adjustments),
-            },
+            LensLookup::Keep,
             &metadata.exif,
             lens_db_guard.as_deref(),
             &source_path,
@@ -532,22 +516,16 @@ pub async fn apply_adjustments_to_paths(
                     size,
                 );
 
-                // A pasted lens choice (or a preset's) brings no parameters
-                // of this photo: look them up for it.
-                if let Some(pasted) = adjustments.as_object()
-                    && ["lensCorrectionMode", "lensMaker", "lensModel"]
-                        .iter()
-                        .any(|key| pasted.contains_key(*key))
-                    && !pasted.contains_key("lensDistortionParams")
-                    && let Some(map) = new_adjustments.as_object_mut()
-                {
-                    map.remove("lensDistortionParams");
-                }
+                // A pasted lens choice (or a preset's) is looked up for this
+                // photo: its parameters belong to the photo copied from.
+                let lookup = if chooses_lens(adjustments) {
+                    LensLookup::Fresh
+                } else {
+                    LensLookup::Keep
+                };
                 resolve_lens_params_in_adjustments(
                     &mut new_adjustments,
-                    LensLookup::Keep {
-                        previous: Some(&previous),
-                    },
+                    lookup,
                     &existing_metadata.exif,
                     lens_db.as_deref(),
                     source_path,
@@ -1007,10 +985,11 @@ mod tests {
         forget(&path);
     }
 
-    /// A Lensfun update that renames a lens or re-measures its profile
-    /// reaches a saved edit only through a new lens choice: parameters that
-    /// arrive (unrelated edit, undo) are kept, a saved "no profile found"
-    /// stays, missing parameters and Auto lens correction are looked up.
+    /// A Lensfun update that renames a lens, re-measures its profile or
+    /// newly covers it reaches a saved edit only through a new lens choice:
+    /// an editor save keeps the parameters, or their absence, as they arrive
+    /// (unrelated edit, undo to either); a pasted lens choice and Auto lens
+    /// correction are looked up for the photo.
     #[test]
     fn a_saved_edit_keeps_its_lens_profile_across_database_updates() {
         use crate::lens_correction::{lenses_for_maker, load_lensfun_dir};
@@ -1038,67 +1017,32 @@ mod tests {
         let resolve = |recipe: &mut Value, lookup: LensLookup| {
             resolve_lens_params_in_adjustments(recipe, lookup, &exif, Some(&db), source)
         };
-        // Saved with an older database: its own numbers, a name since renamed.
+        // Saved with an older database: its own numbers, a name since renamed
+        // (an unrelated edit, or an undo back to it).
         let old_params = serde_json::json!({"k1": 0.02, "k2": -0.08, "k3": 0.05, "model": 1,
             "tca_vr": 1, "tca_vb": 1, "vig_k1": 0, "vig_k2": 0, "vig_k3": 0});
-        let saved = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
-            "lensModel": "RF 28mm F2.8 (old name)", "lensDistortionParams": old_params});
-        let mut edit = saved.clone();
-        edit["exposure"] = serde_json::json!(0.3);
-        resolve(
-            &mut edit,
-            LensLookup::Keep {
-                previous: Some(&saved),
-            },
-        );
+        let mut edit = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": "RF 28mm F2.8 (old name)", "lensDistortionParams": old_params,
+            "exposure": 0.3});
+        resolve(&mut edit, LensLookup::Keep);
         assert_eq!(edit["lensDistortionParams"], old_params);
-        // Correction switched off and saved, then undone: the history's
-        // parameters come back although the name is gone.
-        let off = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": null,
-            "lensModel": null, "lensDistortionParams": null});
-        let mut undone = saved.clone();
-        resolve(
-            &mut undone,
-            LensLookup::Keep {
-                previous: Some(&off),
-            },
-        );
-        assert_eq!(undone["lensDistortionParams"], old_params);
-        // A saved "no profile found" stays so after the database learns the lens.
-        let none_found = serde_json::json!({"lensCorrectionMode": "auto"});
-        let mut later = none_found.clone();
-        later["exposure"] = serde_json::json!(0.3);
-        resolve(
-            &mut later,
-            LensLookup::Keep {
-                previous: Some(&none_found),
-            },
-        );
-        assert!(!has_lens_params(&later));
-        // Switching detection on from another state looks the lens up.
-        let mut switched = none_found.clone();
-        resolve(
-            &mut switched,
-            LensLookup::Keep {
-                previous: Some(&off),
-            },
-        );
-        assert_eq!(switched["lensModel"], serde_json::json!(model));
-        assert_eq!(switched["lensDistortionParams"], current);
-        // A lens choice without parameters (pasted, legacy) is looked up.
-        let mut chosen = serde_json::json!({"lensCorrectionMode": "manual",
-            "lensMaker": "Canon", "lensModel": model});
-        resolve(
-            &mut chosen,
-            LensLookup::Keep {
-                previous: Some(&saved),
-            },
-        );
-        assert_eq!(chosen["lensDistortionParams"], current);
-        // Auto lens correction looks everything up again.
-        let mut fresh = saved.clone();
-        fresh["lensCorrectionMode"] = serde_json::json!("auto");
+        // A "no profile found" (or an undo back to it) stays so after the
+        // database learns the lens.
+        let mut none_found = serde_json::json!({"lensCorrectionMode": "auto", "exposure": 0.3});
+        resolve(&mut none_found, LensLookup::Keep);
+        assert!(none_found.get("lensDistortionParams").is_none());
+        assert!(none_found.get("lensModel").is_none());
+        // Pasted onto this photo, a lens choice is looked up for it.
+        let mut pasted = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": model, "lensDistortionParams": old_params});
+        assert!(chooses_lens(&serde_json::json!({"lensModel": model})));
+        assert!(!chooses_lens(&serde_json::json!({"exposure": 1.0})));
+        resolve(&mut pasted, LensLookup::Fresh);
+        assert_eq!(pasted["lensDistortionParams"], current);
+        // Auto lens correction detects and looks up again.
+        let mut fresh = serde_json::json!({"lensCorrectionMode": "auto"});
         resolve(&mut fresh, LensLookup::Fresh);
+        assert_eq!(fresh["lensModel"], serde_json::json!(model));
         assert_eq!(fresh["lensDistortionParams"], current);
     }
 

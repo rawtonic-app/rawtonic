@@ -23,6 +23,7 @@ import {
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
+import { lensChoice, lookUpLensProfile } from '../utils/lensProfile';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -534,7 +535,20 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+        const merged = { ...adjustments, ...adjustmentsToApply };
+        setAdjustments(merged);
+        // A pasted lens choice is looked up for this photo (saves keep the
+        // parameters they get).
+        if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply)) {
+          void lookUpLensProfile(selectedImage.path, selectedImage.exif ?? {}, merged)
+            .then((lens) => {
+              if (!lens || !isCurrentEditorImage(selectedImage.path)) return;
+              setAdjustments((prev: Adjustments) =>
+                lensChoice(prev) === lensChoice(merged) ? { ...prev, ...lens } : prev,
+              );
+            })
+            .catch(() => {});
+        }
       }
 
       const written = afterRecipeSaves(pathsToUpdate, () =>
