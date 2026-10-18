@@ -41,12 +41,15 @@ pub enum LensLookup<'a> {
     Fresh,
 }
 
-/// The lens choice a recipe's lens parameters were resolved for.
+/// What a recipe's lens parameters were resolved for (`lens_profile_stamp`).
 pub const LENS_PROFILE_FOR: &str = "lensProfileFor";
 
-/// A recipe's lens choice: the mode and the lens (chosen or detected); for
-/// the camera's own data, the version of its CA correction.
-fn lens_profile_key(recipe: &Value) -> String {
+/// What a recipe's lens parameters were resolved for, and the parameters:
+/// the mode and the lens (chosen or detected), for the camera's own data its
+/// CA version, then the parameters themselves (normalised; none when there
+/// are none). Parameters cleared or changed by anything but a resolution no
+/// longer match it.
+fn lens_profile_stamp(recipe: &Value) -> String {
     let field = |key: &str| {
         recipe
             .get(key)
@@ -58,27 +61,31 @@ fn lens_profile_key(recipe: &Value) -> String {
         .get("lensCorrectionMode")
         .and_then(Value::as_str)
         .unwrap_or("manual");
-    let key = if mode == crate::embedded_lens::CAMERA_MODE {
-        serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY)])
+    let params = recipe
+        .get("lensDistortionParams")
+        .filter(|p| !p.is_null())
+        .map(|p| {
+            serde_json::from_value::<crate::lens_correction::LensDistortionParams>(p.clone())
+                .ok()
+                .and_then(|params| serde_json::to_value(params).ok())
+                .unwrap_or_else(|| p.clone())
+        })
+        .unwrap_or(Value::Null);
+    let stamp = if mode == crate::embedded_lens::CAMERA_MODE {
+        serde_json::json!([mode, field(crate::embedded_lens::CA_VERSION_KEY), params])
     } else {
-        serde_json::json!([mode, field("lensMaker"), field("lensModel")])
+        serde_json::json!([mode, field("lensMaker"), field("lensModel"), params])
     };
-    key.to_string()
+    stamp.to_string()
 }
 
-/// Both recipes carry the same lens parameters (or none); numbers compared
-/// as numbers (the webview writes 1.0 as 1).
-fn same_lens_params(a: &Value, b: &Value) -> bool {
-    let params = |recipe: &Value| {
-        recipe
-            .get("lensDistortionParams")
-            .filter(|p| !p.is_null())
-            .map(|p| {
-                serde_json::from_value::<crate::lens_correction::LensDistortionParams>(p.clone())
-                    .ok()
-            })
-    };
-    params(a) == params(b)
+/// A recipe handed to the editor: one saved before `lensProfileFor` gets it
+/// in memory, so undo and redo carry it too (its parameters were resolved
+/// for its lens choice when it was saved).
+pub fn stamp_loaded_lens_profile(adjustments: &mut Value) {
+    if adjustments.is_object() && adjustments.get(LENS_PROFILE_FOR).is_none() {
+        adjustments[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(adjustments));
+    }
 }
 
 pub fn resolve_lens_params_in_adjustments(
@@ -91,21 +98,22 @@ pub fn resolve_lens_params_in_adjustments(
     if !adjustments.is_object() {
         return;
     }
-    let key = lens_profile_key(adjustments);
+    let stamp = lens_profile_stamp(adjustments);
     let keep = match lookup {
         LensLookup::Keep { previous } => {
             match adjustments.get(LENS_PROFILE_FOR).and_then(Value::as_str) {
-                Some(resolved_for) => resolved_for == key,
-                None => previous.is_some_and(|previous| {
-                    lens_profile_key(previous) == key && same_lens_params(previous, adjustments)
-                }),
+                Some(resolved) => resolved == stamp,
+                None => previous.is_some_and(|previous| lens_profile_stamp(previous) == stamp),
             }
         }
         LensLookup::Fresh => false,
     };
     if keep || resolve_lens_choice(adjustments, exif_data, lens_db, source) {
-        let key = lens_profile_key(adjustments);
-        adjustments[LENS_PROFILE_FOR] = serde_json::json!(key);
+        let stamp = lens_profile_stamp(adjustments);
+        adjustments[LENS_PROFILE_FOR] = serde_json::json!(stamp);
+    } else if let Some(map) = adjustments.as_object_mut() {
+        // Not resolved (no database or camera facts yet): tried again next time.
+        map.remove(LENS_PROFILE_FOR);
     }
 }
 
@@ -996,6 +1004,9 @@ pub(crate) fn load_metadata_blocking(
         let _ = crate::session_bridge::write_editor_sidecar(&sidecar_path, json);
     }
 
+    // For the editor only (not written): its history carries it (see
+    // LensLookup::Keep).
+    stamp_loaded_lens_profile(&mut metadata.adjustments);
     Ok(metadata)
 }
 
@@ -1045,7 +1056,7 @@ mod tests {
         // data), one that keeps it keeps the parameters.
         let mut kept = serde_json::json!({"lensCorrectionMode": "camera", "cameraCaVersion": 1,
             "lensDistortionParams": params});
-        kept[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_key(&kept));
+        kept[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(&kept));
         let mut unrelated = kept.clone();
         resolve_lens_params_in_adjustments(
             &mut unrelated,
@@ -1177,12 +1188,36 @@ mod tests {
         assert_eq!(undone["lensDistortionParams"], old);
         // A "no profile found" stays so after the database learns the lens.
         let mut none_found = serde_json::json!({"lensCorrectionMode": "auto"});
-        none_found[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_key(&none_found));
+        none_found[LENS_PROFILE_FOR] = serde_json::json!(lens_profile_stamp(&none_found));
         let mut later = none_found.clone();
         later["exposure"] = serde_json::json!(0.3);
         resolve(&mut later, LensLookup::Keep { previous: None });
         assert!(later.get("lensDistortionParams").is_none());
         assert!(later.get("lensModel").is_none());
+        // A recipe saved before the key, loaded into the editor (stamped
+        // there), switched off and saved, then undone: kept.
+        let mut loaded = saved.clone();
+        stamp_loaded_lens_profile(&mut loaded);
+        let off = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": null,
+            "lensModel": null, "lensDistortionParams": null});
+        let mut restored = loaded.clone();
+        resolve(
+            &mut restored,
+            LensLookup::Keep {
+                previous: Some(&off),
+            },
+        );
+        assert_eq!(restored["lensDistortionParams"], old);
+        // Parameters cleared while the choice stays (a paste) are resolved.
+        let mut cleared = edit.clone();
+        cleared["lensDistortionParams"] = Value::Null;
+        resolve(
+            &mut cleared,
+            LensLookup::Keep {
+                previous: Some(&edit),
+            },
+        );
+        assert_eq!(cleared["lensDistortionParams"], current(&rf28));
         // Another lens chosen (a preset's Amount restoring the base's
         // parameters with the new choice): resolved for it.
         let mut switched = edit.clone();
