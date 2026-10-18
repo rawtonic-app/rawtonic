@@ -845,6 +845,19 @@ which keeps older builds working. Check SAM with the ignored tests
   ONNX Runtime on the CPU 3.3 s per tile, its Core ML provider fails on the
   graph (notes: benchmark-results/raw-denoise-matchfilter-2026-10-08.json).
   In the app since 2026-10-08 as AI Denoise (`crates/denoise`).
+  Linux, 2026-10-18 (Ryzen 5 3600X, RTX 3080, NVIDIA 615, ONNX Runtime
+  1.30.0; four public raw.pixls.us files, 24-44 MP; `cargo run -p
+  rawtonic-denoise --example denoise_bench`): the CPU provider takes
+  431-437 s per 24 MP and 762 s for 44 MP (about 3.7 s per tile, peak
+  6.7-7.1 GB); the bundled WebGPU plugin on Vulkan 35.4-35.6 s per 24 MP and
+  60.6 s for 44 MP (12×, peak 3.5 GB, about 4.3 GB of GPU memory), within
+  one f16 step of the CPU's result (largest difference 4.9e-4 of white, mean
+  ≤ 4.8e-8, ≤ 0.07 % of samples). The app chooses WebGPU there by itself;
+  a headless export of a 24 MP photo took 39 s (3.7 s from the cache).
+  More CPU threads or two tiles at once did not help (≤ 6 %, twice the
+  memory). The CUDA plugin was not measured: it needs CUDA 13 and cuDNN 9,
+  which the machine does not have
+  (notes: benchmark-results/ai-denoise-linux-2026-10-18.json).
 - **Auto tags.** On 14 photos SigLIP 2 B/16 ranked people and scenes better
   than CLIP (a grandfather and child at a table: "people, patio, child,
   balcony, senior, family, table" vs CLIP's "table, hygge, camera, remote"; a
