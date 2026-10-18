@@ -515,6 +515,19 @@ pub fn get_cached_full_warped_image(
     is_raw: bool,
     js_adjustments: &serde_json::Value,
 ) -> Arc<DynamicImage> {
+    full_warped_image(state, source, is_raw, js_adjustments, false)
+        .expect("only a prewarm skips the build")
+}
+
+/// `get_cached_full_warped_image`; a `prewarm` builds nothing for a photo that
+/// is not (or no longer) the editor photo and returns `None` then.
+fn full_warped_image(
+    state: &AppState,
+    source: &Arc<DynamicImage>,
+    is_raw: bool,
+    js_adjustments: &serde_json::Value,
+    prewarm: bool,
+) -> Option<Arc<DynamicImage>> {
     let geo_hash = calculate_geometry_hash(js_adjustments);
     // Whether `source` is the editor photo, and its cached warp if so.
     let lookup = || {
@@ -542,84 +555,163 @@ pub fn get_cached_full_warped_image(
                 .and_then(|cache| cache.get(source, is_raw, geo_hash)),
         )
     };
-    let (current, cached) = lookup();
-    if let Some(image) = cached {
-        return image;
-    }
-    // One build at a time for the editor photo: a stroke that arrives while
-    // `prewarm_mask_source` builds the same warp waits for it and reuses it.
-    let _build = current.then(|| {
-        state
-            .full_warped_build
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-    });
-    if current && let (_, Some(image)) = lookup() {
-        return image;
-    }
-
-    let warped =
-        crate::mask_generation::prepare_shared_warped_mask_image(source, is_raw, js_adjustments);
-
-    let original = state
-        .original_image
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if original
-        .as_ref()
-        .is_some_and(|loaded| Arc::ptr_eq(&loaded.image, source))
-    {
-        let mut cache = state
-            .full_warped_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        // Another preview may have prepared the same source concurrently. Reuse
-        // its identity to keep downstream immutable mask caches effective.
-        if let Some(image) = cache
-            .as_ref()
-            .and_then(|cache| cache.get(source, is_raw, geo_hash))
-        {
-            return image;
-        }
-        *cache = Some(crate::mask_generation::FullWarpedMaskCache::new(
+    cached_or_built(lookup, &state.full_warped_build, prewarm, || {
+        let warped = crate::mask_generation::prepare_shared_warped_mask_image(
             source,
             is_raw,
-            geo_hash,
-            Arc::clone(&warped),
-        ));
-    }
-    warped
+            js_adjustments,
+        );
+
+        let original = state
+            .original_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if original
+            .as_ref()
+            .is_some_and(|loaded| Arc::ptr_eq(&loaded.image, source))
+        {
+            let mut cache = state
+                .full_warped_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            // Another preview may have prepared the same source concurrently. Reuse
+            // its identity to keep downstream immutable mask caches effective.
+            if let Some(image) = cache
+                .as_ref()
+                .and_then(|cache| cache.get(source, is_raw, geo_hash))
+            {
+                return image;
+            }
+            *cache = Some(crate::mask_generation::FullWarpedMaskCache::new(
+                source,
+                is_raw,
+                geo_hash,
+                Arc::clone(&warped),
+            ));
+        }
+        warped
+    })
 }
 
-/// Builds the editor photo's full-resolution mask source (see
-/// `get_cached_full_warped_image`) ahead of the first Auto Mask stroke, so its
-/// first dab does not wait for it (~0.3 s at 40 MP). The same image the stroke
-/// would build; the layers are not needed for it.
+/// The cached value `lookup` finds (it also tells whether the photo is the
+/// editor's), else `build`'s. Builds for the editor photo run one at a time
+/// under `build_lock`: a stroke arriving during a prewarm of the same photo
+/// waits for it and reuses it. A photo that stopped being the editor's while
+/// waiting is built without the lock (as any other photo), or not at all for
+/// a `prewarm`, so stale work never holds up the photo being edited.
+fn cached_or_built<T>(
+    lookup: impl Fn() -> (bool, Option<T>),
+    build_lock: &std::sync::Mutex<()>,
+    prewarm: bool,
+    build: impl FnOnce() -> T,
+) -> Option<T> {
+    let (current, cached) = lookup();
+    if cached.is_some() {
+        return cached;
+    }
+    if current {
+        let _build = build_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let (current, cached) = lookup();
+        if cached.is_some() {
+            return cached;
+        }
+        if current {
+            return Some(build());
+        }
+    }
+    (!prewarm).then(build)
+}
+
+/// The editor wants the Auto Mask source of `path` built ahead of the first
+/// stroke (the layers panel is open with Auto Mask on; `None`: no longer).
+/// Builds it now from this recipe; later final previews build it again when
+/// the source or its geometry changed (`rewarm_mask_source`).
 #[tauri::command]
 pub(crate) async fn prewarm_mask_source(
-    path: String,
+    path: Option<String>,
     js_adjustments: serde_json::Value,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = app_handle.state::<AppState>();
-        let Some(loaded) = state
-            .original_image
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-            .filter(|loaded| loaded.path == path)
-        else {
-            return;
-        };
-        let mut adjustments = js_adjustments;
-        hydrate_adjustments(&state, &mut adjustments);
-        #[cfg(feature = "performance-profiling")]
-        let _stage = crate::performance::PerformanceStage::new("mask_source_prewarm");
-        get_cached_full_warped_image(&state, &loaded.image, loaded.is_raw, &adjustments);
-    })
-    .await
-    .map_err(|e| format!("Mask source prewarm failed: {e}"))
+    *app_handle
+        .state::<AppState>()
+        .mask_source_wanted
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = path.clone();
+    let Some(path) = path else {
+        return Ok(());
+    };
+    tauri::async_runtime::spawn_blocking(move || prewarm_now(&app_handle, &path, js_adjustments))
+        .await
+        .map_err(|e| format!("Mask source prewarm failed: {e}"))
+}
+
+/// Builds the editor photo's full-resolution mask source (see
+/// `get_cached_full_warped_image`) so the first Auto Mask dab does not wait
+/// for it (~0.4 s at 40 MP). The same image the stroke would build; the
+/// layers are not needed for it.
+fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, mut adjustments: serde_json::Value) {
+    let state = app_handle.state::<AppState>();
+    let Some(loaded) = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .filter(|loaded| loaded.path == path)
+    else {
+        return;
+    };
+    hydrate_adjustments(&state, &mut adjustments);
+    #[cfg(feature = "performance-profiling")]
+    let _stage = crate::performance::PerformanceStage::new("mask_source_prewarm");
+    full_warped_image(&state, &loaded.image, loaded.is_raw, &adjustments, true);
+}
+
+/// After a final preview: when the editor wants this photo's Auto Mask source
+/// and it no longer matches (AI Denoise replaced the source, a lens or
+/// geometry edit), build it again in the background from this recipe.
+fn rewarm_mask_source(
+    app_handle: &tauri::AppHandle,
+    state: &AppState,
+    loaded: &LoadedImage,
+    adjustments: &serde_json::Value,
+) {
+    let wanted = state
+        .mask_source_wanted
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_deref()
+        == Some(loaded.path.as_str());
+    let editor_photo = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|original| Arc::ptr_eq(&original.image, &loaded.image));
+    if !wanted || !editor_photo {
+        return;
+    }
+    let geo_hash = calculate_geometry_hash(adjustments);
+    let cached = state
+        .full_warped_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|cache| cache.get(&loaded.image, loaded.is_raw, geo_hash).is_some());
+    // A build already running (a prewarm or a stroke) is left to finish.
+    if cached || state.full_warped_build.try_lock().is_err() {
+        return;
+    }
+    let recipe: serde_json::Map<String, serde_json::Value> = adjustments
+        .as_object()
+        .map(|all| {
+            all.iter()
+                .filter(|(key, _)| key.as_str() != "masks")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let (app_handle, path) = (app_handle.clone(), loaded.path.clone());
+    std::thread::spawn(move || prewarm_now(&app_handle, &path, recipe.into()));
 }
 
 #[tauri::command]
@@ -1139,6 +1231,9 @@ pub(crate) fn process_preview_job(
             return Err(format!("{PREVIEW_RENDER_FAILED}: {error}"));
         }
     };
+    if !is_interactive {
+        rewarm_mask_source(app_handle, &state, &loaded_image, &adjustments_clone);
+    }
     if use_wgpu_renderer {
         {
             #[cfg(feature = "performance-profiling")]
@@ -2579,5 +2674,121 @@ mod lateral_ca_sharing_tests {
         assert!(!lateral_ca_is_shared(&reduced, full_dims, &lens(1.0005)));
         // Not reduced: the warp measures the image the export measures.
         assert!(lateral_ca_is_shared(&reduced, reduced.dimensions(), &on));
+    }
+}
+
+#[cfg(test)]
+mod mask_source_build_tests {
+    use super::cached_or_built;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+
+    /// The editor photo and its cached build, as `full_warped_image` sees them.
+    struct Editor {
+        current: AtomicBool,
+        cached: Mutex<Option<u32>>,
+        lock: Mutex<()>,
+        builds: AtomicUsize,
+    }
+
+    impl Editor {
+        fn new() -> Arc<Self> {
+            Arc::new(Self {
+                current: AtomicBool::new(true),
+                cached: Mutex::new(None),
+                lock: Mutex::new(()),
+                builds: AtomicUsize::new(0),
+            })
+        }
+
+        fn lookup(&self) -> (bool, Option<u32>) {
+            let current = self.current.load(Ordering::SeqCst);
+            (
+                current,
+                current.then(|| *self.cached.lock().unwrap()).flatten(),
+            )
+        }
+
+        fn get(self: &Arc<Self>, prewarm: bool, gate: Option<mpsc::Receiver<()>>) -> Option<u32> {
+            cached_or_built(
+                || self.lookup(),
+                &self.lock,
+                prewarm,
+                || {
+                    self.builds.fetch_add(1, Ordering::SeqCst);
+                    if let Some(gate) = gate {
+                        gate.recv().unwrap();
+                    }
+                    if self.current.load(Ordering::SeqCst) {
+                        *self.cached.lock().unwrap() = Some(7);
+                    }
+                    7
+                },
+            )
+        }
+    }
+
+    /// Waits until a thread has queued on the build lock behind the first build.
+    fn wait_until_blocked(editor: &Editor) {
+        for _ in 0..200 {
+            if editor.lock.try_lock().is_err() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    #[test]
+    fn a_stroke_during_a_prewarm_waits_for_it_and_reuses_it() {
+        let editor = Editor::new();
+        let (release, gate) = mpsc::channel();
+        let prewarm = {
+            let editor = Arc::clone(&editor);
+            std::thread::spawn(move || editor.get(true, Some(gate)))
+        };
+        wait_until_blocked(&editor);
+        let stroke = {
+            let editor = Arc::clone(&editor);
+            std::thread::spawn(move || editor.get(false, None))
+        };
+        std::thread::sleep(Duration::from_millis(20));
+        release.send(()).unwrap();
+        assert_eq!(prewarm.join().unwrap(), Some(7));
+        assert_eq!(stroke.join().unwrap(), Some(7));
+        assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_prewarm_queued_for_a_photo_no_longer_edited_builds_nothing() {
+        let editor = Editor::new();
+        let (release, gate) = mpsc::channel();
+        let first = {
+            let editor = Arc::clone(&editor);
+            std::thread::spawn(move || editor.get(true, Some(gate)))
+        };
+        wait_until_blocked(&editor);
+        let stale = {
+            let editor = Arc::clone(&editor);
+            std::thread::spawn(move || editor.get(true, None))
+        };
+        std::thread::sleep(Duration::from_millis(20));
+        // The user opens another photo while the queued prewarm waits.
+        editor.current.store(false, Ordering::SeqCst);
+        release.send(()).unwrap();
+        first.join().unwrap();
+        assert_eq!(stale.join().unwrap(), None);
+        assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn other_photos_build_without_the_lock_and_without_a_prewarm() {
+        let editor = Editor::new();
+        editor.current.store(false, Ordering::SeqCst);
+        let _held = editor.lock.lock().unwrap();
+        assert_eq!(editor.get(false, None), Some(7));
+        assert_eq!(editor.get(true, None), None);
+        assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
     }
 }

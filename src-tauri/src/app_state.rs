@@ -308,6 +308,9 @@ pub struct AppState {
     /// Held while the editor photo's `full_warped_cache` entry is built, so a
     /// stroke arriving during a prewarm waits for it instead of building twice.
     pub full_warped_build: Mutex<()>,
+    /// The photo whose full-resolution mask source the editor wants built
+    /// ahead of the first Auto Mask stroke (`prewarm_mask_source`).
+    pub mask_source_wanted: Mutex<Option<String>>,
     pub patched_warped_cache: Mutex<Option<(u64, Arc<DynamicImage>)>>,
     pub full_transformed_cache: Mutex<Option<TransformedImageCache>>,
     pub decoded_image_cache: Mutex<DecodedImageCache>,

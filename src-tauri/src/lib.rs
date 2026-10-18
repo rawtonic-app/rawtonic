@@ -664,6 +664,7 @@ pub fn run() {
             preview_generation: AtomicUsize::new(0),
             full_warped_cache: Mutex::new(None),
             full_warped_build: Mutex::new(()),
+            mask_source_wanted: Mutex::new(None),
             patched_warped_cache: Mutex::new(None),
             full_transformed_cache: Mutex::new(None),
             decoded_image_cache: Mutex::new(DecodedImageCache::new(5)),
