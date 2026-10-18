@@ -1574,6 +1574,11 @@ pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), 
     if !rawtonic_engine::lens_recipe::is_unresolved(recipe) {
         return Ok(());
     }
+    // Readable again: facts registered while it was offline are stale (as
+    // image loading drops them, `preview_proxy::prepare_offline`).
+    if std::fs::File::open(source).is_ok() {
+        rawtonic_engine::source_facts::forget(&source.to_string_lossy());
+    }
     let exif = std::fs::read(source)
         .ok()
         .map(|bytes| read_exif_data_from_bytes(&source.to_string_lossy(), &bytes))
@@ -1623,6 +1628,9 @@ mod tests {
         // carries another lens's parameters from the offline save.
         let photo = tmp.path().join("scan.png");
         std::fs::write(&photo, b"no exif").unwrap();
+        // Facts registered while it was offline are stale once it is back.
+        let photo_str = photo.to_string_lossy();
+        rawtonic_engine::source_facts::register(&photo_str, Default::default());
         let mut recipe = serde_json::json!({
             "lensCorrectionMode": "manual", "lensMaker": "Canon", "lensModel": zoom,
             "lensDistortionParams": {"k1": 0.5},
@@ -1630,6 +1638,7 @@ mod tests {
         });
         super::prepare_recipe_lens(&mut recipe, &photo).unwrap();
         assert!(!is_unresolved(&recipe));
+        assert!(rawtonic_engine::source_facts::registered(&photo_str).is_none());
         assert_eq!(
             recipe["lensDistortionParams"],
             serde_json::to_value(fallback).unwrap()

@@ -63,15 +63,23 @@ pub(crate) fn emit_thumbnail_cache_setup_error(app_handle: &AppHandle, path: &st
 /// The editor state for `source`'s thumbnail: its sidecar file, or for an
 /// offline photograph (its file and maybe its sidecar are gone) the
 /// library's.
+/// Lens parameters saved while the photo could not be read are resolved here
+/// once it can be, so the render and its persistent cache key both change.
 fn thumbnail_metadata(source: &Path, sidecar: &Path) -> Option<ImageMetadata> {
-    if let Ok(content) = fs::read_to_string(sidecar) {
-        return serde_json::from_str(&content).ok();
-    }
-    if source.exists() {
-        return None;
-    }
-    crate::session_bridge::read_editor_sidecar(sidecar)
-        .and_then(|state| serde_json::from_value(state).ok())
+    let mut metadata: ImageMetadata = if let Ok(content) = fs::read_to_string(sidecar) {
+        serde_json::from_str(&content).ok()?
+    } else {
+        if source.exists() {
+            return None;
+        }
+        crate::session_bridge::read_editor_sidecar(sidecar)
+            .and_then(|state| serde_json::from_value(state).ok())?
+    };
+    let _ = rawtonic_export::exif_processing::resolve_unresolved_lens(
+        &mut metadata.adjustments,
+        source,
+    );
+    Some(metadata)
 }
 
 /// The modification time of `source` in seconds; for an offline photograph
@@ -228,21 +236,6 @@ pub fn generate_thumbnail_data(
         }
         (_, metadata) => (metadata, adjustments),
     };
-    // Lens parameters saved while the photo could not be read: resolved for
-    // the render (and its cache key) now that it can be.
-    let (metadata, adjustments) = if rawtonic_engine::lens_recipe::is_unresolved(&adjustments) {
-        let mut recipe = adjustments;
-        let _ =
-            rawtonic_export::exif_processing::resolve_unresolved_lens(&mut recipe, &source_path);
-        let metadata = metadata.map(|mut meta| {
-            meta.adjustments = recipe.clone();
-            meta
-        });
-        (metadata, recipe)
-    } else {
-        (metadata, adjustments)
-    };
-
     if is_raw
         && adjustments.is_null()
         && preloaded_image.is_none()
