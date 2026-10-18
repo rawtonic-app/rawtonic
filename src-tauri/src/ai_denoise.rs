@@ -81,17 +81,6 @@ pub fn slot(model: usize) -> usize {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn every_model_has_a_slot_and_onnx_shares_one() {
-        assert_eq!(super::slot(0), 0);
-        let mixed = super::slot(1);
-        assert_eq!(mixed, if cfg!(target_os = "macos") { 1 } else { 0 });
-        assert!(super::slot(7) < 2);
-    }
-}
-
 /// The denoiser of AI Denoise `model` (`AiDenoiseSettings::model`: 0 the
 /// first package, 1 the mixed-precision one), downloading and loading it on
 /// first use. No fallback between them: a version renders with its model or
@@ -227,4 +216,15 @@ pub async fn option_for(
         MosaicDenoise::new(denoiser(app_handle, ai.model()).await?, ai.blend)
             .with_noise_scale(ai.noise_scale),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_model_has_a_slot_and_onnx_shares_one() {
+        assert_eq!(super::slot(0), 0);
+        let mixed = super::slot(1);
+        assert_eq!(mixed, if cfg!(target_os = "macos") { 1 } else { 0 });
+        assert!(super::slot(7) < 2);
+    }
 }
