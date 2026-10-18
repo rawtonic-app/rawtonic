@@ -1,0 +1,26 @@
+[package]
+name = "rawtonic-tether"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Camera tethering helper process (libgphoto2 isolated from the app) and its client"
+
+[features]
+default = []
+# The real camera backend: links libgphoto2 (LGPL-2.1-or-later) dynamically,
+# only into the helper binary. Needs libgphoto2 found by pkg-config.
+gphoto2 = ["dep:gphoto2"]
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+log = "0.4"
+
+[target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
+gphoto2 = { git = "https://github.com/CyberTimon/libgphoto2-rs", optional = true }
+
+[[bin]]
+name = "rawtonic-tether"
+path = "src/bin/rawtonic-tether.rs"

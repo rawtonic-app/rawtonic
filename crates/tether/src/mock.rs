@@ -1,0 +1,335 @@
+//! A scripted camera for tests and for running the app without one
+//! (`rawtonic-tether --mock`, its script in `RAWTONIC_TETHER_MOCK` as JSON).
+//! It behaves like the cases real bodies show: numbering that restarts,
+//! shots fired on the body, a file that arrives late or never, settings
+//! fixed on the body, a camera another program holds, an unplugged cable.
+use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired};
+use crate::protocol::{CameraInfo, CameraStatus, ErrorKind, Setting, TetherError};
+use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct MockSpec {
+    pub model: String,
+    pub port: String,
+    /// Bytes per photo.
+    pub file_size: usize,
+    pub extension: String,
+    /// The camera's file numbers start again after this many shots.
+    pub restart_numbering_every: Option<u64>,
+    /// From the shutter to the camera reporting the file.
+    pub event_delay_ms: u64,
+    /// Like cameras whose driver has no separate trigger: firing waits for
+    /// the file itself.
+    pub no_trigger: bool,
+    /// Shots (1-based) whose file never arrives.
+    pub lost_shots: Vec<u64>,
+    /// Shots (1-based) whose file arrives this much later than usual.
+    pub late_shots: Vec<u64>,
+    pub late_ms: u64,
+    /// Shots fired on the body, this many ms after the camera was opened.
+    pub body_shots_ms: Vec<u64>,
+    /// Another program holds the camera.
+    pub busy: bool,
+    /// The cable comes out after this many downloaded files.
+    pub unplug_after: Option<u64>,
+    /// Settings fixed on the body.
+    pub read_only: Vec<String>,
+    /// The helper stops dead here (crash tests).
+    pub abort_mid_download: Option<u64>,
+    pub abort_before_event: Option<u64>,
+    /// Live view is offered.
+    pub preview: bool,
+}
+
+impl Default for MockSpec {
+    fn default() -> Self {
+        Self {
+            model: "Mock Camera".into(),
+            port: "usb:mock".into(),
+            file_size: 64 * 1024,
+            extension: "ARW".into(),
+            restart_numbering_every: None,
+            event_delay_ms: 5,
+            no_trigger: false,
+            lost_shots: vec![],
+            late_shots: vec![],
+            late_ms: 0,
+            body_shots_ms: vec![],
+            busy: false,
+            unplug_after: None,
+            read_only: vec![],
+            abort_mid_download: None,
+            abort_before_event: None,
+            preview: true,
+        }
+    }
+}
+
+pub struct MockDriver {
+    pub spec: MockSpec,
+}
+
+impl Driver for MockDriver {
+    fn library(&self) -> Option<String> {
+        None
+    }
+
+    fn list(&mut self) -> Result<Vec<CameraInfo>, TetherError> {
+        Ok(vec![CameraInfo {
+            model: self.spec.model.clone(),
+            port: self.spec.port.clone(),
+        }])
+    }
+
+    fn open(&mut self, port: Option<&str>) -> Result<Box<dyn Camera>, TetherError> {
+        if port.is_some_and(|p| p != self.spec.port) {
+            return Err(TetherError::new(ErrorKind::NotFound, "No camera on that port."));
+        }
+        if self.spec.busy {
+            return Err(TetherError::new(
+                ErrorKind::Busy,
+                "Another program is using the camera.",
+            ));
+        }
+        let now = Instant::now();
+        let body = self
+            .spec
+            .body_shots_ms
+            .iter()
+            .map(|&ms| now + Duration::from_millis(ms))
+            .collect();
+        Ok(Box::new(MockCamera {
+            spec: self.spec.clone(),
+            fired: 0,
+            numbered: 0,
+            downloaded: 0,
+            due: VecDeque::new(),
+            body,
+            settings: vec![
+                setting("iso", "ISO", "100", &["100", "200", "400", "800"]),
+                setting("shutterspeed", "Shutter speed", "1/125", &["1/60", "1/125", "1/250"]),
+                setting("aperture", "Aperture", "f/8", &["f/4", "f/5.6", "f/8"]),
+            ],
+        }))
+    }
+}
+
+fn setting(key: &str, label: &str, value: &str, choices: &[&str]) -> Setting {
+    Setting {
+        key: key.into(),
+        camera_key: key.into(),
+        label: label.into(),
+        value: value.into(),
+        choices: choices.iter().map(|c| c.to_string()).collect(),
+        read_only: false,
+    }
+}
+
+pub struct MockCamera {
+    spec: MockSpec,
+    /// Shutter releases (app and body).
+    fired: u64,
+    /// Files numbered so far (the camera's counter).
+    numbered: u64,
+    downloaded: u64,
+    /// Files the camera will report, when.
+    due: VecDeque<(Instant, CameraFile)>,
+    /// Shots still to be fired on the body.
+    body: VecDeque<Instant>,
+    settings: Vec<Setting>,
+}
+
+impl MockCamera {
+    fn unplugged(&self) -> bool {
+        self.spec.unplug_after.is_some_and(|n| self.downloaded >= n)
+    }
+
+    fn gone() -> TetherError {
+        TetherError::new(ErrorKind::Disconnected, "The camera was disconnected.")
+    }
+
+    /// Releases the shutter: the file the camera will report for it.
+    fn release(&mut self, now: Instant) -> Option<(Instant, CameraFile)> {
+        self.fired += 1;
+        if self.spec.lost_shots.contains(&self.fired) {
+            return None;
+        }
+        self.numbered += 1;
+        let number = match self.spec.restart_numbering_every {
+            Some(every) => (self.numbered - 1) % every + 1,
+            None => self.numbered,
+        };
+        let mut delay = self.spec.event_delay_ms;
+        if self.spec.late_shots.contains(&self.fired) {
+            delay += self.spec.late_ms;
+        }
+        Some((
+            now + Duration::from_millis(delay),
+            CameraFile {
+                folder: "/store_00010001/DCIM/100MOCK".into(),
+                name: format!("DSC{number:05}.{}", self.spec.extension),
+            },
+        ))
+    }
+
+    /// The bytes of a file: distinct for every shot (a header with the
+    /// shot number, then a pattern), so no two are duplicates.
+    fn bytes(&self, file: &CameraFile, shot: u64) -> Vec<u8> {
+        let mut data = format!("MOCK {shot} {}\n", file.name).into_bytes();
+        let mut x = shot.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+        while data.len() < self.spec.file_size {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            data.push(x as u8);
+        }
+        data.truncate(self.spec.file_size.max(1));
+        data
+    }
+}
+
+impl Camera for MockCamera {
+    fn status(&mut self) -> CameraStatus {
+        CameraStatus {
+            model: self.spec.model.clone(),
+            port: self.spec.port.clone(),
+            battery: Some("80%".into()),
+            capture_target: None,
+            can_capture: true,
+            can_preview: self.spec.preview,
+        }
+    }
+
+    fn settings(&mut self) -> Result<Vec<Setting>, TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        Ok(self
+            .settings
+            .iter()
+            .map(|s| Setting {
+                read_only: self.spec.read_only.contains(&s.key),
+                ..s.clone()
+            })
+            .collect())
+    }
+
+    fn set_setting(&mut self, key: &str, value: &str) -> Result<(), TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        if self.spec.read_only.iter().any(|k| k == key) {
+            return Err(TetherError::new(
+                ErrorKind::ReadOnly,
+                format!("{key} is set on the camera body."),
+            ));
+        }
+        let setting = self
+            .settings
+            .iter_mut()
+            .find(|s| s.key == key)
+            .ok_or_else(|| TetherError::new(ErrorKind::Unsupported, format!("No setting {key}.")))?;
+        if !setting.choices.iter().any(|c| c == value) {
+            return Err(TetherError::new(
+                ErrorKind::BadValue,
+                format!("The camera does not take {value} for {key}."),
+            ));
+        }
+        setting.value = value.into();
+        Ok(())
+    }
+
+    fn fire(&mut self) -> Result<Fired, TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        let now = Instant::now();
+        let file = self.release(now);
+        if self.spec.no_trigger {
+            // The driver waits for the file itself.
+            let (at, file) = file.ok_or_else(|| {
+                TetherError::new(ErrorKind::Timeout, "The camera did not deliver the photo.")
+            })?;
+            std::thread::sleep(at.saturating_duration_since(Instant::now()));
+            return Ok(Fired::File(file));
+        }
+        if let Some(due) = file {
+            self.due.push_back(due);
+            self.due.make_contiguous().sort_by_key(|(at, _)| *at);
+        }
+        Ok(Fired::Pending)
+    }
+
+    fn autofocus(&mut self) -> Result<(), TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        Ok(())
+    }
+
+    fn preview(&mut self) -> Result<Vec<u8>, TetherError> {
+        if !self.spec.preview {
+            return Err(TetherError::new(ErrorKind::Unsupported, "No live view."));
+        }
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        Ok(vec![0xff, 0xd8, 0xff, 0xd9])
+    }
+
+    fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        let now = Instant::now();
+        while self.body.front().is_some_and(|&at| at <= now) {
+            self.body.pop_front();
+            if let Some(due) = self.release(now) {
+                self.due.push_back(due);
+            }
+        }
+        self.due.make_contiguous().sort_by_key(|(at, _)| *at);
+        let next = [
+            self.due.front().map(|(at, _)| *at),
+            self.body.front().copied(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
+        match next {
+            Some(at) if at <= now + timeout => {
+                std::thread::sleep(at.saturating_duration_since(now));
+                if self.due.front().is_some_and(|(due, _)| *due <= at) {
+                    let (_, file) = self.due.pop_front().unwrap();
+                    return Ok(CameraEvent::FileAdded(file));
+                }
+                Ok(CameraEvent::Timeout)
+            }
+            _ => {
+                std::thread::sleep(timeout);
+                Ok(CameraEvent::Timeout)
+            }
+        }
+    }
+
+    fn download(&mut self, file: &CameraFile) -> Result<(Vec<u8>, Option<u64>), TetherError> {
+        if self.unplugged() {
+            return Err(Self::gone());
+        }
+        self.downloaded += 1;
+        let data = self.bytes(file, self.downloaded);
+        let size = data.len() as u64;
+        Ok((data, Some(size)))
+    }
+
+    fn abort_at(&self, point: AbortPoint, shot: u64) -> bool {
+        match point {
+            AbortPoint::MidDownload => self.spec.abort_mid_download == Some(shot),
+            AbortPoint::BeforeEvent => self.spec.abort_before_event == Some(shot),
+        }
+    }
+}
