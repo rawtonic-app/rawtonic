@@ -1585,13 +1585,11 @@ const ImageCanvas = memo(
     // An Auto Mask stroke reads the full-resolution photo as it looks before
     // develop. Building it (~0.3 s for 40 MP) delayed the first stroke's first
     // dab; while the layers panel is open with Auto Mask on, the backend builds
-    // it in the background (same pixels, only earlier) and keeps it built when
-    // the source or geometry changes.
+    // it in the background (same pixels, only earlier) from the recipe of its
+    // last preview, and keeps it built when the source or geometry changes.
     const warmPath = autoMaskPrewarmPath(isMasking, brushSettings?.autoMask, selectedImage);
     useEffect(() => {
-      // The layers do not change the source; the rest of the recipe keys it.
-      const jsAdjustments = warmPath ? { ...useEditorStore.getState().adjustments, masks: [] } : {};
-      invoke(Invokes.PrewarmMaskSource, { path: warmPath, jsAdjustments }).catch(() => {});
+      invoke(Invokes.PrewarmMaskSource, { path: warmPath }).catch(() => {});
     }, [warmPath]);
 
     // Capture One's brush cursor: the inner ring is the brush size (50%

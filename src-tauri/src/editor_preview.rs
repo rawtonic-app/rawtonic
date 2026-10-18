@@ -556,7 +556,7 @@ fn full_warped_image(
         )
     };
     let key = (Arc::as_ptr(source) as usize, is_raw, geo_hash);
-    cached_or_built(&state.full_warped_build, key, lookup, prewarm, || {
+    cached_or_built(&state.full_warped_build, key, lookup, prewarm, |ticket| {
         let warped = crate::mask_generation::prepare_shared_warped_mask_image(
             source,
             is_raw,
@@ -583,12 +583,16 @@ fn full_warped_image(
             {
                 return image;
             }
-            *cache = Some(crate::mask_generation::FullWarpedMaskCache::new(
-                source,
-                is_raw,
-                geo_hash,
-                Arc::clone(&warped),
-            ));
+            // A build for an older geometry that ends last keeps its result
+            // to itself instead of replacing the newer one.
+            if state.full_warped_build.may_publish(ticket) {
+                *cache = Some(crate::mask_generation::FullWarpedMaskCache::new(
+                    source,
+                    is_raw,
+                    geo_hash,
+                    Arc::clone(&warped),
+                ));
+            }
         }
         warped
     })
@@ -603,6 +607,9 @@ pub(crate) type WarpBuildKey = (usize, bool, u64);
 pub(crate) struct BuildSlot<K> {
     building: std::sync::Mutex<Vec<K>>,
     done: std::sync::Condvar,
+    /// Builds are numbered as they start; the latest started one published.
+    started: std::sync::atomic::AtomicU64,
+    published: std::sync::atomic::AtomicU64,
 }
 
 impl<K: PartialEq> BuildSlot<K> {
@@ -611,6 +618,13 @@ impl<K: PartialEq> BuildSlot<K> {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .contains(key)
+    }
+
+    /// Whether build `ticket` may publish its result: no build that started
+    /// after it (a newer geometry) has. Call it under the lock the result is
+    /// stored with, so the decision and the store are one step.
+    fn may_publish(&self, ticket: u64) -> bool {
+        self.published.fetch_max(ticket, Ordering::SeqCst) <= ticket
     }
 }
 
@@ -636,13 +650,14 @@ impl<K: PartialEq> Drop for BuildingGuard<'_, K> {
 /// prewarm); any other key builds at once, so a build for a photo or
 /// geometry the user already left never holds up the current one. A photo
 /// that is not (or no longer) the editor's is built without caching, or not
-/// at all for a `prewarm`.
+/// at all for a `prewarm`. `build` gets the build's ticket (`may_publish`;
+/// 0 when it must not publish).
 fn cached_or_built<K: PartialEq + Clone, T>(
     slot: &BuildSlot<K>,
     key: K,
     lookup: impl Fn() -> (bool, Option<T>),
     prewarm: bool,
-    build: impl FnOnce() -> T,
+    build: impl FnOnce(u64) -> T,
 ) -> Option<T> {
     let mut building = slot.building.lock().unwrap_or_else(|e| e.into_inner());
     loop {
@@ -652,7 +667,7 @@ fn cached_or_built<K: PartialEq + Clone, T>(
         }
         if !current {
             drop(building);
-            return (!prewarm).then(build);
+            return (!prewarm).then(|| build(0));
         }
         if !building.contains(&key) {
             break;
@@ -660,39 +675,46 @@ fn cached_or_built<K: PartialEq + Clone, T>(
         building = slot.done.wait(building).unwrap_or_else(|e| e.into_inner());
     }
     building.push(key.clone());
+    let ticket = slot.started.fetch_add(1, Ordering::SeqCst) + 1;
     drop(building);
     let _guard = BuildingGuard { slot, key };
-    Some(build())
+    Some(build(ticket))
 }
 
 /// The editor wants the Auto Mask source of `path` built ahead of the first
 /// stroke (the layers panel is open with Auto Mask on; `None`: no longer).
-/// Builds it now from this recipe; later final previews build it again when
-/// the source or its geometry changed (`rewarm_mask_source`).
+/// Builds it now from the photo's last final preview recipe; later final
+/// previews build it again when the source or its geometry changed
+/// (`rewarm_mask_source`).
 #[tauri::command]
 pub(crate) async fn prewarm_mask_source(
     path: Option<String>,
-    js_adjustments: serde_json::Value,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    *app_handle
-        .state::<AppState>()
+    let state = app_handle.state::<AppState>();
+    *state
         .mask_source_wanted
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = path.clone();
-    let Some(path) = path else {
+    let recipe = state
+        .mask_source_recipe
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+        .filter(|(recipe_path, _)| Some(recipe_path) == path.as_ref());
+    let Some((path, recipe)) = recipe else {
         return Ok(());
     };
-    tauri::async_runtime::spawn_blocking(move || prewarm_now(&app_handle, &path, js_adjustments))
+    tauri::async_runtime::spawn_blocking(move || prewarm_now(&app_handle, &path, &recipe))
         .await
         .map_err(|e| format!("Mask source prewarm failed: {e}"))
 }
 
 /// Builds the editor photo's full-resolution mask source (see
 /// `get_cached_full_warped_image`) so the first Auto Mask dab does not wait
-/// for it (~0.4 s at 40 MP). The same image the stroke would build; the
-/// layers are not needed for it.
-fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, mut adjustments: serde_json::Value) {
+/// for it (~0.4 s at 40 MP), from a final preview's hydrated `recipe`: the
+/// same image and key the stroke would build.
+fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::Value) {
     let state = app_handle.state::<AppState>();
     let Some(loaded) = state
         .original_image
@@ -703,21 +725,26 @@ fn prewarm_now(app_handle: &tauri::AppHandle, path: &str, mut adjustments: serde
     else {
         return;
     };
-    hydrate_adjustments(&state, &mut adjustments);
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("mask_source_prewarm");
-    full_warped_image(&state, &loaded.image, loaded.is_raw, &adjustments, true);
+    full_warped_image(&state, &loaded.image, loaded.is_raw, recipe, true);
 }
 
-/// After a final preview: when the editor wants this photo's Auto Mask source
-/// and it no longer matches (AI Denoise replaced the source, a lens or
-/// geometry edit), build it again in the background from this recipe.
+/// After a final preview: keeps its recipe for `prewarm_mask_source`, and
+/// when the editor wants this photo's Auto Mask source and it no longer
+/// matches (AI Denoise replaced the source, a lens or geometry edit), builds
+/// it again in the background.
 fn rewarm_mask_source(
     app_handle: &tauri::AppHandle,
     state: &AppState,
     loaded: &LoadedImage,
-    adjustments: &serde_json::Value,
+    recipe: serde_json::Value,
 ) {
+    let recipe = Arc::new(recipe);
+    *state
+        .mask_source_recipe
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some((loaded.path.clone(), Arc::clone(&recipe)));
     let wanted = state
         .mask_source_wanted
         .lock()
@@ -733,7 +760,7 @@ fn rewarm_mask_source(
     if !wanted || !editor_photo {
         return;
     }
-    let geo_hash = calculate_geometry_hash(adjustments);
+    let geo_hash = calculate_geometry_hash(&recipe);
     let cached = state
         .full_warped_cache
         .lock()
@@ -745,17 +772,8 @@ fn rewarm_mask_source(
     if cached || state.full_warped_build.is_building(&key) {
         return;
     }
-    let recipe: serde_json::Map<String, serde_json::Value> = adjustments
-        .as_object()
-        .map(|all| {
-            all.iter()
-                .filter(|(key, _)| key.as_str() != "masks")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect()
-        })
-        .unwrap_or_default();
     let (app_handle, path) = (app_handle.clone(), loaded.path.clone());
-    std::thread::spawn(move || prewarm_now(&app_handle, &path, recipe.into()));
+    std::thread::spawn(move || prewarm_now(&app_handle, &path, &recipe));
 }
 
 #[tauri::command]
@@ -1276,7 +1294,7 @@ pub(crate) fn process_preview_job(
         }
     };
     if !is_interactive {
-        rewarm_mask_source(app_handle, &state, &loaded_image, &adjustments_clone);
+        rewarm_mask_source(app_handle, &state, &loaded_image, adjustments_clone);
     }
     if use_wgpu_renderer {
         {
@@ -2728,41 +2746,45 @@ mod mask_source_build_tests {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
 
-    /// The editor photo (a key) and its cached build, as `full_warped_image`
-    /// sees them.
+    /// The editor photo, its geometry and the cached build (photo, geometry),
+    /// as `full_warped_image` sees them; a build key is (photo, geometry).
     #[derive(Default)]
     struct Editor {
-        current: Mutex<u32>,
-        cached: Mutex<Option<u32>>,
-        slot: BuildSlot<u32>,
+        view: Mutex<(u32, u32)>,
+        cached: Mutex<Option<(u32, u32)>>,
+        slot: BuildSlot<(u32, u32)>,
         builds: AtomicUsize,
     }
 
+    type Gate = Option<mpsc::Receiver<()>>;
+
     impl Editor {
-        fn new(current: u32) -> Arc<Self> {
+        fn new(photo: u32) -> Arc<Self> {
             let editor = Self::default();
-            *editor.current.lock().unwrap() = current;
+            *editor.view.lock().unwrap() = (photo, 0);
             Arc::new(editor)
         }
 
-        fn open(&self, key: u32) {
-            *self.current.lock().unwrap() = key;
+        fn show(&self, photo: u32, geometry: u32) {
+            *self.view.lock().unwrap() = (photo, geometry);
         }
 
-        /// The source of `key`, built after `gate` releases it.
-        fn get(&self, key: u32, prewarm: bool, gate: Option<mpsc::Receiver<()>>) -> Option<u32> {
+        /// The source of `key`, built after `gate` releases it; publishes
+        /// like `full_warped_image`.
+        fn get(&self, key: (u32, u32), prewarm: bool, gate: Gate) -> Option<(u32, u32)> {
             let lookup = || {
-                let current = *self.current.lock().unwrap() == key;
+                let current = self.view.lock().unwrap().0 == key.0;
                 let cached = *self.cached.lock().unwrap();
                 (current, cached.filter(|&c| current && c == key))
             };
-            cached_or_built(&self.slot, key, lookup, prewarm, || {
+            cached_or_built(&self.slot, key, lookup, prewarm, |ticket| {
                 self.builds.fetch_add(1, Ordering::SeqCst);
                 if let Some(gate) = gate {
                     gate.recv().unwrap();
                 }
-                if *self.current.lock().unwrap() == key {
-                    *self.cached.lock().unwrap() = Some(key);
+                let mut cached = self.cached.lock().unwrap();
+                if self.view.lock().unwrap().0 == key.0 && self.slot.may_publish(ticket) {
+                    *cached = Some(key);
                 }
                 key
             })
@@ -2770,10 +2792,10 @@ mod mask_source_build_tests {
 
         fn spawn(
             self: &Arc<Self>,
-            key: u32,
+            key: (u32, u32),
             prewarm: bool,
-            gate: Option<mpsc::Receiver<()>>,
-        ) -> std::thread::JoinHandle<Option<u32>> {
+            gate: Gate,
+        ) -> std::thread::JoinHandle<Option<(u32, u32)>> {
             let editor = Arc::clone(self);
             std::thread::spawn(move || editor.get(key, prewarm, gate))
         }
@@ -2793,42 +2815,57 @@ mod mask_source_build_tests {
     fn a_stroke_during_a_prewarm_waits_for_it_and_reuses_it() {
         let editor = Editor::new(1);
         let (release, gate) = mpsc::channel();
-        let prewarm = editor.spawn(1, true, Some(gate));
+        let prewarm = editor.spawn((1, 0), true, Some(gate));
         editor.wait_for_builds(1);
-        let stroke = editor.spawn(1, false, None);
+        let stroke = editor.spawn((1, 0), false, None);
         std::thread::sleep(Duration::from_millis(30));
         assert!(!stroke.is_finished());
         release.send(()).unwrap();
-        assert_eq!(prewarm.join().unwrap(), Some(1));
-        assert_eq!(stroke.join().unwrap(), Some(1));
+        assert_eq!(prewarm.join().unwrap(), Some((1, 0)));
+        assert_eq!(stroke.join().unwrap(), Some((1, 0)));
         assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
     }
 
     #[test]
-    fn a_new_photo_or_geometry_builds_at_once_while_an_old_build_runs() {
+    fn a_new_photo_builds_at_once_while_an_old_build_runs() {
         let editor = Editor::new(1);
         let (release, gate) = mpsc::channel();
-        let old = editor.spawn(1, true, Some(gate));
+        let old = editor.spawn((1, 0), true, Some(gate));
         editor.wait_for_builds(1);
-        // The user opens photo 2 (or changes the geometry: another key).
-        editor.open(2);
-        assert_eq!(editor.get(2, true, None), Some(2));
-        assert_eq!(editor.get(2, false, None), Some(2), "cached");
+        editor.show(2, 0);
+        assert_eq!(editor.get((2, 0), true, None), Some((2, 0)));
+        assert_eq!(editor.get((2, 0), false, None), Some((2, 0)), "cached");
         release.send(()).unwrap();
         old.join().unwrap();
         assert_eq!(editor.builds.load(Ordering::SeqCst), 2);
-        assert_eq!(*editor.cached.lock().unwrap(), Some(2));
+        assert_eq!(*editor.cached.lock().unwrap(), Some((2, 0)));
+    }
+
+    #[test]
+    fn an_older_geometry_ending_last_does_not_replace_the_newer_one() {
+        let editor = Editor::new(1);
+        let (release, gate) = mpsc::channel();
+        let old = editor.spawn((1, 0), true, Some(gate));
+        editor.wait_for_builds(1);
+        // A lens edit on the same photo: a new key, built at once.
+        editor.show(1, 1);
+        assert_eq!(editor.get((1, 1), true, None), Some((1, 1)));
+        release.send(()).unwrap();
+        assert_eq!(old.join().unwrap(), Some((1, 0)));
+        assert_eq!(*editor.cached.lock().unwrap(), Some((1, 1)));
+        assert_eq!(editor.get((1, 1), false, None), Some((1, 1)));
+        assert_eq!(editor.builds.load(Ordering::SeqCst), 2);
     }
 
     #[test]
     fn a_prewarm_waiting_for_a_photo_no_longer_edited_builds_nothing() {
         let editor = Editor::new(1);
         let (release, gate) = mpsc::channel();
-        let first = editor.spawn(1, true, Some(gate));
+        let first = editor.spawn((1, 0), true, Some(gate));
         editor.wait_for_builds(1);
-        let stale = editor.spawn(1, true, None);
+        let stale = editor.spawn((1, 0), true, None);
         std::thread::sleep(Duration::from_millis(30));
-        editor.open(2);
+        editor.show(2, 0);
         release.send(()).unwrap();
         first.join().unwrap();
         assert_eq!(stale.join().unwrap(), None);
@@ -2838,8 +2875,8 @@ mod mask_source_build_tests {
     #[test]
     fn other_photos_build_without_caching_and_never_for_a_prewarm() {
         let editor = Editor::new(2);
-        assert_eq!(editor.get(1, false, None), Some(1));
-        assert_eq!(editor.get(1, true, None), None);
+        assert_eq!(editor.get((1, 0), false, None), Some((1, 0)));
+        assert_eq!(editor.get((1, 0), true, None), None);
         assert_eq!(editor.builds.load(Ordering::SeqCst), 1);
         assert_eq!(*editor.cached.lock().unwrap(), None);
     }
@@ -2852,14 +2889,14 @@ mod mask_source_build_tests {
             std::thread::spawn(move || {
                 cached_or_built(
                     &editor.slot,
-                    1,
-                    || (true, None::<u32>),
+                    (1, 0),
+                    || (true, None),
                     false,
-                    || panic!("build failed"),
+                    |_| -> (u32, u32) { panic!("build failed") },
                 )
             })
         };
         assert!(failed.join().is_err());
-        assert_eq!(editor.get(1, false, None), Some(1));
+        assert_eq!(editor.get((1, 0), false, None), Some((1, 0)));
     }
 }

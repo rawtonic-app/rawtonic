@@ -312,6 +312,9 @@ pub struct AppState {
     /// The photo whose full-resolution mask source the editor wants built
     /// ahead of the first Auto Mask stroke (`prewarm_mask_source`).
     pub mask_source_wanted: Mutex<Option<String>>,
+    /// The last final preview's photo and hydrated recipe, which the mask
+    /// source prewarm builds from.
+    pub mask_source_recipe: Mutex<Option<(String, Arc<serde_json::Value>)>>,
     pub patched_warped_cache: Mutex<Option<(u64, Arc<DynamicImage>)>>,
     pub full_transformed_cache: Mutex<Option<TransformedImageCache>>,
     pub decoded_image_cache: Mutex<DecodedImageCache>,
