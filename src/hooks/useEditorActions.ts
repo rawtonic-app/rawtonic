@@ -173,7 +173,7 @@ function commitDraft(path: string, adjustments: Adjustments) {
 }
 
 /** The editor's adjustment update outside React (history included). During a
- * slider drag the moves render as a draft and commit every 100 ms. */
+ * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS. */
 export function updateAdjustments(value: AdjustmentsUpdate) {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
