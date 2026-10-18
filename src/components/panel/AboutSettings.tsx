@@ -139,6 +139,18 @@ export const CREDITS: Credit[] = [
     license: "BSD-3-Clause",
   },
   {
+    name: "libgphoto2",
+    url: "http://www.gphoto.org/proj/libgphoto2/",
+    what: "Tethered shooting: talks to the camera over USB, in a separate helper process (with libusb and libltdl, linked dynamically).",
+    license: "LGPL-2.1-or-later",
+  },
+  {
+    name: "libgphoto2 Rust bindings",
+    url: "https://github.com/CyberTimon/libgphoto2-rs",
+    what: "The tether helper's bindings to libgphoto2 (RapidRAW's fork of vibe-libgphoto2-rs).",
+    license: "MIT OR Apache-2.0",
+  },
+  {
     name: "libjpeg-turbo",
     url: "https://libjpeg-turbo.org/",
     what: "JPEG export.",

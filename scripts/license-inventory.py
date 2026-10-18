@@ -2,7 +2,7 @@
 """Append resolved dependency license declarations without private machine paths."""
 import json, pathlib, subprocess
 root=pathlib.Path(__file__).resolve().parent.parent
-cargo=json.loads(subprocess.check_output([str(pathlib.Path.home()/'.cargo/bin/cargo'),'metadata','--format-version','1','--locked'],cwd=root,text=True))
+cargo=json.loads(subprocess.check_output([str(pathlib.Path.home()/'.cargo/bin/cargo'),'metadata','--format-version','1','--locked','--features','rawtonic-tether/gphoto2'],cwd=root,text=True))
 rust=sorted({(p['name'],p['version'],p.get('license') or 'UNDECLARED — REVIEW',p.get('repository') or '') for p in cargo['packages']})
 node=set()
 for path in (root/'node_modules').rglob('package.json'):

@@ -55,6 +55,15 @@ pub fn library_version() -> String {
         .unwrap_or_default()
 }
 
+/// The camera models the loaded camera drivers know (0 when libgphoto2
+/// found none of its drivers: a packaging fault).
+pub fn known_models() -> Result<usize, TetherError> {
+    let context = gphoto2::Context::new().map_err(|e| error("libgphoto2", e))?;
+    gphoto2::supported_models(&context)
+        .map(|m| m.len())
+        .map_err(|e| error("Loading the camera drivers", e))
+}
+
 impl Driver for GphotoDriver {
     fn library(&self) -> Option<String> {
         Some(library_version())

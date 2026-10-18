@@ -4,6 +4,8 @@
 //!   rawtonic-tether [--mock]          serve (the mock camera with --mock;
 //!                                     its script in RAWTONIC_TETHER_MOCK)
 //!   rawtonic-tether list              the cameras on USB
+//!   rawtonic-tether version           libgphoto2's version and how many
+//!                                     camera models its drivers know
 //!   rawtonic-tether probe --out DIR [--port P] [--shots N] [--interval-ms MS]
 //!                         [--body-seconds S] [--live-view-frames N] [--mock]
 //!       what a body does, through the same helper process the app uses:
@@ -51,7 +53,44 @@ fn driver(mock: bool) -> Result<Box<dyn Driver>, String> {
             .map_err(|e| e.to_string())
     }
     #[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
-    Err("this helper was built without camera support (feature gphoto2)".into())
+    Ok(Box::new(NoCameras))
+}
+
+/// A helper built without camera support (feature `gphoto2`): it answers,
+/// and says so when asked for a camera.
+#[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
+struct NoCameras;
+
+#[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
+impl NoCameras {
+    fn unsupported() -> rawtonic_tether::protocol::TetherError {
+        rawtonic_tether::protocol::TetherError::new(
+            rawtonic_tether::protocol::ErrorKind::Unsupported,
+            "This build's tether helper has no camera support (built without libgphoto2).",
+        )
+    }
+}
+
+#[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
+impl Driver for NoCameras {
+    fn library(&self) -> Option<String> {
+        None
+    }
+
+    fn list(
+        &mut self,
+    ) -> Result<Vec<rawtonic_tether::protocol::CameraInfo>, rawtonic_tether::protocol::TetherError>
+    {
+        Err(Self::unsupported())
+    }
+
+    fn open(
+        &mut self,
+        _port: Option<&str>,
+    ) -> Result<Box<dyn rawtonic_tether::camera::Camera>, rawtonic_tether::protocol::TetherError>
+    {
+        Err(Self::unsupported())
+    }
 }
 
 fn arg(args: &[String], name: &str) -> Option<String> {
@@ -71,6 +110,7 @@ fn main() {
             Ok(())
         }),
         Some("probe") => probe(&args, mock),
+        Some("version") => version(),
         _ => driver(mock).and_then(|d| {
             // Tests shorten how long a shot may take.
             let timeout = std::env::var("RAWTONIC_TETHER_SHOT_TIMEOUT_MS")
@@ -87,6 +127,30 @@ fn main() {
     if let Err(e) = result {
         eprintln!("rawtonic-tether: {e}");
         std::process::exit(1);
+    }
+}
+
+fn version() -> Result<(), String> {
+    #[cfg(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux")))]
+    {
+        let models = rawtonic_tether::gphoto::known_models().map_err(|e| e.to_string())?;
+        println!(
+            "{}",
+            json!({
+                "protocol": rawtonic_tether::protocol::PROTOCOL,
+                "libgphoto2": rawtonic_tether::gphoto::library_version(),
+                "cameraModels": models,
+            })
+        );
+        if models == 0 {
+            return Err("libgphoto2 found no camera drivers (CAMLIBS)".into());
+        }
+        Ok(())
+    }
+    #[cfg(not(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux"))))]
+    {
+        println!("{}", json!({ "protocol": rawtonic_tether::protocol::PROTOCOL, "libgphoto2": null }));
+        Ok(())
     }
 }
 

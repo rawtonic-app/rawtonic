@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Builds libgphoto2 for the tether helper from pinned, checksummed sources:
+# libusb, libltdl (GNU libtool) and libgphoto2 with only what tethering
+# needs — the PTP camera driver (ptp2: current Sony, Fujifilm, Canon, Nikon …
+# bodies) and the USB port driver. No network port driver (ptpip), no serial
+# or disk drivers, no translations, libexif, libjpeg, libxml or gd.
+# All three are LGPL-2.1-or-later and are linked dynamically (THIRD_PARTY_NOTICES).
+#
+# macOS: built for the app's minimum macOS (Homebrew's bottles need the
+# build machine's macOS). Linux: run inside the AppImage container.
+#
+# Usage: scripts/tether/build_libgphoto2.sh [PREFIX]   (default target/gphoto2)
+# Sources are cached in target/gphoto2-src. The build is skipped when PREFIX
+# already holds this exact build (its stamp file).
+set -euo pipefail
+
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
+PREFIX=${1:-$REPO/target/gphoto2}
+SRC=$REPO/target/gphoto2-src
+
+# Same versions and checksums as Homebrew's formulae (cross-checked 2026-10-18).
+LIBUSB=libusb-1.0.30
+LIBUSB_URL=https://github.com/libusb/libusb/releases/download/v1.0.30/libusb-1.0.30.tar.bz2
+LIBUSB_SHA=fea36f34f9156400209595e300840767ab1a385ede1dc7ee893015aea9c6dbaf
+LIBTOOL=libtool-2.6.2
+LIBTOOL_URL=https://ftpmirror.gnu.org/libtool/libtool-2.6.2.tar.xz
+LIBTOOL_SHA=2ef1067c16c97db930fd740cc9bc3d3ba9a583804ae5ac42cc3e8719e49e191e
+GPHOTO=libgphoto2-2.5.34
+GPHOTO_URL=https://downloads.sourceforge.net/project/gphoto/libgphoto/2.5.34/libgphoto2-2.5.34.tar.bz2
+GPHOTO_SHA=5df9e774eb4ab6087a193afff84dcafe9f666e3443fe29e73e6779f659ff7f28
+
+STAMP="$LIBUSB $LIBTOOL $GPHOTO ptp2 usb1"
+case "$(uname -s)" in
+  Darwin)
+    export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-13.0}
+    STAMP="$STAMP macos$MACOSX_DEPLOYMENT_TARGET"
+    sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+    ;;
+  *) sha256() { sha256sum "$1" | cut -d' ' -f1; } ;;
+esac
+
+if [ -f "$PREFIX/.rawtonic-build" ] && [ "$(cat "$PREFIX/.rawtonic-build")" = "$STAMP" ]; then
+  echo "libgphoto2: $PREFIX is up to date"
+  exit 0
+fi
+
+mkdir -p "$SRC"
+fetch() { # url sha file
+  local file=$SRC/$3
+  if [ ! -f "$file" ] || [ "$(sha256 "$file")" != "$2" ]; then
+    curl -fsSL -o "$file.download" "$1"
+    mv "$file.download" "$file"
+  fi
+  if [ "$(sha256 "$file")" != "$2" ]; then
+    echo "libgphoto2: checksum mismatch for $3" >&2
+    exit 1
+  fi
+}
+fetch "$LIBUSB_URL" "$LIBUSB_SHA" "$LIBUSB.tar.bz2"
+fetch "$LIBTOOL_URL" "$LIBTOOL_SHA" "$LIBTOOL.tar.xz"
+fetch "$GPHOTO_URL" "$GPHOTO_SHA" "$GPHOTO.tar.bz2"
+
+BUILD=$(mktemp -d "${TMPDIR:-/tmp}/rawtonic-gphoto2.XXXXXX")
+trap 'rm -rf "$BUILD"' EXIT
+JOBS=$( (sysctl -n hw.ncpu 2>/dev/null || nproc) | head -1)
+mkdir -p "$PREFIX"
+export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
+
+tar -xjf "$SRC/$LIBUSB.tar.bz2" -C "$BUILD"
+(cd "$BUILD/$LIBUSB" && ./configure --prefix="$PREFIX" --disable-static --disable-udev \
+  --disable-examples-build --disable-tests-build >/dev/null && make -j"$JOBS" >/dev/null && make install >/dev/null)
+
+tar -xJf "$SRC/$LIBTOOL.tar.xz" -C "$BUILD"
+(cd "$BUILD/$LIBTOOL" && ./configure --prefix="$PREFIX" --disable-static --enable-ltdl-install >/dev/null &&
+  make -j"$JOBS" >/dev/null && make install >/dev/null)
+
+tar -xjf "$SRC/$GPHOTO.tar.bz2" -C "$BUILD"
+(cd "$BUILD/$GPHOTO" && ./configure --prefix="$PREFIX" --disable-static --disable-nls \
+  --with-camlibs=ptp2 --without-libexif --without-jpeg --with-libxml-2.0=no --with-libcurl=no \
+  --with-gdlib=no --with-libtiff-4=no --without-libusb --disable-serial --disable-disk --disable-ptpip \
+  LTDLINCL="-I$PREFIX/include" LIBLTDL="-L$PREFIX/lib -lltdl" >/dev/null &&
+  make -j"$JOBS" >/dev/null && make install >/dev/null)
+
+echo "$STAMP" >"$PREFIX/.rawtonic-build"
+echo "libgphoto2: built into $PREFIX"

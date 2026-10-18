@@ -6,8 +6,9 @@ copyright notice) to accompany every copy, binaries included. This script
 writes them into one file that the app bundles and shows in About:
 
 - Rust: every package reachable through normal (not build or dev)
-  dependencies from `rawtonic-app` and `rawtonic-cli`, on every target
-  platform (a superset of any single build). Rawtonic's own crates are
+  dependencies from `rawtonic-app`, `rawtonic-cli` and the tether helper
+  `rawtonic-tether` with its camera feature, on every target platform (a
+  superset of any single build). Rawtonic's own crates are
   covered by LICENSE.
 - npm: the production dependencies (`npm ls --omit=dev`), the code that
   ends up in the frontend bundle; build and test tools are not shipped.
@@ -93,11 +94,13 @@ def license_files(root: Path, extra: str | None = None) -> list[Path]:
 
 def rust_packages() -> list[dict]:
     metadata = json.loads(subprocess.check_output(
-        ["cargo", "metadata", "--format-version", "1", "--locked"], cwd=REPO, text=True))
+        ["cargo", "metadata", "--format-version", "1", "--locked",
+         # The helper ships with libgphoto2's bindings.
+         "--features", "rawtonic-tether/gphoto2"], cwd=REPO, text=True))
     packages = {p["id"]: p for p in metadata["packages"]}
     nodes = {n["id"]: n for n in metadata["resolve"]["nodes"]}
     roots = [i for i in metadata["workspace_members"]
-             if packages[i]["name"] in ("rawtonic-app", "rawtonic-cli")]
+             if packages[i]["name"] in ("rawtonic-app", "rawtonic-cli", "rawtonic-tether")]
     seen, stack = set(), list(roots)
     while stack:
         current = stack.pop()

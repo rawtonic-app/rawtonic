@@ -31,6 +31,9 @@ This product includes DNG technology under license by Adobe. Rawtonic reads file
 ## ONNX Runtime and its GPU plugins
 The opt-in AI build (`RAWTONIC_BUNDLE_ONNX=1`) bundles Microsoft's [ONNX Runtime](https://github.com/microsoft/onnxruntime) library, unchanged: 1.23.2 on macOS, 1.30.0 on Windows and Linux. MIT (`licenses/models/onnxruntime-MIT.txt`), with its third-party notices (`licenses/models/onnxruntime-1.23.2-ThirdPartyNotices.txt` for 1.23.2, `licenses/models/onnxruntime-1.30.0-ThirdPartyNotices.txt` for 1.30.0); the build copies both into the app's `licenses` folder. On Windows and Linux it also bundles Microsoft's WebGPU plugin execution provider 0.4.0 (`onnxruntime_providers_webgpu`, MIT, from the `onnxruntime-ep-webgpu` package), which contains Google's [Dawn](https://dawn.googlesource.com/dawn) (BSD-3-Clause) and the other components listed in the 1.30.0 notices. The DirectX Shader Compiler libraries (`dxcompiler.dll`, `dxil.dll`, Microsoft Software License Terms) in that package's Windows build are not distributed. NVIDIA's CUDA plugin (Microsoft, MIT) is an optional download (`scripts/models/install_models.sh --cuda`); it loads the CUDA and cuDNN libraries the user installed under NVIDIA's terms, none of which Rawtonic distributes. Choice and licenses: `docs/decisions/0011-gpu-ai.md`.
 
+## libgphoto2 (tethered shooting)
+Tethered shooting talks to cameras through [libgphoto2](https://github.com/gphoto/libgphoto2) 2.5.34 (libgphoto2 and libgphoto2_port, Copyright the gphoto project, Lutz Müller, Marcus Meissner and contributors), [libusb](https://libusb.info/) 1.0.30 (Copyright Johannes Erdfelt, Daniel Drake, Peter Stuge, Nathan Hjelm, Chris Dickens and contributors) and libltdl from [GNU Libtool](https://www.gnu.org/software/libtool/) 2.6.2 (Copyright Free Software Foundation, Inc.), all GNU LGPL v2.1 or later (`licenses/LGPL-2.1.txt`). They run only in the separate helper program `rawtonic-tether`, never in the app, and are linked dynamically: the app bundle carries them as separate shared libraries (macOS: `Contents/Frameworks`, the camera driver `ptp2` and the USB port driver `usb1` in `Contents/Resources/gphoto2`), so they can be replaced with other builds of the same versions. They are built unmodified from the upstream release tarballs by `scripts/tether/build_libgphoto2.sh` (download addresses and SHA-256 checksums in that script; every release that ships them also offers those three source tarballs from the same place as the app, as release assets), configured with only the PTP camera driver and the USB port driver — no network (PTP/IP), serial or disk port drivers. The helper's Rust bindings are the `gphoto2` and `gphoto2-sys` crates from [CyberTimon/libgphoto2-rs](https://github.com/CyberTimon/libgphoto2-rs) (commit 878ca523, a fork of vibe-libgphoto2-rs; MIT OR Apache-2.0, vibe-libgphoto2-rs contributors).
+
 ## Data and assets
 **Lensfun database** in `src-tauri/lensfun_db`: Lensfun contributors, CC BY-SA 3.0 (`src-tauri/lensfun_db/COPYING.CC_BY-SA_3.0`, `licenses/Lensfun-CC-BY-SA-3.0.txt`, https://lensfun.github.io/license/). It is shipped as separate data files; no Lensfun library code is linked. Changes to the database files are listed in their git history and stay under CC BY-SA 3.0.
 
@@ -56,6 +59,8 @@ Other open-source projects studied for ideas are not distributed; no code was ta
 
 ## Dependency inventory
 Resolved npm and Cargo version/license inventories are below, including build/test and target-specific dependencies. Missing, custom or ambiguous licenses are release blockers, not implicit approvals. Lockfiles pin the shipped dependency set. The full license and notice texts of every shipped package are collected by `scripts/third_party_licenses.py` into `THIRD_PARTY_LICENSES.txt`, which every `tauri build` bundles and About shows; the build fails if a package's license text is missing.
+
+
 
 
 
@@ -129,6 +134,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | base64 | 0.21.7 | MIT OR Apache-2.0 |
 | base64 | 0.22.1 | MIT OR Apache-2.0 |
 | base64 | 0.23.1 | MIT OR Apache-2.0 |
+| bindgen | 0.71.1 | BSD-3-Clause |
 | bit-set | 0.8.0 | Apache-2.0 OR MIT |
 | bit-set | 0.9.1 | Apache-2.0 OR MIT |
 | bit-vec | 0.8.0 | Apache-2.0 OR MIT |
@@ -166,6 +172,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | castaway | 0.2.4 | MIT |
 | cc | 1.4.4 | MIT OR Apache-2.0 |
 | cesu8 | 1.1.0 | Apache-2.0/MIT |
+| cexpr | 0.6.0 | Apache-2.0/MIT |
 | cfb | 0.14.0 | MIT |
 | cfg-expr | 0.15.8 | MIT OR Apache-2.0 |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 |
@@ -175,6 +182,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ciborium | 0.2.2 | Apache-2.0 |
 | ciborium-io | 0.2.2 | Apache-2.0 |
 | ciborium-ll | 0.2.2 | Apache-2.0 |
+| clang-sys | 1.9.1 | Apache-2.0 |
 | clap | 4.6.7 | MIT OR Apache-2.0 |
 | clap_builder | 4.6.7 | MIT OR Apache-2.0 |
 | clap_derive | 4.6.7 | MIT OR Apache-2.0 |
@@ -326,6 +334,8 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | glow | 0.17.0 | MIT OR Apache-2.0 OR Zlib |
 | glutin_wgl_sys | 0.6.1 | Apache-2.0 |
 | gobject-sys | 0.18.0 | MIT |
+| gphoto2 | 0.1.0 | MIT OR Apache-2.0 |
+| gphoto2-sys | 0.1.0 | MIT OR Apache-2.0 |
 | gpu-allocator | 0.28.0 | MIT OR Apache-2.0 |
 | gpu-descriptor | 0.3.2 | MIT OR Apache-2.0 |
 | gpu-descriptor-types | 0.2.0 | MIT OR Apache-2.0 |
@@ -565,6 +575,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | ppv-lite86 | 0.2.21 | MIT OR Apache-2.0 |
 | precomputed-hash | 0.1.1 | MIT |
 | presser | 0.3.1 | MIT OR Apache-2.0 |
+| prettyplease | 0.2.37 | MIT OR Apache-2.0 |
 | primal-check | 0.3.4 | MIT OR Apache-2.0 |
 | proc-macro-crate | 1.3.1 | MIT OR Apache-2.0 |
 | proc-macro-crate | 2.0.2 | MIT OR Apache-2.0 |
@@ -620,6 +631,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | rawtonic-onnx | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-rawdecode | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-runtime | 0.1.0 | AGPL-3.0-or-later |
+| rawtonic-tether | 0.1.0 | AGPL-3.0-or-later |
 | rayon | 1.12.0 | MIT OR Apache-2.0 |
 | rayon-cond | 0.4.0 | Apache-2.0/MIT |
 | rayon-core | 1.13.0 | MIT OR Apache-2.0 |
@@ -687,6 +699,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | sha2 | 0.10.9 | MIT OR Apache-2.0 |
 | sha2 | 0.11.0 | MIT OR Apache-2.0 |
 | shared_child | 1.1.1 | MIT |
+| shlex | 1.3.0 | MIT OR Apache-2.0 |
 | shlex | 2.0.1 | MIT OR Apache-2.0 |
 | sigchld | 0.2.4 | MIT |
 | signal-hook | 0.3.18 | Apache-2.0/MIT |
