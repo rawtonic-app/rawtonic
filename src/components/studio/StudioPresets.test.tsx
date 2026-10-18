@@ -235,6 +235,21 @@ describe("preset amount", () => {
     expect(commit()).toMatchObject(sigma);
   });
 
+  it("marks the camera's data pending when a preset's amount changes its CA version", async () => {
+    const cameraPreset: UserPreset = { preset: { id: "cam", name: "Camera data", adjustments: {
+      lensCorrectionMode: "camera", cameraCaVersion: 1,
+    }, presetType: "tool" } };
+    const v0 = { lensCorrectionMode: "camera", cameraCaVersion: 0, lensDistortionParams: { k1: -0.02 } };
+    mockInvoke.mockImplementation(async (command) => (command === "load_presets" ? [cameraPreset] : undefined));
+    useEditorStore.setState({ adjustments: { ...INITIAL_ADJUSTMENTS, ...v0 } as never });
+    await renderTool();
+    fireEvent.click(screen.getByRole("button", { name: /Camera data/ }));
+    fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "80" } });
+    const commit = (setAdjustments.mock.lastCall![0] as (c: Record<string, unknown>) => Record<string, unknown>)(
+      { ...INITIAL_ADJUSTMENTS, ...v0 });
+    expect(commit).toMatchObject({ cameraCaVersion: 1, lensDistortionParams: { pending: true } });
+  });
+
   it("offers no amount when a preset goes to several photographs", async () => {
     useLibraryStore.setState({ multiSelectedPaths: ["/job/a.arw", "/job/b.arw"] });
     await renderTool();

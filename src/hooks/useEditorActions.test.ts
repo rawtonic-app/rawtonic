@@ -538,6 +538,13 @@ describe('a lens choice pasted onto the open photo', () => {
     expect(useEditorStore.getState().adjustments).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
   });
 
+  it('fills in no camera data looked up for another CA version', async () => {
+    await paste({ lensCorrectionMode: 'camera', cameraCaVersion: 1 }, ['lensCorrectionMode', 'cameraCaVersion']);
+    act(() => updateAdjustments({ cameraCaVersion: 0 }));
+    await finish(Invokes.ResolveLensProfile, { lensMaker: null, lensModel: null, lensDistortionParams: { k1: -0.02 } });
+    expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ pending: true });
+  });
+
   it('fills a pending entry in again when undo or redo restores it', async () => {
     await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
     act(() => debouncedSetHistory.flush());

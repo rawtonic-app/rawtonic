@@ -2,13 +2,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
 import type { Adjustments } from './adjustments';
 
-type LensFields = Pick<Adjustments, 'lensCorrectionMode' | 'lensMaker' | 'lensModel'>;
+type LensFields = Pick<Adjustments, 'lensCorrectionMode' | 'lensMaker' | 'lensModel' | 'cameraCaVersion'>;
 
 /** A recipe's lens choice: its mode and, chosen by hand, the lens (Auto's
- * lens is found, the camera's data has none). */
+ * lens is found); for the camera's own data, the version of its CA
+ * correction, which its parameters depend on. */
 export function lensChoice(adjustments: Partial<LensFields>): string {
   const mode = adjustments.lensCorrectionMode ?? null;
-  const byHand = mode !== 'auto' && mode !== 'camera';
+  if (mode === 'camera') return JSON.stringify([mode, adjustments.cameraCaVersion ?? 0]);
+  const byHand = mode !== 'auto';
   return JSON.stringify([mode, byHand ? adjustments.lensMaker ?? null : null, byHand ? adjustments.lensModel ?? null : null]);
 }
 
