@@ -7,9 +7,12 @@ base and head (median of the rounds' medians), the change and its noise
 band. The band is the larger of
   - the spread of one side's round medians ((max - min) / median), and
   - criterion's 95 % confidence interval of one run's median (half width),
-over both sides, at least MIN_BAND. A change inside the band is noise.
+over both sides, at least --min-band (default 3 %: separate runs of the
+same binary differ by up to ~2 % on an otherwise idle 6-core machine, more
+than criterion's interval within one run shows). A change inside the band
+is noise.
 
-Usage: scripts/bench/ab_table.py WORK [--json OUT] [--fail-on-slower]
+Usage: scripts/bench/ab_table.py WORK [--json OUT] [--min-band PCT] [--fail-on-slower]
 Exit status 3 with --fail-on-slower when a benchmark is slower beyond its band.
 """
 from __future__ import annotations
@@ -20,7 +23,7 @@ import pathlib
 import statistics
 import sys
 
-MIN_BAND = 0.01  # criterion's own default noise threshold
+MIN_BAND = 3.0  # percent
 
 
 def runs(side_dir: pathlib.Path) -> dict[str, list[dict]]:
@@ -61,6 +64,7 @@ def main() -> int:
     parser.add_argument("work", type=pathlib.Path)
     parser.add_argument("--json", type=pathlib.Path)
     parser.add_argument("--fail-on-slower", action="store_true")
+    parser.add_argument("--min-band", type=float, default=MIN_BAND, help="smallest noise band in percent")
     args = parser.parse_args()
     base = runs(args.work / "criterion" / "base")
     head = runs(args.work / "criterion" / "head")
@@ -75,7 +79,7 @@ def main() -> int:
             row["head_ns"] = h[0]
         if b and h:
             row["change"] = h[0] / b[0] - 1
-            row["band"] = max(b[1], h[1], MIN_BAND)
+            row["band"] = max(b[1], h[1], args.min_band / 100)
             if abs(row["change"]) <= row["band"]:
                 row["verdict"] = "noise"
             else:

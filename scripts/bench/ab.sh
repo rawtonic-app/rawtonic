@@ -3,11 +3,12 @@
 # commit, interleaved, with a table of medians, change and noise band
 # (scripts/bench/ab_table.py). Run it before shipping a performance change.
 # Usage: scripts/bench/ab.sh [--base REF] [--rounds N] [--bench LIST]
-#                            [--filter REGEX] [--fail-on-slower] [--keep]
+#                            [--filter REGEX] [--min-band PCT] [--fail-on-slower] [--keep]
 #   --base REF        commit to compare with (default origin/main)
 #   --rounds N        runs per side, alternating base/head (default 2: A B B A)
 #   --bench LIST      comma list of decode,develop,encode (default all)
 #   --filter REGEX    criterion filter, e.g. 'raw_decode|demosaic'
+#   --min-band PCT    smallest noise band (default 3; scripts/bench/ab_table.py)
 #   --fail-on-slower  exit 3 when a benchmark is slower beyond its noise band
 #   --keep            keep the base worktree and bench binaries
 # Inputs: $RAWTONIC_BENCH_FIXTURES (scripts/bench/fetch_fixtures.sh), else
@@ -18,13 +19,14 @@
 set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT"
-BASE=origin/main; ROUNDS=2; BENCHES=decode,develop,encode; FILTER=''; FAIL=''; KEEP=0
+BASE=origin/main; ROUNDS=2; BENCHES=decode,develop,encode; FILTER=''; FAIL=''; KEEP=0; MIN_BAND=3
 while [ $# -gt 0 ]; do
   case "$1" in
     --base) BASE=$2; shift ;;
     --rounds) ROUNDS=$2; shift ;;
     --bench) BENCHES=$2; shift ;;
     --filter) FILTER=$2; shift ;;
+    --min-band) MIN_BAND=$2; shift ;;
     --fail-on-slower) FAIL=--fail-on-slower ;;
     --keep) KEEP=1 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
@@ -128,4 +130,4 @@ done
 echo
 echo "base $BASE ($(git rev-parse --short "$BASE_SHA")) vs head $(git rev-parse --short HEAD)$DIRTY, $ROUNDS rounds, $(uname -sm)"
 echo
-python3 -I "$ROOT/scripts/bench/ab_table.py" "$WORK" --json "$WORK/ab.json" $FAIL
+python3 -I "$ROOT/scripts/bench/ab_table.py" "$WORK" --json "$WORK/ab.json" --min-band "$MIN_BAND" $FAIL
