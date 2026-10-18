@@ -289,6 +289,8 @@ pub struct AppState {
     /// The preview worker's next job (preview_slot.rs): a newer request
     /// replaces the waiting one on arrival.
     pub preview_jobs: crate::preview_slot::LatestSlot<PreviewJob>,
+    /// The recipe of the brush stroke being drawn (live_stroke.rs).
+    pub live_stroke: Mutex<crate::live_stroke::LiveStrokeRecipe>,
     pub analytics_worker_tx: Mutex<Option<LatestJobSender<AnalyticsJob>>>,
     pub mask_cache: Mutex<MaskBitmapCache>,
     /// Masks drawn for the layer list's thumbnails, apart from the

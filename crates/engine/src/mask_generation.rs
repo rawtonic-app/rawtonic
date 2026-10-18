@@ -2969,8 +2969,8 @@ fn generate_brush_bitmap(
     now: Shown,
     source: Option<&ParametricMaskSource>,
 ) -> GrayImage {
-    let mut params: BrushMaskParameters =
-        serde_json::from_value(params_value.clone()).unwrap_or_default();
+    // Read in place: copying the strokes first cost as much again per frame.
+    let mut params = BrushMaskParameters::deserialize(params_value).unwrap_or_default();
     strokes_as_shown(
         params
             .lines
@@ -3041,8 +3041,7 @@ fn generate_flow_bitmap(
     crop_offset: (f32, f32),
     now: Shown,
 ) -> GrayImage {
-    let mut params: FlowMaskParameters =
-        serde_json::from_value(params_value.clone()).unwrap_or_default();
+    let mut params = FlowMaskParameters::deserialize(params_value).unwrap_or_default();
     strokes_as_shown(
         params
             .lines

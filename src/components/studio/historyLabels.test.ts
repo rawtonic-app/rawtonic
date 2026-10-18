@@ -38,3 +38,19 @@ it("names the layer a step changed", () => {
   ).toBe("Exposure +0.35 · Sky");
   expect(step(withSky, { masks: [] })).toBe("Deleted layer Sky");
 });
+
+it("compares copies by value and shared layers by reference", () => {
+  const stroke = (n: number) => ({ points: Array.from({ length: n }, (_, i) => ({ x: i, y: i })) });
+  const painted = {
+    ...sky,
+    subMasks: [{ id: "b", type: "brush", parameters: { lines: [stroke(3)] } }],
+  } as unknown as typeof sky;
+  const withPainted = { ...base, masks: [painted] };
+  // A deep copy of an unchanged recipe is no step at all.
+  expect(describeHistoryStep(withPainted, structuredClone(withPainted), t, "en")).toBe(t("studio.develop.history.other"));
+  const more = {
+    ...painted,
+    subMasks: [{ ...painted.subMasks[0], parameters: { lines: [stroke(3), stroke(2)] } }],
+  };
+  expect(step(withPainted, { masks: [more as unknown as typeof sky] })).toBe(`${t("studio.develop.history.mask")} · Sky`);
+});

@@ -7,6 +7,7 @@ import type { KonvaEventObject } from 'konva/lib/Node';
 import { PercentCrop, Crop } from 'react-image-crop';
 import { invoke } from '@tauri-apps/api/core';
 import { Adjustments, Coord, MaskContainer, GuideLine, GuideOrientation } from '../../../utils/adjustments';
+import type { LiveStroke } from '../../../utils/liveMaskRender';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
 import { RenderSize } from '../../../hooks/useImageRenderSize';
@@ -152,7 +153,10 @@ interface ImageCanvasProps {
   isRotationActive?: boolean;
   maskOverlayUrl: string | null;
   onGenerateAiMask(id: string | null, start: Coord, end: Coord): void;
-  onLiveMaskPreview?: (previewMaskDef: LiveMaskDefinition, options?: { renderLive?: boolean }) => void;
+  onLiveMaskPreview?: (
+    previewMaskDef: LiveMaskDefinition,
+    options?: { renderLive?: boolean; stroke?: Omit<LiveStroke, 'maskId'> },
+  ) => void;
   onSelectMask(id: string | null): void;
   onStraighten(val: number): void;
   selectedImage: SelectedImage;
@@ -1375,6 +1379,13 @@ const ImageCanvas = memo(
     const dragStartPointer = useRef<Coord | null>(null);
     const lastBrushPoint = useRef<Coord | null>(null);
     const currentLine = useRef<DrawnLine | null>(null);
+    // The positions the pointer passed since the last delivered move: the
+    // webview delivers about one move per display frame, the mouse or pen
+    // may report more (coalesced events), so a fast stroke keeps its curve.
+    const coalescedMoves = useRef<PointerEvent[]>([]);
+    // The stroke being drawn in image space, grown by each move's new points.
+    const liveStroke = useRef<Omit<LiveStroke, 'maskId'> | null>(null);
+    const nextStrokeId = useRef(0);
     const previewBoxRef = useRef<{ start: Coord; end: Coord } | null>(null);
     const [previewBox, setPreviewBox] = useState<{ start: Coord; end: Coord } | null>(null);
     const activeStrokeIndex = useRef<number | null>(null);
@@ -1932,6 +1943,71 @@ const ImageCanvas = memo(
       ],
     );
 
+    // Shows the stroke being drawn (the mask overlay and the developed photo
+    // beneath it) without committing it: the line so far, grown by `added`
+    // (stage coordinates; null starts the stroke).
+    const previewLiveStroke = useCallback(
+      (line: DrawnLine, added: Coord[] | null) => {
+        if (!onLiveMaskPreview || !activeContainer || !activeSubMask || !isBrushActive) return;
+        const { scale } = imageRenderSize;
+        const toImage = (p: Coord) => ({ x: p.x / scale + cropX, y: p.y / scale + cropY });
+        let stroke = liveStroke.current;
+        if (added && stroke && stroke.subMaskId === activeSubMask.id) {
+          stroke.points.push(...added.map(toImage));
+        } else {
+          stroke = { id: ++nextStrokeId.current, subMaskId: activeSubMask.id, points: line.points.map(toImage) };
+          liveStroke.current = stroke;
+        }
+
+        const imageSpaceLine: DrawnLine = {
+          brushSize: brushImageSpaceSize,
+          feather: brushSettings?.feather ? brushSettings?.feather / 100 : 0,
+          opacity: strokeOpacity,
+          flow: strokeFlow,
+          hardness: strokeHardness,
+          autoMask: strokeAutoMask,
+          autoMaskVersion: strokeAutoMaskVersion,
+          frame: drawingFrame,
+          points: stroke.points.slice(),
+          tool: line.tool,
+        };
+
+        const existingLines = activeSubMask.parameters?.lines || [];
+        const previewSubMask = {
+          ...activeSubMask,
+          parameters: {
+            ...activeSubMask.parameters,
+            lines: [...existingLines, imageSpaceLine],
+          },
+        };
+
+        const previewContainer = {
+          ...activeContainer,
+          subMasks: activeContainer.subMasks.map((sm: SubMask) => (sm.id === activeSubMask.id ? previewSubMask : sm)),
+        };
+
+        onLiveMaskPreview(previewContainer, { renderLive: true, stroke: { ...stroke, points: imageSpaceLine.points } });
+        notePointerSessionStroke(imageSpaceLine.points.length);
+      },
+      [
+        onLiveMaskPreview,
+        activeContainer,
+        activeSubMask,
+        isBrushActive,
+        imageRenderSize,
+        cropX,
+        cropY,
+        brushImageSpaceSize,
+        brushSettings?.feather,
+        strokeOpacity,
+        strokeFlow,
+        strokeHardness,
+        strokeAutoMask,
+        strokeAutoMaskVersion,
+        drawingFrame,
+      ],
+    );
+
     const handleStart = useCallback(
       (e: CanvasPointerEvent) => {
         if (e.evt && typeof e.evt.button === 'number' && e.evt.button !== 0) {
@@ -2135,12 +2211,18 @@ const ImageCanvas = memo(
             points: [pos],
             tool: effectiveTool,
           };
+          coalescedMoves.current = [];
+          liveStroke.current = null;
           currentLine.current = newLine;
+          // The press already shows the stroke's first dab (a click commits
+          // just that dab), as Capture One and Lightroom paint on the press.
+          if (isBrushActive) previewLiveStroke(newLine, null);
         }
         // A click beside a layer's shapes keeps the tool (Capture One); the
         // select tool or Escape ends it.
       },
       [
+        previewLiveStroke,
         isGuidedPerspectiveActive,
         drawingFrame,
         isCropping,
@@ -2301,65 +2383,50 @@ const ImageCanvas = memo(
         }
 
         if (currentLine.current) {
-          const lastPoint = currentLine.current.points[currentLine.current.points.length - 1];
-          if (lastPoint) {
-            const dx = pos.x - lastPoint.x;
-            const dy = pos.y - lastPoint.y;
-            if (dx * dx + dy * dy < 4) {
-              notePointerSessionStroke(null);
-              if (e.evt && e.evt.cancelable) e.evt.preventDefault();
-              return;
+          // Earlier coalesced positions of this move first, then the
+          // delivered one; points closer than 2 px to the last are dropped.
+          const passed: Coord[] = [];
+          const coalesced = coalescedMoves.current;
+          coalescedMoves.current = [];
+          const stage = drawingStageRef.current;
+          if (coalesced.length && stage && isBrushActive) {
+            for (const move of coalesced) {
+              stage.setPointersPositions(move);
+              const at = getCanvasPointer(stage);
+              if (at) passed.push(at);
             }
+            stage.setPointersPositions(e.evt ?? e);
+          }
+          passed.push(pos);
+          const added: Coord[] = [];
+          let lastPoint = currentLine.current.points[currentLine.current.points.length - 1];
+          for (const point of passed) {
+            if (lastPoint) {
+              const dx = point.x - lastPoint.x;
+              const dy = point.y - lastPoint.y;
+              if (dx * dx + dy * dy < 4) continue;
+            }
+            added.push(point);
+            lastPoint = point;
+          }
+          if (!added.length) {
+            notePointerSessionStroke(null);
+            if (e.evt && e.evt.cancelable) e.evt.preventDefault();
+            return;
           }
 
           const updatedLine = {
             ...currentLine.current,
-            points: [...currentLine.current.points, pos],
+            points: [...currentLine.current.points, ...added],
           };
           currentLine.current = updatedLine;
 
-          if (onLiveMaskPreview && activeContainer && activeSubMask && isBrushActive) {
-            const { scale } = imageRenderSize;
-
-            const imageSpaceLine: DrawnLine = {
-              brushSize: brushImageSpaceSize,
-              feather: brushSettings?.feather ? brushSettings?.feather / 100 : 0,
-              opacity: strokeOpacity,
-              flow: strokeFlow,
-              hardness: strokeHardness,
-              autoMask: strokeAutoMask,
-              autoMaskVersion: strokeAutoMaskVersion,
-              frame: drawingFrame,
-              points: updatedLine.points.map((p: Coord) => ({
-                x: p.x / scale + cropX,
-                y: p.y / scale + cropY,
-              })),
-              tool: updatedLine.tool,
-            };
-
-            const existingLines = activeSubMask.parameters?.lines || [];
-            const previewSubMask = {
-              ...activeSubMask,
-              parameters: {
-                ...activeSubMask.parameters,
-                lines: [...existingLines, imageSpaceLine],
-              },
-            };
-
-            const previewContainer = {
-              ...activeContainer,
-              subMasks: activeContainer.subMasks.map((sm: SubMask) =>
-                sm.id === activeSubMask.id ? previewSubMask : sm,
-              ),
-            };
-
-            onLiveMaskPreview(previewContainer, { renderLive: true });
-            notePointerSessionStroke(imageSpaceLine.points.length);
-          }
+          previewLiveStroke(updatedLine, added);
           if (e.evt && e.evt.cancelable) e.evt.preventDefault();
         }
       },
       [
+        previewLiveStroke,
         isGuidedPerspectiveActive,
         drawingFrame,
         isCropping,
@@ -2799,6 +2866,23 @@ const ImageCanvas = memo(
       setPointerOverImage(false);
       setCursorPreview((p: CursorPreview) => ({ ...p, visible: false }));
     }, []);
+
+    // A pointermove precedes the mousemove handleMove receives; it carries
+    // the coalesced positions (WebKit and Chromium, where supported).
+    useEffect(() => {
+      if (!isBrushActive) return;
+      const onPointerMove = (e: PointerEvent) => {
+        if (!isDrawing.current) return;
+        const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
+        // The last coalesced event is the delivered one.
+        coalescedMoves.current = events.slice(0, -1);
+      };
+      window.addEventListener('pointermove', onPointerMove, true);
+      return () => {
+        window.removeEventListener('pointermove', onPointerMove, true);
+        coalescedMoves.current = [];
+      };
+    }, [isBrushActive]);
 
     useEffect(() => {
       if (!isToolActive) return;

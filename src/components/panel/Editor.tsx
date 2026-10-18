@@ -27,7 +27,7 @@ import { useLibraryStore } from '../../store/useLibraryStore';
 import { useMultiViewStore } from '../../store/useMultiViewStore';
 import { useAiMasking } from '../../hooks/useAiMasking';
 import { useMaskOverlay, type OverlayMaskDefinition } from '../../hooks/useMaskOverlay';
-import { requestLiveMaskRender, withLiveMaskContainer } from '../../utils/liveMaskRender';
+import { requestLiveMaskRender, withLiveMaskContainer, type LiveStroke } from '../../utils/liveMaskRender';
 import { drawsMaskOverlayNatively, maskColorOf, maskColorRgb, maskDisplayOf, maskOpacityOf } from '../../utils/maskDisplay';
 import { splitScreenX } from '../../utils/beforeAfter';
 import { lockedAxes, panStep } from '../../utils/panBounds';
@@ -1329,7 +1329,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   );
 
   const handleLiveMaskPreview = useCallback(
-    (maskDef: LiveMaskDefinition, options?: { renderLive?: boolean }) => {
+    (maskDef: LiveMaskDefinition, options?: { renderLive?: boolean; stroke?: Omit<LiveStroke, 'maskId'> }) => {
       let normalizedDef: OverlayMaskDefinition = maskDef;
       if (maskDef && !maskDef.adjustments) {
         normalizedDef = {
@@ -1342,7 +1342,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       // The mask overlay stays visible; the developed image beneath it follows
       // the uncommitted stroke as well.
       if (options?.renderLive && isMasking && maskDef) {
-        requestLiveMaskRender(withLiveMaskContainer(adjustments, maskDef));
+        const stroke = options.stroke && { ...options.stroke, maskId: maskDef.id };
+        requestLiveMaskRender(withLiveMaskContainer(adjustments, maskDef), stroke);
       }
     },
     [imageRenderSize, adjustments, requestMaskOverlay, isMasking, overlayDefinition, overlayStyle],
