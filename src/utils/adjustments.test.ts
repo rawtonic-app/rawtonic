@@ -14,6 +14,8 @@ import {
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
   withSharpenVersion,
+  pastedAdjustments,
+  PasteMode,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -200,6 +202,21 @@ describe('RAW detail defaults', () => {
     expect(load({}, false)).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: 80, sharpenVersion: 1 })).toBe(1);
     expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
+  });
+
+  it('paste the sharpening response only with sharpening values', () => {
+    const all = COPYABLE_ADJUSTMENT_KEYS;
+    // Neutral sharpening, response 2, changed exposure: Merge keeps exposure
+    // only, so a response-1 photo at Amount 80 keeps its sharpening.
+    const neutral = { ...INITIAL_ADJUSTMENTS, exposure: 0.5, sharpenVersion: 2 } as Adjustments;
+    expect(pastedAdjustments(neutral, all, PasteMode.Merge)).toEqual({ exposure: 0.5 });
+    // Sharpening that survives carries the source's response.
+    const sharp = { ...INITIAL_ADJUSTMENTS, sharpness: 80, sharpenVersion: 2 } as Adjustments;
+    expect(pastedAdjustments(sharp, all, PasteMode.Merge)).toEqual({ sharpness: 80, sharpenVersion: 2 });
+    const old = { ...INITIAL_ADJUSTMENTS, sharpness: 80 } as Adjustments;
+    expect(pastedAdjustments(old, all, PasteMode.Merge).sharpenVersion).toBe(1);
+    // Replace mode copies every included key, sharpening included, so the response goes along.
+    expect(pastedAdjustments(neutral, all, PasteMode.Replace).sharpenVersion).toBe(2);
   });
 
   it('copy the sharpening response explicitly with sharpening values', () => {

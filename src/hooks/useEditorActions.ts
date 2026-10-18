@@ -19,6 +19,7 @@ import {
   PasteMode,
   LensAdjustment,
   normalizeLoadedAdjustments,
+  pastedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withSharpenVersion,
@@ -586,20 +587,7 @@ export function useEditorActions() {
       if (!copiedAdjustments || !appSettings?.copyPasteSettings) return;
 
       const { mode, includedAdjustments } = appSettings.copyPasteSettings;
-      const adjustmentsToApply: Partial<Adjustments> = {};
-
-      for (const key of includedAdjustments) {
-        if (Object.prototype.hasOwnProperty.call(copiedAdjustments, key)) {
-          const value = copiedAdjustments[key as keyof Adjustments];
-          if (mode === PasteMode.Merge) {
-            const defaultValue = INITIAL_ADJUSTMENTS[key as keyof Adjustments];
-            if (!sameAdjustmentValue(value, defaultValue))
-              adjustmentsToApply[key as keyof Adjustments] = value;
-          } else {
-            adjustmentsToApply[key as keyof Adjustments] = value;
-          }
-        }
-      }
+      const adjustmentsToApply = pastedAdjustments(copiedAdjustments, includedAdjustments, mode as PasteMode);
 
       if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
         if (!adjustmentsToApply.lensMaker) {
@@ -611,10 +599,7 @@ export function useEditorActions() {
         setProcess({ isPasted: true });
         return;
       }
-      applyAdjustmentsToPaths(
-        withSharpenVersion(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), copiedAdjustments),
-        paths,
-      );
+      applyAdjustmentsToPaths(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), paths);
       setProcess({ isPasted: true });
     },
     [applyAdjustmentsToPaths],

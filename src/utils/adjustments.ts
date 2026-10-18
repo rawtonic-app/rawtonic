@@ -1238,6 +1238,25 @@ const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): num
   return sharpensAlikeInBothVersions(loaded, isRaw) ? SHARPEN_VERSION : undefined;
 };
 
+/** What a paste applies from the clipboard: the included keys, in Merge mode
+ * only those that differ from a new edit's. The sharpening response is not
+ * filtered on its own (a new edit has no key, so it would always survive):
+ * it goes along only with sharpening values that do (`withSharpenVersion`). */
+export const pastedAdjustments = (
+  copied: Partial<Adjustments>,
+  includedAdjustments: string[],
+  mode: PasteMode,
+): Partial<Adjustments> => {
+  const picked: Partial<Adjustments> = {};
+  for (const key of includedAdjustments) {
+    if (key === 'sharpenVersion' || !Object.prototype.hasOwnProperty.call(copied, key)) continue;
+    const value = copied[key as keyof Adjustments];
+    if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
+    (picked as Record<string, unknown>)[key] = value;
+  }
+  return withSharpenVersion(picked, copied);
+};
+
 /** Keys whose values mean what the sharpening response makes of them. */
 const SHARPEN_RESPONSE_KEYS = [
   'sharpness',
