@@ -1134,7 +1134,7 @@ export const DEFRINGE_VERSION = 2;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */
-export const AI_DENOISE_VERSION = 2;
+export const AI_DENOISE_VERSION = 3;
 
 /** The cameras' CA data new edits read in camera lens mode (notes: reference/lateral-ca.md). */
 export const CAMERA_CA_VERSION = 1;

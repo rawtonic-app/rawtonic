@@ -43,7 +43,7 @@ weights tensor by tensor.
 | CUDA plugin execution provider 0.2.0, CUDA 13 (`…providers_cuda-0.2.0-cuda13-{linux,windows}-x86_64`) | NVIDIA GPUs, optional (`install_models.sh --cuda`), with the user's own CUDA 13 and cuDNN 9 | Microsoft's GitHub release `plugin-ep-cuda/v0.2.0`, unchanged. | MIT (no NVIDIA library included) | Built 2026-10-10, in the pack |
 | `siglip2_vision.onnx`, `siglip2_tags.bin` (+ `siglip2_text.onnx`, `siglip2_tokenizer.json` for own tags) | Auto tags | Rawtonic's export of Google's SigLIP 2 B/16 (`google/siglip2-base-patch16-224`, revision 75de2d5) by `scripts/models/export_siglip2.py`; reproducible (same SHA-256 in two exports). Replaced the inherited CLIP (OpenAI ViT-B/32, model card: deployed use "out of scope") on 2026-10-08. | Apache-2.0 | In the pack |
 | `nlmf_coreml_*` (Core ML package), `nlmf.onnx` | AI Denoise (Detail → Noise reduction) | Nonlocal MatchFilter (Sánchez-Beeckman and Buades, MIT), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise at revision af6bf36, unchanged (hashes from its `distribution.json`) | MIT | In the pack |
-| `nlmf_mixed640_coreml_*` (Core ML package) | AI Denoise version 3 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible (same SHA-256 in two conversions). Version 3 needs it; new edits stay on version 2 (`nlmf_coreml_*`) until it is in the pack. | MIT | Prepared 2026-10-18, not yet in the pack (uploading it is the user's decision) |
+| `nlmf_mixed640_macos13_coreml_*` (Core ML package) | AI Denoise version 3 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, Core ML for macOS 13 like the app, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible. Version 3, the default for new RAW edits, runs it; version 1 and 2 recipes keep `nlmf_coreml_*`. A macOS 15 build of it (`nlmf_mixed640_coreml_*`, same weights, same results on macOS 26) went into pack-2026-10-18 first and is used by no build. | MIT | In the pack (from pack-2026-10-18) |
 | `skyseg_upernet_convnext_t.onnx` | Sky mask | Rawtonic's export of UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint from facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny`, revision 876ffc5) by `scripts/models/export_sky.py`; sky probability of ADE20K class 2, fp16 storage, reproducible (same SHA-256 in two exports). | MIT (Meta) | In the pack since 2026-10-09 |
 | `skyseg_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Sky mask on macOS (fast path) | The same UperNet + ConvNeXt-T checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sky_coreml.py` (the export's graph; ML program, fp32, 237 MB; reproducible with `PYTHONHASHSEED=0`: same SHA-256 in three conversions). Probabilities equal to PyTorch's (largest difference < 1e-4, mask IoU 1.0 on 13 photos), 0.06 s on the GPU of an M5 Pro against 0.35-0.8 s on the CPU. Used when installed; without these files, or if Core ML fails, the app uses the ONNX model. | MIT | Built 2026-10-10, in the pack |
 | `skyseg-u2net.onnx` | Sky mask (inherited) | Byte-identical to `JianyuanWang/skyseg` (a re-upload tagged MIT); originally from xiongzhu666's Sky-Segmentation repo (MIT code). The author states the model was trained on ADE20K plus private company data; the README does not license the ONNX file. | Unclear | Replaced 2026-10-09 |
@@ -788,7 +788,7 @@ other load). Two builds produced the same encoder bytes.
 
 ## Hosting
 
-The pack is the release `pack-2026-10-08` of
+The pack is the release `pack-2026-10-18` of
 [github.com/rawtonic-app/models](https://github.com/rawtonic-app/models)
 (README, `models.json`, `licenses/`), public together with Rawtonic. The app
 downloads `MODEL_PACK_URL/<file>`
@@ -802,9 +802,15 @@ for QA builds), use
 A new pack is a new release (new tag): build it with
 `build_model_pack.py`, upload every top-level file as an asset, then change
 `MODEL_PACK_URL`, the SHA-256 constants and `install_models.sh`'s tag in one
-commit. New models so far went into the existing release `pack-2026-10-08`
-as added assets with an updated `models.json` (BiRefNet, sky, SAM 2.1),
-which keeps older builds working. Check SAM with the ignored tests
+commit. `build_model_pack.py --previous DIR` carries an earlier pack's
+files (downloaded with `gh release download`) over unchanged, checked
+against its `models.json`, and builds only what it lacks; that keeps the
+files older builds load. `pack-2026-10-18` is `pack-2026-10-08` plus
+the mixed package (built that way; `nlmf_mixed640_macos13_coreml_*` added
+to it the same day); `pack-2026-10-08` stays
+unchanged for the builds that point to it. Before that, new models went
+into the existing release `pack-2026-10-08` as added assets with an
+updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
 `subject_masks_follow_the_box_in_every_aspect_ratio` (`AI_MODELS`,
 `ORT_DYLIB_PATH`) and `print_sam_mask_quality` (also `SAM_EVAL`, a list of
 `image;mask` lines).
@@ -862,8 +868,8 @@ which keeps older builds working. Check SAM with the ignored tests
 - **AI Denoise versions 2 and 3 (2026-10-18, macOS, M5 Pro; notes:
   benchmark-results/ai-denoise-mac-2026-10-18.json, task DN).** `aiDenoiseVersion`
   2 is the new slider on the first package, 3 the same slider on the
-  mixed-precision 640 px package (the default once the pack carries it; no
-  version falls back to another model). Version 1 recipes render as before
+  mixed-precision 640 px package (the default for new RAW edits since
+  pack-2026-10-18 carries it; no version falls back to another model). Version 1 recipes render as before
   (a fresh version 1 result is byte-identical to main's):
   - *Slider.* The slider now sets the noise the network is told about
     instead of only blending its result: at 50 the full result at 0.8 × the
@@ -915,11 +921,29 @@ which keeps older builds working. Check SAM with the ignored tests
   SwinIR (synthetic Gaussian/blind sRGB), PMRID (raw, Apache-2.0, small and
   older), ELD/PMN/SID (one camera, extreme low light); excluded by license:
   LED, DualDn (CC BY-NC), MIRNet-v2/CycleISP (academic), vkdt's jddcnn
-  (weights without a license). RawNIND's joint denoise-demosaic network
-  (trougnouf/rawnind_jddc: GPL-3.0 code, weights "GPL3 + CC-BY-4.0") fits
-  the domain best but needs a license decision and other test data (it was
-  trained on RawNIND). The blind noise estimate is within 5–10 % of the true
+  (weights without a license). The blind noise estimate is within 5–10 % of the true
   noise (RawNIND pairs, slightly low), so it does not explain the gap.
+- **RawNIND joint denoise-demosaic network (2026-10-18, macOS, M5 Pro;
+  notes: benchmark-results/ai-denoise-mac-2026-10-18.json, task DN2).**
+  trougnouf/rawnind_jddc (GPL-3.0 code, weights "GPL3 + CC-BY-4.0"), the
+  Bayer-to-camera-RGB denoisers `2024-02-21-bayer` (32 channels) and
+  `2024-08-14-f48` (48), measured only, not in the app. Its camera-RGB
+  result was sampled back onto the mosaic and rendered by Rawtonic's
+  pipeline in place of MatchFilter's (same metric and scenes as above;
+  version 2/3 at 50 reproduced the earlier numbers exactly). At full
+  strength it is much smoother than Camera Raw 50 and loses fine detail:
+  fitted six scenes error 1.97 / finest detail kept 0.72 / flat-area noise
+  0.46 (Camera Raw 50: 1.69 / 0.90 / 1.06; MatchFilter v3 50: 2.21 / 0.89 /
+  1.07); seven held-out scenes 2.05 / 0.59 / 0.48 (Camera Raw 2.05 / 0.78 /
+  1.30; v3 2.48 / 0.75 / 1.16). Blended to Camera Raw's flat-area noise
+  (half strength) it is worse than MatchFilter on every count (fitted
+  2.32 / 0.78 / 0.98, held-out 2.49 / 0.58 / 1.01); the 48-channel model is
+  no better. That although 12 of the 13 scenes are in its training data
+  (only TitusToys is in its test reserve), which favours it. It is fast:
+  0.9 s per 24 MP and 1.4 s per 44 MP (PyTorch on the GPU, network only;
+  MatchFilter v3 about 9 s). Below the bar on fine detail, so not adopted;
+  the weight policy stays as it is. Not covered: its own demosaic (the
+  result went through Rawtonic's), colour noise beyond err_ab.
 - **Auto tags.** On 14 photos SigLIP 2 B/16 ranked people and scenes better
   than CLIP (a grandfather and child at a table: "people, patio, child,
   balcony, senior, family, table" vs CLIP's "table, hygge, camera, remote"; a

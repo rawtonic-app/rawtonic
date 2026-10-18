@@ -17,9 +17,14 @@ route as the pack's nlmf_coreml_* program, with two changes:
   float32 program) at 0.84 µs per sample on an M5 Pro GPU instead of 2.2
   (notes: benchmark-results/ai-denoise-mac-2026-10-18, task DN).
 
+The program targets macOS 13, the app's minimum (an earlier macOS 15 build,
+nlmf_mixed640_coreml_* in pack-2026-10-18, is used by no build; same
+weights, same results on macOS 26).
+
 Writes OUT_DIR/nlmf_mixed640.mlpackage and, for the model pack, its three
-files as flat assets (nlmf_mixed640_coreml_Manifest.json, …_model.mlmodel,
-…_weight.bin); the bytes repeat in every conversion (coreml_package.py).
+files as flat assets (nlmf_mixed640_macos13_coreml_Manifest.json,
+…_model.mlmodel, …_weight.bin); the bytes repeat in every conversion
+(coreml_package.py).
 
 Usage (macOS, uv):
   uv run --python 3.12 --with torch==2.7.0 --with coremltools==9.0 \\
@@ -54,7 +59,7 @@ SOURCES = [f"vendor/nonlocalmf/{n}.py" for n in ("__init__", "conv", "ffn", "net
 # Operations kept in float32 (the rest computes in float16).
 KEEP = {"resample", "linear", "sigmoid", "tanh", "stack", "sub", "mul", "add", "reshape", "transpose", "slice_by_index"}
 PACKAGE = "nlmf_mixed{tile}.mlpackage"
-PREFIX = "nlmf_mixed{tile}_coreml_"
+PREFIX = "nlmf_mixed{tile}_macos13_coreml_"
 CONVERSION_DATE = "2026-10-18"
 # The checkpoint's pickled configuration classes (omegaconf), allowed when loading.
 ALLOWED_GLOBALS = {
@@ -114,7 +119,7 @@ def convert(out: Path, model, tile: int) -> Path:
         outputs=[ct.TensorType(name="denoised_raw", dtype=np.float32)],
         convert_to="mlprogram",
         compute_precision=ct.transform.FP16ComputePrecision(op_selector=lambda op: op.op_type not in KEEP),
-        minimum_deployment_target=ct.target.macOS15,
+        minimum_deployment_target=ct.target.macOS13,
     )
     mlmodel.short_description = (
         "Nonlocal MatchFilter rawnoise_25_15_9nbr (Sánchez-Beeckman and Buades, MIT): Bayer mosaic denoising"

@@ -36,22 +36,23 @@ const CORE_ML_FILES: [(&str, &str, &str); 3] = [
         "a5bf7b0b9d7efc24b3141f09b8c6fc7cadd61f46eea874a41326de8216a500a0",
     ),
 ];
-/// The mixed-precision 640 px package of version 3
-/// (scripts/models/convert_nlmf_coreml.py; not yet in the model pack).
+/// The mixed-precision 640 px package of version 3, for macOS 13 and later
+/// like the app (scripts/models/convert_nlmf_coreml.py; in the packs from
+/// pack-2026-10-18).
 #[cfg(target_os = "macos")]
 const CORE_ML_MIXED_FILES: [(&str, &str, &str); 3] = [
     (
-        "nlmf_mixed640_coreml_Manifest.json",
+        "nlmf_mixed640_macos13_coreml_Manifest.json",
         "Manifest.json",
         "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
     ),
     (
-        "nlmf_mixed640_coreml_model.mlmodel",
+        "nlmf_mixed640_macos13_coreml_model.mlmodel",
         "Data/com.apple.CoreML/model.mlmodel",
-        "a4da084674a43eb69f33e94e73c9454a993867ee5d5e38ed4afaec8dcda8d4f6",
+        "e466563ad1dba0ee8d143b43c930dee9852b77e2cbb492f7b89cde991044c164",
     ),
     (
-        "nlmf_mixed640_coreml_weight.bin",
+        "nlmf_mixed640_macos13_coreml_weight.bin",
         "Data/com.apple.CoreML/weights/weight.bin",
         "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
     ),
