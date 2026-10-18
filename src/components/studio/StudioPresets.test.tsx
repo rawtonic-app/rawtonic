@@ -262,6 +262,17 @@ describe("preset amount", () => {
       expect(setAdjustments).not.toHaveBeenCalled();
     });
 
+    it("lets a later amount supersede a lookup still running", async () => {
+      await amountTo80();
+      const first = lookup;
+      // Back to 20 %: the base lens again, committed at once.
+      fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "20" } });
+      await act(async () => {});
+      const committed = setAdjustments.mock.calls.length;
+      await act(async () => first.resolve(params));
+      expect(setAdjustments.mock.calls.length).toBe(committed);
+    });
+
     it("keeps the lens as it was when the lookup fails", async () => {
       await amountTo80();
       await act(async () => lookup.reject(new Error("no database")));

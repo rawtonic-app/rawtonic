@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
-import type { Adjustments } from './adjustments';
+import { CAMERA_CA_VERSION, type Adjustments } from './adjustments';
 
 type LensFields = Pick<Adjustments, 'lensCorrectionMode' | 'lensMaker' | 'lensModel'>;
 
@@ -21,17 +21,28 @@ const exifNumber = (value: string | null | undefined) => {
 };
 
 /** The lens fields for `adjustments`' lens choice on the photograph at
- * `path`, from the lens database as a save would look them up (with the
- * photo's EXIF): saves keep the parameters they get, so whatever changes the
- * lens choice looks them up here. Null for the camera's own data, which the
- * backend reads. */
+ * `path`: the camera's own data, or the lens database as a save would look
+ * them up (with the photo's EXIF). Saves keep the parameters they get, so
+ * whatever changes the lens choice looks them up here; rejects when the
+ * lookup fails. */
 export async function lookUpLensProfile(
   path: string,
   exif: Record<string, string | null | undefined>,
   adjustments: Partial<LensFields>,
-): Promise<Partial<Adjustments> | null> {
+): Promise<Partial<Adjustments>> {
   const mode = adjustments.lensCorrectionMode;
-  if (mode === 'camera') return null;
+  if (mode === 'camera') {
+    const camera = await invoke<{ params: Adjustments['lensDistortionParams'] } | null>(
+      Invokes.GetCameraLensProfile,
+      { path },
+    );
+    return {
+      lensMaker: null,
+      lensModel: null,
+      lensDistortionParams: camera?.params ?? null,
+      cameraCaVersion: CAMERA_CA_VERSION,
+    };
+  }
   const params = (maker: string, model: string) =>
     invoke<Adjustments['lensDistortionParams']>(Invokes.GetLensDistortionParams, {
       maker,

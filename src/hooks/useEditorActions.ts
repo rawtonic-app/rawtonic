@@ -71,6 +71,10 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   return pending;
 }, 300);
 
+/** Pastes onto the open photograph, counted: a pasted lens choice commits
+ * after its lookup only if no later paste came. */
+let openPhotoPaste = 0;
+
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
 
@@ -535,26 +539,28 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        const merged = { ...adjustments, ...adjustmentsToApply };
+        const request = ++openPhotoPaste;
         if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply)) {
           // A pasted lens choice is looked up for this photo first and
           // committed with its parameters (saves keep the parameters they
-          // get); if that fails the open photo keeps its lens here and takes
-          // the one written below when it reloads.
+          // get), as the pasted settings over the recipe as it is then; a
+          // later paste supersedes it. If the lookup fails the open photo
+          // keeps its lens here and takes the one written below on reload.
           const lensKeys = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
           const withoutLens = Object.fromEntries(
-            Object.entries(merged).filter(([key]) => !lensKeys.includes(key)),
+            Object.entries(adjustmentsToApply).filter(([key]) => !lensKeys.includes(key)),
           ) as Partial<Adjustments>;
+          const merged = { ...adjustments, ...adjustmentsToApply };
           void lookUpLensProfile(selectedImage.path, selectedImage.exif ?? {}, merged)
             .catch(() => null)
             .then((lens) => {
-              if (!isCurrentEditorImage(selectedImage.path)) return;
+              if (request !== openPhotoPaste || !isCurrentEditorImage(selectedImage.path)) return;
               setAdjustments((prev: Adjustments) =>
-                lens ? { ...prev, ...merged, ...lens } : { ...prev, ...withoutLens },
+                lens ? { ...prev, ...adjustmentsToApply, ...lens } : { ...prev, ...withoutLens },
               );
             });
         } else {
-          setAdjustments(merged);
+          setAdjustments({ ...adjustments, ...adjustmentsToApply });
         }
       }
       const written = afterRecipeSaves(pathsToUpdate, () =>

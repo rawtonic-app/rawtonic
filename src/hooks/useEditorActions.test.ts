@@ -541,3 +541,37 @@ it('keeps the open photo on its lens when the lookup of a pasted lens choice fai
     exposure: 1.5, lensCorrectionMode: before.lensCorrectionMode, lensDistortionParams: before.lensDistortionParams,
   });
 });
+
+it('keeps an edit made while a pasted lens choice is looked up', async () => {
+  useEditorStore.setState({
+    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'auto', contrast: 10 },
+    selectedImage: { ...photo('/first.dng'), exif: { Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4' } },
+  });
+  useSettingsStore.setState({ appSettings: {
+    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode', 'contrast'] },
+  } as AppSettings });
+  const { result } = renderHook(useEditorActions);
+  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
+  act(() => updateAdjustments({ exposure: 3 }));
+  await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
+  await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
+  expect(useEditorStore.getState().adjustments).toMatchObject({
+    exposure: 3, contrast: 10, lensMaker: 'Sony', lensDistortionParams: { k1: 0.01 },
+  });
+});
+
+it('takes the camera data for a pasted camera lens choice', async () => {
+  useEditorStore.setState({
+    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'camera' },
+    selectedImage: { ...photo('/first.dng'), exif: {} },
+  });
+  useSettingsStore.setState({ appSettings: {
+    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode'] },
+  } as AppSettings });
+  const { result } = renderHook(useEditorActions);
+  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
+  await finish(Invokes.GetCameraLensProfile, { params: { k1: -0.02 } });
+  expect(useEditorStore.getState().adjustments).toMatchObject({
+    lensCorrectionMode: 'camera', lensDistortionParams: { k1: -0.02 }, cameraCaVersion: 1,
+  });
+});

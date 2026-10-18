@@ -166,6 +166,7 @@ export default function StudioPresets() {
   const [amount, setAmount] = useState<{ path: string; preset: Preset; base: Record<string, unknown>; value: number } | null>(
     null,
   );
+  const amountRequest = useRef(0);
   const { showContextMenu } = useContextMenu();
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -195,6 +196,8 @@ export default function StudioPresets() {
   };
   const changeAmount = async (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
+    // Each change supersedes the ones before (their lookups commit nothing).
+    const request = ++amountRequest.current;
     setAmount({ ...amount, value });
     const blended = blendPreset(
       amount.base,
@@ -210,7 +213,7 @@ export default function StudioPresets() {
     if (lensChoice(next) !== lensChoice(amount.base as Partial<Adjustments>)) {
       const path = selectedImage.path;
       lens = await lookUpLensProfile(path, selectedImage.exif ?? {}, next).catch(() => null);
-      if (useEditorStore.getState().selectedImage?.path !== path) return;
+      if (request !== amountRequest.current || useEditorStore.getState().selectedImage?.path !== path) return;
       if (!lens) {
         for (const key of ["lensCorrectionMode", "lensMaker", "lensModel", "lensDistortionParams"])
           (blended as Record<string, unknown>)[key] = amount.base[key];
