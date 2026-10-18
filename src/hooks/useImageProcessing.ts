@@ -590,7 +590,7 @@ export function useImageProcessing(
                 // Not retried: the source stays as it is.
                 selectedImage: {
                   ...editor.selectedImage,
-                  ...(changesAiDenoise ? { aiDenoiseFailed: amount } : {}),
+                  ...(changesAiDenoise ? { aiDenoiseFailed: amount, aiDenoiseFailedVersion: version ?? 1 } : {}),
                   ...(!changesAiDenoise && changesFilter ? { colorNoiseMultiscaleFailed: multiscale } : {}),
                 },
               }

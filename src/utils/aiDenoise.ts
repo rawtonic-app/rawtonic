@@ -8,7 +8,10 @@ import { colorNoiseMultiscale, type Adjustments } from './adjustments';
  * truth, so undo, paste and presets develop the source again too.
  */
 export function aiDenoiseToApply(
-  image: Pick<SelectedImage, 'isDecoded' | 'isRaw' | 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseFailed'> | null,
+  image: Pick<
+    SelectedImage,
+    'isDecoded' | 'isRaw' | 'aiDenoise' | 'aiDenoiseVersion' | 'aiDenoiseFailed' | 'aiDenoiseFailedVersion'
+  > | null,
   adjustments: Pick<Adjustments, 'aiDenoise' | 'aiDenoiseVersion'> & {
     sectionVisibility?: Record<string, boolean | undefined>;
   },
@@ -23,7 +26,10 @@ export function aiDenoiseToApply(
   const have = Math.round(image.aiDenoise ?? 0);
   // The version only matters with AI Denoise on (reset or paste can change it).
   const sameVersion = wanted === 0 || (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseVersion ?? 1);
-  if ((wanted === have && sameVersion) || wanted === image.aiDenoiseFailed) return null;
+  // An amount that failed is not retried with the same version.
+  const failed =
+    wanted === image.aiDenoiseFailed && (adjustments.aiDenoiseVersion ?? 1) === (image.aiDenoiseFailedVersion ?? 1);
+  if ((wanted === have && sameVersion) || failed) return null;
   return wanted;
 }
 
@@ -53,6 +59,7 @@ export function sourceDevelopToApply(
     | 'aiDenoise'
     | 'aiDenoiseVersion'
     | 'aiDenoiseFailed'
+    | 'aiDenoiseFailedVersion'
     | 'colorNoiseMultiscale'
     | 'colorNoiseMultiscaleFailed'
     | 'offline'

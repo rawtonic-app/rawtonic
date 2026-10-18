@@ -586,6 +586,8 @@ export interface SelectedImage {
   aiDenoiseVersion?: number;
   /** An AI Denoise amount that failed for this source (not retried). */
   aiDenoiseFailed?: number;
+  /** The `aiDenoiseVersion` that failed with it (missing: 1). */
+  aiDenoiseFailedVersion?: number;
   /** The decoded source was developed for the multi-scale colour noise
    * filter (`colorNoiseMultiscale` in src/utils/adjustments.ts); unknown for
    * preview data. */

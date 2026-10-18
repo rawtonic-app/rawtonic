@@ -300,7 +300,10 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             // Offline: the preview proxy is all there is (no decode follows).
             offline: loadImageResult.offline ?? null,
             ...(loadImageResult.ai_denoise_error
-              ? { aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0) }
+              ? {
+                  aiDenoiseFailed: Number(storedMetadata?.adjustments?.aiDenoise ?? 0),
+                  aiDenoiseFailedVersion: Number(storedMetadata?.adjustments?.aiDenoiseVersion ?? 1),
+                }
               : {}),
             metadata: storedMetadata,
           };

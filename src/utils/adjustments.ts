@@ -401,6 +401,21 @@ export const withGrainStructure = <T extends Partial<Adjustments>>(adjustments: 
     ? { ...adjustments, grainStructure: 'even' }
     : adjustments;
 
+/** AI Denoise's amount means what its version makes of it, so wherever an
+ * amount is copied (paste, tool copy, presets) its version goes along: the
+ * source's, else — presets and recipes from before the key — version 1 for an
+ * amount above 0 and the current one for 0, which renders the same. */
+export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'aiDenoiseVersion'> => {
+  if (picked.aiDenoise === undefined || (picked.aiDenoiseVersion !== undefined && picked.aiDenoiseVersion !== null)) {
+    return picked;
+  }
+  const version = source?.aiDenoiseVersion ?? ((picked.aiDenoise ?? 0) > 0 ? 1 : AI_DENOISE_VERSION);
+  return { ...picked, aiDenoiseVersion: version };
+};
+
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
  * structure starts as Clumped. */
 export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>

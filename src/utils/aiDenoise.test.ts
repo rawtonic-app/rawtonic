@@ -36,6 +36,12 @@ describe('aiDenoiseToApply', () => {
     });
   });
 
+  it('retries a failed amount with another version', () => {
+    const failed = { ...decoded, aiDenoiseFailed: 60, aiDenoiseFailedVersion: 3 };
+    expect(aiDenoiseToApply(failed, { aiDenoise: 60, aiDenoiseVersion: 3 }, false)).toBeNull();
+    expect(aiDenoiseToApply(failed, { aiDenoise: 60, aiDenoiseVersion: 2 }, false)).toBe(60);
+  });
+
   it('skips non-RAW photos and an amount that failed before', () => {
     expect(aiDenoiseToApply({ ...decoded, isRaw: false }, { aiDenoise: 60 }, false)).toBeNull();
     expect(aiDenoiseToApply({ ...decoded, aiDenoiseFailed: 60 }, { aiDenoise: 60 }, false)).toBeNull();

@@ -1053,8 +1053,12 @@ fn export(args: ExportArgs) -> Result<()> {
         .flatten()
         .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.model()))
         .collect();
+    // A model that cannot be loaded fails only the photos that need it.
     for model in ai_models {
-        exporter = exporter.with_mosaic_denoiser(model, ai_denoiser(models.clone(), model)?);
+        match ai_denoiser(models.clone(), model) {
+            Ok(denoiser) => exporter = exporter.with_mosaic_denoiser(model, denoiser),
+            Err(e) => eprintln!("AI Denoise model {model} unavailable: {e:#}"),
+        }
     }
     let mut written = Vec::new();
     let mut failed = Vec::new();
