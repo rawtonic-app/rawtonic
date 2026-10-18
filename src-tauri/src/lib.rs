@@ -48,6 +48,7 @@ mod legal;
 mod lens_correction;
 mod library_import;
 mod library_listing;
+mod live_stroke;
 mod lut_processing;
 mod mask_generation;
 mod memory_pressure;
@@ -651,6 +652,7 @@ pub fn run() {
             thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),
             thumbnail_progress: Mutex::new(ThumbnailProgressTracker { total: 0, completed: 0 }),
             preview_jobs: Default::default(),
+            live_stroke: Default::default(),
             analytics_worker_tx: Mutex::new(None),
             mask_cache: Mutex::new(Default::default()),
             mask_thumbnail_cache: Mutex::new(Default::default()),

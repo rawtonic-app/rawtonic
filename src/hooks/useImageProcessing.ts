@@ -24,7 +24,14 @@ import { toastAiError } from '../utils/aiErrors';
 
 // Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
 const PREVIEW_RENDER_FAILED = 'Preview rendering failed';
-import { registerLiveMaskRenderer } from '../utils/liveMaskRender';
+import {
+  LIVE_STROKE_RESYNC,
+  forgetLiveStroke,
+  liveStrokeFrame,
+  registerLiveMaskRenderer,
+  type LiveStroke,
+  type LiveStrokeArgs,
+} from '../utils/liveMaskRender';
 import { registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { frameDrawnMasks } from '../utils/maskGeometry';
@@ -49,6 +56,8 @@ interface PreviewRequest {
   inputAt?: number;
   /** Profiling only: when that event reached the page's capture listener. */
   dispatchAt?: number;
+  /** The uncommitted brush stroke a live frame shows. */
+  liveStroke?: LiveStroke;
 }
 
 // The native worker drops requests older than the newest it has taken. Job ids
@@ -167,6 +176,7 @@ export function useImageProcessing(
       live = false,
       inputAt = 0,
       dispatchAt = 0,
+      liveStroke?: LiveStroke,
     ) => {
       const enteredAt = performanceDiagnosticsEnabled ? performance.now() : 0;
       const currentPath = selectedImage?.path;
@@ -189,58 +199,67 @@ export function useImageProcessing(
       // after Capture One and Lightroom: the photo stays on screen). Crop and
       // angle changes therefore re-use the same frame.
       const cropEdit = isNativeCropEditing();
-      // Live strokes keep sending everything (their transport is separate);
-      // other requests refer to brush strokes the backend already holds.
-      const referenced = live ? null : withParameterReferences(currentAdjustments);
-      const payload = withViewStates(referenced ? referenced.adjustments : currentAdjustments);
-      if (cropEdit) {
-        payload.crop = null;
-        payload.rotation = 0;
+      // A live stroke sends the recipe once, then only its new points.
+      let strokeArgs: LiveStrokeArgs | null = null;
+      let withRecipe = true;
+      if (liveStroke && !cropEdit) {
+        ({ args: strokeArgs, withRecipe } = liveStrokeFrame(liveStroke));
+      } else {
+        forgetLiveStroke();
       }
+      // Other requests refer to brush strokes the backend already holds.
+      const referenced = live ? null : withParameterReferences(currentAdjustments);
+      const payload = withRecipe ? withViewStates(referenced ? referenced.adjustments : currentAdjustments) : null;
       const { patchesSentToBackend } = useEditorStore.getState();
       const newlySentPatches = new Set<string>();
+      if (payload) {
+        if (cropEdit) {
+          payload.crop = null;
+          payload.rotation = 0;
+        }
 
-      const processSubMasks = (subMasks: SubMask[]) => {
-        if (!Array.isArray(subMasks)) return;
-        subMasks.forEach((sm: SubMask) => {
-          if (sm.id && sm.parameters) {
-            const keys = ['mask_data_base64', 'maskDataBase64'];
-            let foundMaskData = false;
+        const processSubMasks = (subMasks: SubMask[]) => {
+          if (!Array.isArray(subMasks)) return;
+          subMasks.forEach((sm: SubMask) => {
+            if (sm.id && sm.parameters) {
+              const keys = ['mask_data_base64', 'maskDataBase64'];
+              let foundMaskData = false;
 
-            for (const key of keys) {
-              if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
-                foundMaskData = true;
-                if (patchesSentToBackend.has(sm.id)) {
-                  sm.parameters[key] = null;
+              for (const key of keys) {
+                if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
+                  foundMaskData = true;
+                  if (patchesSentToBackend.has(sm.id)) {
+                    sm.parameters[key] = null;
+                  }
                 }
               }
+              if (foundMaskData && !patchesSentToBackend.has(sm.id)) {
+                newlySentPatches.add(sm.id);
+              }
             }
-            if (foundMaskData && !patchesSentToBackend.has(sm.id)) {
-              newlySentPatches.add(sm.id);
-            }
-          }
-        });
-      };
+          });
+        };
 
-      if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
-        payload.aiPatches.forEach((p: AiPatch) => {
-          if (p.id && p.patchData && !p.isLoading) {
-            if (patchesSentToBackend.has(p.id)) {
-              p.patchData = null;
-            } else {
-              newlySentPatches.add(p.id);
+        if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
+          payload.aiPatches.forEach((p: AiPatch) => {
+            if (p.id && p.patchData && !p.isLoading) {
+              if (patchesSentToBackend.has(p.id)) {
+                p.patchData = null;
+              } else {
+                newlySentPatches.add(p.id);
+              }
             }
-          }
-          if (p.subMasks) processSubMasks(p.subMasks);
-        });
-      }
+            if (p.subMasks) processSubMasks(p.subMasks);
+          });
+        }
 
-      if (payload.masks && Array.isArray(payload.masks)) {
-        payload.masks.forEach((container: MaskContainer) => {
-          if (container.subMasks) processSubMasks(container.subMasks);
-        });
+        if (payload.masks && Array.isArray(payload.masks)) {
+          payload.masks.forEach((container: MaskContainer) => {
+            if (container.subMasks) processSubMasks(container.subMasks);
+          });
+        }
+        stripSentRelightData(payload, patchesSentToBackend).forEach((name) => newlySentPatches.add(name));
       }
-      stripSentRelightData(payload, patchesSentToBackend).forEach((name) => newlySentPatches.add(name));
 
       const jobId = ++previewJobIdRef.current;
       const roi = cropEdit ? null : calculateROI();
@@ -249,6 +268,7 @@ export function useImageProcessing(
       try {
         const buffer: ArrayBuffer = await previewBuffer(Invokes.ApplyAdjustments, {
           jsAdjustments: payload,
+          liveStroke: strokeArgs,
           isInteractive: dragging,
           targetResolution: targetRes || null,
           roi: roi || null,
@@ -277,6 +297,9 @@ export function useImageProcessing(
             ms: performanceEnd - performanceStart,
             start_epoch_ms: epochOf(performanceStart),
             end_epoch_ms: epochOf(performanceEnd),
+            // A live stroke's frame: whether it carried the recipe, and the
+            // points it carried otherwise.
+            ...(strokeArgs ? { with_recipe: withRecipe ? 1 : 0, stroke_points_sent: strokeArgs.points.length } : {}),
             // Pointer event to the reply: native presentation is queued;
             // browser previews still need JPEG decode (tracked below).
             // Neither measurement includes display scanout.
@@ -369,7 +392,8 @@ export function useImageProcessing(
           await executeRef.current(currentAdjustments, dragging, targetRes, live, inputAt, dispatchAt);
           return;
         }
-        if (err !== 'Superseded or worker failed') {
+        if (err === LIVE_STROKE_RESYNC) forgetLiveStroke();
+        else if (err !== 'Superseded or worker failed') {
           console.error('Failed to apply adjustments:', err);
         }
         // The native worker could not render at all (e.g. an invalid GPU shader).
@@ -407,6 +431,7 @@ export function useImageProcessing(
         request.live,
         request.inputAt,
         request.dispatchAt,
+        request.liveStroke,
       );
     }, 4),
     [],
@@ -425,7 +450,7 @@ export function useImageProcessing(
   // only the changed pixels; saving and history wait for the committed stroke.
   useEffect(
     () =>
-      registerLiveMaskRenderer((liveAdjustments) => {
+      registerLiveMaskRenderer((liveAdjustments, liveStroke) => {
         const editor = useEditorStore.getState();
         const image = editor.selectedImage;
         const targetRes = currentResRef.current;
@@ -447,6 +472,7 @@ export function useImageProcessing(
           live: true,
           inputAt: performanceDiagnosticsEnabled ? latestPointerInputTime() : 0,
           dispatchAt: performanceDiagnosticsEnabled ? latestPointerDispatchTime() : 0,
+          liveStroke,
         });
       }),
     [previewQueue, currentResRef],

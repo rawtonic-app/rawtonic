@@ -942,7 +942,7 @@ pub(crate) fn process_preview_job(
     drop(setup_stage);
     #[cfg(feature = "performance-profiling")]
     let mask_stage = crate::performance::PerformanceStage::new("preview_mask_bitmaps");
-    let mask_definitions = mask_definitions_from_json(&adjustments_clone);
+    let mut mask_definitions = mask_definitions_from_json(&adjustments_clone);
 
     let scaled_crop_offset = (
         unscaled_crop_offset.0 * effective_scale,
@@ -965,33 +965,36 @@ pub(crate) fn process_preview_job(
     // bitmap is then derived from it instead of rasterized a second time.
     let display_overlay = match mask_overlay.filter(|_| use_wgpu_renderer) {
         Some(request) => match mask_definitions
-            .iter()
+            .iter_mut()
             .find(|def| def.id == request.mask_id && def.produces_bitmap())
         {
-            Some(def) => get_cached_or_generate_mask(
-                &state,
-                &MaskDefinition {
-                    opacity: 100.0,
-                    ..def.clone()
-                },
-                preview_width,
-                preview_height,
-                effective_scale,
-                scaled_crop_offset,
-                &mask_geometry,
-                warped_image.as_ref(),
-            )?
-            .map(|mask| gpu_processing::DisplayMaskOverlay {
-                mask,
-                style: if request.grayscale {
-                    crate::mask_generation::OverlayStyle::Grayscale
-                } else {
-                    crate::mask_generation::OverlayStyle::Colored {
-                        rgb: request.color,
-                        opacity: request.opacity.min(100),
-                    }
-                },
-            }),
+            // The layer at full opacity, set in place: a copy would copy
+            // every stroke of a painted layer for each frame.
+            Some(def) => {
+                let opacity = std::mem::replace(&mut def.opacity, 100.0);
+                let overlay = get_cached_or_generate_mask(
+                    &state,
+                    def,
+                    preview_width,
+                    preview_height,
+                    effective_scale,
+                    scaled_crop_offset,
+                    &mask_geometry,
+                    warped_image.as_ref(),
+                );
+                def.opacity = opacity;
+                overlay?.map(|mask| gpu_processing::DisplayMaskOverlay {
+                    mask,
+                    style: if request.grayscale {
+                        crate::mask_generation::OverlayStyle::Grayscale
+                    } else {
+                        crate::mask_generation::OverlayStyle::Colored {
+                            rgb: request.color,
+                            opacity: request.opacity.min(100),
+                        }
+                    },
+                })
+            }
             None => None,
         },
         None => None,
@@ -1732,7 +1735,8 @@ fn render_split_before_blocking(
 pub(crate) async fn apply_adjustments(
     preview_channel: Option<tauri::ipc::JavaScriptChannelId>,
     webview: tauri::Webview,
-    mut js_adjustments: serde_json::Value,
+    js_adjustments: Option<serde_json::Value>,
+    live_stroke: Option<crate::live_stroke::LiveStroke>,
     is_interactive: bool,
     target_resolution: Option<u32>,
     roi: Option<(f32, f32, f32, f32)>,
@@ -1755,6 +1759,12 @@ pub(crate) async fn apply_adjustments(
             "interactive": is_interactive
         })
     );
+    // A live brush frame may carry only the points its stroke gained.
+    let mut js_adjustments = state
+        .live_stroke
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .resolve(js_adjustments, live_stroke, sequence)?;
     // On receipt: a later request may refer to these strokes even if this
     // job is superseded before it runs.
     rawtonic_engine::mask_parameters::hydrate(&mut js_adjustments)?;
