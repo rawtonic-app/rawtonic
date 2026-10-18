@@ -12,7 +12,7 @@ import type { Preset } from "../ui/AppProperties";
 import { ToolGroup } from "./StudioDevelop";
 import { blendPreset } from "../../utils/presetAmount";
 import { withAiDenoiseVersion, withGrainStructure, type Adjustments } from "../../utils/adjustments";
-import { lensChoice, lookUpLensProfile } from "../../utils/lensProfile";
+import { lensChoice, pendingLens, refreshLensProfile } from "../../utils/lensProfile";
 
 type Entry = { folder: { id: string; name: string } | null; presets: Preset[] };
 
@@ -166,7 +166,6 @@ export default function StudioPresets() {
   const [amount, setAmount] = useState<{ path: string; preset: Preset; base: Record<string, unknown>; value: number } | null>(
     null,
   );
-  const amountRequest = useRef(0);
   const { showContextMenu } = useContextMenu();
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
@@ -194,10 +193,8 @@ export default function StudioPresets() {
     applyAdjustmentsToPaths(structuredClone(preset.adjustments), targets);
     setApplied(preset.id);
   };
-  const changeAmount = async (value: number) => {
+  const changeAmount = (value: number) => {
     if (!amount || amount.path !== selectedImage?.path) return;
-    // Each change supersedes the ones before (their lookups commit nothing).
-    const request = ++amountRequest.current;
     setAmount({ ...amount, value });
     const blended = blendPreset(
       amount.base,
@@ -205,21 +202,20 @@ export default function StudioPresets() {
       value / 100,
     );
     // The base's lens parameters belong to its lens choice: another choice
-    // is looked up for this photo first and committed together with its
-    // parameters (saves keep the parameters they get); if that fails, the
-    // lens stays as it was.
+    // is committed with its parameters pending (the save looks them up for
+    // this photo), and the preview's are filled in when found.
     const next = { ...amount.base, ...blended } as Partial<Adjustments>;
-    let lens: Partial<Adjustments> | null = null;
-    if (lensChoice(next) !== lensChoice(amount.base as Partial<Adjustments>)) {
-      const path = selectedImage.path;
-      lens = await lookUpLensProfile(path, selectedImage.exif ?? {}, next).catch(() => null);
-      if (request !== amountRequest.current || useEditorStore.getState().selectedImage?.path !== path) return;
-      if (!lens) {
-        for (const key of ["lensCorrectionMode", "lensMaker", "lensModel", "lensDistortionParams"])
-          (blended as Record<string, unknown>)[key] = amount.base[key];
-      }
-    }
-    setAdjustments((current) => ({ ...current, ...amount.base, ...blended, ...lens }) as typeof current);
+    const switchesLens = lensChoice(next) !== lensChoice(amount.base as Partial<Adjustments>);
+    if (switchesLens) Object.assign(blended, pendingLens(next));
+    setAdjustments((current) => ({ ...current, ...amount.base, ...blended }) as typeof current);
+    if (switchesLens)
+      refreshLensProfile(
+        selectedImage.path,
+        selectedImage.exif ?? {},
+        next,
+        (path) => useEditorStore.getState().selectedImage?.path === path,
+        setAdjustments,
+      );
   };
   const exportPreset = async (preset: Preset) => {
     const path = await save({
@@ -509,7 +505,7 @@ export default function StudioPresets() {
             step={1}
             aria-label={t("studio.presets.amount")}
             value={amount.value}
-            onChange={(e) => void changeAmount(Number(e.target.value))}
+            onChange={(e) => changeAmount(Number(e.target.value))}
             onKeyDown={(e) => e.stopPropagation()}
           />
           <output>{amount.value}%</output>

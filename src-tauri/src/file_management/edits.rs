@@ -29,12 +29,13 @@ use tauri::Manager;
 /// How a save treats the lens parameters it carries.
 pub enum LensLookup {
     /// The editor's recipe: its lens parameters, or their absence, are kept
-    /// exactly as they arrive. The editor looks them up itself whenever the
-    /// lens choice changes (lens tool, paste, preset, preset amount), from
-    /// the photo's EXIF as a lookup here would; everything else it saves —
-    /// an unrelated edit, an undo — carries the parameters the photo had.
-    /// So a Lensfun update (a renamed lens, a re-measured profile, a newly
-    /// covered lens) reaches a saved edit only through a new lens choice.
+    /// exactly as they arrive, except parameters marked pending
+    /// (`{"pending": true}`), which the editor sets when it changes the lens
+    /// choice (paste, preset, preset amount) and which are looked up here.
+    /// Everything else it saves — an unrelated edit, an undo — carries the
+    /// parameters the photo had, so a Lensfun update (a renamed lens, a
+    /// re-measured profile, a newly covered lens) reaches a saved edit only
+    /// through a new lens choice.
     Keep,
     /// Looked up in the current database: Auto lens correction, and a lens
     /// choice pasted or synced from another photo (its parameters belong to
@@ -114,7 +115,15 @@ pub fn resolve_lens_params_in_adjustments(
     lens_db: Option<&crate::lens_correction::LensDatabase>,
     source: &Path,
 ) {
-    let keep = matches!(lookup, LensLookup::Keep);
+    let pending = adjustments
+        .get("lensDistortionParams")
+        .and_then(|params| params.get("pending"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    let keep = matches!(lookup, LensLookup::Keep) && !pending;
+    if pending && let Some(map) = adjustments.as_object_mut() {
+        map.remove("lensDistortionParams");
+    }
     if let Some(map) = adjustments.as_object_mut() {
         let mode = map
             .get("lensCorrectionMode")
@@ -1032,6 +1041,11 @@ mod tests {
         resolve(&mut none_found, LensLookup::Keep);
         assert!(none_found.get("lensDistortionParams").is_none());
         assert!(none_found.get("lensModel").is_none());
+        // A lens choice the editor marked pending is looked up on save.
+        let mut chosen = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": model, "lensDistortionParams": {"pending": true}});
+        resolve(&mut chosen, LensLookup::Keep);
+        assert_eq!(chosen["lensDistortionParams"], current);
         // Pasted onto this photo, a lens choice is looked up for it.
         let mut pasted = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
             "lensModel": model, "lensDistortionParams": old_params});

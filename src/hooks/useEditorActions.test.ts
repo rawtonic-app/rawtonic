@@ -504,74 +504,53 @@ it('pastes a lens choice without parameters, so each photo looks up its own', as
   expect(paste?.[1]).toMatchObject({ adjustments: { lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: null } });
 });
 
-it('looks up a lens choice pasted onto the open photo for it', async () => {
-  useEditorStore.setState({
-    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'auto' },
-    selectedImage: { ...photo('/first.dng'), exif: { Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4', FocalLength: '50.0 mm' } },
-  });
-  useSettingsStore.setState({ appSettings: {
-    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode'] },
-  } as AppSettings });
-  const { result } = renderHook(useEditorActions);
-  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
-  await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
-  await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
-  expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.GetLensDistortionParams, expect.objectContaining({ path: '/first.dng' }));
-  expect(useEditorStore.getState().adjustments).toMatchObject({
-    lensCorrectionMode: 'auto', lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 },
-  });
-});
 
-it('keeps the open photo on its lens when the lookup of a pasted lens choice fails', async () => {
-  const before = useEditorStore.getState().adjustments;
-  useEditorStore.setState({
-    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'auto', exposure: 1.5 },
-    selectedImage: { ...photo('/first.dng'), exif: { Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4' } },
-  });
-  useSettingsStore.setState({ appSettings: {
-    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode', 'exposure'] },
-  } as AppSettings });
-  const { result } = renderHook(useEditorActions);
-  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
-  const request = pending.find((r) => r.command === Invokes.AutodetectLens)!;
-  request.settled = true;
-  await act(async () => (request.resolve as (v: unknown) => void)(Promise.reject(new Error('no database'))));
-  await act(async () => {});
-  expect(useEditorStore.getState().adjustments).toMatchObject({
-    exposure: 1.5, lensCorrectionMode: before.lensCorrectionMode, lensDistortionParams: before.lensDistortionParams,
-  });
-});
+describe('a lens choice pasted onto the open photo', () => {
+  const paste = async (copied: Record<string, unknown>, keys: string[], exif: Record<string, string> = {
+    Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4', FocalLength: '50.0 mm',
+  }) => {
+    useEditorStore.setState({
+      copiedAdjustments: { ...INITIAL_ADJUSTMENTS, ...copied },
+      selectedImage: { ...photo('/first.dng'), exif },
+    });
+    useSettingsStore.setState({ appSettings: {
+      copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: keys },
+    } as AppSettings });
+    const { result } = renderHook(useEditorActions);
+    await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
+  };
 
-it('keeps an edit made while a pasted lens choice is looked up', async () => {
-  useEditorStore.setState({
-    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'auto', contrast: 10 },
-    selectedImage: { ...photo('/first.dng'), exif: { Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4' } },
+  it('is committed at once with the other settings and its parameters pending, then filled in', async () => {
+    await paste({ lensCorrectionMode: 'auto', contrast: 10 }, ['lensCorrectionMode', 'contrast']);
+    expect(useEditorStore.getState().adjustments).toMatchObject({
+      contrast: 10, lensCorrectionMode: 'auto', lensDistortionParams: { pending: true },
+    });
+    await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
+    await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(Invokes.GetLensDistortionParams, expect.objectContaining({ path: '/first.dng' }));
+    expect(useEditorStore.getState().adjustments).toMatchObject({
+      contrast: 10, lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 },
+    });
   });
-  useSettingsStore.setState({ appSettings: {
-    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode', 'contrast'] },
-  } as AppSettings });
-  const { result } = renderHook(useEditorActions);
-  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
-  act(() => updateAdjustments({ exposure: 3 }));
-  await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
-  await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
-  expect(useEditorStore.getState().adjustments).toMatchObject({
-    exposure: 3, contrast: 10, lensMaker: 'Sony', lensDistortionParams: { k1: 0.01 },
-  });
-});
 
-it('takes the camera data for a pasted camera lens choice', async () => {
-  useEditorStore.setState({
-    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'camera' },
-    selectedImage: { ...photo('/first.dng'), exif: {} },
+  it('keeps edits made meanwhile and fills in nothing once the lens is switched off', async () => {
+    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
+    act(() => updateAdjustments({ exposure: 3 }));
+    await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
+    await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ exposure: 3, lensDistortionParams: { k1: 0.01 } });
+    await paste({ lensCorrectionMode: 'auto' }, ['lensCorrectionMode']);
+    act(() => updateAdjustments({ lensCorrectionMode: 'manual', lensMaker: null, lensModel: null, lensDistortionParams: null }));
+    await finish(Invokes.AutodetectLens, ['Sony', 'FE 50mm f/2.5 G']);
+    await finish(Invokes.GetLensDistortionParams, { k1: 0.01 });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ lensCorrectionMode: 'manual', lensDistortionParams: null });
   });
-  useSettingsStore.setState({ appSettings: {
-    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode'] },
-  } as AppSettings });
-  const { result } = renderHook(useEditorActions);
-  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
-  await finish(Invokes.GetCameraLensProfile, { params: { k1: -0.02 } });
-  expect(useEditorStore.getState().adjustments).toMatchObject({
-    lensCorrectionMode: 'camera', lensDistortionParams: { k1: -0.02 }, cameraCaVersion: 1,
+
+  it('takes the camera data for a camera lens choice', async () => {
+    await paste({ lensCorrectionMode: 'camera' }, ['lensCorrectionMode'], {});
+    await finish(Invokes.GetCameraLensProfile, { params: { k1: -0.02 } });
+    expect(useEditorStore.getState().adjustments).toMatchObject({
+      lensCorrectionMode: 'camera', lensDistortionParams: { k1: -0.02 }, cameraCaVersion: 1,
+    });
   });
 });

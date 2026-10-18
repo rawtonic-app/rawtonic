@@ -235,49 +235,44 @@ describe("preset amount", () => {
         adjustments: { ...INITIAL_ADJUSTMENTS, ...sigma } as never,
       });
     });
-    const amountTo80 = async () => {
+    const amountTo = async (value: string) => {
+      fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value } });
+      await act(async () => {});
+    };
+    const start = async () => {
       await renderTool();
       fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
       setAdjustments.mockReset();
-      fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "80" } });
-      await act(async () => {});
+      await amountTo("80");
     };
+    const run = (call: number, current: Record<string, unknown>) =>
+      (setAdjustments.mock.calls[call][0] as (c: Record<string, unknown>) => Record<string, unknown>)(current);
 
-    it("commits the new lens only with its parameters, looked up for the photo", async () => {
-      await amountTo80();
+    it("commits the new lens at once with its parameters pending, then fills them in", async () => {
+      await start();
+      const committed = run(0, { ...INITIAL_ADJUSTMENTS, ...sigma });
+      expect(committed).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: { pending: true } });
       expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", expect.objectContaining({
         maker: "Sony", model: "FE 50mm f/2.5 G", path: "/job/a.arw",
       }));
-      // Nothing committed while the lookup runs.
-      expect(setAdjustments).not.toHaveBeenCalled();
       await act(async () => lookup.resolve(params));
-      const update = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
-      expect(update({ ...INITIAL_ADJUSTMENTS, ...sigma })).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: params });
+      expect(run(1, committed)).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: params });
     });
 
-    it("commits nothing for a photo left before the lookup finished", async () => {
-      await amountTo80();
+    it("fills in nothing once another lens is chosen, or for a photo left meanwhile", async () => {
+      await start();
+      const committed = run(0, { ...INITIAL_ADJUSTMENTS, ...sigma });
+      await act(async () => lookup.resolve(params));
+      // The recipe moved on to another lens (another preset, the lens tool, undo).
+      const later = { ...committed, lensModel: "FE 85mm F1.8", lensDistortionParams: { pending: true } };
+      expect(run(1, later)).toBe(later);
+      const undone = { ...INITIAL_ADJUSTMENTS, ...sigma };
+      expect(run(1, undone)).toBe(undone);
+      setAdjustments.mockReset();
+      await amountTo("90");
       useEditorStore.setState({ selectedImage: { path: "/job/b.arw", isReady: true } as never });
       await act(async () => lookup.resolve(params));
-      expect(setAdjustments).not.toHaveBeenCalled();
-    });
-
-    it("lets a later amount supersede a lookup still running", async () => {
-      await amountTo80();
-      const first = lookup;
-      // Back to 20 %: the base lens again, committed at once.
-      fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "20" } });
-      await act(async () => {});
-      const committed = setAdjustments.mock.calls.length;
-      await act(async () => first.resolve(params));
-      expect(setAdjustments.mock.calls.length).toBe(committed);
-    });
-
-    it("keeps the lens as it was when the lookup fails", async () => {
-      await amountTo80();
-      await act(async () => lookup.reject(new Error("no database")));
-      const update = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
-      expect(update({ ...INITIAL_ADJUSTMENTS, ...sigma })).toMatchObject(sigma);
+      expect(setAdjustments).toHaveBeenCalledTimes(1);
     });
   });
 

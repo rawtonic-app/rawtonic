@@ -68,3 +68,42 @@ export async function lookUpLensProfile(
     return { lensDistortionParams: await params(adjustments.lensMaker, adjustments.lensModel) };
   return { lensDistortionParams: null };
 }
+
+/** Lens parameters still to be looked up: the editor commits a new lens
+ * choice at once with these, the save looks them up (edits.rs, LensLookup),
+ * and `refreshLensProfile` fills them in for the preview meanwhile. */
+export const PENDING_LENS = { pending: true } as unknown as Adjustments['lensDistortionParams'];
+
+export function isPendingLens(params: unknown): boolean {
+  return Boolean(params && typeof params === 'object' && (params as { pending?: unknown }).pending === true);
+}
+
+/** The lens fields to commit with a new lens choice: parameters pending, and
+ * for Auto no lens found yet. */
+export function pendingLens(adjustments: Partial<LensFields>): Partial<Adjustments> {
+  return adjustments.lensCorrectionMode === 'auto'
+    ? { lensMaker: null, lensModel: null, lensDistortionParams: PENDING_LENS }
+    : { lensDistortionParams: PENDING_LENS };
+}
+
+/** Looks the pending lens up for the preview and fills it in only while the
+ * photograph, the lens choice and the pending mark are still those it was
+ * started for: a later choice, an undo or switching correction off wins. */
+export function refreshLensProfile(
+  path: string,
+  exif: Record<string, string | null | undefined>,
+  choice: Partial<LensFields>,
+  isCurrent: (path: string) => boolean,
+  update: (change: (current: Adjustments) => Adjustments) => void,
+): void {
+  void lookUpLensProfile(path, exif, choice)
+    .then((lens) => {
+      if (!isCurrent(path)) return;
+      update((current) =>
+        isPendingLens(current.lensDistortionParams) && lensChoice(current) === lensChoice(choice)
+          ? { ...current, ...lens }
+          : current,
+      );
+    })
+    .catch(() => {});
+}

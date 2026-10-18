@@ -23,7 +23,7 @@ import {
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
-import { lookUpLensProfile } from '../utils/lensProfile';
+import { pendingLens, refreshLensProfile } from '../utils/lensProfile';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -70,10 +70,6 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   });
   return pending;
 }, 300);
-
-/** Pastes onto the open photograph, counted: a pasted lens choice commits
- * after its lookup only if no later paste came. */
-let openPhotoPaste = 0;
 
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
@@ -539,29 +535,15 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        const request = ++openPhotoPaste;
-        if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply)) {
-          // A pasted lens choice is looked up for this photo first and
-          // committed with its parameters (saves keep the parameters they
-          // get), as the pasted settings over the recipe as it is then; a
-          // later paste supersedes it. If the lookup fails the open photo
-          // keeps its lens here and takes the one written below on reload.
-          const lensKeys = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
-          const withoutLens = Object.fromEntries(
-            Object.entries(adjustmentsToApply).filter(([key]) => !lensKeys.includes(key)),
-          ) as Partial<Adjustments>;
-          const merged = { ...adjustments, ...adjustmentsToApply };
-          void lookUpLensProfile(selectedImage.path, selectedImage.exif ?? {}, merged)
-            .catch(() => null)
-            .then((lens) => {
-              if (request !== openPhotoPaste || !isCurrentEditorImage(selectedImage.path)) return;
-              setAdjustments((prev: Adjustments) =>
-                lens ? { ...prev, ...adjustmentsToApply, ...lens } : { ...prev, ...withoutLens },
-              );
-            });
-        } else {
-          setAdjustments({ ...adjustments, ...adjustmentsToApply });
-        }
+        const merged = { ...adjustments, ...adjustmentsToApply };
+        // A pasted lens choice is committed at once with its parameters
+        // pending (the save looks them up for this photo); the preview's
+        // are filled in when found.
+        const choosesLens = ['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply);
+        if (choosesLens) Object.assign(merged, pendingLens(merged));
+        setAdjustments(merged);
+        if (choosesLens)
+          refreshLensProfile(selectedImage.path, selectedImage.exif ?? {}, merged, isCurrentEditorImage, setAdjustments);
       }
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
