@@ -43,6 +43,8 @@ pub enum LensLookup<'a> {
 
 /// What a recipe's lens parameters were resolved for (`lens_profile_stamp`).
 pub const LENS_PROFILE_FOR: &str = "lensProfileFor";
+/// `lensProfileFor` of a recipe whose lens could not be resolved yet.
+const LENS_UNRESOLVED: &str = "unresolved";
 
 /// What a recipe's lens parameters were resolved for, and the parameters:
 /// the mode and the lens (chosen or detected), for the camera's own data its
@@ -111,9 +113,10 @@ pub fn resolve_lens_params_in_adjustments(
     if keep || resolve_lens_choice(adjustments, exif_data, lens_db, source) {
         let stamp = lens_profile_stamp(adjustments);
         adjustments[LENS_PROFILE_FOR] = serde_json::json!(stamp);
-    } else if let Some(map) = adjustments.as_object_mut() {
-        // Not resolved (no database or camera facts yet): tried again next time.
-        map.remove(LENS_PROFILE_FOR);
+    } else {
+        // Not resolved (no database or camera facts yet): marked, so every
+        // later save tries again.
+        adjustments[LENS_PROFILE_FOR] = serde_json::json!(LENS_UNRESOLVED);
     }
 }
 
@@ -1239,6 +1242,42 @@ mod tests {
             },
         );
         assert_eq!(chosen["lensDistortionParams"], current(&rf50));
+        // A lookup that could not run (no database yet) is tried again on
+        // every later save, also after reopening, until it succeeds.
+        let mut deferred = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": rf50});
+        resolve_lens_params_in_adjustments(
+            &mut deferred,
+            LensLookup::Keep { previous: None },
+            &exif,
+            None,
+            source,
+        );
+        assert_eq!(
+            deferred[LENS_PROFILE_FOR],
+            serde_json::json!(LENS_UNRESOLVED)
+        );
+        let mut reopened = deferred.clone();
+        stamp_loaded_lens_profile(&mut reopened);
+        let mut again = reopened.clone();
+        resolve_lens_params_in_adjustments(
+            &mut again,
+            LensLookup::Keep {
+                previous: Some(&deferred),
+            },
+            &exif,
+            None,
+            source,
+        );
+        assert_eq!(again[LENS_PROFILE_FOR], serde_json::json!(LENS_UNRESOLVED));
+        resolve(
+            &mut again,
+            LensLookup::Keep {
+                previous: Some(&deferred),
+            },
+        );
+        assert_eq!(again["lensDistortionParams"], current(&rf50));
+        assert_ne!(again[LENS_PROFILE_FOR], serde_json::json!(LENS_UNRESOLVED));
         // Auto lens correction detects and resolves afresh.
         let mut fresh = edit.clone();
         fresh["lensCorrectionMode"] = serde_json::json!("auto");
