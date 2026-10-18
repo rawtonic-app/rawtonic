@@ -17,7 +17,7 @@ use objc2_core_ml::{
 };
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString, NSURL};
 
-use crate::{Backend, TILE};
+use crate::Backend;
 
 const INPUT: &str = "raw_with_noise";
 const OUTPUT: &str = "denoised_raw";
@@ -89,6 +89,25 @@ impl CoreMlModel {
         })
     }
 
+    /// The shape of float input `name` as the model declares it.
+    pub fn input_shape(&self, name: &str) -> Result<Vec<usize>> {
+        let model = self.model.lock().unwrap();
+        autoreleasepool(|_| unsafe {
+            let inputs = model.0.modelDescription().inputDescriptionsByName();
+            let description = inputs
+                .objectForKey(&NSString::from_str(name))
+                .with_context(|| format!("no input {name}"))?;
+            let constraint = description
+                .multiArrayConstraint()
+                .with_context(|| format!("input {name} is not an array"))?;
+            Ok(constraint
+                .shape()
+                .iter()
+                .map(|n| n.as_isize() as usize)
+                .collect())
+        })
+    }
+
     /// Runs the model on `data` (`input` of `shape`, float32, first-major)
     /// and returns `output`'s shape and values (first-major).
     pub fn predict(
@@ -139,15 +158,32 @@ impl CoreMlModel {
     }
 }
 
-/// MatchFilter on Core ML, on all compute units (GPU / Neural Engine).
+/// MatchFilter on Core ML; the tile edge is the package's input size.
 pub struct CoreMl {
     model: CoreMlModel,
+    tile: usize,
+    tag: &'static str,
 }
 
 impl CoreMl {
+    /// On all compute units (GPU / Neural Engine).
     pub fn load(package: &Path) -> Result<Self> {
+        Self::load_tagged(package, ComputeUnits::All, "")
+    }
+
+    /// On `units`; `tag` keeps this package's results apart in the cache
+    /// (`Backend::cache_tag`).
+    pub fn load_tagged(package: &Path, units: ComputeUnits, tag: &'static str) -> Result<Self> {
+        let model = CoreMlModel::load(package, units)?;
+        let shape = model.input_shape(INPUT)?;
+        ensure!(
+            shape.len() == 4 && shape[..2] == [1, 8] && shape[2] == shape[3],
+            "unexpected input shape {shape:?}"
+        );
         Ok(Self {
-            model: CoreMlModel::load(package, ComputeUnits::All)?,
+            tile: shape[2],
+            model,
+            tag,
         })
     }
 }
@@ -341,11 +377,26 @@ fn ns_shape(dims: &[usize]) -> Retained<NSArray<NSNumber>> {
 
 impl Backend for CoreMl {
     fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
-        let (shape, out) = self
-            .model
-            .predict(INPUT, &[1, 8, TILE, TILE], input, OUTPUT)?;
-        ensure!(shape == [1, 4, TILE, TILE], "output shape {shape:?}");
+        let (shape, out) =
+            self.model
+                .predict(INPUT, &[1, 8, self.tile, self.tile], input, OUTPUT)?;
+        ensure!(
+            shape == [1, 4, self.tile, self.tile],
+            "output shape {shape:?}"
+        );
         Ok(out)
+    }
+
+    fn tile(&self) -> usize {
+        self.tile
+    }
+
+    fn cache_tag(&self) -> String {
+        if self.tag.is_empty() {
+            String::new()
+        } else {
+            format!("{}-{}", self.tag, self.tile)
+        }
     }
 }
 

@@ -362,21 +362,32 @@ fn models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
         .context("no model folder; pass --models")
 }
 
-/// The MatchFilter denoiser from the app's model folder (Core ML on macOS,
-/// ONNX Runtime elsewhere, which needs `ORT_DYLIB_PATH`).
+/// The MatchFilter denoiser for AI Denoise `version` from the app's model
+/// folder (Core ML on macOS: version 2 the mixed-precision package; ONNX
+/// Runtime elsewhere, which needs `ORT_DYLIB_PATH`, the same model for both).
 fn ai_denoiser(
     models: Option<PathBuf>,
+    version: u8,
 ) -> Result<std::sync::Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>> {
     let models = models_dir(models)?;
     let cache = models.parent().map(|dir| dir.join("ai-denoise-cache"));
     #[cfg(target_os = "macos")]
-    let filter = rawtonic_denoise::MatchFilter::core_ml(
-        &models.join(rawtonic_denoise::CORE_ML_PACKAGE),
-        cache,
-    )?;
+    let filter = if version >= 2 {
+        rawtonic_denoise::MatchFilter::core_ml_mixed(
+            &models.join(rawtonic_denoise::CORE_ML_MIXED_PACKAGE),
+            cache,
+        )?
+    } else {
+        rawtonic_denoise::MatchFilter::core_ml(
+            &models.join(rawtonic_denoise::CORE_ML_PACKAGE),
+            cache,
+        )?
+    };
     #[cfg(not(target_os = "macos"))]
-    let filter =
-        rawtonic_denoise::MatchFilter::onnx(&models.join(rawtonic_denoise::ONNX_MODEL), cache)?;
+    let filter = {
+        let _ = version;
+        rawtonic_denoise::MatchFilter::onnx(&models.join(rawtonic_denoise::ONNX_MODEL), cache)?
+    };
     Ok(std::sync::Arc::new(filter))
 }
 
@@ -1036,12 +1047,13 @@ fn export(args: ExportArgs) -> Result<()> {
     };
     let mut exporter =
         rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
-    if recipes
+    let versions: std::collections::BTreeSet<u8> = recipes
         .iter()
         .flatten()
-        .any(|r| rawtonic_engine::image_loader::ai_denoise_amount(r) > 0.0)
-    {
-        exporter = exporter.with_mosaic_denoiser(ai_denoiser(models)?);
+        .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.version))
+        .collect();
+    for version in versions {
+        exporter = exporter.with_mosaic_denoiser(version, ai_denoiser(models.clone(), version)?);
     }
     let mut written = Vec::new();
     let mut failed = Vec::new();

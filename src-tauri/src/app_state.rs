@@ -272,8 +272,10 @@ pub struct AppState {
     pub gpu_processor: Mutex<Option<GpuProcessorState>>,
     pub ai_state: Mutex<Option<AiState>>,
     pub ai_init_lock: TokioMutex<()>,
-    /// AI Denoise (ai_denoise.rs), loaded on first use.
-    pub ai_denoiser: Mutex<Option<Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>>>,
+    /// AI Denoise (ai_denoise.rs) by `aiDenoiseVersion` (index 0: version
+    /// 1), each loaded on first use.
+    pub ai_denoiser:
+        Mutex<[Option<Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>>; 2]>,
     /// Face models and the open photo's faces (ai_faces.rs), loaded on first use.
     pub faces: crate::ai_faces::SharedFaceState,
     pub active_ai_tasks: Mutex<HashMap<String, Arc<AiTaskToken>>>,

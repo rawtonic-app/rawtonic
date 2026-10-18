@@ -640,7 +640,7 @@ pub fn run() {
             gpu_processor: Mutex::new(None),
             ai_state: Mutex::new(None),
             ai_init_lock: TokioMutex::new(()),
-            ai_denoiser: Mutex::new(None),
+            ai_denoiser: Mutex::new([None, None]),
             faces: Mutex::new(Default::default()),
             active_ai_tasks: Mutex::new(HashMap::new()),
             export_task_token: Arc::new(Mutex::new(None)),

@@ -31,6 +31,8 @@ pub struct LoadImageResult {
     pub is_raw: bool,
     /// The AI Denoise amount the source was developed with (0 … 100).
     pub ai_denoise: f32,
+    /// Its `aiDenoiseVersion` (1 when off).
+    pub ai_denoise_version: u8,
     /// Why the recipe's AI Denoise could not be applied, if it could not.
     pub ai_denoise_error: Option<String>,
     /// The RAW is offline and the photograph opened on its preview proxy:
@@ -450,6 +452,11 @@ pub fn decoded_cache_key(
     let mut key = path.to_string();
     if let Some(d) = denoise {
         key.push_str(&format!("\u{1}ai-denoise {:.3}", d.amount));
+        // Versions differ in the noise scale and the model.
+        if d.noise_scale != 1.0 {
+            key.push_str(&format!(" ×{:.4}", d.noise_scale));
+        }
+        key.push_str(&format!(" {:p}", Arc::as_ptr(&d.denoiser) as *const ()));
     }
     if multiscale {
         key.push_str("\u{1}cnr-ms");
@@ -515,7 +522,7 @@ fn clear_derived_caches(state: &AppState) {
 }
 
 /// Develops the open photograph again with AI Denoise at `amount` (0 … 100)
-/// and for the colour noise filter of its recipe (`multiscale`, see
+/// of `version` (`aiDenoiseVersion`, None: 1) and for the colour noise filter of its recipe (`multiscale`, see
 /// `load_base_image_from_bytes_for`; None: its stored recipe's), and makes
 /// that the source; returns the AI Denoise amount it was developed with.
 /// The editor calls it when the recipe's AI Denoise amount or colour noise
@@ -524,6 +531,7 @@ fn clear_derived_caches(state: &AppState) {
 pub async fn apply_ai_denoise(
     path: String,
     amount: f32,
+    version: Option<u8>,
     multiscale: Option<bool>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
@@ -534,10 +542,14 @@ pub async fn apply_ai_denoise(
         return Err("AI Denoise works on RAW files only".to_string());
     }
     let multiscale = multiscale.unwrap_or_else(|| stored_multiscale(&path));
-    let denoise =
-        crate::ai_denoise::option_for(&app_handle, &serde_json::json!({ "aiDenoise": amount }))
-            .await?;
-    let applied = denoise.as_ref().map_or(0.0, |d| d.amount * 100.0);
+    let recipe =
+        serde_json::json!({ "aiDenoise": amount, "aiDenoiseVersion": version.unwrap_or(1) });
+    let denoise = crate::ai_denoise::option_for(&app_handle, &recipe).await?;
+    let applied = if denoise.is_some() {
+        amount.clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let tracker = state.load_image_generation.clone();
     let key = decoded_cache_key(&source, denoise.as_ref(), multiscale);
@@ -726,7 +738,15 @@ pub async fn load_image(
     } else {
         (None, None)
     };
-    let mut ai_denoise = denoise.as_ref().map_or(0.0, |d| d.amount * 100.0);
+    let mut ai_denoise = if denoise.is_some() {
+        rawtonic_engine::image_loader::ai_denoise_amount(&metadata.adjustments) * 100.0
+    } else {
+        0.0
+    };
+    let ai_denoise_version =
+        rawtonic_engine::image_loader::ai_denoise_settings(&metadata.adjustments)
+            .filter(|_| denoise.is_some())
+            .map_or(1, |ai| ai.version);
     // The opened recipe's colour noise filter decides the decode-time chroma
     // clean-up (a virtual copy's own recipe).
     let multiscale = rawtonic_engine::color_noise::multiscale(
@@ -949,6 +969,7 @@ pub async fn load_image(
         exif: exif_data,
         is_raw,
         ai_denoise,
+        ai_denoise_version,
         ai_denoise_error,
         offline: None,
         color_noise_multiscale: Some(multiscale),
@@ -1025,6 +1046,7 @@ async fn open_offline(
             exif,
             is_raw: true,
             ai_denoise: 0.0,
+            ai_denoise_version: 1,
             ai_denoise_error: None,
             offline: Some("full"),
             color_noise_multiscale: None,
@@ -1073,6 +1095,7 @@ async fn open_offline(
         exif,
         is_raw: true,
         ai_denoise: 0.0,
+        ai_denoise_version: 1,
         ai_denoise_error: None,
         offline: Some("standard"),
         color_noise_multiscale: None,

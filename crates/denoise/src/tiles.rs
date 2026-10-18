@@ -11,7 +11,6 @@ use crate::noise::NoiseProfile;
 pub const TILE: usize = 320;
 /// Margin around the kept core of each tile.
 pub const HALO: usize = 40;
-const CORE: usize = TILE - 2 * HALO;
 
 /// Four planes of `width / 2` × `height / 2`, plane-major.
 pub struct Planes {
@@ -86,8 +85,16 @@ fn reflect(i: isize, n: usize) -> usize {
 }
 
 /// The network over all tiles; returns denoised planes.
-pub fn run(planes: &Planes, noise: &NoiseProfile, backend: &dyn Backend) -> Result<Planes> {
+pub fn run(
+    planes: &Planes,
+    noise: &NoiseProfile,
+    backend: &dyn Backend,
+    noise_scale: f32,
+) -> Result<Planes> {
     let (pw, ph) = (planes.width, planes.height);
+    let tile = backend.tile();
+    ensure!(tile > 2 * HALO, "tile of {tile} px");
+    let core = tile - 2 * HALO;
     ensure!(pw >= 2 && ph >= 2, "mosaic too small: {pw}x{ph} planes");
     let std: Vec<Vec<f32>> = (0..4)
         .map(|c| {
@@ -95,24 +102,24 @@ pub fn run(planes: &Planes, noise: &NoiseProfile, backend: &dyn Backend) -> Resu
             planes
                 .plane(c)
                 .iter()
-                .map(|&x| (shot * x + read).max(0.0).sqrt())
+                .map(|&x| (shot * x + read).max(0.0).sqrt() * noise_scale)
                 .collect()
         })
         .collect();
     let mut out = vec![0.0; 4 * pw * ph];
-    let mut input = vec![0.0f32; 8 * TILE * TILE];
-    for ty in (0..ph).step_by(CORE) {
-        for tx in (0..pw).step_by(CORE) {
+    let mut input = vec![0.0f32; 8 * tile * tile];
+    for ty in (0..ph).step_by(core) {
+        for tx in (0..pw).step_by(core) {
             for c in 0..8 {
                 let source = if c < 4 {
                     planes.plane(c)
                 } else {
                     &std[c - 4][..]
                 };
-                for y in 0..TILE {
+                for y in 0..tile {
                     let sy = reflect(ty as isize + y as isize - HALO as isize, ph);
                     let row = &source[sy * pw..(sy + 1) * pw];
-                    let dst = &mut input[(c * TILE + y) * TILE..(c * TILE + y + 1) * TILE];
+                    let dst = &mut input[(c * tile + y) * tile..(c * tile + y + 1) * tile];
                     for (x, d) in dst.iter_mut().enumerate() {
                         *d = row[reflect(tx as isize + x as isize - HALO as isize, pw)];
                     }
@@ -120,14 +127,14 @@ pub fn run(planes: &Planes, noise: &NoiseProfile, backend: &dyn Backend) -> Resu
             }
             let result = backend.run(&input)?;
             ensure!(
-                result.len() == 4 * TILE * TILE,
+                result.len() == 4 * tile * tile,
                 "network returned {} values",
                 result.len()
             );
-            let (hh, ww) = (CORE.min(ph - ty), CORE.min(pw - tx));
+            let (hh, ww) = (core.min(ph - ty), core.min(pw - tx));
             for c in 0..4 {
                 for y in 0..hh {
-                    let src = &result[(c * TILE + HALO + y) * TILE + HALO..][..ww];
+                    let src = &result[(c * tile + HALO + y) * tile + HALO..][..ww];
                     out[c * pw * ph + (ty + y) * pw + tx..][..ww].copy_from_slice(src);
                 }
             }

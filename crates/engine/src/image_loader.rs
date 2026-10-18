@@ -61,6 +61,67 @@ pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
     (adjustments["aiDenoise"].as_f64().unwrap_or(0.0) as f32 / 100.0).clamp(0.0, 1.0)
 }
 
+/// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
+/// without the key are version 1).
+pub const AI_DENOISE_VERSION: u8 = 2;
+
+/// How a recipe's AI Denoise develops the mosaic.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AiDenoiseSettings {
+    /// `aiDenoiseVersion`: 1 blends the network's result by the slider and
+    /// runs the full-precision model; 2 maps the slider to the noise the
+    /// network is told about and runs the faster mixed-precision model.
+    pub version: u8,
+    /// Share of the network's result kept (`MosaicDenoise::amount`).
+    pub blend: f32,
+    /// Noise the network is told about, relative to the photo's.
+    pub noise_scale: f32,
+}
+
+/// Noise scale of version 2 at slider 50: the network's effect there is
+/// Camera Raw Denoise's at its default 50 (flat-area noise 1.065 vs 1.06,
+/// finest detail kept 0.894 vs 0.901 on six RawNIND scenes; notes:
+/// benchmark-results/ai-denoise-mac-2026-10-18).
+const V2_SCALE_AT_50: f32 = 0.8;
+/// Noise scale of version 2 at slider 100 (×1.25 the photo's: smoother,
+/// for the noisiest files); 75 is the network as trained (scale 1).
+const V2_SCALE_AT_100: f32 = 1.25;
+
+/// The recipe's AI Denoise, or `None` when it is off (`ai_denoise_amount`).
+/// Version 2: up to 50 the slider blends in the network's result at
+/// `V2_SCALE_AT_50` (at 50 fully), above 50 the full result at a noise
+/// scale growing geometrically to `V2_SCALE_AT_100`. A noise scale below 1
+/// keeps more fine detail than blending at the same flat-area noise.
+pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
+    let amount = ai_denoise_amount(adjustments);
+    if amount <= 0.0 {
+        return None;
+    }
+    let version = adjustments["aiDenoiseVersion"]
+        .as_u64()
+        .map_or(1, |v| v.clamp(1, AI_DENOISE_VERSION as u64) as u8);
+    Some(if version == 1 {
+        AiDenoiseSettings {
+            version,
+            blend: amount,
+            noise_scale: 1.0,
+        }
+    } else if amount <= 0.5 {
+        AiDenoiseSettings {
+            version,
+            blend: amount / 0.5,
+            noise_scale: V2_SCALE_AT_50,
+        }
+    } else {
+        let t = (amount - 0.5) / 0.5;
+        AiDenoiseSettings {
+            version,
+            blend: 1.0,
+            noise_scale: V2_SCALE_AT_50 * (V2_SCALE_AT_100 / V2_SCALE_AT_50).powf(t),
+        }
+    })
+}
+
 /// How a source is developed into the base image: the RAW develop and
 /// preprocessing settings (the app reads them from its preferences).
 #[derive(Clone, Debug)]
@@ -1730,6 +1791,49 @@ mod ai_denoise_tests {
         assert_eq!(ai_denoise_amount(&off), 0.0);
         let details_off = json!({ "aiDenoise": 60, "sectionVisibility": { "details": false } });
         assert_eq!(ai_denoise_amount(&details_off), 0.0);
+    }
+
+    #[test]
+    fn ai_denoise_version_2_maps_the_slider_to_the_noise_scale() {
+        use super::{AiDenoiseSettings, ai_denoise_settings};
+        assert_eq!(
+            ai_denoise_settings(&json!({ "aiDenoise": 0, "aiDenoiseVersion": 2 })),
+            None
+        );
+        // Without the key: version 1, the slider is the blend.
+        let v1 = ai_denoise_settings(&json!({ "aiDenoise": 60 })).unwrap();
+        assert_eq!((v1.version, v1.blend, v1.noise_scale), (1, 0.6, 1.0));
+        let at = |v: f64| {
+            ai_denoise_settings(&json!({ "aiDenoise": v, "aiDenoiseVersion": 2 })).unwrap()
+        };
+        assert_eq!(
+            at(25.0),
+            AiDenoiseSettings {
+                version: 2,
+                blend: 0.5,
+                noise_scale: 0.8
+            }
+        );
+        assert_eq!(
+            at(50.0),
+            AiDenoiseSettings {
+                version: 2,
+                blend: 1.0,
+                noise_scale: 0.8
+            }
+        );
+        assert!(
+            (at(75.0).noise_scale - 1.0).abs() < 1e-6,
+            "75 = the network as trained"
+        );
+        assert!((at(100.0).noise_scale - 1.25).abs() < 1e-6);
+        // Unknown later versions read as the newest known.
+        assert_eq!(
+            ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 9 }))
+                .unwrap()
+                .version,
+            2
+        );
     }
 }
 

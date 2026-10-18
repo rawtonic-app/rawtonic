@@ -160,17 +160,20 @@ pub(crate) fn load_export_base_image(
     adjustments: &Value,
     settings: &crate::app_settings::AppSettings,
 ) -> Result<DynamicImage, String> {
-    let amount = crate::ai_denoise::amount(adjustments);
-    let denoise = if is_raw && amount > 0.0 {
-        let denoiser = state.ai_denoiser.lock().unwrap().clone().ok_or_else(|| {
-            format!(
-                "{} uses AI Denoise, but its model is not available",
-                source_path
-            )
-        })?;
-        Some(rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(
-            denoiser, amount,
-        ))
+    let ai = rawtonic_engine::image_loader::ai_denoise_settings(adjustments).filter(|_| is_raw);
+    let denoise = if let Some(ai) = ai {
+        let denoiser = state.ai_denoiser.lock().unwrap()[usize::from(ai.version) - 1]
+            .clone()
+            .ok_or_else(|| {
+                format!(
+                    "{} uses AI Denoise, but its model is not available",
+                    source_path
+                )
+            })?;
+        Some(
+            rawtonic_rawdecode::mosaic_denoise::MosaicDenoise::new(denoiser, ai.blend)
+                .with_noise_scale(ai.noise_scale),
+        )
     } else {
         None
     };
@@ -201,17 +204,23 @@ pub(crate) fn load_export_base_image(
     }
 }
 
-/// Loads the AI Denoise model once if any of these recipes uses it; photos
+/// Loads the AI Denoise models these recipes use, once each; photos
 /// that need it fail one by one if it cannot be had.
 pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(
     app_handle: &tauri::AppHandle,
     recipes: impl IntoIterator<Item = V>,
 ) {
-    let needed = recipes
+    let versions: std::collections::BTreeSet<u8> = recipes
         .into_iter()
-        .any(|adjustments| crate::ai_denoise::amount(adjustments.borrow()) > 0.0);
-    if needed && let Err(e) = crate::ai_denoise::denoiser(app_handle).await {
-        log::warn!("AI Denoise unavailable for this export: {e}");
+        .filter_map(|adjustments| {
+            rawtonic_engine::image_loader::ai_denoise_settings(adjustments.borrow())
+                .map(|ai| ai.version)
+        })
+        .collect();
+    for version in versions {
+        if let Err(e) = crate::ai_denoise::denoiser(app_handle, version).await {
+            log::warn!("AI Denoise unavailable for this export: {e}");
+        }
     }
 }
 

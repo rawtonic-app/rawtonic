@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! AI Denoise: Nonlocal MatchFilter on the Bayer mosaic (rawtonic-denoise).
 //!
-//! The recipe's `aiDenoise` (0 … 100) is the amount; the decoder runs the
-//! denoiser before demosaicing (rawdecode's mosaic_denoise hook), so the
-//! photograph is developed again when the amount changes. Results are
+//! The recipe's `aiDenoise` (0 … 100) and `aiDenoiseVersion` decide how
+//! (`ai_denoise_settings`); the decoder runs the denoiser before
+//! demosaicing (rawdecode's mosaic_denoise hook), so the photograph is
+//! developed again when they change. Results are
 //! cached by content in `<app data>/ai-denoise-cache`, which the
 //! `rawtonic` CLI uses too.
 
@@ -35,6 +36,26 @@ const CORE_ML_FILES: [(&str, &str, &str); 3] = [
         "a5bf7b0b9d7efc24b3141f09b8c6fc7cadd61f46eea874a41326de8216a500a0",
     ),
 ];
+/// The mixed-precision 640 px package of version 2
+/// (scripts/models/convert_nlmf_coreml.py).
+#[cfg(target_os = "macos")]
+const CORE_ML_MIXED_FILES: [(&str, &str, &str); 3] = [
+    (
+        "nlmf_mixed640_coreml_Manifest.json",
+        "Manifest.json",
+        "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    ),
+    (
+        "nlmf_mixed640_coreml_model.mlmodel",
+        "Data/com.apple.CoreML/model.mlmodel",
+        "a4da084674a43eb69f33e94e73c9454a993867ee5d5e38ed4afaec8dcda8d4f6",
+    ),
+    (
+        "nlmf_mixed640_coreml_weight.bin",
+        "Data/com.apple.CoreML/weights/weight.bin",
+        "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
+    ),
+];
 #[cfg(not(target_os = "macos"))]
 const ONNX_SHA256: &str = "ba788a97f247058ea03d14bbf2f289adc8f4666039f27d0d530e6f67d23dd73c";
 
@@ -49,37 +70,61 @@ pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("ai-denoise-cache"))
 }
 
-/// The recipe's amount, 0 … 1.
-pub fn amount(adjustments: &serde_json::Value) -> f32 {
-    rawtonic_engine::image_loader::ai_denoise_amount(adjustments)
-}
-
-/// The denoiser, downloading and loading the model on first use.
-pub async fn denoiser(app_handle: &tauri::AppHandle) -> Result<Arc<dyn MosaicDenoiser>, String> {
+/// The denoiser of AI Denoise `version`, downloading and loading its model
+/// on first use.
+pub async fn denoiser(
+    app_handle: &tauri::AppHandle,
+    version: u8,
+) -> Result<Arc<dyn MosaicDenoiser>, String> {
+    let slot = usize::from(version.clamp(1, 2)) - 1;
     let state = app_handle.state::<AppState>();
-    if let Some(denoiser) = state.ai_denoiser.lock().unwrap().clone() {
+    if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
         return Ok(denoiser);
     }
     let _guard = state.ai_init_lock.lock().await;
-    if let Some(denoiser) = state.ai_denoiser.lock().unwrap().clone() {
+    if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
         return Ok(denoiser);
     }
     let models = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     let cache = cache_dir(app_handle)?;
-    let filter = load(app_handle, &models, cache).await?;
-    let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(filter);
-    *state.ai_denoiser.lock().unwrap() = Some(denoiser.clone());
+    let denoiser: Arc<dyn MosaicDenoiser> = if slot == 0 {
+        Arc::new(load(app_handle, &models, cache).await?)
+    } else {
+        match load_mixed(app_handle, &models, cache).await {
+            Ok(filter) => Arc::new(filter),
+            Err(e) => {
+                // A model pack without the package: version 2's mapping on
+                // the first model (cached apart; last bits differ).
+                log::warn!(
+                    "AI Denoise: mixed-precision model unavailable ({e}); using the first model"
+                );
+                let first = state.ai_denoiser.lock().unwrap()[0].clone();
+                match first {
+                    Some(first) => first,
+                    None => {
+                        let first: Arc<dyn MosaicDenoiser> =
+                            Arc::new(load(app_handle, &models, cache_dir(app_handle)?).await?);
+                        state.ai_denoiser.lock().unwrap()[0] = Some(first.clone());
+                        first
+                    }
+                }
+            }
+        }
+    };
+    state.ai_denoiser.lock().unwrap()[slot] = Some(denoiser.clone());
     Ok(denoiser)
 }
 
+/// Downloads the files of a Core ML package from the pack and puts the
+/// package back together in the model folder.
 #[cfg(target_os = "macos")]
-async fn load(
+async fn assemble_package(
     app_handle: &tauri::AppHandle,
     models: &Path,
-    cache: PathBuf,
-) -> Result<rawtonic_denoise::MatchFilter, String> {
-    let package = models.join(rawtonic_denoise::CORE_ML_PACKAGE);
-    for (file, inner, sha) in CORE_ML_FILES {
+    package: &Path,
+    files: &[(&str, &str, &str)],
+) -> Result<(), String> {
+    for &(file, inner, sha) in files {
         crate::ai_processing::download_verified(app_handle, models, file, sha, "AI Denoise model")
             .await
             .map_err(|e| e.to_string())?;
@@ -98,6 +143,44 @@ async fn load(
             let _ = std::fs::remove_dir_all(package.with_extension("mlmodelc"));
         }
     }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+async fn load_mixed(
+    app_handle: &tauri::AppHandle,
+    models: &Path,
+    cache: PathBuf,
+) -> Result<rawtonic_denoise::MatchFilter, String> {
+    let package = models.join(rawtonic_denoise::CORE_ML_MIXED_PACKAGE);
+    assemble_package(app_handle, models, &package, &CORE_ML_MIXED_FILES).await?;
+    tokio::task::spawn_blocking(move || {
+        rawtonic_denoise::MatchFilter::core_ml_mixed(&package, Some(cache))
+            .map(|f| f.with_cache_limit(CACHE_LIMIT_BYTES))
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// ONNX Runtime has one model for both versions.
+#[cfg(not(target_os = "macos"))]
+async fn load_mixed(
+    _app_handle: &tauri::AppHandle,
+    _models: &Path,
+    _cache: PathBuf,
+) -> Result<rawtonic_denoise::MatchFilter, String> {
+    Err("no mixed-precision model on this platform".to_string())
+}
+
+#[cfg(target_os = "macos")]
+async fn load(
+    app_handle: &tauri::AppHandle,
+    models: &Path,
+    cache: PathBuf,
+) -> Result<rawtonic_denoise::MatchFilter, String> {
+    let package = models.join(rawtonic_denoise::CORE_ML_PACKAGE);
+    assemble_package(app_handle, models, &package, &CORE_ML_FILES).await?;
     tokio::task::spawn_blocking(move || {
         rawtonic_denoise::MatchFilter::core_ml(&package, Some(cache))
             .map(|f| f.with_cache_limit(CACHE_LIMIT_BYTES))
@@ -139,12 +222,11 @@ pub async fn option_for(
     app_handle: &tauri::AppHandle,
     adjustments: &serde_json::Value,
 ) -> Result<Option<MosaicDenoise>, String> {
-    let amount = amount(adjustments);
-    if amount <= 0.0 {
+    let Some(ai) = rawtonic_engine::image_loader::ai_denoise_settings(adjustments) else {
         return Ok(None);
-    }
-    Ok(Some(MosaicDenoise::new(
-        denoiser(app_handle).await?,
-        amount,
-    )))
+    };
+    Ok(Some(
+        MosaicDenoise::new(denoiser(app_handle, ai.version).await?, ai.blend)
+            .with_noise_scale(ai.noise_scale),
+    ))
 }

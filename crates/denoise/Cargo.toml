@@ -17,7 +17,7 @@ ndarray = "0.17"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-foundation = { version = "0.3.2", features = ["NSBundle", "NSString", "NSURL", "NSArray", "NSValue", "NSError", "NSDictionary"] }
-objc2-core-ml = { version = "0.3.2", features = ["MLModel", "MLMultiArray", "MLFeatureProvider", "MLDictionaryFeatureProvider", "MLFeatureValue", "MLModelConfiguration", "MLModel_MLModelCompilation", "MLPredictionOptions", "block2"] }
+objc2-core-ml = { version = "0.3.2", features = ["MLModel", "MLMultiArray", "MLFeatureProvider", "MLDictionaryFeatureProvider", "MLFeatureValue", "MLModelConfiguration", "MLModel_MLModelCompilation", "MLPredictionOptions", "MLModelDescription", "MLFeatureDescription", "MLMultiArrayConstraint", "block2"] }
 
 [dev-dependencies]
 tempfile.workspace = true

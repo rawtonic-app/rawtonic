@@ -30,24 +30,18 @@ Usage: convert_birefnet_coreml.py OUT_DIR [--check IMAGE_DIR] [--precision fp16|
 Needs: the export_birefnet.py packages plus coremltools==9.0 (macOS).
 """
 import argparse
-import json
 import shutil
 import sys
-import uuid
 from pathlib import Path
 
 import numpy as np
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from coreml_package import MEMBERS, fix_manifest, sort_spec  # noqa: E402
 from export_birefnet import MODEL, REVISION, SIZE, Subject, deform_conv2d_portable  # noqa: E402
 
 PACKAGE = "birefnet_subject.mlpackage"
-MEMBERS = {
-    "Manifest.json": "Manifest.json",
-    "model.mlmodel": "Data/com.apple.CoreML/model.mlmodel",
-    "weight.bin": "Data/com.apple.CoreML/weights/weight.bin",
-}
 # The pack's names of the package's files, per precision.
 PREFIX = {"fp16": "birefnet_fp16_coreml_", "fp32": "birefnet_coreml_"}
 # coremltools writes the day of conversion into the model's metadata; the
@@ -87,35 +81,6 @@ def patch_coremltools() -> None:
     ops._cast = cast
 
 
-def fix_manifest(path: Path) -> None:
-    """coremltools names the package's items by random UUIDs; name them by
-    their path instead, so two conversions give the same bytes."""
-    manifest = json.loads(path.read_text())
-    renamed = {}
-    root = manifest["rootModelIdentifier"]
-    for key, item in manifest["itemInfoEntries"].items():
-        new = str(uuid.uuid5(uuid.NAMESPACE_URL, "rawtonic:" + item["path"])).upper()
-        renamed[new] = item
-        if key == root:
-            manifest["rootModelIdentifier"] = new
-    manifest["itemInfoEntries"] = dict(sorted(renamed.items()))
-    path.write_text(json.dumps(manifest, indent=4) + "\n")
-
-
-def sort_spec(path: Path) -> None:
-    """The model's protobuf holds maps (metadata, operation arguments) that
-    are written in hash order; write them sorted (same bytes every time),
-    with the conversion date fixed (`CONVERSION_DATE`)."""
-    from coremltools.proto import Model_pb2
-
-    spec = Model_pb2.Model()
-    spec.ParseFromString(path.read_bytes())
-    metadata = spec.description.metadata.userDefined
-    if "com.github.apple.coremltools.conversion_date" in metadata:
-        metadata["com.github.apple.coremltools.conversion_date"] = CONVERSION_DATE
-    path.write_bytes(spec.SerializeToString(deterministic=True))
-
-
 PRECISIONS = ("fp16", "fp32")
 
 
@@ -146,7 +111,7 @@ def convert(out: Path, subject: Subject, precision: str = "fp16") -> Path:
         shutil.rmtree(package)
     mlmodel.save(str(package))
     fix_manifest(package / "Manifest.json")
-    sort_spec(package / MEMBERS["model.mlmodel"])
+    sort_spec(package / MEMBERS["model.mlmodel"], CONVERSION_DATE)
     for asset, member in assets(precision).items():
         shutil.copyfile(package / member, out / asset)
     return package
