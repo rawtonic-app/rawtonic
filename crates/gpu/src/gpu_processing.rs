@@ -25,7 +25,10 @@ pub mod multi_view;
 mod preview_layers;
 pub use multi_view::{CellExtent, CellLayer, CellZoom, MultiView, MultiViewCell};
 use multi_view::{DisplayBindings, DisplayPass, PrimaryDraw, encode_display_pass};
-use preview_layers::{CURVE_LUT_SAMPLES, PreparedLayer, curve_lut, prepare_layers};
+use preview_layers::{
+    CURVE_LUT_SAMPLES, LAYER_SUMS_HEADER, LayerSumsPlan, PreparedLayer, SummedLayers, curve_lut,
+    plan_layer_sums, prepare_layers, summed_layers,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Roi {
@@ -2365,6 +2368,9 @@ pub struct GpuProcessor {
     detail_compilation: std::sync::OnceLock<()>,
     preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
     preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
+    /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
+    layer_sum_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
+    layer_sum_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
     preview_shader: wgpu::ShaderModule,
     preview_layout: wgpu::PipelineLayout,
     /// `None` records a variant that failed validation; exports use the general pipeline.
@@ -2388,6 +2394,11 @@ pub struct GpuProcessor {
     dummy_blur_view: wgpu::TextureView,
     empty_mask_view: wgpu::TextureView,
     mask_cache: Mutex<Option<MaskTextureCache>>,
+    layer_sums_pipeline: wgpu::ComputePipeline,
+    layer_sums_bgl: wgpu::BindGroupLayout,
+    /// Bound for the variants that do not read the layer sums.
+    layer_sums_off: wgpu::Buffer,
+    layer_sums: Mutex<Option<LayerSumsCache>>,
     blur_cache: Mutex<BlurCache>,
     readback_pool: ReadbackPool,
     /// The multi-scale colour noise reduction's passes (None if they failed
@@ -2439,6 +2450,13 @@ pub struct GpuProcessor {
     force_full_display_render: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     last_display_render_pixels: std::sync::atomic::AtomicU64,
+    /// Display frames use the layer sums only when a test asks for them, so
+    /// exact comparisons elsewhere keep the per-layer loop.
+    #[cfg(test)]
+    layer_sums_enabled: std::sync::atomic::AtomicBool,
+    /// Frames rendered from the layer sums: (all, with a layer left out).
+    #[cfg(test)]
+    layer_sum_frames: [std::sync::atomic::AtomicUsize; 2],
 }
 
 /// One active job and one replaceable latest pending job. The signal channel
@@ -2606,6 +2624,197 @@ fn mask_halves(mask: &MaskBitmap, range: std::ops::Range<usize>) -> Vec<u16> {
                 .map(|v| table[*v as usize])
                 .collect()
         }
+    }
+}
+
+fn create_mask_texture(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+    layers: u32,
+    wide: bool,
+) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Full Mask Texture Array"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: layers,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // One unorm byte per texel, or a half float for 16-bit masks.
+        format: if wide {
+            MASK_WIDE_FORMAT
+        } else {
+            wgpu::TextureFormat::R8Unorm
+        },
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    })
+}
+
+/// Queues `rows` rows of `mask` from `first_row` into array layer `layer`;
+/// returns the bytes written.
+fn write_mask_rows(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    layer: usize,
+    mask: &MaskBitmap,
+    first_row: u32,
+    rows: u32,
+    wide: bool,
+) -> usize {
+    let width = mask.width();
+    let start = first_row as usize * width as usize;
+    let range = start..start + rows as usize * width as usize;
+    let halves;
+    let (data, texel_bytes) = if wide {
+        halves = mask_halves(mask, range);
+        (bytemuck::cast_slice::<u16, u8>(&halves), 2)
+    } else {
+        (&mask.as_raw()[range], 1)
+    };
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d {
+                x: 0,
+                y: first_row,
+                z: layer as u32,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * texel_bytes),
+            rows_per_image: Some(rows),
+        },
+        wgpu::Extent3d {
+            width,
+            height: rows,
+            depth_or_array_layers: 1,
+        },
+    );
+    data.len()
+}
+
+/// The mask layers of an export, uploaded one by one as they are generated
+/// so that their CPU bitmaps can be released before the render: at 45 MP a
+/// 16-bit layer holds 136 MB on the CPU (notes: many-layer-performance). The
+/// texture is the one a readback render would build from the same bitmaps.
+pub struct MaskUploader {
+    texture: wgpu::Texture,
+    width: u32,
+    height: u32,
+    wide: bool,
+    count: usize,
+    /// Layers uploaded so far, by index.
+    uploaded: Vec<bool>,
+    /// Bytes queued since the last flush.
+    pending: usize,
+    /// Whether a pushed layer was 16-bit: `wide` must say the same, or the
+    /// array differs from the one a render builds from the bitmaps.
+    any_wide: bool,
+}
+
+/// Mask uploads queued before they are submitted (a few 16-bit 45 MP layers).
+const MASK_UPLOAD_FLUSH_BYTES: usize = 256 << 20;
+
+/// Mask layers on the GPU for [`UploadedImage::with_masks`].
+pub struct UploadedMasks {
+    view: wgpu::TextureView,
+    width: u32,
+    height: u32,
+    count: usize,
+}
+
+impl MaskUploader {
+    /// `count` layers (at most `MAX_MASKS` are rendered); `wide` when any is
+    /// 16-bit (`mask_generation::layer_mask_is_wide`).
+    pub fn new(context: &GpuContext, width: u32, height: u32, count: usize, wide: bool) -> Self {
+        let count = count.min(MAX_MASKS);
+        Self {
+            texture: create_mask_texture(&context.device, width, height, count.max(2) as u32, wide),
+            width,
+            height,
+            wide,
+            count,
+            uploaded: vec![false; count],
+            pending: 0,
+            any_wide: false,
+        }
+    }
+
+    /// Queues the mask of layer `index` (in any order). Queued uploads are
+    /// submitted once they reach `MASK_UPLOAD_FLUSH_BYTES`, so their staging
+    /// copies do not pile up.
+    pub fn push_at(
+        &mut self,
+        context: &GpuContext,
+        index: usize,
+        mask: &MaskBitmap,
+    ) -> Result<(), String> {
+        if index >= self.count || self.uploaded[index] {
+            return Err(format!("Mask layer {index} is not expected."));
+        }
+        if mask.dimensions() != (self.width, self.height) {
+            return Err(format!(
+                "Mask {index} dimensions ({}x{}) do not match render dimensions ({}x{}).",
+                mask.width(),
+                mask.height(),
+                self.width,
+                self.height
+            ));
+        }
+        if mask.wide().is_some() && !self.wide {
+            return Err("A 16-bit mask layer in an 8-bit mask array.".to_string());
+        }
+        self.any_wide |= mask.wide().is_some();
+        self.pending += write_mask_rows(
+            &context.queue,
+            &self.texture,
+            index,
+            mask,
+            0,
+            mask.height(),
+            self.wide,
+        );
+        self.uploaded[index] = true;
+        if self.pending >= MASK_UPLOAD_FLUSH_BYTES {
+            self.flush(context);
+        }
+        Ok(())
+    }
+
+    /// Submits the queued layers and waits, so their staging copies are freed.
+    pub fn flush(&mut self, context: &GpuContext) {
+        context.queue.submit(None);
+        let _ = context.device.poll(wgpu::PollType::wait_indefinitely());
+        self.pending = 0;
+    }
+
+    pub fn finish(mut self, context: &GpuContext) -> Result<UploadedMasks, String> {
+        let done = self.uploaded.iter().filter(|done| **done).count();
+        if done != self.count {
+            return Err(format!("{done} of {} mask layers uploaded.", self.count));
+        }
+        if self.any_wide != self.wide {
+            return Err("No 16-bit mask layer in a 16-bit mask array.".to_string());
+        }
+        self.flush(context);
+        Ok(UploadedMasks {
+            view: self.texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            }),
+            width: self.width,
+            height: self.height,
+            count: self.count,
+        })
     }
 }
 
@@ -3198,6 +3407,7 @@ fn create_preview_pipeline(
     features: usize,
     direct_curves: bool,
     prepared_layers: bool,
+    layer_sums: bool,
 ) -> Result<wgpu::ComputePipeline, String> {
     create_compute_pipeline(
         device,
@@ -3210,6 +3420,7 @@ fn create_preview_pipeline(
                 constants: &[
                     ("DIRECT_CURVES", u8::from(direct_curves) as f64),
                     ("PREPARED_LAYERS", u8::from(prepared_layers) as f64),
+                    ("LAYER_SUMS", u8::from(layer_sums) as f64),
                     ("ENABLE_MASKS", ((features >> 3) & 1) as f64),
                     ("ENABLE_NOISE_REDUCTION", ((features >> 4) & 1) as f64),
                     ("ENABLE_SHARPEN", (features & 1) as f64),
@@ -3224,6 +3435,34 @@ fn create_preview_pipeline(
 }
 
 const FLARE_MAP_SIZE: u32 = 512;
+
+fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+/// Larger frames (a zoomed full-resolution window) use the per-layer loop.
+const LAYER_SUMS_BYTES: u64 = 256 << 20;
+
+/// The layer sums of the display frames and what they were computed from.
+#[derive(Default)]
+struct LayerSumsCache {
+    buffer: Option<wgpu::Buffer>,
+    /// The plan of `buffer` and the frame size; empty when the masks changed.
+    key: Vec<u8>,
+    /// The layer `buffer` leaves out.
+    exclude: Option<usize>,
+    /// The previous display frame's summed layers, if its masks were unchanged.
+    previous: Option<SummedLayers>,
+}
 
 /// Renders run in tiles of this size (photo pixels, aligned to the photo's
 /// origin); each tile's blurs cover the tile and `TILE_OVERLAP` around it.
@@ -3478,6 +3717,52 @@ impl GpuProcessor {
             .ok();
         let shader_module = create_shader(device, "Image Processing Shader", shader_source)?;
 
+        let layer_sums_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Layer sums BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                storage_entry(1, true),
+                storage_entry(2, true),
+                storage_entry(3, false),
+            ],
+        });
+        let layer_sums_pipeline = create_compute_pipeline(
+            device,
+            &wgpu::ComputePipelineDescriptor {
+                label: Some("Layer sums"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Layer sums layout"),
+                        bind_group_layouts: &[Some(&layer_sums_bgl)],
+                        immediate_size: 0,
+                    }),
+                ),
+                module: &create_shader(
+                    device,
+                    "Layer sums",
+                    include_str!("shaders/layer_sums.wgsl"),
+                )?,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            },
+        )?;
+        let layer_sums_off = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Layer sums (none)"),
+            size: (LAYER_SUMS_HEADER * 16) as u64,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+
         let mut bind_group_layout_entries = vec![
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -3700,6 +3985,8 @@ impl GpuProcessor {
             },
             count: None,
         });
+
+        bind_group_layout_entries.push(storage_entry(24, true));
 
         let main_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Main BGL"),
@@ -3951,6 +4238,8 @@ impl GpuProcessor {
             detail_compilation: std::sync::OnceLock::new(),
             preview_pipelines,
             preview_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            layer_sum_pipelines: Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new())),
+            layer_sum_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
             preview_shader: shader_module,
             preview_layout: pipeline_layout,
             export_pipelines: std::array::from_fn(|_| std::sync::OnceLock::new()),
@@ -3970,6 +4259,10 @@ impl GpuProcessor {
             dummy_blur_view,
             empty_mask_view,
             mask_cache: Mutex::new(None),
+            layer_sums_pipeline,
+            layer_sums_bgl,
+            layer_sums_off,
+            layer_sums: Mutex::new(None),
             blur_cache: Mutex::new(BlurCache::default()),
             readback_pool: ReadbackPool::default(),
             chroma_pipelines,
@@ -4014,6 +4307,10 @@ impl GpuProcessor {
             force_full_display_render: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             last_display_render_pixels: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(test)]
+            layer_sums_enabled: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            layer_sum_frames: Default::default(),
         };
         // RAWs open with the default detail settings, other photos often
         // without any detail feature, and the all-enabled variant renders any
@@ -4216,27 +4513,7 @@ impl GpuProcessor {
         layers: u32,
         wide: bool,
     ) -> wgpu::Texture {
-        self.context
-            .device
-            .create_texture(&wgpu::TextureDescriptor {
-                label: Some("Full Mask Texture Array"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: layers,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                // One unorm byte per texel, or a half float for 16-bit masks.
-                format: if wide {
-                    MASK_WIDE_FORMAT
-                } else {
-                    wgpu::TextureFormat::R8Unorm
-                },
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            })
+        create_mask_texture(&self.context.device, width, height, layers, wide)
     }
 
     fn upload_mask_layer(
@@ -4258,50 +4535,26 @@ impl GpuProcessor {
         rows: u32,
         wide: bool,
     ) {
-        let width = mask.width();
-        let start = first_row as usize * width as usize;
-        let range = start..start + rows as usize * width as usize;
-        let halves;
-        let (data, texel_bytes) = if wide {
-            halves = mask_halves(mask, range);
-            (bytemuck::cast_slice::<u16, u8>(&halves), 2)
-        } else {
-            (&mask.as_raw()[range], 1)
-        };
-        self.context.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: 0,
-                    y: first_row,
-                    z: layer as u32,
-                },
-                aspect: wgpu::TextureAspect::All,
-            },
-            data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(width * texel_bytes),
-                rows_per_image: Some(rows),
-            },
-            wgpu::Extent3d {
-                width,
-                height: rows,
-                depth_or_array_layers: 1,
-            },
+        let _written = write_mask_rows(
+            &self.context.queue,
+            texture,
+            layer,
+            mask,
+            first_row,
+            rows,
+            wide,
         );
         #[cfg(test)]
         {
             self.mask_upload_layers
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.mask_upload_bytes
-                .fetch_add(data.len(), std::sync::atomic::Ordering::Relaxed);
+                .fetch_add(_written, std::sync::atomic::Ordering::Relaxed);
         }
         #[cfg(feature = "performance-profiling")]
         MASK_UPLOAD_COUNTS.with(|counts| {
             let (layers, rows_sum, bytes) = counts.get();
-            counts.set((layers + 1, rows_sum + rows as usize, bytes + data.len()));
+            counts.set((layers + 1, rows_sum + rows as usize, bytes + _written));
         });
     }
 
@@ -4489,6 +4742,166 @@ impl GpuProcessor {
             cache.view.clone(),
             MaskTextureUpdate::Reused(merge_dirty_bands(&bands)),
         ))
+    }
+
+    /// The layer sums for a display frame (layer_sums.wgsl), or `None` when
+    /// the frame uses the per-layer loop. They are computed when the masks
+    /// and layer values repeat (a global slider drag) or only one layer's
+    /// values changed since the last frame (a slider moving on that layer,
+    /// left out of the sums), and reused while they still apply.
+    fn layer_sums_buffer(
+        &self,
+        summed: Option<SummedLayers>,
+        width: u32,
+        height: u32,
+        masks: &wgpu::TextureView,
+        masks_unchanged: bool,
+    ) -> Option<(wgpu::Buffer, Option<usize>)> {
+        let mut cache = self.layer_sums.lock().unwrap_or_else(|e| e.into_inner());
+        let cache = cache.get_or_insert_with(LayerSumsCache::default);
+        if !masks_unchanged {
+            cache.key.clear();
+            cache.previous = None;
+            return None;
+        }
+        let previous = std::mem::replace(&mut cache.previous, summed.clone());
+        let summed = summed?;
+        let key_of = |plan: &LayerSumsPlan| {
+            let mut key = bytemuck::cast_slice::<_, u8>(&plan.bits).to_vec();
+            key.extend_from_slice(
+                &plan
+                    .exclude
+                    .map_or(u32::MAX, |(k, _)| k as u32)
+                    .to_le_bytes(),
+            );
+            key.extend_from_slice(&[width, height].map(u32::to_le_bytes).concat());
+            key.extend_from_slice(bytemuck::cast_slice(&plan.layers));
+            key
+        };
+        let header = |plan: &LayerSumsPlan| {
+            let mut header = [[0u32; 4]; LAYER_SUMS_HEADER];
+            header[0] = [plan.bits[0], plan.bits[1], 0, width * height];
+            header[1] = [width, 0, 0, 0];
+            if let Some((layer, values)) = plan.exclude {
+                header[1][1] = layer as u32;
+                header[1][2] = 1;
+                for (row, values) in header[2..].iter_mut().zip(values) {
+                    *row = values.map(f32::to_bits);
+                }
+            }
+            header
+        };
+        for exclude in [None, cache.exclude] {
+            if let Some(plan) = plan_layer_sums(&summed, exclude)
+                && let Some(buffer) = cache.buffer.as_ref()
+                && cache.key == key_of(&plan)
+            {
+                // The left-out layer's values change with each frame.
+                self.context
+                    .queue
+                    .write_buffer(buffer, 0, bytemuck::cast_slice(&header(&plan)));
+                return Some((buffer.clone(), exclude));
+            }
+            if exclude.is_none() && cache.exclude.is_none() {
+                break;
+            }
+        }
+        // Compute only for a frame like the one before it, both with unchanged
+        // masks: a single frame (a stroke, a new recipe) renders faster with
+        // the loop.
+        let previous = previous?;
+        if previous.len() != summed.len() || previous.iter().zip(&summed).any(|(p, c)| p.0 != c.0) {
+            return None;
+        }
+        let mut changed = previous
+            .iter()
+            .zip(&summed)
+            .filter(|(p, c)| p.1 != c.1)
+            .map(|(_, c)| c.0);
+        let exclude = match (changed.next(), changed.next()) {
+            (None, _) => None,
+            (Some(layer), None) => Some(layer),
+            _ => return None,
+        };
+        let plan = plan_layer_sums(&summed, exclude)?;
+        let pixels = width * height;
+        let size = (LAYER_SUMS_HEADER as u64 + plan.vec4_count as u64 * pixels as u64) * 16;
+        if size > LAYER_SUMS_BYTES || size > self.context.limits.max_storage_buffer_binding_size {
+            return None;
+        }
+        let header = header(&plan);
+        let key = key_of(&plan);
+        let device = &self.context.device;
+        let queue = &self.context.queue;
+        let buffer = match cache.buffer.take() {
+            Some(old) if old.size() == size => old,
+            _ => device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Layer sums"),
+                size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        };
+        queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&header));
+        let params = [
+            width,
+            height,
+            plan.layer_count,
+            plan.vec4_count,
+            LAYER_SUMS_HEADER as u32,
+            pixels,
+            0,
+            0,
+        ];
+        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Layer sums params"),
+            contents: bytemuck::cast_slice(&params),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let layers_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Layer sums layers"),
+            // A binding cannot be empty (only the left-out layer is summed).
+            contents: bytemuck::cast_slice(if plan.layers.is_empty() {
+                &[[0.0f32; 4]][..]
+            } else {
+                &plan.layers
+            }),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Layer sums"),
+            layout: &self.layer_sums_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(masks),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: layers_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.layer_sums_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+        }
+        queue.submit(Some(encoder.finish()));
+        cache.buffer = Some(buffer.clone());
+        cache.key = key;
+        cache.exclude = exclude;
+        Some((buffer, exclude))
     }
 
     fn display_targets(&self, width: u32, height: u32) -> Arc<DisplayTargets> {
@@ -4742,6 +5155,32 @@ impl GpuProcessor {
         }
     }
 
+    /// The display variant reading the layer sums, or `None` while it
+    /// compiles off the render worker (the frame uses the per-layer loop).
+    fn layer_sum_pipeline(&self, features: usize) -> Option<&wgpu::ComputePipeline> {
+        if let Some(pipeline) = self.layer_sum_pipelines[features].get() {
+            return Some(pipeline);
+        }
+        self.layer_sum_compilation[features].get_or_init(|| {
+            let pipelines = Arc::clone(&self.layer_sum_pipelines);
+            let device = Arc::clone(&self.context.device);
+            let shader = self.preview_shader.clone();
+            let layout = self.preview_layout.clone();
+            std::thread::spawn(move || {
+                match create_preview_pipeline(&device, &shader, &layout, features, true, true, true)
+                {
+                    Ok(pipeline) => {
+                        let _ = pipelines[features].set(pipeline);
+                    }
+                    Err(error) => log::error!(
+                        "Layer sums variant {features} unavailable; using the per-layer loop: {error}"
+                    ),
+                }
+            });
+        });
+        None
+    }
+
     /// Compile a display variant off the render worker (once).
     fn compile_preview_variant(&self, features: usize) {
         self.preview_compilation[features].get_or_init(|| {
@@ -4752,7 +5191,7 @@ impl GpuProcessor {
             std::thread::spawn(move || {
                 // The general pipeline was validated at construction and
                 // stays in use if this variant cannot be created.
-                match create_preview_pipeline(&device, &shader, &layout, features, true, true) {
+                match create_preview_pipeline(&device, &shader, &layout, features, true, true, false) {
                     Ok(pipeline) => {
                         let _ = pipelines[features].set(pipeline);
                     }
@@ -4831,7 +5270,15 @@ impl GpuProcessor {
         };
         match pipelines[features]
             .get_or_init(|| {
-                create_preview_pipeline(&self.context.device, shader, layout, features, true, false)
+                create_preview_pipeline(
+                    &self.context.device,
+                    shader,
+                    layout,
+                    features,
+                    true,
+                    false,
+                    false,
+                )
                     .inspect_err(|error| {
                         log::error!(
                             "Specialized export variant {features} unavailable; using the general shader: {error}"
@@ -4978,6 +5425,7 @@ impl GpuProcessor {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     fn run_with_shader(
         &self,
@@ -5006,6 +5454,7 @@ impl GpuProcessor {
             readback_shader,
             chroma,
             None,
+            None,
         )
     }
 
@@ -5028,6 +5477,7 @@ impl GpuProcessor {
         readback_shader: ReadbackShader,
         chroma: Option<(&wgpu::TextureView, &wgpu::TextureView)>,
         flare_samples: Option<&wgpu::TextureView>,
+        uploaded_masks: Option<&UploadedMasks>,
     ) -> Result<(RenderedPixels, u32, u32, u32, u32), String> {
         let mut request = request;
         if chroma.is_none() {
@@ -5112,28 +5562,33 @@ impl GpuProcessor {
         } else {
             None
         };
-        let (output_pipeline, output_bgl, output_tile_texture, output_tile_view, bytes_per_pixel) =
-            if let Some(high_precision_tile) = high_precision_tile {
-                (
-                    if force_full_preparation || force_general_pipeline {
-                        self.general_pipeline(&request.adjustments, true)?
-                    } else {
-                        self.export_pipeline(&request.adjustments, true)?
-                    },
-                    &self.high_precision_bgl,
-                    &high_precision_tile.texture,
-                    &high_precision_tile.view,
-                    16,
-                )
-            } else {
-                (
-                    main_pipeline,
-                    &self.main_bgl,
-                    &self.tile_output_texture,
-                    &self.tile_output_texture_view,
-                    4,
-                )
-            };
+        let (
+            mut output_pipeline,
+            output_bgl,
+            output_tile_texture,
+            output_tile_view,
+            bytes_per_pixel,
+        ) = if let Some(high_precision_tile) = high_precision_tile {
+            (
+                if force_full_preparation || force_general_pipeline {
+                    self.general_pipeline(&request.adjustments, true)?
+                } else {
+                    self.export_pipeline(&request.adjustments, true)?
+                },
+                &self.high_precision_bgl,
+                &high_precision_tile.texture,
+                &high_precision_tile.view,
+                16,
+            )
+        } else {
+            (
+                main_pipeline,
+                &self.main_bgl,
+                &self.tile_output_texture,
+                &self.tile_output_texture_view,
+                4,
+            )
+        };
 
         let bounds = request.roi.unwrap_or(Roi {
             x: 0,
@@ -5164,13 +5619,28 @@ impl GpuProcessor {
             [pattern_low, pattern_high],
             request.adjustments.relight_patterns.as_deref(),
         )?;
-        let (mask_texture_view, mask_update) = self.prepare_mask_texture(
-            window.width,
-            window.height,
-            request.mask_bitmaps,
-            retain_intermediates,
-            force_full_preparation,
-        )?;
+        let (mask_texture_view, mask_update) = match uploaded_masks {
+            Some(masks) => {
+                if !request.mask_bitmaps.is_empty()
+                    || output_to_display
+                    || (masks.width, masks.height) != (window.width, window.height)
+                {
+                    return Err(
+                        "Uploaded masks need a readback render of their size without bitmaps."
+                            .to_string(),
+                    );
+                }
+                debug_assert!(masks.count <= MAX_MASKS);
+                (masks.view.clone(), MaskTextureUpdate::Transient)
+            }
+            None => self.prepare_mask_texture(
+                window.width,
+                window.height,
+                request.mask_bitmaps,
+                retain_intermediates,
+                force_full_preparation,
+            )?,
+        };
         // Test oracles switch shaders, curves or uploads without changing the
         // request, so they always render and never seed a later partial frame.
         #[cfg(test)]
@@ -5285,6 +5755,7 @@ impl GpuProcessor {
 
         let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
+        let mut layer_sums_buffer = self.layer_sums_off.clone();
         if display_shader {
             let mut layers = prepare_layers(&adjustments);
             self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
@@ -5293,6 +5764,49 @@ impl GpuProcessor {
                 0,
                 bytemuck::cast_slice(&layers),
             );
+            // Retained masks only: the sums are kept for the frames after.
+            if mask_update != MaskTextureUpdate::Transient {
+                let masks_unchanged = mask_update == MaskTextureUpdate::Reused(Vec::new());
+                // Only the specialised display variants have a sums variant.
+                #[cfg(test)]
+                let enabled = self
+                    .layer_sums_enabled
+                    .load(std::sync::atomic::Ordering::Relaxed);
+                #[cfg(not(test))]
+                let enabled = true;
+                let specialised = enabled
+                    && display_shader
+                    && !force_full_preparation
+                    && !force_general_pipeline
+                    && !test_override;
+                // A frame with nothing to render needs no sums.
+                let renders = dirty.as_ref().is_none_or(|regions| !regions.is_empty());
+                let summed = (specialised && renders)
+                    .then(|| summed_layers(&adjustments, &layers))
+                    .flatten();
+                let pipeline = summed
+                    .as_ref()
+                    .and_then(|_| self.layer_sum_pipeline(preview_features(&adjustments)));
+                let sums = self.layer_sums_buffer(
+                    summed,
+                    window.width,
+                    window.height,
+                    &mask_texture_view,
+                    masks_unchanged,
+                );
+                if let (Some(pipeline), Some((buffer, _exclude))) = (pipeline, sums) {
+                    output_pipeline = pipeline;
+                    layer_sums_buffer = buffer;
+                    #[cfg(test)]
+                    for (counter, counts) in
+                        self.layer_sum_frames.iter().zip([true, _exclude.is_some()])
+                    {
+                        if counts {
+                            counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
         }
         let blur_requirements = if force_full_preparation {
             [true; 5]
@@ -5800,6 +6314,10 @@ impl GpuProcessor {
                     binding: 16,
                     resource: self.render_regions_buffer.as_entire_binding(),
                 });
+                bind_group_entries.push(wgpu::BindGroupEntry {
+                    binding: 24,
+                    resource: layer_sums_buffer.as_entire_binding(),
+                });
                 let crop_x_start = x_start - input_x_start;
                 let crop_y_start = y_start - input_y_start;
 
@@ -6015,7 +6533,15 @@ impl GpuProcessor {
 
 /// An input texture uploaded before the GPU processor is taken, so that the
 /// caller can release its CPU pixels before rendering.
-pub struct UploadedImage(GpuImageCache);
+pub struct UploadedImage(GpuImageCache, Option<Box<UploadedMasks>>);
+
+impl UploadedImage {
+    /// Renders with these mask layers in place of the request's bitmaps
+    /// (which must then be empty).
+    pub fn with_masks(self, masks: UploadedMasks) -> Self {
+        Self(self.0, Some(Box::new(masks)))
+    }
+}
 
 /// Uploads a CPU-readback source for [`process_and_get_dynamic_image_inner`].
 /// `None` means the image exceeds the GPU's texture limits; render it from
@@ -6046,16 +6572,19 @@ pub fn upload_render_source(
     let chroma = color_noise
         .and_then(|(linear, tuning)| ChromaPyramid::build_for(image, linear, &tuning))
         .map(Arc::new);
-    Ok(Some(UploadedImage(GpuImageCache {
-        texture,
-        texture_view,
-        width,
-        height,
-        transform_hash,
-        chroma,
-        chroma_gpu: None,
-        spare: None,
-    })))
+    Ok(Some(UploadedImage(
+        GpuImageCache {
+            texture,
+            texture_view,
+            width,
+            height,
+            transform_hash,
+            chroma,
+            chroma_gpu: None,
+            spare: None,
+        },
+        None,
+    )))
 }
 
 /// The error of a render this GPU cannot do because the photo exceeds its
@@ -6385,6 +6914,7 @@ fn render_in_windows(
                 .as_ref()
                 .map(|chroma| (&chroma.packed_view, &chroma.energy_view)),
             flare_samples.as_ref(),
+            None,
         )?;
         place_region(
             &mut output,
@@ -6539,7 +7069,7 @@ pub fn process_and_get_dynamic_image_inner(
     let start_time = Instant::now();
     let (width, height) = match &source {
         RenderSource::Image { image, .. } => image.dimensions(),
-        RenderSource::Uploaded(UploadedImage(input)) => (input.width, input.height),
+        RenderSource::Uploaded(UploadedImage(input, _)) => (input.width, input.height),
     };
     let device = &context.device;
     let queue = &context.queue;
@@ -6567,12 +7097,14 @@ pub fn process_and_get_dynamic_image_inner(
     // CPU-readback jobs (thumbnails, exports) use a transient input. Otherwise
     // each saved thumbnail forces the next slider frame to re-upload its RAW
     // preview and rebuild every blur, even though the source did not change.
-    let (base_image, transform_hash, uploaded) = match source {
+    let (base_image, transform_hash, uploaded, uploaded_masks) = match source {
         RenderSource::Image {
             image,
             transform_hash,
-        } => (Some(image), transform_hash, None),
-        RenderSource::Uploaded(UploadedImage(input)) => (None, input.transform_hash, Some(input)),
+        } => (Some(image), transform_hash, None, None),
+        RenderSource::Uploaded(UploadedImage(input, masks)) => {
+            (None, input.transform_hash, Some(input), masks)
+        }
     };
     let preuploaded = uploaded.is_some();
     let background_image_cache = Mutex::new(uploaded);
@@ -6661,15 +7193,23 @@ pub fn process_and_get_dynamic_image_inner(
 
     #[cfg(feature = "performance-profiling")]
     let run_stage = crate::performance::PerformanceStage::new("gpu_run");
-    let (processed_pixels, out_w, out_h, out_x, out_y) = processor.run_with_shader(
+    let (processed_pixels, out_w, out_h, out_x, out_y) = processor.run_in_window(
         &cache.texture_view,
         cache.width,
         cache.height,
+        Roi {
+            x: 0,
+            y: 0,
+            width: cache.width,
+            height: cache.height,
+        },
         request,
         output_to_display,
         output_precision,
         readback_shader,
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
+        None,
+        uploaded_masks.as_deref(),
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(run_stage);

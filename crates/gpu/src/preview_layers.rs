@@ -337,6 +337,140 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
     layers
 }
 
+/// Sliders the display shader sums per layer and pixel, in shader.wgsl's
+/// `layer_sum` order: tone and colour, detail and effects, then HSL. Moiré is
+/// left out: its step comes from the last layer that sets it, not a sum.
+pub(super) const LAYER_SUM_PARAMS: usize = 46;
+/// At most four vec4s of sums per pixel; more active sliders use the loop.
+const LAYER_SUM_SLOTS: usize = 16;
+/// vec4s before the pixel data (shader.wgsl `layer_sums`).
+pub(super) const LAYER_SUMS_HEADER: usize = 6;
+
+fn layer_sum_values(m: &MaskAdjustments) -> [f32; LAYER_SUM_PARAMS] {
+    let mut values = [0.0; LAYER_SUM_PARAMS];
+    let head = [
+        m.exposure,
+        m.brightness,
+        m.contrast,
+        m.highlights,
+        m.shadows,
+        m.whites,
+        m.blacks,
+        m.saturation,
+        m.temperature,
+        m.tint,
+        m.vibrance,
+        m.hue,
+        m.luma_noise_reduction,
+        m.color_noise_reduction,
+        m.clarity,
+        m.dehaze,
+        m.structure,
+        m.glow_amount,
+        m.halation_amount,
+        m.flare_amount,
+        m.defringe,
+        m.sharpness,
+    ];
+    values[..head.len()].copy_from_slice(&head);
+    for (i, h) in m.hsl.iter().enumerate() {
+        values[head.len() + i * 3..head.len() + i * 3 + 3].copy_from_slice(&[
+            h.hue,
+            h.saturation,
+            h.luminance,
+        ]);
+    }
+    values
+}
+
+/// Slider values of the layers the shader's first loop adds (flag 1), by
+/// mask index; `None` when that loop must run: no such layer, or one with
+/// moiré.
+pub(super) type SummedLayers = Vec<(usize, [f32; LAYER_SUM_PARAMS])>;
+
+pub(super) fn summed_layers(
+    a: &AllAdjustments,
+    prepared: &[PreparedLayer],
+) -> Option<SummedLayers> {
+    let summed: Vec<(usize, &MaskAdjustments)> = a
+        .mask_adjustments
+        .iter()
+        .take(a.mask_count as usize)
+        .enumerate()
+        .filter(|(i, _)| prepared.get(i + 1).is_some_and(|l| l.flags[0] & 1 != 0))
+        .collect();
+    if summed.is_empty() || summed.iter().any(|(_, m)| m.moire[0] != 0.0) {
+        return None;
+    }
+    Some(
+        summed
+            .into_iter()
+            .map(|(index, m)| (index, layer_sum_values(m)))
+            .collect(),
+    )
+}
+
+/// What the layer sums pass computes (layer_sums.wgsl).
+#[derive(Clone, PartialEq)]
+pub(super) struct LayerSumsPlan {
+    /// The sliders some summed layer sets, one bit each; a slider's slot is
+    /// the number of set bits before its own.
+    pub(super) bits: [u32; 2],
+    /// Per summed layer: its mask index (bits), then `vec4_count` vec4s.
+    pub(super) layers: Vec<[f32; 4]>,
+    pub(super) layer_count: u32,
+    pub(super) vec4_count: u32,
+    /// The layer left out of the sums (a slider moving on it) and its values
+    /// in the slots: the shader adds it per pixel.
+    pub(super) exclude: Option<(usize, [[f32; 4]; 4])>,
+}
+
+/// The sums of `summed` without layer `exclude`, or `None` when more
+/// sliders are active than `LAYER_SUM_SLOTS`. The slots cover every summed
+/// layer's sliders, the left-out one's too.
+pub(super) fn plan_layer_sums(
+    summed: &SummedLayers,
+    exclude: Option<usize>,
+) -> Option<LayerSumsPlan> {
+    let active: Vec<usize> = (0..LAYER_SUM_PARAMS)
+        .filter(|param| summed.iter().any(|(_, v)| v[*param] != 0.0))
+        .collect();
+    if active.is_empty() || active.len() > LAYER_SUM_SLOTS {
+        return None;
+    }
+    let vec4_count = active.len().div_ceil(4);
+    let mut bits = [0u32; 2];
+    for param in &active {
+        bits[param / 32] |= 1 << (param % 32);
+    }
+    let pack = |v: &[f32; LAYER_SUM_PARAMS]| {
+        let mut packed = [[0.0; 4]; 4];
+        for (slot, param) in active.iter().enumerate() {
+            packed[slot / 4][slot % 4] = v[*param];
+        }
+        packed
+    };
+    let mut layers = Vec::with_capacity(summed.len() * (vec4_count + 1));
+    let mut layer_count = 0;
+    let mut left_out = None;
+    for (index, v) in summed {
+        if Some(*index) == exclude {
+            left_out = Some((*index, pack(v)));
+            continue;
+        }
+        layers.push([f32::from_bits(*index as u32), 0.0, 0.0, 0.0]);
+        layers.extend_from_slice(&pack(v)[..vec4_count]);
+        layer_count += 1;
+    }
+    Some(LayerSumsPlan {
+        bits,
+        layers,
+        layer_count,
+        vec4_count: vec4_count as u32,
+        exclude: left_out,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

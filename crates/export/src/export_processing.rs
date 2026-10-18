@@ -17,15 +17,17 @@ use serde_json::Value;
 use crate::adjustment_utils::apply_all_transformations;
 use crate::cache_utils::calculate_full_job_hash;
 use crate::gpu_processing::{
-    GpuContext, GpuImageCache, GpuProcessorState, ReadbackShader, RenderOutputPrecision,
-    RenderRequest, RenderSource, process_and_get_dynamic_image_inner, upload_render_source,
+    GpuContext, GpuImageCache, GpuProcessorState, MaskUploader, ReadbackShader,
+    RenderOutputPrecision, RenderRequest, RenderSource, process_and_get_dynamic_image_inner,
+    upload_render_source,
 };
 use crate::image_processing::{
-    AllAdjustments, get_all_adjustments_with_masks, mask_definitions_from_json,
+    AllAdjustments, MAX_MASKS, get_all_adjustments_with_masks, mask_definitions_from_json,
 };
 use crate::lut::Lut;
 use crate::mask_generation::{
-    MaskBitmap, MaskDefinition, PhotoGeometry, generate_layer_mask, prepare_parametric_mask_source,
+    MaskBitmap, MaskDefinition, PhotoGeometry, generate_layer_mask, layer_mask_is_wide,
+    prepare_parametric_mask_source,
 };
 use crate::output_color_space::OutputColorSpace;
 use rayon::prelude::*;
@@ -1135,9 +1137,6 @@ pub fn process_image_for_export_pipeline(
     let (img_w, img_h) = transformed_image.dimensions();
     #[cfg(feature = "performance-profiling")]
     drop(transform_stage);
-    #[cfg(feature = "performance-profiling")]
-    let masks_stage = crate::performance::PerformanceStage::new("export_masks");
-
     let mask_definitions = mask_definitions_from_json(js_adjustments);
 
     let warped_image = mask_definitions
@@ -1148,27 +1147,24 @@ pub fn process_image_for_export_pipeline(
     let (photo_w, photo_h) = source.pristine.dimensions();
     let mask_geometry = PhotoGeometry::from_adjustments(js_adjustments)
         .with_photo_size(photo_w as f64, photo_h as f64);
-    // Layers are independent: generated side by side, as some (Auto Mask
-    // strokes) keep few cores busy (notes: WP6 of
-    // plans/local-adjustments-g29-g31.md). Collected in layer order.
-    let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
-        .par_iter()
-        .filter_map(|def| {
-            generate_layer_mask(
-                def,
-                img_w,
-                img_h,
-                1.0,
-                unscaled_crop_offset,
-                &mask_geometry,
-                warped_image.as_ref(),
-            )
-            .map(Arc::new)
-        })
+    // The layers a render uses, in order.
+    let layers: Vec<&MaskDefinition> = mask_definitions
+        .iter()
+        .filter(|def| def.produces_bitmap())
+        .take(MAX_MASKS)
         .collect();
-    drop(warped_image);
-    #[cfg(feature = "performance-profiling")]
-    drop(masks_stage);
+    let generate = |def: &MaskDefinition| {
+        generate_layer_mask(
+            def,
+            img_w,
+            img_h,
+            1.0,
+            unscaled_crop_offset,
+            &mask_geometry,
+            warped_image.as_ref(),
+        )
+        .ok_or_else(|| "A mask layer produced no bitmap.".to_string())
+    };
 
     let tm_override = (env.tonemapper_override)(is_raw);
     let mut all_adjustments =
@@ -1181,18 +1177,12 @@ pub fn process_image_for_export_pipeline(
     let lut = lut_path.and_then(|p| (env.load_lut)(p));
 
     let unique_hash = calculate_full_job_hash(path, js_adjustments);
-    let request = RenderRequest {
-        adjustments: all_adjustments,
-        mask_bitmaps: &mask_bitmaps,
-        lut,
-        roi: None,
-    };
 
     // The multi-scale colour noise reduction measures the full-resolution
     // source while its CPU pixels exist; so does the luminance noise
     // profile of a version-2 recipe at Color 0 (gpu_processing
     // `luma_profile_wanted`), else the export loses it.
-    let global = &request.adjustments.global;
+    let global = &all_adjustments.global;
     let color_noise = (global.color_noise[0] > 0.0
         && (global.color_noise_reduction > 0.0 || global.luma_noise_reduction > 0.0))
         .then(|| {
@@ -1204,6 +1194,16 @@ pub fn process_image_for_export_pipeline(
     let Some(uploaded) =
         upload_render_source(context, &transformed_image, unique_hash, color_noise)?
     else {
+        // Too large for one texture: rendered in windows from CPU masks.
+        #[cfg(feature = "performance-profiling")]
+        let masks_stage = crate::performance::PerformanceStage::new("export_masks");
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = layers
+            .par_iter()
+            .map(|def| generate(def).map(Arc::new))
+            .collect::<Result<_, _>>()?;
+        drop(warped_image);
+        #[cfg(feature = "performance-profiling")]
+        drop(masks_stage);
         return process_and_get_dynamic_image_inner(
             context,
             env.processor,
@@ -1212,7 +1212,12 @@ pub fn process_image_for_export_pipeline(
                 image: transformed_image.as_ref(),
                 transform_hash: unique_hash,
             },
-            request,
+            RenderRequest {
+                adjustments: all_adjustments,
+                mask_bitmaps: &mask_bitmaps,
+                lut,
+                roi: None,
+            },
             debug_tag,
             output_precision,
             false,
@@ -1227,12 +1232,66 @@ pub fn process_image_for_export_pipeline(
     drop(source);
     crate::allocator::release_freed_memory();
 
+    // Layers are independent: generated side by side, as some (Auto Mask
+    // strokes) keep few cores busy (notes: WP6 of
+    // plans/local-adjustments-g29-g31.md). Each goes to the GPU as soon as it
+    // is done and is freed, so only `MASK_GENERATORS` full-resolution masks
+    // are on the CPU at once (32 16-bit layers of 45 MP held 4.4 GB; notes:
+    // many-layer-performance).
+    #[cfg(feature = "performance-profiling")]
+    let masks_stage = crate::performance::PerformanceStage::new("export_masks");
+    let uploaded = if layers.is_empty() {
+        uploaded
+    } else {
+        let wide = layers.iter().any(|def| layer_mask_is_wide(def));
+        let uploader = Mutex::new(MaskUploader::new(context, img_w, img_h, layers.len(), wide));
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            let generators: Vec<_> = (0..MASK_GENERATORS.min(layers.len()))
+                .map(|_| {
+                    scope.spawn(|| -> Result<(), String> {
+                        loop {
+                            let index = next.fetch_add(1, Ordering::Relaxed);
+                            let Some(def) = layers.get(index) else {
+                                return Ok(());
+                            };
+                            let mask = generate(def)?;
+                            uploader
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push_at(context, index, &mask)?;
+                        }
+                    })
+                })
+                .collect();
+            generators.into_iter().try_for_each(|generator| {
+                generator
+                    .join()
+                    .map_err(|_| "Mask generation panicked.".to_string())?
+            })
+        })?;
+        let masks = uploader
+            .into_inner()
+            .unwrap_or_else(|e| e.into_inner())
+            .finish(context)?;
+        uploaded.with_masks(masks)
+    };
+    drop(warped_image);
+    crate::allocator::release_freed_memory();
+    #[cfg(feature = "performance-profiling")]
+    drop(masks_stage);
+
     process_and_get_dynamic_image_inner(
         context,
         env.processor,
         env.image_cache,
         RenderSource::Uploaded(uploaded),
-        request,
+        RenderRequest {
+            adjustments: all_adjustments,
+            mask_bitmaps: &[],
+            lut,
+            roi: None,
+        },
         debug_tag,
         output_precision,
         false,
@@ -1241,6 +1300,11 @@ pub fn process_image_for_export_pipeline(
         ReadbackShader::Export,
     )
 }
+
+/// Layer masks an export generates at once (each runs in parallel itself):
+/// at 45 MP and 32 layers, 4 kept the mask stage at its time with all layers
+/// at once (7.1 s) and the peak footprint at 6.7 GB (6 or more: 8.0–8.2 GB).
+const MASK_GENERATORS: usize = 4;
 
 /// Encodes an export render for `extension` and embeds `metadata` (EXIF and
 /// XMP from [`exif_processing::export_metadata_with`](crate::exif_processing::export_metadata_with)).
