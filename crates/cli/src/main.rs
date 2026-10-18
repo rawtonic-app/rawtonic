@@ -362,17 +362,18 @@ fn models_dir(models: Option<PathBuf>) -> Result<PathBuf> {
         .context("no model folder; pass --models")
 }
 
-/// The MatchFilter denoiser for AI Denoise `version` from the app's model
-/// folder (Core ML on macOS: version 2 the mixed-precision package; ONNX
-/// Runtime elsewhere, which needs `ORT_DYLIB_PATH`, the same model for both).
+/// The MatchFilter denoiser for AI Denoise `model`
+/// (`AiDenoiseSettings::model`) from the app's model folder (Core ML on
+/// macOS: 1 the mixed-precision package; ONNX Runtime elsewhere, which needs
+/// `ORT_DYLIB_PATH`, with one model for every version).
 fn ai_denoiser(
     models: Option<PathBuf>,
-    version: u8,
+    model: usize,
 ) -> Result<std::sync::Arc<dyn rawtonic_rawdecode::mosaic_denoise::MosaicDenoiser>> {
     let models = models_dir(models)?;
     let cache = models.parent().map(|dir| dir.join("ai-denoise-cache"));
     #[cfg(target_os = "macos")]
-    let filter = if version >= 2 {
+    let filter = if model == 1 {
         rawtonic_denoise::MatchFilter::core_ml_mixed(
             &models.join(rawtonic_denoise::CORE_ML_MIXED_PACKAGE),
             cache,
@@ -385,7 +386,7 @@ fn ai_denoiser(
     };
     #[cfg(not(target_os = "macos"))]
     let filter = {
-        let _ = version;
+        let _ = model;
         rawtonic_denoise::MatchFilter::onnx(&models.join(rawtonic_denoise::ONNX_MODEL), cache)?
     };
     Ok(std::sync::Arc::new(filter))
@@ -1047,13 +1048,13 @@ fn export(args: ExportArgs) -> Result<()> {
     };
     let mut exporter =
         rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
-    let versions: std::collections::BTreeSet<u8> = recipes
+    let ai_models: std::collections::BTreeSet<usize> = recipes
         .iter()
         .flatten()
-        .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.version))
+        .filter_map(|r| rawtonic_engine::image_loader::ai_denoise_settings(r).map(|ai| ai.model()))
         .collect();
-    for version in versions {
-        exporter = exporter.with_mosaic_denoiser(version, ai_denoiser(models.clone(), version)?);
+    for model in ai_models {
+        exporter = exporter.with_mosaic_denoiser(model, ai_denoiser(models.clone(), model)?);
     }
     let mut written = Vec::new();
     let mut failed = Vec::new();

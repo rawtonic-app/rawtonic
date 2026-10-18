@@ -36,8 +36,8 @@ const CORE_ML_FILES: [(&str, &str, &str); 3] = [
         "a5bf7b0b9d7efc24b3141f09b8c6fc7cadd61f46eea874a41326de8216a500a0",
     ),
 ];
-/// The mixed-precision 640 px package of version 2
-/// (scripts/models/convert_nlmf_coreml.py).
+/// The mixed-precision 640 px package of version 3
+/// (scripts/models/convert_nlmf_coreml.py; not yet in the model pack).
 #[cfg(target_os = "macos")]
 const CORE_ML_MIXED_FILES: [(&str, &str, &str); 3] = [
     (
@@ -70,13 +70,26 @@ pub fn cache_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
         .join("ai-denoise-cache"))
 }
 
-/// The denoiser of AI Denoise `version`, downloading and loading its model
-/// on first use.
+/// Where `AppState::ai_denoiser` keeps the denoiser of `model`
+/// (`AiDenoiseSettings::model`): ONNX Runtime (Windows, Linux) has one model
+/// for every version.
+pub fn slot(model: usize) -> usize {
+    if cfg!(target_os = "macos") {
+        model.min(1)
+    } else {
+        0
+    }
+}
+
+/// The denoiser of AI Denoise `model` (`AiDenoiseSettings::model`: 0 the
+/// first package, 1 the mixed-precision one), downloading and loading it on
+/// first use. No fallback between them: a version renders with its model or
+/// fails, so a saved recipe never changes with the installed models.
 pub async fn denoiser(
     app_handle: &tauri::AppHandle,
-    version: u8,
+    model: usize,
 ) -> Result<Arc<dyn MosaicDenoiser>, String> {
-    let slot = usize::from(version.clamp(1, 2)) - 1;
+    let slot = slot(model);
     let state = app_handle.state::<AppState>();
     if let Some(denoiser) = state.ai_denoiser.lock().unwrap()[slot].clone() {
         return Ok(denoiser);
@@ -87,30 +100,14 @@ pub async fn denoiser(
     }
     let models = crate::ai_processing::models_dir(app_handle).map_err(|e| e.to_string())?;
     let cache = cache_dir(app_handle)?;
+    #[cfg(target_os = "macos")]
     let denoiser: Arc<dyn MosaicDenoiser> = if slot == 0 {
         Arc::new(load(app_handle, &models, cache).await?)
     } else {
-        match load_mixed(app_handle, &models, cache).await {
-            Ok(filter) => Arc::new(filter),
-            Err(e) => {
-                // A model pack without the package: version 2's mapping on
-                // the first model (cached apart; last bits differ).
-                log::warn!(
-                    "AI Denoise: mixed-precision model unavailable ({e}); using the first model"
-                );
-                let first = state.ai_denoiser.lock().unwrap()[0].clone();
-                match first {
-                    Some(first) => first,
-                    None => {
-                        let first: Arc<dyn MosaicDenoiser> =
-                            Arc::new(load(app_handle, &models, cache_dir(app_handle)?).await?);
-                        state.ai_denoiser.lock().unwrap()[0] = Some(first.clone());
-                        first
-                    }
-                }
-            }
-        }
+        Arc::new(load_mixed(app_handle, &models, cache).await?)
     };
+    #[cfg(not(target_os = "macos"))]
+    let denoiser: Arc<dyn MosaicDenoiser> = Arc::new(load(app_handle, &models, cache).await?);
     state.ai_denoiser.lock().unwrap()[slot] = Some(denoiser.clone());
     Ok(denoiser)
 }
@@ -161,16 +158,6 @@ async fn load_mixed(
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-/// ONNX Runtime has one model for both versions.
-#[cfg(not(target_os = "macos"))]
-async fn load_mixed(
-    _app_handle: &tauri::AppHandle,
-    _models: &Path,
-    _cache: PathBuf,
-) -> Result<rawtonic_denoise::MatchFilter, String> {
-    Err("no mixed-precision model on this platform".to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -226,7 +213,18 @@ pub async fn option_for(
         return Ok(None);
     };
     Ok(Some(
-        MosaicDenoise::new(denoiser(app_handle, ai.version).await?, ai.blend)
+        MosaicDenoise::new(denoiser(app_handle, ai.model()).await?, ai.blend)
             .with_noise_scale(ai.noise_scale),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_model_has_a_slot_and_onnx_shares_one() {
+        assert_eq!(super::slot(0), 0);
+        let mixed = super::slot(1);
+        assert_eq!(mixed, if cfg!(target_os = "macos") { 1 } else { 0 });
+        assert!(super::slot(7) < 2);
+    }
 }

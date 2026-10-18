@@ -29,7 +29,7 @@ pub use tiles::{HALO, TILE};
 /// The model package's folder name in the app's model folder.
 pub const CORE_ML_PACKAGE: &str = "nlmf.mlpackage";
 /// The mixed-precision package of the same network with 640 px tiles (AI
-/// Denoise version 2): convolutions in float16, the feature matching in
+/// Denoise version 3): convolutions in float16, the feature matching in
 /// float32; 2.6× faster than `CORE_ML_PACKAGE` per tile and 1.4× fewer
 /// samples through the halo (scripts/models/convert_nlmf_coreml.py).
 pub const CORE_ML_MIXED_PACKAGE: &str = "nlmf_mixed640.mlpackage";
@@ -90,7 +90,7 @@ impl MatchFilter {
     }
 
     /// Core ML with the mixed-precision package at `package` (AI Denoise
-    /// version 2): GPU only, where it is fastest (the Neural Engine runs it
+    /// version 3): GPU only, where it is fastest (the Neural Engine runs it
     /// 4× slower); its results are cached apart from the first package's.
     #[cfg(target_os = "macos")]
     pub fn core_ml_mixed(package: &Path, cache_dir: Option<PathBuf>) -> Result<Self> {

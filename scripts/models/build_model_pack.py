@@ -187,13 +187,13 @@ SUBJECT_COREML_EXPORT = [
     "python", str(Path(__file__).resolve().parent / "convert_birefnet_coreml.py"),
 ]
 
-# AI Denoise version 2 on macOS: the same MatchFilter checkpoint converted by
+# AI Denoise version 3 on macOS: the same MatchFilter checkpoint converted by
 # convert_nlmf_coreml.py from the authors' release (mixed precision, 640 px
 # tiles; reproducible, same SHA-256 in two conversions). Prepared
-# 2026-10-18; not yet uploaded to a pack release (the app falls back to
-# nlmf_coreml_* without it).
+# 2026-10-18; not yet uploaded to a pack release (version 3 needs it; the
+# default stays version 2 on nlmf_coreml_* until it is uploaded).
 MATCHFILTER_MIXED_ENTRY = {
-    "used_by": "AI Denoise version 2 (raw Bayer mosaic, Core ML, macOS)",
+    "used_by": "AI Denoise version 3 (raw Bayer mosaic, Core ML, macOS)",
     "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, release v1.0.0 checkpoint rawnoise_25_15_9nbr), converted by convert_nlmf_coreml.py (Core ML, convolutions fp16, matching fp32, 640 px tiles) with RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW denoise/, commit 2375e17)",
     "license": "MIT",
     "license_files": ["nonlocal-matchfilter-MIT.txt", "nonlocal-matchfilter-NOTICE.txt"],

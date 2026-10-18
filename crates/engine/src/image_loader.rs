@@ -62,15 +62,20 @@ pub fn ai_denoise_amount(adjustments: &Value) -> f32 {
 }
 
 /// The AI Denoise version new edits get (`aiDenoiseVersion`; recipes
-/// without the key are version 1).
+/// without the key are version 1). Version 3 (the mixed-precision model)
+/// becomes the default once the model pack carries its files.
 pub const AI_DENOISE_VERSION: u8 = 2;
+/// The newest AI Denoise version this build renders.
+pub const AI_DENOISE_LATEST: u8 = 3;
 
 /// How a recipe's AI Denoise develops the mosaic.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AiDenoiseSettings {
-    /// `aiDenoiseVersion`: 1 blends the network's result by the slider and
-    /// runs the full-precision model; 2 maps the slider to the noise the
-    /// network is told about and runs the faster mixed-precision model.
+    /// `aiDenoiseVersion`: 1 blends the network's result by the slider; 2
+    /// maps the slider to the noise the network is told about; both run the
+    /// first (full-precision) model. 3 is 2's mapping on the faster
+    /// mixed-precision model. Each version has one model, so a saved recipe
+    /// renders the same whatever models are installed.
     pub version: u8,
     /// Share of the network's result kept (`MosaicDenoise::amount`).
     pub blend: f32,
@@ -78,9 +83,11 @@ pub struct AiDenoiseSettings {
     pub noise_scale: f32,
 }
 
-/// Noise scale of version 2 at slider 50: the network's effect there is
-/// Camera Raw Denoise's at its default 50 (flat-area noise 1.065 vs 1.06,
-/// finest detail kept 0.894 vs 0.901 on six RawNIND scenes; notes:
+/// Noise scale of version 2 at slider 50, chosen so the effect there is
+/// Camera Raw Denoise's at its default 50: on the six RawNIND scenes it was
+/// fitted on flat-area noise 1.065 vs 1.06 and finest detail kept 0.894 vs
+/// 0.901; on seven held-out scenes (ISO 6400–25600) a little stronger,
+/// 1.16 vs 1.30 and 0.748 vs 0.778 (notes:
 /// benchmark-results/ai-denoise-mac-2026-10-18).
 const V2_SCALE_AT_50: f32 = 0.8;
 /// Noise scale of version 2 at slider 100 (×1.25 the photo's: smoother,
@@ -99,7 +106,7 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
     }
     let version = adjustments["aiDenoiseVersion"]
         .as_u64()
-        .map_or(1, |v| v.clamp(1, AI_DENOISE_VERSION as u64) as u8);
+        .map_or(1, |v| v.clamp(1, AI_DENOISE_LATEST as u64) as u8);
     Some(if version == 1 {
         AiDenoiseSettings {
             version,
@@ -120,6 +127,18 @@ pub fn ai_denoise_settings(adjustments: &Value) -> Option<AiDenoiseSettings> {
             noise_scale: V2_SCALE_AT_50 * (V2_SCALE_AT_100 / V2_SCALE_AT_50).powf(t),
         }
     })
+}
+
+impl AiDenoiseSettings {
+    /// The model this version runs: 0 the first package (`nlmf_coreml_*`,
+    /// the ONNX model elsewhere), 1 the mixed-precision package (version 3).
+    /// Version 2 stays on the first package: between its introduction and
+    /// this split the model pack never carried the mixed package, so the
+    /// app rendered every version 2 edit with the first one (the macOS CLI
+    /// refused such recipes instead).
+    pub fn model(&self) -> usize {
+        usize::from(self.version >= 3)
+    }
 }
 
 /// How a source is developed into the base image: the RAW develop and
@@ -1832,8 +1851,12 @@ mod ai_denoise_tests {
             ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 9 }))
                 .unwrap()
                 .version,
-            2
+            3
         );
+        // Version 3: the same mapping on the mixed-precision model.
+        let v3 = ai_denoise_settings(&json!({ "aiDenoise": 50, "aiDenoiseVersion": 3 })).unwrap();
+        assert_eq!((v3.blend, v3.noise_scale, v3.model()), (1.0, 0.8, 1));
+        assert_eq!((at(50.0).model(), v1.model()), (0, 0));
     }
 }
 

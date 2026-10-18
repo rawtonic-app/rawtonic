@@ -43,7 +43,7 @@ weights tensor by tensor.
 | CUDA plugin execution provider 0.2.0, CUDA 13 (`…providers_cuda-0.2.0-cuda13-{linux,windows}-x86_64`) | NVIDIA GPUs, optional (`install_models.sh --cuda`), with the user's own CUDA 13 and cuDNN 9 | Microsoft's GitHub release `plugin-ep-cuda/v0.2.0`, unchanged. | MIT (no NVIDIA library included) | Built 2026-10-10, in the pack |
 | `siglip2_vision.onnx`, `siglip2_tags.bin` (+ `siglip2_text.onnx`, `siglip2_tokenizer.json` for own tags) | Auto tags | Rawtonic's export of Google's SigLIP 2 B/16 (`google/siglip2-base-patch16-224`, revision 75de2d5) by `scripts/models/export_siglip2.py`; reproducible (same SHA-256 in two exports). Replaced the inherited CLIP (OpenAI ViT-B/32, model card: deployed use "out of scope") on 2026-10-08. | Apache-2.0 | In the pack |
 | `nlmf_coreml_*` (Core ML package), `nlmf.onnx` | AI Denoise (Detail → Noise reduction) | Nonlocal MatchFilter (Sánchez-Beeckman and Buades, MIT), Core ML and ONNX conversions by sheldonxxxx/RapidRAW-Nonlocal-Denoise at revision af6bf36, unchanged (hashes from its `distribution.json`) | MIT | In the pack |
-| `nlmf_mixed640_coreml_*` (Core ML package) | AI Denoise version 2 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible (same SHA-256 in two conversions). Without it version 2 runs on `nlmf_coreml_*`. | MIT | Prepared 2026-10-18, not yet in the pack (uploading it is the user's decision) |
+| `nlmf_mixed640_coreml_*` (Core ML package) | AI Denoise version 3 on macOS | The same MatchFilter checkpoint (authors' release v1.0.0, SHA-256 pinned) converted by `scripts/models/convert_nlmf_coreml.py`: mixed precision (convolutions fp16, matching fp32), 640 px tiles, through RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW `denoise/`, commit 2375e17); reproducible (same SHA-256 in two conversions). Version 3 needs it; new edits stay on version 2 (`nlmf_coreml_*`) until it is in the pack. | MIT | Prepared 2026-10-18, not yet in the pack (uploading it is the user's decision) |
 | `skyseg_upernet_convnext_t.onnx` | Sky mask | Rawtonic's export of UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint from facebookresearch/ConvNeXt, MIT; transformers conversion `openmmlab/upernet-convnext-tiny`, revision 876ffc5) by `scripts/models/export_sky.py`; sky probability of ADE20K class 2, fp16 storage, reproducible (same SHA-256 in two exports). | MIT (Meta) | In the pack since 2026-10-09 |
 | `skyseg_coreml_*` (Core ML package: `Manifest.json`, `model.mlmodel`, `weight.bin`) | Sky mask on macOS (fast path) | The same UperNet + ConvNeXt-T checkpoint and revision converted from PyTorch with coremltools 9.0 by `scripts/models/convert_sky_coreml.py` (the export's graph; ML program, fp32, 237 MB; reproducible with `PYTHONHASHSEED=0`: same SHA-256 in three conversions). Probabilities equal to PyTorch's (largest difference < 1e-4, mask IoU 1.0 on 13 photos), 0.06 s on the GPU of an M5 Pro against 0.35-0.8 s on the CPU. Used when installed; without these files, or if Core ML fails, the app uses the ONNX model. | MIT | Built 2026-10-10, in the pack |
 | `skyseg-u2net.onnx` | Sky mask (inherited) | Byte-identical to `JianyuanWang/skyseg` (a re-upload tagged MIT); originally from xiongzhu666's Sky-Segmentation repo (MIT code). The author states the model was trained on ADE20K plus private company data; the README does not license the ONNX file. | Unclear | Replaced 2026-10-09 |
@@ -859,10 +859,12 @@ which keeps older builds working. Check SAM with the ignored tests
   memory). The CUDA plugin was not measured: it needs CUDA 13 and cuDNN 9,
   which the machine does not have
   (notes: benchmark-results/ai-denoise-linux-2026-10-18.json).
-- **AI Denoise version 2 (2026-10-18, macOS, M5 Pro; notes:
-  benchmark-results/ai-denoise-mac-2026-10-18.json, task DN).** Three
-  changes behind `aiDenoiseVersion` 2 (version 1 recipes render as before;
-  a fresh version 1 result is byte-identical to main's):
+- **AI Denoise versions 2 and 3 (2026-10-18, macOS, M5 Pro; notes:
+  benchmark-results/ai-denoise-mac-2026-10-18.json, task DN).** `aiDenoiseVersion`
+  2 is the new slider on the first package, 3 the same slider on the
+  mixed-precision 640 px package (the default once the pack carries it; no
+  version falls back to another model). Version 1 recipes render as before
+  (a fresh version 1 result is byte-identical to main's):
   - *Slider.* The slider now sets the noise the network is told about
     instead of only blending its result: at 50 the full result at 0.8 × the
     measured noise, above 50 up to 1.25 × (75 = version 1's 100), below 50
@@ -870,7 +872,12 @@ which keeps older builds working. Check SAM with the ignored tests
     render of the clean frame, Oklab ×100, geometric means) version 2 at 50
     leaves flat-area noise 1.065 and keeps 0.894 of the finest detail
     (0.7–2 px), Camera Raw Denoise at its default 50 1.06 and 0.901 — the
-    same effect; version 1 at 50 left 0.995 and kept 0.825. At equal
+    same effect on the scenes the 0.8 was chosen on; on seven held-out
+    RawNIND scenes (Bark, Kortlek, sewingmachine, LucieB tapestry, A7C goat,
+    TitusToys, 7D-4; ISO 6400–25600; Camera Raw re-run) version 2 at 50 is a
+    little stronger: flat noise 1.16 vs 1.30, detail 0.748 vs 0.778, error
+    2.48 vs 2.05 (version 1 at 50: 1.05 / 0.623 / 2.50). Version 1 at 50
+    left 0.995 and kept 0.825 on the first six. At equal
     flat-area noise a noise scale keeps more detail than blending (e.g.
     flat noise 0.81: detail 0.871 against 0.862, error 2.0 against 2.11).
     The remaining gap is the network's: Camera Raw's lightness error at 50
@@ -888,14 +895,14 @@ which keeps older builds working. Check SAM with the ignored tests
     samples through the network per photo. Two tiles at once on the GPU
     gave nothing (2.93 tiles/s either way); the Neural Engine runs the
     mixed program 4× slower than the GPU.
-  Speed (export of the four G18 files, new process, empty cache; three
+  Speed of version 3 (export of the four G18 files, new process, empty cache; three
   repeats, machine shared): 24 MP 9.7–10.9 s instead of 26.8–30.6 s
   (MatchFilter 8.5–9.5 s instead of 25.5–29.1 s), 44 MP 16.9–18.8 s
   instead of 48–53 s, the four in one process 50.5–51.7 s instead of
   143–145 s; peak memory about 0.1 GB higher (1.4–2.5 GB). The first load
   compiles the package (D7200: 9.9 s in all). Camera Raw Denoise takes
-  6.3–6.9 s per 24 MP (command to result), so version 2 is still about
-  1.5× slower.
+  6.3–6.9 s per 24 MP (command to result), so version 3 is still about
+  1.5× slower; version 2 runs at version 1's speed.
   Candidates measured for better fine texture, all with weights under MIT
   from their authors, on the same six scenes through Rawtonic's pipeline:
   DRUNet (KAIR, MIT) on the packed mosaic after a variance-stabilising
