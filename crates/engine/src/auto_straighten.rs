@@ -836,6 +836,29 @@ mod tests {
         }
     }
 
+    /// Times `straighten_recipe` on the images in `$STRAIGHTEN_FILES`,
+    /// converted to float RGB like the app's decode (`--release`).
+    #[test]
+    #[ignore = "tool: needs STRAIGHTEN_FILES"]
+    fn time_straighten_recipe() {
+        let list = std::fs::read_to_string(std::env::var("STRAIGHTEN_FILES").unwrap()).unwrap();
+        for path in list.lines().filter(|l| !l.trim().is_empty()) {
+            let image = image::DynamicImage::ImageRgb32F(image::open(path).unwrap().to_rgb32f());
+            let (w, h) = (image.width(), image.height());
+            let mut times = Vec::new();
+            for _ in 0..3 {
+                let started = std::time::Instant::now();
+                let result = straighten_recipe(&image, w, h, &serde_json::json!({}));
+                times.push(started.elapsed().as_secs_f64() * 1000.0);
+                std::hint::black_box(result);
+            }
+            println!(
+                "TIME\t{path}\t{w}x{h}\t{:.0}\t{:.0}\t{:.0}",
+                times[0], times[1], times[2]
+            );
+        }
+    }
+
     /// Prints each candidate's levelling rotation (degrees, the recipe's
     /// `rotation`) for the images listed in `$STRAIGHTEN_FILES` (one path per
     /// line), analysed at 1400 px like Upright.
