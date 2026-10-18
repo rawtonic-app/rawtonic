@@ -3013,12 +3013,16 @@ fn apply_sharpen_v2(
     let sigma = max(SHARPEN_RADIUS * detail_scale * radius_shape, 0.25);
     let r = amount / 0.8;
     let detail_up = clamp(detail / 3.0, 0.0, 1.0);
+    // Below Radius 1 the σ blur is nearly the pixel itself and the band
+    // outweighs the signal: the tilts towards the fine band fall to half by
+    // Radius 0.5.
+    let tilt_radius = 0.5 + 0.5 * clamp(2.0 * radius - 1.0, 0.0, 1.0);
     let tilt = select(
         SHARPEN_DETAIL_TILT_LOW * detail,
         SHARPEN_DETAIL_TILT * pow(max(detail, 1e-6), SHARPEN_DETAIL_TILT_EXPONENT)
-            * pow(min(r, SHARPEN_V2_TILT_AMOUNT_CAP), SHARPEN_DETAIL_TILT_AMOUNT),
+            * pow(min(r, SHARPEN_V2_TILT_AMOUNT_CAP), SHARPEN_DETAIL_TILT_AMOUNT) * tilt_radius,
         detail > 0.0,
-    ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up), detail >= 0.0);
+    ) + select(0.0, SHARPEN_V2_TILT_FROM_AMOUNT * max(r - 1.0, 0.0) * (1.0 - detail_up) * tilt_radius, detail >= 0.0);
     let reach = select(
         select(2, 3, tilt != 0.0),
         min(i32(ceil(select(2.5, 5.0, tilt != 0.0) * sigma)), 6),
@@ -3075,7 +3079,9 @@ fn apply_sharpen_v2(
     );
     let scale = detail_gain * radius_gain * pow(1.0 + max(detail, 0.0), SHARPEN_DETAIL_FINE);
     let gain = SHARPEN_V2_GAIN_40 * pow(r, progression) * scale;
-    let ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale
+    // Below Radius 1 the gain rises to keep the fine band; the halo
+    // ceiling does not.
+    let ceiling = SHARPEN_V2_HALO_40 * pow(r, SHARPEN_V2_HALO_AMOUNT) * scale / max(radius_gain, 1.0)
         * exp2(select(0.0, SHARPEN_DETAIL_HALO_HIGH, detail > 0.0) * detail);
     let knee = 1.0 + (SHARPEN_DETAIL_KNEE - 1.0) * detail_up;
     let x = gain * d;
