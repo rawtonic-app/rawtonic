@@ -19,8 +19,10 @@ import {
   PasteMode,
   LensAdjustment,
   normalizeLoadedAdjustments,
+  pastedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withSharpenVersion,
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
@@ -524,7 +526,7 @@ export function useEditorActions() {
     (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
-      const adjustmentsToApply = withAiDenoiseVersion(withGrainStructure(partial));
+      const adjustmentsToApply = withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial)));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
@@ -585,20 +587,7 @@ export function useEditorActions() {
       if (!copiedAdjustments || !appSettings?.copyPasteSettings) return;
 
       const { mode, includedAdjustments } = appSettings.copyPasteSettings;
-      const adjustmentsToApply: Partial<Adjustments> = {};
-
-      for (const key of includedAdjustments) {
-        if (Object.prototype.hasOwnProperty.call(copiedAdjustments, key)) {
-          const value = copiedAdjustments[key as keyof Adjustments];
-          if (mode === PasteMode.Merge) {
-            const defaultValue = INITIAL_ADJUSTMENTS[key as keyof Adjustments];
-            if (!sameAdjustmentValue(value, defaultValue))
-              adjustmentsToApply[key as keyof Adjustments] = value;
-          } else {
-            adjustmentsToApply[key as keyof Adjustments] = value;
-          }
-        }
-      }
+      const adjustmentsToApply = pastedAdjustments(copiedAdjustments, includedAdjustments, mode as PasteMode);
 
       if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
         if (!adjustmentsToApply.lensMaker) {

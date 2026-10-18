@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { blendPreset } from './presetAmount';
 import {
   ADJUSTMENT_GROUPS,
   COLOR_NOISE_VERSION,
@@ -9,8 +10,12 @@ import {
   TONE_VERSION,
   FRINGE_VERSION,
   DEFRINGE_VERSION,
+  SHARPEN_VERSION,
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
+  withSharpenVersion,
+  pastedAdjustments,
+  PasteMode,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -174,6 +179,71 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(versioned, true).toneVersion).toBe(2);
     const old = { shadows: 80, toneVersion: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(old, true).toneVersion).toBe(1);
+  });
+
+  it('keep the sharpening response a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).sharpenVersion).toBe(SHARPEN_VERSION);
+    expect(initialAdjustmentsFor(false).sharpenVersion).toBe(SHARPEN_VERSION);
+    const load = (recipe: object, isRaw = true) =>
+      normalizeLoadedAdjustments(recipe as unknown as Adjustments, isRaw).sharpenVersion;
+    // Renders differently with response 2: the earlier response, key absent.
+    expect(load({ sharpness: 80 })).toBeUndefined();
+    expect('sharpenVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ sharpness: 80 } as unknown as Adjustments, true)))).toBe(false);
+    expect(load({ sharpness: 40, sharpenDetail: 100 })).toBeUndefined();
+    expect(load({ sharpenRadius: 2 })).toBeUndefined();
+    expect(load({ sharpenMasking: 30 })).toBeUndefined();
+    expect(load({ sharpnessFalloff: 50 })).toBeUndefined();
+    expect(load({ sharpness: 0, masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] })).toBeUndefined();
+    // The same with either response: the current one.
+    expect(load({})).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: 40 })).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: 0, sharpenDetail: 100 })).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: -20 })).toBe(SHARPEN_VERSION);
+    expect(load({}, false)).toBe(SHARPEN_VERSION);
+    expect(load({ sharpness: 80, sharpenVersion: 1 })).toBe(1);
+    expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
+  });
+
+  it('paste the sharpening response only with sharpening values', () => {
+    const all = COPYABLE_ADJUSTMENT_KEYS;
+    // Neutral sharpening, response 2, changed exposure: Merge keeps exposure
+    // only, so a response-1 photo at Amount 80 keeps its sharpening.
+    const neutral = { ...INITIAL_ADJUSTMENTS, exposure: 0.5, sharpenVersion: 2 } as Adjustments;
+    expect(pastedAdjustments(neutral, all, PasteMode.Merge)).toEqual({ exposure: 0.5 });
+    // Sharpening that survives carries the source's response.
+    const sharp = { ...INITIAL_ADJUSTMENTS, sharpness: 80, sharpenVersion: 2 } as Adjustments;
+    expect(pastedAdjustments(sharp, all, PasteMode.Merge)).toEqual({ sharpness: 80, sharpenVersion: 2 });
+    const old = { ...INITIAL_ADJUSTMENTS, sharpness: 80 } as Adjustments;
+    expect(pastedAdjustments(old, all, PasteMode.Merge).sharpenVersion).toBe(1);
+    // Replace mode copies every included key, sharpening included, so the response goes along.
+    expect(pastedAdjustments(neutral, all, PasteMode.Replace).sharpenVersion).toBe(2);
+  });
+
+  it('copy the sharpening response explicitly with sharpening values', () => {
+    // From a photo with response 1 (no key): 1, so a version-2 target renders as the source did.
+    expect(withSharpenVersion({ sharpness: 80 }, { sharpness: 80 } as Adjustments).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpnessThreshold: 30 }, {} as Adjustments).sharpenVersion).toBe(1);
+    expect(JSON.parse(JSON.stringify(withSharpenVersion({ sharpenDetail: 100 }, {} as Adjustments))).sharpenVersion).toBe(1);
+    // From a photo with response 2: 2.
+    expect(withSharpenVersion({ sharpness: 80 }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(2);
+    // Values that carry their own key keep it.
+    expect(withSharpenVersion({ sharpness: 80, sharpenVersion: 2 }, {} as Adjustments).sharpenVersion).toBe(2);
+    // Presets from before the key (apply, preview, preset Amount: no source): 1,
+    // whatever the values — a Radius-only preset must not move a version-1
+    // photo at Amount 80 to response 2.
+    expect(withSharpenVersion({ sharpness: 80 }).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpness: 40 }).sharpenVersion).toBe(1);
+    expect(withSharpenVersion({ sharpenRadius: 1 }).sharpenVersion).toBe(1);
+    const target = { sharpness: 80, sharpenRadius: 1 } as Partial<Adjustments>;
+    expect({ ...target, ...withSharpenVersion({ sharpenRadius: 1 }) }.sharpenVersion).toBe(1);
+    // A preset at full Amount takes its version; blending keeps version keys whole.
+    expect(blendPreset({ sharpness: 80 }, withSharpenVersion({ sharpenRadius: 2 }), 1).sharpenVersion).toBe(1);
+    // Layers that sharpen count; nothing sharpening, no key.
+    const layered = { masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] } as unknown as Partial<Adjustments>;
+    expect(withSharpenVersion(layered, {} as Adjustments).sharpenVersion).toBe(1);
+    expect('sharpenVersion' in withSharpenVersion({ exposure: 1 }, {} as Adjustments)).toBe(false);
+    // A change back to no key (undo) is response 1, explicitly.
+    expect(withSharpenVersion({ sharpenVersion: undefined }, { sharpenVersion: 2 } as Adjustments).sharpenVersion).toBe(1);
   });
 });
 

@@ -1350,6 +1350,8 @@ export default function StudioDevelop() {
                         "sharpenMasking",
                         "sharpnessThreshold",
                         "sharpnessFalloff",
+                        // The photo's sharpening response goes back to a new edit's.
+                        "sharpenVersion",
                       ],
                 )
               }
