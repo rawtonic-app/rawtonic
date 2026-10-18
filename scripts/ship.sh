@@ -1,23 +1,28 @@
 #!/bin/sh
-# Ship the current branch: full check → push → pull request → merge into main
-# → delete the branch (remote and local) and its worktree. One command instead
-# of a dozen agent steps.
+# Ship the current branch: full check → second-model review → push → pull
+# request → merge into main → delete the branch (remote and local) and its
+# worktree. One command instead of a dozen agent steps.
 # Usage (from the branch's worktree, clean tree):
 #   scripts/ship.sh [--title "type(scope): summary"] [--body-file FILE]
 #                   [--no-merge] [--keep-worktree] [--dry-run]
+#                   [--no-review REASON]
 #   --title          PR title (default: the branch's first commit subject)
 #   --body-file      PR description (default: the branch's commit subjects)
 #   --no-merge       stop after opening the PR (review first)
 #   --keep-worktree  keep the worktree and the local branch after the merge
 #   --dry-run        check the preconditions and print the plan; pushes,
 #                    opens, merges and deletes nothing
+#   --no-review      merge without the second-model review; REASON goes into
+#                    the pull request (e.g. reviewer unavailable, docs only)
 # The worktree is never removed while the caller's working directory is inside
 # it or the caller runs in an Orca worktree (ORCA_WORKTREE_ID): an agent would
 # lose its working directory and could not send its final report. It is then
 # kept together with its local branch (checked out there), and the last line
 # names the command that removes both later.
 # The full `scripts/check.sh --brief` runs unless it already passed on this
-# exact HEAD with a clean tree (stamp written by check.sh). Stops at the first
+# exact HEAD with a clean tree (stamp written by check.sh). Then
+# scripts/review.sh must approve this exact HEAD (its stored verdict is reused);
+# its summary and findings go into the pull request. Stops at the first
 # problem; nothing is merged unless every step before it succeeded.
 # The last line of output always says the outcome: `ship: merged PR #N as
 # <sha>; …`, `ship: opened PR #N …`, `ship: dry run …` (exit 0) or
@@ -44,7 +49,7 @@ finish() {
 trap finish EXIT
 cd "$RAWTONIC_SHIP_REPO"
 
-TITLE=''; BODY_FILE=''; MERGE=1; KEEP=0; DRY=0
+TITLE=''; BODY_FILE=''; MERGE=1; KEEP=0; DRY=0; NO_REVIEW=''
 while [ $# -gt 0 ]; do
   case "$1" in
     --title) TITLE=$2; shift 2 ;;
@@ -52,6 +57,7 @@ while [ $# -gt 0 ]; do
     --no-merge) MERGE=0; shift ;;
     --keep-worktree) KEEP=1; shift ;;
     --dry-run) DRY=1; shift ;;
+    --no-review) NO_REVIEW=$2; shift 2 ;;
     *) echo "ship: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -93,6 +99,20 @@ else
   scripts/check.sh --brief
 fi
 
+STEP=review
+VERDICT_FILE="$(git rev-parse --git-dir)/rawtonic-review/$HEAD_SHA.json"
+approved() { [ -f "$VERDICT_FILE" ] && grep -q '"verdict": *"approve"' "$VERDICT_FILE"; }
+if [ -n "$NO_REVIEW" ]; then
+  warn "no second-model review: $NO_REVIEW"
+elif approved; then
+  say "review: already approved on $HEAD_SHA"
+elif [ "$DRY" = 1 ]; then
+  say "review: would run scripts/review.sh (no approval recorded for $HEAD_SHA)"
+else
+  say "review"
+  scripts/review.sh || die "review did not approve $HEAD_SHA; fix the findings, commit and ship again (verdict: $VERDICT_FILE)"
+fi
+
 [ -n "$TITLE" ] || TITLE=$(git log --reverse --format=%s origin/main..HEAD | head -n 1)
 if [ "$DRY" = 1 ]; then
   say "would push $BRANCH and open or reuse a pull request: $TITLE"
@@ -114,11 +134,21 @@ STEP="pull request"
 if PR_URL=$(gh pr view "$BRANCH" --repo rawtonic-app/rawtonic --json url --jq .url 2>/dev/null); then
   say "pull request exists: $PR_URL"
 else
-  if [ -z "$BODY_FILE" ]; then
-    BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/rawtonic-pr.XXXXXX")
-    git log --reverse --format='- %s' origin/main..HEAD >"$BODY_FILE"
+  BODY=$(mktemp "${TMPDIR:-/tmp}/rawtonic-pr.XXXXXX")
+  if [ -n "$BODY_FILE" ]; then cat "$BODY_FILE" >"$BODY"; else git log --reverse --format='- %s' origin/main..HEAD >"$BODY"; fi
+  if [ -n "$NO_REVIEW" ]; then
+    printf '\n## Second-model review\n\nSkipped: %s\n' "$NO_REVIEW" >>"$BODY"
+  else
+    python3 -c '
+import json, sys
+v = json.load(open(sys.argv[1]))
+print("\n## Second-model review\n\nVerdict: **%s**. %s" % (v["verdict"], v["summary"]))
+for f in v["findings"]:
+    print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
+' "$VERDICT_FILE" >>"$BODY"
   fi
-  PR_URL=$(gh pr create --repo rawtonic-app/rawtonic --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY_FILE")
+  PR_URL=$(gh pr create --repo rawtonic-app/rawtonic --base main --head "$BRANCH" --title "$TITLE" --body-file "$BODY")
+  rm -f "$BODY"
   say "pull request: $PR_URL"
 fi
 PR_NUM=${PR_URL##*/}

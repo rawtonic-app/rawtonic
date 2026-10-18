@@ -23,7 +23,9 @@ cat >"$T/bin/gh" <<'EOF'
 # gh stub: no pull request exists until `gh pr create`.
 case "$1 $2" in
   "pr view") [ -f "$GH_STATE" ] && cat "$GH_STATE" || exit 1 ;;
-  "pr create") echo https://github.com/rawtonic-app/rawtonic/pull/7 | tee "$GH_STATE" ;;
+  "pr create")
+    while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$GH_STATE.body"; shift; done
+    echo https://github.com/rawtonic-app/rawtonic/pull/7 | tee "$GH_STATE" ;;
   *) echo "gh stub: unexpected: $*" >&2; exit 1 ;;
 esac
 EOF
@@ -45,18 +47,34 @@ git init -q --bare "$T/origin.git"
 git clone -q "$T/origin.git" "$T/main" 2>/dev/null
 mkdir "$T/main/scripts"
 cp "$SHIP" "$T/main/scripts/ship.sh"
+cp "$(dirname "$SHIP")/review.sh" "$T/main/scripts/review.sh"
+cp -R "$(dirname "$SHIP")/review" "$T/main/scripts/review"
 git -C "$T/main" add scripts
 git -C "$T/main" commit -q -m "chore: start"
 git -C "$T/main" push -q origin main
 
-# new_branch NAME: a worktree with one commit and a recorded check pass.
+# Reviewer stubs for scripts/review.sh (RAWTONIC_REVIEWER).
+for v in approve changes_requested; do
+  printf '#!/bin/sh\ncat >/dev/null\nprintf %s >"$1"\n' \
+    "'{\"verdict\": \"$v\", \"summary\": \"stub $v\", \"findings\": []}'" >"$T/bin/review-$v"
+  chmod +x "$T/bin/review-$v"
+done
+
+# new_branch NAME: a worktree with one commit and a recorded check pass and,
+# unless NAME starts with "unreviewed", an approving review.
 new_branch() {
   git -C "$T/main" worktree add -q -b "$1" "$T/wt-$1" main
   echo "$1" >"$T/wt-$1/$1.txt"
   git -C "$T/wt-$1" add "$1.txt"
   git -C "$T/wt-$1" commit -q -m "feat: $1"
-  git -C "$T/wt-$1" rev-parse HEAD >"$(git -C "$T/wt-$1" rev-parse --git-dir)/rawtonic-check-passed"
-  rm -f "$T/gh-$1"
+  gd=$(git -C "$T/wt-$1" rev-parse --git-dir); head=$(git -C "$T/wt-$1" rev-parse HEAD)
+  echo "$head" >"$gd/rawtonic-check-passed"
+  case "$1" in
+    unreviewed*) ;;
+    *) mkdir -p "$gd/rawtonic-review"
+       echo '{"verdict": "approve", "summary": "ok", "findings": []}' >"$gd/rawtonic-review/$head.json" ;;
+  esac
+  rm -f "$T/gh-$1" "$T/gh-$1.body"
 }
 ship() { # name dir args... (runs ship.sh of worktree NAME from DIR)
   name=$1 dir=$2; shift 2
@@ -114,6 +132,23 @@ new_branch keep
 ship keep "$T/main" --keep-worktree || fail "--keep-worktree exited $?"
 expect_last "$T/out" "ship: merged PR #7 as *worktree kept at $T/wt-keep (--keep-worktree)*"
 [ -d "$T/wt-keep" ] || fail "--keep-worktree removed the worktree"
+
+# 8. No recorded review: the reviewer runs; a request for changes stops the merge.
+new_branch unreviewed1
+RAWTONIC_REVIEWER=review-changes_requested ship unreviewed1 "$T/main" && fail "shipped without approval"
+expect_last "$T/out" "ship: FAILED during review (exit 1)*"
+git -C "$T/origin.git" rev-parse -q --verify refs/heads/unreviewed1 >/dev/null && fail "unapproved branch was pushed"
+
+# 9. An approving reviewer: merged, and the verdict is in the pull request.
+RAWTONIC_REVIEWER=review-approve ship unreviewed1 "$T/main" || fail "approved ship exited $?"
+expect_last "$T/out" "ship: merged PR #7 as *"
+grep -q "stub approve" "$T/gh-unreviewed1.body" || fail "review summary missing from the pull request"
+
+# 10. --no-review merges without a reviewer and says why in the pull request.
+new_branch unreviewed2
+RAWTONIC_REVIEWER=false ship unreviewed2 "$T/main" --no-review "docs only" || fail "--no-review exited $?"
+expect_last "$T/out" "ship: merged PR #7 as *"
+grep -q "Skipped: docs only" "$T/gh-unreviewed2.body" || fail "--no-review reason missing from the pull request"
 
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
