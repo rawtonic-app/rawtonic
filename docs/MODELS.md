@@ -920,11 +920,29 @@ updated `models.json` (BiRefNet, sky, SAM 2.1). Check SAM with the ignored tests
   SwinIR (synthetic Gaussian/blind sRGB), PMRID (raw, Apache-2.0, small and
   older), ELD/PMN/SID (one camera, extreme low light); excluded by license:
   LED, DualDn (CC BY-NC), MIRNet-v2/CycleISP (academic), vkdt's jddcnn
-  (weights without a license). RawNIND's joint denoise-demosaic network
-  (trougnouf/rawnind_jddc: GPL-3.0 code, weights "GPL3 + CC-BY-4.0") fits
-  the domain best but needs a license decision and other test data (it was
-  trained on RawNIND). The blind noise estimate is within 5–10 % of the true
+  (weights without a license). The blind noise estimate is within 5–10 % of the true
   noise (RawNIND pairs, slightly low), so it does not explain the gap.
+- **RawNIND joint denoise-demosaic network (2026-10-18, macOS, M5 Pro;
+  notes: benchmark-results/ai-denoise-mac-2026-10-18.json, task DN2).**
+  trougnouf/rawnind_jddc (GPL-3.0 code, weights "GPL3 + CC-BY-4.0"), the
+  Bayer-to-camera-RGB denoisers `2024-02-21-bayer` (32 channels) and
+  `2024-08-14-f48` (48), measured only, not in the app. Its camera-RGB
+  result was sampled back onto the mosaic and rendered by Rawtonic's
+  pipeline in place of MatchFilter's (same metric and scenes as above;
+  version 2/3 at 50 reproduced the earlier numbers exactly). At full
+  strength it is much smoother than Camera Raw 50 and loses fine detail:
+  fitted six scenes error 1.97 / finest detail kept 0.72 / flat-area noise
+  0.46 (Camera Raw 50: 1.69 / 0.90 / 1.06; MatchFilter v3 50: 2.21 / 0.89 /
+  1.07); seven held-out scenes 2.05 / 0.59 / 0.48 (Camera Raw 2.05 / 0.78 /
+  1.30; v3 2.48 / 0.75 / 1.16). Blended to Camera Raw's flat-area noise
+  (half strength) it is worse than MatchFilter on every count (fitted
+  2.32 / 0.78 / 0.98, held-out 2.49 / 0.58 / 1.01); the 48-channel model is
+  no better. That although 12 of the 13 scenes are in its training data
+  (only TitusToys is in its test reserve), which favours it. It is fast:
+  0.9 s per 24 MP and 1.4 s per 44 MP (PyTorch on the GPU, network only;
+  MatchFilter v3 about 9 s). Below the bar on fine detail, so not adopted;
+  the weight policy stays as it is. Not covered: its own demosaic (the
+  result went through Rawtonic's), colour noise beyond err_ab.
 - **Auto tags.** On 14 photos SigLIP 2 B/16 ranked people and scenes better
   than CLIP (a grandfather and child at a table: "people, patio, child,
   balcony, senior, family, table" vs CLIP's "table, hygge, camera, remote"; a
