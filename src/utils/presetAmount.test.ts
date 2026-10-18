@@ -16,3 +16,12 @@ it('moves numbers part of the way and blends nested settings per value', () => {
   // Settings the photo lacks take the preset's (from half strength).
   expect(blendPreset({}, { exposure: 1 }, 0.5)).toEqual({ exposure: 1 });
 });
+
+it('keeps version keys whole', () => {
+  // A legacy preset's AI Denoise (version 1) on a version 2 photo.
+  const base = { aiDenoise: 0, aiDenoiseVersion: 2 };
+  const preset = { aiDenoise: 60, aiDenoiseVersion: 1 };
+  expect(blendPreset(base, preset, 0.5)).toEqual({ aiDenoise: 30, aiDenoiseVersion: 1 });
+  expect(blendPreset(base, preset, 0.25)).toEqual({ aiDenoise: 15, aiDenoiseVersion: 2 });
+  expect(blendPreset({ toneVersion: 1 }, { toneVersion: 2 }, 0.75)).toEqual({ toneVersion: 2 });
+});
