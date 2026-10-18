@@ -112,6 +112,7 @@ export enum Invokes {
   LoadImageProxy = 'load_image_proxy',
   ActivatePhoto = 'activate_photo',
   PreparePreviewProxies = 'prepare_preview_proxies',
+  PrewarmMaskSource = 'prewarm_mask_source',
   SetMultiView = 'set_multi_view',
   RenderBrowserView = 'render_browser_view',
   SetMultiViewZoom = 'set_multi_view_zoom',

@@ -1581,6 +1581,19 @@ const ImageCanvas = memo(
     const strokeAutoMask = !isFlowMask && brushSettings?.autoMask ? true : undefined;
     const strokeAutoMaskVersion = strokeAutoMask ? AUTO_MASK_VERSION : undefined;
 
+    // An Auto Mask stroke reads the full-resolution photo as it looks before
+    // develop. Building it (~0.3 s for 40 MP) delayed the first stroke's first
+    // dab; while the layers panel is open with Auto Mask on, the backend builds
+    // it in the background (same pixels, only earlier).
+    const warmAutoMaskSource = Boolean(isMasking && brushSettings?.autoMask && selectedImage?.isReady);
+    const warmPath = selectedImage?.path;
+    useEffect(() => {
+      if (!warmAutoMaskSource || !warmPath) return;
+      // The layers do not change the source; the rest of the recipe keys it.
+      const jsAdjustments = { ...useEditorStore.getState().adjustments, masks: [] };
+      invoke(Invokes.PrewarmMaskSource, { path: warmPath, jsAdjustments }).catch(() => {});
+    }, [warmAutoMaskSource, warmPath]);
+
     // Capture One's brush cursor: the inner ring is the brush size (50%
     // coverage), the outer one where the soft edge ends, r(1 + s) for softness
     // s. Outlines stay visible at any brush opacity; opacity and flow show in

@@ -305,6 +305,9 @@ pub struct AppState {
     pub load_image_generation: Arc<AtomicUsize>,
     pub preview_generation: AtomicUsize,
     pub full_warped_cache: Mutex<Option<FullWarpedMaskCache>>,
+    /// Held while the editor photo's `full_warped_cache` entry is built, so a
+    /// stroke arriving during a prewarm waits for it instead of building twice.
+    pub full_warped_build: Mutex<()>,
     pub patched_warped_cache: Mutex<Option<(u64, Arc<DynamicImage>)>>,
     pub full_transformed_cache: Mutex<Option<TransformedImageCache>>,
     pub decoded_image_cache: Mutex<DecodedImageCache>,

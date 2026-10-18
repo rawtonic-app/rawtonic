@@ -516,7 +516,8 @@ pub fn get_cached_full_warped_image(
     js_adjustments: &serde_json::Value,
 ) -> Arc<DynamicImage> {
     let geo_hash = calculate_geometry_hash(js_adjustments);
-    {
+    // Whether `source` is the editor photo, and its cached warp if so.
+    let lookup = || {
         // Only the current editor source may use its full-resolution warp cache.
         // Keep this guard until the cache lookup so a source switch cannot route
         // an old job through the new editor image's cache.
@@ -524,21 +525,37 @@ pub fn get_cached_full_warped_image(
             .original_image
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if original
+        if !original
             .as_ref()
             .is_some_and(|loaded| Arc::ptr_eq(&loaded.image, source))
         {
-            let cache = state
-                .full_warped_cache
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if let Some(image) = cache
-                .as_ref()
-                .and_then(|cache| cache.get(source, is_raw, geo_hash))
-            {
-                return image;
-            }
+            return (false, None);
         }
+        let cache = state
+            .full_warped_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        (
+            true,
+            cache
+                .as_ref()
+                .and_then(|cache| cache.get(source, is_raw, geo_hash)),
+        )
+    };
+    let (current, cached) = lookup();
+    if let Some(image) = cached {
+        return image;
+    }
+    // One build at a time for the editor photo: a stroke that arrives while
+    // `prewarm_mask_source` builds the same warp waits for it and reuses it.
+    let _build = current.then(|| {
+        state
+            .full_warped_build
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    });
+    if current && let (_, Some(image)) = lookup() {
+        return image;
     }
 
     let warped =
@@ -572,6 +589,37 @@ pub fn get_cached_full_warped_image(
         ));
     }
     warped
+}
+
+/// Builds the editor photo's full-resolution mask source (see
+/// `get_cached_full_warped_image`) ahead of the first Auto Mask stroke, so its
+/// first dab does not wait for it (~0.3 s at 40 MP). The same image the stroke
+/// would build; the layers are not needed for it.
+#[tauri::command]
+pub(crate) async fn prewarm_mask_source(
+    path: String,
+    js_adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let Some(loaded) = state
+            .original_image
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .filter(|loaded| loaded.path == path)
+        else {
+            return;
+        };
+        let mut adjustments = js_adjustments;
+        hydrate_adjustments(&state, &mut adjustments);
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("mask_source_prewarm");
+        get_cached_full_warped_image(&state, &loaded.image, loaded.is_raw, &adjustments);
+    })
+    .await
+    .map_err(|e| format!("Mask source prewarm failed: {e}"))
 }
 
 #[tauri::command]
