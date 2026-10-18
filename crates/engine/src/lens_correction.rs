@@ -1057,6 +1057,38 @@ pub fn camera_crop_factor_loose(db: &LensDatabase, model: &str) -> Option<f32> {
         .filter(|crop| crop.is_finite() && *crop > 0.0)
 }
 
+/// The maker's lens shown as `model` (the name a recipe or preset stores),
+/// and its current name. A database update may rename a lens by extending
+/// its name ("E 16-50mm f/3.5-5.6 OSS PZ" became "… PZ (Vers. I/II)"):
+/// when no lens has the name exactly, the one whose name starts with it is
+/// the same lens, if there is exactly one.
+pub fn find_lens_by_display_name<'a>(
+    db: &'a LensDatabase,
+    maker: &str,
+    model: &str,
+) -> Option<(String, &'a Lens)> {
+    let maker_lenses = lenses_for_maker(db, maker);
+    let named: Vec<(String, &Lens)> = maker_lenses
+        .iter()
+        .map(|lens| (lens.get_display_name(&maker_lenses), *lens))
+        .collect();
+    if let Some((name, lens)) = named.iter().find(|(name, _)| name == model) {
+        return Some((name.clone(), lens));
+    }
+    let key = |name: &str| name.trim().to_lowercase();
+    let wanted = key(model);
+    if wanted.len() < 8 {
+        return None;
+    }
+    let mut renamed = named
+        .iter()
+        .filter(|(name, _)| key(name).starts_with(&wanted) && key(name) != wanted);
+    match (renamed.next(), renamed.next()) {
+        (Some((name, lens)), None) => Some((name.clone(), lens)),
+        _ => None,
+    }
+}
+
 pub fn resolve_lens_params(
     db: &LensDatabase,
     maker: &str,
@@ -1066,15 +1098,8 @@ pub fn resolve_lens_params(
     distance: Option<f32>,
     camera_crop: Option<f32>,
 ) -> Option<LensDistortionParams> {
-    let maker_lenses = lenses_for_maker(db, maker);
-    if let Some(lens) = maker_lenses
-        .iter()
-        .find(|l| l.get_display_name(&maker_lenses) == model)
-    {
-        lens.get_distortion_params(focal_length, aperture, distance, camera_crop)
-    } else {
-        None
-    }
+    let (_, lens) = find_lens_by_display_name(db, maker, model)?;
+    lens.get_distortion_params(focal_length, aperture, distance, camera_crop)
 }
 
 #[cfg(test)]
@@ -1209,6 +1234,14 @@ mod tests {
             let expected = expected.map(|(m, l)| (m.to_string(), l.to_string()));
             assert_eq!(found, expected, "{make} {camera} {lens}");
         }
+        // A recipe or preset that names the Sony kit zoom as it was called
+        // before the update finds the renamed entry.
+        let (name, _) =
+            find_lens_by_display_name(&db, "Sony", "E 16-50mm f/3.5-5.6 OSS PZ").unwrap();
+        assert_eq!(name, "E 16-50mm f/3.5-5.6 OSS PZ (Vers. I/II)");
+        // Several lenses start with it, or none: no guess.
+        assert!(find_lens_by_display_name(&db, "Sony", "FE 24-70mm").is_none());
+        assert!(find_lens_by_display_name(&db, "Sony", "E 99mm f/1.0 Prototype").is_none());
         // A model code is dropped only when nothing matched with it, and
         // only a letters-and-digits code, never a focal length or aperture.
         assert_eq!(

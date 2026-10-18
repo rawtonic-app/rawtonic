@@ -214,11 +214,24 @@ pub fn resolve_lens_params_in_adjustments(
 
         if let Some(db) = lens_db {
             let has_valid_lens = match (
-                map.get("lensMaker").and_then(|v| v.as_str()),
-                map.get("lensModel").and_then(|v| v.as_str()),
+                map.get("lensMaker")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
+                map.get("lensModel")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string),
             ) {
                 (Some(maker), Some(model)) if !maker.is_empty() && !model.is_empty() => {
-                    match lens_params_for_exif(db, maker, model, exif_data) {
+                    // A lens named as it was before a database rename gets
+                    // its current name.
+                    if let Some((current, _)) =
+                        crate::lens_correction::find_lens_by_display_name(db, &maker, &model)
+                        && current != model
+                    {
+                        map.insert("lensModel".to_string(), serde_json::json!(current));
+                    }
+                    let model = map["lensModel"].as_str().unwrap_or(&model).to_string();
+                    match lens_params_for_exif(db, &maker, &model, exif_data) {
                         Some(params) => {
                             map.insert(
                                 "lensDistortionParams".to_string(),
@@ -1088,6 +1101,13 @@ mod tests {
         assert!(!chooses_lens(&serde_json::json!({"exposure": 1.0})));
         resolve(&mut pasted, LensLookup::Fresh);
         assert_eq!(pasted["lensDistortionParams"], current);
+        // A lens chosen under a name the database has since extended (a
+        // preset, copied settings) finds the renamed entry and its name.
+        let mut renamed = serde_json::json!({"lensCorrectionMode": "manual", "lensMaker": "Canon",
+            "lensModel": "RF 28mm F2.8"});
+        resolve(&mut renamed, LensLookup::Fresh);
+        assert_eq!(renamed["lensModel"], serde_json::json!(model));
+        assert_eq!(renamed["lensDistortionParams"], current);
         // Auto lens correction detects and looks up again.
         let mut fresh = serde_json::json!({"lensCorrectionMode": "auto"});
         resolve(&mut fresh, LensLookup::Fresh);
