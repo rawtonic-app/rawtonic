@@ -90,3 +90,16 @@ installed ONNX models passed two CPU load/inference/unload rounds and process
 shutdown on Apple Silicon. Windows/Linux retain Runtime 1.30 and their pinned
 plugins; provider hardware regression there remains unverified in this run.
 See `docs/testing/relight.md`.
+
+## AI Denoise on Linux with NVIDIA, 2026-10-18
+
+First measurement on a real GPU under Linux (Ryzen 5 3600X, RTX 3080 10 GB, NVIDIA 615, KDE Wayland; ONNX Runtime 1.30.0 and the WebGPU plugin 0.4.0 from the model pack), MatchFilter on four public raw.pixls.us Bayer files, timed by `crates/denoise/examples/denoise_bench.rs` (denoise step only, no cache):
+
+| File | CPU provider | WebGPU (Vulkan) | WebGPU vs CPU |
+|---|---|---|---|
+| Nikon D7200, 24.2 MP | 434 s, peak 6.7 GB | 35.4 s, peak 3.5 GB | max 1.2e-4, mean 1.6e-8 |
+| Canon EOS R10, 24.2 MP | 437 s, 6.8 GB | 35.5 s, 3.5 GB | max 4.9e-4, mean 2.6e-8 |
+| Panasonic S5, 24.0 MP | 432 s, 6.8 GB | 35.6 s, 3.5 GB | max 2.4e-4, mean 3.3e-8 |
+| Panasonic S1R II, 44.2 MP | 762 s, 7.1 GB | 60.6 s, 3.6 GB | max 4.9e-4, mean 4.8e-8 |
+
+Differences are in normalised levels (1.0 = white) of the f16 result the app caches: at most one f16 step, 0.05–0.07 % of samples differ. The GPU check accepted WebGPU; it used about 4.3 GB of GPU memory and was ~85 % busy. The release app (headless export, AI Denoise 100, D7200) chose WebGPU by itself: 65 s the first time on the device (the check took 6.6 s, then remembered), 39 s for a new photo, 3.7 s from the cache. On the CPU, 12 instead of 6 intra-op threads was 4 % slower and two tiles at once (2 × 3 threads) 6 % faster at twice the memory (12.7 GB), so neither was adopted; a second WebGPU session would not leave 2 GB of GPU memory free on this card. The CUDA plugin was not measured: it needs CUDA 13 and cuDNN 9, which the machine does not have.
