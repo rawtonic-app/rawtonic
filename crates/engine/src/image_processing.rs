@@ -4504,6 +4504,33 @@ pub fn get_all_adjustments_from_json(
     is_raw: bool,
     tonemapper_override: Option<u32>,
 ) -> PreparedAdjustments {
+    get_all_adjustments_with_masks(
+        js_adjustments,
+        is_raw,
+        tonemapper_override,
+        &mask_definitions_from_json(js_adjustments),
+    )
+}
+
+/// The layers of an adjustments JSON (`masks`), none if any is malformed.
+/// Deserialized in place: cloning the `Value` first doubled the cost of a
+/// stack of brush layers with thousands of points.
+pub fn mask_definitions_from_json(js_adjustments: &serde_json::Value) -> Vec<MaskDefinition> {
+    js_adjustments
+        .get("masks")
+        .and_then(|m| Vec::<MaskDefinition>::deserialize(m).ok())
+        .unwrap_or_default()
+}
+
+/// [`get_all_adjustments_from_json`] with the layers already read by
+/// [`mask_definitions_from_json`] (a preview reads them once for the masks
+/// and the adjustments).
+pub fn get_all_adjustments_with_masks(
+    js_adjustments: &serde_json::Value,
+    is_raw: bool,
+    tonemapper_override: Option<u32>,
+    mask_definitions: &[MaskDefinition],
+) -> PreparedAdjustments {
     let mut global = get_global_adjustments_from_json(js_adjustments, is_raw, tonemapper_override);
     let (depth_key, relight_surface) = crate::relight::prepare_depth(js_adjustments);
     let ([pattern_low, pattern_high], relight_patterns) =
@@ -4522,11 +4549,6 @@ pub fn get_all_adjustments_from_json(
     global.exposure *= exposure_scale;
     let mut mask_adjustments = [MaskAdjustments::default(); MAX_MASKS];
     let mut mask_count = 0;
-
-    let mask_definitions: Vec<MaskDefinition> = js_adjustments
-        .get("masks")
-        .and_then(|m| serde_json::from_value(m.clone()).ok())
-        .unwrap_or_default();
 
     for (i, mask_def) in mask_definitions
         .iter()

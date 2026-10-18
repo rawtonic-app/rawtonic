@@ -9185,3 +9185,271 @@ fn high_iso_noise_reduction_leaves_no_speckles_near_bright_objects() {
 fn masked(image: GrayImage) -> Arc<MaskBitmap> {
     Arc::new(image.into())
 }
+
+/// M6 of the local-adjustments plan (notes: plans/local-adjustments-g29-g31.md):
+/// what one preview job costs natively with many layers, stage by stage, as
+/// `editor_preview::process_preview_job` does it: the IPC adjustments JSON is
+/// parsed, the layers are read from it, each layer's bitmap comes from a
+/// shared `MaskBitmapCache`, and the frame renders on the GPU. Scenarios:
+/// a slider on the first and on the last layer (one value changes per move)
+/// and a live brush stroke on the top layer (one point per move). IPC
+/// transport, the webview and presentation are excluded.
+#[test]
+#[ignore = "native GPU timing probe; set RAWTONIC_M6_RAW and RAWTONIC_M6_RECIPES"]
+fn many_layer_frame_probe() {
+    use rawtonic_engine::mask_generation::{
+        MaskBitmapCache, cached_or_generated_mask, prepare_parametric_mask_source,
+    };
+    let (Ok(raw), Ok(recipes)) = (
+        std::env::var("RAWTONIC_M6_RAW"),
+        std::env::var("RAWTONIC_M6_RECIPES"),
+    ) else {
+        println!("SKIP many_layer_frame_probe: RAWTONIC_M6_RAW / RAWTONIC_M6_RECIPES not set");
+        return;
+    };
+    let env = |name: &str, default: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default)
+    };
+    let long_side = env("RAWTONIC_M6_DIM", 2304) as f32;
+    let frames = env("RAWTONIC_M6_FRAMES", 40);
+    let bytes = std::fs::read(&raw).unwrap();
+    let full = rawtonic_engine::image_loader::load_base_image(
+        &bytes,
+        &raw,
+        false,
+        &Default::default(),
+        None,
+    )
+    .unwrap();
+    let (full_w, full_h) = full.dimensions();
+    let scale = long_side / full_w.max(full_h) as f32;
+    let (width, height) = (
+        (full_w as f32 * scale).round() as u32,
+        (full_h as f32 * scale).round() as u32,
+    );
+    let preview = full.resize_exact(width, height, image::imageops::FilterType::Triangle);
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let texture = create_input_texture(
+        &context.device,
+        &context.queue,
+        &preview,
+        INPUT_UPLOAD_BAND_ROWS,
+    )
+    .unwrap();
+    let view = texture.create_view(&Default::default());
+    let median = |mut v: Vec<f64>, q: f64| {
+        v.sort_by(f64::total_cmp);
+        v[((v.len() - 1) as f64 * q).round() as usize]
+    };
+    for recipe_path in recipes.split(',') {
+        let base: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(recipe_path).unwrap()).unwrap();
+        let layers = base["masks"].as_array().unwrap().len();
+        let source = Arc::new(prepare_parametric_mask_source(&full, true, 1.0, &base).unwrap());
+        let geometry =
+            PhotoGeometry::from_adjustments(&base).with_photo_size(full_w as f64, full_h as f64);
+        if std::env::var("RAWTONIC_M6_EXPORT_MASKS").is_ok() {
+            // What an export's mask stage spends per layer at full resolution.
+            let definitions: Vec<MaskDefinition> =
+                serde_json::from_value(base["masks"].clone()).unwrap();
+            let mut total = 0.0;
+            for def in &definitions {
+                let t = Instant::now();
+                let mask = generate_layer_mask(
+                    def,
+                    full_w,
+                    full_h,
+                    1.0,
+                    (0.0, 0.0),
+                    &geometry,
+                    Some(&source),
+                );
+                let ms = t.elapsed().as_secs_f64() * 1000.0;
+                total += ms;
+                println!(
+                    "{}",
+                    json!({"probe":"m6_export_mask","recipe":recipe_path,"layer":def.id,
+                    "kind":def.sub_masks.first().map(|s| s.mask_type.clone()),
+                    "refine":def.refine_edge,"wide":mask.as_ref().is_some_and(|m| m.wide().is_some()),
+                    "ms":ms})
+                );
+            }
+            println!(
+                "{}",
+                json!({"probe":"m6_export_masks","recipe":recipe_path,"layers":layers,"ms":total})
+            );
+            continue;
+        }
+        let warm = get_all_adjustments_from_json(&base, true, Some(1));
+        prepare_preview_pipeline(&processor, preview_features(&warm));
+        // A live stroke on the top layer: a new brush layer (Auto Mask v3, as
+        // the app paints) in place of the last one, one point per move.
+        let mut brush_base = base.clone();
+        {
+            let masks = brush_base["masks"].as_array_mut().unwrap();
+            masks.pop();
+            masks.push(
+                json!({"id":"live","name":"live","visible":true,"invert":false,
+                "opacity":100,"maskVersion":3,"adjustments":{"exposure":0.5},
+                "subMasks":[{"id":"live-s","type":"brush","visible":true,"invert":false,
+                "opacity":100,"mode":"additive","parameters":{"lines":[{"tool":"brush",
+                "brushSize":0.05 * full_w as f64,"feather":0.5,"opacity":100,"flow":100,
+                "hardness":50,"autoMask":true,"autoMaskVersion":3,"points":[]}]}}]}),
+            );
+        }
+        type Scenario<'a> = (&'a str, Box<dyn Fn(usize) -> serde_json::Value + 'a>);
+        let scenarios: [Scenario; 3] = [
+            (
+                "slider_first_layer",
+                Box::new(|f| {
+                    let mut v = base.clone();
+                    v["masks"][0]["adjustments"]["exposure"] = json!(0.01 * f as f64);
+                    v
+                }),
+            ),
+            (
+                "slider_last_layer",
+                Box::new(|f| {
+                    let mut v = base.clone();
+                    v["masks"][layers - 1]["adjustments"]["exposure"] = json!(0.01 * f as f64);
+                    v
+                }),
+            ),
+            (
+                "brush_top_layer",
+                Box::new(|f| {
+                    let mut v = brush_base.clone();
+                    let points: Vec<_> = (0..=f)
+                        .map(|k| {
+                            json!({"x": full_w as f64 * (0.3 + 0.4 * k as f64 / frames as f64),
+                                   "y": full_h as f64 * (0.5 + 0.05 * (k as f64 * 0.3).sin())})
+                        })
+                        .collect();
+                    v["masks"][layers - 1]["subMasks"][0]["parameters"]["lines"][0]["points"] =
+                        json!(points);
+                    v
+                }),
+            ),
+        ];
+        for (name, make) in &scenarios {
+            // One cache per scenario, warmed by a first (cold) move.
+            let cache = std::sync::Mutex::new(MaskBitmapCache::new());
+            let mut previous: Vec<Arc<MaskBitmap>> = Vec::new();
+            let mut rows: Vec<[f64; 6]> = Vec::new();
+            let mut regenerated_sum = 0;
+            // Slider moves as the editor sends them: brush strokes once with a
+            // token, then by reference (mask_parameters). Live strokes send all.
+            let references =
+                std::env::var("RAWTONIC_M6_REFS").is_ok() && name.starts_with("slider");
+            for f in 0..=frames {
+                let mut request = make(f);
+                if references {
+                    for sub in request["masks"]
+                        .as_array_mut()
+                        .unwrap()
+                        .iter_mut()
+                        .flat_map(|m| m["subMasks"].as_array_mut().unwrap().iter_mut())
+                        .filter(|sub| sub["type"] == "brush")
+                    {
+                        let token = format!("{}#{recipe_path}", sub["id"].as_str().unwrap());
+                        if f == 0 {
+                            sub["paramsToken"] = json!(token);
+                        } else {
+                            sub["parameters"] = json!({"$paramsRef": token});
+                        }
+                    }
+                }
+                let text = serde_json::to_string(&request).unwrap();
+                let started = Instant::now();
+                let mut adjustments: serde_json::Value = serde_json::from_str(&text).unwrap();
+                rawtonic_engine::mask_parameters::hydrate(&mut adjustments).unwrap();
+                let parse_ms = started.elapsed().as_secs_f64() * 1000.0;
+                let t = Instant::now();
+                let definitions =
+                    rawtonic_engine::image_processing::mask_definitions_from_json(&adjustments);
+                let read_ms = t.elapsed().as_secs_f64() * 1000.0;
+                let t = Instant::now();
+                let masks: Vec<Arc<MaskBitmap>> = definitions
+                    .iter()
+                    .filter_map(|def| {
+                        cached_or_generated_mask(
+                            &cache,
+                            def,
+                            width,
+                            height,
+                            scale,
+                            (0.0, 0.0),
+                            &geometry,
+                            Some(&source),
+                        )
+                        .unwrap()
+                    })
+                    .collect();
+                let mask_ms = t.elapsed().as_secs_f64() * 1000.0;
+                let regenerated = masks
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, m)| previous.get(*i).is_none_or(|p| !Arc::ptr_eq(p, m)))
+                    .count();
+                let t = Instant::now();
+                let all = rawtonic_engine::image_processing::get_all_adjustments_with_masks(
+                    &adjustments,
+                    true,
+                    Some(1),
+                    &definitions,
+                );
+                let adjust_ms = t.elapsed().as_secs_f64() * 1000.0;
+                let t = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments: all,
+                            mask_bitmaps: &masks,
+                            lut: None,
+                            roi: None,
+                        },
+                        true,
+                        RenderOutputPrecision::EightBit,
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                let gpu_ms = t.elapsed().as_secs_f64() * 1000.0;
+                let total_ms = started.elapsed().as_secs_f64() * 1000.0;
+                previous = masks;
+                if f == 0 {
+                    println!(
+                        "{}",
+                        json!({"probe":"m6","recipe":recipe_path,"layers":layers,"scenario":name,
+                        "move":"first","total_ms":total_ms,"mask_ms":mask_ms,"gpu_ms":gpu_ms})
+                    );
+                    continue;
+                }
+                regenerated_sum += regenerated;
+                rows.push([parse_ms, read_ms, mask_ms, adjust_ms, gpu_ms, total_ms]);
+                if f == frames {
+                    let column = |i: usize| rows.iter().map(|r| r[i]).collect::<Vec<_>>();
+                    let stats = |i: usize| json!([median(column(i), 0.5), median(column(i), 0.95)]);
+                    println!(
+                        "{}",
+                        json!({"probe":"m6","recipe":recipe_path,"layers":layers,"scenario":name,
+                        "width":width,"height":height,"moves":rows.len(),
+                        "layers_regenerated_per_move":regenerated_sum as f64 / rows.len() as f64,
+                        "parse_ms":stats(0),"read_layers_ms":stats(1),"mask_ms":stats(2),
+                        "adjustments_ms":stats(3),"gpu_ms":stats(4),"total_ms":stats(5),
+                        "recipe_bytes":text.len()})
+                    );
+                }
+            }
+        }
+    }
+}

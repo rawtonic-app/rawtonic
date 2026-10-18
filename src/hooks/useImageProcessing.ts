@@ -31,6 +31,12 @@ import { frameDrawnMasks } from '../utils/maskGeometry';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
+import {
+  MASK_PARAMETERS_MISSING,
+  acknowledgeParameters,
+  forgetParameterReferences,
+  withParameterReferences,
+} from '../utils/maskParameterRefs';
 import { useOsPlatform } from './useOsPlatform';
 
 interface PreviewRequest {
@@ -183,7 +189,10 @@ export function useImageProcessing(
       // after Capture One and Lightroom: the photo stays on screen). Crop and
       // angle changes therefore re-use the same frame.
       const cropEdit = isNativeCropEditing();
-      const payload = withViewStates(currentAdjustments);
+      // Live strokes keep sending everything (their transport is separate);
+      // other requests refer to brush strokes the backend already holds.
+      const referenced = live ? null : withParameterReferences(currentAdjustments);
+      const payload = withViewStates(referenced ? referenced.adjustments : currentAdjustments);
       if (cropEdit) {
         payload.crop = null;
         payload.rotation = 0;
@@ -289,6 +298,7 @@ export function useImageProcessing(
         if (newlySentPatches.size > 0) {
           newlySentPatches.forEach((id) => patchesSentToBackend.add(id));
         }
+        if (referenced) acknowledgeParameters(referenced.sent);
 
         if (currentPath !== selectedImagePathRef.current) return;
 
@@ -353,6 +363,12 @@ export function useImageProcessing(
           }
         }
       } catch (err) {
+        if (referenced && typeof err === 'string' && err.startsWith(MASK_PARAMETERS_MISSING)) {
+          // The backend lost strokes it held: send them in full again.
+          forgetParameterReferences();
+          await executeRef.current(currentAdjustments, dragging, targetRes, live, inputAt, dispatchAt);
+          return;
+        }
         if (err !== 'Superseded or worker failed') {
           console.error('Failed to apply adjustments:', err);
         }

@@ -4780,6 +4780,12 @@ fn apply_curve_lut(color: vec3<f32>, layer: u32) -> vec3<f32> {
     return vec3<f32>(r, g, b);
 }
 
+// Whether some layer has a step (`preview_layers` flags): a loop over the
+// layers in which every layer would skip it is not run at all.
+fn any_layer_has(flag: u32) -> bool {
+    return !PREPARED_LAYERS || (prepared_layers[0].flags.y & flag) != 0u;
+}
+
 fn get_mask_influence(mask_index: u32, coords: vec2<u32>) -> f32 {
     return textureLoad(mask_textures, vec2<i32>(coords) - vec2<i32>(adjustments.source_window.xy), i32(mask_index), 0).r;
 }
@@ -5811,7 +5817,7 @@ fn main(
 
     var t_moire = adjustments.global.moire.x;
     var t_moire_step = adjustments.global.moire.y;
-    for (var i = 0u; ENABLE_MASKS && i < adjustments.mask_count; i = i + 1u) {
+    for (var i = 0u; ENABLE_MASKS && any_layer_has(1u) && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 1u) == 0u) { continue; }
         let influence = get_mask_influence(i, absolute_coord);
         if (influence > 0.001) {
@@ -5829,7 +5835,12 @@ fn main(
             t_temperature += adjustments.mask_adjustments[i].temperature * influence;
             t_tint += adjustments.mask_adjustments[i].tint * influence;
             t_vibrance += adjustments.mask_adjustments[i].vibrance * influence;
+            t_hue += adjustments.mask_adjustments[i].hue * influence;
 
+            // Groups a layer leaves at zero add nothing: with many layers
+            // the per-pixel sums were most of the frame.
+            let layer_flags = prepared_layers[i + 1u].flags.x;
+            if ((layer_flags & 64u) != 0u) {
             t_luma_nr += adjustments.mask_adjustments[i].luma_noise_reduction * influence;
             t_color_nr += adjustments.mask_adjustments[i].color_noise_reduction * influence;
             t_clarity += adjustments.mask_adjustments[i].clarity * influence;
@@ -5839,12 +5850,13 @@ fn main(
             t_glow += adjustments.mask_adjustments[i].glow_amount * influence;
             t_halation += adjustments.mask_adjustments[i].halation_amount * influence;
             t_flare += adjustments.mask_adjustments[i].flare_amount * influence;
-            t_hue += adjustments.mask_adjustments[i].hue * influence;
             t_defringe += adjustments.mask_adjustments[i].defringe * influence;
             t_sharpness += adjustments.mask_adjustments[i].sharpness * influence;
             t_moire += adjustments.mask_adjustments[i].moire.x * influence;
             if (adjustments.mask_adjustments[i].moire.x > 0.0) { t_moire_step = adjustments.mask_adjustments[i].moire.y; }
+            }
 
+            if ((layer_flags & 128u) != 0u) {
             h0_h += adjustments.mask_adjustments[i].hsl[0].hue * influence; h0_s += adjustments.mask_adjustments[i].hsl[0].saturation * influence; h0_l += adjustments.mask_adjustments[i].hsl[0].luminance * influence;
             h1_h += adjustments.mask_adjustments[i].hsl[1].hue * influence; h1_s += adjustments.mask_adjustments[i].hsl[1].saturation * influence; h1_l += adjustments.mask_adjustments[i].hsl[1].luminance * influence;
             h2_h += adjustments.mask_adjustments[i].hsl[2].hue * influence; h2_s += adjustments.mask_adjustments[i].hsl[2].saturation * influence; h2_l += adjustments.mask_adjustments[i].hsl[2].luminance * influence;
@@ -5853,6 +5865,7 @@ fn main(
             h5_h += adjustments.mask_adjustments[i].hsl[5].hue * influence; h5_s += adjustments.mask_adjustments[i].hsl[5].saturation * influence; h5_l += adjustments.mask_adjustments[i].hsl[5].luminance * influence;
             h6_h += adjustments.mask_adjustments[i].hsl[6].hue * influence; h6_s += adjustments.mask_adjustments[i].hsl[6].saturation * influence; h6_l += adjustments.mask_adjustments[i].hsl[6].luminance * influence;
             h7_h += adjustments.mask_adjustments[i].hsl[7].hue * influence; h7_s += adjustments.mask_adjustments[i].hsl[7].saturation * influence; h7_l += adjustments.mask_adjustments[i].hsl[7].luminance * influence;
+            }
             } else {
             let m = adjustments.mask_adjustments[i];
 
@@ -5997,7 +6010,7 @@ fn main(
         adjustments.global.color_grading_balance
     );
 
-    for (var i = 0u; ENABLE_MASKS && i < adjustments.mask_count; i = i + 1u) {
+    for (var i = 0u; ENABLE_MASKS && any_layer_has(2u) && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 2u) == 0u) { continue; }
         let influence = get_mask_influence(i, absolute_coord);
         if (influence > 0.001) {
@@ -6070,7 +6083,7 @@ fn main(
     if (adjustments.global.color_range_count.x > 0u) {
         default_tonemapped = apply_color_ranges(default_tonemapped, 0u, adjustments.global.color_range_count.x);
     }
-    for (var i = 0u; ENABLE_MASKS && i < adjustments.mask_count; i = i + 1u) {
+    for (var i = 0u; ENABLE_MASKS && any_layer_has(32u) && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 32u) == 0u) { continue; }
         let count = adjustments.mask_adjustments[i].color_range_count;
         if (count == 0u) { continue; }
@@ -6088,7 +6101,7 @@ fn main(
     if (adjustments.global.vignette_amount != 0.0 && adjustments.global.tonemapper_mode >= 2u) {
         default_tonemapped = apply_vignette(default_tonemapped, vec2<f32>(absolute_coord), vec2<f32>(input_dims()));
     }
-    for (var i = 0u; ENABLE_MASKS && i < adjustments.mask_count; i = i + 1u) {
+    for (var i = 0u; ENABLE_MASKS && any_layer_has(16u) && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 16u) == 0u) { continue; }
         if (!PREPARED_LAYERS && adjustments.mask_adjustments[i].grading_active == 0u) { continue; }
         let influence = get_mask_influence(i, absolute_coord);
@@ -6138,7 +6151,7 @@ fn main(
     }
     final_rgb = carry_beyond_srgb(display, curve_input, final_rgb);
 
-    for (var i = 0u; ENABLE_MASKS && ENABLE_CURVES && i < adjustments.mask_count; i = i + 1u) {
+    for (var i = 0u; ENABLE_MASKS && any_layer_has(4u) && ENABLE_CURVES && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 4u) == 0u) { continue; }
         let influence = get_mask_influence(i, absolute_coord);
         if (influence > 0.001) {

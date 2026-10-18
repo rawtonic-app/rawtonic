@@ -29,6 +29,7 @@ pub mod lens_correction;
 pub mod luma_levels;
 pub mod lut;
 pub mod mask_generation;
+pub mod mask_parameters;
 pub mod mask_thumbnail;
 pub mod masks;
 pub mod output_color_space;

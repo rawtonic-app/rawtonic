@@ -129,7 +129,14 @@ The renderer's GPU tests need a GPU adapter, so they are `#[ignore]`d: neither `
 cargo test -p rawtonic-gpu --locked -- --ignored gpu_processing::preview_tests
 ```
 
-They check that the display shader variants, the fallback variant and the CPU-readback export path give the same pixels, and properties of the renderer such as tone order (`camera_raw_shadow_gains_stay_smooth_down_to_black`). A run takes a few minutes; `post_idle_partial_frame_probe` alone runs for over a minute. Compare full-resolution exports of the changed build against the previous commit as well (`rawtonic export` on copies of public sample RAWs, byte for byte): edits the change should not touch must stay identical.
+They check that the display shader variants, the fallback variant and the CPU-readback export path give the same pixels, and properties of the renderer such as tone order (`camera_raw_shadow_gains_stay_smooth_down_to_black`). A run takes a few minutes; `post_idle_partial_frame_probe` alone runs for over a minute.
+
+Many layers: `many_layer_frame_probe` times one preview job stage by stage as the editor runs it (IPC JSON parse, reading the layers, mask cache, adjustments, GPU frame) for a slider move on the first and the last layer and a live brush stroke on the top layer, on a real RAW at a 2304 px preview. `RAWTONIC_M6_RAW` names the RAW, `RAWTONIC_M6_RECIPES` comma-separated layer recipes (`{"masks": [...]}`), `RAWTONIC_M6_REFS=1` sends brush strokes by reference as the editor does for slider moves, `RAWTONIC_M6_EXPORT_MASKS=1` times each layer's full-resolution mask instead:
+
+```sh
+RAWTONIC_M6_RAW=/path/photo.NEF RAWTONIC_M6_RECIPES=/path/32-layers.json RAWTONIC_M6_REFS=1 \
+  cargo test -p rawtonic-gpu --release --lib --locked many_layer_frame_probe -- --ignored --nocapture
+``` Compare full-resolution exports of the changed build against the previous commit as well (`rawtonic export` on copies of public sample RAWs, byte for byte): edits the change should not touch must stay identical.
 
 ### Benchmarks (hot CPU paths)
 
