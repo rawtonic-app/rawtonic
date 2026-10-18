@@ -1325,6 +1325,32 @@ impl WarpKernel {
     }
 }
 
+/// Which pixels of [`warp_image_geometry`]'s output for a `width` × `height`
+/// source sample inside the source (1) and which it leaves black (0), by the
+/// warp's own per-pixel arithmetic; None when the geometry is the identity
+/// and nothing is warped. Lateral CA clamps its channels into the frame, so
+/// only the green sample decides.
+pub fn geometry_valid_pixels(params: &GeometryParams, width: u32, height: u32) -> Option<Vec<u8>> {
+    if is_geometry_identity(params) {
+        return None;
+    }
+    let kernel = WarpKernel::new(params, width, height, None);
+    let (last_x, last_y) = (width as f32 - 1.0, height as f32 - 1.0);
+    let mut mask = vec![0u8; width as usize * height as usize];
+    mask.par_chunks_mut(width as usize)
+        .enumerate()
+        .for_each(|(y, row)| {
+            let mut current_vec = kernel.row_start(y as u32);
+            for valid in row.iter_mut() {
+                *valid = kernel.source_point(&current_vec).is_some_and(|(x, y)| {
+                    !(x.is_nan() || y.is_nan() || x < 0.0 || y < 0.0 || x >= last_x || y >= last_y)
+                }) as u8;
+                current_vec += kernel.step_vec_x;
+            }
+        });
+    Some(mask)
+}
+
 pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> DynamicImage {
     // RAW sources are float RGB already; converting would copy the whole
     // frame (about 1 GB at 80 MP) before the warp.
@@ -2023,7 +2049,7 @@ pub fn apply_rotation<'a>(
 
 /// Output-to-source mapping of a rotation about the frame centre
 /// (imageproc's `rotate_about_center` geometry).
-fn rotation_inverse(rotation_degrees: f32, width: u32, height: u32) -> Projection {
+pub(crate) fn rotation_inverse(rotation_degrees: f32, width: u32, height: u32) -> Projection {
     let theta = rotation_degrees * PI / 180.0;
     let (center_x, center_y) = (width as f32 / 2.0, height as f32 / 2.0);
     (Projection::translate(center_x, center_y)

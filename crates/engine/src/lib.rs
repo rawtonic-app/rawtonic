@@ -5,6 +5,7 @@
 
 pub mod adjustment_utils;
 pub mod auto_adjust;
+pub mod auto_straighten;
 pub mod avif;
 pub mod baseline_exposure;
 pub mod cache_utils;
@@ -40,6 +41,7 @@ pub mod relight;
 pub mod session_layout;
 pub mod source_facts;
 pub mod spot_removal;
+pub mod upright;
 pub mod white_balance_estimate;
 
 use rawtonic_rawdecode::{
