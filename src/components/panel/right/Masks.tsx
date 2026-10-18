@@ -76,6 +76,8 @@ export interface MaskStrokeLine {
   autoMask?: boolean;
   /** Auto Mask method; absent = 1 (old strokes, Lightroom imports), 2 = edge-aware. */
   autoMaskVersion?: number;
+  /** Dab placement; absent = 1 (old strokes), 2 = new strokes (crates/engine `DabTip::dab_version_2`). */
+  dabVersion?: number;
   /** The photo's geometry the stroke was painted in (`ShapeFrame`); absent on older strokes. */
   frame?: ShapeFrame;
   points: Array<{ x: number; y: number }>;

@@ -926,6 +926,14 @@ struct BrushLine {
     /// strokes keep it). 2: the edge-aware mask of `AutoMaskModel`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     auto_mask_version: Option<u32>,
+    /// Dab placement of a dab-based stroke (not Lightroom's, which has a dab
+    /// at every point). Absent: version 1, dabs `DabTip::step` apart ending
+    /// at the last whole step, so a stroke stopped up to a step short of
+    /// its last point (old recipes stay byte-identical). 2: a dab at the
+    /// last point too, and a Capture One tip without Auto Mask lays its
+    /// dabs closer (`DabTip::dab_version_2`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dab_version: Option<u32>,
     /// The photo's geometry the stroke was painted in (see `ShapeFrame`).
     #[serde(
         default,
@@ -2067,6 +2075,12 @@ struct DabTip {
     outer: f32,
     step: f32,
     lightroom: Option<f32>,
+    /// Each dab's share of the coverage one dab `step` would add, as an
+    /// exponent of what it keeps: (1 − flow · tip)^density. 1 in version 1.
+    density: f32,
+    /// Version 2: a dab at the path's last point, weighted by the share of
+    /// a step the path covered since the dab before it.
+    end_dab: bool,
 }
 
 /// Lightroom's brush tip: coverage at distance ρ = 0, 0.05, …, 1 of the
@@ -2144,6 +2158,8 @@ impl DabTip {
             outer: radius,
             step: (radius * 0.25).max(0.5),
             lightroom: None,
+            density: 1.0,
+            end_dab: false,
         }
     }
 
@@ -2154,6 +2170,8 @@ impl DabTip {
             outer: radius,
             step: 0.0,
             lightroom: Some(center_weight),
+            density: 1.0,
+            end_dab: false,
         }
     }
 
@@ -2167,7 +2185,42 @@ impl DabTip {
             outer: radius * (1.0 + softness),
             step: (radius * (0.2 + 0.8 * softness.sqrt())).max(0.5),
             lightroom: None,
+            density: 1.0,
+            end_dab: false,
         }
+    }
+
+    /// `dabVersion` 2. Every dab-based tip but Lightroom's (a dab at every
+    /// point already) ends with a dab at the last point, so the stroke
+    /// reaches where it was released and, while it is drawn, the pointer
+    /// (version 1 trailed it by up to a step: 0.77 r at hardness 50). A
+    /// Capture One tip without Auto Mask (`dense`) also lays its dabs at
+    /// most 0.4 of its falloff apart (at least 0.1 of its outer radius),
+    /// each carrying the share of version 1's dab its spacing stands for, so
+    /// the stroke keeps version 1's mean coverage across its width (within
+    /// 1/255 in a model of straight strokes) without version 1's scallops
+    /// along the edge (up to 7/255 at hardness 50, 10–25/255 at 75–90, and
+    /// < 1/255 at 0.4 of the falloff up to hardness 75). Auto Mask strokes
+    /// keep version 1's spacing: their per-dab colour models would cost as
+    /// many times more and were measured at that spacing.
+    /// notes: parity-gaps/G30-brush.md (2026-10-18, task Z2).
+    fn dab_version_2(self, dense: bool) -> Self {
+        if self.lightroom.is_some() {
+            return self;
+        }
+        let mut tip = Self {
+            end_dab: true,
+            ..self
+        };
+        if dense {
+            let step = (0.4 * (tip.outer - tip.inner))
+                .max(0.1 * tip.outer)
+                .max(0.5)
+                .min(tip.step);
+            tip.density = step / tip.step;
+            tip.step = step;
+        }
+        tip
     }
 }
 
@@ -2199,6 +2252,8 @@ fn blend_stroke_dabs(
         outer,
         step,
         lightroom,
+        density,
+        end_dab,
     } = tip;
     if points.is_empty() || outer <= 0.0 {
         return 0;
@@ -2233,6 +2288,18 @@ fn blend_stroke_dabs(
         }
         travelled = length - (at - step);
     }
+    // Version 2's end dab: the share of a step since the last dab.
+    let mut end_weight = None;
+    if end_dab && lightroom.is_none() && travelled > 1e-3 {
+        dabs.push(local(&points[points.len() - 1]));
+        end_weight = Some((travelled / step).min(1.0));
+    }
+    // A dab's exponent on what it keeps (1 for every dab in version 1).
+    let last_dab = dabs.len() - 1;
+    let exponent = |dab: usize| match end_weight {
+        Some(weight) if dab == last_dab => density * weight,
+        _ => density,
+    };
 
     let feather_range = (outer - inner).max(0.01);
     let radius_sq = outer * outer;
@@ -2281,6 +2348,7 @@ fn blend_stroke_dabs(
             mask,
             (min_x, min_y, bb_w, bb_h),
             &dabs,
+            end_weight,
             outer,
             tip_at,
             flow,
@@ -2292,6 +2360,19 @@ fn blend_stroke_dabs(
         return dabs.len();
     }
 
+    // Version 2's closer dabs (no Auto Mask colours): what a dab keeps,
+    // (1 − flow · tip)^density, tabulated over the falloff; the power per
+    // pixel cost more than the rest of the dab.
+    const KEPT_STEPS: usize = 4096;
+    let kept_table: Option<Vec<f32>> = (density != 1.0 && lightroom.is_none() && colours.is_none())
+        .then(|| {
+            (0..=KEPT_STEPS)
+                .map(|i| {
+                    let t = i as f32 / KEPT_STEPS as f32;
+                    (1.0 - flow * (1.0 - t * t * (3.0 - 2.0 * t))).powf(density)
+                })
+                .collect()
+        });
     let rows = &mut mask.as_mut()[min_y as usize * width..(max_y as usize + 1) * width];
     rows.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
         let py = y as f32;
@@ -2307,10 +2388,24 @@ fn blend_stroke_dabs(
             let half = (radius_sq - offset_y * offset_y).max(0.0).sqrt();
             let left = ((dx - half).floor() as i32).max(0);
             let right = ((dx + half).ceil() as i32).min(bb_w as i32 - 1);
+            let table = kept_table
+                .as_deref()
+                .filter(|_| end_weight.is_none() || dab != last_dab);
             for x in left..=right {
                 let offset_x = x as f32 - dx;
                 let dist_sq = offset_x * offset_x + offset_y * offset_y;
                 if dist_sq > radius_sq {
+                    continue;
+                }
+                if let Some(table) = table {
+                    keep[x as usize] *= if dist_sq <= inner_radius_sq {
+                        table[0]
+                    } else {
+                        let t = ((dist_sq.sqrt() - inner) / feather_range).clamp(0.0, 1.0)
+                            * KEPT_STEPS as f32;
+                        let i = (t as usize).min(KEPT_STEPS - 1);
+                        table[i] + (table[i + 1] - table[i]) * (t - i as f32)
+                    };
                     continue;
                 }
                 let intensity = if let Some(center_weight) = lightroom {
@@ -2332,7 +2427,9 @@ fn blend_stroke_dabs(
                     }
                     None => intensity,
                 };
-                keep[x as usize] *= 1.0 - flow * intensity;
+                let kept = 1.0 - flow * intensity;
+                let power = exponent(dab);
+                keep[x as usize] *= if power == 1.0 { kept } else { kept.powf(power) };
             }
         }
         for (x, kept) in keep.iter().enumerate() {
@@ -2356,6 +2453,7 @@ fn blend_stroke_auto_mask_v2(
     mask: &mut GrayImage,
     (min_x, min_y, bb_w, bb_h): (u32, u32, usize, usize),
     dabs: &[(f32, f32)],
+    end_weight: Option<f32>,
     outer: f32,
     tip_at: impl Fn(f32) -> f32 + Sync,
     flow: f32,
@@ -2402,7 +2500,14 @@ fn blend_stroke_auto_mask_v2(
                 }
                 let intensity = tip_at(dist_sq);
                 let x = x as usize;
-                keep[x] *= 1.0 - flow * intensity;
+                // Version 2's end dab counts for its share of a step.
+                let (kept, intensity) = match end_weight {
+                    Some(weight) if dab == dabs.len() - 1 => {
+                        ((1.0 - flow * intensity).powf(weight), intensity * weight)
+                    }
+                    _ => (1.0 - flow * intensity, intensity),
+                };
+                keep[x] *= kept;
                 let share = models[dab].weight_at(colours[y * bb_w + x], (offset_x, offset_y));
                 shares[x].0 += intensity * share;
                 shares[x].1 += intensity;
@@ -2848,6 +2953,12 @@ fn apply_brush_line(
             Some(DabTip::feathered(radius, feather))
         }
         (None, None) => None,
+    };
+    let tip = match line.dab_version {
+        Some(version) if version >= 2 => tip.map(|tip| {
+            tip.dab_version_2(line.hardness.is_some() && !(line.auto_mask && !is_eraser))
+        }),
+        _ => tip,
     };
     let reach = tip.map_or(radius, |tip| tip.outer);
     let Some(bounds) = stroke_bounds(&line.points, width, height, reach, scale, crop_offset) else {
@@ -6482,6 +6593,7 @@ mod stroke_rasterization_tests {
                         lr_center_weight: None,
                         auto_mask: false,
                         auto_mask_version: None,
+                        dab_version: None,
                         frame: None,
                     };
                     let offset = ((next() % 9) as f32 - 4.5, (next() % 7) as f32 - 2.0);
@@ -6551,6 +6663,7 @@ mod stroke_rasterization_tests {
             lr_center_weight: None,
             auto_mask: false,
             auto_mask_version: None,
+            dab_version: None,
             frame: None,
         }
     }
@@ -6574,6 +6687,7 @@ mod stroke_rasterization_tests {
             lr_center_weight: Some(1.0),
             auto_mask: false,
             auto_mask_version: None,
+            dab_version: None,
             frame: None,
         };
         // One dab at 50 % coverage; two dabs on the same spot reach 75 %
@@ -6687,6 +6801,7 @@ mod stroke_rasterization_tests {
             lr_center_weight: None,
             auto_mask: false,
             auto_mask_version: None,
+            dab_version: None,
             frame: None,
         };
         let stroke = [(120.0, -150.0), (120.0, 270.0)];
@@ -6743,6 +6858,79 @@ mod stroke_rasterization_tests {
         );
     }
 
+    /// `dabVersion` 2 on a straight stroke: no scallops along the edge, the
+    /// same mean coverage across the stroke as version 1, the stroke's end at
+    /// its last point; without the field the stroke is version 1's.
+    #[test]
+    fn dab_version_2_ends_at_the_last_point_without_scallops() {
+        let (w, h, r) = (900u32, 260u32, 40.0f32);
+        let (x0, x1, cy) = (120.0, 120.0 + 8.37 * r as f64, 130.0);
+        let line = |hardness: f32, flow: f32, version: Option<u32>| BrushLine {
+            tool: "brush".into(),
+            brush_size: 2.0 * r,
+            points: vec![Point { x: x0, y: cy }, Point { x: x1, y: cy }],
+            feather: 0.5,
+            opacity: None,
+            flow: Some(flow),
+            hardness: Some(hardness),
+            lr_center_weight: None,
+            auto_mask: false,
+            auto_mask_version: None,
+            dab_version: version,
+            frame: None,
+        };
+        // Per row across the stroke's middle: the largest swing along it and
+        // the mean; the end's coverage on the centre line.
+        let measure = |mask: &GrayImage| {
+            let (from, to) = ((x0 + 2.0 * r as f64) as u32, (x1 - 2.0 * r as f64) as u32);
+            let (mut ripple, mut means) = (0u8, Vec::new());
+            for y in 0..h {
+                let row: Vec<u8> = (from..to).map(|x| mask.get_pixel(x, y)[0]).collect();
+                ripple = ripple.max(row.iter().max().unwrap() - row.iter().min().unwrap());
+                means.push(row.iter().map(|&v| v as f32).sum::<f32>() / row.len() as f32);
+            }
+            (ripple, means, mask.get_pixel(x1 as u32, cy as u32)[0])
+        };
+        for (hardness, flow) in [(50.0, 100.0), (75.0, 100.0), (50.0, 30.0), (25.0, 100.0)] {
+            let v1 = painted(&[line(hardness, flow, None)], w, h);
+            assert_eq!(v1, painted(&[line(hardness, flow, Some(1))], w, h));
+            let v2 = painted(&[line(hardness, flow, Some(2))], w, h);
+            let ((ripple1, means1, end1), (ripple2, means2, end2)) = (measure(&v1), measure(&v2));
+            let width = means1
+                .iter()
+                .zip(&means2)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0f32, f32::max);
+            println!(
+                "hardness {hardness} flow {flow}: ripple {ripple1} -> {ripple2}, mean across {width:.2}, end {end1} -> {end2}"
+            );
+            assert!(
+                ripple2 <= 2,
+                "hardness {hardness} flow {flow}: ripple {ripple2}"
+            );
+            assert!(
+                ripple1 >= 4,
+                "hardness {hardness} flow {flow}: v1 ripple {ripple1}"
+            );
+            assert!(
+                width <= 1.5,
+                "hardness {hardness} flow {flow}: mean moved {width}"
+            );
+            assert!(
+                end2 >= end1,
+                "hardness {hardness} flow {flow}: end {end1} -> {end2}"
+            );
+        }
+        // Hardness 50 at full flow: version 1 stopped short of the last point.
+        let end = |version| measure(&painted(&[line(50.0, 100.0, version)], w, h)).2;
+        assert!(
+            end(None) < 240 && end(Some(2)) == 255,
+            "{} {}",
+            end(None),
+            end(Some(2))
+        );
+    }
+
     fn stroke_line(points: &[(f64, f64)]) -> BrushLine {
         BrushLine {
             tool: "brush".into(),
@@ -6755,6 +6943,7 @@ mod stroke_rasterization_tests {
             lr_center_weight: None,
             auto_mask: false,
             auto_mask_version: None,
+            dab_version: None,
             frame: None,
         }
     }
