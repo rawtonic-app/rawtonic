@@ -80,7 +80,11 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 6 (2026-10-17) measures the finest detail against
+/// The newest version: 7 (2026-10-18) limits how far a pixel that is no
+/// outlier moves where its aware expansion took a side of a colour
+/// transition, so noisy pixels along colour edges no longer snap to the
+/// wrong side as isolated specks ([`Tuning::snap_limit`]); 6 (2026-10-17)
+/// measures the finest detail against
 /// the same edge-aware expansion of level 1 the reconstruction takes, so a
 /// colour edge no longer gets a halo and dark sides of colour edges no
 /// longer blotchy rims ([`Tuning::finest_detail_aware`]); 5 (2026-10-17)
@@ -92,7 +96,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 6;
+pub const VERSION: u64 = 7;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -314,6 +318,14 @@ pub struct Tuning {
     /// 0.1–0.45 px wider than version 5's, which snapped them to a side
     /// (notes: reference/color-noise-reference.md, round 11). Version 6.
     pub finest_detail_aware: bool,
+    /// Where the finest aware reconstruction differs from the plain one by
+    /// 1.5–3 noise σ (a side was chosen at a colour transition), a
+    /// pixel the switch guide does not call an outlier moves at most this
+    /// many finest noise σ from its own chroma (0 = no limit, multiples of
+    /// 0.25 up to 3.75). Pixels that took the wrong side kept their noisy
+    /// colour against the other side's: isolated specks along colour edges
+    /// (notes: reference/color-noise-reference.md, round 12). Version 7.
+    pub snap_limit: f32,
 }
 
 impl Default for Tuning {
@@ -356,9 +368,16 @@ impl Tuning {
         if version == 5 {
             return v5;
         }
-        Self {
+        let v6 = Self {
             finest_detail_aware: true,
             ..v5
+        };
+        if version == 6 {
+            return v6;
+        }
+        Self {
+            snap_limit: SNAP_LIMIT,
+            ..v6
         }
     }
 
@@ -396,6 +415,7 @@ impl Tuning {
             guide_gate: false,
             guide_detail: false,
             finest_detail_aware: false,
+            snap_limit: 0.0,
         }
     }
 
@@ -403,9 +423,16 @@ impl Tuning {
     /// own chroma, 1 mean, 2 median, 3 switch, + 4 when the edge-kept detail
     /// is the guide's, + 8 with the edge gate, + 16 when all detail is the
     /// guide's; + 32 with the detail against the aware expansion
-    /// ([`Tuning::finest_detail_aware`]); and the switch's squared multiple.
+    /// ([`Tuning::finest_detail_aware`]); + 64 + 256 × 4 K with the snap
+    /// limit K ([`Tuning::snap_limit`], only with the switch); and the
+    /// switch's squared multiple.
     pub fn finest_guide_code(&self) -> (f32, f32) {
         let aware = if self.finest_detail_aware { 32.0 } else { 0.0 };
+        let snap = if self.snap_limit > 0.0 {
+            64.0 + 256.0 * (self.snap_limit * 4.0).round().min(15.0)
+        } else {
+            0.0
+        };
         if !self.guide_finest {
             return (aware, 0.0);
         }
@@ -419,7 +446,12 @@ impl Tuning {
             code + if self.guide_edge { 4.0 } else { 0.0 }
                 + if self.guide_gate { 8.0 } else { 0.0 }
                 + if self.guide_detail { 16.0 } else { 0.0 }
-                + aware,
+                + aware
+                + if matches!(self.guide, Guide::Switch(_)) {
+                    snap
+                } else {
+                    0.0
+                },
             k2,
         )
     }
@@ -1006,6 +1038,16 @@ pub const AWARE_FLAT: f32 = 1e-3;
 /// leaves colour edges softer, higher more 1–4 px mottling; notes:
 /// reference/color-noise-reference.md).
 pub const AWARE_FAR: f32 = 25.0;
+
+/// Version 7's [`Tuning::snap_limit`] in finest noise σ (notes:
+/// reference/color-noise-reference.md, round 12).
+pub const SNAP_LIMIT: f32 = 1.5;
+
+/// WGSL `smoothstep`.
+fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
 
 /// Taps and weights of the expansion of a coarser level at finer position
 /// `x` (`n` coarser samples): 1/8, 3/4, 1/8 around an even position, 1/2,
@@ -2014,6 +2056,32 @@ pub fn filtered_pixel(rgb: [f32; 3], level1: Px, rebuilt: Px, g: f32) -> [f32; 3
     with_chroma(rgb, lp, a, b)
 }
 
+/// [`filtered_pixel`] whose chroma moves at most `limit` from the pixel's
+/// own, by the share `snap` (0 … 1) of the limit ([`Tuning::snap_limit`];
+/// renderer `apply_color_noise_multiscale`, code bit 64).
+pub fn filtered_pixel_limited(
+    rgb: [f32; 3],
+    level1: Px,
+    rebuilt: Px,
+    g: f32,
+    limit: f32,
+    snap: f32,
+) -> [f32; 3] {
+    let p = rgb.map(encode);
+    let lp = LUMA[0] * p[0] + LUMA[1] * p[1] + LUMA[2] * p[2];
+    let c0 = [p[0] - p[1], p[2] - p[1]];
+    let mut a = rebuilt[0] + g * (c0[0] - level1[0]);
+    let mut b = rebuilt[1] + g * (c0[1] - level1[1]);
+    let (ma, mb) = (a - c0[0], b - c0[1]);
+    let len = (ma * ma + mb * mb).sqrt();
+    if len > limit {
+        let k = 1.0 + (limit / len - 1.0) * snap;
+        a = c0[0] + ma * k;
+        b = c0[1] + mb * k;
+    }
+    with_chroma(rgb, lp, a, b)
+}
+
 /// [`filtered_pixel`] with the edge-kept detail from the guide
 /// ([`Tuning::guide_edge`]): the detail kept by the energy gain `g` is the
 /// pixel's own, the further share `edge` kept only by the finest edge guard
@@ -2118,6 +2186,12 @@ pub fn apply_with(
     let guide_edge = guide.is_some() && tuning.guide_edge;
     let guide_gate = guide.is_some() && tuning.guide_gate;
     let guide_detail = guide.is_some() && tuning.guide_detail;
+    // Version 7 (renderer: code bit 64), only with the switch guide.
+    let snap_limit = if matches!(tuning.guide, Guide::Switch(_)) {
+        (tuning.snap_limit * 4.0).round().min(15.0) / 4.0
+    } else {
+        0.0
+    };
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3)
         .enumerate()
@@ -2204,20 +2278,30 @@ pub fn apply_with(
                     row[x * 3..x * 3 + 3].copy_from_slice(&v);
                     continue;
                 }
-                let v = filtered_pixel(
-                    rgb,
-                    level1_at,
-                    rebuilt_at,
-                    if edge2 > 0.0 {
-                        gain(size2[i], t2, steepness).max(gain(
-                            level1_gradient2(&rebuilt, x, y),
-                            edge2,
-                            steepness,
-                        ))
-                    } else {
-                        gain(size2[i], t2, steepness)
-                    },
-                );
+                let g = if edge2 > 0.0 {
+                    gain(size2[i], t2, steepness).max(gain(
+                        level1_gradient2(&rebuilt, x, y),
+                        edge2,
+                        steepness,
+                    ))
+                } else {
+                    gain(size2[i], t2, steepness)
+                };
+                let v = match &guide {
+                    Some(guide) if snap_limit > 0.0 && guide[i] == chroma(rgb) => {
+                        let plain = expand_at(&rebuilt, x, y);
+                        let snap = [rebuilt_at[0] - plain[0], rebuilt_at[1] - plain[1]];
+                        filtered_pixel_limited(
+                            rgb,
+                            level1_at,
+                            rebuilt_at,
+                            g,
+                            snap_limit * aware2.sqrt(),
+                            smoothstep(2.25, 9.0, (snap[0] * snap[0] + snap[1] * snap[1]) / aware2),
+                        )
+                    }
+                    _ => filtered_pixel(rgb, level1_at, rebuilt_at, g),
+                };
                 row[x * 3..x * 3 + 3].copy_from_slice(&v);
             }
         });
@@ -2471,6 +2555,7 @@ mod tests {
         assert!(multiscale(&json!({"colorNoiseVersion": 4}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 5}), false));
         assert!(multiscale(&json!({"colorNoiseVersion": 6}), false));
+        assert!(multiscale(&json!({"colorNoiseVersion": 7}), false));
         assert!(!multiscale(&json!({"colorNoiseVersion": 1}), true));
         // Saved colour noise reduction without a version: as before.
         assert!(!multiscale(&json!({"colorNoiseReduction": 25}), true));
@@ -2480,7 +2565,7 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 6);
+        assert_eq!(VERSION, 7);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
@@ -2587,7 +2672,6 @@ mod tests {
         // Version 5 recipes render exactly as before version 6: the finest
         // detail against the plain expansion of level 1.
         let (v5, v6) = (Tuning::for_version(5), Tuning::for_version(6));
-        assert_eq!(v6, Tuning::default());
         assert!(!v5.finest_detail_aware && v6.finest_detail_aware);
         assert_eq!(v5.finest_guide_code(), (3.0, 1.0));
         assert_eq!(v6.finest_guide_code(), (35.0, 1.0));
@@ -2660,6 +2744,26 @@ mod tests {
         println!("overshoot past the dark side: version 5 {v5:.4}, version 6 {v6:.4}");
         assert!(v5 > 0.05 && v6 < 0.1 * v5, "{v5} → {v6}");
     }
+    #[test]
+    fn version_7_keeps_its_snap_limit_to_side_choices() {
+        // Version 6 recipes render exactly as before version 7.
+        let (v6, v7) = (Tuning::for_version(6), Tuning::for_version(7));
+        assert_eq!(v7, Tuning::default());
+        assert_eq!((v6.snap_limit, v7.snap_limit), (0.0, SNAP_LIMIT));
+        assert_eq!(v6.finest_guide_code(), (35.0, 1.0));
+        assert_eq!(v7.finest_guide_code(), (35.0 + 64.0 + 256.0 * 6.0, 1.0));
+        assert_eq!(
+            Tuning {
+                snap_limit: 0.0,
+                ..v7
+            },
+            v6
+        );
+        for version in 2..=6 {
+            assert_eq!(Tuning::for_version(version).snap_limit, 0.0);
+        }
+    }
+
     #[test]
     fn dark_noisy_colours_keep_their_mean_with_version_4() {
         // A black cat's bluish fur: red is weak against the noise. Versions

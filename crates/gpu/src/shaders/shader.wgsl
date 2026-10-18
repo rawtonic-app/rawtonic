@@ -3485,6 +3485,20 @@ fn apply_color_noise_multiscale(
         }
         ab = center_e.zw + g0 * (c0 - center_e.xy);
     }
+    // Version 7 (code bit 64): where the aware reconstruction left the plain
+    // one by 1.5-3 noise (a side was chosen at a colour transition),
+    // a pixel that is no outlier of its 3 x 3 moves at most K noise from its
+    // own chroma, K = (code >> 8) / 4 (color_noise.rs `Tuning::snap_limit`).
+    if ((guide_code & 64u) != 0u && aware2 > 0.0 && all(guide == c0)) {
+        let dr = center_e.zw - ms_expand(coords_i).zw;
+        let snap = smoothstep(2.25, 9.0, dot(dr, dr) / aware2);
+        let limit = f32((guide_code >> 8u) & 15u) * 0.25 * sqrt(aware2);
+        let mv = ab - c0;
+        let len = length(mv);
+        if (len > limit) {
+            ab = c0 + mv * mix(1.0, limit / len, snap);
+        }
+    }
     // A layer with less colour noise reduction than the photo's returns
     // part of the pixel's own colour.
     let global_a = clamp(adjustments.global.color_noise_reduction, 0.0, 1.0);

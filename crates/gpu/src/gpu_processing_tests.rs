@@ -8404,7 +8404,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
     // Wider than one tile, so the half-resolution texture is addressed in
     // image coordinates across tiles.
     let image = chroma_noise_frame(2300, 300);
-    for version in [2, 3, 4, 5, 6] {
+    for version in [2, 3, 4, 5, 6, 7] {
         let gpu = render_source(
             &context,
             &image,
@@ -8457,7 +8457,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
         assert!(changed as f64 / n > 40.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 600, "max {worst}");
-        // The switched guide of versions 5 and 6 is discontinuous: where a pixel's chroma
+        // The switched guide of versions 5-7 is discontinuous: where a pixel's chroma
         // lies about one noise unit from its 3 x 3 median, GPU and CPU
         // rounding can flip the side it takes (10 of 690 000 pixels above 64
         // levels, none for versions 2-4). Such flips must stay rare.
@@ -8514,6 +8514,12 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 6})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 5}))
+    );
+    // Version 7 only limits how far the filter moves a pixel: at Color 0 it
+    // renders as version 6.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 7})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 6}))
     );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
@@ -8631,7 +8637,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=6 {
+        for version in 1..=7 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {
