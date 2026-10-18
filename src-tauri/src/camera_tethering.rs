@@ -52,6 +52,12 @@ struct Record {
     settings: CaptureSettings,
 }
 
+/// Where the helper's photos go: the connection's ingest, when there is one.
+type IngestSender = Arc<Mutex<Option<mpsc::Sender<(Captured, Instant)>>>>;
+
+/// The helper's path, arguments and environment.
+type HelperCommand = (PathBuf, Vec<OsString>, Vec<(OsString, OsString)>);
+
 struct Connection {
     session: PathBuf,
     status: CameraStatus,
@@ -63,7 +69,7 @@ struct Helper {
     library: Option<String>,
     /// Where the helper's photos go (the connection's ingest), shared with
     /// the callback that hears them.
-    ingest: Arc<Mutex<Option<mpsc::Sender<(Captured, Instant)>>>>,
+    ingest: IngestSender,
     connection: Option<Connection>,
 }
 
@@ -81,7 +87,7 @@ fn text(e: TetherError) -> String {
 /// overrides the path; `RAWTONIC_TETHER_MOCK` (a mock script, for tests and
 /// QA without a camera) starts the mock camera. Bundled camera drivers
 /// (packaging) are passed in libgphoto2's variables.
-fn helper_command() -> Result<(PathBuf, Vec<OsString>, Vec<(OsString, OsString)>), String> {
+fn helper_command() -> Result<HelperCommand, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("no executable folder")?;
     let path = std::env::var_os("RAWTONIC_TETHER_HELPER")
@@ -112,7 +118,7 @@ fn helper_command() -> Result<(PathBuf, Vec<OsString>, Vec<(OsString, OsString)>
 /// Emits the helper's events; photos go to the connection's ingest.
 fn on_incoming(
     app: AppHandle,
-    ingest: Arc<Mutex<Option<mpsc::Sender<(Captured, Instant)>>>>,
+    ingest: IngestSender,
 ) -> impl Fn(Incoming) + Send + Sync + 'static {
     move |incoming| match incoming {
         Incoming::Event(Event::Captured { captured }) => {
