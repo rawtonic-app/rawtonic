@@ -116,10 +116,7 @@ fn helper_command() -> Result<HelperCommand, String> {
 }
 
 /// Emits the helper's events; photos go to the connection's ingest.
-fn on_incoming(
-    app: AppHandle,
-    ingest: IngestSender,
-) -> impl Fn(Incoming) + Send + Sync + 'static {
+fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send + Sync + 'static {
     move |incoming| match incoming {
         Incoming::Event(Event::Captured { captured }) => {
             let received = Instant::now();
