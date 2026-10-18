@@ -215,29 +215,59 @@ describe("preset amount", () => {
     expect(next).toMatchObject({ contrast: 20, saturation: -50, exposure: 0.5 });
   });
 
-  it("looks up the lens a preset's amount chooses for the open photo", async () => {
+  describe("a preset that switches the lens", () => {
     const lensPreset: UserPreset = { preset: { id: "fe50", name: "FE 50 look", adjustments: {
       lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G",
     }, presetType: "tool" } };
     const params = { k1: 0.01, k2: 0, k3: 0, model: 1, tca_vr: 1, tca_vb: 1, vig_k1: 0, vig_k2: 0, vig_k3: 0 };
-    mockInvoke.mockImplementation(async (command) =>
-      command === "load_presets" ? [lensPreset] : command === "get_lens_distortion_params" ? params : undefined);
-    useEditorStore.setState({
-      selectedImage: { path: "/job/a.arw", isReady: true, exif: { FocalLength: "50.0 mm", FNumber: "2.5" } } as never,
-      adjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: "manual", lensMaker: "Sigma",
-        lensModel: "35mm F1.4 DG DN | Art", lensDistortionParams: { ...params, k1: -0.03 } },
-    });
-    await renderTool();
-    fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
-    fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "80" } });
-    await act(async () => {});
-    expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", expect.objectContaining({
-      maker: "Sony", model: "FE 50mm f/2.5 G", path: "/job/a.arw",
-    }));
-    const patch = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
-    const now = { lensCorrectionMode: "manual", lensMaker: "Sony", lensModel: "FE 50mm f/2.5 G",
+    const sigma = { lensCorrectionMode: "manual", lensMaker: "Sigma", lensModel: "35mm F1.4 DG DN | Art",
       lensDistortionParams: { ...params, k1: -0.03 } };
-    expect(patch(now)).toMatchObject({ lensDistortionParams: params });
+    let lookup: { resolve: (v: unknown) => void; reject: (e: unknown) => void };
+    beforeEach(() => {
+      mockInvoke.mockImplementation((command) => {
+        if (command === "load_presets") return Promise.resolve([lensPreset]);
+        if (command === "get_lens_distortion_params")
+          return new Promise((resolve, reject) => { lookup = { resolve, reject }; });
+        return Promise.resolve(undefined);
+      });
+      useEditorStore.setState({
+        selectedImage: { path: "/job/a.arw", isReady: true, exif: { FocalLength: "50.0 mm" } } as never,
+        adjustments: { ...INITIAL_ADJUSTMENTS, ...sigma } as never,
+      });
+    });
+    const amountTo80 = async () => {
+      await renderTool();
+      fireEvent.click(screen.getByRole("button", { name: /FE 50 look/ }));
+      setAdjustments.mockReset();
+      fireEvent.change(screen.getByLabelText("Preset amount"), { target: { value: "80" } });
+      await act(async () => {});
+    };
+
+    it("commits the new lens only with its parameters, looked up for the photo", async () => {
+      await amountTo80();
+      expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", expect.objectContaining({
+        maker: "Sony", model: "FE 50mm f/2.5 G", path: "/job/a.arw",
+      }));
+      // Nothing committed while the lookup runs.
+      expect(setAdjustments).not.toHaveBeenCalled();
+      await act(async () => lookup.resolve(params));
+      const update = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
+      expect(update({ ...INITIAL_ADJUSTMENTS, ...sigma })).toMatchObject({ lensModel: "FE 50mm f/2.5 G", lensDistortionParams: params });
+    });
+
+    it("commits nothing for a photo left before the lookup finished", async () => {
+      await amountTo80();
+      useEditorStore.setState({ selectedImage: { path: "/job/b.arw", isReady: true } as never });
+      await act(async () => lookup.resolve(params));
+      expect(setAdjustments).not.toHaveBeenCalled();
+    });
+
+    it("keeps the lens as it was when the lookup fails", async () => {
+      await amountTo80();
+      await act(async () => lookup.reject(new Error("no database")));
+      const update = setAdjustments.mock.lastCall![0] as (current: Record<string, unknown>) => Record<string, unknown>;
+      expect(update({ ...INITIAL_ADJUSTMENTS, ...sigma })).toMatchObject(sigma);
+    });
   });
 
   it("offers no amount when a preset goes to several photographs", async () => {

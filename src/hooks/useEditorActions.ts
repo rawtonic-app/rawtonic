@@ -23,7 +23,7 @@ import {
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
-import { lensChoice, lookUpLensProfile } from '../utils/lensProfile';
+import { lookUpLensProfile } from '../utils/lensProfile';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -536,21 +536,27 @@ export function useEditorActions() {
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
         const merged = { ...adjustments, ...adjustmentsToApply };
-        setAdjustments(merged);
-        // A pasted lens choice is looked up for this photo (saves keep the
-        // parameters they get).
         if (['lensCorrectionMode', 'lensMaker', 'lensModel'].some((key) => key in adjustmentsToApply)) {
+          // A pasted lens choice is looked up for this photo first and
+          // committed with its parameters (saves keep the parameters they
+          // get); if that fails the open photo keeps its lens here and takes
+          // the one written below when it reloads.
+          const lensKeys = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
+          const withoutLens = Object.fromEntries(
+            Object.entries(merged).filter(([key]) => !lensKeys.includes(key)),
+          ) as Partial<Adjustments>;
           void lookUpLensProfile(selectedImage.path, selectedImage.exif ?? {}, merged)
+            .catch(() => null)
             .then((lens) => {
-              if (!lens || !isCurrentEditorImage(selectedImage.path)) return;
+              if (!isCurrentEditorImage(selectedImage.path)) return;
               setAdjustments((prev: Adjustments) =>
-                lensChoice(prev) === lensChoice(merged) ? { ...prev, ...lens } : prev,
+                lens ? { ...prev, ...merged, ...lens } : { ...prev, ...withoutLens },
               );
-            })
-            .catch(() => {});
+            });
+        } else {
+          setAdjustments(merged);
         }
       }
-
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),

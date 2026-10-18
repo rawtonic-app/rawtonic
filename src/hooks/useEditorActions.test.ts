@@ -521,3 +521,23 @@ it('looks up a lens choice pasted onto the open photo for it', async () => {
     lensCorrectionMode: 'auto', lensMaker: 'Sony', lensModel: 'FE 50mm f/2.5 G', lensDistortionParams: { k1: 0.01 },
   });
 });
+
+it('keeps the open photo on its lens when the lookup of a pasted lens choice fails', async () => {
+  const before = useEditorStore.getState().adjustments;
+  useEditorStore.setState({
+    copiedAdjustments: { ...INITIAL_ADJUSTMENTS, lensCorrectionMode: 'auto', exposure: 1.5 },
+    selectedImage: { ...photo('/first.dng'), exif: { Make: 'SONY', LensModel: 'FE 50mm F2.5 G', Model: 'ILCE-7M4' } },
+  });
+  useSettingsStore.setState({ appSettings: {
+    copyPasteSettings: { mode: PasteMode.Replace, includedAdjustments: ['lensCorrectionMode', 'exposure'] },
+  } as AppSettings });
+  const { result } = renderHook(useEditorActions);
+  await act(async () => result.current.handlePasteAdjustments(['/first.dng']));
+  const request = pending.find((r) => r.command === Invokes.AutodetectLens)!;
+  request.settled = true;
+  await act(async () => (request.resolve as (v: unknown) => void)(Promise.reject(new Error('no database'))));
+  await act(async () => {});
+  expect(useEditorStore.getState().adjustments).toMatchObject({
+    exposure: 1.5, lensCorrectionMode: before.lensCorrectionMode, lensDistortionParams: before.lensDistortionParams,
+  });
+});
