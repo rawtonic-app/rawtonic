@@ -12,6 +12,7 @@ import {
   Layers,
   PenLine,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -21,17 +22,19 @@ import { useSettingsStore } from "../../store/useSettingsStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
 import { openMaskingTools } from "../../hooks/useAiMasking";
 import { useContextMenu } from "../../context/ContextMenuContext";
-import { shortcutHint } from "../../utils/keyboardUtils";
+import { formatKeyCode, shortcutHint } from "../../utils/keyboardUtils";
 import { OPTION_SEPARATOR, Panel } from "../ui/AppProperties";
 import type { MaskContainer } from "../../utils/adjustments";
 import type { MaskKind } from "../../utils/maskKinds";
 import StudioLayerControls from "./StudioLayerControls";
-import StudioMaskComponents, { StudioMaskComponentSettings } from "./StudioMaskComponents";
+import StudioMaskComponents, { StudioMaskComponentSettings, maskComponentLabel } from "./StudioMaskComponents";
 import { MASK_KIND_GROUPS, MASK_KIND_ICONS, componentIcon, maskKindMenu } from "./maskKindMenu";
 import { useStudioTools } from "./useStudioTools";
 import { createDragGhost } from "./dragGhost";
 import MaskThumb from "./MaskThumb";
 import { useMaskThumbnailStore, useMaskThumbnailUpdates } from "../../hooks/useMaskThumbnails";
+import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
+import { AUTO_MASK_VERSION, canUpgradeAutoMask, layerAutoMaskVersions, upgradeLayerAutoMask } from "../../utils/autoMaskUpgrade";
 
 /** Drop target id of the Background row in the layer list. */
 const BACKGROUND_ROW = "background";
@@ -217,7 +220,12 @@ export default function StudioLayers({
   const { t } = useTranslation();
   const masks = useEditorStore((s) => s.adjustments.masks);
   const setEditor = useEditorStore((s) => s.setEditor);
+  const layerSolo = useEditorStore((s) => s.layerSolo);
   const { setAdjustments } = useEditorActions();
+  const keybinds = useSettingsStore((s) => s.appSettings?.keybinds);
+  const osPlatform = useSettingsStore((s) => s.osPlatform);
+  const soloKey = shortcutHint("toggle_layer_solo", keybinds, osPlatform);
+  const altKey = formatKeyCode("alt", osPlatform);
   const { showContextMenu } = useContextMenu();
   const { layer, paintOnLayer, toggleInvert } = useStudioTools();
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -236,6 +244,7 @@ export default function StudioLayers({
       activeMaskId: mask.subMasks[0]?.id || null,
       focusedMaskComponentId: null,
       isWbPickerActive: false,
+      layerSolo: soloAfterSelect(layerSolo, mask.id),
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };
@@ -271,8 +280,18 @@ export default function StudioLayers({
   };
   const deleteLayer = (id: string) => {
     setAdjustments((prev) => ({ ...prev, masks: prev.masks.filter((m) => m.id !== id) }));
-    setEditor({ activeMaskContainerId: null, activeMaskId: null });
+    setEditor({ activeMaskContainerId: null, activeMaskId: null, ...(layerSolo?.layerId === id ? { layerSolo: null } : {}) });
   };
+  // Solo is a view (never in the recipe): the eye's Option/Alt-click, the
+  // menu or H shows the layer alone; the same again shows every layer.
+  const soloLayer = (target: MaskContainer) => setEditor({ layerSolo: toggleLayerSolo(layerSolo, target.id) });
+  // D6: older Auto Mask strokes (Lightroom imports) keep their version until
+  // asked; one step re-renders them with the current method.
+  const upgradeAutoMask = (target: MaskContainer) =>
+    setAdjustments((prev) => ({
+      ...prev,
+      masks: prev.masks.map((m) => (m.id === target.id ? upgradeLayerAutoMask(m) : m)),
+    }));
   // Layers apply in list order from the bottom (Background) up, as in
   // Photoshop: the top row is applied last. `masks` is in application order.
   const reorderLayers = (order: string[]) =>
@@ -292,7 +311,14 @@ export default function StudioLayers({
   };
   const layerMenu = (e: MouseEvent, target: MaskContainer) => {
     e.preventDefault();
+    const autoMaskVersions = layerAutoMaskVersions(target);
     showContextMenu(e.clientX, e.clientY, [
+      {
+        label: soloKey ? `${t("studio.develop.layers.menu.solo")} (${soloKey})` : t("studio.develop.layers.menu.solo"),
+        icon: layerSolo?.layerId === target.id && !layerSolo.componentId ? Check : Eye,
+        onClick: () => soloLayer(target),
+      },
+      { type: OPTION_SEPARATOR },
       {
         label: t("editor.masks.settings.invertMask"),
         icon: target.invert ? Check : FlipHorizontal2,
@@ -324,6 +350,19 @@ export default function StudioLayers({
         icon: FlipHorizontal2,
         onClick: () => duplicateLayer(target, true),
       },
+      // Only on layers with older Auto Mask strokes, naming their versions.
+      ...(canUpgradeAutoMask(target)
+        ? [
+            {
+              label: t("studio.develop.layers.menu.upgradeAutoMask", {
+                from: autoMaskVersions.filter((v) => v < AUTO_MASK_VERSION).join(", "),
+                to: AUTO_MASK_VERSION,
+              }),
+              icon: Sparkles,
+              onClick: () => upgradeAutoMask(target),
+            },
+          ]
+        : []),
       { type: OPTION_SEPARATOR },
       {
         label: t("studio.develop.layers.menu.moveUp"),
@@ -414,9 +453,28 @@ export default function StudioLayers({
       <NewLayerGrid />
     );
 
+  const soloed = layerSolo && masks.find((m) => m.id === layerSolo.layerId);
+  const soloedComponent = soloed && soloed.subMasks.find((sub) => sub.id === layerSolo.componentId);
+  const soloName = soloed
+    ? soloedComponent
+      ? `${soloed.name} · ${maskComponentLabel(t, soloedComponent, Boolean(soloed.invert))}`
+      : soloed.name
+    : "";
   return (
     <>
       <QuickLayerBar />
+      {soloed && (
+        <button
+          type="button"
+          className="studio-layer-solo-note"
+          title={soloKey ? `${t("studio.develop.layers.soloEnd")} (${soloKey})` : t("studio.develop.layers.soloEnd")}
+          onClick={() => setEditor({ layerSolo: null })}
+        >
+          <Eye size={12} aria-hidden="true" />
+          <span>{t("studio.develop.layers.soloShowing", { name: soloName })}</span>
+          <span className="studio-layer-solo-end">{t("studio.develop.layers.soloEnd")}</span>
+        </button>
+      )}
       <div className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
         {[...masks].reverse().map((mask) => {
           const selected = layer?.id === mask.id;
@@ -427,6 +485,8 @@ export default function StudioLayers({
                 role="listitem"
                 data-layer-row={mask.id}
                 className={`studio-layer ${selected ? "is-selected" : ""} ${mask.visible ? "" : "is-hidden"} ${
+                  layerSolo ? (layerSolo.layerId === mask.id ? "is-solo" : "is-solo-muted") : ""
+                } ${
                   layerDrag?.id === mask.id ? "is-dragged" : ""
                 } ${
                   layerDrag?.target === mask.id && layerDrag.id !== mask.id
@@ -471,11 +531,14 @@ export default function StudioLayers({
                 <button
                   className="studio-row-icon studio-layer-eye"
                   aria-label={t("studio.develop.layers.toggle", { name: mask.name })}
-                  onClick={() =>
-                    setAdjustments((prev) => ({
-                      ...prev,
-                      masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
-                    }))
+                  title={t("studio.develop.layers.eyeTitle", { alt: altKey })}
+                  onClick={(e) =>
+                    e.altKey
+                      ? soloLayer(mask)
+                      : setAdjustments((prev) => ({
+                          ...prev,
+                          masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
+                        }))
                   }
                 >
                   {mask.visible ? <Eye size={12} /> : <EyeOff size={12} />}
@@ -499,7 +562,7 @@ export default function StudioLayers({
             }`}
             data-layer-row={BACKGROUND_ROW}
             aria-current={!layer ? "true" : undefined}
-            onClick={() => setEditor({ activeMaskContainerId: null, activeMaskId: null })}
+            onClick={() => setEditor({ activeMaskContainerId: null, activeMaskId: null, layerSolo: null })}
           >
             <span className="studio-mask-thumb is-layer is-plain" aria-hidden="true">
               <Layers size={13} />

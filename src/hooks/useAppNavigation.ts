@@ -202,6 +202,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
         isWbPickerActive: false,
         colorPickerTarget: null,
         colorRangeShow: null,
+        layerSolo: null,
         activeColorRangeId: null,
         previewOverride: null,
       });

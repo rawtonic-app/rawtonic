@@ -1282,6 +1282,7 @@
         "toggle_export": "Alternar tauler d'Exportació",
         "toggle_folder_tree": "Alternar tauler d'arbre de carpetes",
         "toggle_fullscreen": "Alternar pantalla completa",
+        "toggle_layer_solo": "Mostra només la capa o màscara seleccionada",
         "toggle_left_panel": "Commutar el panell esquerre",
         "toggle_library_exif": "Alternar superposició EXIF",
         "toggle_mask_grayscale": "Màscara en escala de grisos",
@@ -1723,6 +1724,7 @@
         "whiteBalance": "Balanç de blancs"
       },
       "history": {
+        "autoMaskUpgraded": "Màscara automàtica actualitzada",
         "current": "Actual",
         "empty": "Aquí apareix l'historial del revelatge.",
         "layerAdded": "Capa nova {{name}}",
@@ -1743,6 +1745,7 @@
         "delete": "Suprimeix {{name}}",
         "dragOrder": "Arrossega per canviar l'ordre de les capes",
         "drawMaskInside": "Dibuixa la màscara a dins",
+        "eyeTitle": "Mostra o amaga; {{alt}}-clic mostra només aquesta capa",
         "fromSelection": "Nova capa a partir d'una selecció",
         "groups": {
           "draw": "Dibuixa",
@@ -1771,7 +1774,9 @@
           "eraseMask": "Esborra la màscara",
           "moveDown": "Baixa la capa",
           "moveUp": "Puja la capa",
-          "rename": "Canvia el nom de la capa…"
+          "rename": "Canvia el nom de la capa…",
+          "solo": "Mostra només aquesta capa",
+          "upgradeAutoMask": "Actualitza a la màscara automàtica actual (versió {{from}} → {{to}})"
         },
         "nameOf": "Nom de {{name}}",
         "new": "Nova capa",
@@ -1795,6 +1800,8 @@
         "noneYet": "Encara no hi ha capes. Afegeix-ne una amb + o a la pestanya Capes.",
         "quickAria": "Capa nova amb un clic",
         "select": "Selecciona {{name}}",
+        "soloEnd": "Mostra-ho tot",
+        "soloShowing": "Només es mostra {{name}}",
         "toggle": "Mostra/amaga {{name}}"
       },
       "layout": {
@@ -2506,6 +2513,7 @@
         "nearLimit": "Límit proper"
       },
       "erase": "Esborra",
+      "eyeTitle": "Mostra o amaga; {{alt}}-clic mostra només aquesta màscara",
       "hints": {
         "color": "Fes clic al color que vols seleccionar.",
         "object": "Arrossega un requadre al voltant de l'objecte."

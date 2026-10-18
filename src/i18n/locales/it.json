@@ -1282,6 +1282,7 @@
         "toggle_export": "Attiva/Disattiva pannello Esportazione",
         "toggle_folder_tree": "Mostra/Nascondi pannello albero delle cartelle",
         "toggle_fullscreen": "Attiva/Disattiva schermo intero",
+        "toggle_layer_solo": "Mostra solo il livello o la maschera selezionati",
         "toggle_left_panel": "Mostra/Nascondi pannello sinistro",
         "toggle_library_exif": "Attiva/Disattiva overlay EXIF",
         "toggle_mask_grayscale": "Maschera in scala di grigi",
@@ -1723,6 +1724,7 @@
         "whiteBalance": "Bilanciamento del bianco"
       },
       "history": {
+        "autoMaskUpgraded": "Maschera automatica aggiornata",
         "current": "Attuale",
         "empty": "Qui appare la cronologia dello sviluppo.",
         "layerAdded": "Nuovo livello {{name}}",
@@ -1743,6 +1745,7 @@
         "delete": "Elimina {{name}}",
         "dragOrder": "Trascina per cambiare l'ordine dei livelli",
         "drawMaskInside": "Disegna maschera all'interno",
+        "eyeTitle": "Mostra o nascondi; {{alt}}-clic mostra solo questo livello",
         "fromSelection": "Nuovo livello da una selezione",
         "groups": {
           "draw": "Disegna",
@@ -1771,7 +1774,9 @@
           "eraseMask": "Cancella maschera",
           "moveDown": "Sposta livello giù",
           "moveUp": "Sposta livello su",
-          "rename": "Rinomina livello…"
+          "rename": "Rinomina livello…",
+          "solo": "Mostra solo questo livello",
+          "upgradeAutoMask": "Aggiorna alla maschera automatica attuale (versione {{from}} → {{to}})"
         },
         "nameOf": "Nome di {{name}}",
         "new": "Nuovo livello",
@@ -1795,6 +1800,8 @@
         "noneYet": "Ancora nessun livello. Aggiungine uno con + o nella scheda Livelli.",
         "quickAria": "Nuovo livello con un clic",
         "select": "Seleziona {{name}}",
+        "soloEnd": "Mostra tutto",
+        "soloShowing": "Mostrato solo {{name}}",
         "toggle": "Mostra/nascondi {{name}}"
       },
       "layout": {
@@ -2506,6 +2513,7 @@
         "nearLimit": "Limite vicino"
       },
       "erase": "Cancella",
+      "eyeTitle": "Mostra o nascondi; {{alt}}-clic mostra solo questa maschera",
       "hints": {
         "color": "Fai clic sul colore da selezionare.",
         "object": "Trascina un riquadro attorno all'oggetto."

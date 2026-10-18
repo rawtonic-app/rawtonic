@@ -1282,6 +1282,7 @@
         "toggle_export": "Alternar painel de Exportação",
         "toggle_folder_tree": "Alternar painel da árvore de pastas",
         "toggle_fullscreen": "Alternar tela cheia",
+        "toggle_layer_solo": "Mostrar apenas a camada ou máscara selecionada",
         "toggle_left_panel": "Alternar painel esquerdo",
         "toggle_library_exif": "Alternar sobreposição EXIF",
         "toggle_mask_grayscale": "Máscara em tons de cinza",
@@ -1723,6 +1724,7 @@
         "whiteBalance": "Balanço de branco"
       },
       "history": {
+        "autoMaskUpgraded": "Máscara automática atualizada",
         "current": "Atual",
         "empty": "O histórico da revelação aparece aqui.",
         "layerAdded": "Nova camada {{name}}",
@@ -1743,6 +1745,7 @@
         "delete": "Excluir {{name}}",
         "dragOrder": "Arraste para mudar a ordem das camadas",
         "drawMaskInside": "Desenhar máscara dentro",
+        "eyeTitle": "Mostrar ou ocultar; {{alt}}-clique mostra apenas esta camada",
         "fromSelection": "Nova camada a partir de uma seleção",
         "groups": {
           "draw": "Desenhar",
@@ -1771,7 +1774,9 @@
           "eraseMask": "Apagar máscara",
           "moveDown": "Mover camada para baixo",
           "moveUp": "Mover camada para cima",
-          "rename": "Renomear camada…"
+          "rename": "Renomear camada…",
+          "solo": "Mostrar apenas esta camada",
+          "upgradeAutoMask": "Atualizar para a máscara automática atual (versão {{from}} → {{to}})"
         },
         "nameOf": "Nome de {{name}}",
         "new": "Nova camada",
@@ -1795,6 +1800,8 @@
         "noneYet": "Ainda não há camadas. Adicione com + ou na aba Camadas.",
         "quickAria": "Nova camada com um clique",
         "select": "Selecionar {{name}}",
+        "soloEnd": "Mostrar tudo",
+        "soloShowing": "Apenas {{name}} visível",
         "toggle": "Mostrar/ocultar {{name}}"
       },
       "layout": {
@@ -2506,6 +2513,7 @@
         "nearLimit": "Limite próximo"
       },
       "erase": "Apagar",
+      "eyeTitle": "Mostrar ou ocultar; {{alt}}-clique mostra apenas esta máscara",
       "hints": {
         "color": "Clique na cor que deseja selecionar.",
         "object": "Arraste um retângulo em volta do objeto."

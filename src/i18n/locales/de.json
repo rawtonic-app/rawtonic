@@ -1230,6 +1230,7 @@
         "toggle_export": "Exportieren-Panel ein-/ausblenden",
         "toggle_folder_tree": "Ordner-Werkzeug zeigen",
         "toggle_fullscreen": "Vollbild umschalten",
+        "toggle_layer_solo": "Nur gewählte Ebene oder Maske zeigen",
         "toggle_left_panel": "Linkes Panel ein-/ausblenden",
         "toggle_library_exif": "EXIF-Überlagerung ein-/ausblenden",
         "toggle_mask_grayscale": "Maske in Graustufen anzeigen",
@@ -1671,6 +1672,7 @@
         "whiteBalance": "Weißabgleich"
       },
       "history": {
+        "autoMaskUpgraded": "Auto-Maske umgestellt",
         "current": "Aktuell",
         "empty": "Hier erscheint das Entwicklungsprotokoll.",
         "layerAdded": "Neue Ebene {{name}}",
@@ -1691,6 +1693,7 @@
         "delete": "{{name}} löschen",
         "dragOrder": "Ziehen, um die Ebenenreihenfolge zu ändern",
         "drawMaskInside": "Maske innen zeichnen",
+        "eyeTitle": "Ein- oder ausblenden; {{alt}}-Klick zeigt nur diese Ebene",
         "fromSelection": "Neue Ebene aus einer Auswahl",
         "groups": {
           "draw": "Zeichnen",
@@ -1719,7 +1722,9 @@
           "eraseMask": "Maske radieren",
           "moveDown": "Ebene nach unten",
           "moveUp": "Ebene nach oben",
-          "rename": "Ebene umbenennen…"
+          "rename": "Ebene umbenennen…",
+          "solo": "Nur diese Ebene zeigen",
+          "upgradeAutoMask": "Auf aktuelle Auto-Maske umstellen (Version {{from}} → {{to}})"
         },
         "nameOf": "Name von {{name}}",
         "new": "Neue Ebene",
@@ -1743,6 +1748,8 @@
         "noneYet": "Noch keine Ebenen. Mit + oder im Tab Ebenen hinzufügen.",
         "quickAria": "Neue Ebene mit einem Klick",
         "select": "{{name}} auswählen",
+        "soloEnd": "Alle zeigen",
+        "soloShowing": "Nur {{name}} sichtbar",
         "toggle": "{{name}} ein-/ausblenden"
       },
       "layout": {
@@ -2433,6 +2440,7 @@
         "nearLimit": "Nahes Ende"
       },
       "erase": "Radieren",
+      "eyeTitle": "Ein- oder ausblenden; {{alt}}-Klick zeigt nur diese Maske",
       "hints": {
         "color": "Klicken Sie auf die Farbe, die ausgewählt werden soll.",
         "object": "Ziehen Sie einen Rahmen um das Objekt."

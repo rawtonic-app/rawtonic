@@ -1,5 +1,6 @@
 import type { ParseKeys, TFunction } from "i18next";
 import type { Adjustments, MaskContainer } from "../../utils/adjustments";
+import { upgradeLayerAutoMask } from "../../utils/autoMaskUpgrade";
 
 /** Sliders a history step names with their new value (decimals shown). */
 const SLIDERS: Record<string, [label: ParseKeys, digits: number]> = {
@@ -150,7 +151,9 @@ function describeLayers(
       ? values
       : old.name !== layer.name
         ? t("studio.develop.history.layerRenamed")
-        : t("studio.develop.history.mask");
+        : same(old, upgradeLayerAutoMask(old)) || !same(upgradeLayerAutoMask(old), layer)
+          ? t("studio.develop.history.mask")
+          : t("studio.develop.history.autoMaskUpgraded");
     return `${step} · ${layer.name}`;
   }
   return before.length || after.length

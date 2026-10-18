@@ -1191,6 +1191,7 @@
         "toggle_export": "切换导出面板",
         "toggle_folder_tree": "切换文件夹树面板",
         "toggle_fullscreen": "切换全屏",
+        "toggle_layer_solo": "仅显示所选图层或蒙版",
         "toggle_left_panel": "切换左侧面板",
         "toggle_library_exif": "切换 EXIF 叠加",
         "toggle_mask_grayscale": "以灰度显示蒙版",
@@ -1632,6 +1633,7 @@
         "whiteBalance": "白平衡"
       },
       "history": {
+        "autoMaskUpgraded": "自动蒙版已升级",
         "current": "当前",
         "empty": "显影历史记录将显示在此处。",
         "layerAdded": "新图层 {{name}}",
@@ -1652,6 +1654,7 @@
         "delete": "删除{{name}}",
         "dragOrder": "拖动以更改图层顺序",
         "drawMaskInside": "在内部绘制蒙版",
+        "eyeTitle": "显示或隐藏；{{alt}}-单击仅显示此图层",
         "fromSelection": "从选区新建图层",
         "groups": {
           "draw": "绘制",
@@ -1680,7 +1683,9 @@
           "eraseMask": "擦除蒙版",
           "moveDown": "下移图层",
           "moveUp": "上移图层",
-          "rename": "重命名图层…"
+          "rename": "重命名图层…",
+          "solo": "仅显示此图层",
+          "upgradeAutoMask": "升级到当前自动蒙版（版本 {{from}} → {{to}}）"
         },
         "nameOf": "{{name}}的名称",
         "new": "新建图层",
@@ -1704,6 +1709,8 @@
         "noneYet": "尚无图层。用 + 或在“图层”标签中添加。",
         "quickAria": "一键新建图层",
         "select": "选择{{name}}",
+        "soloEnd": "全部显示",
+        "soloShowing": "仅显示 {{name}}",
         "toggle": "显示/隐藏{{name}}"
       },
       "layout": {
@@ -2373,6 +2380,7 @@
         "nearLimit": "近端界限"
       },
       "erase": "擦除",
+      "eyeTitle": "显示或隐藏；{{alt}}-单击仅显示此蒙版",
       "hints": {
         "color": "点击要选择的颜色。",
         "object": "围绕对象拖出一个框。"

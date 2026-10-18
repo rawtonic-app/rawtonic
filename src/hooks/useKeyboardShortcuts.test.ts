@@ -518,3 +518,24 @@ describe("Before/After keys", () => {
     expect(useEditorStore.getState()).toMatchObject({ splitView: true, showOriginal: false });
   });
 });
+
+it("H shows only the selected layer, or the picked component, and H again shows all", () => {
+  useUIStore.setState({ activeView: "editor", activePanel: Panel.Masks });
+  useEditorStore.setState({
+    selectedImage: { path: "/a.dng", isReady: true } as never,
+    activeMaskContainerId: "sky",
+    focusedMaskComponentId: null,
+    layerSolo: null,
+  });
+  press("KeyH", "h");
+  expect(useEditorStore.getState().layerSolo).toEqual({ layerId: "sky", componentId: null });
+  press("KeyH", "h");
+  expect(useEditorStore.getState().layerSolo).toBeNull();
+  useEditorStore.setState({ focusedMaskComponentId: "brush" });
+  press("KeyH", "h");
+  expect(useEditorStore.getState().layerSolo).toEqual({ layerId: "sky", componentId: "brush" });
+  // Without a selected layer, H does nothing.
+  useEditorStore.setState({ activeMaskContainerId: null, layerSolo: null });
+  press("KeyH", "h");
+  expect(useEditorStore.getState().layerSolo).toBeNull();
+});

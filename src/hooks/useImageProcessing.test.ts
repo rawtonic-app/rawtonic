@@ -6,7 +6,7 @@ import { useEditorStore } from "../store/useEditorStore";
 import { useUIStore } from "../store/useUIStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { INITIAL_ADJUSTMENTS } from "../utils/adjustments";
+import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from "../utils/adjustments";
 import { Invokes, Panel } from "../components/ui/AppProperties";
 import { debouncedSave } from "./useEditorActions";
 import { toast } from "react-toastify";
@@ -75,6 +75,7 @@ beforeEach(() => {
     softProofSpace: "srgb",
     softProofWarning: false,
     colorRangeShow: null,
+    layerSolo: null,
     nativeMaskOverlay: null,
   });
   useUIStore.setState({ activeView: "editor" });
@@ -98,6 +99,26 @@ it("rerenders browser previews when clipping and soft proof change without savin
   expect(calls()).toHaveLength(4);
   expect(calls()[3][1]).toMatchObject({ jsAdjustments: { showClipping: false, colorRangeShow: "red" } });
   expect(useEditorStore.getState().adjustments).toBe(recipe);
+  expect(debouncedSave).not.toHaveBeenCalled();
+});
+
+it("renders a layer solo without changing or saving the recipe", async () => {
+  const layer = (id: string) => ({ ...structuredClone(INITIAL_MASK_CONTAINER), id, name: id, subMasks: [] });
+  useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [layer("a"), layer("b")] } });
+  mount();
+  await finish();
+  const recipe = useEditorStore.getState().adjustments;
+  act(() => useEditorStore.setState({ layerSolo: { layerId: "b", componentId: null } }));
+  expect(calls()).toHaveLength(2);
+  const sent = (calls()[1][1] as { jsAdjustments: { masks: { id: string; visible: boolean }[] } }).jsAdjustments;
+  expect(sent.masks.map((m) => [m.id, m.visible])).toEqual([["a", false], ["b", true]]);
+  await finish();
+  act(() => useEditorStore.setState({ layerSolo: null }));
+  expect(calls()).toHaveLength(3);
+  const shown = (calls()[2][1] as { jsAdjustments: { masks: { visible: boolean }[] } }).jsAdjustments;
+  expect(shown.masks.map((m) => m.visible)).toEqual([true, true]);
+  expect(useEditorStore.getState().adjustments).toBe(recipe);
+  expect(recipe.masks.every((m) => m.visible)).toBe(true);
   expect(debouncedSave).not.toHaveBeenCalled();
 });
 

@@ -9543,7 +9543,16 @@ fn many_layer_frame_probe() {
             );
         }
         type Scenario<'a> = (&'a str, Box<dyn Fn(usize) -> serde_json::Value + 'a>);
-        let scenarios: [Scenario; 4] = [
+        // Layer solo (src/utils/layerSolo.ts) hides the other layers in the
+        // display: stepping the solo through the layers, solo on/off, and for
+        // comparison one layer's eye toggled (Lightroom's and Capture One's
+        // one click per layer).
+        let solo = |v: &mut serde_json::Value, shown: Option<usize>| {
+            for (i, m) in v["masks"].as_array_mut().unwrap().iter_mut().enumerate() {
+                m["visible"] = json!(shown.is_none_or(|s| s == i));
+            }
+        };
+        let scenarios: [Scenario; 7] = [
             (
                 "slider_global",
                 Box::new(|f| {
@@ -9583,8 +9592,41 @@ fn many_layer_frame_probe() {
                     v
                 }),
             ),
+            (
+                "solo_step",
+                Box::new(|f| {
+                    // The first (warm-up) frame shows every layer, as the
+                    // editor does before a solo, so their masks are cached.
+                    let mut v = base.clone();
+                    solo(&mut v, (f > 0).then(|| f % layers));
+                    v
+                }),
+            ),
+            (
+                "solo_toggle",
+                Box::new(|f| {
+                    let mut v = base.clone();
+                    solo(&mut v, (f % 2 == 1).then_some(layers - 1));
+                    v
+                }),
+            ),
+            (
+                "eye_toggle",
+                Box::new(|f| {
+                    let mut v = base.clone();
+                    v["masks"][layers - 1]["visible"] = json!(f % 2 == 0);
+                    v
+                }),
+            ),
         ];
+        let only = std::env::var("RAWTONIC_M6_ONLY").ok();
         for (name, make) in &scenarios {
+            if only
+                .as_ref()
+                .is_some_and(|only| !only.split(',').any(|o| o == *name))
+            {
+                continue;
+            }
             // One cache per scenario, warmed by a first (cold) move.
             let cache = std::sync::Mutex::new(MaskBitmapCache::new());
             let mut previous: Vec<Arc<MaskBitmap>> = Vec::new();

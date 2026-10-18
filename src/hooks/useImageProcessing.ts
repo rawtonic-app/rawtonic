@@ -38,6 +38,7 @@ import { frameDrawnMasks } from '../utils/maskGeometry';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
+import { applyLayerSolo } from '../utils/layerSolo';
 import {
   MASK_PARAMETERS_MISSING,
   acknowledgeParameters,
@@ -489,7 +490,8 @@ export function useImageProcessing(
           state.softProof !== previous.softProof ||
           state.softProofSpace !== previous.softProofSpace ||
           state.softProofWarning !== previous.softProofWarning ||
-          state.colorRangeShow !== previous.colorRangeShow;
+          state.colorRangeShow !== previous.colorRangeShow ||
+          state.layerSolo !== previous.layerSolo;
         const native = nativeDisplayRef.current;
         if (!viewChanged && (!native || state.nativeMaskOverlay === previous.nativeMaskOverlay)) return;
         const image = state.selectedImage;
@@ -869,6 +871,8 @@ export function withViewStates(adjustments: Adjustments): Adjustments {
     payload.softProofWarning = view.softProofWarning;
   }
   payload.colorRangeShow = view.colorRangeShow;
+  // Layer solo shows one layer (or component) without changing the recipe.
+  if (view.layerSolo && Array.isArray(payload.masks)) payload.masks = applyLayerSolo(payload.masks, view.layerSolo);
   // Relight's solo view shows one light without changing the recipe.
   const solo = useRelightStore.getState().solo;
   if (solo && payload.relightLights?.some((l) => l.id === solo)) {

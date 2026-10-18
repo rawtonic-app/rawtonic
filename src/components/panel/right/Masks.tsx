@@ -74,7 +74,7 @@ export interface MaskStrokeLine {
   hardness?: number;
   /** Auto Mask: the stroke keeps to colours like the one under its dabs' centre. */
   autoMask?: boolean;
-  /** Auto Mask method; absent = 1 (old strokes, Lightroom imports), 2 = edge-aware. */
+  /** Auto Mask method; absent = 1 (old strokes, Lightroom imports), 2 = edge-aware, 3 = new strokes (`AUTO_MASK_VERSION`). */
   autoMaskVersion?: number;
   /** Dab placement; absent = 1 (old strokes), 2 = new strokes (crates/engine `DabTip::dab_version_2`). */
   dabVersion?: number;

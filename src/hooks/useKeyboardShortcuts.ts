@@ -538,6 +538,19 @@ export const useKeyboardShortcuts = ({
           s.editor.setEditor({ maskOverlayAuto: 'pinned' });
         },
       },
+      toggle_layer_solo: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.activeMaskContainerId,
+        execute: (e, s) => {
+          e.preventDefault();
+          const layerId = s.editor.activeMaskContainerId;
+          if (!layerId) return;
+          // A component picked in the list solos that component.
+          const componentId = s.editor.focusedMaskComponentId;
+          s.editor.setEditor({
+            layerSolo: s.editor.layerSolo ? null : { layerId, componentId: componentId ?? null },
+          });
+        },
+      },
       toggle_adjustments: {
         shouldFire: () => true,
         execute: (e, s) => {

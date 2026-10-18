@@ -1338,6 +1338,7 @@
         "toggle_export": "Przełącz panel Eksport",
         "toggle_folder_tree": "Przełącz panel drzewa folderów",
         "toggle_fullscreen": "Przełącz tryb pełnoekranowy",
+        "toggle_layer_solo": "Pokaż tylko wybraną warstwę lub maskę",
         "toggle_left_panel": "Przełącz lewy panel",
         "toggle_library_exif": "Przełącz nakładkę EXIF",
         "toggle_mask_grayscale": "Maska w skali szarości",
@@ -1779,6 +1780,7 @@
         "whiteBalance": "Balans bieli"
       },
       "history": {
+        "autoMaskUpgraded": "Automaska zaktualizowana",
         "current": "Bieżący",
         "empty": "Tutaj pojawi się historia wywoływania.",
         "layerAdded": "Nowa warstwa {{name}}",
@@ -1799,6 +1801,7 @@
         "delete": "Usuń: {{name}}",
         "dragOrder": "Przeciągnij, aby zmienić kolejność warstw",
         "drawMaskInside": "Rysuj maskę wewnątrz",
+        "eyeTitle": "Pokaż lub ukryj; {{alt}}-kliknięcie pokazuje tylko tę warstwę",
         "fromSelection": "Nowa warstwa z zaznaczenia",
         "groups": {
           "draw": "Rysuj",
@@ -1827,7 +1830,9 @@
           "eraseMask": "Wymaż maskę",
           "moveDown": "Przesuń warstwę w dół",
           "moveUp": "Przesuń warstwę w górę",
-          "rename": "Zmień nazwę warstwy…"
+          "rename": "Zmień nazwę warstwy…",
+          "solo": "Pokaż tylko tę warstwę",
+          "upgradeAutoMask": "Przejdź na bieżącą automaskę (wersja {{from}} → {{to}})"
         },
         "nameOf": "Nazwa: {{name}}",
         "new": "Nowa warstwa",
@@ -1851,6 +1856,8 @@
         "noneYet": "Brak warstw. Dodaj je przyciskiem + lub w karcie Warstwy.",
         "quickAria": "Nowa warstwa jednym kliknięciem",
         "select": "Wybierz: {{name}}",
+        "soloEnd": "Pokaż wszystko",
+        "soloShowing": "Widoczne tylko: {{name}}",
         "toggle": "Pokaż/ukryj: {{name}}"
       },
       "layout": {
@@ -2583,6 +2590,7 @@
         "nearLimit": "Granica bliska"
       },
       "erase": "Wymaż",
+      "eyeTitle": "Pokaż lub ukryj; {{alt}}-kliknięcie pokazuje tylko tę maskę",
       "hints": {
         "color": "Kliknij kolor, który chcesz zaznaczyć.",
         "object": "Narysuj prostokąt wokół obiektu."

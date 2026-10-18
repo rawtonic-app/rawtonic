@@ -954,6 +954,43 @@
 .studio-layer.is-hidden .studio-layer-label {
   color: #868a90;
 }
+/* Solo (view only): the shown layer's eye in accent, the others dimmed. */
+.studio-layer.is-solo .studio-layer-eye,
+.studio-mask-component.is-solo .studio-mask-eye {
+  color: var(--studio-accent);
+}
+.studio-layer.is-solo-muted .studio-layer-label,
+.studio-mask-component.is-solo-muted .studio-mask-component-label {
+  color: #868a90;
+}
+.studio-layer.is-solo-muted .studio-mask-thumb > img,
+.studio-mask-component.is-solo-muted .studio-mask-thumb > img {
+  opacity: 0.45;
+}
+.studio-layer-solo-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--studio-accent);
+  border-radius: 3px;
+  background: transparent;
+  color: #dfe8ef;
+  font-size: 11px;
+  text-align: left;
+}
+.studio-layer-solo-note > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-layer-solo-end {
+  color: var(--studio-accent);
+}
 /* Mask thumbnails (Lightroom's Masks panel): white mask on black in the
    photo's frame; the kind's icon until one is made. Sizes match
    MASK_THUMB_SIZE in useMaskThumbnails.ts. */

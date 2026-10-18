@@ -21,6 +21,9 @@ import { useStudioTools } from "./useStudioTools";
 import { componentIcon, maskKindMenu } from "./maskKindMenu";
 import MaskThumb from "./MaskThumb";
 import { useMaskThumbnailStore } from "../../hooks/useMaskThumbnails";
+import { useSettingsStore } from "../../store/useSettingsStore";
+import { formatKeyCode } from "../../utils/keyboardUtils";
+import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
 
 /** What to do on the photo after creating a component of this kind. */
 const KIND_HINTS: Partial<Record<MaskKind, "object" | "color">> = {
@@ -85,6 +88,8 @@ export default function StudioMaskComponents() {
     useMaskComponents();
   const aiTasks = useProcessStore((s) => s.activeAiTasks);
   const thumbnails = useMaskThumbnailStore((s) => s.components);
+  const layerSolo = useEditorStore((s) => s.layerSolo);
+  const altKey = formatKeyCode("alt", useSettingsStore((s) => s.osPlatform));
   const { showContextMenu } = useContextMenu();
   if (!layer) return null;
   const layerId = layer.id;
@@ -140,7 +145,7 @@ export default function StudioMaskComponents() {
               role="listitem"
               className={`studio-mask-component ${sub.id === activeMaskId ? "is-selected" : ""} ${
                 sub.visible ? "" : "is-hidden"
-              }`}
+              } ${layerSolo?.componentId ? (layerSolo.componentId === sub.id ? "is-solo" : "is-solo-muted") : ""}`}
             >
               {index > 0 ? (
                 <button
@@ -160,7 +165,14 @@ export default function StudioMaskComponents() {
                 aria-label={t("studio.masks.aria.select", { name: componentLabel(sub) })}
                 aria-current={sub.id === activeMaskId ? "true" : undefined}
                 title={componentLabel(sub)}
-                onClick={() => setEditor({ activeMaskId: sub.id, focusedMaskComponentId: sub.id })}
+                onClick={() =>
+                  setEditor({
+                    activeMaskId: sub.id,
+                    focusedMaskComponentId: sub.id,
+                    // A component solo moves to the picked component; a layer solo stays.
+                    ...(layerSolo?.componentId ? { layerSolo: soloAfterSelect(layerSolo, layerId, sub.id) } : {}),
+                  })
+                }
               >
                 <MaskThumb kind="component" url={thumbnails[sub.id]} icon={Icon} busy={busy(sub)} />
                 <span className="studio-mask-component-label">{componentLabel(sub)}</span>
@@ -176,9 +188,14 @@ export default function StudioMaskComponents() {
                 <FlipHorizontal2 size={11} />
               </button>
               <button
-                className="studio-row-icon"
+                className="studio-row-icon studio-mask-eye"
                 aria-label={t("studio.masks.aria.toggle", { name: componentLabel(sub) })}
-                onClick={() => updateComponent(sub.id, { visible: !sub.visible })}
+                title={t("studio.masks.eyeTitle", { alt: altKey })}
+                onClick={(e) =>
+                  e.altKey
+                    ? setEditor({ layerSolo: toggleLayerSolo(layerSolo, layerId, sub.id) })
+                    : updateComponent(sub.id, { visible: !sub.visible })
+                }
               >
                 {sub.visible ? <Eye size={11} /> : <EyeOff size={11} />}
               </button>

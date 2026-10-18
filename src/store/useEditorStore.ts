@@ -8,6 +8,7 @@ import { ToolType } from '../components/panel/right/Masks';
 import type { OverlayMode } from '../components/panel/editor/overlays/CompositionOverlays';
 import { maskOverlayAfterEdit, type MaskOverlayAuto, type NativeMaskOverlay } from '../utils/maskDisplay';
 import type { OutputColorSpace } from '../components/ui/ExportImportProperties';
+import type { LayerSolo } from '../utils/layerSolo';
 import { DEFAULT_SPLIT_POSITION } from '../utils/beforeAfter';
 
 export interface InteractivePatch {
@@ -110,6 +111,8 @@ interface EditorState {
    * shown, and clipping warnings (Lightroom's J). */
   colorRangeShow: string | null;
   clippingWarnings: boolean;
+  /** View only: one layer or component shown alone (utils/layerSolo). */
+  layerSolo: LayerSolo | null;
   /** View only: soft proofing (Lightroom's Soft Proofing) shows the photo as
    * an export in `softProofSpace` would look; the warning marks colours
    * outside that space. */
@@ -227,6 +230,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   colorPickerLayer: null,
   activeColorRangeId: null,
   colorRangeShow: null,
+  layerSolo: null,
   clippingWarnings: false,
   softProof: false,
   softProofSpace: 'srgb',
