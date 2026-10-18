@@ -1162,6 +1162,201 @@ const AUTO_MASK_SHARE: (f32, f32) = (0.02, 0.06);
 /// their mix, relative to their distance.
 const AUTO_MASK_BAND: f32 = 0.25;
 
+/// The colour clusters under one Auto Mask dab (version 2 and 3), before
+/// one of them is chosen as the subject.
+#[derive(Clone, Copy)]
+struct AutoMaskClusters {
+    /// Cluster means in linear light and in CIE Lab.
+    lins: [[f32; 3]; AUTO_MASK_CLUSTERS],
+    labs: [[f32; 3]; AUTO_MASK_CLUSTERS],
+    counts: [f32; AUTO_MASK_CLUSTERS],
+    /// Mean sample offset from the centre (px) and mean sample distance.
+    centroids: [[f32; 2]; AUTO_MASK_CLUSTERS],
+    reach: [f32; AUTO_MASK_CLUSTERS],
+    total: f32,
+    centre_colour: [f32; 3],
+    outer: f32,
+}
+
+impl AutoMaskClusters {
+    /// The clusters of the dab at `centre` (pixels of the stroke's bounds,
+    /// of which `colours` holds the linear-light colours, NaN outside the
+    /// photo) that reaches `outer` pixels.
+    fn of(
+        colours: &[[f32; 3]],
+        bb_w: usize,
+        bb_h: usize,
+        centre: (f32, f32),
+        outer: f32,
+    ) -> Option<Self> {
+        let colour_at = |x: i64, y: i64| -> Option<[f32; 3]> {
+            if x < 0 || y < 0 || x >= bb_w as i64 || y >= bb_h as i64 {
+                return None;
+            }
+            let c = colours[y as usize * bb_w + x as usize];
+            c[0].is_finite().then_some(c)
+        };
+        // The colour under the centre: its pixel and the four next to it.
+        let (cx, cy) = (centre.0.round() as i64, centre.1.round() as i64);
+        let mut sum = [0.0f32; 3];
+        let mut n = 0.0f32;
+        for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
+            if let Some(c) = colour_at(cx + dx, cy + dy) {
+                sum = [sum[0] + c[0], sum[1] + c[1], sum[2] + c[2]];
+                n += 1.0;
+            }
+        }
+        if n == 0.0 {
+            return None;
+        }
+        let centre_colour = [sum[0] / n, sum[1] / n, sum[2] / n];
+
+        let stride = (outer / AUTO_MASK_SAMPLES_PER_RADIUS).floor().max(1.0) as i64;
+        let cells = outer.ceil() as i64 / stride + 1;
+        let mut samples: Vec<([f32; 3], [f32; 3])> = Vec::new();
+        let mut offsets: Vec<[f32; 2]> = Vec::new();
+        for gy in -cells..=cells {
+            for gx in -cells..=cells {
+                let (x, y) = (cx + gx * stride, cy + gy * stride);
+                let (ox, oy) = (x as f32 - centre.0, y as f32 - centre.1);
+                if ox * ox + oy * oy > outer * outer {
+                    continue;
+                }
+                if let Some(c) = colour_at(x, y) {
+                    samples.push((c, linear_to_lab(c)));
+                    offsets.push([ox, oy]);
+                }
+            }
+        }
+        if samples.len() < AUTO_MASK_CLUSTERS + 1 {
+            return None;
+        }
+
+        // k-means seeded at the centre's colour, then each time at the
+        // sample farthest from the seeds so far.
+        let k = AUTO_MASK_CLUSTERS;
+        let nearest_seed = |lab: [f32; 3], seeds: &[[f32; 3]]| {
+            seeds
+                .iter()
+                .map(|seed| distance(lab, *seed))
+                .fold(f32::INFINITY, f32::min)
+        };
+        let mut labs = vec![linear_to_lab(centre_colour)];
+        while labs.len() < k {
+            let farthest = samples
+                .iter()
+                .max_by(|a, b| nearest_seed(a.1, &labs).total_cmp(&nearest_seed(b.1, &labs)))
+                .map_or(labs[0], |sample| sample.1);
+            labs.push(farthest);
+        }
+        let mut lins = [[0.0f32; 3]; AUTO_MASK_CLUSTERS];
+        let mut counts = [0.0f32; AUTO_MASK_CLUSTERS];
+        let mut members = vec![0usize; samples.len()];
+        for _ in 0..4 {
+            let mut sums = [[0.0f32; 6]; AUTO_MASK_CLUSTERS];
+            counts = [0.0; AUTO_MASK_CLUSTERS];
+            for (i, &(lin, lab)) in samples.iter().enumerate() {
+                let j = (0..k)
+                    .min_by(|&a, &b| distance(lab, labs[a]).total_cmp(&distance(lab, labs[b])))
+                    .unwrap_or(0);
+                members[i] = j;
+                for c in 0..3 {
+                    sums[j][c] += lin[c];
+                    sums[j][3 + c] += lab[c];
+                }
+                counts[j] += 1.0;
+            }
+            for j in 0..k {
+                if counts[j] > 0.0 {
+                    let s = sums[j];
+                    lins[j] = [s[0] / counts[j], s[1] / counts[j], s[2] / counts[j]];
+                    labs[j] = [s[3] / counts[j], s[4] / counts[j], s[5] / counts[j]];
+                }
+            }
+        }
+        let mut centroids = [[0.0f32; 2]; AUTO_MASK_CLUSTERS];
+        let mut reach = [0.0f32; AUTO_MASK_CLUSTERS];
+        for (offset, &j) in offsets.iter().zip(&members) {
+            centroids[j] = [centroids[j][0] + offset[0], centroids[j][1] + offset[1]];
+            reach[j] += offset[0].hypot(offset[1]);
+        }
+        for j in 0..k {
+            if counts[j] > 0.0 {
+                centroids[j] = [centroids[j][0] / counts[j], centroids[j][1] / counts[j]];
+                reach[j] /= counts[j];
+            }
+        }
+        Some(Self {
+            lins,
+            labs: labs.try_into().unwrap_or([[0.0; 3]; AUTO_MASK_CLUSTERS]),
+            counts,
+            centroids,
+            reach,
+            total: samples.len() as f32,
+            centre_colour,
+            outer,
+        })
+    }
+
+    fn present(&self, j: usize) -> bool {
+        self.counts[j] > 0.0
+    }
+
+    /// The cluster nearest the colour under the centre, in linear light.
+    fn nearest_centre(&self) -> usize {
+        (0..AUTO_MASK_CLUSTERS)
+            .filter(|&j| self.present(j))
+            .min_by(|&a, &b| {
+                distance(self.centre_colour, self.lins[a])
+                    .total_cmp(&distance(self.centre_colour, self.lins[b]))
+            })
+            .unwrap_or(0)
+    }
+
+    /// The model with cluster `subject` as the subject.
+    fn model(&self, subject: usize) -> AutoMaskModel {
+        let k = AUTO_MASK_CLUSTERS;
+        let (lins, labs, counts) = (&self.lins, &self.labs, &self.counts);
+        let present = |j: usize| self.present(j);
+        let others = |j: usize| (0..k).filter(move |&m| m != j && m != subject && present(m));
+        let purer_subject = |j: usize| {
+            others(j).any(|m| {
+                share_on_line(lins[subject], lins[j], lins[m])
+                    .is_some_and(|(t, near)| near && (0.5..1.0).contains(&t))
+            })
+        };
+        let soft_edge = |j: usize| {
+            others(j).any(|m| {
+                share_on_line(lins[j], lins[subject], lins[m])
+                    .is_some_and(|(t, near)| near && (0.1..0.9).contains(&t))
+            })
+        };
+        let mut model = AutoMaskModel::EMPTY;
+        model.outer = self.outer;
+        for j in (0..k).filter(|&j| present(j)) {
+            let background = if j == subject || purer_subject(j) {
+                None
+            } else if soft_edge(j) {
+                Some(0.0)
+            } else {
+                let (near, far) = AUTO_MASK_SEPARATION;
+                let (few, many) = AUTO_MASK_SHARE;
+                Some(
+                    smoothstep(near, far, distance(labs[subject], labs[j]))
+                        * smoothstep(few, many, counts[j] / self.total),
+                )
+            };
+            model.colours[model.count] = lins[j];
+            model.background[model.count] = background;
+            model.centroids[model.count] = self.centroids[j];
+            model.reach[model.count] = self.reach[j];
+            model.counts[model.count] = counts[j];
+            model.count += 1;
+        }
+        model
+    }
+}
+
 /// Auto Mask version 2 for one dab. The colours under the dab fall into
 /// `AUTO_MASK_CLUSTERS` clusters (k-means in CIE Lab); the one nearest the
 /// colour under the centre (in linear light) is the subject. Another
@@ -1187,6 +1382,16 @@ struct AutoMaskModel {
     /// background (0 = none).
     background: [Option<f32>; AUTO_MASK_CLUSTERS],
     count: usize,
+    /// Version 3: the direction from the dab's centre towards the subject's
+    /// side of the stroke times how far that side is trusted (0–1; zero
+    /// when it is not known).
+    inward: [f32; 2],
+    outer: f32,
+    /// Per cluster: mean sample offset from the centre (px), mean sample
+    /// distance from it and sample count (as in `AutoMaskClusters`).
+    centroids: [[f32; 2]; AUTO_MASK_CLUSTERS],
+    reach: [f32; AUTO_MASK_CLUSTERS],
+    counts: [f32; AUTO_MASK_CLUSTERS],
 }
 
 impl AutoMaskModel {
@@ -1194,132 +1399,20 @@ impl AutoMaskModel {
         colours: [[0.0; 3]; AUTO_MASK_CLUSTERS],
         background: [None; AUTO_MASK_CLUSTERS],
         count: 0,
+        inward: [0.0; 2],
+        outer: 1.0,
+        centroids: [[0.0; 2]; AUTO_MASK_CLUSTERS],
+        reach: [0.0; AUTO_MASK_CLUSTERS],
+        counts: [0.0; AUTO_MASK_CLUSTERS],
     };
 
     /// The model of the dab at `centre` (pixels of the stroke's bounds, of
     /// which `colours` holds the linear-light colours, NaN outside the
     /// photo) that reaches `outer` pixels.
     fn fit(colours: &[[f32; 3]], bb_w: usize, bb_h: usize, centre: (f32, f32), outer: f32) -> Self {
-        let colour_at = |x: i64, y: i64| -> Option<[f32; 3]> {
-            if x < 0 || y < 0 || x >= bb_w as i64 || y >= bb_h as i64 {
-                return None;
-            }
-            let c = colours[y as usize * bb_w + x as usize];
-            c[0].is_finite().then_some(c)
-        };
-        // The colour under the centre: its pixel and the four next to it.
-        let (cx, cy) = (centre.0.round() as i64, centre.1.round() as i64);
-        let mut sum = [0.0f32; 3];
-        let mut n = 0.0f32;
-        for (dx, dy) in [(0, 0), (-1, 0), (1, 0), (0, -1), (0, 1)] {
-            if let Some(c) = colour_at(cx + dx, cy + dy) {
-                sum = [sum[0] + c[0], sum[1] + c[1], sum[2] + c[2]];
-                n += 1.0;
-            }
-        }
-        if n == 0.0 {
-            return Self::EMPTY;
-        }
-        let centre_colour = [sum[0] / n, sum[1] / n, sum[2] / n];
-
-        let stride = (outer / AUTO_MASK_SAMPLES_PER_RADIUS).floor().max(1.0) as i64;
-        let cells = outer.ceil() as i64 / stride + 1;
-        let mut samples: Vec<([f32; 3], [f32; 3])> = Vec::new();
-        for gy in -cells..=cells {
-            for gx in -cells..=cells {
-                let (x, y) = (cx + gx * stride, cy + gy * stride);
-                let (ox, oy) = (x as f32 - centre.0, y as f32 - centre.1);
-                if ox * ox + oy * oy > outer * outer {
-                    continue;
-                }
-                if let Some(c) = colour_at(x, y) {
-                    samples.push((c, linear_to_lab(c)));
-                }
-            }
-        }
-        if samples.len() < AUTO_MASK_CLUSTERS + 1 {
-            return Self::EMPTY;
-        }
-
-        // k-means seeded at the centre's colour, then each time at the
-        // sample farthest from the seeds so far.
-        let k = AUTO_MASK_CLUSTERS;
-        let nearest_seed = |lab: [f32; 3], seeds: &[[f32; 3]]| {
-            seeds
-                .iter()
-                .map(|seed| distance(lab, *seed))
-                .fold(f32::INFINITY, f32::min)
-        };
-        let mut labs = vec![linear_to_lab(centre_colour)];
-        while labs.len() < k {
-            let farthest = samples
-                .iter()
-                .max_by(|a, b| nearest_seed(a.1, &labs).total_cmp(&nearest_seed(b.1, &labs)))
-                .map_or(labs[0], |sample| sample.1);
-            labs.push(farthest);
-        }
-        let mut lins = [[0.0f32; 3]; AUTO_MASK_CLUSTERS];
-        let mut counts = [0.0f32; AUTO_MASK_CLUSTERS];
-        for _ in 0..4 {
-            let mut sums = [[0.0f32; 6]; AUTO_MASK_CLUSTERS];
-            counts = [0.0; AUTO_MASK_CLUSTERS];
-            for &(lin, lab) in &samples {
-                let j = (0..k)
-                    .min_by(|&a, &b| distance(lab, labs[a]).total_cmp(&distance(lab, labs[b])))
-                    .unwrap_or(0);
-                for c in 0..3 {
-                    sums[j][c] += lin[c];
-                    sums[j][3 + c] += lab[c];
-                }
-                counts[j] += 1.0;
-            }
-            for j in 0..k {
-                if counts[j] > 0.0 {
-                    let s = sums[j];
-                    lins[j] = [s[0] / counts[j], s[1] / counts[j], s[2] / counts[j]];
-                    labs[j] = [s[3] / counts[j], s[4] / counts[j], s[5] / counts[j]];
-                }
-            }
-        }
-        let present = |j: usize| counts[j] > 0.0;
-        let Some(subject) = (0..k).filter(|&j| present(j)).min_by(|&a, &b| {
-            distance(centre_colour, lins[a]).total_cmp(&distance(centre_colour, lins[b]))
-        }) else {
-            return Self::EMPTY;
-        };
-        let others = |j: usize| (0..k).filter(move |&m| m != j && m != subject && present(m));
-        let purer_subject = |j: usize| {
-            others(j).any(|m| {
-                share_on_line(lins[subject], lins[j], lins[m])
-                    .is_some_and(|(t, near)| near && (0.5..1.0).contains(&t))
-            })
-        };
-        let soft_edge = |j: usize| {
-            others(j).any(|m| {
-                share_on_line(lins[j], lins[subject], lins[m])
-                    .is_some_and(|(t, near)| near && (0.1..0.9).contains(&t))
-            })
-        };
-        let total = samples.len() as f32;
-        let mut model = Self::EMPTY;
-        for j in (0..k).filter(|&j| present(j)) {
-            let background = if j == subject || purer_subject(j) {
-                None
-            } else if soft_edge(j) {
-                Some(0.0)
-            } else {
-                let (near, far) = AUTO_MASK_SEPARATION;
-                let (few, many) = AUTO_MASK_SHARE;
-                Some(
-                    smoothstep(near, far, distance(labs[subject], labs[j]))
-                        * smoothstep(few, many, counts[j] / total),
-                )
-            };
-            model.colours[model.count] = lins[j];
-            model.background[model.count] = background;
-            model.count += 1;
-        }
-        model
+        AutoMaskClusters::of(colours, bb_w, bb_h, centre, outer).map_or(Self::EMPTY, |clusters| {
+            clusters.model(clusters.nearest_centre())
+        })
     }
 
     /// The share of the dab a pixel of linear-light colour `c` keeps: the
@@ -1347,6 +1440,180 @@ impl AutoMaskModel {
             })
             .fold(0.0f32, f32::max)
     }
+}
+
+/// Version 3: how far along the stroke (in dab radii) the dabs' own
+/// subjects are pooled into the subject's colour.
+const AUTO_MASK_SUBJECT_REACH: f32 = 3.0;
+/// Version 3: how far along the stroke (in dab radii) the dabs vote on the
+/// side their backgrounds lie on.
+const AUTO_MASK_SIDE_REACH: f32 = 6.0;
+/// Version 3: a dab's backgrounds count as one-sided from this share of
+/// their spread (fading in from the lower one).
+const AUTO_MASK_ONE_SIDED: (f32, f32) = (0.35, 0.65);
+/// Version 3: the subject's side is trusted fully from this agreement of the
+/// dabs nearby (fading in from 0).
+const AUTO_MASK_AGREEMENT: f32 = 0.3;
+/// Version 3: the subject's side is kept from this distance behind the
+/// centre (in dab radii; negative is towards the background), fully from
+/// the second.
+const AUTO_MASK_INSIDE: (f32, f32) = (-0.1, 0.3);
+/// Version 3: a background cluster whose samples lie on average this far
+/// behind the centre (in dab radii) is the subject's own, once the side is
+/// trusted at least `AUTO_MASK_SIDE_TRUSTED`.
+const AUTO_MASK_BEHIND: f32 = 0.1;
+const AUTO_MASK_SIDE_TRUSTED: f32 = 0.3;
+
+impl AutoMaskModel {
+    /// Version 3: `weight`, with the subject's side of the dab kept. A pixel
+    /// behind the centre, away from the stroke's backgrounds, is the
+    /// subject's interior (dark gaps in fur, shaded leaves) whatever its
+    /// colour.
+    #[inline]
+    fn weight_at(&self, c: [f32; 3], offset: (f32, f32)) -> f32 {
+        let share = self.weight(c);
+        if self.inward == [0.0, 0.0] || !c[0].is_finite() {
+            return share;
+        }
+        let trust = self.inward[0].hypot(self.inward[1]);
+        let behind = (offset.0 * self.inward[0] + offset.1 * self.inward[1]) / (trust * self.outer);
+        let (from, to) = AUTO_MASK_INSIDE;
+        let inside = smoothstep(0.0, AUTO_MASK_AGREEMENT, trust) * smoothstep(from, to, behind);
+        share + (1.0 - share) * inside
+    }
+
+    /// The direction away from this dab's backgrounds, as long as they lie
+    /// to one side: |∑ strength · offset| / ∑ strength · |offset| over the
+    /// samples (0 = all around the centre, 1 = all on one side).
+    fn away_from_backgrounds(&self) -> [f32; 2] {
+        let mut towards = [0.0f32; 2];
+        let mut spread = 0.0f32;
+        for j in 0..self.count {
+            let s = self.background[j].unwrap_or(0.0) * self.counts[j];
+            towards = [
+                towards[0] + s * self.centroids[j][0],
+                towards[1] + s * self.centroids[j][1],
+            ];
+            spread += s * self.reach[j];
+        }
+        let len = towards[0].hypot(towards[1]);
+        if len > 0.0 && spread > 0.0 {
+            let one_sided = len / spread;
+            [-towards[0] / len * one_sided, -towards[1] / len * one_sided]
+        } else {
+            [0.0, 0.0]
+        }
+    }
+}
+
+/// Auto Mask version 3: the dabs of one stroke modelled together.
+/// 1. Subject: each dab takes its cluster nearest the medoid (CIE Lab) of
+///    the subjects that the dabs within `AUTO_MASK_SUBJECT_REACH` radii
+///    pick by their centre's colour, so a dab whose centre falls on a gap
+///    or a highlight paints what the stroke paints.
+/// 2. Side: the dabs within `AUTO_MASK_SIDE_REACH` radii vote on which side
+///    of the stroke (left or right of its travel) their backgrounds lie; how
+///    well they agree, and how one-sided each dab's own backgrounds are, is
+///    how far the side is trusted.
+/// 3. With the side trusted, a background cluster lying behind the centre is
+///    the subject's own (shaded leaves), and pixels behind the centre are
+///    kept whatever their colour (`AutoMaskModel::weight_at`).
+fn stroke_models_v3(
+    clusters: &[Option<AutoMaskClusters>],
+    dabs: &[(f32, f32)],
+) -> Vec<AutoMaskModel> {
+    let Some(outer) = clusters.iter().flatten().map(|c| c.outer).next() else {
+        return vec![AutoMaskModel::EMPTY; clusters.len()];
+    };
+    let mut arc = vec![0.0f32; dabs.len()];
+    for i in 1..dabs.len() {
+        arc[i] = arc[i - 1] + (dabs[i].0 - dabs[i - 1].0).hypot(dabs[i].1 - dabs[i - 1].1);
+    }
+    let within = |i: usize, reach: f32| {
+        let arc = &arc;
+        (0..dabs.len()).filter(move |&j| (arc[j] - arc[i]).abs() <= reach * outer)
+    };
+
+    let own: Vec<Option<[f32; 3]>> = clusters
+        .iter()
+        .map(|c| c.map(|c| c.labs[c.nearest_centre()]))
+        .collect();
+    let mut models: Vec<AutoMaskModel> = (0..clusters.len())
+        .map(|i| {
+            let Some(c) = clusters[i] else {
+                return AutoMaskModel::EMPTY;
+            };
+            let near: Vec<[f32; 3]> = within(i, AUTO_MASK_SUBJECT_REACH)
+                .filter_map(|j| own[j])
+                .collect();
+            let cost = |x: &[f32; 3]| near.iter().map(|y| distance(*x, *y)).sum::<f32>();
+            let Some(medoid) = near.iter().min_by(|a, b| cost(a).total_cmp(&cost(b))) else {
+                return c.model(c.nearest_centre());
+            };
+            let subject = (0..AUTO_MASK_CLUSTERS)
+                .filter(|&j| c.present(j))
+                .min_by(|&a, &b| {
+                    distance(c.labs[a], *medoid).total_cmp(&distance(c.labs[b], *medoid))
+                })
+                .unwrap_or_else(|| c.nearest_centre());
+            c.model(subject)
+        })
+        .collect();
+
+    // The stroke's normal at each dab (to the left of its travel).
+    let normal = |i: usize| {
+        let a = dabs[i.saturating_sub(1)];
+        let b = dabs[(i + 1).min(dabs.len() - 1)];
+        let (tx, ty) = (b.0 - a.0, b.1 - a.1);
+        let len = tx.hypot(ty);
+        if len > 0.0 {
+            [-ty / len, tx / len]
+        } else {
+            [0.0, 0.0]
+        }
+    };
+    let away: Vec<[f32; 2]> = models
+        .iter()
+        .map(AutoMaskModel::away_from_backgrounds)
+        .collect();
+    let one_sided: Vec<f32> = away.iter().map(|a| a[0].hypot(a[1])).collect();
+    // > 0: the backgrounds lie to the left of the travel.
+    let leftwards: Vec<f32> = away
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let n = normal(i);
+            -(a[0] * n[0] + a[1] * n[1])
+        })
+        .collect();
+    for (i, model) in models.iter_mut().enumerate() {
+        let (side, total) = within(i, AUTO_MASK_SIDE_REACH).fold((0.0f32, 0.0f32), |(s, t), j| {
+            (s + leftwards[j], t + one_sided[j])
+        });
+        if total <= 0.0 {
+            continue;
+        }
+        let (low, high) = AUTO_MASK_ONE_SIDED;
+        let trust = side.abs() / total * smoothstep(low, high, one_sided[i]);
+        if trust <= 0.0 {
+            continue;
+        }
+        let n = normal(i);
+        let sign = if side > 0.0 { -1.0 } else { 1.0 };
+        let inward = [sign * n[0], sign * n[1]];
+        model.inward = [inward[0] * trust, inward[1] * trust];
+        if trust >= AUTO_MASK_SIDE_TRUSTED {
+            for j in 0..model.count {
+                let c = model.centroids[j];
+                if model.background[j].is_some_and(|s| s > 0.0)
+                    && (c[0] * inward[0] + c[1] * inward[1]) / model.outer > AUTO_MASK_BEHIND
+                {
+                    model.background[j] = None;
+                }
+            }
+        }
+    }
+    models
 }
 
 fn default_brush_feather() -> f32 {
@@ -1923,6 +2190,7 @@ fn blend_stroke_dabs(
     bounds: (u32, u32, u32, u32),
     colours: Option<&[[f32; 3]]>,
     linear_colours: Option<&[[f32; 3]]>,
+    auto_mask_version: u32,
     combine: impl Fn(u8, u8) -> u8 + Sync,
 ) -> usize {
     let (min_x, min_y, max_x, max_y) = bounds;
@@ -2018,6 +2286,7 @@ fn blend_stroke_dabs(
             flow,
             opacity,
             linear_colours,
+            auto_mask_version,
             combine,
         );
         return dabs.len();
@@ -2092,12 +2361,20 @@ fn blend_stroke_auto_mask_v2(
     flow: f32,
     opacity: f32,
     colours: &[[f32; 3]],
+    version: u32,
     combine: impl Fn(u8, u8) -> u8 + Sync,
 ) {
-    let models: Vec<AutoMaskModel> = dabs
-        .par_iter()
-        .map(|&centre| AutoMaskModel::fit(colours, bb_w, bb_h, centre, outer))
-        .collect();
+    let models: Vec<AutoMaskModel> = if version >= 3 {
+        let clusters: Vec<Option<AutoMaskClusters>> = dabs
+            .par_iter()
+            .map(|&centre| AutoMaskClusters::of(colours, bb_w, bb_h, centre, outer))
+            .collect();
+        stroke_models_v3(&clusters, dabs)
+    } else {
+        dabs.par_iter()
+            .map(|&centre| AutoMaskModel::fit(colours, bb_w, bb_h, centre, outer))
+            .collect()
+    };
     let radius_sq = outer * outer;
     let width = mask.width() as usize;
     let rows = &mut mask.as_mut()[min_y as usize * width..(min_y as usize + bb_h) * width];
@@ -2126,7 +2403,7 @@ fn blend_stroke_auto_mask_v2(
                 let intensity = tip_at(dist_sq);
                 let x = x as usize;
                 keep[x] *= 1.0 - flow * intensity;
-                let share = models[dab].weight(colours[y * bb_w + x]);
+                let share = models[dab].weight_at(colours[y * bb_w + x], (offset_x, offset_y));
                 shares[x].0 += intensity * share;
                 shares[x].1 += intensity;
             }
@@ -2612,6 +2889,7 @@ fn apply_brush_line(
             bounds,
             colours.as_deref(),
             linear_colours.as_deref(),
+            line.auto_mask_version.unwrap_or(1),
             combine,
         );
         // Profiling only: dabs of this stroke, the rows and columns of its
@@ -7190,12 +7468,74 @@ mod auto_mask_tools {
         );
     }
 
+    /// A stroke 10 px inside an edge: a dark background above it, below it a
+    /// pale subject with dark green gaps (15 % of its pixels).
+    fn fur_stroke(version: u32) -> GrayImage {
+        let (w, h) = (320u32, 160u32);
+        let edge = 60u32;
+        let image = DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(w, h, |x, y| {
+            if y < edge {
+                Rgba([30, 30, 34, 255])
+            } else if (x * 7 + y * 3) % 13 < 2 {
+                Rgba([20, 70, 40, 255])
+            } else {
+                Rgba([200, 170, 140, 255])
+            }
+        }));
+        let source = ParametricMaskSource::new(Arc::new(image), (w as f64, h as f64)).unwrap();
+        let points: Vec<Value> = (0..=12)
+            .map(|i| serde_json::json!({"x": 40.0 + i as f64 * 20.0, "y": edge as f64 + 10.0}))
+            .collect();
+        let def: MaskDefinition = serde_json::from_value(serde_json::json!({
+            "id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100.0,
+            "adjustments": {}, "subMasks": [{"id": "b", "type": "brush", "visible": true,
+            "mode": "additive", "parameters": {"lines": [{"tool": "brush", "brushSize": 80.0,
+            "points": points, "feather": 0.5, "hardness": 50.0, "autoMask": true,
+            "autoMaskVersion": version}]}}]
+        }))
+        .unwrap();
+        generate_mask_bitmap(
+            &def,
+            w,
+            h,
+            1.0,
+            (0.0, 0.0),
+            &PhotoGeometry::default(),
+            Some(&source),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn auto_mask_v3_keeps_gaps_inside_the_subject() {
+        // Version 2 lets the gaps go with the background they look like;
+        // version 3 keeps the subject's side of the stroke, gaps and all, and
+        // still leaves the background above the edge.
+        let mean = |mask: &GrayImage, rows: std::ops::Range<u32>| {
+            let mut sum = 0.0;
+            let mut n = 0.0;
+            for y in rows {
+                for x in 100..220 {
+                    sum += mask.get_pixel(x, y)[0] as f64 / 255.0;
+                    n += 1.0;
+                }
+            }
+            sum / n
+        };
+        let (v2, v3) = (fur_stroke(2), fur_stroke(3));
+        let (inside_v2, inside_v3) = (mean(&v2, 64..90), mean(&v3, 64..90));
+        assert!(inside_v2 < 0.9, "version 2 inside {inside_v2}");
+        assert!(inside_v3 > 0.98, "version 3 inside {inside_v3}");
+        let outside = mean(&v3, 30..56);
+        assert!(outside < 0.02, "version 3 outside {outside}");
+    }
+
     /// M3 of notes plans/local-adjustments-g29-g31.md: the brush stage per
     /// pointer move while a stroke grows (the newest stroke is redrawn on
     /// every move), on a 1536 × 1024 preview of a 7728 × 5152 photo, as in
     /// the WP0 baseline (reference/local-masks-baseline.md): 60 points over
     /// the width, Capture One's tip at 50 %, brush diameters of 300 and 1500
-    /// photo pixels, Auto Mask off, version 1 and version 2. `$AM_IMAGE`
+    /// photo pixels, Auto Mask off and versions 1 to 3. `$AM_IMAGE`
     /// (any photo, resized to the preview) replaces the synthetic one.
     #[test]
     #[ignore = "timing: run with --release"]
@@ -7226,6 +7566,10 @@ mod auto_mask_tools {
                 (
                     "v2",
                     serde_json::json!({"autoMask": true, "autoMaskVersion": 2}),
+                ),
+                (
+                    "v3",
+                    serde_json::json!({"autoMask": true, "autoMaskVersion": 3}),
                 ),
             ] {
                 let mut times = Vec::new();

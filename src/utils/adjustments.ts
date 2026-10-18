@@ -758,18 +758,19 @@ export interface MaskContainer {
   adjustments: MaskAdjustments;
   id: string;
   invert: boolean;
-  /** 2: the mask is computed at 16 bits (new layers); absent: 8 bits. */
+  /** 2: the mask is computed at 16 bits; 3 (new layers): also Refine edge
+   * on both sides of a thin mask; absent: 8 bits. */
   maskVersion?: number;
   name: string;
   opacity: number;
-  /** Refine edge radius in pixels of the full photo (`maskVersion` 2). */
+  /** Refine edge radius in pixels of the full photo (`maskVersion` 2+). */
   refineEdge?: number;
   subMasks: Array<SubMask>;
   visible: boolean;
 }
 
 /** The mask version new layers get (crates/engine/src/masks.rs). */
-export const MASK_VERSION = 2;
+export const MASK_VERSION = 3;
 
 export interface Sections {
   [index: string]: Array<string>;

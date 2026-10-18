@@ -218,9 +218,10 @@ interface ColorSample extends Partial<FrameGeometry> {
 /** Lightroom's colour range takes up to five samples. */
 const MAX_COLOR_SAMPLES = 5;
 
-/** Auto Mask method of new strokes: 2 is edge-aware (crates/engine
- * `AutoMaskModel`); strokes without it keep version 1. */
-const AUTO_MASK_VERSION = 2;
+/** Auto Mask method of new strokes: 3 is edge-aware with the stroke's dabs
+ * modelled together (crates/engine `stroke_models_v3`); strokes with 2 or
+ * without it keep their version. */
+const AUTO_MASK_VERSION = 3;
 
 const TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 const IDENTITY_3X3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];

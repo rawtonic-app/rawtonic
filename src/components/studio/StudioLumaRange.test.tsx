@@ -140,10 +140,10 @@ describe("refine edge", () => {
       fireEvent.blur(field);
     };
     type("40");
-    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: 2 });
+    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: 3 });
     type("0");
     expect(layerOf().refineEdge).toBeUndefined();
-    expect(layerOf().maskVersion).toBe(2);
+    expect(layerOf().maskVersion).toBe(3);
   });
 
   it("gives new layers the 16-bit mask and leaves older ones alone", () => {
@@ -156,6 +156,6 @@ describe("refine edge", () => {
     tools!.addLayer(Mask.Radial);
     const masks = useEditorStore.getState().adjustments.masks;
     expect(masks[0].maskVersion).toBeUndefined();
-    expect(masks[1].maskVersion).toBe(2);
+    expect(masks[1].maskVersion).toBe(3);
   });
 });
