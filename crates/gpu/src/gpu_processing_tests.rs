@@ -109,6 +109,10 @@ fn banded_input_upload_matches_the_full_conversion() {
     println!("{checked} banded input uploads match the full conversion");
 }
 
+/// The tests that occupy every thread of rayon's global pool run one at a
+/// time: two at once would each wait for threads the other holds.
+static GLOBAL_POOL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Thumbnail batches run on rayon's global pool and wait there for the GPU
 /// processor lock; a caller holding that lock must not need the pool for its
 /// input upload (an Edit-all write in the multi view froze every render).
@@ -116,6 +120,7 @@ fn banded_input_upload_matches_the_full_conversion() {
 fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
     let context = context();
     let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(64, 600, |x, y| {
         image::Rgb([x as f32 / 64.0, y as f32 / 600.0, 0.5])
@@ -159,6 +164,39 @@ fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
         inside == Ok(true) || done_rx.recv_timeout(Duration::from_secs(20)) == Ok(true),
         "upload on a pool thread"
     );
+}
+
+/// The colour noise pyramid is built under the GPU processor lock with
+/// rayon: a caller outside rayon holding the lock must not need the global
+/// pool while thumbnail batches wait there for it (Edit all selected's live
+/// cells froze every render after the recipes were written).
+#[test]
+fn parallel_work_under_the_processor_lock_does_not_wait_for_a_busy_pool() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
+    let lock = Arc::new(Mutex::new(()));
+    let guard = lock.lock().unwrap();
+    let threads = rayon::current_num_threads();
+    let (started_tx, started_rx) = mpsc::channel();
+    for _ in 0..threads {
+        let (lock, started) = (lock.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started.send(()).unwrap();
+            drop(lock.lock().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let sum: u64 = off_global_pool(|| (0..100_000u64).into_par_iter().map(|v| v % 7).sum());
+        done_tx.send(sum).unwrap();
+    });
+    let done = done_rx.recv_timeout(Duration::from_secs(20));
+    drop(guard);
+    assert_eq!(done, Ok((0..100_000u64).map(|v| v % 7).sum()));
 }
 
 fn all_sub_mask() -> serde_json::Value {

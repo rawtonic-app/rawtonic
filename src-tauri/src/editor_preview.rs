@@ -1451,23 +1451,14 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
         let jobs = &app_handle.state::<AppState>().inner().preview_jobs;
         let mut newest_sequence = None;
         let mut waiting: Option<PreviewJob> = None;
+        let mut live = crate::preview_slot::LiveCells::default();
+        let live_step = || crate::multi_view::live_step(&app_handle);
         loop {
             // A request arriving meanwhile has already replaced (and
             // rejected) the one waiting: the job taken is the newest received.
             let job = match waiting.take() {
                 Some(job) => job,
-                None if crate::multi_view::live_pending() => {
-                    // Edit all selected: while no frame of the primary is
-                    // asked for, the other cells catch up one at a time.
-                    match jobs.take_timeout(LIVE_IDLE) {
-                        Some(job) => job,
-                        None => {
-                            crate::multi_view::live_step(&app_handle);
-                            continue;
-                        }
-                    }
-                }
-                None => jobs.take(),
+                None => live.next_job(jobs, crate::multi_view::live_pending, &live_step),
             };
             // Dropping the responder rejects the superseded invoke.
             if crate::app_state::preview_job_is_stale(job.sequence, newest_sequence) {
@@ -1482,6 +1473,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
 
             let state = app_handle.state::<AppState>();
             let warm = draft_warmup_of(&job);
+            let interactive = job.is_interactive;
             let responder = job.responder;
             crate::multi_view_prefetch::note_preview(job.is_interactive);
             #[cfg(feature = "performance-profiling")]
@@ -1531,16 +1523,7 @@ pub(crate) fn start_preview_worker(app_handle: tauri::AppHandle) {
                 }
                 continue;
             }
-            // Edit all selected: one other cell after each frame of the
-            // primary, unless its next frame is already asked for.
-            if crate::multi_view::live_pending() {
-                match jobs.try_take() {
-                    Some(next) => waiting = Some(next),
-                    None => {
-                        crate::multi_view::live_step(&app_handle);
-                    }
-                }
-            }
+            waiting = live.after_frame(jobs, interactive, crate::multi_view::live_pending, &live_step);
         }
     });
     if let Err(e) = spawned {
@@ -1609,10 +1592,6 @@ fn warm_draft_source(app_handle: &tauri::AppHandle, warm: DraftWarmup) {
         Err(e) => log::warn!("Preparing the drag draft source failed: {}", e),
     }
 }
-
-/// How long the preview worker waits for the primary's next frame before
-/// developing another multi view cell live.
-const LIVE_IDLE: std::time::Duration = std::time::Duration::from_millis(25);
 
 /// Shows the photograph at `path` at once, natively (Capture One swaps its
 /// preview files the same way): its preview proxy (in memory or on disk) is

@@ -214,6 +214,8 @@ pub struct Proxy {
     pub image: DynamicImage,
     pub full_width: u32,
     pub full_height: u32,
+    /// What it was made from (its header's key).
+    pub key: ProxyKey,
 }
 
 pub use rawtonic_engine::session_layout::session_root;
@@ -641,6 +643,7 @@ fn decode_checked(bytes: &[u8], accept: impl FnOnce(&Header) -> bool) -> Option<
         image: DynamicImage::ImageRgb32F(image),
         full_width: header.full_width,
         full_height: header.full_height,
+        key: header.key,
     })
 }
 
@@ -679,6 +682,8 @@ pub fn full_size(source: &Path, settings: &AppSettings) -> Option<(u32, u32)> {
 /// Part of a 1:1 proxy: columns `col0..col0 + cols` of RGB rows `row0..`
 /// of the full-resolution frame `width` × `height`.
 pub struct ProxyRows {
+    /// What the proxy read was made from (its header's key).
+    pub key: ProxyKey,
     pub pixels: Vec<f32>,
     pub width: u32,
     pub height: u32,
@@ -779,6 +784,7 @@ fn decode_rows(
         })
         .collect();
     Some(ProxyRows {
+        key: header.key.clone(),
         pixels: decoded?.concat(),
         width: header.width,
         height: header.height,
@@ -844,6 +850,14 @@ pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
 
 /// Whether a current 1:1 proxy of `source` is stored (in the current
 /// encoding: building replaces a format 1 file).
+/// What the current 1:1 proxy of `source` was made from (its header's
+/// key), as reading it validates it; None without a current one.
+pub fn full_key(source: &Path, settings: &AppSettings) -> Option<ProxyKey> {
+    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
+    (header.is_current_encoding() && header_is_current(&header, source, settings))
+        .then_some(header.key)
+}
+
 pub fn has_full(source: &Path, settings: &AppSettings) -> bool {
     proxy_path_of(source, ProxyKind::Full)
         .and_then(|path| read_header(&path))
@@ -868,7 +882,7 @@ pub fn write(
     } else {
         full.clone()
     };
-    store(
+    let key = store(
         source,
         ProxyKind::Standard,
         &reduced,
@@ -880,6 +894,7 @@ pub fn write(
         image: reduced,
         full_width,
         full_height,
+        key,
     })
 }
 
@@ -899,6 +914,7 @@ pub fn write_full(
         settings,
         multiscale,
     )
+    .map(|_| ())
 }
 
 fn store(
@@ -908,7 +924,7 @@ fn store(
     (full_width, full_height): (u32, u32),
     settings: &AppSettings,
     multiscale: bool,
-) -> Result<(), String> {
+) -> Result<ProxyKey, String> {
     let path = proxy_path_of(source, kind).ok_or("No previews folder")?;
     let key = current_key(source, settings, multiscale).ok_or("Source file unavailable")?;
     let sample = content_sample(source);
@@ -916,13 +932,14 @@ fn store(
         image,
         full_width,
         full_height,
-        key,
+        key.clone(),
         sample,
         Some(source_label(source)),
         SourceData::read(source),
     );
     fs::create_dir_all(path.parent().ok_or("No parent")?).map_err(|e| e.to_string())?;
-    rawtonic_metadata::atomic_write(&path, bytes).map_err(|e| e.to_string())
+    rawtonic_metadata::atomic_write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(key)
 }
 
 /// Records a use of the proxy file at `path` in its modification time (its
