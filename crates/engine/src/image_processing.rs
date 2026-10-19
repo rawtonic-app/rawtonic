@@ -578,12 +578,15 @@ fn interpolate_pixel(
     y: f32,
     pixel_out: &mut [f32],
 ) {
+    // The last row and column are samples too (an unmoved pixel there maps
+    // onto itself); their missing neighbour is the edge pixel, as in
+    // `interpolate_pixel_with_tca`.
     if x.is_nan()
         || y.is_nan()
         || x < 0.0
         || y < 0.0
-        || x >= (src_width as f32 - 1.0)
-        || y >= (src_height as f32 - 1.0)
+        || x > (src_width as f32 - 1.0)
+        || y > (src_height as f32 - 1.0)
     {
         return;
     }
@@ -602,14 +605,16 @@ fn interpolate_pixel(
 
     let stride = src_width * 3;
     let idx_row0 = y0 * stride;
-    let idx_row1 = idx_row0 + stride;
-    let idx_p00 = idx_row0 + x0 * 3;
+    let idx_row1 = (y0 + 1).min(src_height - 1) * stride;
+    let (c0, c1) = (x0 * 3, (x0 + 1).min(src_width - 1) * 3);
 
+    // SAFETY: x0, x0 + 1 (clamped) < src_width and y0, y0 + 1 (clamped) <
+    // src_height by the bounds check above.
     unsafe {
-        let p00 = src_raw.get_unchecked(idx_p00..idx_p00 + 3);
-        let p10 = src_raw.get_unchecked(idx_p00 + 3..idx_p00 + 6);
-        let p01 = src_raw.get_unchecked(idx_row1 + x0 * 3..idx_row1 + x0 * 3 + 3);
-        let p11 = src_raw.get_unchecked(idx_row1 + x0 * 3 + 3..idx_row1 + x0 * 3 + 6);
+        let p00 = src_raw.get_unchecked(idx_row0 + c0..idx_row0 + c0 + 3);
+        let p10 = src_raw.get_unchecked(idx_row0 + c1..idx_row0 + c1 + 3);
+        let p01 = src_raw.get_unchecked(idx_row1 + c0..idx_row1 + c0 + 3);
+        let p11 = src_raw.get_unchecked(idx_row1 + c1..idx_row1 + c1 + 3);
 
         let top_r = p00[0] * one_minus_wx + p10[0] * wx;
         let top_g = p00[1] * one_minus_wx + p10[1] * wx;
@@ -1212,8 +1217,9 @@ impl WarpKernel {
 
     /// The leftmost, rightmost, lowest and highest source position (x0, x1,
     /// y0, y1) the sample at (`src_x`, `src_y`) reads in a `width` ×
-    /// `height` frame, None when it reads nothing: `interpolate_pixel` leaves positions outside the frame
-    /// black; with lateral CA each channel reads its own position, clamped
+    /// `height` frame, None when it reads nothing: `interpolate_pixel` leaves
+    /// positions outside the frame black (the last row and column are
+    /// inside); with lateral CA each channel reads its own position, clamped
     /// into the frame (`interpolate_pixel_with_tca`).
     #[inline(always)]
     fn sampled_area(&self, src_x: f32, src_y: f32, width: u32, height: u32) -> Option<[f32; 4]> {
@@ -1223,8 +1229,8 @@ impl WarpKernel {
                 || src_y.is_nan()
                 || src_x < 0.0
                 || src_y < 0.0
-                || src_x >= last_x
-                || src_y >= last;
+                || src_x > last_x
+                || src_y > last;
             return (!outside).then_some([src_x, src_x, src_y, src_y]);
         }
         let (cx, cy) = (self.cx, self.cy);
@@ -1346,7 +1352,7 @@ pub fn geometry_valid_pixels(params: &GeometryParams, width: u32, height: u32) -
             let mut current_vec = kernel.row_start(y as u32);
             for valid in row.iter_mut() {
                 *valid = kernel.source_point(&current_vec).is_some_and(|(x, y)| {
-                    !(x.is_nan() || y.is_nan() || x < 0.0 || y < 0.0 || x >= last_x || y >= last_y)
+                    !(x.is_nan() || y.is_nan() || x < 0.0 || y < 0.0 || x > last_x || y > last_y)
                 }) as u8;
                 current_vec += kernel.step_vec_x;
             }
@@ -6849,6 +6855,35 @@ mod warp_points_tests {
         }))
     }
 
+    /// A warp that moves no pixel (vignetting only, automatic CA that found
+    /// nothing) keeps the last row and column instead of leaving them black.
+    #[test]
+    fn unmoved_warps_keep_the_last_row_and_column() {
+        let (w, h) = (64u32, 48u32);
+        let grey = image::Rgb([0.5f32, 0.5, 0.5]);
+        let flat = DynamicImage::ImageRgb32F(image::ImageBuffer::from_pixel(w, h, grey));
+        let vignette = get_geometry_params_from_json(&serde_json::json!({
+            "lensVignetteAmount": 50.0, "lensDistortionParams": {"vig_k1": -0.3}
+        }));
+        let auto_ca = GeometryParams {
+            auto_ca: true,
+            auto_ca_version: 3,
+            ..Default::default()
+        };
+        for (name, params) in [("vignette", vignette), ("auto CA", auto_ca)] {
+            assert!(!is_geometry_identity(&params), "{name}");
+            let out = warp_image_geometry(&flat, params).into_rgb32f();
+            for (x, y) in [(w - 1, 10), (10, h - 1), (w - 1, h - 1)] {
+                let inner = out.get_pixel(x.min(w - 2), y.min(h - 2))[0];
+                let edge = out.get_pixel(x, y)[0];
+                assert!(
+                    edge > 0.4 && (edge - inner).abs() < 0.05,
+                    "{name} ({x},{y}): {edge} vs {inner}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn warp_points_land_where_the_image_warp_samples() {
         let (w, h) = (240u32, 160u32);
@@ -6945,6 +6980,8 @@ mod region_tests {
                 "crop": {"x": 20.0, "y": 15.0, "width": 240.0, "height": 160.0}}),
             json!({"transformDistortion": 35.0, "orientationSteps": 2, "flipVertical": true}),
             json!({"rotation": -12.25, "orientationSteps": 3}),
+            // A warp that moves no pixel samples the last row and column.
+            json!({"lensVignetteAmount": 50.0, "lensDistortionParams": {"vig_k1": -0.3}}),
             json!({"transformHorizontal": -20.0, "transformScale": 90.0, "transformXOffset": 5.0,
                 "lensDistortionParams": lens, "rotation": 1.0}),
         ]
