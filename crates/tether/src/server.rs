@@ -31,6 +31,14 @@ fn content_hash(data: &[u8]) -> u64 {
     data.hash(&mut hasher);
     hasher.finish()
 }
+/// How often an open camera is checked for keeping photos only in its memory
+/// (a card taken out, Save to changed on the body).
+const MEMORY_CHECK: Duration = Duration::from_secs(2);
+
+const MEMORY_ONLY: &str = "The camera keeps photos only in its memory now (no card, or Save to \
+     without the card), where a photo could be lost on its way: Rawtonic no longer fires it or \
+     takes photos from it. Put a card in, set Save to with the card, and connect again.";
+
 /// How long a shot the camera refuses as busy is tried again.
 const BUSY_RETRY: Duration = Duration::from_secs(5);
 /// A shot whose file has not come after this long is reported as failed
@@ -53,9 +61,12 @@ struct Open {
     /// extension and its app request, if any (RAW and JPEG of one exposure
     /// share the name and answer one request).
     exposure: Option<(String, String, Option<Instant>)>,
-    /// The camera keeps photos only in its memory ("Save to" without the
-    /// card): not polled or fired until that changes.
+    /// The camera came to keep photos only in its memory ("Save to" without
+    /// the card, or no card): not polled or fired for the rest of this
+    /// connection (photos it took meanwhile have no card copy).
     memory_only: bool,
+    /// When that was last checked.
+    memory_checked: Instant,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -241,7 +252,13 @@ impl<W: Write> Server<W> {
                         "Another body of that model is on this port.",
                     ));
                 }
-                let memory_only = camera.memory_only();
+                // A connection never starts with photos kept only in the
+                // camera's memory: Save to goes to the card where the camera
+                // offers that; else the camera is not opened.
+                if camera.memory_only() && (!camera.prefer_card() || camera.memory_only()) {
+                    return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
+                }
+                let memory_only = false;
                 self.connections += 1;
                 self.open = Some(Open {
                     camera,
@@ -253,6 +270,7 @@ impl<W: Write> Server<W> {
                     downloads: Default::default(),
                     exposure: None,
                     memory_only,
+                    memory_checked: Instant::now(),
                     connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
@@ -266,20 +284,20 @@ impl<W: Write> Server<W> {
             }),
             Request::SetSetting { key, value } => {
                 let open = self.camera()?;
-                open.camera.set_setting(&key, &value)?;
-                if key == "capturetarget" {
-                    open.memory_only = open.camera.memory_only();
+                if key == "capturetarget" && crate::camera::memory_only(Some(&value)) {
+                    return Err(TetherError::new(
+                        ErrorKind::Unsupported,
+                        "Rawtonic keeps a card copy of every tethered photo: Save to stays with the card.",
+                    ));
                 }
+                open.camera.set_setting(&key, &value)?;
                 Ok(Reply::Ok)
             }
             Request::Capture => {
                 let open = self.camera()?;
-                if open.memory_only {
-                    return Err(TetherError::new(
-                        ErrorKind::Unsupported,
-                        "The camera is set to keep photos only in its memory, where a photo could \
-                         be lost on the way: set Save to to an option with the card.",
-                    ));
+                if open.memory_only || open.camera.memory_only() {
+                    open.memory_only = true;
+                    return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
                 let at = Instant::now();
                 match open.camera.fire()? {
@@ -365,6 +383,18 @@ impl<W: Write> Server<W> {
                     "The camera did not deliver the photo. It was not fired again.",
                 ),
             })?;
+        }
+        let Some(open) = self.open.as_mut() else {
+            return Ok(());
+        };
+        if !open.memory_only && open.memory_checked.elapsed() >= MEMORY_CHECK {
+            open.memory_checked = Instant::now();
+            if open.camera.memory_only() {
+                open.memory_only = true;
+                return self.event(Event::CaptureFailed {
+                    error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
+                });
+            }
         }
         let Some(open) = self.open.as_mut() else {
             return Ok(());

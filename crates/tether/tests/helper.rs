@@ -374,31 +374,35 @@ fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
 }
 
 #[test]
-fn a_camera_keeping_photos_only_in_its_memory_is_not_fired_or_read_until_it_keeps_a_card_copy() {
+fn a_connection_keeps_a_card_copy_of_every_photo() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {
         capture_target: Some("sdram".into()),
-        body_shots_ms: vec![0],
         ..MockSpec::default()
     };
     let helper = start(&spec, dir.path());
-    helper.connect().unwrap();
-    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
-    assert_eq!(refused.kind, ErrorKind::Unsupported);
-    std::thread::sleep(Duration::from_millis(300));
-    let incoming = helper.staging.join(staging::INCOMING);
-    assert!(
-        !incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none(),
-        "the body shot stays in the camera"
-    );
-    let set = Request::SetSetting {
-        key: "capturetarget".into(),
-        value: "card+sdram".into(),
+    // Save to goes to the card at the connect.
+    match helper.connect().unwrap() {
+        Reply::Connected { .. } => {}
+        other => panic!("{other:?}"),
+    }
+    let Reply::Settings { settings } = helper.client.request(Request::Settings, WAIT).unwrap()
+    else {
+        panic!()
     };
-    assert_eq!(helper.client.request(set, WAIT).unwrap(), Reply::Ok);
+    let target = settings.iter().find(|s| s.key == "capturetarget").unwrap();
+    assert_eq!(target.value, "card+sdram");
+    // And stays there.
+    let to_memory = Request::SetSetting {
+        key: "capturetarget".into(),
+        value: "sdram".into(),
+    };
+    assert_eq!(
+        helper.client.request(to_memory, WAIT).unwrap_err().kind,
+        ErrorKind::Unsupported
+    );
     helper.capture();
-    // The body shot and the app's.
-    assert_eq!(helper.photos(2).0.len(), 2);
+    assert_eq!(helper.photos(1).0.len(), 1);
 }
 
 #[test]
@@ -428,7 +432,7 @@ fn raw_and_jpeg_of_one_exposure_answer_one_request() {
 }
 
 #[test]
-fn a_camera_set_to_the_card_without_a_card_in_is_not_fired_or_read() {
+fn a_camera_without_a_card_is_not_opened() {
     let dir = tempfile::tempdir().unwrap();
     // "Save to" says the card, but none is in: it would keep photos in memory.
     let spec = MockSpec {
@@ -438,12 +442,43 @@ fn a_camera_set_to_the_card_without_a_card_in_is_not_fired_or_read() {
         ..MockSpec::default()
     };
     let helper = start(&spec, dir.path());
-    helper.connect().unwrap();
-    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
-    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    assert_eq!(helper.connect().unwrap_err().kind, ErrorKind::Unsupported);
     std::thread::sleep(Duration::from_millis(300));
     let incoming = helper.staging.join(staging::INCOMING);
     assert!(!incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none());
+}
+
+#[test]
+fn a_card_taken_out_during_the_connection_stops_firing_and_reading() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        capture_target: Some("card+sdram".into()),
+        card_out_after_ms: Some(500),
+        body_shots_ms: vec![3000],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    assert_eq!(helper.photos(1).0.len(), 1);
+    // Found at the next check and said once.
+    match helper.next_event(Duration::from_secs(5)) {
+        Some(Event::CaptureFailed { error }) => assert_eq!(error.kind, ErrorKind::Unsupported),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(
+        helper
+            .client
+            .request(Request::Capture, WAIT)
+            .unwrap_err()
+            .kind,
+        ErrorKind::Unsupported
+    );
+    // The shot fired on the body afterwards stays in the camera.
+    std::thread::sleep(Duration::from_millis(1500));
+    let incoming = helper.staging.join(staging::INCOMING);
+    let files = std::fs::read_dir(&incoming).unwrap().count();
+    assert_eq!(files, 1, "only the photo from before");
 }
 
 #[test]

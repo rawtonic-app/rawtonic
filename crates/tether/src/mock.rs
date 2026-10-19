@@ -56,6 +56,8 @@ pub struct MockSpec {
     pub serial: Option<String>,
     /// No memory card in (a camera that then keeps photos in its memory).
     pub no_card: bool,
+    /// The card is taken out this long after the connect.
+    pub card_out_after_ms: Option<u64>,
     /// Each exposure gives a RAW and a JPEG file (same name, .JPG).
     pub raw_and_jpeg: bool,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
@@ -93,6 +95,7 @@ impl Default for MockSpec {
             capture_target: None,
             raw_and_jpeg: false,
             no_card: false,
+            card_out_after_ms: None,
             photo: None,
         }
     }
@@ -387,8 +390,22 @@ impl Camera for MockCamera {
         Ok(Fired::Pending)
     }
 
+    fn prefer_card(&mut self) -> bool {
+        let Some(target) = self.settings.iter_mut().find(|s| s.key == "capturetarget") else {
+            return false;
+        };
+        target.value = "card+sdram".into();
+        true
+    }
+
     fn memory_only(&mut self) -> bool {
-        self.spec.no_card || crate::camera::memory_only(self.status().capture_target.as_deref())
+        let card_out = self
+            .spec
+            .card_out_after_ms
+            .is_some_and(|ms| self.opened.elapsed() >= Duration::from_millis(ms));
+        self.spec.no_card
+            || card_out
+            || crate::camera::memory_only(self.status().capture_target.as_deref())
     }
 
     fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {

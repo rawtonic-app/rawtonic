@@ -512,6 +512,33 @@ impl Camera for GphotoCamera {
             .map_err(|e| session_error("Live view", e))
     }
 
+    fn prefer_card(&mut self) -> bool {
+        let Some(widget) = self.widget("capturetarget") else {
+            return false;
+        };
+        let Some(card) =
+            widget.choices().unwrap_or_default().into_iter().find(|c| {
+                !crate::camera::memory_only(Some(c)) && c.to_lowercase().contains("card")
+            })
+        else {
+            return false;
+        };
+        let set = widget.set_choice(&card).and_then(|()| {
+            self.camera
+                .set_single_config(&self.context, "capturetarget", &widget)
+        });
+        match set {
+            Ok(()) => {
+                log::info!("Save to set to {card}: every photo keeps a card copy");
+                true
+            }
+            Err(e) => {
+                log::warn!("Save to not set to {card}: {e}");
+                false
+            }
+        }
+    }
+
     fn memory_only(&mut self) -> bool {
         if crate::camera::memory_only(self.single_text(&["capturetarget"]).as_deref()) {
             return true;

@@ -234,3 +234,17 @@ it("says when a camera model has not been tested yet", async () => {
   await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
   expect(screen.queryByText(/not yet tested with this camera model/)).toBeNull();
 });
+
+it("says a failed shot from the shortcut while the panel is closed", async () => {
+  const { toast } = await import("react-toastify");
+  const base = invoke.getMockImplementation()!;
+  invoke.mockImplementation((command: string, args?: unknown) =>
+    command === "tether_capture" ? Promise.reject("The camera's transfer queue is full.") : base(command, args),
+  );
+  render(<Harness initial={STATUS} hidden />);
+  await waitFor(() => expect(isTetherConnected()).toBe(true));
+  act(() => {
+    window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
+  });
+  await waitFor(() => expect(toast.error).toHaveBeenCalled());
+});

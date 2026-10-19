@@ -68,6 +68,11 @@ pub trait Camera {
     fn memory_only(&mut self) -> bool {
         memory_only(self.status().capture_target.as_deref())
     }
+    /// Sets Save to to an option that keeps a card copy, where the camera
+    /// offers one; whether it did.
+    fn prefer_card(&mut self) -> bool {
+        false
+    }
     /// Frees a downloaded photo the app committed from the camera's USB
     /// transfer queue, on cameras that keep one; never a file on a card.
     /// Nothing on others.
