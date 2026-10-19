@@ -655,6 +655,18 @@ mod tests {
         captures_join_one_batch_until_another_import(ImportKind::Tether);
     }
 
+    #[test]
+    fn a_new_library_takes_tethered_captures_on_its_first_connection() {
+        let d = tempfile::tempdir().unwrap();
+        // No second connection that would migrate it on opening.
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        let _captures = lib.import_batch(ImportKind::Tether);
+        assert_eq!(lib.add_files(&paths[..1]).unwrap().added.len(), 1);
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!((batch.kind, batch.count), (ImportKind::Tether, 1));
+    }
+
     fn captures_join_one_batch_until_another_import(kind: ImportKind) {
         let d = tempfile::tempdir().unwrap();
         let lib = session(d.path());

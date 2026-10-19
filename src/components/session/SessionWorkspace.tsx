@@ -478,13 +478,20 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       })
       .catch(() => {});
   }, []);
+  // The library a camera was connected for, kept while the camera is away
+  // (unplugged, waiting to be connected again): leaving that library also
+  // cancels the pending reconnect.
+  const tetheredFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!tether) return;
-    if (!session || tether.session.replace(/\/$/, "") !== session.directory.replace(/\/$/, "")) {
-      void invoke(Invokes.TetherDisconnect).catch(() => {});
-      setTether(null);
-      setTetherOpen(false);
-    }
+    if (tether) tetheredFor.current = tether.session.replace(/\/$/, "");
+  }, [tether]);
+  useEffect(() => {
+    const directory = session?.directory.replace(/\/$/, "") ?? null;
+    if (!tetheredFor.current || tetheredFor.current === directory) return;
+    tetheredFor.current = null;
+    void invoke(Invokes.TetherDisconnect).catch(() => {});
+    setTether(null);
+    setTetherOpen(false);
   }, [session, tether]);
 
   // Opening a library (also at start-up) resumes the hot folder it keeps.

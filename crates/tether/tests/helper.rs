@@ -526,3 +526,32 @@ fn live_view_frames_arrive_while_on() {
         ErrorKind::Unsupported
     );
 }
+
+#[test]
+fn the_probe_never_writes_over_a_file_in_its_output_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let mine = dir.path().join("liveview-first.jpg");
+    std::fs::write(&mine, b"mine").unwrap();
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_rawtonic-tether"))
+        .args([
+            "probe",
+            "--mock",
+            "--shots",
+            "0",
+            "--live-view-frames",
+            "2",
+            "--out",
+        ])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(
+        report["liveView"]["firstFrameFile"]
+            .as_str()
+            .unwrap()
+            .starts_with("not saved"),
+        "{report}"
+    );
+    assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
+}

@@ -227,6 +227,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0006.sql"))?;
         conn.execute_batch(include_str!("../migrations/0007.sql"))?;
         conn.execute_batch(include_str!("../migrations/0008.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0009.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],

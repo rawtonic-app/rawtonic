@@ -90,6 +90,10 @@ pub struct CameraStatus {
     /// its verified commit, and the user can turn freeing off.
     #[serde(default)]
     pub transfer_queue: bool,
+    /// The body's serial number, when it reports one: a reconnect takes
+    /// only the same body (two of one model may be attached).
+    #[serde(default)]
+    pub serial: Option<String>,
 }
 
 /// A camera setting the interface shows (`key` is ours; `camera_key` the

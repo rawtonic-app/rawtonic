@@ -116,6 +116,9 @@ static CHOICE: AtomicU64 = AtomicU64::new(0);
 /// Held while a connection changes (the user's connect or disconnect, a
 /// reconnect's look-and-connect), so they never interleave.
 static TRANSITION: Mutex<()> = Mutex::new(());
+/// Held while a helper is started (and an ended one's ingest joined), so
+/// two callers never start two or skip the join.
+static STARTING: Mutex<()> = Mutex::new(());
 /// How often a camera that went away is looked for.
 const RECONNECT_EVERY: Duration = Duration::from_secs(1);
 
@@ -208,6 +211,7 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
 /// The running helper's client (started when there is none or the last one
 /// ended).
 fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
+    let _starting = STARTING.lock().unwrap();
     // A helper that ended: its ingest finishes the photos it has before a
     // new helper (and a new ingest) may touch the transfer folder.
     let ended = {
@@ -262,7 +266,7 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
 /// meanwhile or the helper ended (Capture One reconnects on its own too).
 fn reconnect_when_back(app: AppHandle) {
     let choice = CHOICE.load(Ordering::SeqCst);
-    let (client, session, model, config) = {
+    let (client, session, model, serial, config) = {
         let mut helper = HELPER.lock().unwrap();
         let Some(h) = helper.as_mut() else { return };
         // Not connected any more; kept for connecting it again.
@@ -276,6 +280,7 @@ fn reconnect_when_back(app: AppHandle) {
             h.client.clone(),
             c.session.clone(),
             c.status.model.clone(),
+            c.status.serial.clone(),
             c.config.clone(),
         )
     };
@@ -283,6 +288,7 @@ fn reconnect_when_back(app: AppHandle) {
     let Some((status, _turn)) = reconnect(
         &client,
         &model,
+        serial.as_deref(),
         &session,
         RECONNECT_EVERY,
         &TRANSITION,
@@ -317,6 +323,7 @@ fn reconnect_when_back(app: AppHandle) {
 fn reconnect<'a>(
     client: &Client,
     model: &str,
+    serial: Option<&str>,
     session: &Path,
     every: Duration,
     transition: &'a Mutex<()>,
@@ -333,17 +340,28 @@ fn reconnect<'a>(
         let Ok(Reply::Cameras { cameras }) = client.request(Request::ListCameras, QUICK) else {
             continue;
         };
-        let Some(camera) = cameras.into_iter().find(|c| c.model == model) else {
+        let candidates: Vec<_> = cameras.into_iter().filter(|c| c.model == model).collect();
+        // Without a serial number the body is known only by its model:
+        // then only when it is the one body of that model attached.
+        if serial.is_none() && candidates.len() != 1 {
             continue;
-        };
-        if !wanted() {
-            return None;
         }
-        let connect = Request::Connect {
-            port: Some(camera.port),
-            staging: staging::root(session),
-        };
-        if let Ok(Reply::Connected { status }) = client.request(connect, SLOW) {
+        for camera in candidates {
+            if !wanted() {
+                return None;
+            }
+            let connect = Request::Connect {
+                port: Some(camera.port),
+                staging: staging::root(session),
+            };
+            let Ok(Reply::Connected { status }) = client.request(connect, SLOW) else {
+                continue;
+            };
+            if serial.is_some() && status.serial.as_deref() != serial {
+                // Another body of the same model.
+                let _ = client.request(Request::Disconnect, QUICK);
+                continue;
+            }
             return Some((status, turn));
         }
     }
@@ -362,10 +380,11 @@ fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply
             ))
         }
         Err(e) if e.kind == ErrorKind::Disconnected => {
-            if let Some(h) = HELPER.lock().unwrap().as_mut()
-                && let Some(connection) = h.connection.take()
-            {
-                h.lost = Some(connection);
+            // The same transition as the helper's Disconnected event (which
+            // follows this reply): whichever is first starts the reconnect.
+            if camera_lost(&HELPER) {
+                let app = app.clone();
+                std::thread::spawn(move || reconnect_when_back(app));
             }
             Err(e.message)
         }
@@ -997,6 +1016,7 @@ mod tests {
             reconnect(
                 &client,
                 &spec.model,
+                Some("MOCK0001"),
                 &session,
                 Duration::ZERO,
                 &transition,
@@ -1011,6 +1031,7 @@ mod tests {
             reconnect(
                 &client,
                 &spec.model,
+                Some("MOCK0001"),
                 &session,
                 Duration::ZERO,
                 &transition,
@@ -1026,6 +1047,7 @@ mod tests {
         let (status, turn) = reconnect(
             &client,
             &spec.model,
+            Some("MOCK0001"),
             &session,
             Duration::from_millis(50),
             &transition,
@@ -1089,6 +1111,49 @@ mod tests {
             lost_while_connecting: false,
         });
         (state, client)
+    }
+
+    #[test]
+    fn the_reply_and_the_event_of_one_loss_start_one_reconnect() {
+        let (state, _client) = mock_helper(&MockSpec::default());
+        state.lock().unwrap().as_mut().unwrap().connection = Some(Connection {
+            session: PathBuf::from("/job"),
+            status: CameraStatus::default(),
+            config: Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "x"),
+                free_camera_copies: true,
+            })),
+        });
+        // Whichever of the failed request and the event comes first.
+        assert!(camera_lost(&state));
+        assert!(!camera_lost(&state));
+        assert!(state.lock().unwrap().as_ref().unwrap().lost.is_some());
+    }
+
+    #[test]
+    fn a_reconnect_takes_only_the_same_body() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let (_state, client) = mock_helper(&MockSpec::default());
+        let looks = std::sync::atomic::AtomicUsize::new(0);
+        let transition = Mutex::new(());
+        // Another body of the same model (serial MOCK0001) is attached.
+        let found = reconnect(
+            &client,
+            "Mock Camera",
+            Some("MOCK0002"),
+            &session,
+            Duration::ZERO,
+            &transition,
+            || looks.fetch_add(1, Ordering::SeqCst) < 6,
+        );
+        assert!(found.is_none());
+        assert_eq!(
+            client.request(Request::Settings, QUICK).unwrap_err().kind,
+            ErrorKind::NotConnected,
+            "the other body was let go"
+        );
     }
 
     #[test]

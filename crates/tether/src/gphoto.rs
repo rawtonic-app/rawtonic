@@ -93,6 +93,15 @@ fn has_transfer_queue(summary: &str) -> bool {
     summary.contains(": 0xe (") && summary.contains("(d212")
 }
 
+/// The serial number in libgphoto2's summary ("Serial Number: …").
+fn serial_number(summary: &str) -> Option<String> {
+    summary
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Serial Number:"))
+        .map(|serial| serial.trim().to_string())
+        .filter(|serial| !serial.is_empty())
+}
+
 pub struct GphotoDriver {
     context: gphoto2::Context,
 }
@@ -171,9 +180,9 @@ impl Driver for GphotoDriver {
             operations.capture_preview,
             operations.config
         );
-        let transfer_queue = camera
-            .summary(&context)
-            .is_ok_and(|summary| has_transfer_queue(&summary));
+        let summary = camera.summary(&context).unwrap_or_default();
+        let transfer_queue = has_transfer_queue(&summary);
+        let serial = serial_number(&summary);
         if transfer_queue {
             log::info!(
                 "{} keeps a USB transfer queue: committed photos are freed from it",
@@ -185,6 +194,7 @@ impl Driver for GphotoDriver {
             camera,
             info,
             transfer_queue,
+            serial,
             trigger: true,
             capture: true,
             preview: true,
@@ -205,6 +215,7 @@ pub struct GphotoCamera {
     /// The camera keeps every tethered photo in a USB transfer queue until
     /// the computer frees it, and stops shooting when the queue is full.
     transfer_queue: bool,
+    serial: Option<String>,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
 }
@@ -291,6 +302,7 @@ impl Camera for GphotoCamera {
             can_capture: self.capture || self.trigger,
             can_preview: self.preview,
             transfer_queue: self.transfer_queue,
+            serial: self.serial.clone(),
         }
     }
 

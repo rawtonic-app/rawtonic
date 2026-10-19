@@ -18,7 +18,7 @@ use rawtonic_tether::protocol::{Event, Reply, Request};
 use rawtonic_tether::server::Server;
 use serde_json::{Value, json};
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
@@ -236,6 +236,21 @@ fn ms(d: Duration) -> f64 {
 
 /// Runs the helper as a child process (exactly as the app does) and asks a
 /// body what it can do.
+/// Writes `bytes` to a new file at `path` (never over an existing file or
+/// through a link); what happened, for the report.
+fn save_new(path: &Path, bytes: &[u8]) -> String {
+    use std::io::Write;
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(bytes).and_then(|()| file.sync_all()));
+    match written {
+        Ok(()) => path.display().to_string(),
+        Err(e) => format!("not saved: {e}"),
+    }
+}
+
 fn probe(args: &[String], mock: bool) -> Result<(), String> {
     let out = PathBuf::from(arg(args, "--out").ok_or("probe needs --out DIR")?);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
@@ -371,6 +386,7 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
         let mut got = 0u32;
         let mut sizes = Vec::new();
         let mut first = None;
+        let mut first_frame = None;
         let deadline = Instant::now() + Duration::from_secs(20);
         while got < frames && Instant::now() < deadline {
             if let Ok((at, Incoming::LiveView(jpeg))) = rx.recv_timeout(Duration::from_secs(2)) {
@@ -378,7 +394,7 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
                 got += 1;
                 sizes.push(jpeg.len());
                 if got == 1 {
-                    let _ = std::fs::write(out.join("liveview-first.jpg"), &jpeg);
+                    first_frame = Some(save_new(&out.join("liveview-first.jpg"), &jpeg));
                 }
             }
         }
@@ -392,6 +408,7 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
             0.0
         };
         report["liveView"] = json!({
+            "firstFrameFile": first_frame,
             "on": format!("{on:?}"),
             "off": format!("{off:?}"),
             "frames": got,
