@@ -4,7 +4,7 @@
 FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl wget file git ca-certificates pkg-config xz-utils bzip2 python3 \
+    build-essential curl wget file git ca-certificates pkg-config xz-utils bzip2 m4 python3 \
     libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev libayatana-appindicator3-dev \
     libxdo-dev patchelf cmake nasm clang libclang-dev xdg-utils desktop-file-utils \
     gstreamer1.0-plugins-base gstreamer1.0-plugins-good libgstreamer-plugins-base1.0-dev \
