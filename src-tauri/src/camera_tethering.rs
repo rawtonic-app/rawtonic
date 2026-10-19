@@ -109,17 +109,14 @@ fn helper_command(app: &AppHandle) -> Result<HelperCommand, String> {
     } else {
         vec![]
     };
-    // The bundled camera and port drivers (and on Linux the libraries,
-    // which macOS bundles as frameworks), never the system's.
+    // The bundled camera and port drivers, never the system's (the
+    // libraries are the bundle's: macOS frameworks, AppImage usr/lib).
     let mut envs: Vec<(OsString, OsString)> = Vec::new();
     if let Ok(libs) = app.path().resource_dir().map(|r| r.join("gphoto2"))
         && libs.join("camlibs").is_dir()
     {
         envs.push(("CAMLIBS".into(), libs.join("camlibs").into()));
         envs.push(("IOLIBS".into(), libs.join("iolibs").into()));
-        if libs.join("lib").is_dir() {
-            envs.push(("LD_LIBRARY_PATH".into(), libs.join("lib").into()));
-        }
     }
     Ok((path, args, envs))
 }

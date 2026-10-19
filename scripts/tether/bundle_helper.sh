@@ -9,10 +9,11 @@
 #          Contents/Resources/gphoto2/{camlibs,iolibs}/ (CAMLIBS/IOLIBS are
 #          set by the app when it starts the helper); the port driver is
 #          the ImageCaptureCore one (icc), no libusb
-#   Linux: usr/bin/rawtonic-tether, <resources>/gphoto2/{camlibs,iolibs,lib}/
-#          (the app also sets LD_LIBRARY_PATH to lib/); libusb's port
-#          driver (usb1). packaging/linux/build-appimage.sh runs this inside
-#          its container.
+#   Linux: usr/bin/rawtonic-tether, <resources>/gphoto2/{camlibs,iolibs}/
+#          with libusb's port driver (usb1); the libraries are staged in
+#          target/tether-bundle/lib for linuxdeploy, which copies them into
+#          the AppImage's usr/lib (packaging/linux/build-appimage.sh runs
+#          this inside its container and puts lib/ on the library path).
 #
 # Every library reference is rewritten to the bundle and re-signed ad hoc;
 # the script fails if anything still points outside the bundle.
@@ -77,18 +78,18 @@ EOF
     ;;
   Linux)
     cp "$PREFIX"/lib/libgphoto2_port/*/usb1.so "$OUT/gphoto2/iolibs/"
-    mkdir -p "$OUT/gphoto2/lib"
+    mkdir -p "$OUT/lib"
     for lib in libgphoto2.so.6 libgphoto2_port.so.12 libltdl.so.7 libusb-1.0.so.0; do
-      cp -L "$PREFIX/lib/$lib" "$OUT/gphoto2/lib/$lib"
+      cp -L "$PREFIX/lib/$lib" "$OUT/lib/$lib"
     done
-    FILES=("$HELPER" "$OUT"/gphoto2/lib/*.so* "$OUT"/gphoto2/camlibs/*.so "$OUT"/gphoto2/iolibs/*.so)
+    FILES=("$HELPER" "$OUT"/lib/*.so* "$OUT"/gphoto2/camlibs/*.so "$OUT"/gphoto2/iolibs/*.so)
     for file in "${FILES[@]}"; do
       chmod u+w "$file"
-      # libtool records the build folder; the app passes the bundled one.
+      # libtool records the build folder; linuxdeploy sets the AppImage's.
       patchelf --remove-rpath "$file"
     done
-    if LD_LIBRARY_PATH=$OUT/gphoto2/lib ldd "${FILES[@]}" | grep -v ':$' |
-      grep -E "not found|libgphoto2|libusb|libltdl" | grep -v "=> $OUT/gphoto2/lib/"; then
+    if LD_LIBRARY_PATH=$OUT/lib ldd "${FILES[@]}" | grep -v ':$' |
+      grep -E "not found|libgphoto2|libusb|libltdl" | grep -v "=> $OUT/lib/"; then
       echo "bundle_helper: a library reference points outside the bundle" >&2
       exit 1
     fi

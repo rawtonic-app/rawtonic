@@ -24,7 +24,9 @@ export APPIMAGE_EXTRACT_AND_RUN=1 CI=true RAWTONIC_BUNDLE_ONNX=1
 npm ci
 # The tether helper with libgphoto2 built from pinned sources (ADR 0012).
 scripts/tether/bundle_helper.sh
+# linuxdeploy copies the helper's libraries from there into usr/lib.
 # shellcheck disable=SC2086
-npm run tauri -- build --bundles appimage --config "$CARGO_TARGET_DIR/tether-bundle/tauri.tether.conf.json" \
+LD_LIBRARY_PATH="$CARGO_TARGET_DIR/tether-bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+  npm run tauri -- build --bundles appimage --config "$CARGO_TARGET_DIR/tether-bundle/tauri.tether.conf.json" \
   $TAURI_ARGS -- --locked
 ls -la /cache/target/release/bundle/appimage/
