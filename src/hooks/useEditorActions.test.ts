@@ -620,6 +620,8 @@ describe('Auto straighten for a selection', () => {
     expect(now.lensDistortionParams).toEqual({ k1: 0.02 });
     // Drawn masks and AI patches as the commit re-framed them.
     expect(now.aiPatches).toMatchObject([{ id: 'p', framed: true }]);
+    // The Library's active photograph is this one too.
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: 2 } });
   });
 
   it('applies a paste made during the batch after it, so neither is lost', async () => {
@@ -639,6 +641,36 @@ describe('Auto straighten for a selection', () => {
     const paste = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
     expect(paste?.[1]).toMatchObject({ paths: ['/first.dng'], adjustments: { exposure: 3 } });
     expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1.5, exposure: 3 });
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+  });
+
+  it('runs a second batch on the same photograph after the first, and a paste after both', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng', '/other.dng']); });
+    await act(async () => {});
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    await act(async () => {});
+    const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+    // Only the first batch runs; the second and the paste wait.
+    expect(commands().filter((c) => c === Invokes.ApplyAutoStraightenToPaths)).toHaveLength(1);
+    expect(commands()).not.toContain(Invokes.ApplyAdjustmentsToPaths);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1.5 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1.5 } });
+    await act(async () => {});
+    // Now the second batch; the paste still waits for it.
+    expect(commands().filter((c) => c === Invokes.ApplyAutoStraightenToPaths)).toHaveLength(2);
+    expect(commands()).not.toContain(Invokes.ApplyAdjustmentsToPaths);
+    expect(useEditorStore.getState().heldRecipePaths).toEqual(['/first.dng']);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1.6 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1.6 } });
+    await act(async () => {});
+    expect(commands()).toContain(Invokes.ApplyAdjustmentsToPaths);
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1.6, exposure: 3 });
+    expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
     await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
   });

@@ -405,6 +405,10 @@ export function useEditorActions() {
       // Every photograph of the batch is held, also one opened while it runs.
       const held = [...new Set(pathsToUpdate)];
       useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
+      // Batches on the same photographs run one after another: this one
+      // starts when an earlier one holding any of them has ended, and its own
+      // end is what later writes to them wait for.
+      const earlier = afterHeldBatches(held);
       let ended!: () => void;
       const batchEnd = new Promise<void>((resolve) => {
         ended = resolve;
@@ -420,6 +424,7 @@ export function useEditorActions() {
           return { heldRecipePaths: remaining };
         });
       let released = false;
+      if (earlier) await earlier;
       if (open) {
         flushSliderDraft();
         debouncedSetHistory.flush();
