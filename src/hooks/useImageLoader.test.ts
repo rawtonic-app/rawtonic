@@ -115,6 +115,8 @@ it('loads source and metadata concurrently, then renders one complete initial st
 
 it('ignores a source and metadata pair completed after selecting another photograph', async () => {
   renderHook(() => useImageLoader({ current: null }));
+  // The first decode is under way when the next photograph is selected.
+  await act(async () => {});
   act(() => useEditorStore.setState({ selectedImage: photo('/second.dng') }));
   await resolve(Invokes.LoadMetadata, '/first.dng', { adjustments: { ...INITIAL_ADJUSTMENTS, exposure: 3 } });
   await resolve(Invokes.LoadImage, '/first.dng', nativeResult);
@@ -386,6 +388,21 @@ it('starts the decode after a stored proxy’s first frame, or after a short wai
     useEditorStore.setState({ hasRenderedFirstFrame: true });
     await vi.advanceTimersByTimeAsync(0);
     expect(settled).toBe(true);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('never starts the decode of a photograph left while its proxy frame was awaited', async () => {
+  vi.useFakeTimers();
+  try {
+    proxyResult = { width: 4000, height: 3000, isRaw: true };
+    renderHook(() => useImageLoader({ current: null }));
+    await act(async () => {});
+    act(() => useEditorStore.setState({ selectedImage: photo('/second.dng') }));
+    await act(async () => vi.advanceTimersByTimeAsync(PROXY_FRAME_FIRST_MS));
+    const decodes = pending.filter(({ command }) => command === Invokes.LoadImage).map(({ path }) => path);
+    expect(decodes).toEqual(['/second.dng']);
   } finally {
     vi.useRealTimers();
   }

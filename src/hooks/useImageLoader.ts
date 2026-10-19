@@ -273,7 +273,12 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             proxy ? waitForFirstFrame(PROXY_FRAME_FIRST_MS) : draftListener.then(() => undefined),
           );
           const decode = decodeStart
-            .then(() => invoke<LoadImageResult>(Invokes.LoadImage, { path: selectedImage.path }))
+            .then(() => {
+              // A photograph left while its decode waited is not decoded: the
+              // backend would cancel the next photograph's decode for it.
+              if (!stillCurrent()) throw new Error('Photograph left before its decode started');
+              return invoke<LoadImageResult>(Invokes.LoadImage, { path: selectedImage.path });
+            })
             .finally(() => {
               decodeSettled();
               void draftListener.then((listener) => listener?.stop());
