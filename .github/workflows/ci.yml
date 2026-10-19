@@ -1,6 +1,6 @@
 # Quality gates on Linux after every merge into main (and on demand). Before
-# a merge the same checks run locally: scripts/check.sh. macOS is checked
-# there; GitHub's macOS minutes count tenfold on a private repository.
+# a merge the same checks run locally: scripts/check.sh (which also runs
+# shellcheck when installed). macOS is checked there.
 name: Quality gates
 on:
   push:
@@ -44,7 +44,11 @@ jobs:
       - name: Linux native dependencies
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev patchelf libxdo-dev cmake nasm
       - run: npm ci
-      - run: python3 scripts/third_party_licenses.py --check
+      - name: Notices shipped with the app
+        run: |
+          cmp THIRD_PARTY_NOTICES.md src-tauri/resources/licenses/THIRD_PARTY_NOTICES.md
+          cmp licenses/Adobe-DNG-Specification-Patent-License.txt src-tauri/resources/licenses/Adobe-DNG-Specification-Patent-License.txt
+          python3 scripts/third_party_licenses.py --check
       - run: npm run typecheck
       - run: npm run lint
       - run: npm test
@@ -54,5 +58,6 @@ jobs:
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: scripts/check_layering.sh
       - run: cargo test --workspace --locked
+      - run: sh scripts/ship_test.sh
       - if: always()
         run: df -h /
