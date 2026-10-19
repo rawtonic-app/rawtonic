@@ -16,6 +16,12 @@ use std::time::{Duration, Instant};
 
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
+/// A file reported again this soon after its download, with no app shot
+/// waiting, is the same photo reported twice (libgphoto2's Fujifilm event
+/// polling finds it in the object list and the camera's ObjectAdded event
+/// names it again). Cameras number their files, so a new shot never has the
+/// name of the one before it.
+const REPEAT_WINDOW: Duration = Duration::from_secs(2);
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -28,6 +34,8 @@ struct Open {
     waiting: VecDeque<Instant>,
     /// Files downloaded from this camera.
     downloaded: u64,
+    /// The last file downloaded, and when.
+    last: Option<(CameraFile, Instant)>,
 }
 
 pub struct Server<W: Write> {
@@ -183,6 +191,7 @@ impl<W: Write> Server<W> {
                     live_view: false,
                     waiting: VecDeque::new(),
                     downloaded: 0,
+                    last: None,
                 });
                 Ok(Reply::Connected { status })
             }
@@ -267,6 +276,15 @@ impl<W: Write> Server<W> {
         };
         match open.camera.wait_event(wait) {
             Ok(CameraEvent::FileAdded(file)) => {
+                let repeated = open.waiting.is_empty()
+                    && open
+                        .last
+                        .as_ref()
+                        .is_some_and(|(last, at)| *last == file && at.elapsed() < REPEAT_WINDOW);
+                if repeated {
+                    log::debug!("{} reported again; already downloaded", file.name);
+                    return Ok(());
+                }
                 let started = open.waiting.pop_front();
                 self.download(file, started)
             }
@@ -308,6 +326,7 @@ impl<W: Write> Server<W> {
             }
         };
         open.downloaded = shot;
+        open.last = Some((file.clone(), Instant::now()));
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,

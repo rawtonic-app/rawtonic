@@ -40,6 +40,9 @@ pub struct MockSpec {
     /// The helper stops dead here (crash tests).
     pub abort_mid_download: Option<u64>,
     pub abort_before_event: Option<u64>,
+    /// Each file is reported a second time right after (as libgphoto2 does
+    /// for Fujifilm bodies: object-list polling and the camera's event).
+    pub report_twice: bool,
     /// Live view is offered.
     pub preview: bool,
     /// A real photo to hand out (each shot gets its number appended, so no
@@ -66,6 +69,7 @@ impl Default for MockSpec {
             read_only: vec![],
             abort_mid_download: None,
             abort_before_event: None,
+            report_twice: false,
             preview: true,
             photo: None,
         }
@@ -115,6 +119,7 @@ impl Driver for MockDriver {
             downloaded: 0,
             due: VecDeque::new(),
             body,
+            repeat: None,
             settings: vec![
                 setting("iso", "ISO", "100", &["100", "200", "400", "800"]),
                 setting(
@@ -152,6 +157,8 @@ pub struct MockCamera {
     /// Shots still to be fired on the body.
     body: VecDeque<Instant>,
     settings: Vec<Setting>,
+    /// A file to report once more (`report_twice`).
+    repeat: Option<CameraFile>,
 }
 
 impl MockCamera {
@@ -306,6 +313,9 @@ impl Camera for MockCamera {
         if self.unplugged() {
             return Err(Self::gone());
         }
+        if let Some(file) = self.repeat.take() {
+            return Ok(CameraEvent::FileAdded(file));
+        }
         let now = Instant::now();
         while self.body.front().is_some_and(|&at| at <= now) {
             self.body.pop_front();
@@ -326,6 +336,9 @@ impl Camera for MockCamera {
                 std::thread::sleep(at.saturating_duration_since(now));
                 if self.due.front().is_some_and(|(due, _)| *due <= at) {
                     let (_, file) = self.due.pop_front().unwrap();
+                    if self.spec.report_twice {
+                        self.repeat = Some(file.clone());
+                    }
                     return Ok(CameraEvent::FileAdded(file));
                 }
                 Ok(CameraEvent::Timeout)

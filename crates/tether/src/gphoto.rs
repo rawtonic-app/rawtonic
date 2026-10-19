@@ -1,7 +1,8 @@
 //! The camera driver on libgphoto2 (LGPL-2.1-or-later, linked dynamically
-//! into the helper only). Which operations a camera offers comes from its
-//! libgphoto2 abilities and the result codes of the calls — never from a
-//! table of body names. Nothing on the camera is changed except the
+//! into the helper only). Which operations a camera offers comes from the
+//! result codes of the calls — never from a table of body names, including
+//! libgphoto2's own model table, whose flags lag behind bodies its driver
+//! controls (e.g. a body listed without capture that captures). Nothing on the camera is changed except the
 //! settings the user sets; nothing on it is deleted.
 use crate::camera::{Camera, CameraEvent, CameraFile, Driver, Fired, SETTINGS, setting_aliases};
 use crate::protocol::{CameraInfo, CameraStatus, ErrorKind, Setting, TetherError};
@@ -45,6 +46,24 @@ fn session_error(context: &str, e: gphoto2::Error) -> TetherError {
         );
     }
     error(context, e)
+}
+
+/// A request the camera refused while it can otherwise shoot (AF, live
+/// view): one that keeps showing the last photo after a shot refuses them
+/// until the photo is dismissed (seen on a Fujifilm X-H2S with image review
+/// set to continuous: the camera answers 0xa001, libgphoto2 reports -1).
+fn refused(context: &str, e: gphoto2::Error) -> TetherError {
+    if e.kind() != Gp::Generic {
+        return session_error(context, e);
+    }
+    TetherError::new(
+        ErrorKind::Other,
+        format!(
+            "{context}: the camera refused it ({e}). If it keeps showing the last photo after \
+             each shot (image review set to continuous), half-press its shutter release, or set \
+             image review off or to a short time."
+        ),
+    )
 }
 
 pub struct GphotoDriver {
@@ -114,8 +133,10 @@ impl Driver for GphotoDriver {
             .abilities()
             .map(|a| a.camera_operations())
             .map_err(|e| error("Reading the camera's abilities", e))?;
+        // Logged only: the driver is tried, its "not supported" turns an
+        // operation off.
         log::info!(
-            "opened {} on {} (capture {}, trigger {}, preview {}, config {})",
+            "opened {} on {} (model table: capture {}, trigger {}, preview {}, config {})",
             info.model,
             info.port,
             operations.capture_image,
@@ -127,9 +148,9 @@ impl Driver for GphotoDriver {
             context,
             camera,
             info,
-            trigger: operations.trigger_capture,
-            capture: operations.capture_image,
-            preview: operations.capture_preview,
+            trigger: true,
+            capture: true,
+            preview: true,
             names: HashMap::new(),
         }))
     }
@@ -139,8 +160,8 @@ pub struct GphotoCamera {
     context: gphoto2::Context,
     camera: gphoto2::Camera,
     info: CameraInfo,
-    /// What libgphoto2 says the camera's driver offers; `trigger` turns off
-    /// when the driver answers "not supported" for it.
+    /// What the camera's driver offers: each turns off when the driver
+    /// answers "not supported" for it.
     trigger: bool,
     capture: bool,
     preview: bool,
@@ -317,10 +338,17 @@ impl Camera for GphotoCamera {
                 "This camera cannot be fired from the computer over USB.",
             ));
         }
-        let path = self
-            .camera
-            .capture_image(&self.context)
-            .map_err(|e| session_error("Capturing", e))?;
+        let path = match self.camera.capture_image(&self.context) {
+            Ok(path) => path,
+            Err(e) if e.kind() == Gp::NotSupported => {
+                self.capture = false;
+                return Err(TetherError::new(
+                    ErrorKind::Unsupported,
+                    "This camera cannot be fired from the computer over USB.",
+                ));
+            }
+            Err(e) => return Err(session_error("Capturing", e)),
+        };
         Ok(Fired::File(CameraFile {
             folder: path.folder,
             name: path.name,
@@ -338,7 +366,7 @@ impl Camera for GphotoCamera {
             widget
                 .set_toggle(true)
                 .and_then(|()| self.camera.set_single_config(&self.context, name, &widget))
-                .map_err(|e| session_error("Focusing", e))?;
+                .map_err(|e| refused("Focusing", e))?;
             if name == "autofocus" {
                 // A half-press: held, then released.
                 std::thread::sleep(Duration::from_millis(300));
@@ -356,10 +384,17 @@ impl Camera for GphotoCamera {
     }
 
     fn preview(&mut self) -> Result<Vec<u8>, TetherError> {
-        let file = self
-            .camera
-            .capture_preview(&self.context)
-            .map_err(|e| session_error("Live view", e))?;
+        let file = match self.camera.capture_preview(&self.context) {
+            Ok(file) => file,
+            Err(e) if e.kind() == Gp::NotSupported => {
+                self.preview = false;
+                return Err(TetherError::new(
+                    ErrorKind::Unsupported,
+                    "This camera has no live view over USB.",
+                ));
+            }
+            Err(e) => return Err(refused("Live view", e)),
+        };
         file.data()
             .map(<[u8]>::to_vec)
             .map_err(|e| session_error("Live view", e))

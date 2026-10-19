@@ -161,6 +161,35 @@ fn every_shot_arrives_once_under_the_cameras_own_name_even_when_numbering_restar
 }
 
 #[test]
+fn a_photo_the_camera_reports_twice_arrives_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        report_twice: true,
+        restart_numbering_every: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    for _ in 0..4 {
+        helper.capture();
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let (photos, _) = helper.photos(5);
+    let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    // The restarted numbering still brings its shots; the repeats do not.
+    assert_eq!(
+        names,
+        [
+            "DSC00001.ARW",
+            "DSC00002.ARW",
+            "DSC00001.ARW",
+            "DSC00002.ARW"
+        ]
+    );
+    assert!(photos.iter().all(|p| p.requested));
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {
