@@ -291,16 +291,28 @@ export function useAiMasking() {
     result: Record<string, unknown>,
     keep: readonly string[] = [],
   ) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, patchesSentToBackend } = useEditorStore.getState();
     if (selectedImage?.path !== path) return;
-    const current = adjustments.masks
-      ?.flatMap((m: MaskContainer) => m.subMasks)
-      .find((sm: SubMask) => sm.id === subMaskId);
-    if (!current) return;
-    const parameters = current.parameters || {};
-    const own = Object.fromEntries(keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]));
     patchesSentToBackend.delete(subMaskId);
-    updateSubMask(subMaskId, { parameters: { ...parameters, ...result, ...own } });
+    // Merged inside the update: during a slider drag `prev` is the drag's
+    // newest draft, not the committed recipe.
+    setAdjustments((prev: Adjustments) => {
+      if (!prev.masks?.some((c: MaskContainer) => c.subMasks.some((sm: SubMask) => sm.id === subMaskId))) return prev;
+      return {
+        ...prev,
+        masks: prev.masks.map((c: MaskContainer) => ({
+          ...c,
+          subMasks: c.subMasks.map((sm: SubMask) => {
+            if (sm.id !== subMaskId) return sm;
+            const parameters = sm.parameters || {};
+            const own = Object.fromEntries(
+              keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
+            );
+            return { ...sm, parameters: { ...parameters, ...result, ...own } };
+          }),
+        })),
+      };
+    });
   };
 
   const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {

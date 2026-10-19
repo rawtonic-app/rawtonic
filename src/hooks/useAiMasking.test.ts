@@ -32,6 +32,8 @@ import { useProcessStore } from "../store/useProcessStore";
 import { useUIStore } from "../store/useUIStore";
 import { Panel } from "../components/ui/AppProperties";
 import { INITIAL_ADJUSTMENTS } from "../utils/adjustments";
+import { updateAdjustments } from "./useEditorActions";
+import { registerSliderDraftRenderer } from "../utils/sliderDraft";
 
 const layer = (type: string, parameters: Record<string, unknown>) => ({
   id: `layer-${type}`,
@@ -173,6 +175,41 @@ describe("automatic AI masks from imported presets", () => {
       minDepth: 45,
       maxDepth: 100,
       feather: 10,
+    });
+  });
+
+  it("keeps a depth limit dragged on a slider while the depth map computes", async () => {
+    const pending = deferredMasks();
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 4000, height: 3000 } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-depth", { maskDataBase64: null, minDepth: 20, maxDepth: 100 })] as never,
+      },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    // The drag's moves stay a draft until it ends (sliderDraft.ts).
+    const unregister = registerSliderDraftRenderer(() => true);
+    act(() => {
+      useEditorStore.setState({ isSliderDragging: true });
+      updateAdjustments((prev) => ({
+        ...prev,
+        masks: prev.masks.map((m) => ({
+          ...m,
+          subMasks: m.subMasks.map((s) => ({ ...s, parameters: { ...s.parameters, minDepth: 45 } })),
+        })),
+      }));
+    });
+    expect(subOf("sub-ai-depth")?.parameters).toMatchObject({ minDepth: 20 });
+    await act(async () =>
+      pending[0]({ maskDataBase64: "data:image/png;base64,AAAA", minDepth: 20, maxDepth: 100 }),
+    );
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    unregister();
+    expect(subOf("sub-ai-depth")?.parameters).toMatchObject({
+      maskDataBase64: "data:image/png;base64,AAAA",
+      minDepth: 45,
     });
   });
 
