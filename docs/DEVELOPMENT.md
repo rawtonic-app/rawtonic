@@ -105,6 +105,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo deny check licenses bans sources
 cargo deny check advisories
+cargo shear                     # unused dependencies (cargo install --locked cargo-shear); an unused dependency that must stay goes into [package.metadata.cargo-shear] ignored, with the reason
 npm run typecheck
 npm test
 npm run build

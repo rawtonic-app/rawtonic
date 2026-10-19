@@ -10,5 +10,4 @@ chrono.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-tempfile.workspace = true
 proptest = "1"

@@ -13,7 +13,6 @@ walkdir = "2.5.0"
 tempfile.workspace = true
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
 rawtonic-ingest = { path = "../ingest", version = "0.1.0" }
-rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0" }
 rawtonic-export = { path = "../export", version = "0.1.0" }
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
