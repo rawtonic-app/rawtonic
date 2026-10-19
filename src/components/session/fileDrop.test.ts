@@ -76,8 +76,11 @@ describe("drop targets", () => {
     expect(volumeOf("/Users/me/Pictures")).toBeNull();
   });
 
-  it("converts the webview's physical drag position to CSS pixels", () => {
-    expect(toCssPoint({ x: 400, y: 300 }, 2)).toEqual({ x: 200, y: 150 });
+  it("converts the webview's drag position to CSS pixels: device pixels only on Windows", () => {
+    expect(toCssPoint({ x: 400, y: 300 }, "windows", 2)).toEqual({ x: 200, y: 150 });
+    // WebKit (macOS) and WebKitGTK (Linux, Wayland or X11) report logical pixels.
+    expect(toCssPoint({ x: 400, y: 300 }, "macos", 2)).toEqual({ x: 400, y: 300 });
+    expect(toCssPoint({ x: 400, y: 300 }, "linux", 2)).toEqual({ x: 400, y: 300 });
   });
 
   it("accepts only folders inside the open library, not its Trash, own or hidden folders", () => {

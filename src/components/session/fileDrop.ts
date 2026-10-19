@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { useSettingsStore } from "../../store/useSettingsStore";
 
 /** Files and folders dragged from Finder / Explorer onto the window open the
  * import dialog with them (never a silent copy). Dropped onto an album of
@@ -46,11 +47,16 @@ export function dropTargetOf(
   return null;
 }
 
-/** A drag position of the webview (physical pixels) in CSS pixels. */
+/** A drag position of the webview in CSS pixels. Tauri types it as physical,
+ * but only WebView2 (Windows) reports device pixels: WebKit on macOS (view
+ * points) and WebKitGTK on Linux (GTK widget coordinates) report logical
+ * pixels, which are CSS pixels (wry 0.57 `drag_drop.rs` per platform). */
 export function toCssPoint(
   position: { x: number; y: number },
+  platform: string,
   scale = window.devicePixelRatio || 1,
 ) {
+  if (platform !== "windows") return { x: position.x, y: position.y };
   return { x: position.x / scale, y: position.y / scale };
 }
 
@@ -119,7 +125,7 @@ export function useWindowFileDrop(
       highlighted = next;
     };
     const at = (position: { x: number; y: number }) => {
-      const point = toCssPoint(position);
+      const point = toCssPoint(position, useSettingsStore.getState().osPlatform);
       return dropTargetOf(document.elementFromPoint(point.x, point.y));
     };
     const end = () => {
