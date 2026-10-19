@@ -18,9 +18,9 @@ use std::hint::black_box;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// The colour noise version these numbers are for; a newer version gets
-/// its own entry beside it.
-const COLOR_NOISE_VERSION: u64 = 6;
+/// The colour noise versions these numbers are for; a newer version gets
+/// its own entry beside the older ones.
+const COLOR_NOISE_VERSIONS: [u64; 2] = [6, 7];
 /// Preview width of the mask benchmarks (the Develop view's preview).
 const PREVIEW_WIDTH: u32 = 1536;
 
@@ -34,8 +34,8 @@ fn centre(image: &Rgb32FImage, w: u32, h: u32) -> Rgb32FImage {
 /// Colour NR on the CPU: the chroma pyramid the renderer builds for every
 /// development, and the whole CPU filter (the reference the GPU path
 /// matches) on a 6 MP centre.
-fn color_noise(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
-    let tuning = color_noise::Tuning::for_version(COLOR_NOISE_VERSION);
+fn color_noise(c: &mut Criterion, id: &str, photo: &Rgb32FImage, version: u64) {
+    let tuning = color_noise::Tuning::for_version(version);
     let settings = color_noise::Settings {
         amount: 0.25,
         detail: 0.5,
@@ -43,7 +43,7 @@ fn color_noise(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
     };
     let full = DynamicImage::ImageRgb32F(photo.clone());
     let crop = centre(photo, 3000, 2000);
-    let mut group = c.benchmark_group(format!("color_nr_v{COLOR_NOISE_VERSION}"));
+    let mut group = c.benchmark_group(format!("color_nr_v{version}"));
     group
         .sample_size(10)
         .measurement_time(Duration::from_secs(10));
@@ -176,7 +176,9 @@ fn masks(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
 
 fn develop(c: &mut Criterion) {
     let (id, photo) = support::photo();
-    color_noise(c, &id, &photo);
+    for version in COLOR_NOISE_VERSIONS {
+        color_noise(c, &id, &photo, version);
+    }
     fringe_and_ca(c, &id, &photo);
     masks(c, &id, &photo);
 }

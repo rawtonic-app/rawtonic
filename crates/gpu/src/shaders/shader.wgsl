@@ -90,7 +90,9 @@ struct GlobalAdjustments {
     tint: f32,
     vibrance: f32,
     hue: f32,
-    _pad_color1: f32,
+    // The share of version 7's speck swap applied (color_noise.rs
+    // `Tuning::speck_strength`).
+    color_noise_speck: f32,
     _pad_color2: f32,
     _pad_color3: f32,
 
@@ -3577,6 +3579,39 @@ fn ms_guide(coords_i: vec2<i32>, c0: vec2<f32>, mode: f32, is_raw: u32) -> vec2<
     return c0;
 }
 
+// Version 7's detail chroma (color_noise.rs `speck_plane`): the 3 x 3
+// median chroma when the pixel's chroma `c0` lies more than `limit` from it
+// while its square-root luminance `lp0` lies within `luma_limit` (one noise
+// σ, `SPECK_LUMA`) of the luminance median, faded out over ± σ/2 around it
+// (an isolated off-colour pixel, not a coloured point brighter or darker than
+// its surroundings), else `c0`.
+fn ms_speck_chroma(coords_i: vec2<i32>, c0: vec2<f32>, lp0: f32, limit: f32, luma_limit: f32, strength: f32, is_raw: u32) -> vec2<f32> {
+    let max_idx = vec2<i32>(input_dims()) - vec2<i32>(1);
+    var c: array<vec2<f32>, 9>;
+    var l: array<vec2<f32>, 9>;
+    var i = 0;
+    for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
+        for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
+            var q = load_input(clamp(coords_i + vec2<i32>(dx, dy), vec2<i32>(0), max_idx)).rgb;
+            if (is_raw == 0u) { q = srgb_to_linear(q); }
+            let e = nr_encode(q);
+            c[i] = vec2<f32>(e.r - e.g, e.b - e.g);
+            l[i] = vec2<f32>(get_luma(e));
+            i = i + 1;
+        }
+    }
+    c[4] = c0;
+    l[4] = vec2<f32>(lp0);
+    let mc = ms_median9(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]);
+    let ml = ms_median9(l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8]);
+    let dc = length(c0 - mc);
+    let swap = strength * clamp(1.5 - abs(lp0 - ml.x) / luma_limit, 0.0, 1.0);
+    if (dc > limit && swap > 0.0) {
+        return mix(c0, mc, swap);
+    }
+    return c0;
+}
+
 fn apply_color_noise_multiscale(
     center_linear: vec3<f32>,
     coords_i: vec2<i32>,
@@ -3596,6 +3631,15 @@ fn apply_color_noise_multiscale(
     // (color_noise.rs `Tuning::guide`).
     let guide_code = u32(round(adjustments.global.color_noise_guide));
     let edge2 = adjustments.global.color_noise.w;
+    // Version 7 (code bit 64): an isolated off-colour pixel's detail is its
+    // 3 x 3 median chroma, K = ((code >> 7) & 15) / 4 noise
+    // (color_noise.rs `Tuning::speck_swap`).
+    var cd = c0;
+    let speck = adjustments.global.color_noise_speck;
+    if ((guide_code & 64u) != 0u && aware2 > 0.0 && speck > 0.0) {
+        let sigma = sqrt(aware2);
+        cd = ms_speck_chroma(coords_i, c0, lp, f32((guide_code >> 7u) & 15u) * 0.25 * sigma, sigma, speck, is_raw);
+    }
     var guide = c0;
     var center_e: vec4<f32>;
     if (aware2 > 0.0) {
@@ -3638,7 +3682,7 @@ fn apply_color_noise_multiscale(
         if (edge2 > 0.0) {
             g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
         }
-        ab = center_e.zw + g0 * (c0 - center_e.xy);
+        ab = center_e.zw + g0 * (cd - center_e.xy);
     }
     // A layer with less colour noise reduction than the photo's returns
     // part of the pixel's own colour.
