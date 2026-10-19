@@ -675,6 +675,26 @@ describe('Auto straighten for a selection', () => {
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
   });
 
+  it('runs Auto lens correction on a batch photograph after the batch, so its reload is not stale', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    act(() => result.current.handleAutoLensCorrection(['/first.dng']));
+    await act(async () => {});
+    const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+    expect(commands()).not.toContain('apply_auto_lens_correction_to_paths');
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -3 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -3 } });
+    await act(async () => {});
+    expect(commands()).toContain('apply_auto_lens_correction_to_paths');
+    await finish('apply_auto_lens_correction_to_paths', undefined);
+    // Its reload reads the recipe after the batch: the rotation stays.
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, lensCorrectionMode: 'auto' } });
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -3, lensCorrectionMode: 'auto' });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

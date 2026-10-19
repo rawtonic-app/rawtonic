@@ -244,15 +244,38 @@ export function endBeforePeek() {
   );
 }
 
-/** Running batch edits (Auto straighten) by photograph: other recipe writes
- * to these photographs (paste, presets, reset) wait until the batch has
- * written and reloaded them (`afterHeldBatches`). */
-const heldBatches = new Map<string, Promise<void>>();
+/** Running recipe operations by photograph — those that rewrite recipes in
+ * the backend and then reload the open one (batch Auto straighten, Auto lens
+ * correction, selection Auto Adjust): the latest one's end per photograph. */
+const recipeOperations = new Map<string, Promise<void>>();
 
-/** When a batch holds any of `paths`: a promise for its end, else null. */
-function afterHeldBatches(paths: string[]): Promise<void> | null {
-  const waits = [...new Set(paths.map((path) => heldBatches.get(path)).filter((wait) => wait !== undefined))];
+/** When an operation is running on any of `paths`: a promise for its end
+ * (paste, presets and reset wait for it before they write), else null. */
+function afterRecipeOperations(paths: string[]): Promise<void> | null {
+  const waits = [...new Set(paths.map((path) => recipeOperations.get(path)).filter((wait) => wait !== undefined))];
   return waits.length > 0 ? Promise.all(waits).then(() => undefined) : null;
+}
+
+/** Runs `operation` on the recipes of `paths` after the operations already
+ * running on any of them, so one's write and reload never interleave with
+ * another's; later ones wait for this one. */
+export async function exclusiveRecipeOperation<T>(paths: string[], operation: () => Promise<T>): Promise<T> {
+  const unique = [...new Set(paths)];
+  const earlier = afterRecipeOperations(unique);
+  let ended!: () => void;
+  const end = new Promise<void>((resolve) => {
+    ended = resolve;
+  });
+  unique.forEach((path) => recipeOperations.set(path, end));
+  try {
+    if (earlier) await earlier;
+    return await operation();
+  } finally {
+    unique.forEach((path) => {
+      if (recipeOperations.get(path) === end) recipeOperations.delete(path);
+    });
+    ended();
+  }
 }
 
 /** The batch-written recipe of `path` into the editor as one undoable
@@ -405,15 +428,6 @@ export function useEditorActions() {
       // Every photograph of the batch is held, also one opened while it runs.
       const held = [...new Set(pathsToUpdate)];
       useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
-      // Batches on the same photographs run one after another: this one
-      // starts when an earlier one holding any of them has ended, and its own
-      // end is what later writes to them wait for.
-      const earlier = afterHeldBatches(held);
-      let ended!: () => void;
-      const batchEnd = new Promise<void>((resolve) => {
-        ended = resolve;
-      });
-      held.forEach((path) => heldBatches.set(path, batchEnd));
       const release = (paths: string[]) =>
         useEditorStore.getState().setEditor((state) => {
           const remaining = [...state.heldRecipePaths];
@@ -424,44 +438,43 @@ export function useEditorActions() {
           return { heldRecipePaths: remaining };
         });
       let released = false;
-      if (earlier) await earlier;
-      if (open) {
-        flushSliderDraft();
-        debouncedSetHistory.flush();
-        await flushRecipeSaves();
-      }
-      try {
-        pathsToUpdate.forEach((p) => globalImageCache.delete(p));
-        const report = await afterRecipeSaves(pathsToUpdate, () =>
-          invoke<StraightenReport>(Invokes.ApplyAutoStraightenToPaths, { paths: pathsToUpdate }),
-        );
-        // Whichever batch photograph is open now (the one open at the start
-        // or one opened meanwhile, maybe still loading) shows the result.
-        const now = useEditorStore.getState().selectedImage?.path;
-        release(held.filter((path) => path !== now));
-        if (now && held.includes(now)) {
-          if (report.straightened.includes(now)) await reloadHeldRecipe(now);
-          release([now]);
+      // After the operations already running on these photographs (another
+      // batch, Auto lens correction, Auto Adjust).
+      return exclusiveRecipeOperation(held, async () => {
+        if (open) {
+          flushSliderDraft();
+          debouncedSetHistory.flush();
+          await flushRecipeSaves();
         }
-        released = true;
-        if (libraryActivePath && report.straightened.includes(libraryActivePath)
-          && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
-          const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
-          if (useLibraryStore.getState().libraryActivePath === libraryActivePath
-            && meta.adjustments && !meta.adjustments.is_null) {
-            setLibrary({
-              libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
-            });
+        try {
+          pathsToUpdate.forEach((p) => globalImageCache.delete(p));
+          const report = await afterRecipeSaves(pathsToUpdate, () =>
+            invoke<StraightenReport>(Invokes.ApplyAutoStraightenToPaths, { paths: pathsToUpdate }),
+          );
+          // Whichever batch photograph is open now (the one open at the start
+          // or one opened meanwhile, maybe still loading) shows the result.
+          const now = useEditorStore.getState().selectedImage?.path;
+          release(held.filter((path) => path !== now));
+          if (now && held.includes(now)) {
+            if (report.straightened.includes(now)) await reloadHeldRecipe(now);
+            release([now]);
           }
+          released = true;
+          if (libraryActivePath && report.straightened.includes(libraryActivePath)
+            && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
+            const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+            if (useLibraryStore.getState().libraryActivePath === libraryActivePath
+              && meta.adjustments && !meta.adjustments.is_null) {
+              setLibrary({
+                libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+              });
+            }
+          }
+          return report;
+        } finally {
+          if (!released) release(held);
         }
-        return report;
-      } finally {
-        if (!released) release(held);
-        held.forEach((path) => {
-          if (heldBatches.get(path) === batchEnd) heldBatches.delete(path);
-        });
-        ended();
-      }
+      });
     },
     [],
   );
@@ -557,7 +570,7 @@ export function useEditorActions() {
       const pathsToReset = paths || multiSelectedPaths;
       if (pathsToReset.length === 0) return;
       // A batch is writing some of these recipes: reset once it is done.
-      const heldBatch = afterHeldBatches(pathsToReset);
+      const heldBatch = afterRecipeOperations(pathsToReset);
       if (heldBatch) {
         void heldBatch.then(() => handleResetAdjustments(pathsToReset));
         return;
@@ -614,7 +627,9 @@ export function useEditorActions() {
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      afterRecipeSaves(pathsToUpdate, () =>
+      // Its reload replaces the whole recipe: after and before the other
+      // operations on these photographs (exclusiveRecipeOperation).
+      void exclusiveRecipeOperation(pathsToUpdate, () => afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke('apply_auto_lens_correction_to_paths', { paths: pathsToUpdate }),
           pathsToUpdate,
@@ -644,7 +659,7 @@ export function useEditorActions() {
             }
           }
         })
-        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`));
+        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`)));
     },
     [setEditor],
   );
@@ -715,7 +730,7 @@ export function useEditorActions() {
         paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
       if (pathsToUpdate.length === 0) return;
       // A batch is writing some of these recipes: applied once it is done.
-      const heldBatch = afterHeldBatches(pathsToUpdate);
+      const heldBatch = afterRecipeOperations(pathsToUpdate);
       if (heldBatch) return heldBatch.then(() => applyAdjustmentsToPaths(partial, pathsToUpdate, { openingNow }));
       if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
 

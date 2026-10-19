@@ -468,17 +468,12 @@ fn analyse_straighten(
     // the photo could not be read resolved, the camera's defaults).
     rawtonic_export::exif_processing::prepare_recipe_lens(&mut developed, &source_path)?;
     let bytes = fs::read(&source_path).map_err(|e| e.to_string())?;
-    let image = image_loader::load_base_image_from_bytes(&bytes, &name, true, settings, None)
+    // The full decode, as the editor's: its size is the developed frame the
+    // crop is in, exactly (a reduced decode's scale cannot be told from a
+    // RAW's default crop). One photo at a time, freed before the next.
+    let image = image_loader::load_base_image_from_bytes(&bytes, &name, false, settings, None)
         .map_err(|e| e.to_string())?;
-    let factor = if is_raw_file(&source_path) {
-        crate::raw_processing::get_fast_demosaic_scale_factor(&bytes, image.width(), image.height())
-    } else {
-        1.0
-    };
-    let size = (
-        (image.width() as f32 / factor).round() as u32,
-        (image.height() as f32 / factor).round() as u32,
-    );
+    let size = (image.width(), image.height());
     let result = crate::auto_straighten::straighten_recipe(&image, size.0, size.1, &developed);
     Ok((analysed, result, size))
 }

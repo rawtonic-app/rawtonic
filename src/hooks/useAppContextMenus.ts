@@ -67,7 +67,7 @@ import { Color, COLOR_LABELS, INITIAL_ADJUSTMENTS, initialAdjustmentsFor, normal
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
+import { exclusiveRecipeOperation, isCurrentEditorImage, useEditorActions } from './useEditorActions';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { runAutoStraighten, runAutoStraightenPaths } from '../utils/autoStraighten';
@@ -519,7 +519,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
-        invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
+        // Its reload replaces the whole recipe: after and before the other
+        // operations on these photographs (batch Auto straighten, Auto lens).
+        void exclusiveRecipeOperation(finalSelection, () => invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
           .then(
             () => [] as string[],
             (err) => {
@@ -555,7 +557,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           .catch((err) => {
             console.error('Failed to apply auto adjustments to paths:', err);
             toast.error(t('contextMenus.toasts.failedApplyAuto', { err }));
-          });
+          }));
       };
 
       const onExportClick = () => {
