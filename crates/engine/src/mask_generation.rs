@@ -2797,8 +2797,39 @@ fn generate_linear_bitmap(
 const BRUSH_PREFIX_ENTRIES: usize = 8;
 const BRUSH_PREFIX_BYTES: usize = 24 * 1024 * 1024;
 
-/// Mask size, scale, crop offset and (for Auto Mask strokes) the photo's address.
-type BrushGeometry = (u32, u32, u32, u32, u32, u64);
+/// Mask size, scale and crop offset, and for Auto Mask strokes the photo they
+/// read: its pixels (a Weak pins the allocation's identity without retaining
+/// them, as in `MaskBitmapKey`; an address alone could be reused by a later
+/// photo) and how they are read (geometry, raw curve, coordinates).
+#[derive(Clone)]
+struct BrushGeometry {
+    frame: (u32, u32, u32, u32, u32),
+    photo: Option<BrushPhoto>,
+}
+
+#[derive(Clone)]
+struct BrushPhoto {
+    image: Weak<DynamicImage>,
+    geometry: SourceGeometry,
+    raw_curve: bool,
+    coordinate_dimensions: (f64, f64),
+}
+
+impl PartialEq for BrushGeometry {
+    fn eq(&self, other: &Self) -> bool {
+        self.frame == other.frame
+            && match (&self.photo, &other.photo) {
+                (Some(left), Some(right)) => {
+                    Weak::ptr_eq(&left.image, &right.image)
+                        && left.geometry == right.geometry
+                        && left.raw_curve == right.raw_curve
+                        && left.coordinate_dimensions == right.coordinate_dimensions
+                }
+                (None, None) => true,
+                _ => false,
+            }
+    }
+}
 
 struct BrushPrefix {
     geometry: BrushGeometry,
@@ -2840,20 +2871,20 @@ pub fn clear_brush_prefix_cache() {
 }
 
 /// Longest cached exact prefix of `lines` for this geometry, marked recent.
-fn brush_prefix(geometry: BrushGeometry, lines: &[BrushLine]) -> Option<(GrayImage, usize)> {
+fn brush_prefix(geometry: &BrushGeometry, lines: &[BrushLine]) -> Option<(GrayImage, usize)> {
     with_brush_prefixes(|prefixes| brush_prefix_in(prefixes, geometry, lines))
 }
 
 fn brush_prefix_in(
     prefixes: &mut VecDeque<BrushPrefix>,
-    geometry: BrushGeometry,
+    geometry: &BrushGeometry,
     lines: &[BrushLine],
 ) -> Option<(GrayImage, usize)> {
     let index = prefixes
         .iter()
         .enumerate()
         .filter(|(_, entry)| {
-            entry.geometry == geometry
+            entry.geometry == *geometry
                 && entry.lines.len() <= lines.len()
                 && entry.lines[..] == lines[..entry.lines.len()]
         })
@@ -2865,7 +2896,7 @@ fn brush_prefix_in(
     Some(found)
 }
 
-fn remember_brush_prefix(geometry: BrushGeometry, lines: &[BrushLine], mask: &GrayImage) {
+fn remember_brush_prefix(geometry: &BrushGeometry, lines: &[BrushLine], mask: &GrayImage) {
     if lines.is_empty() || mask.as_raw().len() > BRUSH_PREFIX_BYTES {
         return;
     }
@@ -2874,18 +2905,18 @@ fn remember_brush_prefix(geometry: BrushGeometry, lines: &[BrushLine], mask: &Gr
 
 fn remember_brush_prefix_in(
     prefixes: &mut VecDeque<BrushPrefix>,
-    geometry: BrushGeometry,
+    geometry: &BrushGeometry,
     lines: &[BrushLine],
     mask: &GrayImage,
 ) {
-    prefixes.retain(|entry| !(entry.geometry == geometry && entry.lines[..] == lines[..]));
+    prefixes.retain(|entry| !(entry.geometry == *geometry && entry.lines[..] == lines[..]));
     // Keep one earlier state for this geometry: the longest prefix of these
     // lines (the state before the newest stroke), else the most recent entry.
     // States of a stroke that has since grown are never prefixes again.
     let keep = prefixes
         .iter()
         .enumerate()
-        .filter(|(_, entry)| entry.geometry == geometry)
+        .filter(|(_, entry)| entry.geometry == *geometry)
         .max_by_key(|(index, entry)| {
             let prefix =
                 entry.lines.len() < lines.len() && entry.lines[..] == lines[..entry.lines.len()];
@@ -2900,10 +2931,10 @@ fn remember_brush_prefix_in(
     prefixes.retain(|entry| {
         let current = index;
         index += 1;
-        entry.geometry != geometry || Some(current) == keep
+        entry.geometry != *geometry || Some(current) == keep
     });
     prefixes.push_front(BrushPrefix {
-        geometry,
+        geometry: geometry.clone(),
         lines: lines.to_vec(),
         mask: mask.clone(),
     });
@@ -3096,25 +3127,28 @@ fn generate_brush_bitmap(
         return GrayImage::new(width, height);
     };
     // Auto Mask strokes depend on the photo too: the cached prefixes are
-    // keyed by its pixels' address.
-    let sampler = source
-        .filter(|_| lines.iter().any(|line| line.auto_mask))
-        .map(|source| SourceSampler::new(source, scale, crop_offset));
-    let photo = sampler
-        .as_ref()
-        .map_or(0, |s| s.image as *const DynamicImage as usize as u64);
-    let geometry = (
-        width,
-        height,
-        scale.to_bits(),
-        crop_offset.0.to_bits(),
-        crop_offset.1.to_bits(),
-        photo,
-    );
+    // keyed by it (see `BrushGeometry`).
+    let source = source.filter(|_| lines.iter().any(|line| line.auto_mask));
+    let sampler = source.map(|source| SourceSampler::new(source, scale, crop_offset));
+    let geometry = BrushGeometry {
+        frame: (
+            width,
+            height,
+            scale.to_bits(),
+            crop_offset.0.to_bits(),
+            crop_offset.1.to_bits(),
+        ),
+        photo: source.map(|source| BrushPhoto {
+            image: Arc::downgrade(&source.image),
+            geometry: source.geometry,
+            raw_curve: source.raw_curve,
+            coordinate_dimensions: source.coordinate_dimensions,
+        }),
+    };
     #[cfg(feature = "performance-profiling")]
     let started = std::time::Instant::now();
     let (mut mask, cached_lines) =
-        brush_prefix(geometry, lines).unwrap_or_else(|| (GrayImage::new(width, height), 0));
+        brush_prefix(&geometry, lines).unwrap_or_else(|| (GrayImage::new(width, height), 0));
     if cached_lines == lines.len() {
         return mask;
     }
@@ -3132,7 +3166,7 @@ fn generate_brush_bitmap(
         apply_brush_line(&mut mask, line, scale, crop_offset, sampler.as_ref());
     }
     if newest > cached_lines {
-        remember_brush_prefix(geometry, &lines[..newest], &mask);
+        remember_brush_prefix(&geometry, &lines[..newest], &mask);
     }
     apply_brush_line(
         &mut mask,
@@ -3141,7 +3175,7 @@ fn generate_brush_bitmap(
         crop_offset,
         sampler.as_ref(),
     );
-    remember_brush_prefix(geometry, lines, &mask);
+    remember_brush_prefix(&geometry, lines, &mask);
     mask
 }
 
@@ -5870,7 +5904,7 @@ mod mask_bitmap_cache_tests {
                     let state: Vec<_> = with_brush_prefixes(|prefixes| {
                         prefixes
                             .iter()
-                            .map(|entry| (entry.geometry.0, entry.lines.len()))
+                            .map(|entry| (entry.geometry.frame.0, entry.lines.len()))
                             .collect()
                     });
                     assert!(
@@ -7785,6 +7819,54 @@ mod auto_mask_tools {
                 serde_json::json!({"autoMask": true, "autoMaskVersion": 1})
             )
         );
+    }
+
+    #[test]
+    fn cached_auto_mask_strokes_follow_the_photo_they_read() {
+        // The same strokes over the same pixels, read the other way up or
+        // through the raw curve: the brush prefix cache must not hand back
+        // the mask of the photo as it was read before.
+        let image = Arc::new(DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(
+            96,
+            64,
+            |x, y| Rgba([(y * 4) as u8, 120, (x * 2) as u8, 255]),
+        )));
+        let def: MaskDefinition = serde_json::from_value(serde_json::json!({
+            "id": "m", "name": "m", "visible": true, "invert": false, "opacity": 100.0,
+            "adjustments": {}, "subMasks": [{"id": "b", "type": "brush", "visible": true,
+            "mode": "additive", "parameters": {"lines": [{"tool": "brush", "brushSize": 24.0,
+            "points": [{"x": 20.0, "y": 28.0}, {"x": 76.0, "y": 28.0}], "feather": 0.5,
+            "hardness": 80.0, "autoMask": true, "autoMaskVersion": 3}]}}]
+        }))
+        .unwrap();
+        let render = |source: &ParametricMaskSource| {
+            generate_mask_bitmap(
+                &def,
+                96,
+                64,
+                1.0,
+                (0.0, 0.0),
+                &PhotoGeometry::default(),
+                Some(source),
+            )
+            .unwrap()
+        };
+        let upright = ParametricMaskSource::new(Arc::clone(&image), (96.0, 64.0)).unwrap();
+        let changed = [
+            upright
+                .clone()
+                .with_geometry(&serde_json::json!({"flipVertical": true})),
+            upright.clone().with_raw_curve(true),
+        ];
+        for source in &changed {
+            clear_brush_prefixes();
+            let before = render(&upright);
+            let cached = render(source);
+            clear_brush_prefixes();
+            let fresh = render(source);
+            assert_ne!(before, fresh, "the change must alter what the stroke keeps");
+            assert_eq!(cached, fresh);
+        }
     }
 
     /// A stroke 10 px inside an edge: a dark background above it, below it a
