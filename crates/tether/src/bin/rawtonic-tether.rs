@@ -234,8 +234,6 @@ fn ms(d: Duration) -> f64 {
     (d.as_secs_f64() * 1e4).round() / 10.0
 }
 
-/// Runs the helper as a child process (exactly as the app does) and asks a
-/// body what it can do.
 /// Writes `bytes` to a new file at `path` (never over an existing file or
 /// through a link); what happened, for the report.
 fn save_new(path: &Path, bytes: &[u8]) -> String {
@@ -251,6 +249,8 @@ fn save_new(path: &Path, bytes: &[u8]) -> String {
     }
 }
 
+/// Runs the helper as a child process (exactly as the app does) and asks a
+/// body what it can do.
 fn probe(args: &[String], mock: bool) -> Result<(), String> {
     let out = PathBuf::from(arg(args, "--out").ok_or("probe needs --out DIR")?);
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;

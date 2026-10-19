@@ -251,7 +251,6 @@ impl<W: Write> Server<W> {
                 if camera.memory_only()? && (!camera.prefer_card() || camera.memory_only()?) {
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
-                let memory_only = false;
                 self.connections += 1;
                 self.open = Some(Open {
                     camera,
@@ -262,7 +261,7 @@ impl<W: Write> Server<W> {
                     published: Default::default(),
                     downloads: Default::default(),
                     exposure: None,
-                    memory_only,
+                    memory_only: false,
                     connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
@@ -436,7 +435,7 @@ impl<W: Write> Server<W> {
     }
 
     /// Downloads a file the camera reported into the transfer folder and
-    /// tells the app. `requested`: when the app asked for the shot (else it
+    /// tells the app. `shot_of`: which app shot it answers, if any (else it
     /// was fired on the body).
     fn download(&mut self, file: CameraFile, shot_of: Shot) -> io::Result<()> {
         let Some(open) = self.open.as_mut() else {
@@ -466,7 +465,6 @@ impl<W: Write> Server<W> {
         let requested = match shot_of {
             // Another file of the same exposure (same name, other kind):
             // the same request, not the next one.
-            // A file of a kind the exposure already gave starts the next one.
             Shot::Waiting => match &mut open.exposure {
                 Some((last_stem, kinds, at))
                     if *last_stem == stem && !kinds.contains(&extension) =>
@@ -474,6 +472,7 @@ impl<W: Write> Server<W> {
                     kinds.push(extension.clone());
                     *at
                 }
+                // A file of a kind the exposure already gave starts the next one.
                 _ => {
                     let at = open.waiting.pop_front();
                     open.exposure = Some((stem, vec![extension], at));

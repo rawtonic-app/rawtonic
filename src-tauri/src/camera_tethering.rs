@@ -197,7 +197,6 @@ fn helper_command(app: &AppHandle) -> Result<HelperCommand, String> {
     Ok((path, args, envs))
 }
 
-/// Emits the helper's events; photos go to the connection's ingest.
 /// Whether `generation` is the running helper (a late message of one that
 /// was replaced concerns no camera of now).
 fn current_helper(state: &Mutex<Option<Helper>>, generation: u64) -> bool {
@@ -208,6 +207,7 @@ fn current_helper(state: &Mutex<Option<Helper>>, generation: u64) -> bool {
         .is_some_and(|h| h.generation == generation)
 }
 
+/// Emits the helper's events; photos go to the connection's ingest.
 fn on_incoming(
     app: AppHandle,
     ingest: IngestSender,
@@ -876,10 +876,6 @@ fn finish_ingest(state: &Mutex<Option<Helper>>) {
     }
 }
 
-/// Opens a camera for `session` on the running helper: the earlier
-/// connection's ingest finished, the transfer folder recovered while no
-/// camera is open, the new ingest listening before the camera is (a body
-/// shot right after the connect goes straight in).
 /// What a connect opens: the camera on `port` (the first one when `None`)
 /// for `session`, its photos ingested with `config`.
 struct Opening {
@@ -888,6 +884,10 @@ struct Opening {
     config: Arc<Mutex<CaptureConfig>>,
 }
 
+/// Opens a camera for `session` on the running helper: the earlier
+/// connection's ingest finished, the transfer folder recovered while no
+/// camera is open, the new ingest listening before the camera is (a body
+/// shot right after the connect goes straight in).
 fn open_session(
     state: &Mutex<Option<Helper>>,
     transition: &Mutex<()>,
@@ -1096,8 +1096,6 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
 
-    /// The helper binary cargo built for the workspace (`--workspace`
-    /// builds it for the tether crate's own tests).
     #[test]
     fn photos_are_freed_on_the_camera_after_their_commit_unless_turned_off() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1832,6 +1830,8 @@ mod tests {
         );
     }
 
+    /// The helper binary cargo built for the workspace (`--workspace`
+    /// builds it for the tether crate's own tests).
     fn helper_binary() -> PathBuf {
         let deps = std::env::current_exe().unwrap();
         let path = deps
