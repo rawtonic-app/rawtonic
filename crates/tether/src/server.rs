@@ -177,6 +177,16 @@ impl<W: Write> Server<W> {
         // A shot refused as busy is not tried again here: busy does not
         // prove that nothing was exposed (the camera may refuse a step after
         // the shutter); a photo that still comes is downloaded as it comes.
+        // What the camera reported before this shot is taken in first: a
+        // driver may drop events it collected when it fires (libgphoto2's
+        // Canon EOS trigger clears its event list).
+        if request == Request::Capture {
+            for _ in 0..64 {
+                if !self.read_events(Duration::ZERO)? {
+                    break;
+                }
+            }
+        }
         let result = self.answer(request, &mut fired);
         // A camera lost during a request is lost like one lost between
         // requests: the app hears it (and connects it again when it is back).
@@ -366,8 +376,14 @@ impl<W: Write> Server<W> {
                 ),
             })?;
         }
+        self.read_events(wait).map(|_| ())
+    }
+
+    /// Reads the camera's events for up to `wait` (after checking that a
+    /// photo it would hand over keeps a card copy). Whether one was handled.
+    fn read_events(&mut self, wait: Duration) -> io::Result<bool> {
         let Some(open) = self.open.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         // Checked before every read of the camera's events: reading them may
         // already take a photo out of the camera's memory.
@@ -376,35 +392,40 @@ impl<W: Write> Server<W> {
                 Ok(false) => {}
                 Ok(true) => {
                     open.memory_only = true;
-                    return self.event(Event::CaptureFailed {
+                    self.event(Event::CaptureFailed {
                         error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
-                    });
+                    })?;
+                    return Ok(false);
                 }
-                Err(error) if error.kind == ErrorKind::Disconnected => return self.lost(error),
+                Err(error) if error.kind == ErrorKind::Disconnected => {
+                    self.lost(error)?;
+                    return Ok(false);
+                }
                 Err(error) => {
                     // Not read while it cannot be told; tried again next turn.
                     log::warn!("camera memory check: {error}");
                     std::thread::sleep(wait);
-                    return Ok(());
+                    return Ok(false);
                 }
             }
         }
         let Some(open) = self.open.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
         if open.memory_only {
             // Not polled: a transfer it would start could not be undone.
             std::thread::sleep(wait);
-            return Ok(());
+            return Ok(false);
         }
         match open.camera.wait_event(wait) {
-            Ok(CameraEvent::FileAdded(file)) => self.download(file, Shot::Waiting),
-            Ok(CameraEvent::SettingsChanged) => self.event(Event::SettingsChanged),
-            Ok(_) => Ok(()),
-            Err(error) if error.kind == ErrorKind::Disconnected => self.lost(error),
+            Ok(CameraEvent::FileAdded(file)) => self.download(file, Shot::Waiting).map(|()| true),
+            Ok(CameraEvent::SettingsChanged) => self.event(Event::SettingsChanged).map(|()| true),
+            Ok(CameraEvent::Timeout) => Ok(false),
+            Ok(_) => Ok(true),
+            Err(error) if error.kind == ErrorKind::Disconnected => self.lost(error).map(|()| false),
             Err(error) => {
                 log::warn!("camera event: {error}");
-                Ok(())
+                Ok(false)
             }
         }
     }

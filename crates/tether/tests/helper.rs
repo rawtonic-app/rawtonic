@@ -524,6 +524,24 @@ fn a_camera_unplugged_during_the_memory_check_is_reported_disconnected() {
 }
 
 #[test]
+fn what_the_camera_reported_before_a_shot_is_taken_in_before_firing() {
+    let dir = tempfile::tempdir().unwrap();
+    // A shot fired on the body just before the app's, on a driver that
+    // drops unread reports when it fires.
+    let spec = MockSpec {
+        fire_drops_reports: true,
+        event_delay_ms: 0,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    // Both arrive: the second fire would have dropped the first's report.
+    assert_eq!(helper.photos(2).0.len(), 2);
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {

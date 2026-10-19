@@ -180,7 +180,11 @@ impl Driver for GphotoDriver {
             operations.capture_preview,
             operations.config
         );
-        let summary = camera.summary(&context).unwrap_or_default();
+        // The safety checks rest on it (the Fujifilm queue, the Canon card
+        // check): a camera that cannot report it is not opened.
+        let summary = camera
+            .summary(&context)
+            .map_err(|e| error("Reading the camera's description", e))?;
         let transfer_queue = has_transfer_queue(&summary);
         let canon = summary.contains(": 0xb (");
         let serial = serial_number(&summary);

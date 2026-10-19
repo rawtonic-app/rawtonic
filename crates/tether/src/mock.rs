@@ -60,6 +60,9 @@ pub struct MockSpec {
     pub card_out_after_ms: Option<u64>,
     /// Save to cannot be read.
     pub target_read_fails: bool,
+    /// Firing drops the reports the camera has made but nobody read yet
+    /// (as libgphoto2's Canon EOS trigger clears its collected events).
+    pub fire_drops_reports: bool,
     /// Each exposure gives a RAW and a JPEG file (same name, .JPG).
     pub raw_and_jpeg: bool,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
@@ -99,6 +102,7 @@ impl Default for MockSpec {
             no_card: false,
             card_out_after_ms: None,
             target_read_fails: false,
+            fire_drops_reports: false,
             photo: None,
         }
     }
@@ -376,6 +380,9 @@ impl Camera for MockCamera {
             ));
         }
         let now = Instant::now();
+        if self.spec.fire_drops_reports {
+            self.due.retain(|(at, _)| *at > now);
+        }
         let file = self.shutter(now);
         if self.spec.no_trigger {
             // The driver waits for the file itself.
