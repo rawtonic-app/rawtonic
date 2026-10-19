@@ -170,9 +170,9 @@ fn a_photo_the_camera_reports_twice_arrives_once() {
     };
     let helper = start(&spec, dir.path());
     helper.connect().unwrap();
+    // Back to back: a repeat must not take the next shot's place.
     for _ in 0..4 {
         helper.capture();
-        std::thread::sleep(Duration::from_millis(100));
     }
     let (photos, _) = helper.photos(5);
     let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
@@ -204,6 +204,7 @@ fn a_full_transfer_queue_fires_again_once_photos_are_released() {
     let full = helper.client.request(Request::Capture, WAIT).unwrap_err();
     assert_eq!(full.kind, ErrorKind::Other);
     let release = Request::Release {
+        connection: photos[0].connection,
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
@@ -221,6 +222,62 @@ fn a_shot_refused_as_busy_right_after_the_connect_is_taken_once_the_camera_is_re
     };
     let helper = start(&spec, dir.path());
     helper.connect().unwrap();
+    helper.capture();
+    assert_eq!(helper.photos(1).0.len(), 1);
+}
+
+#[test]
+fn a_camera_lost_during_a_request_is_reported_like_one_lost_between_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        unplug_after: Some(1),
+        quiet_unplug: true,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    assert_eq!(helper.photos(1).0.len(), 1);
+    let error = helper.client.request(Request::Settings, WAIT).unwrap_err();
+    assert_eq!(error.kind, ErrorKind::Disconnected);
+    match helper.next_event(WAIT) {
+        Some(Event::Disconnected { error }) => assert_eq!(error.kind, ErrorKind::Disconnected),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_release_from_an_earlier_connection_does_not_reach_the_camera_now_open() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(1),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let first = helper.photos(1).0.remove(0);
+    // Connected again (another camera, or the same one replugged).
+    helper.connect().unwrap();
+    helper.capture();
+    let second = helper.photos(1).0.remove(0);
+    assert_ne!(first.connection, second.connection);
+    let release = |p: &Captured| Request::Release {
+        connection: p.connection,
+        camera_folder: p.camera_folder.clone(),
+        camera_name: p.camera_name.clone(),
+    };
+    // Same camera path, earlier connection: the queue stays full.
+    assert_eq!(first.camera_name, second.camera_name);
+    assert_eq!(
+        helper.client.request(release(&first), WAIT).unwrap(),
+        Reply::Ok
+    );
+    assert!(helper.client.request(Request::Capture, WAIT).is_err());
+    assert_eq!(
+        helper.client.request(release(&second), WAIT).unwrap(),
+        Reply::Ok
+    );
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
 }

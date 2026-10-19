@@ -61,7 +61,13 @@ interface MergeCompletePayload {
 
 interface TauriListenerProps {
   refreshAllFolderTrees: () => void;
-  handleSelectSubfolder: (path: string, isNewRoot?: boolean, preloadedImages?: ImageFile[], expandParents?: boolean) => void;
+  handleSelectSubfolder: (
+    path: string,
+    isNewRoot?: boolean,
+    preloadedImages?: ImageFile[],
+    expandParents?: boolean,
+    preserveEditor?: boolean,
+  ) => void | Promise<void>;
   refreshImageList: () => void;
   markGenerated: (path: string) => void;
   /** Opens a photograph (in Develop with `openInEditor`). */
@@ -117,7 +123,17 @@ export function useTauriListeners({
       currentFolderPath === folder
         ? Promise.resolve(refs.current.refreshImageList())
         : inDevelop
-          ? Promise.resolve(refs.current.handleSelectSubfolder(folder))
+          ? // Develop stays open while its folder changes (Capture One's
+            // viewer keeps showing the newest capture).
+            Promise.resolve(
+              refs.current.handleSelectSubfolder(
+                folder,
+                false,
+                undefined,
+                true,
+                useUIStore.getState().activeView === 'editor',
+              ),
+            )
           : null;
     if (!shown) return;
     void shown.then(() => {

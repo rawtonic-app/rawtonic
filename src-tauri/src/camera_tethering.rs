@@ -75,6 +75,9 @@ struct Helper {
     /// the callback that hears them.
     ingest: IngestSender,
     connection: Option<Connection>,
+    /// The connection whose camera went away, kept until it is connected
+    /// again or the user connects or disconnects.
+    lost: Option<Connection>,
 }
 
 /// The running helper. Never held while waiting for the helper: its reader
@@ -199,6 +202,7 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         library,
         ingest,
         connection: None,
+        lost: None,
     });
     Ok(client)
 }
@@ -210,9 +214,13 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
 fn reconnect_when_back(app: AppHandle) {
     let choice = CHOICE.load(Ordering::SeqCst);
     let (client, session, model, config) = {
-        let helper = HELPER.lock().unwrap();
-        let Some(h) = helper.as_ref() else { return };
-        let Some(c) = h.connection.as_ref() else {
+        let mut helper = HELPER.lock().unwrap();
+        let Some(h) = helper.as_mut() else { return };
+        // Not connected any more; kept for connecting it again.
+        if let Some(connection) = h.connection.take() {
+            h.lost = Some(connection);
+        }
+        let Some(c) = h.lost.as_ref() else {
             return;
         };
         (
@@ -231,6 +239,7 @@ fn reconnect_when_back(app: AppHandle) {
     if !wanted() || !Arc::ptr_eq(&h.client, &client) {
         return;
     }
+    h.lost = None;
     h.connection = Some(Connection {
         session: session.clone(),
         status: status.clone(),
@@ -290,8 +299,10 @@ fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply
             ))
         }
         Err(e) if e.kind == ErrorKind::Disconnected => {
-            if let Some(h) = HELPER.lock().unwrap().as_mut() {
-                h.connection = None;
+            if let Some(h) = HELPER.lock().unwrap().as_mut()
+                && let Some(connection) = h.connection.take()
+            {
+                h.lost = Some(connection);
             }
             Err(e.message)
         }
@@ -352,6 +363,7 @@ fn release_in_helper() -> Release {
         let client = HELPER.lock().unwrap().as_ref().map(|h| h.client.clone());
         let Some(client) = client else { return };
         let release = Request::Release {
+            connection: captured.connection,
             camera_folder: captured.camera_folder.clone(),
             camera_name: captured.camera_name.clone(),
         };
@@ -377,6 +389,7 @@ fn notify_app(app: AppHandle) -> Notify {
 fn spawn_ingest(
     notify: Notify,
     release: Release,
+    recovered: staging::Recovered,
     session: PathBuf,
     config: Arc<Mutex<CaptureConfig>>,
     photos: mpsc::Receiver<(Captured, Instant)>,
@@ -401,17 +414,12 @@ fn spawn_ingest(
                 config: &config,
                 previous: None,
             };
-            match staging::recover(&root) {
-                Ok(recovered) => {
-                    for path in recovered.incomplete {
-                        log::warn!("Tether: incomplete download kept at {}", path.display());
-                        notify("tether-incomplete", json!(path));
-                    }
-                    for path in recovered.complete {
-                        ingest.one(&path, None);
-                    }
-                }
-                Err(e) => log::warn!("Tether: the transfer folder cannot be read: {e}"),
+            for path in recovered.incomplete {
+                log::warn!("Tether: incomplete download kept at {}", path.display());
+                notify("tether-incomplete", json!(path));
+            }
+            for path in recovered.complete {
+                ingest.one(&path, None);
             }
             while let Ok((captured, received)) = photos.recv() {
                 ingest.one(&captured.path.clone(), Some((captured, received)));
@@ -579,6 +587,15 @@ pub async fn tether_connect(
         drop(Library::open(&session).map_err(|e| format!("{e:#}"))?);
         // The earlier connection's ingest finishes what it has.
         disconnect_locally();
+        // What an earlier run left in the transfer folder, read while no
+        // camera is open (the helper writes there only while one is).
+        if HELPER.lock().unwrap().is_some() {
+            let _ = request(&app, Request::Disconnect, QUICK);
+        }
+        let recovered = staging::recover(&staging::root(&session)).unwrap_or_else(|e| {
+            log::warn!("Tether: the transfer folder cannot be read: {e}");
+            staging::Recovered::default()
+        });
         let Reply::Connected { status } = request(
             &app,
             Request::Connect {
@@ -599,6 +616,7 @@ pub async fn tether_connect(
         spawn_ingest(
             notify_app(app.clone()),
             release_in_helper(),
+            recovered,
             session.clone(),
             config.clone(),
             rx,
@@ -624,6 +642,7 @@ fn disconnect_locally() {
     if let Some(h) = HELPER.lock().unwrap().as_mut() {
         h.ingest.lock().unwrap().take();
         h.connection = None;
+        h.lost = None;
     }
     FRAME.lock().unwrap().take();
 }
@@ -745,7 +764,15 @@ mod tests {
             free_camera_copies: false,
         }));
         let (notify, seen) = collector();
-        spawn_ingest(notify, release, session.clone(), config.clone(), rx).unwrap();
+        spawn_ingest(
+            notify,
+            release,
+            Default::default(),
+            session.clone(),
+            config.clone(),
+            rx,
+        )
+        .unwrap();
         let staging = staging::root(&session);
         let send = |n: u64| {
             let path = staging.join(format!("incoming/{n:08}/DSCF{n:04}.RAF"));
@@ -753,6 +780,7 @@ mod tests {
             fs::write(&path, format!("photo {n}")).unwrap();
             let captured = Captured {
                 path,
+                connection: 1,
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -973,6 +1001,7 @@ mod tests {
         let releasing = Arc::downgrade(&client);
         let release: Release = Arc::new(move |captured: &Captured| {
             let release = Request::Release {
+                connection: captured.connection,
                 camera_folder: captured.camera_folder.clone(),
                 camera_name: captured.camera_name.clone(),
             };
@@ -980,7 +1009,15 @@ mod tests {
                 client.request(release, QUICK).unwrap();
             }
         });
-        spawn_ingest(notify, release, session.clone(), config, photos_rx).unwrap();
+        spawn_ingest(
+            notify,
+            release,
+            Default::default(),
+            session.clone(),
+            config,
+            photos_rx,
+        )
+        .unwrap();
         for _ in 0..198 {
             // A full queue refuses until the ingest has released a photo.
             let started = Instant::now();
@@ -1072,6 +1109,7 @@ mod tests {
         spawn_ingest(
             notify,
             Arc::new(|_: &Captured| {}),
+            staging::recover(&staging::root(&session)).unwrap(),
             session.clone(),
             config,
             rx,
@@ -1106,6 +1144,7 @@ mod tests {
         spawn_ingest(
             notify,
             Arc::new(|_: &Captured| {}),
+            staging::recover(&staging::root(&session)).unwrap(),
             session.clone(),
             config,
             rx,

@@ -59,6 +59,19 @@ fn real_dir(dir: &Path) -> io::Result<()> {
     }
 }
 
+/// `dir` exists as a real folder, not a symbolic link (recovery and clean-up
+/// never read or delete through one).
+fn existing_real_dir(dir: &Path) -> io::Result<()> {
+    let meta = fs::symlink_metadata(dir)?;
+    if meta.file_type().is_symlink() || !meta.is_dir() {
+        return Err(io::Error::other(format!(
+            "{} is not a real folder; tethering will not read or delete through it",
+            dir.display()
+        )));
+    }
+    Ok(())
+}
+
 /// A new transfer folder for one file (`incoming/<n>`, n from `serial`
 /// on): created exclusively, never one that exists.
 fn new_slot(root: &Path, serial: u64) -> io::Result<PathBuf> {
@@ -133,6 +146,13 @@ pub struct Recovered {
 pub fn recover(root: &Path) -> io::Result<Recovered> {
     let mut recovered = Recovered::default();
     let incoming = root.join(INCOMING);
+    for dir in [root, incoming.as_path()] {
+        match existing_real_dir(dir) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(recovered),
+            other => other?,
+        }
+    }
+    // Entries' own types: a slot or file that is a symbolic link is skipped.
     let mut slots: Vec<PathBuf> = match fs::read_dir(&incoming) {
         Ok(entries) => entries
             .filter_map(|e| e.ok())
@@ -156,7 +176,8 @@ pub fn recover(root: &Path) -> io::Result<Recovered> {
                     .join(INCOMPLETE)
                     .join(slot.file_name().unwrap())
                     .join(file.file_name().unwrap());
-                fs::create_dir_all(target.parent().unwrap())?;
+                real_dir(&root.join(INCOMPLETE))?;
+                real_dir(target.parent().unwrap())?;
                 if target.exists() {
                     continue;
                 }
@@ -220,6 +241,12 @@ pub fn read_record(root: &Path, path: &Path) -> io::Result<Option<serde_json::Va
 /// incoming folder.
 pub fn finish(root: &Path, path: &Path) -> io::Result<()> {
     let slot = slot_of(root, path)?;
+    for dir in [root, &root.join(INCOMING), slot] {
+        existing_real_dir(dir)?;
+    }
+    if !fs::symlink_metadata(path)?.is_file() {
+        return Err(io::Error::other("not a tether transfer file"));
+    }
     fs::remove_file(path)?;
     match fs::remove_file(slot.join(RECORD)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
@@ -267,6 +294,36 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn recovery_and_clean_up_never_go_through_a_symbolic_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let elsewhere = dir.path().join("elsewhere");
+        let photo = elsewhere
+            .join(INCOMING)
+            .join("00000001")
+            .join("ORIGINAL.ARW");
+        fs::create_dir_all(photo.parent().unwrap()).unwrap();
+        fs::write(&photo, b"someone's original").unwrap();
+        let session = dir.path().join("session");
+        fs::create_dir(&session).unwrap();
+        // The whole transfer folder is a link.
+        std::os::unix::fs::symlink(&elsewhere, root(&session)).unwrap();
+        assert!(recover(&root(&session)).is_err());
+        let through = root(&session)
+            .join(INCOMING)
+            .join("00000001")
+            .join("ORIGINAL.ARW");
+        assert!(finish(&root(&session), &through).is_err());
+        // Only its incoming folder is a link.
+        fs::remove_file(root(&session)).unwrap();
+        fs::create_dir(root(&session)).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join(INCOMING), root(&session).join(INCOMING))
+            .unwrap();
+        assert!(recover(&root(&session)).is_err());
+        assert!(finish(&root(&session), &through).is_err());
+        assert_eq!(fs::read(&photo).unwrap(), b"someone's original");
+    }
+
     #[test]
     fn a_symbolic_link_is_never_written_through() {
         let dir = tempfile::tempdir().unwrap();

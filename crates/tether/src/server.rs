@@ -16,8 +16,8 @@ use std::time::{Duration, Instant};
 
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
-/// A file reported again this soon after its download, with no app shot
-/// waiting, is the same photo reported twice (libgphoto2's Fujifilm event
+/// A file reported again this soon after its download is the same photo
+/// reported twice (libgphoto2's Fujifilm event
 /// polling finds it in the object list and the camera's ObjectAdded event
 /// names it again). Cameras number their files, so a new shot never has the
 /// name of the one before it.
@@ -38,6 +38,9 @@ struct Open {
     downloaded: u64,
     /// The last file downloaded, and when.
     last: Option<(CameraFile, Instant)>,
+    /// This connection's number: a release names the connection its photo
+    /// came from, so a late one never reaches another camera's photo.
+    connection: u64,
 }
 
 pub struct Server<W: Write> {
@@ -45,6 +48,8 @@ pub struct Server<W: Write> {
     out: W,
     open: Option<Open>,
     shot_timeout: Duration,
+    /// Connections opened so far.
+    connections: u64,
 }
 
 /// Reads requests on their own thread, so the loop can wait for the camera
@@ -98,6 +103,7 @@ impl<W: Write> Server<W> {
             out,
             open: None,
             shot_timeout: SHOT_TIMEOUT,
+            connections: 0,
         }
     }
 
@@ -160,12 +166,19 @@ impl<W: Write> Server<W> {
             self.tick()?;
             result = self.answer(request.clone(), &mut fired);
         }
-        if let Err(e) = &result
-            && e.kind == ErrorKind::Disconnected
-        {
+        // A camera lost during a request is lost like one lost between
+        // requests: the app hears it (and connects it again when it is back).
+        let lost = match &result {
+            Err(e) if e.kind == ErrorKind::Disconnected && self.open.is_some() => Some(e.clone()),
+            _ => None,
+        };
+        if lost.is_some() {
             self.open = None;
         }
         self.send(&Message::Reply { id, result })?;
+        if let Some(error) = lost {
+            self.event(Event::Disconnected { error })?;
+        }
         if let Some((file, at)) = fired {
             self.download(file, Some(at))?;
         }
@@ -199,6 +212,7 @@ impl<W: Write> Server<W> {
                 self.open = None;
                 let mut camera = self.driver.open(port.as_deref())?;
                 let status = camera.status();
+                self.connections += 1;
                 self.open = Some(Open {
                     camera,
                     staging,
@@ -206,6 +220,7 @@ impl<W: Write> Server<W> {
                     waiting: VecDeque::new(),
                     downloaded: 0,
                     last: None,
+                    connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
             }
@@ -245,10 +260,18 @@ impl<W: Write> Server<W> {
                 Ok(Reply::Ok)
             }
             Request::Release {
+                connection,
                 camera_folder,
                 camera_name,
             } => {
-                self.camera()?.camera.release(&CameraFile {
+                let open = self.camera()?;
+                // A photo of an earlier connection stays on its camera: the
+                // camera now open may be another one with a file of that name.
+                if open.connection != connection {
+                    log::info!("{camera_name} is from an earlier connection; not released");
+                    return Ok(Reply::Ok);
+                }
+                open.camera.release(&CameraFile {
                     folder: camera_folder,
                     name: camera_name,
                 })?;
@@ -300,11 +323,12 @@ impl<W: Write> Server<W> {
         };
         match open.camera.wait_event(wait) {
             Ok(CameraEvent::FileAdded(file)) => {
-                let repeated = open.waiting.is_empty()
-                    && open
-                        .last
-                        .as_ref()
-                        .is_some_and(|(last, at)| *last == file && at.elapsed() < REPEAT_WINDOW);
+                // Whether or not app shots are waiting: a repeat must not take
+                // the place of the next shot's file.
+                let repeated = open
+                    .last
+                    .as_ref()
+                    .is_some_and(|(last, at)| *last == file && at.elapsed() < REPEAT_WINDOW);
                 if repeated {
                     log::debug!("{} reported again; already downloaded", file.name);
                     return Ok(());
@@ -373,6 +397,7 @@ impl<W: Write> Server<W> {
         }
         let captured = Captured {
             path,
+            connection: open.connection,
             camera_folder: file.folder,
             camera_name: file.name,
             size: expected,

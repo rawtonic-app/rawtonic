@@ -339,8 +339,13 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
   capture("/job/Capture/C.ARW", { error: "Disk full" });
   await Promise.resolve();
   expect(handleImageSelect).toHaveBeenCalledTimes(1);
-  // Another folder showing: the capture's folder is shown first.
-  const handleSelectSubfolder = vi.fn();
+  // Another folder showing: the capture's folder is shown first, and
+  // Develop stays open (the real navigation leaves it unless asked not to).
+  const handleSelectSubfolder = vi.fn(
+    (_path: string, _root?: boolean, _images?: unknown, _expand?: boolean, preserveEditor?: boolean) => {
+      if (!preserveEditor) useUIStore.getState().setUI({ activeView: "library" });
+    },
+  );
   cleanup();
   renderHook(() => useTauriListeners({
     refreshAllFolderTrees: vi.fn(), handleSelectSubfolder,
@@ -349,6 +354,7 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
   useLibraryStore.getState().setLibrary({ currentFolderPath: "/job/Selects" });
   capture("/job/Capture/D.ARW");
   await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/D.ARW", true));
-  expect(handleSelectSubfolder).toHaveBeenCalledWith("/job/Capture");
+  expect(handleSelectSubfolder).toHaveBeenCalledWith("/job/Capture", false, undefined, true, true);
+  expect(useUIStore.getState().activeView).toBe("editor");
   useUIStore.getState().setUI({ activeView: "library" });
 });

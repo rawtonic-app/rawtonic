@@ -45,6 +45,8 @@ pub enum Request {
     /// transfer queue on cameras that keep one and stop shooting when it is
     /// full (never a file on a card); nothing on other cameras.
     Release {
+        /// `Captured::connection` of the photo.
+        connection: u64,
         camera_folder: String,
         camera_name: String,
     },
@@ -110,6 +112,9 @@ pub struct Setting {
 pub struct Captured {
     /// The complete download (the camera's own file name).
     pub path: PathBuf,
+    /// The helper's number for the connection the photo came from (named
+    /// again in `Release`).
+    pub connection: u64,
     /// Where it was on the camera.
     pub camera_folder: String,
     pub camera_name: String,

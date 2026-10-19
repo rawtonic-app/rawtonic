@@ -35,6 +35,8 @@ pub struct MockSpec {
     pub busy: bool,
     /// The cable comes out after this many downloaded files.
     pub unplug_after: Option<u64>,
+    /// The unplug shows only in requests, not in the event poll.
+    pub quiet_unplug: bool,
     /// Settings fixed on the body.
     pub read_only: Vec<String>,
     /// The helper stops dead here (crash tests).
@@ -71,6 +73,7 @@ impl Default for MockSpec {
             body_shots_ms: vec![],
             busy: false,
             unplug_after: None,
+            quiet_unplug: false,
             read_only: vec![],
             abort_mid_download: None,
             abort_before_event: None,
@@ -346,6 +349,10 @@ impl Camera for MockCamera {
 
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError> {
         if self.unplugged() {
+            if self.spec.quiet_unplug {
+                std::thread::sleep(timeout);
+                return Ok(CameraEvent::Timeout);
+            }
             return Err(Self::gone());
         }
         if let Some(file) = self.repeat.take() {
