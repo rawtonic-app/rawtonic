@@ -50,9 +50,11 @@ rm -rf "$WORK/criterion" "$WORK/bin" "$WORK/status"
 mkdir -p "$WORK/bin/base" "$WORK/bin/head"
 BASE_SRC=$WORK/base-src
 
+# Never --force: a base worktree kept with --keep may hold edits since.
 cleanup() {
   if [ "$KEEP" = 0 ] && [ -d "$BASE_SRC" ]; then
-    git worktree remove --force "$BASE_SRC" >/dev/null 2>&1 || true
+    git worktree remove "$BASE_SRC" >/dev/null 2>&1 ||
+      echo "ab: base worktree $BASE_SRC not removed (changed?); remove it by hand" >&2
   fi
 }
 trap cleanup EXIT
@@ -98,7 +100,10 @@ if [ "$BASE_SHA" = "$HEAD_SHA" ] && [ -z "$DIRTY" ]; then
   build head "$ROOT"
   cp "$WORK/bin/head/"* "$WORK/bin/base/"
 else
-  [ -d "$BASE_SRC" ] && git worktree remove --force "$BASE_SRC" >/dev/null 2>&1
+  if [ -d "$BASE_SRC" ]; then
+    git worktree remove "$BASE_SRC" ||
+      { echo "ab: $BASE_SRC has changes; keep them elsewhere or remove it by hand" >&2; exit 1; }
+  fi
   git worktree add --detach "$BASE_SRC" "$BASE_SHA" >/dev/null
   build base "$BASE_SRC"
   build head "$ROOT"
