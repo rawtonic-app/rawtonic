@@ -462,14 +462,12 @@ pub async fn apply_auto_adjustments_to_paths(
                     )
                     .map_err(|e| e.to_string())?;
 
-                    let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-                    let tone_mapper = existing_metadata
-                        .adjustments
+                    let recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+                    let tone_mapper = recipe
                         .get("toneMapper")
                         .and_then(|value| value.as_str())
                         .map(str::to_string);
-                    let base_curve = existing_metadata
-                        .adjustments
+                    let base_curve = recipe
                         .get("baseCurve")
                         .and_then(|value| value.as_str())
                         .map(str::to_string);
@@ -481,6 +479,10 @@ pub async fn apply_auto_adjustments_to_paths(
                         base_curve.as_deref(),
                     );
 
+                    // Read again for the write: the photo may have been
+                    // edited or tagged while it was decoded and measured.
+                    let _turn = sidecar_field_edit_in_pool();
+                    let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
                     let previous = existing_metadata.adjustments.clone();
                     crate::auto_adjust::merge_auto_adjustments(
                         &mut existing_metadata.adjustments,
@@ -600,12 +602,29 @@ static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// tagging, read a photo's sidecar, change their part and write it back.
 /// They run on blocking workers (no longer one after the other on the main
 /// thread), so they take turns through this guard: none overwrites another's
-/// change. Not re-entrant; never take it inside a rayon task while a holder
-/// waits on the pool.
+/// change. Not re-entrant. Holders may run rayon work (`par_iter`), so a
+/// rayon task waits with `sidecar_field_edit_in_pool` instead.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// `sidecar_field_edit` for a rayon task: while it waits it runs other
+/// pool work, so a holder whose `par_iter` needs the pool is never stuck
+/// behind workers that all wait for the turn.
+pub(crate) fn sidecar_field_edit_in_pool() -> std::sync::MutexGuard<'static, ()> {
+    loop {
+        match SIDECAR_FIELD_EDITS.try_lock() {
+            Ok(turn) => return turn,
+            Err(std::sync::TryLockError::Poisoned(turn)) => return turn.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if rayon::yield_now() != Some(rayon::Yield::Executed) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+        }
+    }
 }
 
 /// Every photo of `paths` unsaved: the worker saving them stopped (`error`).
@@ -782,6 +801,45 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    /// Batch Auto waits for the sidecar turn inside rayon tasks; a holder
+    /// whose own `par_iter` needs the pool must still finish.
+    #[test]
+    fn rayon_tasks_waiting_for_the_sidecar_turn_leave_the_pool_to_its_holder() {
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+        let pool = std::sync::Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .unwrap(),
+        );
+        let (waited, waits) = channel();
+        let (finished, done) = channel();
+        let holder = std::thread::spawn({
+            let pool = pool.clone();
+            move || {
+                let turn = sidecar_field_edit();
+                // More waiting tasks than workers.
+                for _ in 0..4 {
+                    let waited = waited.clone();
+                    pool.spawn(move || {
+                        let _turn = sidecar_field_edit_in_pool();
+                        waited.send(()).unwrap();
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(50));
+                let sum: u32 = pool.install(|| (0..64u32).into_par_iter().sum());
+                drop(turn);
+                finished.send(sum).unwrap();
+            }
+        });
+        assert_eq!(done.recv_timeout(Duration::from_secs(10)), Ok(2016));
+        holder.join().unwrap();
+        for _ in 0..4 {
+            waits.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+    }
 
     #[test]
     fn an_offline_save_from_stale_facts_keeps_the_cameras_ca_correction() {

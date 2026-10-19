@@ -667,13 +667,20 @@ mod tests {
         assert_eq!(saved.adjustments["exposure"], 1.5);
         assert_eq!(saved.tags.unwrap(), ["dog", "user:trip"]);
 
-        // An edit in progress (read, change, write) finishes first.
+        // An edit in progress (read, change, write) finishes first: the
+        // tagger, started while the edit holds the turn, waits for it.
         let turn = file_management::sidecar_field_edit();
+        let started = std::sync::Arc::new(std::sync::Barrier::new(2));
         let tagger = std::thread::spawn({
-            let sidecar = sidecar.clone();
-            move || store_ai_tags(&sidecar, vec!["beach".into()]).unwrap()
+            let (sidecar, started) = (sidecar.clone(), started.clone());
+            move || {
+                started.wait();
+                store_ai_tags(&sidecar, vec!["beach".into()]).unwrap()
+            }
         });
+        started.wait();
         std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!tagger.is_finished(), "stored its tags during the edit");
         write(
             r#"{"version":1,"rating":5,"tags":["dog","user:trip"],"adjustments":{"exposure":2.0}}"#,
         );
