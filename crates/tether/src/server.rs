@@ -2,7 +2,7 @@
 //! waits briefly for camera events, so photos fired on the body are
 //! downloaded like the ones the app asks for, and sends live-view frames
 //! while they are wanted.
-use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired};
+use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired, memory_only};
 use crate::frame;
 use crate::protocol::{
     Captured, Envelope, ErrorKind, Event, Message, PROTOCOL, Reply, Request, TetherError,
@@ -49,6 +49,9 @@ struct Open {
     last: Option<(CameraFile, usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
+    /// The camera keeps photos only in its memory ("Save to" without the
+    /// card): not polled or fired until that changes.
+    memory_only: bool,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -243,6 +246,7 @@ impl<W: Write> Server<W> {
                     downloaded: 0,
                     last: None,
                     downloads: Default::default(),
+                    memory_only: memory_only(status.capture_target.as_deref()),
                     connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
@@ -255,11 +259,22 @@ impl<W: Write> Server<W> {
                 settings: self.camera()?.camera.settings()?,
             }),
             Request::SetSetting { key, value } => {
-                self.camera()?.camera.set_setting(&key, &value)?;
+                let open = self.camera()?;
+                open.camera.set_setting(&key, &value)?;
+                if key == "capturetarget" {
+                    open.memory_only = memory_only(open.camera.status().capture_target.as_deref());
+                }
                 Ok(Reply::Ok)
             }
             Request::Capture => {
                 let open = self.camera()?;
+                if open.memory_only {
+                    return Err(TetherError::new(
+                        ErrorKind::Unsupported,
+                        "The camera is set to keep photos only in its memory, where a photo could \
+                         be lost on the way: set Save to to an option with the card.",
+                    ));
+                }
                 let at = Instant::now();
                 match open.camera.fire()? {
                     Fired::Pending => open.waiting.push_back(at),
@@ -348,6 +363,11 @@ impl<W: Write> Server<W> {
         let Some(open) = self.open.as_mut() else {
             return Ok(());
         };
+        if open.memory_only {
+            // Not polled: a transfer it would start could not be undone.
+            std::thread::sleep(wait);
+            return Ok(());
+        }
         match open.camera.wait_event(wait) {
             Ok(CameraEvent::FileAdded(file)) => self.download(file, Shot::Waiting),
             Ok(CameraEvent::SettingsChanged) => self.event(Event::SettingsChanged),

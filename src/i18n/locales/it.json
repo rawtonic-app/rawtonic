@@ -1079,7 +1079,7 @@
       "looking": "Ricerca fotocamere…",
       "nextCapture": "Prossimo scatto",
       "noCamera": "Nessuna fotocamera trovata via USB",
-      "ramOnly": "Questa fotocamera tiene le foto solo nella sua memoria, non sulla scheda: ognuna esiste solo finché non è su questo computer. Per tenere una copia sulla scheda, in Salva su scegli un’opzione con la scheda.",
+      "ramOnly": "Questa fotocamera è impostata per tenere le foto solo nella sua memoria, dove una foto potrebbe andare persa verso questo computer. Rawtonic non la fa scattare né ne prende foto finché Salva su non include la scheda.",
       "reconnecting": "Rawtonic ricollega la fotocamera appena torna disponibile.",
       "refresh": "Cerca di nuovo le fotocamere",
       "setOnBody": "Impostato sul corpo macchina",

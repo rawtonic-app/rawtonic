@@ -75,6 +75,17 @@ pub trait Camera {
     }
 }
 
+/// Whether a "Save to" (capture target) keeps photos only in the camera's
+/// memory: such a photo exists only until it has been transferred, and
+/// libgphoto2 acknowledges some transfers (Canon EOS) before the helper has
+/// written the file — so the helper neither polls nor fires then.
+pub fn memory_only(capture_target: Option<&str>) -> bool {
+    capture_target.is_some_and(|target| {
+        let target = target.to_lowercase();
+        target.contains("ram") && !target.contains("card")
+    })
+}
+
 /// The settings the interface shows, each with the names camera drivers
 /// use for it (libgphoto2's names differ between makers and models; the
 /// first one a camera has is used).

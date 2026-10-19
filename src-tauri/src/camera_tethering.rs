@@ -93,6 +93,8 @@ struct Helper {
     /// The connection whose camera went away, kept until it is connected
     /// again or the user connects or disconnects.
     lost: Option<Connection>,
+    /// This helper process among all started in this app run.
+    generation: u64,
     /// The connection's ingest thread (joined before another one starts:
     /// one ingest per transfer folder).
     worker: Option<std::thread::JoinHandle<()>>,
@@ -178,7 +180,21 @@ fn helper_command(app: &AppHandle) -> Result<HelperCommand, String> {
 }
 
 /// Emits the helper's events; photos go to the connection's ingest.
-fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send + Sync + 'static {
+/// Whether `generation` is the running helper (a late message of one that
+/// was replaced concerns no camera of now).
+fn current_helper(state: &Mutex<Option<Helper>>, generation: u64) -> bool {
+    state
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|h| h.generation == generation)
+}
+
+fn on_incoming(
+    app: AppHandle,
+    ingest: IngestSender,
+    generation: u64,
+) -> impl Fn(Incoming) + Send + Sync + 'static {
     move |incoming| match incoming {
         Incoming::Event(Event::Captured { captured }) => {
             let received = Instant::now();
@@ -202,6 +218,9 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
             let _ = app.emit("tether-settings-changed", ());
         }
         Incoming::Event(Event::Disconnected { error }) => {
+            if !current_helper(&HELPER, generation) {
+                return;
+            }
             let _ = app.emit(
                 "tether-state",
                 json!({ "connected": false, "error": error }),
@@ -218,6 +237,9 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
         Incoming::LiveView(jpeg) => *FRAME.lock().unwrap() = Some(jpeg),
         Incoming::Exited(log) => {
             log::warn!("Tether helper ended. Last log lines:\n{log}");
+            if !current_helper(&HELPER, generation) {
+                return;
+            }
             let error = TetherError::new(
                 ErrorKind::Disconnected,
                 "The tether helper stopped. Connect the camera again.",
@@ -259,13 +281,15 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
     {
         return Ok(h.client.clone());
     }
+    static NEXT_HELPER: AtomicU64 = AtomicU64::new(1);
+    let generation = NEXT_HELPER.fetch_add(1, Ordering::SeqCst);
     let (path, args, envs) = helper_command(app)?;
     let ingest = Arc::new(Mutex::new(None));
     let (client, library) = Client::spawn(
         &path,
         &args,
         &envs,
-        on_incoming(app.clone(), ingest.clone()),
+        on_incoming(app.clone(), ingest.clone(), generation),
     )
     .map_err(text)?;
     let client = Arc::new(client);
@@ -278,6 +302,7 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         worker: None,
         connecting: false,
         lost_while_connecting: false,
+        generation,
     });
     Ok(client)
 }
@@ -1254,6 +1279,7 @@ mod tests {
             worker: None,
             connecting: false,
             lost_while_connecting: false,
+            generation: 7,
         });
         (state, client)
     }
@@ -1304,6 +1330,15 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(status_of(&state).is_none());
+    }
+
+    #[test]
+    fn a_replaced_helpers_late_messages_concern_no_camera_of_now() {
+        let (state, _client) = mock_helper(&MockSpec::default());
+        // The running helper is generation 7 (mock_helper).
+        assert!(current_helper(&state, 7));
+        assert!(!current_helper(&state, 6), "the one it replaced");
+        assert!(!current_helper(&Mutex::new(None), 7));
     }
 
     #[test]

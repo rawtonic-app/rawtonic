@@ -1079,7 +1079,7 @@
       "looking": "Recherche d’appareils…",
       "nextCapture": "Prochaine prise",
       "noCamera": "Aucun appareil trouvé en USB",
-      "ramOnly": "Cet appareil garde les photos uniquement dans sa mémoire, pas sur la carte : chacune n’existe que jusqu’à son arrivée sur cet ordinateur. Pour garder une copie sur la carte, choisissez dans Enregistrer sur une option avec la carte.",
+      "ramOnly": "Cet appareil est réglé pour garder les photos uniquement dans sa mémoire, où une photo pourrait se perdre en route vers cet ordinateur. Rawtonic ne le déclenche pas et n’en prend aucune photo tant qu’Enregistrer sur n’inclut pas la carte.",
       "reconnecting": "Rawtonic reconnecte l’appareil dès qu’il est de retour.",
       "refresh": "Rechercher à nouveau",
       "setOnBody": "Réglé sur le boîtier",

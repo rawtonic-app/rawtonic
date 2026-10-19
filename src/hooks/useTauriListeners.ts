@@ -94,6 +94,7 @@ export function useTauriListeners({
   handleImageSelect,
 }: TauriListenerProps) {
   const refs = useRef({ refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect });
+  const latestCapture = useRef(0);
 
   useEffect(() => {
     refs.current = { refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect };
@@ -126,6 +127,9 @@ export function useTauriListeners({
       return !session || !open || session.replace(/[\\/]$/, '') === open.replace(/[\\/]$/, '');
     };
     if (!sameLibrary()) return;
+    // Only the newest capture is shown once the views have caught up (an
+    // earlier one's slower refresh must not bring it back).
+    const capture = ++latestCapture.current;
     window.dispatchEvent(new Event(IMPORTS_CHANGED));
     const { currentFolderPath, setLibrary } = useLibraryStore.getState();
     const folder = destination.slice(0, Math.max(destination.lastIndexOf('/'), destination.lastIndexOf('\\')));
@@ -150,7 +154,9 @@ export function useTauriListeners({
           : null;
     if (!shown) return;
     void shown.then(() => {
-      if (!sameLibrary()) return;
+      if (capture !== latestCapture.current || !sameLibrary()) return;
+      // The folder change did happen (a later navigation may have cut it).
+      if (useLibraryStore.getState().currentFolderPath !== folder) return;
       if (useUIStore.getState().activeView !== 'editor')
         setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
       else if (inDevelop) refs.current.handleImageSelect?.(destination, true);

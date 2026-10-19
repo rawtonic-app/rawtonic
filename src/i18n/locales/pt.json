@@ -1079,7 +1079,7 @@
       "looking": "A procurar câmaras…",
       "nextCapture": "Próxima captura",
       "noCamera": "Nenhuma câmara encontrada por USB",
-      "ramOnly": "Esta câmara guarda as fotos apenas na sua memória, não no cartão: cada uma só existe até estar neste computador. Para manter uma cópia no cartão, escolha em Guardar em uma opção com cartão.",
+      "ramOnly": "Esta câmara está configurada para guardar as fotos apenas na sua memória, onde uma foto pode perder-se a caminho deste computador. O Rawtonic não a dispara nem retira fotos até Guardar em incluir o cartão.",
       "reconnecting": "O Rawtonic volta a ligar a câmara quando ela voltar.",
       "refresh": "Procurar câmaras de novo",
       "setOnBody": "Definido no corpo da câmara",

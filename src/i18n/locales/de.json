@@ -1036,7 +1036,7 @@
       "looking": "Suche Kameras …",
       "nextCapture": "Nächste Aufnahme",
       "noCamera": "Keine Kamera am USB gefunden",
-      "ramOnly": "Diese Kamera behält die Fotos nur in ihrem Speicher, nicht auf der Karte: Jedes existiert nur, bis es auf diesem Computer ist. Für eine Kopie auf der Karte bei Speichern unter eine Option mit Karte wählen.",
+      "ramOnly": "Diese Kamera ist so eingestellt, dass sie Fotos nur in ihrem Speicher behält, wo ein Foto auf dem Weg zu diesem Computer verloren gehen könnte. Rawtonic löst sie nicht aus und holt keine Fotos, bis Speichern unter die Karte einschließt.",
       "reconnecting": "Rawtonic verbindet die Kamera wieder, sobald sie zurück ist.",
       "refresh": "Erneut nach Kameras suchen",
       "setOnBody": "Am Kameragehäuse eingestellt",

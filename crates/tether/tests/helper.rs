@@ -374,6 +374,34 @@ fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
 }
 
 #[test]
+fn a_camera_keeping_photos_only_in_its_memory_is_not_fired_or_read_until_it_keeps_a_card_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        capture_target: Some("sdram".into()),
+        body_shots_ms: vec![0],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    std::thread::sleep(Duration::from_millis(300));
+    let incoming = helper.staging.join(staging::INCOMING);
+    assert!(
+        !incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none(),
+        "the body shot stays in the camera"
+    );
+    let set = Request::SetSetting {
+        key: "capturetarget".into(),
+        value: "card+sdram".into(),
+    };
+    assert_eq!(helper.client.request(set, WAIT).unwrap(), Reply::Ok);
+    helper.capture();
+    // The body shot and the app's.
+    assert_eq!(helper.photos(2).0.len(), 2);
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {

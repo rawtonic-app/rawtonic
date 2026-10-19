@@ -1036,7 +1036,7 @@
       "looking": "Looking for cameras…",
       "nextCapture": "Next capture",
       "noCamera": "No camera found on USB",
-      "ramOnly": "This camera keeps the photos only in its memory, not on its card: each exists only until it is on this computer. To keep a copy on the card, set Save to to an option with the card.",
+      "ramOnly": "This camera is set to keep photos only in its memory, where a photo could be lost on its way to this computer. Rawtonic neither fires it nor takes photos from it until Save to includes the card.",
       "reconnecting": "Rawtonic connects the camera again when it is back.",
       "refresh": "Look for cameras again",
       "setOnBody": "Set on the camera body",

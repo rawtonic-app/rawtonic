@@ -342,8 +342,9 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
   // Another folder showing: the capture's folder is shown first, and
   // Develop stays open (the real navigation leaves it unless asked not to).
   const handleSelectSubfolder = vi.fn(
-    (_path: string, _root?: boolean, _images?: unknown, _expand?: boolean, preserveEditor?: boolean) => {
+    (path: string, _root?: boolean, _images?: unknown, _expand?: boolean, preserveEditor?: boolean) => {
       if (!preserveEditor) useUIStore.getState().setUI({ activeView: "library" });
+      useLibraryStore.getState().setLibrary({ currentFolderPath: path });
     },
   );
   cleanup();
@@ -365,6 +366,25 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
   await Promise.resolve();
   expect(handleSelectSubfolder).not.toHaveBeenCalled();
   expect(handleImageSelect).not.toHaveBeenCalled();
+  // Two captures in another folder: the slower navigation of the first
+  // does not bring it back over the second.
+  useLibraryStore.getState().setLibrary({ sessionDirectory: "/job", currentFolderPath: "/job/Selects" });
+  handleImageSelect.mockClear();
+  let finishFirst: () => void = () => {};
+  handleSelectSubfolder.mockImplementationOnce((path: string) => new Promise<void>((resolve) => {
+    finishFirst = () => {
+      useLibraryStore.getState().setLibrary({ currentFolderPath: path });
+      resolve();
+    };
+  }) as never);
+  capture("/job/Capture/F.ARW", { session: "/job" });
+  useLibraryStore.getState().setLibrary({ currentFolderPath: "/job/Selects" });
+  capture("/job/Capture/G.ARW", { session: "/job" });
+  await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/G.ARW", true));
+  finishFirst();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(handleImageSelect).not.toHaveBeenCalledWith("/job/Capture/F.ARW", true);
   useLibraryStore.getState().setLibrary({ sessionDirectory: null });
   useUIStore.getState().setUI({ activeView: "library" });
 });
