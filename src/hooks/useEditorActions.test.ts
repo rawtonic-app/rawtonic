@@ -532,6 +532,25 @@ describe('Auto straighten', () => {
     expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
   });
 
+  it('drops the answer when a slider drag changed the frame in a draft meanwhile', async () => {
+    const unregister = registerSliderDraftRenderer(() => true);
+    try {
+      const { result } = renderHook(useEditorActions);
+      let outcome: string | undefined;
+      act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+      // Scale dragged to 80 while Auto runs: a draft, not committed yet.
+      act(() => useEditorStore.setState({ isSliderDragging: true }));
+      act(() => updateAdjustments({ transformScale: 80 }));
+      await finish(Invokes.CalculateAutoStraighten, answer);
+      expect(outcome).toBe('stale');
+      act(() => useEditorStore.setState({ isSliderDragging: false }));
+      expect(useEditorStore.getState().adjustments).toMatchObject({ transformScale: 80 });
+      expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+    } finally {
+      unregister();
+    }
+  });
+
   it('reports a photograph without straight lines', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;

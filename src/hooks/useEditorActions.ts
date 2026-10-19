@@ -300,6 +300,9 @@ export function useEditorActions() {
    * The answer belongs to the photograph and the frame it was asked for:
    * it is dropped when either changed meanwhile. One history step. */
   const handleAutoStraighten = useCallback(async (): Promise<'done' | 'none' | 'stale'> => {
+    // A slider drag's draft is committed first: the answer is for the frame
+    // as it is shown.
+    flushSliderDraft();
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.isReady) return 'stale';
     const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
@@ -311,7 +314,12 @@ export function useEditorActions() {
       if (String(err).includes('another photograph is open')) return 'stale';
       throw err;
     }
-    const now = useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
+    // Stale when the frame changed meanwhile, also in a drag's draft not
+    // committed yet.
+    const now = (draftFor(selectedImage.path) ?? useEditorStore.getState().adjustments) as unknown as Record<
+      string,
+      unknown
+    >;
     if (!isCurrentEditorImage(selectedImage.path) || reframingInputs(now) !== asked) return 'stale';
     if (!result) return 'none';
     setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));

@@ -544,11 +544,19 @@ pub fn level_rotation(
                     })
                 })
             };
+            // An empty border's straight edge runs along it: most of the
+            // segment lies next to it. A line of the photo that only reaches
+            // the frame's edge (a horizon across a zoomed frame) does not.
             segments
                 .into_iter()
                 .filter(|s| {
-                    let (mx, my) = s.midpoint();
-                    !(near_border(s.x1, s.y1) && near_border(s.x2, s.y2) || near_border(mx, my))
+                    let near = (1..10)
+                        .filter(|i| {
+                            let t = *i as f64 / 10.0;
+                            near_border(s.x1 + t * (s.x2 - s.x1), s.y1 + t * (s.y2 - s.y1))
+                        })
+                        .count();
+                    near < 5
                 })
                 .collect()
         }
@@ -708,6 +716,31 @@ mod tests {
             level_rotation(&drawn(w, h, &horizon), &serde_json::json!({})).expect("horizon found");
         assert!((tilt.tilt.to_degrees() - 2.5).abs() < 0.1, "{tilt:?}");
         assert!(level_rotation(&drawn(w, h, &[]), &serde_json::json!({})).is_none());
+    }
+
+    /// Under a transform (zoom in), a horizon or verticals spanning the whole
+    /// frame reach its edge at both ends and still level the photo.
+    #[test]
+    fn lines_spanning_the_frame_count_under_a_transform() {
+        let (w, h) = (900u32, 600u32);
+        let a = 2.5f64.to_radians();
+        let horizon = [(0.0, 300.0 - 450.0 * a.tan(), 900.0, 300.0 + 450.0 * a.tan())];
+        let recipe = serde_json::json!({"transformScale": 125.0});
+        // The transform's scale bends the line a little (k(|p|) stretch), so
+        // the rendered tilt is near, not at, the drawn one.
+        let tilt = level_rotation(&drawn(w, h, &horizon), &recipe).expect("horizon found");
+        assert!((tilt.tilt.to_degrees() - 2.5).abs() < 0.5, "{tilt:?}");
+        let (s, c) = 2.0f64.to_radians().sin_cos();
+        let full_height: Vec<(f64, f64, f64, f64)> = [0.2, 0.4, 0.6, 0.8]
+            .iter()
+            .map(|f| {
+                let x = f * w as f64;
+                (x - 300.0 * s / c, 0.0, x + 300.0 * s / c, h as f64)
+            })
+            .collect();
+        let found =
+            straighten_recipe(&drawn(w, h, &full_height), w, h, &recipe).expect("verticals found");
+        assert!((found.rotation.abs() - 2.0).abs() < 0.5, "{found:?}");
     }
 
     /// A perspective correction leaves empty borders whose straight edges
