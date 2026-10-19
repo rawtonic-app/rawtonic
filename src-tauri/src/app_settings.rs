@@ -922,8 +922,16 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
     if !path.exists() {
         return Ok(AppSettings::default());
     }
-    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let error = match serde_json::from_str(&content) {
+    let protect = || {
+        *UNKEPT_SETTINGS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path.to_path_buf());
+    };
+    let content = fs::read(path).map_err(|e| {
+        protect();
+        format!("Settings file could not be read: {e}")
+    })?;
+    let error = match serde_json::from_slice(&content) {
         Ok(settings) => return Ok(settings),
         Err(error) => error,
     };
@@ -932,9 +940,7 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
         .map_or(0, |elapsed| elapsed.as_secs());
     let kept = path.with_file_name(format!("settings.unreadable-{seconds}.json"));
     if let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {
-        *UNKEPT_SETTINGS
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path.to_path_buf());
+        protect();
         return Err(format!(
             "Settings file unreadable ({error}) and could not be kept: {e}"
         ));
@@ -1066,6 +1072,18 @@ mod tests {
             Some("/Photos")
         );
         assert!(read_settings_file(&temp.path().join("none.json")).is_ok());
+
+        // Not even UTF-8: kept byte for byte as well.
+        let garbled = temp.path().join("garbled").join("settings.json");
+        fs::create_dir(garbled.parent().unwrap()).unwrap();
+        fs::write(&garbled, [0xff, 0xfe, b'{']).unwrap();
+        assert!(read_settings_file(&garbled).is_ok());
+        let kept: Vec<_> = fs::read_dir(garbled.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|p| p != &garbled)
+            .collect();
+        assert_eq!(fs::read(&kept[0]).unwrap(), [0xff, 0xfe, b'{']);
     }
 
     #[cfg(unix)]
@@ -1083,6 +1101,15 @@ mod tests {
         assert!(read.is_err());
         assert!(may_replace_settings(&path).is_err());
         assert!(may_replace_settings(&temp.path().join("other.json")).is_ok());
+
+        // A file that cannot be read at all is not replaced either.
+        let locked = temp.path().join("locked.json");
+        fs::write(&locked, "{}").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let read = read_settings_file(&locked);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(read.is_err());
+        assert!(may_replace_settings(&locked).is_err());
     }
 
     #[test]
