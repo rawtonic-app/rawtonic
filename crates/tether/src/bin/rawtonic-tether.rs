@@ -115,6 +115,63 @@ fn main() {
         .then(|| gphoto2::log_bridge::forward_to_log(gphoto2::log_bridge::LogLevel::Debug).ok())
         .flatten();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // macOS: libgphoto2 reaches cameras through ImageCaptureCore (the `icc`
+    // port driver), which answers on the main thread's event loop. The work
+    // runs on its own thread; the main thread only runs that loop.
+    #[cfg(target_os = "macos")]
+    {
+        std::thread::spawn(move || {
+            let code = run(&args);
+            std::process::exit(code);
+        });
+        main_run_loop();
+    }
+    #[cfg(not(target_os = "macos"))]
+    std::process::exit(run(&args));
+}
+
+/// Runs the application event loop on the main thread. ImageCaptureCore
+/// hands its cameras only to a running NSApplication (a bare CFRunLoop
+/// gets none); the "prohibited" activation policy keeps it without a Dock
+/// icon or menu bar.
+#[cfg(target_os = "macos")]
+fn main_run_loop() -> ! {
+    use std::ffi::{c_char, c_void};
+    #[link(name = "AppKit", kind = "framework")]
+    unsafe extern "C" {}
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+    type Send = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
+    type SendPolicy = unsafe extern "C" fn(*mut c_void, *mut c_void, isize) -> i8;
+    const ACTIVATION_POLICY_PROHIBITED: isize = 2;
+    // SAFETY: objc_msgSend called through the signatures of the methods
+    // sent (+sharedApplication, -setActivationPolicy:, -run), on the main
+    // thread as AppKit requires.
+    unsafe {
+        let send: Send = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+        let send_policy: SendPolicy = std::mem::transmute(objc_msgSend as unsafe extern "C" fn());
+        let app = send(
+            objc_getClass(c"NSApplication".as_ptr()),
+            sel_registerName(c"sharedApplication".as_ptr()),
+        );
+        send_policy(
+            app,
+            sel_registerName(c"setActivationPolicy:".as_ptr()),
+            ACTIVATION_POLICY_PROHIBITED,
+        );
+        send(app, sel_registerName(c"run".as_ptr()));
+    }
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+}
+
+/// The command line's work; the process's exit code.
+fn run(args: &[String]) -> i32 {
     let mock = args.iter().any(|a| a == "--mock");
     let result = match args.first().map(String::as_str) {
         Some("list") => driver(mock).and_then(|mut d| {
@@ -122,7 +179,7 @@ fn main() {
             println!("{}", serde_json::to_string_pretty(&cameras).unwrap());
             Ok(())
         }),
-        Some("probe") => probe(&args, mock),
+        Some("probe") => probe(args, mock),
         Some("version") => version(),
         _ => driver(mock).and_then(|d| {
             // Tests shorten how long a shot may take.
@@ -137,9 +194,12 @@ fn main() {
                 .map_err(|e| e.to_string())
         }),
     };
-    if let Err(e) = result {
-        eprintln!("rawtonic-tether: {e}");
-        std::process::exit(1);
+    match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("rawtonic-tether: {e}");
+            1
+        }
     }
 }
 

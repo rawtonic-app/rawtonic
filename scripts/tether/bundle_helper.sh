@@ -7,7 +7,8 @@
 #
 #   macOS: Contents/MacOS/rawtonic-tether, Contents/Frameworks/*.dylib,
 #          Contents/Resources/gphoto2/{camlibs,iolibs}/ (CAMLIBS/IOLIBS are
-#          set by the app when it starts the helper)
+#          set by the app when it starts the helper); the port driver is
+#          the ImageCaptureCore one (icc), no libusb
 #
 # Every library reference is rewritten to the bundle and re-signed ad hoc;
 # the script fails if anything still points outside the bundle.
@@ -30,11 +31,11 @@ mkdir -p "$OUT/binaries" "$OUT/Frameworks" "$OUT/gphoto2/camlibs" "$OUT/gphoto2/
 HELPER=$OUT/binaries/rawtonic-tether-$TRIPLE
 cp "$REPO/target/release/rawtonic-tether" "$HELPER"
 cp "$PREFIX"/lib/libgphoto2/*/ptp2.so "$OUT/gphoto2/camlibs/"
-cp "$PREFIX"/lib/libgphoto2_port/*/usb1.so "$OUT/gphoto2/iolibs/"
 
 case "$(uname -s)" in
   Darwin)
-    LIBS=(libgphoto2.6.dylib libgphoto2_port.12.dylib libltdl.7.dylib libusb-1.0.0.dylib)
+    cp "$PREFIX"/lib/libgphoto2_port/*/icc.so "$OUT/gphoto2/iolibs/"
+    LIBS=(libgphoto2.6.dylib libgphoto2_port.12.dylib libltdl.7.dylib)
     for lib in "${LIBS[@]}"; do
       cp "$PREFIX/lib/$lib" "$OUT/Frameworks/$lib"
       chmod u+w "$OUT/Frameworks/$lib"

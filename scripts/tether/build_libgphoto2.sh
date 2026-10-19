@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Builds libgphoto2 for the tether helper from pinned, checksummed sources:
-# libusb, libltdl (GNU libtool) and libgphoto2 with only what tethering
-# needs — the PTP camera driver (ptp2: current Sony, Fujifilm, Canon, Nikon …
-# bodies) and the USB port driver. No network port driver (ptpip), no serial
-# or disk drivers, no translations, libexif, libjpeg, libxml or gd.
-# All three are LGPL-2.1-or-later and are linked dynamically (THIRD_PARTY_NOTICES).
+# libltdl (GNU libtool) and libgphoto2 with only what tethering needs — the
+# PTP camera driver (ptp2: current Sony, Fujifilm, Canon, Nikon … bodies)
+# and one port driver. No network port driver (ptpip), no serial or disk
+# drivers, no translations, libexif, libjpeg, libxml or gd. All are
+# LGPL-2.1-or-later and linked dynamically (THIRD_PARTY_NOTICES).
+#
+# Port driver: Linux uses libgphoto2's USB driver on libusb (also built
+# here). macOS uses our ImageCaptureCore driver (crates/tether/macos/
+# icc_port.m): macOS's camera service owns PTP cameras there, and
+# ImageCaptureCore passes PTP through it instead of claiming the device —
+# no libusb on macOS.
 #
 # macOS: built for the app's minimum macOS (Homebrew's bottles need the
 # build machine's macOS). Linux: run inside the AppImage container.
@@ -29,20 +35,17 @@ GPHOTO=libgphoto2-2.5.34
 GPHOTO_URL=https://downloads.sourceforge.net/project/gphoto/libgphoto/2.5.34/libgphoto2-2.5.34.tar.bz2
 GPHOTO_SHA=5df9e774eb4ab6087a193afff84dcafe9f666e3443fe29e73e6779f659ff7f28
 
-STAMP="$LIBUSB $LIBTOOL $GPHOTO ptp2 usb1"
-LIBUSB_CONFIGURE=()
+ICC_PORT=$REPO/crates/tether/macos/icc_port.m
 case "$(uname -s)" in
   Darwin)
     export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-13.0}
-    # A newer SDK declares functions the minimum macOS lacks (pipe2 since
-    # macOS 27): configure finds them, they get weak-linked and are NULL on
-    # older systems — libusb_init then jumps to address 0 on macOS 26. Use
-    # the portable fallback; the check after the build catches others.
-    LIBUSB_CONFIGURE=(ac_cv_func_pipe2=no)
-    STAMP="$STAMP macos$MACOSX_DEPLOYMENT_TARGET nopipe2"
+    STAMP="$LIBTOOL $GPHOTO ptp2 icc-$(shasum -a 256 "$ICC_PORT" | cut -c1-16) macos$MACOSX_DEPLOYMENT_TARGET"
     sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
     ;;
-  *) sha256() { sha256sum "$1" | cut -d' ' -f1; } ;;
+  *)
+    STAMP="$LIBUSB $LIBTOOL $GPHOTO ptp2 usb1"
+    sha256() { sha256sum "$1" | cut -d' ' -f1; }
+    ;;
 esac
 
 if [ -f "$PREFIX/.rawtonic-build" ] && [ "$(cat "$PREFIX/.rawtonic-build")" = "$STAMP" ]; then
@@ -50,6 +53,8 @@ if [ -f "$PREFIX/.rawtonic-build" ] && [ "$(cat "$PREFIX/.rawtonic-build")" = "$
   exit 0
 fi
 
+# A different earlier build here: start clean (no stale drivers or libraries).
+if [ -f "$PREFIX/.rawtonic-build" ]; then rm -rf "$PREFIX"; fi
 mkdir -p "$SRC"
 fetch() { # url sha file
   local file=$SRC/$3
@@ -62,7 +67,7 @@ fetch() { # url sha file
     exit 1
   fi
 }
-fetch "$LIBUSB_URL" "$LIBUSB_SHA" "$LIBUSB.tar.bz2"
+[ "$(uname -s)" = Darwin ] || fetch "$LIBUSB_URL" "$LIBUSB_SHA" "$LIBUSB.tar.bz2"
 fetch "$LIBTOOL_URL" "$LIBTOOL_SHA" "$LIBTOOL.tar.xz"
 fetch "$GPHOTO_URL" "$GPHOTO_SHA" "$GPHOTO.tar.bz2"
 
@@ -72,9 +77,13 @@ JOBS=$( (sysctl -n hw.ncpu 2>/dev/null || nproc) | head -1)
 mkdir -p "$PREFIX"
 export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
 
-tar -xjf "$SRC/$LIBUSB.tar.bz2" -C "$BUILD"
-(cd "$BUILD/$LIBUSB" && ./configure --prefix="$PREFIX" --disable-static --disable-udev \
-  --disable-examples-build --disable-tests-build "${LIBUSB_CONFIGURE[@]}" >/dev/null && make -j"$JOBS" >/dev/null && make install >/dev/null)
+USB=(--with-libusb-1.0=no)
+if [ "$(uname -s)" != Darwin ]; then
+  tar -xjf "$SRC/$LIBUSB.tar.bz2" -C "$BUILD"
+  (cd "$BUILD/$LIBUSB" && ./configure --prefix="$PREFIX" --disable-static --disable-udev \
+    --disable-examples-build --disable-tests-build >/dev/null && make -j"$JOBS" >/dev/null && make install >/dev/null)
+  USB=()
+fi
 
 tar -xJf "$SRC/$LIBTOOL.tar.xz" -C "$BUILD"
 (cd "$BUILD/$LIBTOOL" && ./configure --prefix="$PREFIX" --disable-static --enable-ltdl-install >/dev/null &&
@@ -83,11 +92,19 @@ tar -xJf "$SRC/$LIBTOOL.tar.xz" -C "$BUILD"
 tar -xjf "$SRC/$GPHOTO.tar.bz2" -C "$BUILD"
 (cd "$BUILD/$GPHOTO" && ./configure --prefix="$PREFIX" --disable-static --disable-nls \
   --with-camlibs=ptp2 --without-libexif --without-jpeg --with-libxml-2.0=no --with-libcurl=no \
-  --with-gdlib=no --with-libtiff-4=no --without-libusb --disable-serial --disable-disk --disable-ptpip \
+  --with-gdlib=no --with-libtiff-4=no --without-libusb "${USB[@]}" --disable-serial --disable-disk --disable-ptpip \
   LTDLINCL="-I$PREFIX/include" LIBLTDL="-L$PREFIX/lib -lltdl" >/dev/null &&
   make -j"$JOBS" >/dev/null && make install >/dev/null)
 
 if [ "$(uname -s)" = Darwin ]; then
+  # The ImageCaptureCore port driver, built against this libgphoto2 (its
+  # port-driver header is not installed; it comes from the source tree).
+  IOLIBS_DIR=$(PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig" pkg-config --variable=driverdir libgphoto2_port)
+  mkdir -p "$IOLIBS_DIR"
+  clang -fobjc-arc -O2 -Wall -Wextra -Wno-unused-parameter -Werror -bundle \
+    -mmacosx-version-min="$MACOSX_DEPLOYMENT_TARGET" \
+    -I"$PREFIX/include" -I"$BUILD/$GPHOTO/libgphoto2_port" -o "$IOLIBS_DIR/icc.so" "$ICC_PORT" \
+    -L"$PREFIX/lib" -lgphoto2_port -framework Foundation -framework ImageCaptureCore
   # A weak import from the system libraries is a function newer than the
   # minimum macOS: it would be NULL there.
   WEAK=$(for f in "$PREFIX"/lib/*.dylib "$PREFIX"/lib/libgphoto2/*/*.so "$PREFIX"/lib/libgphoto2_port/*/*.so; do

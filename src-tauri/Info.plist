@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Tethered shooting: macOS treats a camera on USB as removable media. -->
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Rawtonic reads photos from a camera connected over USB for tethered shooting.</string>
+</dict>
+</plist>

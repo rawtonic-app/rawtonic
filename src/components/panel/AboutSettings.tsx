@@ -141,7 +141,7 @@ export const CREDITS: Credit[] = [
   {
     name: "libgphoto2",
     url: "http://www.gphoto.org/proj/libgphoto2/",
-    what: "Tethered shooting: talks to the camera over USB, in a separate helper process (with libusb and libltdl, linked dynamically).",
+    what: "Tethered shooting: talks to the camera over USB, in a separate helper process (with libltdl, and libusb on Linux; linked dynamically). On macOS through ImageCaptureCore.",
     license: "LGPL-2.1-or-later",
   },
   {
