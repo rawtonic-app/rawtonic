@@ -70,19 +70,23 @@ if [ "$CUDA" = 1 ]; then
   gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern "${CUDA_LIB%%:*}"
 fi
 
-# Verify every downloaded file against models.json.
+# Verify every downloaded file against models.json; one it does not list is
+# refused, not installed unchecked.
 python3 - "$WORK" <<'PY'
 import hashlib, json, os, sys
 work = sys.argv[1]
-for entry in json.load(open(os.path.join(work, "models.json")))["files"]:
-    path = os.path.join(work, entry["file"])
-    if os.path.exists(path):
-        digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for block in iter(lambda: handle.read(1 << 20), b""):
-                digest.update(block)
-        if digest.hexdigest() != entry["sha256"]:
-            sys.exit(f"{entry['file']}: SHA-256 {digest.hexdigest()}, expected {entry['sha256']}")
+expected = {e["file"]: e["sha256"] for e in json.load(open(os.path.join(work, "models.json")))["files"]}
+for name in sorted(os.listdir(work)):
+    if name == "models.json":
+        continue
+    if name not in expected:
+        sys.exit(f"{name}: not listed in models.json; not installed")
+    digest = hashlib.sha256()
+    with open(os.path.join(work, name), "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    if digest.hexdigest() != expected[name]:
+        sys.exit(f"{name}: SHA-256 {digest.hexdigest()}, expected {expected[name]}")
 PY
 
 # Copy beside the target, then rename over it: an interrupted install leaves

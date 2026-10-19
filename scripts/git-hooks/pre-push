@@ -1,8 +1,8 @@
 #!/bin/sh
-# Pre-push guard for pushes to GitHub (the repository goes public later):
+# Pre-push guard for pushes to GitHub (the repository is public):
 # - every author and committer address must be a noreply address, so no
 #   personal e-mail address (and no commit from the history before the
-#   2026-10-08 rewrite) reaches the remote;
+#   public start) reaches the remote;
 # - gitleaks, when installed, must find no secrets in the pushed commits.
 # Install (shared by all worktrees): cp scripts/git-hooks/pre-push "$(git rev-parse --git-common-dir)/hooks/"
 remote_url=$2
@@ -15,7 +15,9 @@ status=0
 # shellcheck disable=SC2034  # remote_ref is part of git's input format
 while read -r local_ref local_sha remote_ref remote_sha; do
   [ "$local_sha" = "$zero" ] && continue
-  if [ "$remote_sha" = "$zero" ]; then
+  # A new branch, or a force push over a remote commit this clone does not
+  # have (`git log REMOTE..LOCAL` would fail and check nothing).
+  if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
     range="$local_sha --not --remotes=origin"
   else
     range="$remote_sha..$local_sha"
