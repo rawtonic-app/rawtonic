@@ -475,6 +475,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     }
   }, [session, hotFolder]);
 
+  // The library a camera was connected for, kept while the camera is away
+  // (unplugged, waiting to be connected again): leaving that library also
+  // cancels the pending reconnect.
+  const tetheredFor = useRef<string | null>(null);
   // A tethered camera feeds the library it was connected for: another
   // library disconnects it (its photos must not land in the wrong one).
   useEffect(() => {
@@ -482,14 +486,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     // A camera still connected (the window was reloaded).
     void invoke<TetherStatus | null>(Invokes.TetherStatus)
       .then((status) => {
-        if (status?.camera && typeof status.session === "string") setTether(status);
+        if (!status?.camera || typeof status.session !== "string") return;
+        // Also a camera that is away: leaving its library cancels its
+        // reconnect.
+        tetheredFor.current = status.session.replace(/\/$/, "");
+        if (status.connected !== false) setTether(status);
       })
       .catch(() => {});
   }, []);
-  // The library a camera was connected for, kept while the camera is away
-  // (unplugged, waiting to be connected again): leaving that library also
-  // cancels the pending reconnect.
-  const tetheredFor = useRef<string | null>(null);
   useEffect(() => {
     if (tether) tetheredFor.current = tether.session.replace(/\/$/, "");
   }, [tether]);

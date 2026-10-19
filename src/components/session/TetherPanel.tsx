@@ -47,6 +47,8 @@ interface CameraStatus {
 export interface TetherStatus {
   session: string;
   camera: CameraStatus;
+  /** False while the camera is away, waiting to be connected again. */
+  connected?: boolean;
 }
 
 /** Mirrors `rawtonic_tether::protocol::Setting`. */

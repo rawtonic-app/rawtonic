@@ -63,9 +63,24 @@ type IngestSender = Arc<Mutex<Option<mpsc::Sender<(Captured, Instant)>>>>;
 type HelperCommand = (PathBuf, Vec<OsString>, Vec<(OsString, OsString)>);
 
 struct Connection {
+    /// This connection, distinct from every other one of this app run (a
+    /// late failure of an earlier one never touches it).
+    id: u64,
     session: PathBuf,
     status: CameraStatus,
     config: Arc<Mutex<CaptureConfig>>,
+}
+
+impl Connection {
+    fn new(session: PathBuf, status: CameraStatus, config: Arc<Mutex<CaptureConfig>>) -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self {
+            id: NEXT.fetch_add(1, Ordering::SeqCst),
+            session,
+            status,
+            config,
+        }
+    }
 }
 
 struct Helper {
@@ -90,11 +105,17 @@ struct Helper {
 /// The camera went away: its connection is kept for connecting it again.
 /// Whether a reconnect should start now (a connect still in flight starts
 /// it itself once it has installed the connection).
-fn camera_lost(state: &Mutex<Option<Helper>>) -> bool {
+fn camera_lost(state: &Mutex<Option<Helper>>, only: Option<u64>) -> bool {
     let mut state = state.lock().unwrap();
     let Some(h) = state.as_mut() else {
         return false;
     };
+    // A request's late failure concerns only the connection it was sent on.
+    if let Some(id) = only
+        && h.connection.as_ref().is_none_or(|c| c.id != id)
+    {
+        return false;
+    }
     if let Some(connection) = h.connection.take() {
         h.lost = Some(connection);
         return true;
@@ -185,7 +206,7 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
                 "tether-state",
                 json!({ "connected": false, "error": error }),
             );
-            if error.kind == ErrorKind::Disconnected && camera_lost(&HELPER) {
+            if error.kind == ErrorKind::Disconnected && camera_lost(&HELPER, None) {
                 let app = app.clone();
                 let choice = CHOICE.load(Ordering::SeqCst);
                 std::thread::spawn(move || reconnect_when_back(app, choice));
@@ -344,16 +365,13 @@ fn reconnect_lost(
             continue;
         }
         h.lost = None;
-        h.connection = Some(Connection {
-            session: session.clone(),
-            status: status.clone(),
-            config,
-        });
+        h.connection = Some(Connection::new(session.clone(), status.clone(), config));
         log::info!("Tether: {model} is back, connected again");
         drop(helper);
         connected(TetherStatus {
             session,
             camera: status,
+            connected: true,
         });
         return;
     }
@@ -410,6 +428,13 @@ fn reconnect<'a>(
 /// starts a new helper).
 fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply, String> {
     let client = client(app)?;
+    // The connection (and the user's choices) this request is sent on.
+    let on = HELPER
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|h| h.connection.as_ref().map(|c| c.id));
+    let choice = CHOICE.load(Ordering::SeqCst);
     match client.request(request, timeout) {
         Err(e) if e.kind == ErrorKind::Unresponsive => {
             client.kill();
@@ -420,10 +445,10 @@ fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply
         }
         Err(e) if e.kind == ErrorKind::Disconnected => {
             // The same transition as the helper's Disconnected event (which
-            // follows this reply): whichever is first starts the reconnect.
-            if camera_lost(&HELPER) {
+            // follows this reply): whichever is first starts the reconnect —
+            // for this request's connection only.
+            if on.is_some() && camera_lost(&HELPER, on) {
                 let app = app.clone();
-                let choice = CHOICE.load(Ordering::SeqCst);
                 std::thread::spawn(move || reconnect_when_back(app, choice));
             }
             Err(e.message)
@@ -471,6 +496,8 @@ pub async fn tether_cameras(app: AppHandle) -> Result<TetherCameras, String> {
 pub struct TetherStatus {
     pub session: PathBuf,
     pub camera: CameraStatus,
+    /// False while the camera is away and waits to be connected again.
+    pub connected: bool,
 }
 
 /// Tells the interface (`AppHandle::emit` in the app).
@@ -739,6 +766,7 @@ pub async fn tether_connect(
         Ok(TetherStatus {
             session,
             camera: status,
+            connected: true,
         })
     })
     .await
@@ -834,11 +862,7 @@ fn open_session(
     let mut helper = state.lock().unwrap();
     let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
     helper.connecting = false;
-    let connection = Connection {
-        session,
-        status: status.clone(),
-        config,
-    };
+    let connection = Connection::new(session, status.clone(), config);
     if std::mem::take(&mut helper.lost_while_connecting) {
         // Gone again before it was installed: kept for the reconnect.
         helper.lost = Some(connection);
@@ -870,11 +894,22 @@ pub async fn tether_disconnect(app: AppHandle) -> Result<(), String> {
 /// The connected camera, if any (for a window opened later).
 #[tauri::command]
 pub fn tether_status() -> Option<TetherStatus> {
-    let helper = HELPER.lock().unwrap();
-    let connection = helper.as_ref()?.connection.as_ref()?;
+    status_of(&HELPER)
+}
+
+fn status_of(state: &Mutex<Option<Helper>>) -> Option<TetherStatus> {
+    let helper = state.lock().unwrap();
+    // A helper that ended has no camera.
+    let h = helper.as_ref().filter(|h| h.client.alive())?;
+    let (connection, connected) = match (&h.connection, &h.lost) {
+        (Some(c), _) => (c, true),
+        (None, Some(c)) => (c, false),
+        (None, None) => return None,
+    };
     Some(TetherStatus {
         session: connection.session.clone(),
         camera: connection.status.clone(),
+        connected,
     })
 }
 
@@ -1144,7 +1179,9 @@ mod tests {
                         let _ = tx.send((captured, Instant::now()));
                     }
                 }
-                Incoming::Event(Event::Disconnected { .. }) if camera_lost(&events) => on_lost(),
+                Incoming::Event(Event::Disconnected { .. }) if camera_lost(&events, None) => {
+                    on_lost()
+                }
                 _ => {}
             },
         )
@@ -1167,6 +1204,7 @@ mod tests {
     fn the_reply_and_the_event_of_one_loss_start_one_reconnect() {
         let (state, _client) = mock_helper(&MockSpec::default());
         state.lock().unwrap().as_mut().unwrap().connection = Some(Connection {
+            id: 0,
             session: PathBuf::from("/job"),
             status: CameraStatus::default(),
             config: Arc::new(Mutex::new(CaptureConfig {
@@ -1176,15 +1214,45 @@ mod tests {
             })),
         });
         // Whichever of the failed request and the event comes first.
-        assert!(camera_lost(&state));
-        assert!(!camera_lost(&state));
+        assert!(camera_lost(&state, None));
+        assert!(!camera_lost(&state, None));
         assert!(state.lock().unwrap().as_ref().unwrap().lost.is_some());
+    }
+
+    #[test]
+    fn a_late_failure_of_an_earlier_connection_leaves_the_newer_one_alone() {
+        let (state, client) = mock_helper(&MockSpec::default());
+        let config = || {
+            Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "x"),
+                free_camera_copies: true,
+            }))
+        };
+        let earlier = Connection::new("/a".into(), CameraStatus::default(), config()).id;
+        let newer = Connection::new("/b".into(), CameraStatus::default(), config());
+        state.lock().unwrap().as_mut().unwrap().connection = Some(newer);
+        assert!(!camera_lost(&state, Some(earlier)));
+        let status = status_of(&state).expect("still connected");
+        assert!(status.connected && status.session == Path::new("/b"));
+        // Its own failure, or the helper's event: away, waiting.
+        assert!(camera_lost(&state, None));
+        let waiting = status_of(&state).expect("its library is still known");
+        assert!(!waiting.connected && waiting.session == Path::new("/b"));
+        // A helper that ended has no camera.
+        client.kill();
+        let started = Instant::now();
+        while client.alive() && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(status_of(&state).is_none());
     }
 
     #[test]
     fn a_late_reconnect_never_touches_a_newer_connection() {
         let (state, _client) = mock_helper(&MockSpec::default());
         state.lock().unwrap().as_mut().unwrap().connection = Some(Connection {
+            id: 0,
             session: PathBuf::from("/job"),
             status: CameraStatus::default(),
             config: Arc::new(Mutex::new(CaptureConfig {
@@ -1254,6 +1322,7 @@ mod tests {
             counted.fetch_add(1, Ordering::SeqCst);
         });
         state.lock().unwrap().as_mut().unwrap().lost = Some(Connection {
+            id: 0,
             session: session.clone(),
             status: CameraStatus {
                 model: spec.model.clone(),
