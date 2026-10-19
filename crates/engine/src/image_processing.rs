@@ -2789,7 +2789,10 @@ pub struct GlobalAdjustments {
     pub tint: f32,
     pub vibrance: f32,
     pub hue: f32,
-    _pad_color1: f32,
+    /// The share of colour noise version 7's speck swap applied
+    /// (`color_noise::Tuning::speck_strength`), set by the renderer with
+    /// `color_noise`.
+    pub color_noise_speck: f32,
     _pad_color2: f32,
     _pad_color3: f32,
 
@@ -3757,7 +3760,7 @@ fn get_global_adjustments_from_json(
         tint: get_val("color", "tint", SCALES.tint, None),
         vibrance: get_val("color", "vibrance", SCALES.vibrance, None),
         hue: get_val("color", "hue", 1.0, None),
-        _pad_color1: 0.0,
+        color_noise_speck: 0.0,
         _pad_color2: 0.0,
         _pad_color3: 0.0,
 

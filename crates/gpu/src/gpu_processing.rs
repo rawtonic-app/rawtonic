@@ -425,6 +425,7 @@ fn color_noise_thresholds(
     global.color_noise_aware2 = tuning.finest_aware2(&thresholds, &noise);
     global.color_noise_aware_far = tuning.aware_far;
     (global.color_noise_guide, global.color_noise_guide_k2) = tuning.finest_guide_code();
+    global.color_noise_speck = tuning.speck_strength(&thresholds, &noise);
     (thresholds, base_sigma, key)
 }
 
