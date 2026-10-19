@@ -348,7 +348,7 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;
     // A zoom warps regions from the 1:1 preview's rows with what the whole
     // decode tells (automatic lateral CA estimate, edge-fringe radius).
-    crate::multi_view::note_decode_measures(path, &image);
+    crate::multi_view::note_decode_measures(path, &image, &settings);
     if cancel.0.load(Ordering::SeqCst) != cancel.1 {
         return Outcome::Cancelled;
     }
