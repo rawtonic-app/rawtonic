@@ -856,6 +856,9 @@ impl From<rawtonic_metadata::Metadata> for TextMetadata {
     }
 }
 
+/// Title, description, creator and copyright per registered path (tests read
+/// back what `write_text_metadata` stored).
+#[cfg(test)]
 fn read_text_metadata(
     lib: &Library,
     paths: Vec<String>,
