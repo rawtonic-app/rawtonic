@@ -29,14 +29,15 @@ export LDAI_UPDATE_INFORMATION='gh-releases-zsync|rawtonic-app|rawtonic|latest-a
 npm ci
 # The tether helper with libgphoto2 built from pinned sources (ADR 0012).
 scripts/tether/bundle_helper.sh
-# A bundle folder left by an earlier run would be shipped as it is.
-rm -rf "$CARGO_TARGET_DIR/release/bundle/appimage"
+# A bundle folder or .zsync left by an earlier run would be shipped as it is.
+rm -rf "$CARGO_TARGET_DIR/release/bundle/appimage" src-tauri/*.AppImage.zsync
 # linuxdeploy copies the helper's libraries from there into usr/lib.
 # shellcheck disable=SC2086
 LD_LIBRARY_PATH="$CARGO_TARGET_DIR/tether-bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
   npm run tauri -- build --bundles appimage --config "$CARGO_TARGET_DIR/tether-bundle/tauri.tether.conf.json" \
   $TAURI_ARGS -- --locked
 bundle=/cache/target/release/bundle/appimage
+# appimagetool writes the .zsync into its working directory (src-tauri).
+# A release AppImage without it could not be updated.
+mv src-tauri/*.AppImage.zsync "$bundle"/
 ls -la "$bundle"
-# A release AppImage without its .zsync could not be updated.
-ls "$bundle"/*.AppImage.zsync >/dev/null
