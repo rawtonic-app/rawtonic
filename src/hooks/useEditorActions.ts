@@ -205,13 +205,21 @@ function commitDraft(path: string, adjustments: Adjustments) {
  * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS.
  * `queued`: the update of a queued recipe operation (exclusiveRecipeOperation)
  * running before a batch that already holds the photograph. */
-export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: { queued?: boolean } = {}): boolean {
+export function updateAdjustments(
+  value: AdjustmentsUpdate,
+  { queued = false, persisted = false }: { queued?: boolean; persisted?: boolean } = {},
+): boolean {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
   // A batch edit is writing this photograph's recipe (heldRecipePaths); the
   // queued operations ahead of it still show their edits. False: refused
   // (an asynchronous result computes again after the hold).
-  if (image && isRecipeHeld(current) && !queued) return false;
+  if (image && isRecipeHeld(current)) {
+    if (!queued) return false;
+    // Not written by its operation (a mask's result): the batch saves it
+    // before its analysis (autosave waits for the hold).
+    if (!persisted) unsavedHeldUpdates.add(image.path);
+  }
   // A queued operation's update commits at once (never a drag's draft that
   // could commit later, over a newer result).
   if (!queued && image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
@@ -280,6 +288,10 @@ export function registerEditAllFlush(flush: () => Promise<unknown> | null): () =
     if (editAllFlush === flush) editAllFlush = null;
   };
 }
+
+/** Held photographs whose recipe took an update not saved yet (mask work
+ * finishing during the hold, before the batch). */
+const unsavedHeldUpdates = new Set<string>();
 
 /** Running recipe operations by photograph — those that rewrite recipes in
  * the backend and then reload the open one (batch Auto straighten, Auto lens
@@ -547,13 +559,13 @@ export function useEditorActions() {
         // Mask work started before the hold (AI masks, imported placements)
         // ends first; its results pass the hold (they come before the
         // batch) and are saved with the recipe the batch analyses.
+        // The shown recipe, when such results came in (whenever, while this
+        // waited), is saved before the analysis.
         const shown = useEditorStore.getState().selectedImage;
         if (shown && held.includes(shown.path)) {
-          const before = useEditorStore.getState().adjustments;
           for (let work = afterRecipeWork(); work; work = afterRecipeWork()) await work;
-          const after = useEditorStore.getState().adjustments;
-          if (after !== before && isCurrentEditorImage(shown.path)) {
-            debouncedSave(shown.path, after);
+          if (unsavedHeldUpdates.delete(shown.path) && isCurrentEditorImage(shown.path)) {
+            debouncedSave(shown.path, useEditorStore.getState().adjustments);
             debouncedSave.flush();
             await pendingMetadataSaves.get(shown.path);
           }
@@ -843,7 +855,7 @@ export function useEditorActions() {
         pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
         if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-          updateAdjustments({ ...adjustments, ...adjustmentsToApply }, { queued: true });
+          updateAdjustments({ ...adjustments, ...adjustmentsToApply }, { queued: true, persisted: true });
         }
 
         const written = afterRecipeSaves(pathsToUpdate, () =>
@@ -875,7 +887,7 @@ export function useEditorActions() {
                     lensMaker: meta.adjustments!.lensMaker,
                     lensModel: meta.adjustments!.lensModel,
                     lensDistortionParams: meta.adjustments!.lensDistortionParams,
-                  }), { queued: true });
+                  }), { queued: true, persisted: true });
                 }
               });
             }

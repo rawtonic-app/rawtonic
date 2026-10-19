@@ -6,7 +6,7 @@ import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { trackRecipeWork } from '../utils/recipeWork';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
-import { updateAdjustments, useEditorActions } from './useEditorActions';
+import { updateAdjustments } from './useEditorActions';
 import { Adjustments, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes, Panel } from '../components/ui/AppProperties';
@@ -260,7 +260,6 @@ interface AiDepthMaskSettings {
 }
 
 export function useAiMasking() {
-  const { setAdjustments } = useEditorActions();
   const registerAiTask = useProcessStore((state) => state.registerAiTask);
   const unregisterAiTask = useProcessStore((state) => state.unregisterAiTask);
 
@@ -575,10 +574,14 @@ export function useAiMasking() {
     })
       .then((placed) => {
         if (useEditorStore.getState().selectedImage?.path !== path) return;
-        setAdjustments((prev: Adjustments) => ({
-          ...prev,
-          spots: [...(prev.spots ?? []).filter((spot) => !isUnplaced(spot)), ...(placed.spots ?? [])],
-        }));
+        // Counted as mask work: a batch waits for it, so it passes the hold.
+        updateAdjustments(
+          (prev: Adjustments) => ({
+            ...prev,
+            spots: [...(prev.spots ?? []).filter((spot) => !isUnplaced(spot)), ...(placed.spots ?? [])],
+          }),
+          { queued: true },
+        );
       })
       .catch((error) => console.error('Placing Lightroom spots failed:', error)));
     // eslint-disable-next-line react-hooks/exhaustive-deps

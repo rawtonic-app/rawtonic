@@ -1050,6 +1050,34 @@ describe('Auto straighten for a selection', () => {
     }
   });
 
+  it('saves a mask result that landed while the batch waited for an earlier save', async () => {
+    let finishMask!: () => void;
+    void trackRecipeWork(new Promise<void>((resolve) => { finishMask = resolve; }));
+    const taken = useEditorStore.getState().adjustments;
+    const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: taken }));
+    try {
+      useEditorStore.setState({ adjustments: { ...taken, exposure: 0.5 } });
+      const { result } = renderHook(useEditorActions);
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+      await act(async () => {});
+      // The earlier save is still out when the mask's result lands.
+      act(() => { updateAdjustments({ contrast: 12 }, { queued: true }); });
+      await act(async () => finishMask());
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      await act(async () => {});
+      const saved = vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.SaveMetadataAndUpdateThumbnail);
+      expect(saved.at(-1)?.[1]).toMatchObject({ adjustments: { exposure: 0.5, contrast: 12 } });
+      expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain(Invokes.ApplyAutoStraightenToPaths);
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      await act(async () => {});
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+      await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+      await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    } finally {
+      unregister();
+    }
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

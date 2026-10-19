@@ -141,6 +141,24 @@ describe("automatic AI masks from imported presets", () => {
     await waitFor(() => expect(invoke.mock.calls.filter((c) => c[0] === "generate_ai_foreground_mask")).toHaveLength(1));
   });
 
+  it("applies imported spots placed while a batch edit holds the recipe", async () => {
+    let finishPlacement!: (value: unknown) => void;
+    invoke.mockImplementation((command: string) =>
+      command === "place_lightroom_masks"
+        ? new Promise((resolve) => { finishPlacement = resolve; })
+        : Promise.resolve(),
+    );
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 600, height: 400 } as never,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [{ id: "s1", lrNormalized: true }] as never },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(invoke.mock.calls.some((c) => c[0] === "place_lightroom_masks")).toBe(true));
+    act(() => useEditorStore.setState({ heldRecipePaths: ["/s/a.NEF"] }));
+    await act(async () => finishPlacement({ spots: [{ id: "s1", x: 10, y: 20 }] }));
+    expect(useEditorStore.getState().adjustments.spots).toEqual([{ id: "s1", x: 10, y: 20 }]);
+  });
+
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
     toast.error.mockReset();
     useProcessStore.setState({ activeAiTasks: {} });
