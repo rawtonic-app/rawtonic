@@ -895,10 +895,29 @@ fn migrate_viewer_background(settings: &mut AppSettings) -> bool {
     }
 }
 
+/// A settings file that did not parse and could not be kept aside: nothing
+/// may replace it in this run (the app then works from fallback settings).
+static UNKEPT_SETTINGS: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Refuses to write settings over `path` when it is an unreadable file that
+/// could not be kept.
+fn may_replace_settings(path: &Path) -> Result<(), String> {
+    let unkept = UNKEPT_SETTINGS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if unkept.as_deref() == Some(path) {
+        return Err(format!(
+            "Settings not saved: {} could not be read or kept aside",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
 /// The settings in `path` (defaults when there is none). A file that no longer
 /// parses (a hand edit, a value another version wrote) is kept beside it as
 /// `settings.unreadable-<seconds>.json` before the defaults are used and saved
-/// over it; when it cannot be kept, loading fails instead.
+/// over it; when it cannot be kept, loading fails and no save replaces it.
 fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
     if !path.exists() {
         return Ok(AppSettings::default());
@@ -912,8 +931,14 @@ fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs());
     let kept = path.with_file_name(format!("settings.unreadable-{seconds}.json"));
-    crate::session_bridge::write_new_output(&kept, &content)
-        .map_err(|e| format!("Settings file unreadable ({error}) and could not be kept: {e}"))?;
+    if let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {
+        *UNKEPT_SETTINGS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path.to_path_buf());
+        return Err(format!(
+            "Settings file unreadable ({error}) and could not be kept: {e}"
+        ));
+    }
     log::warn!(
         "Settings file unreadable ({error}); kept as {} and starting from defaults",
         kept.display()
@@ -992,6 +1017,7 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
         settings.ai_provider = Some("cpu".into());
     }
     let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    may_replace_settings(&path)?;
     rawtonic_metadata::atomic_write(&path, json_string).map_err(|e| e.to_string())?;
 
     let state = app_handle.state::<AppState>();
@@ -1040,6 +1066,23 @@ mod tests {
             Some("/Photos")
         );
         assert!(read_settings_file(&temp.path().join("none.json")).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_settings_file_that_cannot_be_kept_is_never_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(&path, r#"{"rootFolders":"/Photos"}"#).unwrap();
+        assert!(may_replace_settings(&path).is_ok());
+        // No room beside it for the kept copy.
+        fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        let read = read_settings_file(&path);
+        fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(read.is_err());
+        assert!(may_replace_settings(&path).is_err());
+        assert!(may_replace_settings(&temp.path().join("other.json")).is_ok());
     }
 
     #[test]
