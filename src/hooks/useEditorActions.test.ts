@@ -928,7 +928,7 @@ describe('Auto straighten for a selection', () => {
       const writes = () =>
         vi.mocked(invoke).mock.calls
           .filter(([c]) => c === Invokes.SaveMetadataAndUpdateThumbnail || c === Invokes.ResetAdjustmentsForPaths)
-          .map(([c, a]) => (c === Invokes.ResetAdjustmentsForPaths ? 'reset' : `save ${(a as { adjustments: Adjustments }).adjustments.exposure}`));
+          .map(([c, a]) => (c === Invokes.ResetAdjustmentsForPaths ? 'reset' : `save ${(a as { adjustments: { exposure: number } }).adjustments.exposure}`));
       // The pending edit's save went first, alone.
       expect(writes()).toEqual(['save 4']);
       await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
