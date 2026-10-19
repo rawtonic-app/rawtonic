@@ -36,10 +36,11 @@ if [ -z "${RAWTONIC_SHIP_COPY:-}" ]; then
   RAWTONIC_SHIP_COPY=$copy RAWTONIC_SHIP_CALLER=$(pwd -P) \
     RAWTONIC_SHIP_REPO=$(cd "$(dirname "$0")/.." && pwd -P) exec sh "$copy" "$@"
 fi
-STEP=start; DONE=0
+STEP=start; DONE=0; LOCK_HELD=''
 finish() {
   status=$?
   rm -f "$RAWTONIC_SHIP_COPY"
+  [ -z "$LOCK_HELD" ] || rmdir "$LOCK_HELD" 2>/dev/null || true
   if [ "$DONE" = 0 ]; then
     [ "$status" != 0 ] || status=1
     printf 'ship: FAILED during %s (exit %s); nothing after that step ran\n' "$STEP" "$status" >&2
@@ -171,15 +172,30 @@ fi
 
 STEP=merge
 say "merge into main ($MAIN_DIR)"
+# Ships from the worktrees of one clone share its main checkout: one at a time.
+LOCK="$(cd "$(git rev-parse --git-common-dir)" && pwd -P)/rawtonic-ship.lock"
+mkdir "$LOCK" 2>/dev/null ||
+  die "another ship.sh is merging in this clone; ship again when it is done (if none runs, remove $LOCK)"
+LOCK_HELD=$LOCK
+[ "$(git -C "$MAIN_DIR" symbolic-ref -q --short HEAD)" = main ] || die "$MAIN_DIR is no longer on main"
 [ -z "$(git -C "$MAIN_DIR" status --porcelain --untracked-files=no)" ] || die "main checkout has uncommitted changes; merge by hand"
 git -C "$MAIN_DIR" pull -q --ff-only origin main
+# Only the reviewed commit may go out with the merge: a local main ahead of
+# origin/main would push its unchecked commits along.
+MAIN_BEFORE=$(git -C "$MAIN_DIR" rev-parse HEAD)
+[ "$MAIN_BEFORE" = "$(git -C "$MAIN_DIR" rev-parse origin/main)" ] ||
+  die "main in $MAIN_DIR has commits that are not on origin/main; push or drop them, then ship again"
 SUMMARY=$(printf '%s' "$TITLE" | sed 's/^[a-z]*\(([^)]*)\)\{0,1\}!\{0,1\}: //')
 if ! git -C "$MAIN_DIR" merge -q --no-ff "$HEAD_SHA" -m "Merge pull request #$PR_NUM: $SUMMARY"; then
   git -C "$MAIN_DIR" merge --abort
   die "merge conflict with main; rebase $BRANCH onto origin/main and ship again"
 fi
 STEP="push main"
-git -C "$MAIN_DIR" push -q origin main
+if ! git -C "$MAIN_DIR" push -q origin main; then
+  # Leave main as it was, so the next ship does not push this merge along.
+  git -C "$MAIN_DIR" reset -q --keep "$MAIN_BEFORE" || warn "local merge not undone: git -C '$MAIN_DIR' reset --keep $MAIN_BEFORE"
+  die "push of main failed (did origin/main move?); the local merge was undone; ship again"
+fi
 MERGED=$(git -C "$MAIN_DIR" rev-parse --short HEAD)
 
 # Merged and pushed: from here on a failed clean-up step only warns.

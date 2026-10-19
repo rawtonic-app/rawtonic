@@ -182,6 +182,35 @@ expect_last "$T/out" "ship: merged PR #7 as *"
 [ -f "$T/gh-again.comment" ] && fail "review note went to the merged pull request"
 [ -f "$T/gh-again.body" ] || fail "no new pull request for a re-used branch name"
 
+# 14. Another ship.sh holds the merge lock: nothing is merged.
+new_branch locked
+LOCK="$T/main/.git/rawtonic-ship.lock"
+mkdir "$LOCK"
+ship locked "$T/main" && fail "shipped while another ship held the lock"
+expect_last "$T/out" "ship: FAILED during merge (exit 1)*"
+[ -d "$LOCK" ] || fail "a failed ship removed the lock it did not take"
+rmdir "$LOCK"
+[ "$(git -C "$T/origin.git" log -1 --format=%s main)" = "Merge pull request #7: again" ] || fail "merged while locked"
+
+# 15. A local main with commits that are not on origin/main: nothing is pushed.
+new_branch ahead
+git -C "$T/main" commit -q --allow-empty -m "chore: unpushed"
+ship ahead "$T/main" && fail "shipped with an unpushed commit on main"
+expect_last "$T/out" "ship: FAILED during merge (exit 1)*"
+git -C "$T/origin.git" log --format=%s main | grep -q unpushed && fail "pushed main's unpushed commit"
+git -C "$T/main" reset -q --hard origin/main
+
+# 16. origin refuses the push of main: the local merge is undone.
+new_branch refused
+printf '#!/bin/sh\nwhile read -r _ _ ref; do [ "$ref" != refs/heads/main ] || exit 1; done\n' >"$T/origin.git/hooks/pre-receive"
+chmod +x "$T/origin.git/hooks/pre-receive"
+before=$(git -C "$T/main" rev-parse HEAD)
+ship refused "$T/main" && fail "shipped although origin refused main"
+expect_last "$T/out" "ship: FAILED during push main (exit 1)*"
+[ "$(git -C "$T/main" rev-parse HEAD)" = "$before" ] || fail "refused push left the merge on local main"
+rm "$T/origin.git/hooks/pre-receive"
+[ -d "$LOCK" ] && fail "lock left behind"
+
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
   exit 1
