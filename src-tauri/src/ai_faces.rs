@@ -4,8 +4,6 @@
 //! geometry), the commands of the masks panel's People entry, and the face
 //! data the retouch tool stores in the recipe (`faceRetouch`).
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 
@@ -17,7 +15,6 @@ use tauri::Manager;
 
 use crate::ai_processing::AiPeopleMaskParameters;
 use crate::app_state::{AiTaskGuard, AppState};
-use crate::cache_utils::GEOMETRY_KEYS;
 use crate::editor_preview::get_cached_full_warped_image;
 
 /// Files of the model pack (docs/MODELS.md) and their SHA-256.
@@ -128,38 +125,25 @@ pub(crate) async fn models(
     Ok(models)
 }
 
-/// Identifies the photo and its geometry (as the click masks' embeddings do).
-fn analysis_key(path: &str, js_adjustments: &serde_json::Value) -> String {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(path.as_bytes());
-    let mut geometry = DefaultHasher::new();
-    for key in GEOMETRY_KEYS {
-        if let Some(value) = js_adjustments.get(key) {
-            key.hash(&mut geometry);
-            value.to_string().hash(&mut geometry);
-        }
-    }
-    hasher.update(&geometry.finish().to_le_bytes());
-    hasher.finalize().to_hex().to_string()
-}
-
 /// The analysis of the open photo with `js_adjustments`' geometry, made on
 /// first use.
 async fn analysis(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
-    path: &str,
     js_adjustments: &serde_json::Value,
 ) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), String> {
-    let key = analysis_key(path, js_adjustments);
+    // Keyed by the photo actually loaded, taken before the models load: a
+    // photo switch meanwhile cannot file one photo's faces under another.
+    let loaded = crate::image_loader::wait_for_original_image(state)?;
+    let key = crate::ai_commands::geometry_key(&loaded.path, js_adjustments);
     if let Some(c) = state.faces.lock().unwrap().cached.as_ref()
         && c.key == key
     {
         return Ok((c.image.clone(), c.analysis.clone()));
     }
     let models = models(app_handle, true).await?;
-    let (source, is_raw) = crate::editor_preview::get_original_image(state)?;
-    let warped = get_cached_full_warped_image(state, &source, is_raw, js_adjustments);
+    let is_raw = loaded.is_raw;
+    let warped = get_cached_full_warped_image(state, &loaded.image, is_raw, js_adjustments);
     let (image, analysis) = tokio::task::spawn_blocking(move || {
         let image = rawtonic_faces::recipe::display_rgb8(&warped, is_raw);
         rawtonic_faces::analyze(&image, &models).map(|a| (Arc::new(image), Arc::new(a)))
@@ -186,13 +170,12 @@ fn data_url(bytes: &[u8], mime: &str) -> String {
 #[tauri::command]
 pub async fn detect_people(
     js_adjustments: serde_json::Value,
-    path: String,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<Vec<PersonSummary>, String> {
     crate::ai_lifecycle::LIFECYCLE.touch();
     let _running = crate::ai_lifecycle::LIFECYCLE.run();
-    let (image, analysis) = analysis(&state, &app_handle, &path, &js_adjustments).await?;
+    let (image, analysis) = analysis(&state, &app_handle, &js_adjustments).await?;
     tokio::task::spawn_blocking(move || {
         let (w, h) = (analysis.width as f32, analysis.height as f32);
         analysis
@@ -225,7 +208,6 @@ pub async fn detect_people(
 #[tauri::command]
 pub async fn generate_ai_people_mask(
     js_adjustments: serde_json::Value,
-    path: String,
     parts: Vec<String>,
     person: Option<usize>,
     rotation: f32,
@@ -246,7 +228,7 @@ pub async fn generate_ai_people_mask(
     if selected.is_empty() {
         return Err("No person parts selected".to_string());
     }
-    let (image, analysis) = analysis(&state, &app_handle, &path, &js_adjustments).await?;
+    let (image, analysis) = analysis(&state, &app_handle, &js_adjustments).await?;
     if cancelled() {
         return Err("Task cancelled".to_string());
     }
@@ -465,16 +447,6 @@ mod tests {
         carry_face_settings(&mut faces, &own, (1000.0, 1000.0));
         assert_eq!(faces[0]["settings"], serde_json::json!({}));
         assert_eq!(faces[1]["settings"], serde_json::json!({"evenSkin": 80}));
-    }
-
-    #[test]
-    fn analysis_key_follows_path_and_geometry_only() {
-        let a = serde_json::json!({"exposure": 1.0, "transformRotate": 0.0});
-        let b = serde_json::json!({"exposure": 2.0, "transformRotate": 0.0});
-        let c = serde_json::json!({"exposure": 1.0, "transformRotate": 5.0});
-        assert_eq!(analysis_key("x.raf", &a), analysis_key("x.raf", &b));
-        assert_ne!(analysis_key("x.raf", &a), analysis_key("x.raf", &c));
-        assert_ne!(analysis_key("x.raf", &a), analysis_key("y.raf", &a));
     }
 
     /// Renders the face retouch of real photos: analysis as the app makes

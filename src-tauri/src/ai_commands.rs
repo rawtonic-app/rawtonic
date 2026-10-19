@@ -123,7 +123,6 @@ pub async fn generate_ai_sky_mask(
 #[tauri::command]
 pub async fn generate_ai_depth_mask(
     js_adjustments: serde_json::Value,
-    path: String,
     min_depth: f32,
     max_depth: f32,
     min_fade: f32,
@@ -148,88 +147,51 @@ pub async fn generate_ai_depth_mask(
 
     LIFECYCLE.touch();
     let _running = LIFECYCLE.run();
+    // Keyed by the photo actually loaded, taken before the model loads: a
+    // photo switch meanwhile cannot file one photo's depth under another.
+    let loaded = crate::image_loader::wait_for_original_image(&state)?;
+    let path_hash = geometry_key(&loaded.path, &js_adjustments);
     let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
         .map_err(|e| e.to_string())?;
-
-    let path_hash = {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(path.as_bytes());
-        let mut geo_hasher = DefaultHasher::new();
-        for key in GEOMETRY_KEYS {
-            if let Some(val) = js_adjustments.get(key) {
-                key.hash(&mut geo_hasher);
-                val.to_string().hash(&mut geo_hasher);
-            }
-        }
-        hasher.update(&geo_hasher.finish().to_le_bytes());
-        hasher.finalize().to_hex().to_string()
-    };
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
         return Err("Task cancelled".to_string());
     }
 
-    let cached_depth = {
-        let mut ai_state_lock = state.ai_state.lock().unwrap();
-        let ai_state = ai_state_lock.as_mut().unwrap();
-
-        if let Some(cached) = &ai_state.depth_map {
-            if cached.path_hash == path_hash {
-                cached.clone()
-            } else {
-                drop(ai_state_lock);
-                let (mask_source, source_is_raw) =
-                    crate::editor_preview::get_original_image(&state)?;
-                let warped_image = get_cached_full_warped_image(
-                    &state,
-                    &mask_source,
-                    source_is_raw,
-                    &js_adjustments,
-                );
-
-                if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
-                    return Err("Task cancelled".to_string());
-                }
-
-                let depth_img =
-                    run_depth_anything_model(warped_image.as_ref(), &depth_model, source_is_raw)
-                        .map_err(|e| e.to_string())?;
-
-                let new_cache = CachedDepthMap {
-                    path_hash: path_hash.clone(),
-                    depth_image: depth_img,
-                    original_size: (warped_image.width(), warped_image.height()),
-                };
-
-                let mut ai_state_lock = state.ai_state.lock().unwrap();
-                let ai_state = ai_state_lock.as_mut().unwrap();
-                ai_state.depth_map = Some(new_cache.clone());
-                new_cache
-            }
-        } else {
-            drop(ai_state_lock);
-            let (mask_source, source_is_raw) = crate::editor_preview::get_original_image(&state)?;
+    let cached = state
+        .ai_state
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|ai| ai.depth_map.clone())
+        .filter(|cached| cached.path_hash == path_hash);
+    let cached_depth = match cached {
+        Some(cached) => cached,
+        None => {
             let warped_image =
-                get_cached_full_warped_image(&state, &mask_source, source_is_raw, &js_adjustments);
+                get_cached_full_warped_image(&state, &loaded.image, loaded.is_raw, &js_adjustments);
 
             if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
                 return Err("Task cancelled".to_string());
             }
 
             let depth_img =
-                run_depth_anything_model(warped_image.as_ref(), &depth_model, source_is_raw)
+                run_depth_anything_model(warped_image.as_ref(), &depth_model, loaded.is_raw)
                     .map_err(|e| e.to_string())?;
 
             let new_cache = CachedDepthMap {
-                path_hash: path_hash.clone(),
+                path_hash,
                 depth_image: depth_img,
                 original_size: (warped_image.width(), warped_image.height()),
             };
-
-            let mut ai_state_lock = state.ai_state.lock().unwrap();
-            let ai_state = ai_state_lock.as_mut().unwrap();
-            ai_state.depth_map = Some(new_cache.clone());
+            // The state may be empty: an unload while the model loaded.
+            state
+                .ai_state
+                .lock()
+                .unwrap()
+                .get_or_insert_with(Default::default)
+                .depth_map = Some(new_cache.clone());
             new_cache
         }
     };
@@ -453,7 +415,7 @@ pub async fn generate_ai_subject_mask(
 
 /// Key of a photo with its geometry (the adjustments that move pixels):
 /// what is computed for one is not used for another.
-fn geometry_key(path: &str, js_adjustments: &serde_json::Value) -> String {
+pub(crate) fn geometry_key(path: &str, js_adjustments: &serde_json::Value) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(path.as_bytes());
     let mut geo_hasher = DefaultHasher::new();
@@ -1156,4 +1118,19 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn geometry_key_follows_path_and_geometry_only() {
+        let a = serde_json::json!({"exposure": 1.0, "transformRotate": 0.0});
+        let b = serde_json::json!({"exposure": 2.0, "transformRotate": 0.0});
+        let c = serde_json::json!({"exposure": 1.0, "transformRotate": 5.0});
+        assert_eq!(geometry_key("x.raf", &a), geometry_key("x.raf", &b));
+        assert_ne!(geometry_key("x.raf", &a), geometry_key("x.raf", &c));
+        assert_ne!(geometry_key("x.raf", &a), geometry_key("y.raf", &a));
+    }
 }
