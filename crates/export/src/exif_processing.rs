@@ -1575,12 +1575,15 @@ pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), 
         return Ok(());
     }
     // Readable again: facts registered while it was offline are stale (as
-    // image loading drops them, `preview_proxy::prepare_offline`).
-    if std::fs::File::open(source).is_ok() {
+    // image loading drops them, `preview_proxy::prepare_offline`). A cloud
+    // file is neither read (that downloads it) nor counted as back.
+    let available = rawtonic_engine::lens_recipe::readable(source);
+    if available {
         rawtonic_engine::source_facts::forget(&source.to_string_lossy());
     }
-    let exif = std::fs::read(source)
-        .ok()
+    let exif = available
+        .then(|| std::fs::read(source).ok())
+        .flatten()
         .map(|bytes| read_exif_data_from_bytes(&source.to_string_lossy(), &bytes))
         .filter(|exif| !exif.is_empty());
     let lens_db = rawtonic_engine::lens_correction::global_lens_db();

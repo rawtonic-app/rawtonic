@@ -284,10 +284,24 @@ fn resolve_lens_choice(
     false
 }
 
-/// Whether the photo can be opened, so the camera facts read from it (or
-/// their absence) are final.
-fn readable(source: &Path) -> bool {
-    std::fs::File::open(source).is_ok()
+/// Whether the photo can be read now, so the camera facts read from it (or
+/// their absence) are final: it opens and is not a cloud file waiting to be
+/// downloaded (reading that starts the download; as the app's
+/// `preview_proxy::source_available`).
+pub fn readable(source: &Path) -> bool {
+    std::fs::File::open(source).is_ok() && !is_cloud_placeholder(source)
+}
+
+#[cfg(target_os = "macos")]
+fn is_cloud_placeholder(source: &Path) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    const SF_DATALESS: u32 = 0x4000_0000;
+    std::fs::symlink_metadata(source).is_ok_and(|m| m.st_flags() & SF_DATALESS != 0)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn is_cloud_placeholder(_source: &Path) -> bool {
+    false
 }
 
 /// Whether the recipe was saved while its lens parameters could not be
