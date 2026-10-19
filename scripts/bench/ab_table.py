@@ -101,6 +101,11 @@ def main() -> int:
     slower = [r["id"] for r in rows if r["verdict"] == "SLOWER"]
     if slower:
         print(f"\nslower beyond noise: {', '.join(slower)}")
+    # A gate that compared nothing (a filter matching no benchmark, or runs
+    # that saved no estimates) must not read as "not slower".
+    if not any(r["change"] is not None for r in rows):
+        print("\nno benchmark was measured on both sides")
+        return 3 if args.fail_on_slower else 0
     return 3 if slower and args.fail_on_slower else 0
 
 
