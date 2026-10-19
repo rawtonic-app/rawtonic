@@ -214,12 +214,8 @@ export function updateAdjustments(
   // A batch edit is writing this photograph's recipe (heldRecipePaths); the
   // queued operations ahead of it still show their edits. False: refused
   // (an asynchronous result computes again after the hold).
-  if (image && isRecipeHeld(current)) {
-    if (!queued) return false;
-    // Not written by its operation (a mask's result): the batch saves it
-    // before its analysis (autosave waits for the hold).
-    if (!persisted) unsavedHeldUpdates.add(image.path);
-  }
+  const heldUnsaved = !!image && isRecipeHeld(current) && !persisted;
+  if (image && isRecipeHeld(current) && !queued) return false;
   // A queued operation's update commits at once (never a drag's draft that
   // could commit later, over a newer result).
   if (!queued && image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
@@ -251,6 +247,11 @@ export function updateAdjustments(
       ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
     };
   });
+  // Not written by its operation (a mask's result): the batch saves it
+  // before its analysis (autosave waits for the hold).
+  if (heldUnsaved && image && useEditorStore.getState().selectedImage?.path === image.path) {
+    unsavedHeldUpdates.set(image.path, useEditorStore.getState().adjustments);
+  }
   return true;
 }
 
@@ -290,8 +291,9 @@ export function registerEditAllFlush(flush: () => Promise<unknown> | null): () =
 }
 
 /** Held photographs whose recipe took an update not saved yet (mask work
- * finishing during the hold, before the batch). */
-const unsavedHeldUpdates = new Set<string>();
+ * finishing during the hold, before the batch), with that recipe: the batch
+ * saves it before its analysis, whichever photograph is open by then. */
+const unsavedHeldUpdates = new Map<string, Adjustments>();
 
 /** Running recipe operations by photograph — those that rewrite recipes in
  * the backend and then reload the open one (batch Auto straighten, Auto lens
@@ -559,17 +561,18 @@ export function useEditorActions() {
         // Mask work started before the hold (AI masks, imported placements)
         // ends first; its results pass the hold (they come before the
         // batch) and are saved with the recipe the batch analyses.
-        // The shown recipe, when such results came in (whenever, while this
-        // waited), is saved before the analysis.
-        const shown = useEditorStore.getState().selectedImage;
-        if (shown && held.includes(shown.path)) {
+        // The recipes such results went into (whenever, while this waited,
+        // and whichever photograph is open now) are saved before the analysis.
+        if (open) {
           for (let work = afterRecipeWork(); work; work = afterRecipeWork()) await work;
-          if (unsavedHeldUpdates.delete(shown.path) && isCurrentEditorImage(shown.path)) {
-            debouncedSave(shown.path, useEditorStore.getState().adjustments);
-            debouncedSave.flush();
-            await pendingMetadataSaves.get(shown.path);
-          }
         }
+        const results = held.filter((path) => unsavedHeldUpdates.has(path));
+        for (const path of results) {
+          debouncedSave(path, unsavedHeldUpdates.get(path)!);
+          debouncedSave.flush();
+          unsavedHeldUpdates.delete(path);
+        }
+        await Promise.all(results.map((path) => pendingMetadataSaves.get(path)));
         try {
           pathsToUpdate.forEach((p) => globalImageCache.delete(p));
           const report = await afterRecipeSaves(pathsToUpdate, () =>

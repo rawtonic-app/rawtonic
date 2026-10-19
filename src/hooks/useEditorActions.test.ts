@@ -1078,6 +1078,30 @@ describe('Auto straighten for a selection', () => {
     }
   });
 
+  it("saves a held photograph's mask result though another photograph is open by then", async () => {
+    const taken = useEditorStore.getState().adjustments;
+    const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: taken }));
+    try {
+      useEditorStore.setState({ adjustments: { ...taken, exposure: 0.5 } });
+      const { result } = renderHook(useEditorActions);
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+      await act(async () => {});
+      // A mask's result for the held photo, then the photographer opens another.
+      act(() => { updateAdjustments({ contrast: 12 }, { queued: true }); });
+      act(() => select('/third.dng'));
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      await act(async () => {});
+      const saved = vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.SaveMetadataAndUpdateThumbnail);
+      expect(saved.at(-1)?.[1]).toMatchObject({ path: '/first.dng', adjustments: { exposure: 0.5, contrast: 12 } });
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      await act(async () => {});
+      expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).toContain(Invokes.ApplyAutoStraightenToPaths);
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    } finally {
+      unregister();
+    }
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
