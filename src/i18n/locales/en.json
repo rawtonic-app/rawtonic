@@ -2349,7 +2349,8 @@
         "nothingToRedo": "There is no file operation to redo.",
         "redoFailed": "Could not redo: {{error}}",
         "redone": "Redone: {{label}}. {{key}} undoes it.",
-        "undone": "Undone: {{label}}. {{key}} redoes it."
+        "undone": "Undone: {{label}}. {{key}} redoes it.",
+        "unsavedEdits": "Edits of {{files}} could not be saved, so nothing was moved."
       },
       "filters": {
         "allLabels": "All labels",

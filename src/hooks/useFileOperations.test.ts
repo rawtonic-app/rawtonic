@@ -345,6 +345,31 @@ describe('moving to the Trash', () => {
     expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeLessThan(calls().indexOf('delete_files_from_disk'));
   });
 
+  const failSaves = () =>
+    vi.mocked(invoke).mockImplementation((command) =>
+      command === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject('disk full') : Promise.resolve(undefined),
+    );
+
+  it('moves nothing when the edit of a photo to move could not be saved', async () => {
+    failSaves();
+    debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/p/A.RAF']);
+    expect(calls()).not.toContain('delete_files_from_disk');
+    expect(toast.error).toHaveBeenCalledWith('Edits of A.RAF could not be saved, so nothing was moved.');
+
+    debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 2 });
+    hook().handleTrashFolder('/p');
+    await useUIStore.getState().confirmModalState.onConfirm?.();
+    expect(calls()).not.toContain(Invokes.DeleteFolder);
+  });
+
+  it('a failed save of another photo does not hold the operation up', async () => {
+    failSaves();
+    debouncedSave('/q/B.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/r/C.RAF']);
+    expect(calls()).toContain('delete_files_from_disk');
+  });
+
   it('saves a pending edit before a folder moves', async () => {
     debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
     hook().handleTrashFolder('/p');

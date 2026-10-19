@@ -2297,7 +2297,8 @@
         "nothingToRedo": "没有可重做的文件操作。",
         "redoFailed": "无法重做：{{error}}",
         "redone": "已重做：{{label}}。按 {{key}} 撤销。",
-        "undone": "已撤销：{{label}}。按 {{key}} 重做。"
+        "undone": "已撤销：{{label}}。按 {{key}} 重做。",
+        "unsavedEdits": "无法保存 {{files}} 的编辑，因此未移动任何内容。"
       },
       "filters": {
         "allLabels": "全部标签",

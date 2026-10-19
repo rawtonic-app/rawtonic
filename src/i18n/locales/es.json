@@ -2414,7 +2414,8 @@
         "nothingToRedo": "No hay ninguna operación de archivos que rehacer.",
         "redoFailed": "No se pudo rehacer: {{error}}",
         "redone": "Rehecho: {{label}}. {{key}} lo deshace.",
-        "undone": "Deshecho: {{label}}. {{key}} lo rehace."
+        "undone": "Deshecho: {{label}}. {{key}} lo rehace.",
+        "unsavedEdits": "No se pudieron guardar las ediciones de {{files}}, así que no se ha movido nada."
       },
       "filters": {
         "allLabels": "Todas las etiquetas",

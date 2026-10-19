@@ -2349,7 +2349,8 @@
         "nothingToRedo": "Es gibt keinen Dateivorgang zum Wiederherstellen.",
         "redoFailed": "Wiederherstellen nicht möglich: {{error}}",
         "redone": "Wiederhergestellt: {{label}}. {{key}} widerruft es.",
-        "undone": "Widerrufen: {{label}}. {{key}} stellt es wieder her."
+        "undone": "Widerrufen: {{label}}. {{key}} stellt es wieder her.",
+        "unsavedEdits": "Bearbeitungen von {{files}} konnten nicht gespeichert werden, daher wurde nichts verschoben."
       },
       "filters": {
         "allLabels": "Alle Farben",

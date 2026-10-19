@@ -2483,7 +2483,8 @@
         "nothingToRedo": "Brak operacji na plikach do ponowienia.",
         "redoFailed": "Nie można ponowić: {{error}}",
         "redone": "Ponowiono: {{label}}. {{key}} cofa.",
-        "undone": "Cofnięto: {{label}}. {{key}} ponawia."
+        "undone": "Cofnięto: {{label}}. {{key}} ponawia.",
+        "unsavedEdits": "Nie udało się zapisać edycji {{files}}, więc nic nie zostało przeniesione."
       },
       "filters": {
         "allLabels": "Wszystkie etykiety",

@@ -2414,7 +2414,8 @@
         "nothingToRedo": "Aucune opération sur les fichiers à rétablir.",
         "redoFailed": "Impossible de rétablir : {{error}}",
         "redone": "Rétabli : {{label}}. {{key}} l’annule.",
-        "undone": "Annulé : {{label}}. {{key}} le rétablit."
+        "undone": "Annulé : {{label}}. {{key}} le rétablit.",
+        "unsavedEdits": "Les retouches de {{files}} n'ont pas pu être enregistrées ; rien n'a donc été déplacé."
       },
       "filters": {
         "allLabels": "Toutes les étiquettes",

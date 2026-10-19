@@ -2297,7 +2297,8 @@
         "nothingToRedo": "다시 실행할 파일 작업이 없습니다.",
         "redoFailed": "다시 실행할 수 없습니다: {{error}}",
         "redone": "다시 실행됨: {{label}}. {{key}}(으)로 실행 취소합니다.",
-        "undone": "실행 취소됨: {{label}}. {{key}}(으)로 다시 실행합니다."
+        "undone": "실행 취소됨: {{label}}. {{key}}(으)로 다시 실행합니다.",
+        "unsavedEdits": "{{files}}의 편집을 저장하지 못해 아무것도 옮기지 않았습니다."
       },
       "filters": {
         "allLabels": "모든 레이블",

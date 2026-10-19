@@ -28,13 +28,29 @@ export interface FileOperationSummary {
 }
 
 /** Before files change place: the open photograph's recipe is written to
- * where it is now, not after it moved. */
-async function saveEditsFirst() {
+ * where it is now, not after it moved. False (and the user is told) when the
+ * recipe of a photograph in `moving` (photographs or folders about to move)
+ * could not be saved: the operation must not run, or that edit would stay
+ * behind at the old place. A failed save elsewhere does not hold it up. */
+async function saveEditsFirst(moving: string[] = []): Promise<boolean> {
+  const physical = (path: string) => path.split('?vc=')[0];
+  let failed: string[];
   try {
-    await flushRecipeSaves();
+    failed = await flushRecipeSaves();
   } catch (err) {
     console.error('Saving edits before the file operation failed:', err);
+    failed = moving;
   }
+  const kept = failed.filter((path) =>
+    moving.some((target) => physical(path) === physical(target) || isBelow(physical(path), physical(target))),
+  );
+  if (!kept.length) return true;
+  toast.error(
+    i18next.t('studio.library.fileOperations.unsavedEdits', {
+      files: kept.map((path) => path.split(/[\\/]/).pop()).join(', '),
+    }),
+  );
+  return false;
 }
 
 export const undoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⌘Z' : 'Ctrl+Z');
@@ -158,7 +174,7 @@ export function useFileOperations(
       }
 
       try {
-        await saveEditsFirst();
+        if (!(await saveEditsFirst(pathsToDelete))) return;
         const command = options.includeAssociated ? 'delete_files_with_associated' : 'delete_files_from_disk';
         const summary = await invoke<FileOperationSummary>(command, { paths: pathsToDelete });
         if (summary) toast.success(describeFileOperation(summary, undoKey()));
@@ -318,7 +334,7 @@ export function useFileOperations(
     async (paths: Array<string>, destination: string) => {
       if (paths.length === 0) return;
       try {
-        await saveEditsFirst();
+        if (!(await saveEditsFirst(paths))) return;
         const summary = await invoke<FileOperationSummary>(Invokes.MoveFiles, {
           sourcePaths: paths,
           destinationFolder: destination,
@@ -383,7 +399,7 @@ export function useFileOperations(
           message: `Move the folder "${name}" and everything in it to the Trash? In a session it goes to its Trash folder. ${undoKey()} undoes it.`,
           onConfirm: async () => {
             try {
-              await saveEditsFirst();
+              if (!(await saveEditsFirst([path]))) return;
               const summary = await invoke<FileOperationSummary>(Invokes.DeleteFolder, { path });
               if (summary) toast.success(describeFileOperation(summary, undoKey()));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
@@ -474,7 +490,7 @@ export function useFileOperations(
           const oldPath = folderActionTarget;
           const trimmedNewName = newName.trim();
 
-          await saveEditsFirst();
+          if (!(await saveEditsFirst([oldPath]))) return;
           const summary = await invoke<FileOperationSummary>(Invokes.RenameFolder, {
             path: oldPath,
             newName: trimmedNewName,
@@ -507,7 +523,7 @@ export function useFileOperations(
 
       if (renameTargetPaths.length > 0 && nameTemplate) {
         try {
-          await saveEditsFirst();
+          if (!(await saveEditsFirst(renameTargetPaths))) return;
           const newPaths: Array<string> = await invoke(Invokes.RenameFiles, {
             nameTemplate,
             paths: renameTargetPaths,
@@ -551,7 +567,7 @@ export function useFileOperations(
           await invoke(Invokes.CopyFiles, { sourcePaths: copiedFilePaths, destinationFolder: target });
           if (target !== currentFolderPath) await refreshAllFolderTrees();
         } else {
-          await saveEditsFirst();
+          if (!(await saveEditsFirst(copiedFilePaths))) return;
           const summary = await invoke<FileOperationSummary>(Invokes.MoveFiles, {
             sourcePaths: copiedFilePaths,
             destinationFolder: target,
