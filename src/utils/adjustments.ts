@@ -511,6 +511,10 @@ export interface Adjustments {
   /** Capture One's diffraction correction: sharpening by the f-number and
    * pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
+  /** diffraction.rs VERSION, written when the correction is switched on;
+   * missing = 1 (crop factors without the bodies the 2026-10-18 database
+   * update added). */
+  diffractionVersion?: number;
   lensDistortionParams: {
     k1: number;
     k2: number;
@@ -1580,6 +1584,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         LensAdjustment.LensTcaEnabled,
         LensAdjustment.LensVignetteEnabled,
         'diffractionCorrection',
+        'diffractionVersion',
         'autoChromaticAberration',
         'cameraCaVersion',
         'autoCaVersion',

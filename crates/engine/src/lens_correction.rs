@@ -1022,9 +1022,42 @@ pub fn find_lens_exact<'a>(db: &'a LensDatabase, maker: &str, exif_lens: &str) -
 
 /// The body's crop factor from lensfun's camera list.
 pub fn camera_crop_factor(db: &LensDatabase, maker: &str, model: &str) -> Option<f32> {
+    camera_crop_factor_without(db, maker, model, &[])
+}
+
+/// Camera entries added by the 2026-10-18 database update (Lensfun
+/// 43f9e001; maker, model as in the database). Diffraction correction of
+/// recipes from before it (`diffraction::VERSION` 1) looks crop factors up
+/// without them, so those renders stay as the earlier database gave them.
+pub const CAMERAS_ADDED_2026_10_18: &[(&str, &str)] = &[
+    ("Canon", "Canon EOS R8 Mark II"),
+    ("Canon", "Canon PowerShot A710 IS"),
+    ("Nikon Corporation", "Nikon Z5_2C"),
+    ("OM Digital Solutions", "PEN"),
+    ("Panasonic", "DC-L10"),
+    ("Panasonic", "DC-TZ300"),
+    ("Panasonic", "DC-ZS300"),
+];
+
+fn is_excluded(camera: &Camera, excluded: &[(&str, &str)]) -> bool {
+    excluded.iter().any(|(maker, model)| {
+        camera.maker.iter().any(|name| name.value == *maker)
+            && camera.model.iter().any(|name| name.value == *model)
+    })
+}
+
+/// `camera_crop_factor` as a database without the `excluded` entries would
+/// answer.
+pub fn camera_crop_factor_without(
+    db: &LensDatabase,
+    maker: &str,
+    model: &str,
+    excluded: &[(&str, &str)],
+) -> Option<f32> {
     let full = format!("{} {}", maker.trim(), model.trim());
     db.cameras
         .iter()
+        .filter(|camera| !is_excluded(camera, excluded))
         .find(|camera| {
             any_name_matches(&camera.model, model.trim()) || any_name_matches(&camera.model, &full)
         })
@@ -1035,6 +1068,15 @@ pub fn camera_crop_factor(db: &LensDatabase, maker: &str, model: &str) -> Option
 /// Crop factor by the model's letters and digits only, for callers that
 /// may guess (rawler names the Z 7II "Z 7 2", lensfun "Nikon Z 7_2").
 pub fn camera_crop_factor_loose(db: &LensDatabase, model: &str) -> Option<f32> {
+    camera_crop_factor_loose_without(db, model, &[])
+}
+
+/// `camera_crop_factor_loose` without the `excluded` entries.
+pub fn camera_crop_factor_loose_without(
+    db: &LensDatabase,
+    model: &str,
+    excluded: &[(&str, &str)],
+) -> Option<f32> {
     let key = |s: &str| {
         s.chars()
             .filter(char::is_ascii_alphanumeric)
@@ -1047,6 +1089,7 @@ pub fn camera_crop_factor_loose(db: &LensDatabase, model: &str) -> Option<f32> {
     }
     db.cameras
         .iter()
+        .filter(|camera| !is_excluded(camera, excluded))
         .find(|camera| {
             camera.model.iter().any(|name| {
                 let name = key(&name.value);
@@ -1104,6 +1147,38 @@ pub fn resolve_lens_params(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn version_1_lookups_answer_as_the_database_before_the_2026_10_18_update() {
+        let db = super::embedded_lens_db();
+        for (maker, model) in super::CAMERAS_ADDED_2026_10_18 {
+            assert!(
+                super::camera_crop_factor(&db, maker, model).is_some(),
+                "{model} is in the bundled database"
+            );
+        }
+        // The DC-L10 is new: no crop factor without the added entries,
+        // neither by name nor by the loose match.
+        assert_eq!(
+            super::camera_crop_factor(&db, "Panasonic", "DC-L10"),
+            Some(2.21)
+        );
+        let added = super::CAMERAS_ADDED_2026_10_18;
+        assert_eq!(
+            super::camera_crop_factor_without(&db, "Panasonic", "DC-L10", added),
+            None
+        );
+        assert_eq!(
+            super::camera_crop_factor_loose_without(&db, "DC-L10", added),
+            None
+        );
+        // A body the earlier database knew answers as before.
+        assert_eq!(
+            super::camera_crop_factor_without(&db, "Panasonic", "DC-LX100M2", added),
+            super::camera_crop_factor(&db, "Panasonic", "DC-LX100M2")
+        );
+        assert!(super::camera_crop_factor(&db, "Panasonic", "DC-LX100M2").is_some());
+    }
+
     use super::*;
 
     /// lensfun's Canon RF 28mm F2.8 STM entry (full-frame calibration).
