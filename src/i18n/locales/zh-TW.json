@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "自動調整影像",
       "autoLensCorrection": "自動鏡頭校正",
+      "autoStraighten": "自動拉直",
       "cancel": "取消",
       "colorLabel": "顏色標籤",
       "confirmReset": "確認重置",
@@ -1174,6 +1175,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "自動調整",
+        "auto_straighten": "自動拉直",
         "auto_white_balance": "自動白平衡",
         "brush_size_down": "減小畫筆大小",
         "brush_size_up": "增大畫筆大小",
@@ -1542,6 +1544,10 @@
         "size": "裁切尺寸",
         "straightenTool": "拉直工具"
       },
+      "autoStraighten": "自動",
+      "autoStraightenFailed": "自動拉直失敗：{{error}}",
+      "autoStraightenNoLines": "找不到可用來拉直相片的直線",
+      "autoStraightenTitle": "依地平線或垂直線將相片拉直並調整裁切",
       "flipHorizontal": "水平翻轉",
       "flipVertical": "垂直翻轉",
       "grid": {

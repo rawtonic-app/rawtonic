@@ -28,7 +28,9 @@ use crate::lens_correction::LensDistortionParams;
 /// Version of what `collect` gathers; raise when a reader starts to depend
 /// on something new, so previews without it are re-made. 3: `camera_lens`
 /// carries Panasonic lateral CA data (`embedded_lens::CA_VERSION` 1).
-pub const VERSION: u32 = 3;
+/// 4: `diffraction_sigma` from the 2026-10-18 lens database (bodies it newly
+/// covers) and `diffraction_sigma_v1` for recipes from before it.
+pub const VERSION: u32 = 4;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
@@ -52,6 +54,12 @@ pub struct SourceFacts {
     /// `diffraction` Airy σ in pixels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diffraction_sigma: Option<f32>,
+    /// `diffraction` version 1's σ, when it differs from `diffraction_sigma`
+    /// (a body only the 2026-10-18 database knows).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub diffraction_v1_differs: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diffraction_sigma_v1: Option<f32>,
     /// `embedded_lens::params_for`: the camera's lens correction data.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_lens: Option<LensDistortionParams>,
@@ -188,6 +196,7 @@ pub fn collect(path: &str) -> SourceFacts {
         return found;
     }
     let source = std::path::Path::new(path);
+    let diffraction = crate::diffraction::sigmas_for_path(path);
     let facts = SourceFacts {
         version: VERSION,
         base_look: Some(crate::baseline_exposure::base_look(path).into()),
@@ -195,7 +204,11 @@ pub fn collect(path: &str) -> SourceFacts {
             .map(|(colour, forward)| StoredColour::new(&colour, forward)),
         noise_level: crate::noise_level::for_path(path),
         image_key: crate::image_key::for_path(path),
-        diffraction_sigma: crate::diffraction::sigma_for_path(path),
+        diffraction_sigma: diffraction.current,
+        diffraction_v1_differs: diffraction.v1 != diffraction.current,
+        diffraction_sigma_v1: diffraction
+            .v1
+            .filter(|_| diffraction.v1 != diffraction.current),
         camera_lens: crate::embedded_lens::params_for(source),
         lensfun_default: crate::embedded_lens::lensfun_default(source),
     };
@@ -289,6 +302,8 @@ mod tests {
             noise_level: Some(0.012),
             image_key: Some([0.01, 0.21]),
             diffraction_sigma: None,
+            diffraction_v1_differs: false,
+            diffraction_sigma_v1: None,
             camera_lens: None,
             lensfun_default: None,
         };

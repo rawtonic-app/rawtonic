@@ -371,6 +371,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'tools',
   },
   {
+    // The crop tool's Auto; R is the straighten tool.
+    action: 'auto_straighten',
+    description: 'settings.keybinds.actions.auto_straighten',
+    defaultCombo: ['shift', 'KeyR'],
+    section: 'tools',
+  },
+  {
     action: 'tool_brush',
     description: 'settings.keybinds.actions.tool_brush',
     defaultCombo: ['KeyB'],

@@ -3,6 +3,8 @@ import { toast } from 'react-toastify';
 import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties';
 import { buildComboMap, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
+import { runAutoStraighten } from '../utils/autoStraighten';
+import { cropEditCancelled } from '../utils/cropGesture';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -65,6 +67,7 @@ export const useKeyboardShortcuts = ({
     toggleSplitView,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
+    handleAutoStraighten,
   } = useEditorActions();
   const { handleRate, handleSetColorLabel } = useLibraryActions();
 
@@ -451,6 +454,15 @@ export const useKeyboardShortcuts = ({
           void handleAutoWhiteBalance();
         },
       },
+      auto_straighten: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady,
+        execute: (e) => {
+          e.preventDefault();
+          // Held down: one request, not one per key repeat.
+          if (e.repeat) return;
+          void runAutoStraighten(handleAutoStraighten);
+        },
+      },
       toggle_fullscreen: {
         // The window's full screen with the interface as it is (Capture One).
         shouldFire: () => true,
@@ -828,6 +840,8 @@ export const useKeyboardShortcuts = ({
               );
               if (changed) updateAdjustments((prev) => ({ ...prev, ...entry.values }));
             }
+            // A pending Auto straighten answer is for the cancelled edit.
+            cropEditCancelled();
             s.ui.setPanel(Panel.Adjustments);
           }
           else if (s.ui.isFullScreen) s.ui.toggleFullScreen();
@@ -965,5 +979,6 @@ export const useKeyboardShortcuts = ({
     toggleSplitView,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
+    handleAutoStraighten,
   ]);
 };

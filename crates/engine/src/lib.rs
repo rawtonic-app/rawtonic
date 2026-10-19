@@ -5,6 +5,7 @@
 
 pub mod adjustment_utils;
 pub mod auto_adjust;
+pub mod auto_straighten;
 pub mod avif;
 pub mod baseline_exposure;
 pub mod cache_utils;
@@ -26,6 +27,7 @@ pub mod input_profile;
 pub mod lateral_ca;
 pub mod lens_blur;
 pub mod lens_correction;
+pub mod lens_recipe;
 pub mod luma_levels;
 pub mod lut;
 pub mod mask_generation;
@@ -40,6 +42,7 @@ pub mod relight;
 pub mod session_layout;
 pub mod source_facts;
 pub mod spot_removal;
+pub mod upright;
 pub mod white_balance_estimate;
 
 use rawtonic_rawdecode::{

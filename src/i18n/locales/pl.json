@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "Auto-korekta obrazu",
       "autoLensCorrection": "Automatyczna korekcja obiektywu",
+      "autoStraighten": "Prostuj automatycznie",
       "cancel": "Anuluj",
       "colorLabel": "Etykieta koloru",
       "confirmReset": "Potwierdź reset",
@@ -1321,6 +1322,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Automatyczna korekta",
+        "auto_straighten": "Prostuj automatycznie",
         "auto_white_balance": "Automatyczny balans bieli",
         "brush_size_down": "Zmniejsz rozmiar pędzla",
         "brush_size_up": "Zwiększ rozmiar pędzla",
@@ -1689,6 +1691,10 @@
         "size": "Rozmiar kadru",
         "straightenTool": "Narzędzie prostowania"
       },
+      "autoStraighten": "Auto",
+      "autoStraightenFailed": "Automatyczne prostowanie nie powiodło się: {{error}}",
+      "autoStraightenNoLines": "Nie znaleziono prostych linii do wyrównania zdjęcia",
+      "autoStraightenTitle": "Wyrównaj zdjęcie według horyzontu lub pionów i dopasuj kadr",
       "flipHorizontal": "Odbij w poziomie",
       "flipVertical": "Odbij w pionie",
       "grid": {

@@ -317,7 +317,11 @@ fn with_face_retouch(
     )?;
     // The geometry as the export renders it (the camera's lens correction
     // filled in), so the faces' frame matches the render's.
-    rawtonic_engine::embedded_lens::apply_default(&mut recipe, std::path::Path::new(source));
+    rawtonic_export::exif_processing::prepare_recipe_lens(
+        &mut recipe,
+        std::path::Path::new(source),
+    )
+    .map_err(anyhow::Error::msg)?;
     let warped = rawtonic_engine::mask_generation::prepare_shared_warped_mask_image(
         &std::sync::Arc::new(base),
         is_raw,
@@ -1011,6 +1015,11 @@ fn export(args: ExportArgs) -> Result<()> {
     };
 
     let started = Instant::now();
+    // First: it loads the Lensfun database, which preparing the recipes
+    // (face retouch: lens defaults and lens parameters of recipes saved
+    // while the photo could not be read) already reads.
+    let mut exporter =
+        rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
     // --adjustments overrides every photo; otherwise each photo's own
     // recipe, as the app's export reads it.
     let recipes: Vec<Option<serde_json::Value>> = jobs
@@ -1046,8 +1055,6 @@ fn export(args: ExportArgs) -> Result<()> {
         }
         None => recipes,
     };
-    let mut exporter =
-        rawtonic_export::file_export::FileExporter::new(&lensfun_db).map_err(anyhow::Error::msg)?;
     let ai_models: std::collections::BTreeSet<usize> = recipes
         .iter()
         .flatten()

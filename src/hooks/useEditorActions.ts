@@ -19,11 +19,15 @@ import {
   PasteMode,
   LensAdjustment,
   normalizeLoadedAdjustments,
+  pastedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withDiffractionVersion,
+  withSharpenVersion,
   withGrainStructure,
 } from '../utils/adjustments';
-import { calculateCenteredCrop } from '../utils/cropUtils';
+import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
+import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -231,6 +235,52 @@ export function endBeforePeek() {
   );
 }
 
+let autoStraightenRunning: Promise<'done' | 'none' | 'stale'> | null = null;
+
+/** A crop rotation gesture in progress (its angle lives outside the recipe
+ * until release). */
+const rotatingNow = () => {
+  const { liveRotation, isRotationActive } = useEditorStore.getState();
+  return isRotationActive || (liveRotation !== null && liveRotation !== undefined);
+};
+
+/** One Auto straighten request (handleAutoStraighten): the answer belongs to
+ * the photograph and the frame it was asked for and is dropped when either
+ * changed meanwhile — also in a drag's draft or a rotation gesture. */
+async function runAutoStraightenOnce(
+  setAdjustments: (value: AdjustmentsUpdate) => unknown,
+): Promise<'done' | 'none' | 'stale'> {
+  // A slider drag's draft is committed first: the answer is for the frame
+  // as it is shown.
+  flushSliderDraft();
+  const { selectedImage, adjustments } = useEditorStore.getState();
+  const gestures = cropGestures();
+  if (!selectedImage?.isReady || rotatingNow() || gestures.active) return 'stale';
+  const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
+  let result: { rotation: number; crop: Adjustments['crop'] } | null;
+  try {
+    result = await invoke(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
+  } catch (err) {
+    // The decode was another photograph's (auto_straighten.rs ANOTHER_PHOTO).
+    if (String(err).includes('another photograph is open')) return 'stale';
+    throw err;
+  }
+  const now = (draftFor(selectedImage.path) ?? useEditorStore.getState().adjustments) as unknown as Record<
+    string,
+    unknown
+  >;
+  // A crop drag since the request (its frame commits on release) too.
+  const cropDragged = cropGestures().started !== gestures.started || cropGestures().active;
+  if (!isCurrentEditorImage(selectedImage.path) || rotatingNow() || cropDragged || reframingInputs(now) !== asked) {
+    return 'stale';
+  }
+  if (!result) return 'none';
+  setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
+  // The crop tool keeps this crop with this rotation (Editor's crop effect).
+  useEditorStore.getState().setEditor({ autoStraightened: { rotation: result.rotation, crop: result.crop } });
+  return 'done';
+}
+
 export function useEditorActions() {
   const setEditor = useEditorStore((s) => s.setEditor);
 
@@ -290,6 +340,19 @@ export function useEditorActions() {
     } catch (err) {
       toast.error(`Failed to apply auto adjustments: ${err}`);
     }
+  }, [setAdjustments]);
+
+  /** Auto straighten (the crop tool's Auto): the backend levels the photo
+   * from its horizon or verticals and fits the crop without empty corners.
+   * The answer belongs to the photograph and the frame it was asked for:
+   * it is dropped when either changed meanwhile. One history step. */
+  const handleAutoStraighten = useCallback((): Promise<'done' | 'none' | 'stale'> => {
+    // One analysis at a time, whichever way it was asked for (button,
+    // shortcut, menu): a second request joins the running one.
+    autoStraightenRunning ??= runAutoStraightenOnce(setAdjustments).finally(() => {
+      autoStraightenRunning = null;
+    });
+    return autoStraightenRunning;
   }, [setAdjustments]);
 
   // Background only: a layer's white balance is a relative local correction.
@@ -524,7 +587,7 @@ export function useEditorActions() {
     (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
-      const adjustmentsToApply = withAiDenoiseVersion(withGrainStructure(partial));
+      const adjustmentsToApply = withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial))));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
@@ -585,20 +648,7 @@ export function useEditorActions() {
       if (!copiedAdjustments || !appSettings?.copyPasteSettings) return;
 
       const { mode, includedAdjustments } = appSettings.copyPasteSettings;
-      const adjustmentsToApply: Partial<Adjustments> = {};
-
-      for (const key of includedAdjustments) {
-        if (Object.prototype.hasOwnProperty.call(copiedAdjustments, key)) {
-          const value = copiedAdjustments[key as keyof Adjustments];
-          if (mode === PasteMode.Merge) {
-            const defaultValue = INITIAL_ADJUSTMENTS[key as keyof Adjustments];
-            if (!sameAdjustmentValue(value, defaultValue))
-              adjustmentsToApply[key as keyof Adjustments] = value;
-          } else {
-            adjustmentsToApply[key as keyof Adjustments] = value;
-          }
-        }
-      }
+      const adjustmentsToApply = pastedAdjustments(copiedAdjustments, includedAdjustments, mode as PasteMode);
 
       if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
         if (!adjustmentsToApply.lensMaker) {
@@ -610,7 +660,10 @@ export function useEditorActions() {
         setProcess({ isPasted: true });
         return;
       }
-      applyAdjustmentsToPaths(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), paths);
+      applyAdjustmentsToPaths(
+        withDiffractionVersion(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), copiedAdjustments),
+        paths,
+      );
       setProcess({ isPasted: true });
     },
     [applyAdjustmentsToPaths],
@@ -675,6 +728,7 @@ export function useEditorActions() {
     handleRotate,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
+    handleAutoStraighten,
     handleLutSelect,
     setLutPreviewOverride,
     handleResetAdjustments,

@@ -16,6 +16,7 @@ mod app_quit;
 mod app_settings;
 mod app_state;
 mod apple_raw;
+mod auto_straighten;
 mod auto_white_balance;
 #[cfg(any(target_os = "linux", test))]
 mod browser_preview_transport;
@@ -471,11 +472,23 @@ pub fn run() {
 
             {
                 let app_state = app.state::<AppState>();
-                if let Err(error) = get_or_init_gpu_context(&app_state, app.handle()) {
-                    log::warn!(
+                match get_or_init_gpu_context(&app_state, app.handle()) {
+                    // The display variants compile while the library shows:
+                    // without a driver shader cache (first start, driver or
+                    // app update) they take seconds on NVIDIA/Linux.
+                    Ok(context) => {
+                        let app_handle = app.handle().clone();
+                        std::thread::spawn(move || {
+                            gpu_processing::prewarm_gpu_processor(
+                                &app_handle.state::<AppState>(),
+                                &context,
+                            );
+                        });
+                    }
+                    Err(error) => log::warn!(
                         "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
                         error
-                    );
+                    ),
                 }
 
                 if let Ok(config_dir) = app.path().app_config_dir() {
@@ -827,6 +840,7 @@ pub fn run() {
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,
             upright::calculate_upright,
+            auto_straighten::calculate_auto_straighten,
             image_loader::load_image_proxy,
             editor_preview::activate_photo,
             multi_view::set_multi_view,

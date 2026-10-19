@@ -15,6 +15,7 @@ use little_exif::metadata::Metadata;
 use little_exif::rational::{iR64, uR64};
 use rawler::decoders::RawMetadata;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct CachedExifEntry {
@@ -1566,8 +1567,97 @@ pub fn read_exif_data_from_bytes(path: &str, file_bytes: &[u8]) -> HashMap<Strin
     exif_data
 }
 
+/// A recipe saved while its photo could not be read gets its lens
+/// parameters resolved from the photo before it renders
+/// (`rawtonic_engine::lens_recipe::resolve_unresolved`).
+pub fn resolve_unresolved_lens(recipe: &mut Value, source: &Path) -> Result<(), String> {
+    if !rawtonic_engine::lens_recipe::is_unresolved(recipe) {
+        return Ok(());
+    }
+    // Readable again: facts registered while it was offline are stale (as
+    // image loading drops them, `preview_proxy::prepare_offline`). A cloud
+    // file is neither read (that downloads it) nor counted as back.
+    let available = rawtonic_engine::lens_recipe::readable(source);
+    if available {
+        rawtonic_engine::source_facts::forget(&source.to_string_lossy());
+    }
+    let exif = available
+        .then(|| std::fs::read(source).ok())
+        .flatten()
+        .map(|bytes| read_exif_data_from_bytes(&source.to_string_lossy(), &bytes))
+        .filter(|exif| !exif.is_empty());
+    let lens_db = rawtonic_engine::lens_correction::global_lens_db();
+    rawtonic_engine::lens_recipe::resolve_unresolved(recipe, &exif, lens_db.as_deref(), source)
+}
+
+/// The recipe as every render uses it: lens parameters saved while the
+/// photo could not be read resolved now (`resolve_unresolved_lens`; its
+/// error is returned after the defaults are filled in, for the callers that
+/// must not render without them), then the camera's defaults for a
+/// never-edited photo (`embedded_lens::apply_default`).
+pub fn prepare_recipe_lens(recipe: &mut Value, source: &Path) -> Result<(), String> {
+    let resolved = resolve_unresolved_lens(recipe, source);
+    rawtonic_engine::embedded_lens::apply_default(recipe, source);
+    resolved
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn every_render_resolves_a_recipe_saved_while_its_photo_was_unreadable() {
+        use rawtonic_engine::lens_correction::{
+            lenses_for_maker, load_lensfun_dir, resolve_lens_params, set_global_lens_db,
+        };
+        use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, is_unresolved};
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("lenses.xml"),
+            r#"<lensdatabase><lens>
+                <maker>Canon</maker><model>Canon RF 24-70mm F2.8L IS USM</model><mount>Canon RF</mount>
+                <cropfactor>1.0</cropfactor>
+                <calibration>
+                    <distortion model="ptlens" focal="24" a="0.03" b="-0.09" c="0.06"/>
+                    <distortion model="ptlens" focal="70" a="0.002" b="0.004" c="-0.003"/>
+                </calibration>
+            </lens></lensdatabase>"#,
+        )
+        .unwrap();
+        let db = load_lensfun_dir(tmp.path());
+        let lenses = lenses_for_maker(&db, "Canon");
+        let zoom = lenses[0].get_display_name(&lenses);
+        let fallback = resolve_lens_params(&db, "Canon", &zoom, 50.0, None, None, None).unwrap();
+        set_global_lens_db(std::sync::Arc::new(db));
+        // The photo is back (a file without EXIF here); the recipe still
+        // carries another lens's parameters from the offline save.
+        let photo = tmp.path().join("scan.png");
+        std::fs::write(&photo, b"no exif").unwrap();
+        // Facts registered while it was offline are stale once it is back.
+        let photo_str = photo.to_string_lossy();
+        rawtonic_engine::source_facts::register(&photo_str, Default::default());
+        let mut recipe = serde_json::json!({
+            "lensCorrectionMode": "manual", "lensMaker": "Canon", "lensModel": zoom,
+            "lensDistortionParams": {"k1": 0.5},
+            LENS_PROFILE_FOR: LENS_UNRESOLVED,
+        });
+        super::prepare_recipe_lens(&mut recipe, &photo).unwrap();
+        assert!(!is_unresolved(&recipe));
+        assert!(rawtonic_engine::source_facts::registered(&photo_str).is_none());
+        assert_eq!(
+            recipe["lensDistortionParams"],
+            serde_json::to_value(fallback).unwrap()
+        );
+        // Still offline: an error for the export, the recipe as it was.
+        let mut offline = serde_json::json!({
+            "lensCorrectionMode": "manual", "lensMaker": "Canon", "lensModel": "Canon RF 24-70mm F2.8L IS USM",
+            LENS_PROFILE_FOR: LENS_UNRESOLVED,
+        });
+        assert!(
+            super::prepare_recipe_lens(&mut offline, std::path::Path::new("/offline/IMG_1.CR3"))
+                .is_err()
+        );
+        assert!(is_unresolved(&offline));
+    }
+
     #[test]
     fn user_comment_shows_its_text_not_hex() {
         use super::user_comment_text;

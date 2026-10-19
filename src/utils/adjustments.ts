@@ -416,6 +416,23 @@ export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
   return { ...picked, aiDenoiseVersion: version };
 };
 
+/** diffraction.rs VERSION for a request made now. */
+export const DIFFRACTION_VERSION = 2;
+
+/** The diffraction correction's crop-factor lookup depends on its version,
+ * so wherever the switch is copied (paste, presets) its version goes along:
+ * the source's, else — presets and recipes from before the key — version 1
+ * for a correction that is on. */
+export const withDiffractionVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'diffractionVersion'> => {
+  if (picked.diffractionCorrection !== true || (picked.diffractionVersion !== undefined && picked.diffractionVersion !== null)) {
+    return picked;
+  }
+  return { ...picked, diffractionVersion: source?.diffractionVersion ?? 1 };
+};
+
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
  * structure starts as Clumped. */
 export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>
@@ -511,6 +528,10 @@ export interface Adjustments {
   /** Capture One's diffraction correction: sharpening by the f-number and
    * pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
+  /** diffraction.rs VERSION, written when the correction is switched on;
+   * missing = 1 (crop factors without the bodies the 2026-10-18 database
+   * update added). */
+  diffractionVersion?: number;
   lensDistortionParams: {
     k1: number;
     k2: number;
@@ -523,6 +544,10 @@ export interface Adjustments {
     vig_k3: number;
   } | null;
   lensMaker: string | null;
+  /** The lens choice `lensDistortionParams` were resolved for; written by
+   * the backend's save (edits.rs, LensLookup) and never copied: a save keeps
+   * the parameters while it matches the recipe's lens choice. */
+  lensProfileFor?: string | null;
   lensModel: string | null;
   lumaNoiseReduction: number;
   /** Lightroom's noise reduction refinements (0–100): luminance Detail
@@ -531,8 +556,10 @@ export interface Adjustments {
   lumaNoiseContrast?: number;
   colorNoiseDetail?: number;
   colorNoiseSmoothness?: number;
-  /** Colour noise reduction filter: 6 = multi-scale, measured per photo
-   * (crates/engine/src/color_noise.rs), the finest detail measured against
+  /** Colour noise reduction filter: 7 = multi-scale, measured per photo
+   * (crates/engine/src/color_noise.rs), an isolated off-colour pixel's
+   * finest detail taken from its 3 × 3 median chroma (fewer isolated colour
+   * specks); 6 = the same filter without that, the finest detail measured against
    * the same edge-aware expansion as the reconstruction (no halos or
    * blotchy rims along colour edges); 5 = the same filter without that, a
    * pixel whose colour is an outlier among its 3 × 3 neighbours keeps to
@@ -561,6 +588,13 @@ export interface Adjustments {
    * the layers' Defringe; 1 or missing on recipes that used Defringe before
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
+  /** Sharpening response (crates/engine/src/image_processing.rs
+   * `SHARPEN_VERSION`): 2 = halos nearly constant over the amount, gain and
+   * Detail tilt after Camera Raw at high amounts; 1 or missing on recipes
+   * that sharpened differently before it = the earlier response (both are
+   * the same at Amount 40 with Radius, Detail and Masking at their
+   * defaults). Photo-wide (layers follow it). */
+  sharpenVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1117,7 +1151,7 @@ export const RAW_DETAIL_DEFAULTS = {
 
 /** The colour noise reduction new edits start with (notes: reference/detail.md,
  * reference/color-noise-reference.md). */
-export const COLOR_NOISE_VERSION = 6;
+export const COLOR_NOISE_VERSION = 7;
 
 /** The first colour noise version that is the multi-scale filter; versions
  * from it on share its base image (no decode-time chroma clean-up). */
@@ -1131,6 +1165,9 @@ export const FRINGE_VERSION = 2;
 
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;
+
+/** The sharpening response new edits start with (notes: reference/detail.md). */
+export const SHARPEN_VERSION = 2;
 
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */
@@ -1177,6 +1214,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         cameraCaVersion: CAMERA_CA_VERSION,
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        sharpenVersion: SHARPEN_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
       }
     : {
@@ -1184,6 +1222,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         colorNoiseVersion: COLOR_NOISE_VERSION,
         toneVersion: TONE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
+        sharpenVersion: SHARPEN_VERSION,
       };
 
 /** The Defringe detector of a saved recipe: its own; else the current one
@@ -1198,6 +1237,85 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
     (loaded.defringeGreenAmount ?? 0) > 0 ||
     (loaded.masks ?? []).some((mask) => ((mask?.adjustments?.defringe as number | undefined) ?? 0) > 0);
   return used ? undefined : DEFRINGE_VERSION;
+};
+
+/** Whether a recipe renders the same with either sharpening response: no
+ * sharpening, or Amount 40 with Radius, Detail, Masking and Falloff at their
+ * defaults, and no layer that changes the amount. */
+const sharpensAlikeInBothVersions = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
+  // RAW recipes without an amount sharpen at the RAW default (40).
+  const amount = values.sharpness ?? (isRaw ? RAW_DETAIL_DEFAULTS.sharpness : 0);
+  const atDefaults =
+    (values.sharpenRadius ?? 1) === 1 &&
+    (values.sharpenDetail ?? 25) === 25 &&
+    (values.sharpenMasking ?? 0) === 0 &&
+    (values.sharpnessFalloff ?? 0) === 0;
+  const layerSharpens = (values.masks ?? []).some(
+    (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0,
+  );
+  return (amount <= 0 || (amount === 40 && atDefaults)) && !layerSharpens;
+};
+
+/** The sharpening response of a saved recipe: its own; else the current one
+ * when it renders the same with it, the earlier one otherwise (missing key). */
+const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
+  if (loaded.sharpenVersion !== undefined && loaded.sharpenVersion !== null) {
+    return loaded.sharpenVersion;
+  }
+  return sharpensAlikeInBothVersions(loaded, isRaw) ? SHARPEN_VERSION : undefined;
+};
+
+/** What a paste applies from the clipboard: the included keys, in Merge mode
+ * only those that differ from a new edit's. The sharpening response is not
+ * filtered on its own (a new edit has no key, so it would always survive):
+ * it goes along only with sharpening values that do (`withSharpenVersion`). */
+export const pastedAdjustments = (
+  copied: Partial<Adjustments>,
+  includedAdjustments: string[],
+  mode: PasteMode,
+): Partial<Adjustments> => {
+  const picked: Partial<Adjustments> = {};
+  for (const key of includedAdjustments) {
+    if (key === 'sharpenVersion' || !Object.prototype.hasOwnProperty.call(copied, key)) continue;
+    const value = copied[key as keyof Adjustments];
+    if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
+    (picked as Record<string, unknown>)[key] = value;
+  }
+  return withSharpenVersion(picked, copied);
+};
+
+/** Keys whose values mean what the sharpening response makes of them. */
+const SHARPEN_RESPONSE_KEYS = [
+  'sharpness',
+  'sharpnessThreshold',
+  'sharpenRadius',
+  'sharpenDetail',
+  'sharpenMasking',
+  'sharpnessFalloff',
+] as const;
+
+/** Sharpening values mean what their response makes of them, so wherever they
+ * are copied (paste, tool copy, Edit all selected, presets) the response goes
+ * along explicitly — a missing key would vanish in JSON and the target would
+ * keep its own: the source's, else 1 (a source or preset from before the key;
+ * partial values cannot tell whether the target would render the same).
+ * Layers count when their sharpening amount is set. */
+export const withSharpenVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'sharpenVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it) would
+  // vanish in JSON too: it is response 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'sharpenVersion') && picked.sharpenVersion == null) {
+    return { ...picked, sharpenVersion: 1 };
+  }
+  const sharpens =
+    SHARPEN_RESPONSE_KEYS.some((key) => picked[key] !== undefined) ||
+    (picked.masks ?? []).some((mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0);
+  if (!sharpens || (picked.sharpenVersion !== undefined && picked.sharpenVersion !== null)) {
+    return picked;
+  }
+  return { ...picked, sharpenVersion: source?.sharpenVersion ?? 1 };
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
@@ -1343,6 +1461,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     colorNoiseVersion: loadedColorNoiseVersion(loadedAdjustments, isRaw),
     toneVersion: loadedToneVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
+    sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
     aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
     // Saved recipes keep rendering as they were made: no pass unless they
     // carry the key (never-edited RAWs get it in useImageLoader).
@@ -1477,6 +1596,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'sharpenRadius',
         'sharpenDetail',
         'sharpenMasking',
+        'sharpenVersion',
       ],
     },
     {
@@ -1576,6 +1696,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         LensAdjustment.LensTcaEnabled,
         LensAdjustment.LensVignetteEnabled,
         'diffractionCorrection',
+        'diffractionVersion',
         'autoChromaticAberration',
         'cameraCaVersion',
         'autoCaVersion',
@@ -1611,6 +1732,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensBlurMinDepth',
   'lensBlurMinFade',
   'lensDistortionParams',
+  'lensProfileFor',
   'sectionVisibility',
   'showClipping',
 ];

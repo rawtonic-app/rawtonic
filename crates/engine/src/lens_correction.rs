@@ -821,8 +821,28 @@ pub fn find_best_lens_match(
     {
         return Some(hit);
     }
+    if let Some(hit) =
+        without_model_code(clean_model).and_then(|name| find_lens_by_fuzzy_model(db, maker, name))
+    {
+        return Some(hit);
+    }
 
     find_lens_by_camera_mount(db, maker, camera_model).map(|lens| lens_result(db, lens))
+}
+
+/// The EXIF lens name without a trailing maker's model code ("17-70mm F/2.8
+/// DiIII-A VC RXD B070X" → "… VC RXD"), which lensfun's names often lack or
+/// spell for another mount ("B070"): the fuzzy match needs every character
+/// of the EXIF name in the lensfun name. A code mixes letters and digits and
+/// is no focal length or aperture.
+fn without_model_code(name: &str) -> Option<&str> {
+    let (rest, code) = name.trim().rsplit_once(' ')?;
+    let is_code = code.len() >= 4
+        && code.chars().all(|c| c.is_ascii_alphanumeric())
+        && code.chars().any(|c| c.is_ascii_digit())
+        && code.chars().any(|c| c.is_ascii_alphabetic())
+        && !code.to_ascii_lowercase().contains("mm");
+    (is_code && rest.trim().len() >= 4).then(|| rest.trim())
 }
 
 fn find_lens_by_fuzzy_model(
@@ -914,7 +934,7 @@ pub fn embedded_lens_db() -> LensDatabase {
         cameras: Vec::new(),
         lenses: Vec::new(),
     };
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lensfun_db");
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/lensfun_db");
     for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
         if let Ok(xml) = fs::read_to_string(entry.path())
             && let Ok(mut db) = quick_xml::de::from_str::<LensDatabase>(&xml)
@@ -1002,9 +1022,42 @@ pub fn find_lens_exact<'a>(db: &'a LensDatabase, maker: &str, exif_lens: &str) -
 
 /// The body's crop factor from lensfun's camera list.
 pub fn camera_crop_factor(db: &LensDatabase, maker: &str, model: &str) -> Option<f32> {
+    camera_crop_factor_without(db, maker, model, &[])
+}
+
+/// Camera entries added by the 2026-10-18 database update (Lensfun
+/// 43f9e001; maker, model as in the database). Diffraction correction of
+/// recipes from before it (`diffraction::VERSION` 1) looks crop factors up
+/// without them, so those renders stay as the earlier database gave them.
+pub const CAMERAS_ADDED_2026_10_18: &[(&str, &str)] = &[
+    ("Canon", "Canon EOS R8 Mark II"),
+    ("Canon", "Canon PowerShot A710 IS"),
+    ("Nikon Corporation", "Nikon Z5_2C"),
+    ("OM Digital Solutions", "PEN"),
+    ("Panasonic", "DC-L10"),
+    ("Panasonic", "DC-TZ300"),
+    ("Panasonic", "DC-ZS300"),
+];
+
+fn is_excluded(camera: &Camera, excluded: &[(&str, &str)]) -> bool {
+    excluded.iter().any(|(maker, model)| {
+        camera.maker.iter().any(|name| name.value == *maker)
+            && camera.model.iter().any(|name| name.value == *model)
+    })
+}
+
+/// `camera_crop_factor` as a database without the `excluded` entries would
+/// answer.
+pub fn camera_crop_factor_without(
+    db: &LensDatabase,
+    maker: &str,
+    model: &str,
+    excluded: &[(&str, &str)],
+) -> Option<f32> {
     let full = format!("{} {}", maker.trim(), model.trim());
     db.cameras
         .iter()
+        .filter(|camera| !is_excluded(camera, excluded))
         .find(|camera| {
             any_name_matches(&camera.model, model.trim()) || any_name_matches(&camera.model, &full)
         })
@@ -1015,6 +1068,15 @@ pub fn camera_crop_factor(db: &LensDatabase, maker: &str, model: &str) -> Option
 /// Crop factor by the model's letters and digits only, for callers that
 /// may guess (rawler names the Z 7II "Z 7 2", lensfun "Nikon Z 7_2").
 pub fn camera_crop_factor_loose(db: &LensDatabase, model: &str) -> Option<f32> {
+    camera_crop_factor_loose_without(db, model, &[])
+}
+
+/// `camera_crop_factor_loose` without the `excluded` entries.
+pub fn camera_crop_factor_loose_without(
+    db: &LensDatabase,
+    model: &str,
+    excluded: &[(&str, &str)],
+) -> Option<f32> {
     let key = |s: &str| {
         s.chars()
             .filter(char::is_ascii_alphanumeric)
@@ -1027,6 +1089,7 @@ pub fn camera_crop_factor_loose(db: &LensDatabase, model: &str) -> Option<f32> {
     }
     db.cameras
         .iter()
+        .filter(|camera| !is_excluded(camera, excluded))
         .find(|camera| {
             camera.model.iter().any(|name| {
                 let name = key(&name.value);
@@ -1035,6 +1098,38 @@ pub fn camera_crop_factor_loose(db: &LensDatabase, model: &str) -> Option<f32> {
         })
         .map(|camera| camera.cropfactor)
         .filter(|crop| crop.is_finite() && *crop > 0.0)
+}
+
+/// The maker's lens shown as `model` (the name a recipe or preset stores),
+/// and its current name. A database update may rename a lens by extending
+/// its name ("E 16-50mm f/3.5-5.6 OSS PZ" became "… PZ (Vers. I/II)"):
+/// when no lens has the name exactly, the one whose name starts with it is
+/// the same lens, if there is exactly one.
+pub fn find_lens_by_display_name<'a>(
+    db: &'a LensDatabase,
+    maker: &str,
+    model: &str,
+) -> Option<(String, &'a Lens)> {
+    let maker_lenses = lenses_for_maker(db, maker);
+    let named: Vec<(String, &Lens)> = maker_lenses
+        .iter()
+        .map(|lens| (lens.get_display_name(&maker_lenses), *lens))
+        .collect();
+    if let Some((name, lens)) = named.iter().find(|(name, _)| name == model) {
+        return Some((name.clone(), lens));
+    }
+    let key = |name: &str| name.trim().to_lowercase();
+    let wanted = key(model);
+    if wanted.len() < 8 {
+        return None;
+    }
+    let mut renamed = named
+        .iter()
+        .filter(|(name, _)| key(name).starts_with(&wanted) && key(name) != wanted);
+    match (renamed.next(), renamed.next()) {
+        (Some((name, lens)), None) => Some((name.clone(), lens)),
+        _ => None,
+    }
 }
 
 pub fn resolve_lens_params(
@@ -1046,19 +1141,44 @@ pub fn resolve_lens_params(
     distance: Option<f32>,
     camera_crop: Option<f32>,
 ) -> Option<LensDistortionParams> {
-    let maker_lenses = lenses_for_maker(db, maker);
-    if let Some(lens) = maker_lenses
-        .iter()
-        .find(|l| l.get_display_name(&maker_lenses) == model)
-    {
-        lens.get_distortion_params(focal_length, aperture, distance, camera_crop)
-    } else {
-        None
-    }
+    let (_, lens) = find_lens_by_display_name(db, maker, model)?;
+    lens.get_distortion_params(focal_length, aperture, distance, camera_crop)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn version_1_lookups_answer_as_the_database_before_the_2026_10_18_update() {
+        let db = super::embedded_lens_db();
+        for (maker, model) in super::CAMERAS_ADDED_2026_10_18 {
+            assert!(
+                super::camera_crop_factor(&db, maker, model).is_some(),
+                "{model} is in the bundled database"
+            );
+        }
+        // The DC-L10 is new: no crop factor without the added entries,
+        // neither by name nor by the loose match.
+        assert_eq!(
+            super::camera_crop_factor(&db, "Panasonic", "DC-L10"),
+            Some(2.21)
+        );
+        let added = super::CAMERAS_ADDED_2026_10_18;
+        assert_eq!(
+            super::camera_crop_factor_without(&db, "Panasonic", "DC-L10", added),
+            None
+        );
+        assert_eq!(
+            super::camera_crop_factor_loose_without(&db, "DC-L10", added),
+            None
+        );
+        // A body the earlier database knew answers as before.
+        assert_eq!(
+            super::camera_crop_factor_without(&db, "Panasonic", "DC-LX100M2", added),
+            super::camera_crop_factor(&db, "Panasonic", "DC-LX100M2")
+        );
+        assert!(super::camera_crop_factor(&db, "Panasonic", "DC-LX100M2").is_some());
+    }
+
     use super::*;
 
     /// lensfun's Canon RF 28mm F2.8 STM entry (full-frame calibration).
@@ -1098,6 +1218,114 @@ mod tests {
         let x: f64 = 1.0 / 1.6;
         let expected = 1.0 - 2.0777 * x.powi(2) + 2.2485 * x.powi(4) - 1.0106 * x.powi(6);
         assert!((brightness(&apsc, 1.0) - expected).abs() < 1e-4);
+    }
+
+    /// Prints the lens matched for each line of `$LENS_MATCH_CASES` (make,
+    /// camera model and EXIF lens model, tab-separated) in the database at
+    /// `$LENSFUN_DIR`: to compare two database versions.
+    #[test]
+    #[ignore = "tool: needs LENS_MATCH_CASES and LENSFUN_DIR"]
+    fn print_lens_matches() {
+        let db = load_lensfun_dir(std::path::Path::new(&std::env::var("LENSFUN_DIR").unwrap()));
+        let cases = fs::read_to_string(std::env::var("LENS_MATCH_CASES").unwrap()).unwrap();
+        for line in cases.lines() {
+            let mut fields = line.split('\t');
+            let (make, camera, lens) = (
+                fields.next().unwrap_or(""),
+                fields.next().unwrap_or(""),
+                fields.next().unwrap_or(""),
+            );
+            let found = find_best_lens_match(&db, make, lens, camera);
+            println!("MATCH\t{make}\t{camera}\t{lens}\t{found:?}");
+        }
+    }
+
+    /// EXIF names from public sample RAWs (raw.pixls.us) against the bundled
+    /// database: lenses matched before its update keep their entry (the
+    /// Sony 16-50 kit zoom under its new name, same calibration), and lenses
+    /// the update added are found (16-50 II, the Tamron 17-70 on Fujifilm X),
+    /// also when the EXIF name ends in the maker's model code (B070X, F013).
+    #[test]
+    fn bundled_database_matches_sample_raw_lenses() {
+        let db = embedded_lens_db();
+        let cases = [
+            (
+                "FUJIFILM",
+                "X-T5",
+                "XF18mmF2 R",
+                Some(("Fujifilm", "XF 18mm f/2 R")),
+            ),
+            (
+                "NIKON CORPORATION",
+                "NIKON Z 8",
+                "NIKKOR Z 14-24mm f/2.8 S",
+                Some(("Nikon", "Nikkor Z 14-24mm f/2.8 S")),
+            ),
+            (
+                "SONY",
+                "ILCE-7M4",
+                "FE 50mm F2.5 G",
+                Some(("Sony", "FE 50mm f/2.5 G")),
+            ),
+            (
+                "SONY",
+                "ILCE-7CR",
+                "24-70mm F2.8 DG DN | Art 019",
+                Some(("Sigma", "24-70mm F2.8 DG DN | Art 019")),
+            ),
+            (
+                "NIKON CORPORATION",
+                "NIKON Z f",
+                "TAMRON 35-150mm F/2-2.8 Di III VXD A058Z",
+                Some(("Tamron", "35-150mm F/2-2.8 Di III VXD")),
+            ),
+            (
+                "SONY",
+                "ILCE-5100",
+                "E PZ 16-50mm F3.5-5.6 OSS",
+                Some(("Sony", "E 16-50mm f/3.5-5.6 OSS PZ (Vers. I/II)")),
+            ),
+            (
+                "SONY",
+                "ILCE-6400A",
+                "E PZ 16-50mm F3.5-5.6 OSS II",
+                Some(("Sony", "E 16-50mm f/3.5-5.6 OSS PZ (Vers. I/II)")),
+            ),
+            (
+                "FUJIFILM",
+                "X-T30 III",
+                "17-70mm F/2.8 DiIII-A VC RXD B070X",
+                Some(("Tamron", "17-70mm F/2.8 Di III-A VC RXD")),
+            ),
+            (
+                "SIGMA",
+                "SIGMA fp L",
+                "TAMRON SP 45mm F/1.8 Di VC USD F013",
+                Some(("Tamron", "SP 45mm F/1.8 Di VC USD")),
+            ),
+        ];
+        for (make, camera, lens, expected) in cases {
+            let found = find_best_lens_match(&db, make, lens, camera);
+            let expected = expected.map(|(m, l)| (m.to_string(), l.to_string()));
+            assert_eq!(found, expected, "{make} {camera} {lens}");
+        }
+        // A recipe or preset that names the Sony kit zoom as it was called
+        // before the update finds the renamed entry.
+        let (name, _) =
+            find_lens_by_display_name(&db, "Sony", "E 16-50mm f/3.5-5.6 OSS PZ").unwrap();
+        assert_eq!(name, "E 16-50mm f/3.5-5.6 OSS PZ (Vers. I/II)");
+        // Several lenses start with it, or none: no guess.
+        assert!(find_lens_by_display_name(&db, "Sony", "FE 24-70mm").is_none());
+        assert!(find_lens_by_display_name(&db, "Sony", "E 99mm f/1.0 Prototype").is_none());
+        // A model code is dropped only when nothing matched with it, and
+        // only a letters-and-digits code, never a focal length or aperture.
+        assert_eq!(
+            without_model_code("17-70mm F/2.8 DiIII-A VC RXD B070X"),
+            Some("17-70mm F/2.8 DiIII-A VC RXD")
+        );
+        assert_eq!(without_model_code("RF 50mm F1.4"), None);
+        assert_eq!(without_model_code("XF 18mm F2 R"), None);
+        assert_eq!(without_model_code("EF 70-200mm"), None);
     }
 
     #[test]

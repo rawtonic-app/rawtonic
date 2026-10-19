@@ -19,6 +19,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
+import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
 import { toast } from 'react-toastify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -488,5 +489,126 @@ describe('slider drag drafts', () => {
     const { adjustments } = useEditorStore.getState();
     expect([adjustments.exposure, adjustments.contrast]).toEqual([0.5, 10]);
     unregister();
+  });
+});
+
+describe('Auto straighten', () => {
+  const answer = { rotation: -2.4, crop: { unit: 'px', x: 120, y: 80, width: 3760, height: 2840 }, support: 1.2 };
+
+  it('applies the rotation and crop it was asked for', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('done');
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2.4, crop: answer.crop });
+    // The crop tool keeps exactly this crop with this rotation (same object).
+    const given = useEditorStore.getState().autoStraightened;
+    expect(given?.rotation).toBe(-2.4);
+    expect(given?.crop).toBe(useEditorStore.getState().adjustments.crop);
+  });
+
+  it('drops the answer when the crop changed meanwhile or the photograph is another', async () => {
+    const { result } = renderHook(useEditorActions);
+    const outcomes: string[] = [];
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => useEditorStore.setState({
+      adjustments: { ...useEditorStore.getState().adjustments, crop: { unit: 'px', x: 0, y: 0, width: 100, height: 100 } },
+    }));
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => select('/second.dng'));
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcomes).toEqual(['stale', 'stale']);
+    expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+  });
+
+  it('asks for the open photograph and drops an answer about another', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    await act(async () => {});
+    expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ path: '/first.dng' });
+    const request = pending.find((r) => r.command === Invokes.CalculateAutoStraighten)!;
+    request.settled = true;
+    await act(async () => request.resolve(Promise.reject('auto straighten: another photograph is open')));
+    await act(async () => {});
+    expect(outcome).toBe('stale');
+    expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+  });
+
+  it('drops the answer when a slider drag changed the frame in a draft meanwhile', async () => {
+    const unregister = registerSliderDraftRenderer(() => true);
+    try {
+      const { result } = renderHook(useEditorActions);
+      let outcome: string | undefined;
+      act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+      // Scale dragged to 80 while Auto runs: a draft, not committed yet.
+      act(() => useEditorStore.setState({ isSliderDragging: true }));
+      act(() => updateAdjustments({ transformScale: 80 }));
+      await finish(Invokes.CalculateAutoStraighten, answer);
+      expect(outcome).toBe('stale');
+      act(() => useEditorStore.setState({ isSliderDragging: false }));
+      expect(useEditorStore.getState().adjustments).toMatchObject({ transformScale: 80 });
+      expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('drops the answer when the crop is being rotated by hand meanwhile', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    // A rotation gesture: its angle is live, not in the recipe, until release.
+    act(() => useEditorStore.setState({ isRotationActive: true, liveRotation: 4 }));
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('stale');
+    expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+    act(() => useEditorStore.setState({ isRotationActive: false, liveRotation: null }));
+  });
+
+  it('drops the answer when the crop was dragged meanwhile (its frame commits on release)', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    // A side-handle drag starts and ends before the answer.
+    cropGestureStarted();
+    cropGestureEnded();
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('stale');
+    // During a drag nothing is asked.
+    cropGestureStarted();
+    let during: string | undefined;
+    await act(async () => { during = await result.current.handleAutoStraighten(); });
+    expect(during).toBe('stale');
+    cropGestureEnded();
+  });
+
+  it('drops the answer when the crop edit was cancelled meanwhile (Escape)', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    cropEditCancelled();
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('stale');
+  });
+
+  it('runs one analysis for requests made while one is running', async () => {
+    const { result } = renderHook(useEditorActions);
+    const outcomes: string[] = [];
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.CalculateAutoStraighten)).toHaveLength(1);
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcomes).toEqual(['done', 'done']);
+  });
+
+  it('reports a photograph without straight lines', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    await finish(Invokes.CalculateAutoStraighten, null);
+    expect(outcome).toBe('none');
   });
 });

@@ -175,15 +175,25 @@ fn luminance_noise(data: &[f32], w: usize, h: usize, stride: usize) -> f32 {
     if w < 2 {
         return 0.0;
     }
-    let lum = |i: usize| {
-        let px = &data[i * stride..i * stride + 3];
+    let diffs = (0..h)
+        .step_by(4)
+        .flat_map(|y| row_differences(&data[y * w * stride..(y + 1) * w * stride], w, stride))
+        .collect();
+    median_noise(diffs)
+}
+
+/// The sampled neighbour differences of one row of `w` pixels.
+fn row_differences(row: &[f32], w: usize, stride: usize) -> impl Iterator<Item = f32> + '_ {
+    let lum = move |x: usize| {
+        let px = &row[x * stride..x * stride + 3];
         enc(0.25 * (px[0] + 2.0 * px[1] + px[2]))
     };
-    let mut diffs: Vec<f32> = (0..h)
-        .step_by(4)
-        .flat_map(|y| (0..w - 1).step_by(2).map(move |x| y * w + x))
-        .map(|i| (lum(i + 1) - lum(i)).abs())
-        .collect();
+    (0..w.saturating_sub(1))
+        .step_by(2)
+        .map(move |x| (lum(x + 1) - lum(x)).abs())
+}
+
+fn median_noise(mut diffs: Vec<f32>) -> f32 {
     if diffs.is_empty() {
         return 0.0;
     }
@@ -191,6 +201,39 @@ fn luminance_noise(data: &[f32], w: usize, h: usize, stride: usize) -> f32 {
     let (_, median, _) = diffs.select_nth_unstable_by(mid, f32::total_cmp);
     // Gaussian noise: median |difference| = 0.6745 · √2 · σ.
     *median / (0.6745 * std::f32::consts::SQRT_2)
+}
+
+/// The radius [`apply_for_recipe`] uses at full resolution for
+/// `adjustments` on a `w × h` RGB image whose row `y` `row` gives (only
+/// every fourth row is asked for): what a region cut from that image needs
+/// to suppress fringes as the whole image does. None without the pass.
+pub fn full_resolution_radius(
+    adjustments: &serde_json::Value,
+    w: usize,
+    h: usize,
+    row: impl Fn(usize) -> Vec<f32> + Sync,
+) -> Option<usize> {
+    let version = version_of(adjustments);
+    if version == 0 {
+        return None;
+    }
+    let noise = if version >= 2 && w >= 2 {
+        let rows: Vec<usize> = (0..h).step_by(4).collect();
+        let diffs = rows
+            .into_par_iter()
+            .flat_map_iter(|y| row_differences(&row(y), w, 3).collect::<Vec<_>>())
+            .collect();
+        median_noise(diffs)
+    } else {
+        0.0
+    };
+    Some((radius_for(version, noise).round() as usize).max(1))
+}
+
+/// How far [`suppress`] reads around a pixel at radius `r` (rows and
+/// columns).
+pub fn reach(r: usize) -> usize {
+    2 * r
 }
 
 /// Removes edge fringes in place. `data` holds `w × h` pixels of `stride`

@@ -297,6 +297,13 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
     let needs_standard =
         preview_proxy::stored_size(&source, &settings).is_none_or(|stored| stored < standard);
     if preview_proxy::has_full(&source, &settings) && !needs_standard {
+        // A zoom warps regions from the 1:1 preview's rows with what only
+        // the whole preview tells (lateral CA estimate, fringe radius).
+        crate::multi_view::measure_preview(
+            path,
+            &crate::multi_view::stored_recipe(path),
+            &settings,
+        );
         return Outcome::Skipped;
     }
     let source_str = source.to_string_lossy().to_string();
@@ -354,10 +361,21 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
         }
     }
     if preview_proxy::has_full(&source, &settings) {
+        crate::multi_view::measure_preview(
+            path,
+            &crate::multi_view::stored_recipe(path),
+            &settings,
+        );
         return Outcome::Ready;
     }
     match preview_proxy::write_full(&source, &image, &settings, multiscale) {
         Ok(()) => {
+            drop(image);
+            crate::multi_view::measure_preview(
+                path,
+                &crate::multi_view::stored_recipe(path),
+                &settings,
+            );
             log::info!(
                 "[multi_view] 1:1 preview of {path} ready in the background: decoded {decoded_ms:.0} ms, written {:.0} ms",
                 start.elapsed().as_secs_f64() * 1e3 - decoded_ms

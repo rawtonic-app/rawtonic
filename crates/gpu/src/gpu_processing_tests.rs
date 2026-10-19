@@ -109,6 +109,10 @@ fn banded_input_upload_matches_the_full_conversion() {
     println!("{checked} banded input uploads match the full conversion");
 }
 
+/// The tests that occupy every thread of rayon's global pool run one at a
+/// time: two at once would each wait for threads the other holds.
+static GLOBAL_POOL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Thumbnail batches run on rayon's global pool and wait there for the GPU
 /// processor lock; a caller holding that lock must not need the pool for its
 /// input upload (an Edit-all write in the multi view froze every render).
@@ -116,6 +120,7 @@ fn banded_input_upload_matches_the_full_conversion() {
 fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
     let context = context();
     let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(64, 600, |x, y| {
         image::Rgb([x as f32 / 64.0, y as f32 / 600.0, 0.5])
@@ -159,6 +164,39 @@ fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
         inside == Ok(true) || done_rx.recv_timeout(Duration::from_secs(20)) == Ok(true),
         "upload on a pool thread"
     );
+}
+
+/// The colour noise pyramid is built under the GPU processor lock with
+/// rayon: a caller outside rayon holding the lock must not need the global
+/// pool while thumbnail batches wait there for it (Edit all selected's live
+/// cells froze every render after the recipes were written).
+#[test]
+fn parallel_work_under_the_processor_lock_does_not_wait_for_a_busy_pool() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
+    let lock = Arc::new(Mutex::new(()));
+    let guard = lock.lock().unwrap();
+    let threads = rayon::current_num_threads();
+    let (started_tx, started_rx) = mpsc::channel();
+    for _ in 0..threads {
+        let (lock, started) = (lock.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started.send(()).unwrap();
+            drop(lock.lock().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let sum: u64 = off_global_pool(|| (0..100_000u64).into_par_iter().map(|v| v % 7).sum());
+        done_tx.send(sum).unwrap();
+    });
+    let done = done_rx.recv_timeout(Duration::from_secs(20));
+    drop(guard);
+    assert_eq!(done, Ok((0..100_000u64).map(|v| v % 7).sum()));
 }
 
 fn all_sub_mask() -> serde_json::Value {
@@ -335,17 +373,27 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & 16 != 0 {
             effects["colorNoiseReduction"] = json!(30);
         }
-        let profile = if expected & 8 != 0 {
+        if expected & TONE_PREVIEW_FEATURE != 0 {
+            effects["whites"] = json!(-20);
+        }
+        let mut profile = if expected & 8 != 0 {
             local_profile(effects)
         } else {
             effects
         };
+        // Relight is photo-wide only.
+        if expected & RELIGHT_PREVIEW_FEATURE != 0 {
+            profile["relightLights"] = json!([{"intensity":65}]);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
         if expected & 8 != 0 {
             // Stale entries beyond mask_count must not affect the current image.
             adjustments.mask_count = 0;
-            assert_eq!(preview_features(&adjustments), 0);
+            assert_eq!(
+                preview_features(&adjustments),
+                expected & RELIGHT_PREVIEW_FEATURE
+            );
         }
     }
     // Opposing layers do not cancel everywhere: their bitmap coverage differs.
@@ -476,7 +524,7 @@ fn failed_export_variant_uses_the_general_pipeline() {
     let context = context();
     let processor = GpuProcessor::new(context, 64, 64).unwrap();
     let adjustments = get_all_adjustments_from_json(&json!({}), false, None);
-    let features = preview_features(&adjustments) | (1 << 2);
+    let features = export_features(&adjustments);
     assert_eq!(
         features & 0b1_0011,
         0,
@@ -820,6 +868,29 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         ("sharpenDetail", 0., 100., 25., json!({"sharpness":70})),
         ("sharpenMasking", 100., 100., 0., json!({"sharpness":70})),
         ("sharpnessFalloff", 50., 100., 0., json!({"sharpness":70})),
+        // Sharpening response 2 (`sharpenVersion`).
+        ("sharpness", 60., 150., 0., json!({"sharpenVersion":2})),
+        (
+            "sharpenRadius",
+            0.5,
+            3.,
+            1.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
+        (
+            "sharpenDetail",
+            0.,
+            100.,
+            25.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
+        (
+            "sharpenMasking",
+            100.,
+            100.,
+            0.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
         ("moireAmount", 50., 100., 0., json!({})),
         ("moirePattern", 0., 100., 30., json!({"moireAmount":100})),
         ("lumaNoiseReduction", 30., 100., 0., json!({})),
@@ -1102,6 +1173,64 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         }
     }
     println!("{checked} individual control endpoint/reset GPU probes passed");
+}
+
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 1 and 2"]
+fn sharpen_version_2_keeps_amount_40_and_caps_halos() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 256, 128).unwrap();
+    let view = input(&context, 256, 128, 5);
+    let render = |profile: serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                256,
+                128,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let recipe = |amount: f64, version: u64| {
+        json!({"sharpness": amount, "lumaNoiseReduction": 0, "colorNoiseReduction": 0,
+            "sharpenVersion": version})
+    };
+    // At Amount 40 with the other controls at their defaults both responses
+    // are the same path, bit for bit.
+    assert_eq!(render(recipe(40., 2)), render(recipe(40., 1)));
+    // Above it they differ, and response 2 keeps the strongest change (the
+    // halo) below response 1's, whose ceiling grew with the amount.
+    let flat = render(recipe(0., 1));
+    let strongest = |pixels: &[u16]| {
+        let mut change: Vec<i32> = pixels
+            .iter()
+            .zip(&flat)
+            .map(|(a, b)| (*a as i32 - *b as i32).abs())
+            .collect();
+        change.sort_unstable();
+        change[change.len() * 99 / 100]
+    };
+    let v1 = render(recipe(150., 1));
+    let v2 = render(recipe(150., 2));
+    assert_ne!(v1, v2);
+    assert!(
+        strongest(&v2) < strongest(&v1),
+        "halo {} not below response 1's {}",
+        strongest(&v2),
+        strongest(&v1)
+    );
 }
 
 fn context() -> GpuContext {
@@ -1652,6 +1781,84 @@ fn preview_render_timing_probe() {
                     json!({"profile":name,"full_preparation":full,"frame":frame,"submit_ms":submit_ms,"complete_ms":start.elapsed().as_secs_f64()*1000.0})
                 );
             }
+        }
+    }
+}
+
+#[test]
+#[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
+fn sharpen_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the amount moves a little every frame so the detail stage
+    // is computed again, as during a slider drag. Responses 1 and 2
+    // alternate within one process (response 1's path is unchanged).
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        for (name, base) in [
+            ("a40d25", json!({"sharpness":40})),
+            ("a80d25", json!({"sharpness":80})),
+            ("a150d25", json!({"sharpness":150})),
+            ("a80d100", json!({"sharpness":80,"sharpenDetail":100})),
+            (
+                "a120d100r2",
+                json!({"sharpness":120,"sharpenDetail":100,"sharpenRadius":2.0}),
+            ),
+            ("a120d25r0.5", json!({"sharpness":120,"sharpenRadius":0.5})),
+        ] {
+            let mut times = [Vec::new(), Vec::new()];
+            for frame in 0..frames + 2 {
+                for version in [1, 2] {
+                    let mut profile = base.clone();
+                    let amount = profile["sharpness"].as_f64().unwrap();
+                    // Amount 40 stays exact (both responses share its path).
+                    if amount != 40.0 {
+                        profile["sharpness"] = json!(amount + 0.01 * frame as f64);
+                    } else {
+                        profile["sharpnessThreshold"] = json!(15.0 + 0.01 * frame as f64);
+                    }
+                    profile["sharpenVersion"] = json!(version);
+                    let start = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            display,
+                            if display {
+                                RenderOutputPrecision::EightBit
+                            } else {
+                                RenderOutputPrecision::SixteenBit
+                            },
+                        )
+                        .unwrap();
+                    context
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    // The first two frames warm shaders and caches.
+                    if frame >= 2 {
+                        times[version - 1].push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+            let median = |t: &mut Vec<f64>| {
+                t.sort_by(f64::total_cmp);
+                t[t.len() / 2]
+            };
+            let (v1, v2) = (median(&mut times[0]), median(&mut times[1]));
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"setting":name,"v1_ms":v1,"v2_ms":v2,
+                    "change_pct":(v2 / v1 - 1.0) * 100.0,"frames":frames})
+            );
         }
     }
 }
@@ -8643,21 +8850,44 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
     // Wider than one tile, so the half-resolution texture is addressed in
     // image coordinates across tiles.
     let image = chroma_noise_frame(2300, 300);
-    for version in [2, 3, 4, 5, 6] {
+    // Version 7 also below Color 25 and above Detail 50, where its speck
+    // swap is weakened (`Tuning::speck_strength`), beside version 6 there.
+    let cases = [
+        (2, 25, 50),
+        (3, 25, 50),
+        (4, 25, 50),
+        (5, 25, 50),
+        (6, 25, 50),
+        (7, 25, 50),
+        (6, 15, 65),
+        (7, 15, 65),
+    ];
+    for (version, color, detail) in cases {
         let gpu = render_source(
             &context,
             &image,
-            json!({"colorNoiseReduction": 25, "colorNoiseVersion": version}),
+            json!({
+                "colorNoiseReduction": color,
+                "colorNoiseDetail": detail,
+                "colorNoiseVersion": version
+            }),
             RenderOutputPrecision::SixteenBit,
         )
         .to_rgba16();
         let settings = color_noise::Settings {
-            amount: 0.25,
-            detail: 0.5,
+            amount: color as f32 / 100.0,
+            detail: detail as f32 / 100.0,
             smoothness: 0.5,
         };
+        // The renderer reads its input as 16-bit floats: the CPU reference
+        // filters the same values, so discontinuous decisions (the switched
+        // guide, version 7's speck swap) see the same chroma.
+        let mut input = image.to_rgb32f();
+        input
+            .iter_mut()
+            .for_each(|v| *v = half::f16::from_f32(*v).to_f32());
         let filtered = color_noise::apply_to_linear(
-            &image.to_rgb32f(),
+            &input,
             settings,
             &color_noise::Tuning::for_version(version),
         );
@@ -8687,7 +8917,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         }
         let n = (gpu.width() * gpu.height() * 3) as f64;
         println!(
-            "version {version}: GPU vs CPU reference: max {worst}, mean {:.2}, {far} pixels above 64; filter changed mean {:.1} levels",
+            "version {version}, Color {color}, Detail {detail}: GPU vs CPU reference: max {worst}, mean {:.2}, {far} pixels above 64; filter changed mean {:.1} levels",
             sum as f64 / n,
             changed as f64 / n
         );
@@ -8696,10 +8926,12 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
         assert!(changed as f64 / n > 40.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 600, "max {worst}");
-        // The switched guide of versions 5 and 6 is discontinuous: where a pixel's chroma
-        // lies about one noise unit from its 3 x 3 median, GPU and CPU
-        // rounding can flip the side it takes (10 of 690 000 pixels above 64
-        // levels, none for versions 2-4). Such flips must stay rare.
+        // The switched guide of versions 5-7 and version 7's speck swap are
+        // discontinuous: where a pixel's chroma lies at their thresholds,
+        // GPU and CPU rounding can flip the decision (on the same 16-bit
+        // input: 2 of 690 000 pixels above 64 levels for version 7, none
+        // for versions 2-6 at Color 25; at Color 15, Detail 65 14 for
+        // version 6, 16 for version 7). Such flips must stay rare.
         assert!(
             far * 10_000 < gpu.width() * gpu.height(),
             "{far} pixels above 64"
@@ -8753,6 +8985,16 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 6})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 5}))
+    );
+    // Version 7 changes only the detail of isolated off-colour pixels: at
+    // Color 0 it renders as version 6.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 7})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 6}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 7})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 6}))
     );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
@@ -8870,7 +9112,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=6 {
+        for version in 1..=7 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {

@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "画像を自動補正",
       "autoLensCorrection": "自動レンズ補正",
+      "autoStraighten": "自動で水平補正",
       "cancel": "キャンセル",
       "colorLabel": "カラーラベル",
       "confirmReset": "リセットを確認",
@@ -1174,6 +1175,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "自動補正",
+        "auto_straighten": "自動で水平補正",
         "auto_white_balance": "自動ホワイトバランス",
         "brush_size_down": "ブラシサイズを縮小",
         "brush_size_up": "ブラシサイズを拡大",
@@ -1542,6 +1544,10 @@
         "size": "切り抜きサイズ",
         "straightenTool": "角度補正ツール"
       },
+      "autoStraighten": "自動",
+      "autoStraightenFailed": "自動水平補正に失敗しました: {{error}}",
+      "autoStraightenNoLines": "水平補正に使える直線が見つかりません",
+      "autoStraightenTitle": "水平線または垂直線から写真を水平にし、切り抜きを合わせます",
       "flipHorizontal": "左右反転",
       "flipVertical": "上下反転",
       "grid": {
