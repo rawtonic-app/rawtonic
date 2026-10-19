@@ -925,11 +925,13 @@ pub async fn load_metadata(path: String, app_handle: AppHandle) -> Result<ImageM
     result
 }
 
-/// The sidecar as the editor loads it; with XMP sync it takes in the XMP's
-/// fields and is rewritten — a read-modify-write in turn with the others
-/// (sidecar_field_edit), so a recipe committed meanwhile (Auto straighten) is
-/// not replaced by an older snapshot.
-fn load_sidecar_taking_xmp(
+/// The sidecar as the editor or the Library loads it; with XMP sync it takes
+/// in the XMP's fields and is rewritten — a read-modify-write in turn with the
+/// others (sidecar_field_edit), so a recipe committed meanwhile (Auto
+/// straighten) is not replaced by an older snapshot. Inside the shared pool
+/// (Library listing) the guard is only tried: while another edit holds it,
+/// the XMP's fields are taken in memory and written by a later load.
+pub(crate) fn load_sidecar_taking_xmp(
     source_path: &Path,
     sidecar_path: &Path,
     xmp_sync: bool,
@@ -937,9 +939,18 @@ fn load_sidecar_taking_xmp(
     if !xmp_sync {
         return crate::exif_processing::load_sidecar(sidecar_path);
     }
-    let _turn = sidecar_field_edit();
+    let turn = if rayon::current_thread_index().is_some() {
+        match SIDECAR_FIELD_EDITS.try_lock() {
+            Ok(guard) => Some(guard),
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => None,
+        }
+    } else {
+        Some(sidecar_field_edit())
+    };
     let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
     if sync_metadata_from_xmp(source_path, &mut metadata)
+        && turn.is_some()
         && let Ok(json) = serde_json::to_string_pretty(&metadata)
     {
         let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json);
@@ -1163,6 +1174,47 @@ mod tests {
         let loaded = load_sidecar_taking_xmp(&source, &sidecar, true);
         committer.join().unwrap();
         assert_eq!(loaded.adjustments["rotation"], serde_json::json!(-2.5));
+    }
+
+    /// The Library lists in the shared pool: while a commit holds the guard it
+    /// takes the XMP's label in memory and writes nothing (no older snapshot
+    /// over the commit, no waiting in the pool); a load outside waits and
+    /// writes.
+    #[test]
+    fn listing_in_the_pool_never_writes_over_a_commit_in_progress() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (path, sidecar) = photo_with_recipe(tmp.path(), serde_json::json!({"exposure": 1.0}));
+        let (source, _) = parse_virtual_path(&path);
+        std::fs::write(
+            source.with_extension("xmp"),
+            r#"<x:xmpmeta><rdf:Description xmp:Label="Red"/></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let before = std::fs::read(&sidecar).unwrap();
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
+        let committer = std::thread::spawn(move || {
+            let _turn = sidecar_field_edit();
+            held_tx.send(()).unwrap();
+            go_rx.recv().unwrap();
+        });
+        held_rx.recv().unwrap();
+        let listed = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap()
+            .install(|| load_sidecar_taking_xmp(&source, &sidecar, true));
+        let red = |m: &ImageMetadata| {
+            m.tags
+                .as_ref()
+                .is_some_and(|t| t.iter().any(|t| t.ends_with("red")))
+        };
+        assert!(red(&listed));
+        assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+        go_tx.send(()).unwrap();
+        committer.join().unwrap();
+        assert!(red(&load_sidecar_taking_xmp(&source, &sidecar, true)));
+        assert!(red(&crate::exif_processing::load_sidecar(&sidecar)));
     }
 
     /// A rating edit that read the recipe before the commit and writes after

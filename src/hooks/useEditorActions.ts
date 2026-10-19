@@ -393,6 +393,8 @@ async function reloadHeldRecipe(path: string): Promise<void> {
       masks: written.masks,
       aiPatches: written.aiPatches,
     };
+    // An edit queued before (a paste) keeps its own undo step.
+    debouncedSetHistory.flush();
     useEditorStore.getState().pushHistory(loaded);
     useEditorStore.getState().setEditor({ adjustments: loaded });
   }

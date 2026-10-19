@@ -762,6 +762,9 @@ describe('Auto straighten for a selection', () => {
     await finish(Invokes.LoadMetadata, { adjustments: { rotation: -2 } });
     expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2, exposure: 3 });
     expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
+    // Undo takes back the second batch only: the paste keeps its own step.
+    act(() => useEditorStore.getState().undo());
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1, exposure: 3 });
   });
 
   it('holds the queue until a paste has also updated the editor', async () => {
