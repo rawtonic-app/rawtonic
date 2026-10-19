@@ -2,7 +2,7 @@ import "../../i18n";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import TetherPanel, { type TetherStatus } from "./TetherPanel";
+import TetherPanel, { ramOnly, type TetherStatus } from "./TetherPanel";
 import { TETHER_CAPTURE_EVENT, isTetherConnected } from "./tether";
 
 const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
@@ -171,4 +171,12 @@ it("a camera that came back is shown as connected again, without an error", asyn
   });
   await waitFor(() => expect(screen.queryByText("The camera was disconnected.")).toBeNull());
   expect(screen.queryByText(/connects the camera again when it is back/)).toBeNull();
+});
+
+it("says when a camera keeps its photos only in its memory", () => {
+  expect(ramOnly([{ key: "capturetarget", value: "Internal RAM" }])).toBe(true);
+  expect(ramOnly([{ key: "capturetarget", value: "sdram" }])).toBe(true);
+  expect(ramOnly([{ key: "capturetarget", value: "card+sdram" }])).toBe(false);
+  expect(ramOnly([{ key: "capturetarget", value: "Memory card" }])).toBe(false);
+  expect(ramOnly([{ key: "iso", value: "100" }])).toBe(false);
 });

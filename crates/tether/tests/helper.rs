@@ -53,6 +53,7 @@ impl Helper {
             Request::Connect {
                 port: None,
                 staging: self.staging.clone(),
+                serial: None,
             },
             WAIT,
         )
@@ -280,6 +281,34 @@ fn a_release_from_an_earlier_connection_does_not_reach_the_camera_now_open() {
     );
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
+}
+
+#[test]
+fn another_body_of_the_model_is_closed_before_anything_of_it_is_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        body_shots_ms: vec![0],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    let error = helper
+        .client
+        .request(
+            Request::Connect {
+                port: None,
+                staging: helper.staging.clone(),
+                serial: Some("SOMEONE ELSE".into()),
+            },
+            WAIT,
+        )
+        .unwrap_err();
+    assert_eq!(error.kind, ErrorKind::NotFound);
+    std::thread::sleep(Duration::from_millis(300));
+    let incoming = helper.staging.join(staging::INCOMING);
+    assert!(
+        !incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none(),
+        "nothing of it downloaded"
+    );
 }
 
 #[test]

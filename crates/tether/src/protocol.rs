@@ -26,6 +26,10 @@ pub enum Request {
     Connect {
         port: Option<String>,
         staging: PathBuf,
+        /// Only this body (its serial number): another one is closed again
+        /// before anything of it is read or downloaded.
+        #[serde(default)]
+        serial: Option<String>,
     },
     Disconnect,
     /// The camera's settings as they are now.
@@ -262,6 +266,7 @@ mod tests {
             request: Request::Connect {
                 port: Some("usb:020,005".into()),
                 staging: "/s/.cache/tether".into(),
+                serial: Some("CA7F603B7405".into()),
             },
         };
         let text = serde_json::to_string(&request).unwrap();

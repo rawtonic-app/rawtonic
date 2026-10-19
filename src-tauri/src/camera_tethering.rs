@@ -266,56 +266,88 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
 /// meanwhile or the helper ended (Capture One reconnects on its own too).
 fn reconnect_when_back(app: AppHandle) {
     let choice = CHOICE.load(Ordering::SeqCst);
-    let (client, session, model, serial, config) = {
-        let mut helper = HELPER.lock().unwrap();
+    reconnect_lost(
+        &HELPER,
+        &TRANSITION,
+        RECONNECT_EVERY,
+        || CHOICE.load(Ordering::SeqCst) == choice,
+        |status| {
+            let _ = app.emit(
+                "tether-state",
+                json!({ "connected": true, "status": status }),
+            );
+        },
+    );
+}
+
+/// `reconnect_when_back` over `state`: looks for the lost connection's
+/// body until it is connected again (`connected` hears it) or no longer
+/// `wanted`. A body lost again right after its Connected reply, before it
+/// was installed, stays lost and is looked for again.
+fn reconnect_lost(
+    state: &Mutex<Option<Helper>>,
+    transition: &Mutex<()>,
+    every: Duration,
+    wanted: impl Fn() -> bool,
+    connected: impl FnOnce(TetherStatus),
+) {
+    loop {
+        let (client, session, model, serial, config) = {
+            let mut helper = state.lock().unwrap();
+            let Some(h) = helper.as_mut() else { return };
+            // Not connected any more; kept for connecting it again.
+            if let Some(connection) = h.connection.take() {
+                h.lost = Some(connection);
+            }
+            let Some(c) = h.lost.as_ref() else {
+                return;
+            };
+            h.connecting = true;
+            h.lost_while_connecting = false;
+            (
+                h.client.clone(),
+                c.session.clone(),
+                c.status.model.clone(),
+                c.status.serial.clone(),
+                c.config.clone(),
+            )
+        };
+        let found = reconnect(
+            &client,
+            &model,
+            serial.as_deref(),
+            &session,
+            every,
+            transition,
+            &wanted,
+        );
+        let mut helper = state.lock().unwrap();
         let Some(h) = helper.as_mut() else { return };
-        // Not connected any more; kept for connecting it again.
-        if let Some(connection) = h.connection.take() {
-            h.lost = Some(connection);
-        }
-        let Some(c) = h.lost.as_ref() else {
+        h.connecting = false;
+        let Some((status, _turn)) = found else {
             return;
         };
-        (
-            h.client.clone(),
-            c.session.clone(),
-            c.status.model.clone(),
-            c.status.serial.clone(),
-            c.config.clone(),
-        )
-    };
-    let wanted = || CHOICE.load(Ordering::SeqCst) == choice;
-    let Some((status, _turn)) = reconnect(
-        &client,
-        &model,
-        serial.as_deref(),
-        &session,
-        RECONNECT_EVERY,
-        &TRANSITION,
-        wanted,
-    ) else {
-        return;
-    };
-    let mut helper = HELPER.lock().unwrap();
-    let Some(h) = helper.as_mut() else { return };
-    if !wanted() || !Arc::ptr_eq(&h.client, &client) {
+        if !wanted() || !Arc::ptr_eq(&h.client, &client) {
+            return;
+        }
+        if std::mem::take(&mut h.lost_while_connecting) {
+            // Gone again before it was installed: still lost, look again.
+            continue;
+        }
+        h.lost = None;
+        h.connection = Some(Connection {
+            session: session.clone(),
+            status: status.clone(),
+            config,
+        });
+        log::info!("Tether: {model} is back, connected again");
+        drop(helper);
+        connected(TetherStatus {
+            session,
+            camera: status,
+        });
         return;
     }
-    h.lost = None;
-    h.connection = Some(Connection {
-        session: session.clone(),
-        status: status.clone(),
-        config,
-    });
-    log::info!("Tether: {model} is back, connected again");
-    let status = TetherStatus {
-        session,
-        camera: status,
-    };
-    let _ = app.emit(
-        "tether-state",
-        json!({ "connected": true, "status": status }),
-    );
 }
 
 /// Looks for `model` every `every` and connects it once it is listed again;
@@ -350,18 +382,16 @@ fn reconnect<'a>(
             if !wanted() {
                 return None;
             }
+            // The helper closes another body of the same model again
+            // before reading or downloading anything of it.
             let connect = Request::Connect {
                 port: Some(camera.port),
                 staging: staging::root(session),
+                serial: serial.map(String::from),
             };
             let Ok(Reply::Connected { status }) = client.request(connect, SLOW) else {
                 continue;
             };
-            if serial.is_some() && status.serial.as_deref() != serial {
-                // Another body of the same model.
-                let _ = client.request(Request::Disconnect, QUICK);
-                continue;
-            }
             return Some((status, turn));
         }
     }
@@ -762,6 +792,7 @@ fn open_session(
     let connect = Request::Connect {
         port,
         staging: staging::root(&session),
+        serial: None,
     };
     let status = match client.request(connect, SLOW) {
         Ok(Reply::Connected { status }) => status,
@@ -989,6 +1020,7 @@ mod tests {
         let connect = Request::Connect {
             port: None,
             staging: staging::root(&session),
+            serial: None,
         };
         client.request(connect, SLOW).unwrap();
         let mut files = 0;
@@ -1135,10 +1167,15 @@ mod tests {
     fn a_reconnect_takes_only_the_same_body() {
         let tmp = tempfile::tempdir().unwrap();
         let session = session(tmp.path());
-        let (_state, client) = mock_helper(&MockSpec::default());
+        // Another body of the same model (serial MOCK0001) is attached, and
+        // a shot is fired on it the moment it is opened.
+        let spec = MockSpec {
+            body_shots_ms: vec![0],
+            ..MockSpec::default()
+        };
+        let (_state, client) = mock_helper(&spec);
         let looks = std::sync::atomic::AtomicUsize::new(0);
         let transition = Mutex::new(());
-        // Another body of the same model (serial MOCK0001) is attached.
         let found = reconnect(
             &client,
             "Mock Camera",
@@ -1154,6 +1191,66 @@ mod tests {
             ErrorKind::NotConnected,
             "the other body was let go"
         );
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(incoming_left(&session), 0, "nothing of it downloaded");
+    }
+
+    #[test]
+    fn a_body_lost_again_right_after_its_reconnect_is_never_left_connected() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        // Every time it is opened: a shot, then the cable comes out again.
+        let spec = MockSpec {
+            body_shots_ms: vec![0],
+            unplug_after: Some(1),
+            ..MockSpec::default()
+        };
+        let restarts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = restarts.clone();
+        let (state, client) = mock_helper_on_lost(&spec, move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        });
+        state.lock().unwrap().as_mut().unwrap().lost = Some(Connection {
+            session: session.clone(),
+            status: CameraStatus {
+                model: spec.model.clone(),
+                serial: spec.serial.clone(),
+                ..CameraStatus::default()
+            },
+            config: Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "again"),
+                free_camera_copies: false,
+            })),
+        });
+        let installs = std::sync::atomic::AtomicUsize::new(0);
+        let looks = std::sync::atomic::AtomicUsize::new(0);
+        reconnect_lost(
+            &state,
+            &Mutex::new(()),
+            Duration::from_millis(20),
+            || looks.fetch_add(1, Ordering::SeqCst) < 40,
+            |_| {
+                installs.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        drop(client);
+        std::thread::sleep(Duration::from_millis(300));
+        let helper = state.lock().unwrap();
+        let helper = helper.as_ref().unwrap();
+        // Never left connected to a body that is gone: either it stayed lost
+        // (and was looked for again) or its loss started a reconnect.
+        if helper.connection.is_some() {
+            assert_eq!(restarts.load(Ordering::SeqCst), 0);
+        } else {
+            assert!(helper.lost.is_some());
+            assert_eq!(
+                installs.load(Ordering::SeqCst),
+                restarts.load(Ordering::SeqCst),
+                "every install whose body went away started a reconnect"
+            );
+        }
+        assert!(!helper.connecting);
     }
 
     #[test]
@@ -1290,6 +1387,7 @@ mod tests {
                     Request::Connect {
                         port: None,
                         staging: staging.clone(),
+                        serial: None,
                     },
                     SLOW,
                 )
@@ -1316,6 +1414,7 @@ mod tests {
                 Request::Connect {
                     port: None,
                     staging,
+                    serial: None,
                 },
                 SLOW,
             )
@@ -1446,6 +1545,7 @@ mod tests {
                 Request::Connect {
                     port: None,
                     staging: staging::root(&session),
+                    serial: None,
                 },
                 SLOW,
             )

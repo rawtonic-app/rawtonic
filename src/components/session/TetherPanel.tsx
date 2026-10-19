@@ -92,6 +92,14 @@ const storedFreeCopies = () => {
   }
 };
 
+/** The camera keeps its photos only in its memory, not on its card (its
+ * "Save to" names RAM but no card): a photo exists only until it is on
+ * this computer. */
+export const ramOnly = (settings: { key: string; value: string }[]) => {
+  const target = settings.find((s) => s.key === "capturetarget")?.value.toLowerCase() ?? "";
+  return target.includes("ram") && !target.includes("card");
+};
+
 const sameCameras = (a: CameraInfo[], b: CameraInfo[]) =>
   a.length === b.length && a.every((c, i) => c.model === b[i].model && c.port === b[i].port);
 
@@ -519,6 +527,7 @@ export default function TetherPanel({
               ))}
             </div>
           )}
+          {ramOnly(settings) && <p className="tether-note">{t("session.tether.ramOnly")}</p>}
           {status.camera.transferQueue && (
             <label className="tether-free-copies">
               <input

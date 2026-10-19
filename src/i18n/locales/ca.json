@@ -1079,6 +1079,7 @@
       "looking": "Cercant càmeres…",
       "nextCapture": "Propera captura",
       "noCamera": "No s’ha trobat cap càmera per USB",
+      "ramOnly": "Aquesta càmera guarda les fotos només a la seva memòria, no a la targeta: cadascuna existeix només fins que és en aquest ordinador. Per conservar una còpia a la targeta, tria a Desa a una opció amb targeta.",
       "reconnecting": "Rawtonic torna a connectar la càmera quan torni.",
       "refresh": "Torna a cercar càmeres",
       "setOnBody": "Es configura a la càmera",

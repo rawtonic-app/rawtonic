@@ -1122,6 +1122,7 @@
       "looking": "Szukanie aparatów…",
       "nextCapture": "Następne zdjęcie",
       "noCamera": "Nie znaleziono aparatu na USB",
+      "ramOnly": "Ten aparat przechowuje zdjęcia tylko w pamięci, nie na karcie: każde istnieje tylko do chwili, gdy trafi na ten komputer. Aby zachować kopię na karcie, ustaw Zapisz w na opcję z kartą.",
       "reconnecting": "Rawtonic połączy aparat ponownie, gdy wróci.",
       "refresh": "Szukaj aparatów ponownie",
       "setOnBody": "Ustawione na korpusie aparatu",

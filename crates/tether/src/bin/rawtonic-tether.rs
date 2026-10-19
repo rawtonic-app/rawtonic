@@ -287,6 +287,7 @@ fn probe(args: &[String], mock: bool) -> Result<(), String> {
         Request::Connect {
             port: arg(args, "--port"),
             staging: out.clone(),
+            serial: None,
         },
         long,
     );

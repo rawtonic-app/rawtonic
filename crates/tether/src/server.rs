@@ -202,7 +202,11 @@ impl<W: Write> Server<W> {
             Request::ListCameras => Ok(Reply::Cameras {
                 cameras: self.driver.list()?,
             }),
-            Request::Connect { port, staging } => {
+            Request::Connect {
+                port,
+                staging,
+                serial,
+            } => {
                 if !staging.is_absolute() {
                     return Err(TetherError::new(
                         ErrorKind::Protocol,
@@ -212,6 +216,13 @@ impl<W: Write> Server<W> {
                 self.open = None;
                 let mut camera = self.driver.open(port.as_deref())?;
                 let status = camera.status();
+                if serial.is_some() && status.serial != serial {
+                    // Closed (dropped) before any event or download.
+                    return Err(TetherError::new(
+                        ErrorKind::NotFound,
+                        "Another body of that model is on this port.",
+                    ));
+                }
                 self.connections += 1;
                 self.open = Some(Open {
                     camera,
