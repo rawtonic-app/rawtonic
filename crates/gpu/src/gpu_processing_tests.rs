@@ -2768,6 +2768,9 @@ fn prepared_layers_match_previous_preview() {
     profiles.extend([
         ("mixed_neutral_curve_grade_hsl", mixed),
         ("mixed_reversed", reversed),
+        // A layer whose only slider is Defringe (the general shader's loop
+        // applies it; the prepared one must not skip the layer).
+        ("defringe_only", json!({"masks":[local_mask("defringe",json!({"defringe":80}))]})),
         ("grading_threshold", json!({"masks":[
             local_mask("below",json!({"colorGrading":{"global":{"hue":200,"saturation":0.49}}})),
             local_mask("at",json!({"colorGrading":{"global":{"hue":200,"saturation":0.5}}})),

@@ -165,6 +165,7 @@ fn has_scalars(m: &MaskAdjustments) -> bool {
         m.halation_amount,
         m.flare_amount,
         m.hue,
+        m.defringe,
         m.sharpness,
         m.moire[0],
     ]
