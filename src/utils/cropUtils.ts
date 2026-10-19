@@ -405,8 +405,11 @@ export const cropCameWithRotation = (
   next: CropGeometry & { crop: Crop | null },
   orientedW: number,
   orientedH: number,
+  madeByTool = false,
 ): boolean => {
-  if (!previous || seen === undefined || !next.crop) return false;
+  // A crop the tool computed itself (committed late with a newer angle by a
+  // slider drag's draft) is turned like any other, never kept as given.
+  if (madeByTool || !previous || seen === undefined || !next.crop) return false;
   // Only a crop that fits the frame at its rotation (Auto's always does); a
   // crop this tool made for an earlier angle and committed late does not.
   if (!isCropWithinBounds(next.crop, orientedW, orientedH, next.rotation)) return false;

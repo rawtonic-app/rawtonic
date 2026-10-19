@@ -29,6 +29,16 @@ describe('crop tool and a rotation that brings its crop', () => {
     expect(cropCameWithRotation(at0, px(0, 0, 6000, 4000), late, 6000, 4000)).toBe(false);
   });
 
+  it('turns a crop it made itself when it comes back with a newer angle', () => {
+    // 5 degrees' crop (made by the tool) arrives with the 10 degree commit of a drag.
+    const at5 = { rotation: 5, aspectRatio: 1.5, orientationSteps: 0 };
+    const madeFor5 = px(2513, 305, 1200, 800);
+    const late = { rotation: 10, aspectRatio: 1.5, orientationSteps: 0, crop: madeFor5 };
+    expect(cropCameWithRotation(at5, startCrop, late, 6000, 4000, true)).toBe(false);
+    // The same crop supplied from outside (Auto, undo) would be kept.
+    expect(cropCameWithRotation(at5, startCrop, late, 6000, 4000)).toBe(true);
+  });
+
   it('recalculates on entering the tool, a ratio or an orientation change', () => {
     expect(cropCameWithRotation(null, startCrop, auto, 6000, 4000)).toBe(false);
     expect(cropCameWithRotation(before, undefined, auto, 6000, 4000)).toBe(false);

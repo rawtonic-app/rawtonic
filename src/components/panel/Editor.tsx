@@ -172,6 +172,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   // The crop the recalculation last saw: a rotation that arrives with a crop
   // of its own (Auto straighten, undo, paste) keeps that crop.
   const prevCrop = useRef<Adjustments['crop'] | undefined>(undefined);
+  // The crops this recalculation made (they may come back later, with a
+  // newer angle, through a slider drag's draft).
+  const toolCrops = useRef(new WeakSet<object>());
   // The photograph the crop tool last worked on.
   const prevCropPath = useRef<string | null>(null);
   const lastValidCropRef = useRef<PercentCrop | null>(null);
@@ -1829,6 +1832,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         { rotation, aspectRatio, orientationSteps, crop: currentAdjCrop },
         oriented.width,
         oriented.height,
+        !!currentAdjCrop && toolCrops.current.has(currentAdjCrop),
       )
     ) {
       prevCropParams.current = { rotation, aspectRatio, orientationSteps };
@@ -1960,6 +1964,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             Math.abs(currentAdjCrop.width - nextPixelCrop.width) > 1 ||
             Math.abs(currentAdjCrop.height - nextPixelCrop.height) > 1)
         ) {
+          toolCrops.current.add(nextPixelCrop);
           setAdjustments((prev: Adjustments) => ({ ...prev, crop: nextPixelCrop }));
         }
       }
