@@ -217,10 +217,10 @@ fn edit_sidecars(
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
 ) -> Vec<(String, String)> {
-    let _turn = sidecar_field_edit();
     paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
             let saved = edit(path, &source_path, &sidecar_path)
                 .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
@@ -481,7 +481,7 @@ pub async fn apply_auto_adjustments_to_paths(
 
                     // Read again for the write: the photo may have been
                     // edited or tagged while it was decoded and measured.
-                    let _turn = sidecar_field_edit_in_pool();
+                    let _turn = sidecar_field_edit();
                     let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
                     let previous = existing_metadata.adjustments.clone();
                     crate::auto_adjust::merge_auto_adjustments(
@@ -598,33 +598,16 @@ fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
 
 static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Rating, colour label, keyword and recipe edits, and background AI
-/// tagging, read a photo's sidecar, change their part and write it back.
-/// They run on blocking workers (no longer one after the other on the main
-/// thread), so they take turns through this guard: none overwrites another's
-/// change. Not re-entrant. Holders may run rayon work (`par_iter`), so a
-/// rayon task waits with `sidecar_field_edit_in_pool` instead.
+/// Rating, colour label, keyword and recipe edits, batch Auto and background
+/// AI tagging read a photo's sidecar, change their part and write it back.
+/// They run on blocking workers and rayon tasks, so they take turns through
+/// this guard: none overwrites another's change. It covers one photo's read,
+/// change and write and is never held while waiting for other work (a
+/// batch's `par_iter`, a decode), so a rayon task may wait for it.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// `sidecar_field_edit` for a rayon task: while it waits it runs other
-/// pool work, so a holder whose `par_iter` needs the pool is never stuck
-/// behind workers that all wait for the turn.
-pub(crate) fn sidecar_field_edit_in_pool() -> std::sync::MutexGuard<'static, ()> {
-    loop {
-        match SIDECAR_FIELD_EDITS.try_lock() {
-            Ok(turn) => return turn,
-            Err(std::sync::TryLockError::Poisoned(turn)) => return turn.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                if rayon::yield_now() != Some(rayon::Yield::Executed) {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-            }
-        }
-    }
 }
 
 /// Every photo of `paths` unsaved: the worker saving them stopped (`error`).
@@ -656,7 +639,6 @@ fn set_color_label_for_paths_blocking(
     color: Option<String>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
-    let _turn = sidecar_field_edit();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
     let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -664,6 +646,7 @@ fn set_color_label_for_paths_blocking(
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = sidecar_field_edit();
             let (_, sidecar_path) = parse_virtual_path(path);
 
             let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
@@ -716,7 +699,6 @@ fn set_rating_for_paths_blocking(
     rating: u8,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
-    let _turn = sidecar_field_edit();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
     let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -724,6 +706,7 @@ fn set_rating_for_paths_blocking(
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = sidecar_field_edit();
             let (_, sidecar_path) = parse_virtual_path(path);
 
             let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
@@ -802,10 +785,11 @@ mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
 
-    /// Batch Auto waits for the sidecar turn inside rayon tasks; a holder
-    /// whose own `par_iter` needs the pool must still finish.
+    /// Batch edits take the sidecar turn per photo inside their `par_iter`
+    /// and batch Auto inside rayon tasks: a worker of one batch that steals
+    /// a task of the other while it waits must not stall either.
     #[test]
-    fn rayon_tasks_waiting_for_the_sidecar_turn_leave_the_pool_to_its_holder() {
+    fn batches_taking_the_sidecar_turn_in_one_pool_finish() {
         use std::sync::mpsc::channel;
         use std::time::Duration;
         let pool = std::sync::Arc::new(
@@ -815,28 +799,32 @@ mod tests {
                 .unwrap(),
         );
         let (waited, waits) = channel();
+        for _ in 0..8 {
+            let waited = waited.clone();
+            pool.spawn(move || {
+                let _turn = sidecar_field_edit();
+                std::thread::sleep(Duration::from_millis(2));
+                waited.send(()).unwrap();
+            });
+        }
         let (finished, done) = channel();
-        let holder = std::thread::spawn({
+        std::thread::spawn({
             let pool = pool.clone();
             move || {
-                let turn = sidecar_field_edit();
-                // More waiting tasks than workers.
-                for _ in 0..4 {
-                    let waited = waited.clone();
-                    pool.spawn(move || {
-                        let _turn = sidecar_field_edit_in_pool();
-                        waited.send(()).unwrap();
-                    });
-                }
-                std::thread::sleep(Duration::from_millis(50));
-                let sum: u32 = pool.install(|| (0..64u32).into_par_iter().sum());
-                drop(turn);
-                finished.send(sum).unwrap();
+                let edited = pool.install(|| {
+                    (0..64u32)
+                        .into_par_iter()
+                        .map(|i| {
+                            let _turn = sidecar_field_edit();
+                            i
+                        })
+                        .sum::<u32>()
+                });
+                finished.send(edited).unwrap();
             }
         });
         assert_eq!(done.recv_timeout(Duration::from_secs(10)), Ok(2016));
-        holder.join().unwrap();
-        for _ in 0..4 {
+        for _ in 0..8 {
             waits.recv_timeout(Duration::from_secs(10)).unwrap();
         }
     }

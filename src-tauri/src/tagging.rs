@@ -472,10 +472,10 @@ fn add_tag_for_paths_blocking(
     tag: String,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let _turn = file_management::sidecar_field_edit();
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = file_management::sidecar_field_edit();
             modify_tags_for_path(path, &app_handle, |tags| {
                 if !tags.contains(&tag) {
                     tags.push(tag.clone());
@@ -503,10 +503,10 @@ fn remove_tag_for_paths_blocking(
     tag: String,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let _turn = file_management::sidecar_field_edit();
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = file_management::sidecar_field_edit();
             modify_tags_for_path(path, &app_handle, |tags| {
                 tags.retain(|t| t != &tag);
             })
