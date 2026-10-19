@@ -259,8 +259,8 @@ export default function AboutSettings() {
         </Text>
         <Text className="mb-4">
           Rawtonic builds on these projects, data and models. The license texts
-          of every third-party package the app includes are below; the AI
-          models&apos; licenses come with the model pack.
+          of every third-party package the app includes and of the AI models
+          it downloads are below.
         </Text>
         <Text as="ul" className="space-y-3 list-disc ml-5 pl-1">
           {CREDITS.map((credit) => (
