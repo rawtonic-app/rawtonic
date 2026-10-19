@@ -12,7 +12,8 @@ import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { Panel } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
-vi.mock("../../context/ContextMenuContext", () => ({ useContextMenu: () => ({ showContextMenu: vi.fn() }) }));
+const showContextMenu = vi.hoisted(() => vi.fn());
+vi.mock("../../context/ContextMenuContext", () => ({ useContextMenu: () => ({ showContextMenu }) }));
 const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adjustments)) => {
   const prev = useEditorStore.getState().adjustments;
   useEditorStore.setState({ adjustments: typeof update === "function" ? update(prev) : update });
@@ -92,5 +93,32 @@ describe("eraser components", () => {
     expect(erasesFromLayer({ ...brush, mode: SubMaskMode.Additive }, true)).toBe(true);
     expect(erasesFromLayer({ ...brush, mode: SubMaskMode.Intersect }, true)).toBe(false);
     expect(erasesFromLayer(createSubMask(Mask.Radial, size, SubMaskMode.Subtractive), false)).toBe(false);
+  });
+});
+
+describe("the combine menus", () => {
+  /** Picks `kind` from the menu the combine button `title` opens. */
+  function pick(title: string, kind: string) {
+    showContextMenu.mockClear();
+    render(<StudioMaskComponents />);
+    act(() => screen.getByTitle(title).click());
+    const items = showContextMenu.mock.calls.at(-1)?.[2] as { label?: string; onClick?: () => void }[];
+    act(() => items.find((item) => item.label === kind)!.onClick!());
+  }
+
+  it("intersect the layer with a new brush instead of painting on it", () => {
+    pick("Keep only where this and the mask overlap", "Brush");
+    const added = layerOf().subMasks[1];
+    expect(added).toMatchObject({ type: Mask.Brush, mode: SubMaskMode.Intersect });
+    expect(useEditorStore.getState().activeMaskId).toBe(added.id);
+  });
+
+  it("still paint and erase with Add and Subtract", () => {
+    pick("Add to this layer's mask", "Brush");
+    expect(layerOf().subMasks[1]).toMatchObject({ type: Mask.Brush, mode: SubMaskMode.Additive });
+    cleanup();
+    setLayer(false);
+    pick("Subtract from this layer's mask", "Brush");
+    expect(layerOf().subMasks[1]).toMatchObject({ type: Mask.Brush, mode: SubMaskMode.Subtractive });
   });
 });
