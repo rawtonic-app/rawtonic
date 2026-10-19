@@ -488,8 +488,13 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       .then((status) => {
         if (!status?.camera || typeof status.session !== "string") return;
         // Also a camera that is away: leaving its library cancels its
-        // reconnect.
+        // reconnect — at once if another library is already open.
         tetheredFor.current = status.session.replace(/\/$/, "");
+        if (leavesTetheredLibrary(tetheredFor.current, useLibraryStore.getState().sessionDirectory)) {
+          tetheredFor.current = null;
+          void invoke(Invokes.TetherDisconnect).catch(() => {});
+          return;
+        }
         if (status.connected !== false) setTether(status);
       })
       .catch(() => {});

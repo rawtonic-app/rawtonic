@@ -4,7 +4,7 @@ use crate::protocol::{CameraInfo, CameraStatus, Setting, TetherError};
 use std::time::Duration;
 
 /// A file on the camera.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CameraFile {
     pub folder: String,
     pub name: String,

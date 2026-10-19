@@ -51,6 +51,8 @@ pub enum Request {
     Release {
         /// `Captured::connection` of the photo.
         connection: u64,
+        /// `Captured::download` of the photo.
+        download: u64,
         camera_folder: String,
         camera_name: String,
     },
@@ -123,6 +125,9 @@ pub struct Captured {
     /// The helper's number for the connection the photo came from (named
     /// again in `Release`).
     pub connection: u64,
+    /// Its number among that connection's downloads (named again in
+    /// `Release`: a camera file name may stand for a newer photo by then).
+    pub download: u64,
     /// Where it was on the camera.
     pub camera_folder: String,
     pub camera_name: String,

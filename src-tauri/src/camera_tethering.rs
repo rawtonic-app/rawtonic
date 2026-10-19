@@ -424,6 +424,27 @@ fn reconnect<'a>(
     }
 }
 
+/// A request to the connected camera: sent only while no connection change
+/// runs, and only to the connection that was current when it was asked for
+/// (a command never reaches a camera connected meanwhile).
+fn camera_request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply, String> {
+    let current = || {
+        HELPER
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|h| h.connection.as_ref().map(|c| c.id))
+    };
+    let Some(asked_for) = current() else {
+        return Err("No camera is connected.".into());
+    };
+    let _turn = TRANSITION.lock().unwrap();
+    if current() != Some(asked_for) {
+        return Err("The camera was connected again meanwhile; try once more.".into());
+    }
+    self::request(app, request, timeout)
+}
+
 /// Sends a request to the helper; one that hangs is ended (its next use
 /// starts a new helper).
 fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply, String> {
@@ -515,6 +536,7 @@ fn release_via(client: std::sync::Weak<Client>) -> Release {
         };
         let release = Request::Release {
             connection: captured.connection,
+            download: captured.download,
             camera_folder: captured.camera_folder.clone(),
             camera_name: captured.camera_name.clone(),
         };
@@ -546,13 +568,21 @@ fn spawn_ingest(
     photos: mpsc::Receiver<(Captured, Instant)>,
 ) -> Result<std::thread::JoinHandle<()>, String> {
     let root = staging::root(&session);
-    std::thread::Builder::new()
+    // The worker says whether it could open the library before the camera
+    // is opened: no photo is ever downloaded with nobody to take it in.
+    let (started_tx, started_rx) = mpsc::sync_channel::<Result<(), String>>(1);
+    let worker = std::thread::Builder::new()
         .name("tether-ingest".into())
         .spawn(move || {
             let lib = match Library::open(&session) {
-                Ok(lib) => lib,
+                Ok(lib) => {
+                    let _ = started_tx.send(Ok(()));
+                    lib
+                }
                 Err(e) => {
-                    notify("tether-error", json!(format!("{e:#}")));
+                    let _ = started_tx.send(Err(format!(
+                        "The library cannot take tethered photos: {e:#}"
+                    )));
                     return;
                 }
             };
@@ -576,7 +606,15 @@ fn spawn_ingest(
                 ingest.one(&captured.path.clone(), Some((captured, received)));
             }
         })
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    match started_rx.recv() {
+        Ok(Ok(())) => Ok(worker),
+        Ok(Err(e)) => {
+            let _ = worker.join();
+            Err(e)
+        }
+        Err(_) => Err("The tether ingest did not start.".into()),
+    }
 }
 
 /// One photo the tether brought in, for the interface.
@@ -899,6 +937,9 @@ pub async fn tether_disconnect(app: AppHandle) -> Result<(), String> {
             let _ = request(&app, Request::Disconnect, QUICK);
         }
         finish_ingest(&HELPER);
+        // Said like any other end of a connection (the shortcut follows it
+        // also when no panel is mounted).
+        let _ = app.emit("tether-state", json!({ "connected": false }));
         Ok(())
     })
     .await
@@ -928,27 +969,30 @@ fn status_of(state: &Mutex<Option<Helper>>) -> Option<TetherStatus> {
 
 #[tauri::command]
 pub async fn tether_settings(app: AppHandle) -> Result<Vec<Setting>, String> {
-    blocking(move || match request(&app, Request::Settings, SLOW)? {
-        Reply::Settings { settings } => Ok(settings),
-        _ => Err("Unexpected answer from the tether helper.".into()),
-    })
+    blocking(
+        move || match camera_request(&app, Request::Settings, SLOW)? {
+            Reply::Settings { settings } => Ok(settings),
+            _ => Err("Unexpected answer from the tether helper.".into()),
+        },
+    )
     .await
 }
 
 #[tauri::command]
 pub async fn tether_set_setting(key: String, value: String, app: AppHandle) -> Result<(), String> {
-    blocking(move || request(&app, Request::SetSetting { key, value }, QUICK).map(|_| ())).await
+    blocking(move || camera_request(&app, Request::SetSetting { key, value }, QUICK).map(|_| ()))
+        .await
 }
 
 /// Fires the shutter; the photo arrives as `tether-captured`.
 #[tauri::command]
 pub async fn tether_capture(app: AppHandle) -> Result<(), String> {
-    blocking(move || request(&app, Request::Capture, CAPTURE).map(|_| ())).await
+    blocking(move || camera_request(&app, Request::Capture, CAPTURE).map(|_| ())).await
 }
 
 #[tauri::command]
 pub async fn tether_autofocus(app: AppHandle) -> Result<(), String> {
-    blocking(move || request(&app, Request::Autofocus, QUICK).map(|_| ())).await
+    blocking(move || camera_request(&app, Request::Autofocus, QUICK).map(|_| ())).await
 }
 
 #[tauri::command]
@@ -957,7 +1001,7 @@ pub async fn tether_live_view(on: bool, app: AppHandle) -> Result<(), String> {
         if !on {
             FRAME.lock().unwrap().take();
         }
-        request(&app, Request::LiveView { on }, QUICK).map(|_| ())
+        camera_request(&app, Request::LiveView { on }, QUICK).map(|_| ())
     })
     .await
 }
@@ -1035,6 +1079,7 @@ mod tests {
             let captured = Captured {
                 path,
                 connection: 1,
+                download: n,
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1566,6 +1611,38 @@ mod tests {
     }
 
     #[test]
+    fn no_camera_is_opened_for_a_library_its_photos_cannot_go_into() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Not a library.
+        let folder = tmp.path().join("not-a-library");
+        fs::create_dir(&folder).unwrap();
+        let (state, client) = mock_helper(&MockSpec::default());
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(0, "x"),
+            free_camera_copies: false,
+        }));
+        let (notify, _seen) = collector();
+        let opened = open_session(
+            &state,
+            &Mutex::new(()),
+            client.clone(),
+            notify,
+            Opening {
+                session: folder,
+                port: None,
+                config,
+            },
+            || {},
+        );
+        assert!(opened.is_err(), "{opened:?}");
+        assert_eq!(
+            client.request(Request::Settings, QUICK).unwrap_err().kind,
+            ErrorKind::NotConnected
+        );
+    }
+
+    #[test]
     fn a_release_never_reaches_a_camera_of_a_later_helper() {
         let tmp = tempfile::tempdir().unwrap();
         let session = session(tmp.path());
@@ -1592,6 +1669,7 @@ mod tests {
                 Captured {
                     path: staging.join("x"),
                     connection: 1,
+                    download: 1,
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,
@@ -1756,6 +1834,7 @@ mod tests {
         let release: Release = Arc::new(move |captured: &Captured| {
             let release = Request::Release {
                 connection: captured.connection,
+                download: captured.download,
                 camera_folder: captured.camera_folder.clone(),
                 camera_name: captured.camera_name.clone(),
             };

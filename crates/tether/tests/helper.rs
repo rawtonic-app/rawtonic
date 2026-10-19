@@ -206,6 +206,7 @@ fn a_full_transfer_queue_fires_again_once_photos_are_released() {
     assert_eq!(full.kind, ErrorKind::Other);
     let release = Request::Release {
         connection: photos[0].connection,
+        download: photos[0].download,
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
@@ -265,6 +266,7 @@ fn a_release_from_an_earlier_connection_does_not_reach_the_camera_now_open() {
     assert_ne!(first.connection, second.connection);
     let release = |p: &Captured| Request::Release {
         connection: p.connection,
+        download: p.download,
         camera_folder: p.camera_folder.clone(),
         camera_name: p.camera_name.clone(),
     };
@@ -333,6 +335,42 @@ fn back_to_back_photos_under_one_reused_name_all_arrive() {
         .map(|p| std::fs::read(&p.path).unwrap())
         .collect();
     assert_eq!(contents.len(), 3);
+}
+
+#[test]
+fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        restart_numbering_every: Some(1),
+        queue_limit: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    let photos = helper.photos(2).0;
+    assert_eq!(photos[0].camera_name, photos[1].camera_name);
+    let release = |p: &Captured| Request::Release {
+        connection: p.connection,
+        download: p.download,
+        camera_folder: p.camera_folder.clone(),
+        camera_name: p.camera_name.clone(),
+    };
+    // The first one's release comes after the second photo took its name.
+    assert_eq!(
+        helper.client.request(release(&photos[0]), WAIT).unwrap(),
+        Reply::Ok
+    );
+    assert!(
+        helper.client.request(Request::Capture, WAIT).is_err(),
+        "the newer photo was not freed"
+    );
+    assert_eq!(
+        helper.client.request(release(&photos[1]), WAIT).unwrap(),
+        Reply::Ok
+    );
+    helper.capture();
 }
 
 #[test]

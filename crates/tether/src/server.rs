@@ -47,6 +47,8 @@ struct Open {
     downloaded: u64,
     /// The last file downloaded, with its length and content hash.
     last: Option<(CameraFile, usize, u64)>,
+    /// The download each camera file stands for now.
+    downloads: std::collections::HashMap<CameraFile, u64>,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -240,6 +242,7 @@ impl<W: Write> Server<W> {
                     waiting: VecDeque::new(),
                     downloaded: 0,
                     last: None,
+                    downloads: Default::default(),
                     connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
@@ -281,20 +284,24 @@ impl<W: Write> Server<W> {
             }
             Request::Release {
                 connection,
+                download,
                 camera_folder,
                 camera_name,
             } => {
                 let open = self.camera()?;
-                // A photo of an earlier connection stays on its camera: the
-                // camera now open may be another one with a file of that name.
-                if open.connection != connection {
-                    log::info!("{camera_name} is from an earlier connection; not released");
-                    return Ok(Reply::Ok);
-                }
-                open.camera.release(&CameraFile {
+                let file = CameraFile {
                     folder: camera_folder,
                     name: camera_name,
-                })?;
+                };
+                // A photo of an earlier connection stays on its camera (the
+                // camera now open may be another one with a file of that
+                // name), and so does one whose name stands for a newer photo.
+                if open.connection != connection || open.downloads.get(&file) != Some(&download) {
+                    log::info!("{} is not the photo to release any more; kept", file.name);
+                    return Ok(Reply::Ok);
+                }
+                open.camera.release(&file)?;
+                open.downloads.remove(&file);
                 Ok(Reply::Ok)
             }
             Request::Shutdown => {
@@ -399,6 +406,7 @@ impl<W: Write> Server<W> {
         };
         open.downloaded = shot;
         open.last = Some((file.clone(), data.len(), content_hash(&data)));
+        open.downloads.insert(file.clone(), shot);
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,
@@ -422,6 +430,7 @@ impl<W: Write> Server<W> {
         let captured = Captured {
             path,
             connection: open.connection,
+            download: shot,
             camera_folder: file.folder,
             camera_name: file.name,
             size: expected,
