@@ -764,6 +764,9 @@ impl Ingest<'_> {
             self.previous = Some(asset.clone());
         }
         let committed = asset.is_some() || result.skipped;
+        // Decided with the commit, before the interface hears of the photo:
+        // a setting changed after that applies to the next photo.
+        let free = self.config.lock().unwrap().free_camera_copies;
         let timing = captured.as_ref();
         let event = TetherCaptured {
             session: self
@@ -785,7 +788,6 @@ impl Ingest<'_> {
         (self.notify)("tether-captured", json!(event));
         // Only now that the photo is in the library (or a verified duplicate
         // of one there) may the camera let go of it.
-        let free = self.config.lock().unwrap().free_camera_copies;
         if committed
             && free
             && let Some((captured, _)) = &captured
@@ -1101,17 +1103,26 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let session = session(tmp.path());
         let (tx, rx) = mpsc::channel::<(Captured, Instant)>();
-        let freed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let counter = freed.clone();
-        let release: Release = Arc::new(move |_: &Captured| {
-            counter.fetch_add(1, Ordering::SeqCst);
+        let (freed_tx, freed) = mpsc::channel::<String>();
+        let freed_tx = Mutex::new(freed_tx);
+        let release: Release = Arc::new(move |captured: &Captured| {
+            let _ = freed_tx.lock().unwrap().send(captured.camera_name.clone());
         });
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}".into(),
             settings: settings(0, "off"),
             free_camera_copies: false,
         }));
-        let (notify, seen) = collector();
+        let (collect, seen) = collector();
+        // Turned on the moment the interface hears of the first photo: that
+        // photo was committed with it off.
+        let switch = config.clone();
+        let notify: Notify = Arc::new(move |name: &str, value| {
+            if name == "tether-captured" {
+                switch.lock().unwrap().free_camera_copies = true;
+            }
+            collect(name, value);
+        });
         spawn_ingest(
             notify,
             release,
@@ -1141,16 +1152,16 @@ mod tests {
         };
         send(1);
         captured(&seen, 1);
-        assert_eq!(freed.load(Ordering::SeqCst), 0, "turned off");
-        config.lock().unwrap().free_camera_copies = true;
         send(2);
         captured(&seen, 1);
-        // Freed right after the interface heard of the photo.
-        let started = Instant::now();
-        while freed.load(Ordering::SeqCst) == 0 && started.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert_eq!(freed.load(Ordering::SeqCst), 1, "freed after its commit");
+        // Freed right after the interface heard of the photo; the first one
+        // never (a release of it would come before this one).
+        let first = freed
+            .recv_timeout(Duration::from_secs(30))
+            .expect("freed after its commit");
+        assert_eq!(first, "DSCF0002.RAF", "turned off for the first photo");
+        drop(tx);
+        assert!(freed.recv_timeout(Duration::from_secs(30)).is_err());
     }
 
     #[test]
@@ -1680,6 +1691,13 @@ mod tests {
         let writing = staging::Partial::create(&root, 1, "DSC00001.ARW").unwrap();
         let (state, client) = mock_helper(&MockSpec::default());
         client.kill();
+        // A kill takes effect a little later: until then the helper can
+        // still confirm the disconnect (and the folder may be read).
+        let started = Instant::now();
+        while client.alive() {
+            assert!(started.elapsed() < Duration::from_secs(30), "not ended");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}".into(),
             settings: settings(0, "x"),
