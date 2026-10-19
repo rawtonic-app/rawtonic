@@ -19,7 +19,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
-import { cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
+import { cropEditCancelled, cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
 import { toast } from 'react-toastify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -579,6 +579,15 @@ describe('Auto straighten', () => {
     await act(async () => { during = await result.current.handleAutoStraighten(); });
     expect(during).toBe('stale');
     cropGestureEnded();
+  });
+
+  it('drops the answer when the crop edit was cancelled meanwhile (Escape)', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    cropEditCancelled();
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('stale');
   });
 
   it('runs one analysis for requests made while one is running', async () => {

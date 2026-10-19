@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
-import { cropGestureEnded, cropGestureStarted } from '../../../utils/cropGesture';
+import { useCropGestures } from '../../../utils/cropGesture';
 import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Group, Circle, Rect } from 'react-konva';
@@ -1706,6 +1706,7 @@ const ImageCanvas = memo(
     // Capture One shows the grid and the frame's size only while the frame
     // is dragged; Lightroom can show the grid always (crop grid setting).
     const [isCropDragging, setIsCropDragging] = useState(false);
+    const cropGesture = useCropGestures();
     const cropGrid = appSettings?.cropGrid ?? 'drag';
     const cropShade = (appSettings?.cropShade ?? 50) / 100;
     useEffect(() => {
@@ -2797,7 +2798,7 @@ const ImageCanvas = memo(
         let latest: { px: Crop; percent: PercentCrop } | null = null;
         cropEdgeDragging.current = true;
         setIsCropDragging(true);
-        cropGestureStarted();
+        cropGesture.start();
         const move = (event: PointerEvent) => {
           event.preventDefault();
           const rect = resizeCropFromEdge(
@@ -2828,13 +2829,13 @@ const ImageCanvas = memo(
           cropEdgeDragging.current = false;
           setIsCropDragging(false);
           if (latest) handleCropComplete(latest.px, latest.percent);
-          cropGestureEnded();
+          cropGesture.end();
         };
         window.addEventListener('pointermove', move, true);
         window.addEventListener('pointerup', end, true);
         window.addEventListener('pointercancel', end, true);
       },
-      [adjustments.aspectRatio, uncroppedImageRenderSize, crop, setCrop, handleCropComplete],
+      [adjustments.aspectRatio, uncroppedImageRenderSize, crop, setCrop, handleCropComplete, cropGesture],
     );
 
     // Lightroom / Capture One: dragging just outside the crop frame (or beside
@@ -3499,11 +3500,11 @@ const ImageCanvas = memo(
                 onComplete={handleCropComplete}
                 onDragStart={() => {
                   setIsCropDragging(true);
-                  cropGestureStarted();
+                  cropGesture.start();
                 }}
                 onDragEnd={() => {
                   setIsCropDragging(false);
-                  cropGestureEnded();
+                  cropGesture.end();
                 }}
                 style={{ '--crop-shade': cropShade } as React.CSSProperties}
                 ruleOfThirds={false}

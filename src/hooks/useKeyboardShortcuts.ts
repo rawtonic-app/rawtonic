@@ -4,6 +4,7 @@ import { BrushSettings, ImageFile, Panel } from '../components/ui/AppProperties'
 import { buildComboMap, normalizeCombo } from '../utils/keyboardUtils';
 import { toggleWindowFullScreen } from '../utils/photoFullScreen';
 import { runAutoStraighten } from '../utils/autoStraighten';
+import { cropEditCancelled } from '../utils/cropGesture';
 import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDisplay } from '../utils/maskDisplay';
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
@@ -831,6 +832,8 @@ export const useKeyboardShortcuts = ({
               );
               if (changed) updateAdjustments((prev) => ({ ...prev, ...entry.values }));
             }
+            // A pending Auto straighten answer is for the cancelled edit.
+            cropEditCancelled();
             s.ui.setPanel(Panel.Adjustments);
           }
           else if (s.ui.isFullScreen) s.ui.toggleFullScreen();
