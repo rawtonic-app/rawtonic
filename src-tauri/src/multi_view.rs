@@ -456,6 +456,24 @@ fn current_key(context: &GpuContext, path: &str) -> Option<u64> {
         .and_then(|display| display.multi_view().texture_key(path))
 }
 
+/// What a prepared base of `path` depends on: the recipe's preparation
+/// (geometry, retouch) and the source it was made from (a full decode
+/// arriving after a proxy invalidates it).
+fn base_key(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::Value) -> u64 {
+    let state = app_handle.state::<AppState>();
+    let mut hash = DefaultHasher::new();
+    crate::preview_cache::preparation_key(recipe).hash(&mut hash);
+    if let Some((image, _)) = state
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&decoded_key(path, recipe))
+    {
+        (Arc::as_ptr(&image) as usize).hash(&mut hash);
+    }
+    hash.finish()
+}
+
 fn prepare(
     app_handle: &tauri::AppHandle,
     worker: &Worker,
@@ -463,21 +481,7 @@ fn prepare(
     todo: Todo,
 ) -> Result<Option<Prepared>, String> {
     let start = Instant::now();
-    // A full decode arriving after a proxy invalidates its prepared base.
-    let preparation_key = {
-        let state = app_handle.state::<AppState>();
-        let mut hash = DefaultHasher::new();
-        crate::preview_cache::preparation_key(&todo.recipe).hash(&mut hash);
-        if let Some((image, _)) = state
-            .decoded_image_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&decoded_key(&todo.path, &todo.recipe))
-        {
-            (Arc::as_ptr(&image) as usize).hash(&mut hash);
-        }
-        hash.finish()
-    };
+    let preparation_key = base_key(app_handle, &todo.path, &todo.recipe);
     let known = worker
         .memory
         .lock()
@@ -1721,7 +1725,19 @@ fn with_live_patch(mut recipe: serde_json::Value) -> serde_json::Value {
 /// other photographs (`None` once they are, or when it ends). The other cells
 /// follow them live, between the primary's frames.
 #[tauri::command]
-pub(crate) fn set_multi_view_live(patch: Option<serde_json::Value>) {
+pub(crate) fn set_multi_view_live(
+    patch: Option<serde_json::Value>,
+    state: tauri::State<'_, AppState>,
+) {
+    if set_live(patch) {
+        // The preview worker may be waiting for the primary's next frame,
+        // which a typed value never asks for.
+        state.preview_jobs.wake();
+    }
+}
+
+/// Keeps `patch` as the live changes; returns whether cells have to follow.
+fn set_live(patch: Option<serde_json::Value>) -> bool {
     let patch = patch.and_then(|patch| match patch {
         serde_json::Value::Object(map) if !map.is_empty() => Some(map),
         _ => None,
@@ -1733,6 +1749,7 @@ pub(crate) fn set_multi_view_live(patch: Option<serde_json::Value>) {
     live.patch = patch;
     live.settled = 0;
     LIVE_PENDING.store(pending, Ordering::Release);
+    pending
 }
 
 /// Whether [`live_step`] has a cell to develop (cheap; the preview worker
@@ -1846,7 +1863,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
         let Some((facts, (preparation_key, dim, base, mask_source))) = base else {
             continue;
         };
-        if preparation_key != crate::preview_cache::preparation_key(&recipe) {
+        if preparation_key != base_key(app_handle, &path, &recipe) {
             continue;
         }
         let key = render_key(&recipe, dim, &context);
@@ -2127,17 +2144,17 @@ mod tests {
     #[test]
     fn live_changes_show_over_the_stored_recipe_until_cleared() {
         let stored = serde_json::json!({"exposure": 0.0, "contrast": 10, "crop": null});
-        set_multi_view_live(Some(serde_json::json!({"exposure": 1.25})));
+        set_live(Some(serde_json::json!({"exposure": 1.25})));
         assert!(live_pending());
         let shown = with_live_patch(stored.clone());
         assert_eq!(shown["exposure"], 1.25);
         assert_eq!(shown["contrast"], 10);
         // Written: the stored recipe alone again, nothing left to develop.
-        set_multi_view_live(None);
+        set_live(None);
         assert!(!live_pending());
         assert_eq!(with_live_patch(stored.clone()), stored);
         // An empty patch is no patch.
-        set_multi_view_live(Some(serde_json::json!({})));
+        set_live(Some(serde_json::json!({})));
         assert!(!live_pending());
     }
 }

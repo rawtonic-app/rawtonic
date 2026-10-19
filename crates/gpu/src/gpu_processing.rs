@@ -2071,7 +2071,8 @@ fn to_rgba_f16(img: &DynamicImage) -> Vec<f16> {
 /// Rows per input upload band; 256 rows of a 50 MP frame are 16 MB as f16.
 const INPUT_UPLOAD_BAND_ROWS: u32 = 256;
 
-/// Threads converting input textures for callers outside rayon (the
+/// Threads for CPU work under the GPU processor lock (input conversion,
+/// the colour noise pyramid) of callers outside rayon (the
 /// preview, export and multi view workers), apart from the global pool.
 fn upload_pool() -> &'static rayon::ThreadPool {
     static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
@@ -2083,6 +2084,18 @@ fn upload_pool() -> &'static rayon::ThreadPool {
             .build()
             .expect("GPU upload thread pool")
     })
+}
+
+/// Runs `work`, which holds the GPU processor lock and may use rayon (the
+/// colour noise pyramid), off the global pool for callers outside rayon: its
+/// threads may all be waiting for that lock (thumbnail batches), so its
+/// parallel work would never run. A rayon worker runs it in place, as before.
+fn off_global_pool<R: Send>(work: impl FnOnce() -> R + Send) -> R {
+    if rayon::current_thread_index().is_some() {
+        work()
+    } else {
+        upload_pool().install(work)
+    }
 }
 
 /// Creates the Rgba16Float input texture of `image` band by band.
@@ -7181,14 +7194,18 @@ pub fn process_and_get_dynamic_image_inner(
     }
 
     let cache = cache_lock.as_mut().unwrap();
-    let chroma = prepare_color_noise(
-        context,
-        processor,
-        cache,
-        base_image,
-        &mut request.adjustments,
-        output_to_display || readback_shader != ReadbackShader::Export,
-    );
+    let interactive = output_to_display || readback_shader != ReadbackShader::Export;
+    let adjustments = &mut request.adjustments;
+    let chroma = off_global_pool(|| {
+        prepare_color_noise(
+            context,
+            processor,
+            cache,
+            base_image,
+            adjustments,
+            interactive,
+        )
+    });
 
     let skip_readback = output_to_display;
     let display_targets = output_to_display.then(|| processor.display_targets(width, height));
