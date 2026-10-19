@@ -872,11 +872,6 @@ fn crop_intermediate(intermediate: Intermediate, frame: rawler::imgop::Rect) -> 
     }
 }
 
-/// The EOS 300D's ISO 100 response flattens above raw 2480; Adobe DNG
-/// Converter writes a linearization table that expands the top (raw 4000
-/// to the equivalent of 5120) and renders the frame 0.37 EV darker than a
-/// linear white of 4000 (identical table in both ISO 100 files checked;
-/// none at ISO 1600). Fitted cubic, within 0.08 raw units of the table.
 /// Camera Raw renders files it has no as-shot white for with its Auto
 /// white balance (EOS D30: As Shot and Auto give identical renders). A grey
 /// world over the active area's unclipped samples stands in for it.
@@ -953,6 +948,12 @@ fn normalize_wb_to_largest(wb: [f32; 4]) -> [f32; 4] {
     wb.map(|v| v / largest)
 }
 
+/// The EOS 300D's ISO 100 response flattens above raw 2480; Adobe DNG
+/// Converter writes a linearization table that expands the top (raw 4000
+/// to the equivalent of 5120) and renders the frame 0.37 EV darker than a
+/// linear white of 4000 (identical table in both ISO 100 files checked;
+/// none at ISO 1600). Fitted cubic (`canon_300d_linear`), within 0.08 raw
+/// units of the table.
 fn linearize_canon_300d(raw_image: &mut RawImage, iso: Option<u32>) {
     let is_300d = raw_image.make == "Canon"
         && matches!(
@@ -1121,9 +1122,6 @@ impl DngLensContext {
     }
 }
 
-/// Files without usable as-shot white balance (older Canon CRWs such as
-/// the IXUS 75: rawler finds no table and returns NaN) rendered green.
-/// The camera's XYZ→camera matrix gives the daylight neutral instead.
 fn cfa_color_count(raw_image: &RawImage) -> usize {
     match &raw_image.photometric {
         RawPhotometricInterpretation::Cfa(config) => config.cfa.unique_colors(),
@@ -1131,6 +1129,9 @@ fn cfa_color_count(raw_image: &RawImage) -> usize {
     }
 }
 
+/// Files without usable as-shot white balance (older Canon CRWs such as
+/// the IXUS 75: rawler finds no table and returns NaN) rendered green.
+/// The camera's XYZ→camera matrix gives the daylight neutral instead.
 fn fallback_white_balance_from_matrix(raw_image: &mut RawImage) {
     let wb = raw_image.wb_coeffs;
     // Balances beyond 12× between channels are misread values (Kodak
@@ -1366,15 +1367,6 @@ fn use_mode_color_pattern(raw_image: &mut RawImage) {
     }
 }
 
-/// Full-resolution develop of an RGB colour-filter mosaic (Bayer, X-Trans)
-/// with Rawtonic's demosaicing (demosaic.rs) instead of rawler's PPG and
-/// X-Trans averaging. Returns the same intermediate as rawler's Rescale,
-/// Demosaic, CropActiveArea, WhiteBalance, Calibrate and CropDefault steps,
-/// in the same units, so the rest of the pipeline is unchanged: white
-/// balance is applied to the mosaic before demosaicing (the interpolation
-/// works on colour differences of balanced data), then the camera matrix.
-/// `None` for other layouts or without a usable colour matrix; rawler's
-/// develop handles those.
 /// White balance and colour matrix exactly as the developed image uses
 /// them, for `develop_internal` and `image_color`. Returns the DNG's
 /// ProfileGainTableMap bytes when it has one.
@@ -1598,9 +1590,16 @@ fn draft_pool() -> &'static rayon::ThreadPool {
     })
 }
 
-/// The own development of RGB mosaics: white balance, demosaicing (or,
-/// with `draft`, 3 x 3 binning of X-Trans mosaics; other drafts return
-/// None and use rawler's), camera to linear sRGB, default crop.
+/// Full-resolution develop of an RGB colour-filter mosaic (Bayer, X-Trans)
+/// with Rawtonic's demosaicing (demosaic.rs) instead of rawler's PPG and
+/// X-Trans averaging. Returns the same intermediate as rawler's Rescale,
+/// Demosaic, CropActiveArea, WhiteBalance, Calibrate and CropDefault steps,
+/// in the same units, so the rest of the pipeline is unchanged: white
+/// balance is applied to the mosaic before demosaicing (the interpolation
+/// works on colour differences of balanced data), then the camera matrix.
+/// `None` for other layouts or without a usable colour matrix; rawler's
+/// develop handles those. With `draft`, X-Trans mosaics are binned 3 x 3
+/// instead of demosaiced; other drafts return `None` and use rawler's.
 fn develop_rgb_mosaic(
     raw_image: &mut RawImage,
     rescale_factor: f32,

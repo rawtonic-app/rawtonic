@@ -120,8 +120,8 @@ pub const FUJIFILM_DR_BASELINE_MODELS: &[&str] = &[
 /// +1.79 → −0.18 EV against Camera Raw). SuperCCD SR bodies record the
 /// low-sensitivity R photodiodes, and Camera Raw's white sits at their
 /// saturation instead, a fixed number of stops above the S photodiodes'
-/// (fitted to Camera Raw's renders of one DR 400 file each: S3 Pro 3.7,
-/// S5 Pro 3.85, F700 3.35 stops).
+/// (fitted to Camera Raw's renders of one DR 400 file each: S3 Pro and
+/// S5 Pro 3.8, F700 3.35 stops).
 pub fn fujifilm_white_extension_ev(make: &str, model: &str, dynamic_range: Option<u32>) -> f32 {
     let boost = fujifilm_dynamic_range_ev(make, model, dynamic_range);
     const SUPERCCD_SR_STOPS: &[(&str, f32)] = &[
