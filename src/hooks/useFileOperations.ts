@@ -158,6 +158,7 @@ export function useFileOperations(
       }
 
       try {
+        await saveEditsFirst();
         const command = options.includeAssociated ? 'delete_files_with_associated' : 'delete_files_from_disk';
         const summary = await invoke<FileOperationSummary>(command, { paths: pathsToDelete });
         if (summary) toast.success(describeFileOperation(summary, undoKey()));
@@ -382,6 +383,7 @@ export function useFileOperations(
           message: `Move the folder "${name}" and everything in it to the Trash? In a session it goes to its Trash folder. ${undoKey()} undoes it.`,
           onConfirm: async () => {
             try {
+              await saveEditsFirst();
               const summary = await invoke<FileOperationSummary>(Invokes.DeleteFolder, { path });
               if (summary) toast.success(describeFileOperation(summary, undoKey()));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
