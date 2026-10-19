@@ -272,14 +272,15 @@ function afterRecipeOperations(paths: string[]): Promise<void> | null {
   return waits.length > 0 ? Promise.all(waits).then(() => undefined) : null;
 }
 
-/** Resolves once none of `paths` is the editor's photograph still loading
- * (a queued operation then runs on it as on any other; at most a minute). */
-function afterEditorLoads(paths: string[]): Promise<void> {
+/** When one of `paths` is the editor's photograph still loading: a promise
+ * for its load (a queued operation then runs on it as on any other; at most
+ * a minute), else null (nothing to wait for: it runs at once). */
+function afterEditorLoads(paths: string[]): Promise<void> | null {
   const loading = () => {
     const image = useEditorStore.getState().selectedImage;
     return !!image && !image.isReady && paths.includes(image.path);
   };
-  if (!loading()) return Promise.resolve();
+  if (!loading()) return null;
   return new Promise<void>((resolve) => {
     const timer = setTimeout(done, 60_000);
     const unsubscribe = useEditorStore.subscribe(() => {
@@ -616,7 +617,8 @@ export function useEditorActions() {
       // those asked for after (exclusiveRecipeOperation).
       void exclusiveRecipeOperation(pathsToReset, async () => {
         // Loading in the editor (opened meanwhile): reset once it is loaded.
-        await afterEditorLoads(pathsToReset);
+        const load = afterEditorLoads(pathsToReset);
+        if (load) await load;
         const { libraryActivePath, setLibrary } = useLibraryStore.getState();
         const { selectedImage, pushHistory } = useEditorStore.getState();
 
@@ -779,7 +781,8 @@ export function useEditorActions() {
       return exclusiveRecipeOperation(pathsToUpdate, async () => {
         // Asked for while it is loading in the editor (opened meanwhile):
         // applied once it is loaded, not dropped.
-        if (!openingNow) await afterEditorLoads(pathsToUpdate);
+        const load = openingNow ? null : afterEditorLoads(pathsToUpdate);
+        if (load) await load;
         const { selectedImage, adjustments } = useEditorStore.getState();
 
         pathsToUpdate.forEach((p) => globalImageCache.delete(p));
