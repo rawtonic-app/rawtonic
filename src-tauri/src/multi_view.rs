@@ -369,23 +369,18 @@ const REGION_MEASURES_KEPT: usize = 4096;
 enum MeasuredOn<'a> {
     /// A decode kept in memory (the decode cache's image).
     Decode(&'a Arc<DynamicImage>),
-    /// The photograph's 1:1 preview, decoded whole: what its regions are
-    /// cut from and what its whole warp measured, so a region gets the same
-    /// whether its measures were recorded before or are taken now. Keyed by
-    /// the preview's current key (file size, modification time, decoder
-    /// settings, engine version), so a preview rebuilt from other settings
-    /// or another file never finds those of the last one.
-    Preview,
+    /// The photograph's 1:1 preview with this header key (what it was made
+    /// from: file size, modification time, decoder settings, engine
+    /// version), as read: what its regions are cut from and what its whole
+    /// warp measured, so a region gets the same whether its measures were
+    /// recorded before or are taken now, and a preview rebuilt from other
+    /// settings or another file never finds those of the last one.
+    Preview(&'a crate::preview_proxy::ProxyKey),
     /// A full decode used once (not kept): measured, not recorded.
     Fresh,
 }
 
-fn source_identity(
-    path: &str,
-    recipe: &serde_json::Value,
-    on: MeasuredOn,
-    settings: &crate::app_settings::AppSettings,
-) -> Option<u64> {
+fn source_identity(path: &str, recipe: &serde_json::Value, on: MeasuredOn) -> Option<u64> {
     let mut hash = DefaultHasher::new();
     let (source_path, _) = parse_virtual_path(path);
     match on {
@@ -395,25 +390,17 @@ fn source_identity(
             image.dimensions().hash(&mut hash);
         }
         MeasuredOn::Fresh => return None,
-        MeasuredOn::Preview => {
-            // The preview as reading it validates it (its own decoder key,
-            // which follows the master photograph, not this copy's recipe).
-            let key = crate::preview_proxy::full_key(&source_path, settings)?;
+        MeasuredOn::Preview(key) => {
             source_path.hash(&mut hash);
-            (key.file_size, key.modified_ns, key.decoder, key.engine).hash(&mut hash);
+            (key.file_size, key.modified_ns, &key.decoder, key.engine).hash(&mut hash);
         }
     }
     Some(hash.finish())
 }
 
-fn measures_key(
-    path: &str,
-    recipe: &serde_json::Value,
-    on: MeasuredOn,
-    settings: &crate::app_settings::AppSettings,
-) -> Option<MeasuresKey> {
+fn measures_key(path: &str, recipe: &serde_json::Value, on: MeasuredOn) -> Option<MeasuresKey> {
     Some((
-        source_identity(path, recipe, on, settings)?,
+        source_identity(path, recipe, on)?,
         RegionMeasures::inputs_key(recipe)?,
         crate::preview_cache::preparation_key(recipe),
     ))
@@ -424,16 +411,15 @@ fn known_measures(
     path: &str,
     recipe: &serde_json::Value,
     on: MeasuredOn,
-    settings: &crate::app_settings::AppSettings,
 ) -> Option<RegionMeasures> {
-    let key = measures_key(path, recipe, on, settings)?;
+    let key = measures_key(path, recipe, on)?;
     let all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
     let (measures, decode) = all.as_ref()?.get(&key)?;
     let current = match (on, decode) {
         (MeasuredOn::Decode(image), Some(weak)) => {
             weak.strong_count() > 0 && std::sync::Weak::ptr_eq(weak, &Arc::downgrade(image))
         }
-        (MeasuredOn::Preview, None) => true,
+        (MeasuredOn::Preview(_), None) => true,
         _ => false,
     };
     current.then_some(*measures)
@@ -447,26 +433,23 @@ pub(crate) fn measure_preview(
     recipe: &serde_json::Value,
     settings: &crate::app_settings::AppSettings,
 ) {
-    if RegionMeasures::inputs_key(recipe).is_none()
-        || known_measures(path, recipe, MeasuredOn::Preview, settings).is_some()
-    {
+    if RegionMeasures::inputs_key(recipe).is_none() {
         return;
     }
     let (source, _) = parse_virtual_path(path);
+    if crate::preview_proxy::full_key(&source, settings)
+        .is_some_and(|key| known_measures(path, recipe, MeasuredOn::Preview(&key)).is_some())
+    {
+        return;
+    }
     let Some(proxy) =
         crate::preview_proxy::read_kind(&source, crate::preview_proxy::ProxyKind::Full, settings)
     else {
         return;
     };
     if proxy.image.width() == proxy.full_width {
-        note_measures(
-            path,
-            recipe,
-            &proxy.image,
-            MeasuredOn::Preview,
-            true,
-            settings,
-        );
+        let on = MeasuredOn::Preview(&proxy.key);
+        note_measures(path, recipe, &proxy.image, on, true);
     }
 }
 
@@ -484,19 +467,13 @@ fn note_measures(
     image: &DynamicImage,
     on: MeasuredOn,
     reuse: bool,
-    settings: &crate::app_settings::AppSettings,
 ) -> Option<RegionMeasures> {
     RegionMeasures::inputs_key(recipe)?;
-    if reuse && let Some(known) = known_measures(path, recipe, on, settings) {
+    if reuse && let Some(known) = known_measures(path, recipe, on) {
         return Some(known);
     }
-    let before = measures_key(path, recipe, on, settings);
     let measures = RegionMeasures::of(image.as_rgb32f()?, recipe);
-    // Recorded only when the pixels' identity held while measuring (a 1:1
-    // preview rebuilt meanwhile is not the one measured).
-    if let Some(key) =
-        before.filter(|key| measures_key(path, recipe, on, settings).as_ref() == Some(key))
-    {
+    if let Some(key) = measures_key(path, recipe, on) {
         let mut all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
         let all = all.get_or_insert_with(HashMap::new);
         if all.len() >= REGION_MEASURES_KEPT {
@@ -1228,6 +1205,16 @@ pub(crate) async fn set_multi_view_zoom(
     .map_err(|e| format!("Multi view zoom task failed: {e}"))
 }
 
+/// A full-resolution source: the image, its pixels per full-resolution pixel,
+/// its facts, what it is and, for a 1:1 preview, its header key.
+type FullSource = (
+    Arc<DynamicImage>,
+    f32,
+    Facts,
+    &'static str,
+    Option<crate::preview_proxy::ProxyKey>,
+);
+
 /// A photograph at full resolution for zoomed regions: a decode still cached
 /// from Develop, its 1:1 preview, else a full decode. Returns the image, its
 /// pixels per full-resolution pixel and its facts.
@@ -1235,7 +1222,7 @@ fn load_full_source(
     app_handle: &tauri::AppHandle,
     path: &str,
     recipe: &serde_json::Value,
-) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
+) -> Result<FullSource, String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
@@ -1252,7 +1239,7 @@ fn load_full_source(
             full_height,
             is_raw,
         };
-        return Ok((image, 1.0, facts, "decoded"));
+        return Ok((image, 1.0, facts, "decoded", None));
     }
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     if is_raw
@@ -1268,7 +1255,13 @@ fn load_full_source(
             full_height: proxy.full_height,
             is_raw,
         };
-        return Ok((Arc::new(proxy.image), scale, facts, "proxy-1:1"));
+        return Ok((
+            Arc::new(proxy.image),
+            scale,
+            facts,
+            "proxy-1:1",
+            Some(proxy.key),
+        ));
     }
     let bytes = read_file_mapped(&source_path).map_err(|e| e.to_string())?;
     let image = crate::image_loader::load_base_image_for_recipe(
@@ -1287,7 +1280,7 @@ fn load_full_source(
         full_height,
         is_raw,
     };
-    Ok((Arc::new(image), 1.0, facts, "full-decode"))
+    Ok((Arc::new(image), 1.0, facts, "full-decode", None))
 }
 
 fn region_key(recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
@@ -1343,18 +1336,18 @@ fn prepare_region(
             log::info!("[multi_view] {path}: region from the whole photograph ({reason})")
         }
     }
-    let (source, source_scale, facts, source_kind) = load_full_source(app_handle, path, recipe)?;
-    let settings = load_settings(app_handle.clone()).unwrap_or_default();
+    let (source, source_scale, facts, source_kind, preview_key) =
+        load_full_source(app_handle, path, recipe)?;
     if let Some(base) = region_from_full_decode(
         path,
         &source,
         source_scale,
         source_kind,
+        preview_key.as_ref(),
         facts,
         area,
         zoom,
         recipe,
-        &settings,
     ) {
         let kind = match source_kind {
             "full-decode" => "full-decode-rows",
@@ -1489,16 +1482,14 @@ fn prepare_region_from_rows(
     };
     // The measures of the decode in memory, else those recorded for the
     // 1:1 preview's photograph.
+    let mut preview_key = None;
     let measures = match &decoded {
-        Some(decoded) => note_measures(
-            path,
-            recipe,
-            decoded,
-            MeasuredOn::Decode(decoded),
-            true,
-            &settings,
-        ),
-        None => known_measures(path, recipe, MeasuredOn::Preview, &settings),
+        Some(decoded) => note_measures(path, recipe, decoded, MeasuredOn::Decode(decoded), true),
+        None => crate::preview_proxy::full_key(&source_path, &settings).and_then(|key| {
+            let measures = known_measures(path, recipe, MeasuredOn::Preview(&key));
+            preview_key = Some(key);
+            measures
+        }),
     };
     let plan = region_plan(facts, area, zoom, recipe, measures)?;
     let (image, kind, read_ms) = match decoded {
@@ -1516,6 +1507,9 @@ fn prepare_region_from_rows(
             let read =
                 crate::preview_proxy::read_full_rows(&source_path, &settings, plan.rows, plan.cols)
                     .ok_or("no current 1:1 preview")?;
+            if !rows_fit_measures(measures.is_some(), preview_key.as_ref(), &read.key) {
+                return Err("1:1 preview changed while planning");
+            }
             if (read.width, read.height) != (full_w, full_h) {
                 return Err("1:1 preview of another size");
             }
@@ -1545,6 +1539,17 @@ fn prepare_region_from_rows(
         start.elapsed().as_secs_f64() * 1e3
     );
     Ok((region_base(image, &plan, facts, zoom, recipe), kind))
+}
+
+/// Whether rows read from a 1:1 preview with `read` key may be warped with
+/// the measures planned (of the preview with `planned` key): not when the
+/// preview was rebuilt in between.
+fn rows_fit_measures(
+    measured: bool,
+    planned: Option<&crate::preview_proxy::ProxyKey>,
+    read: &crate::preview_proxy::ProxyKey,
+) -> bool {
+    !measured || planned == Some(read)
 }
 
 /// How the region of a photograph of `facts` its cell `area` shows at
@@ -1606,11 +1611,11 @@ fn region_from_full_decode(
     source: &Arc<DynamicImage>,
     source_scale: f32,
     source_kind: &str,
+    preview_key: Option<&crate::preview_proxy::ProxyKey>,
     facts: Facts,
     area: [f32; 4],
     zoom: CellZoom,
     recipe: &serde_json::Value,
-    settings: &crate::app_settings::AppSettings,
 ) -> Option<RegionBase> {
     if zoom.scale < 1.0 || source_scale != 1.0 || !region_from_rows_possible(recipe) {
         return None;
@@ -1624,12 +1629,12 @@ fn region_from_full_decode(
     };
     // A decode in memory or a 1:1 preview: its own, measured once. A full
     // decode used once: its own, not recorded.
-    let on = match source_kind {
-        "decoded" => MeasuredOn::Decode(source),
-        "proxy-1:1" => MeasuredOn::Preview,
+    let on = match (source_kind, preview_key) {
+        ("decoded", _) => MeasuredOn::Decode(source),
+        (_, Some(key)) => MeasuredOn::Preview(key),
         _ => MeasuredOn::Fresh,
     };
-    let measures = note_measures(path, recipe, source, on, true, settings);
+    let measures = note_measures(path, recipe, source, on, true);
     let plan = region_plan(facts, area, zoom, recipe, measures).ok()?;
     let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
     let image = image_processing::transformed_region(&rows, recipe, &plan)?;
@@ -2240,6 +2245,10 @@ mod tests {
             raw_highlight_compression: Some(1.0),
             ..Default::default()
         };
+        let current = |settings: &crate::app_settings::AppSettings| {
+            crate::preview_proxy::full_key(&photo, settings)
+                .and_then(|key| known_measures(&path, &recipe, MeasuredOn::Preview(&key)))
+        };
         // The preview as the master's stored recipe has it (either filter).
         let multiscale = [true, false]
             .into_iter()
@@ -2248,47 +2257,42 @@ mod tests {
                 crate::preview_proxy::has_full(&photo, &settings)
             })
             .expect("a current preview");
+        let first_key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
         measure_preview(&path, &recipe, &settings);
-        let measured = known_measures(&path, &recipe, MeasuredOn::Preview, &settings);
-        assert!(measured.is_some_and(|m| m.fringe_radius.is_some()));
-        // Rebuilt with other decoder settings: the measures of the last one
-        // are not found, neither by the new settings nor the old ones.
+        assert!(current(&settings).is_some_and(|m| m.fringe_radius.is_some()));
+        // Rebuilt with other decoder settings: the current preview has none.
         crate::preview_proxy::write_full(&photo, &image, &other, multiscale).unwrap();
-        assert_eq!(
-            known_measures(&path, &recipe, MeasuredOn::Preview, &other),
-            None
-        );
-        assert_eq!(
-            known_measures(&path, &recipe, MeasuredOn::Preview, &settings),
-            None
-        );
+        assert_eq!(current(&other), None);
+        assert_eq!(current(&settings), None);
+        // Rows read after a rebuild do not fit measures planned before it.
+        let rows = crate::preview_proxy::read_full_rows(&photo, &other, (0, 4), (0, 4)).unwrap();
+        assert!(!rows_fit_measures(true, Some(&first_key), &rows.key));
+        assert!(rows_fit_measures(true, Some(&rows.key), &rows.key));
+        assert!(rows_fit_measures(false, None, &rows.key));
         // Another file at the same path: its old preview is not current.
         crate::preview_proxy::write_full(&photo, &image, &settings, multiscale).unwrap();
         measure_preview(&path, &recipe, &settings);
-        assert!(known_measures(&path, &recipe, MeasuredOn::Preview, &settings).is_some());
+        assert!(current(&settings).is_some());
         std::fs::write(&photo, b"second, longer").unwrap();
-        assert_eq!(
-            known_measures(&path, &recipe, MeasuredOn::Preview, &settings),
-            None
-        );
+        assert_eq!(current(&settings), None);
         // A decode in memory: measured once, then found.
         let decode = Arc::new(image);
         let on = MeasuredOn::Decode(&decode);
-        assert_eq!(known_measures(&path, &recipe, on, &settings), None);
-        let first = note_measures(&path, &recipe, &decode, on, true, &settings);
-        assert_eq!(known_measures(&path, &recipe, on, &settings), first);
+        assert_eq!(known_measures(&path, &recipe, on), None);
+        let first = note_measures(&path, &recipe, &decode, on, true);
+        assert_eq!(known_measures(&path, &recipe, on), first);
         // Evicted and decoded again (another allocation): measured anew.
         let image = (*decode).clone();
         drop(decode);
         let again = Arc::new(image);
         assert_eq!(
-            known_measures(&path, &recipe, MeasuredOn::Decode(&again), &settings),
+            known_measures(&path, &recipe, MeasuredOn::Decode(&again)),
             None
         );
         // A recipe that needs none records none.
         let on = MeasuredOn::Decode(&again);
         assert_eq!(
-            note_measures(&path, &serde_json::json!({}), &again, on, true, &settings),
+            note_measures(&path, &serde_json::json!({}), &again, on, true),
             None
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -2317,8 +2321,8 @@ mod tests {
             "lensDistortionParams": {"k1": -0.05}, "colorNoiseReduction": 25});
         // Warm: measured by the background work after the preview was made.
         measure_preview(&path, &recipe, &settings);
-        let warm =
-            known_measures(&path, &recipe, MeasuredOn::Preview, &settings).expect("measured");
+        let key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
+        let warm = known_measures(&path, &recipe, MeasuredOn::Preview(&key)).expect("measured");
         // Cold (restart): a region measures the preview it reads.
         REGION_MEASURES
             .lock()
@@ -2332,20 +2336,15 @@ mod tests {
             &settings,
         )
         .unwrap();
-        let cold = note_measures(
-            &path,
-            &recipe,
-            &proxy.image,
-            MeasuredOn::Preview,
-            true,
-            &settings,
-        );
+        assert_eq!(proxy.key, key);
+        let on = MeasuredOn::Preview(&proxy.key);
+        let cold = note_measures(&path, &recipe, &proxy.image, on, true);
         assert_eq!(cold, Some(warm));
         // A full decode used once is measured but never recorded.
-        let fresh = note_measures(&path, &recipe, &decode, MeasuredOn::Fresh, true, &settings);
+        let fresh = note_measures(&path, &recipe, &decode, MeasuredOn::Fresh, true);
         assert!(fresh.is_some());
         assert_eq!(
-            known_measures(&path, &recipe, MeasuredOn::Preview, &settings),
+            known_measures(&path, &recipe, MeasuredOn::Preview(&key)),
             Some(warm)
         );
         let _ = std::fs::remove_dir_all(&dir);
