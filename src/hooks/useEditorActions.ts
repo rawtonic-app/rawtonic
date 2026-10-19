@@ -98,11 +98,17 @@ export function registerScheduledRecipe(read: () => ScheduledRecipe | null): () 
 /** Schedules the open photograph's recipe when it changed after the last
  * one scheduled: a slider still being dragged is saved only when the drag
  * ends. Only a fully loaded photograph whose recipe was taken before. */
+let scheduledHere: Adjustments | null = null;
 function scheduleUnsavedEditorRecipe() {
   const scheduled = readScheduledRecipe?.();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!scheduled || !selectedImage?.isReady || scheduled.path !== selectedImage.path) return;
-  if (scheduled.adjustments !== adjustments) debouncedSave(selectedImage.path, adjustments);
+  // Once per recipe: the baseline moves only when the editor's own autosave
+  // runs, so a second call would save the same recipe again.
+  if (scheduled.adjustments !== adjustments && scheduledHere !== adjustments) {
+    scheduledHere = adjustments;
+    debouncedSave(selectedImage.path, adjustments);
+  }
 }
 
 /**
@@ -335,6 +341,14 @@ export async function reloadWrittenRecipes(written: string[]): Promise<void> {
  * another's; later ones wait for this one. */
 export async function exclusiveRecipeOperation<T>(paths: string[], operation: () => Promise<T>): Promise<T> {
   const unique = [...new Set(paths)];
+  // The open photograph's edits made before this was asked for are saved
+  // first, in order (the operation waits for that save): its autosave must
+  // not land after it.
+  const open = useEditorStore.getState().selectedImage?.path;
+  if (open && unique.includes(open)) {
+    scheduleUnsavedEditorRecipe();
+    debouncedSave.flush();
+  }
   const earlier = afterRecipeOperations(unique);
   let ended!: () => void;
   const end = new Promise<void>((resolve) => {

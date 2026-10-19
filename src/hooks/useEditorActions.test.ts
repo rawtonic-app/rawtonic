@@ -911,6 +911,43 @@ describe('Auto straighten for a selection', () => {
     }
   });
 
+  it('saves a pending edit before a reset queued with a batch, never after it', async () => {
+    let baseline = useEditorStore.getState().adjustments;
+    const taken = baseline;
+    const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: baseline }));
+    // As useImageProcessing does: a held recipe becomes the save baseline.
+    const unsubscribe = useEditorStore.subscribe((state) => {
+      if (state.heldRecipePaths.includes('/first.dng')) baseline = state.adjustments;
+    });
+    try {
+      useEditorStore.setState({ adjustments: { ...taken, exposure: 4 } });
+      const { result } = renderHook(useEditorActions);
+      act(() => result.current.handleResetAdjustments(['/first.dng']));
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+      await act(async () => {});
+      const writes = () =>
+        vi.mocked(invoke).mock.calls
+          .filter(([c]) => c === Invokes.SaveMetadataAndUpdateThumbnail || c === Invokes.ResetAdjustmentsForPaths)
+          .map(([c, a]) => (c === Invokes.ResetAdjustmentsForPaths ? 'reset' : `save ${(a as { adjustments: Adjustments }).adjustments.exposure}`));
+      // The pending edit's save went first, alone.
+      expect(writes()).toEqual(['save 4']);
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      await act(async () => {});
+      expect(writes()).toEqual(['save 4', 'reset']);
+      await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+      await act(async () => {});
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+      await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1 } });
+      await finish(Invokes.LoadMetadata, { adjustments: { rotation: -1 } });
+      // Nothing saved the old exposure over the reset.
+      expect(writes()).toEqual(['save 4', 'reset']);
+      expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1, exposure: 0 });
+    } finally {
+      unsubscribe();
+      unregister();
+    }
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
