@@ -70,6 +70,8 @@ chmod +x Rawtonic_*_amd64.AppImage
 
 It runs on current distributions (Ubuntu 22.04 or later, Debian 12, Fedora and others with glibc 2.35 or later). If it does not start, install FUSE 2 (`sudo apt install libfuse2t64` on Ubuntu 24.04, `libfuse2` on older Ubuntu and Debian) or start it with `--appimage-extract-and-run`. The very first start can take a minute or two before the first photo appears while the graphics driver prepares Rawtonic's shaders; later starts are quick.
 
+To update, use [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate) or [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever): the AppImage names its GitHub releases as its update source, and they download only the changed parts. Rawtonic itself never checks for updates.
+
 ### Other systems
 
 Intel Macs and Windows builds are not available yet; you can [build from source](docs/DEVELOPMENT.md) on them.
@@ -189,7 +191,7 @@ Rawtonic's goal is simple to state and hard to reach: every tool should be at le
 - **Cameras.** The focus is on professional and popular cameras and phones of the last ten years (Canon, Nikon, Sony, Fujifilm, Panasonic, OM System/Olympus, Leica, DJI, iPhone ProRAW and other DNGs). Older or rarer cameras may open with less accurate colour, or not at all. Nikon _High Efficiency_ NEFs are not supported yet; use lossless compressed RAW for now.
 - **Importing from Lightroom or Capture One** brings over metadata, albums and most edits, but not everything: some adjustments, virtual copies and smart collections don't transfer, and photos can look different.
 - **Relight is experimental.** The original light's own cast shadows stay in the photo, and the subject's shadow on the background does not touch the ground.
-- **Tethering is new.** The Tether tool (session bar) connects a camera on USB through libgphoto2 in a separate helper process, fires it, shows its settings and live view and copies each photo into Capture. It has been tested on a Mac with a Sony a7 III and a7 IV and a Fujifilm X-H2S and GFX 50R (capture, settings, focus, cable pulled and plugged in again, long series); Fujifilm live view does not work yet, the GFX 50R shows a new photo a little later than Capture One, Canon cameras are not supported yet, and other cameras and Linux have not been tried with a body. The hot folder works with your camera maker's tethering app.
+- **Tethering is experimental.** The Tether tool (session bar) connects a camera on USB through libgphoto2 in a separate helper process, fires it, shows its settings and live view and copies each photo into Capture. It has been tested on a Mac with a Sony a7 III and a7 IV and a Fujifilm X-H2S and GFX 50R (capture, settings, focus, cable pulled and plugged in again, long series); Fujifilm live view does not work yet, the GFX 50R shows a new photo a little later than Capture One, Canon cameras are not supported yet, and other cameras and Linux have not been tried with a body. The hot folder works with your camera maker's tethering app.
 - Expect rough edges in the interface, missing shortcuts and the occasional crash. Please [report them](#bug-reports--feedback).
 
 ## Bug reports & feedback

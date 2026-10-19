@@ -21,6 +21,11 @@ export CARGO_HOME=/cache/cargo CARGO_TARGET_DIR=/cache/target npm_config_cache=/
 export PATH=$CARGO_HOME/bin:/home/builder/.cargo/bin:$PATH RUSTUP_HOME=/home/builder/.rustup
 # linuxdeploy is itself an AppImage; containers have no FUSE mount.
 export APPIMAGE_EXTRACT_AND_RUN=1 CI=true RAWTONIC_BUNDLE_ONNX=1
+# Update information for AppImageUpdate and Gear Lever, which the user runs
+# (the app itself never checks for updates, PRIVACY.md): the newest GitHub
+# release, pre-releases included; appimagetool writes the matching .zsync
+# beside the AppImage, to be attached to the release with it.
+export LDAI_UPDATE_INFORMATION='gh-releases-zsync|rawtonic-app|rawtonic|latest-all|Rawtonic_*_amd64.AppImage.zsync'
 npm ci
 # The tether helper with libgphoto2 built from pinned sources (ADR 0012).
 scripts/tether/bundle_helper.sh
@@ -31,4 +36,7 @@ rm -rf "$CARGO_TARGET_DIR/release/bundle/appimage"
 LD_LIBRARY_PATH="$CARGO_TARGET_DIR/tether-bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
   npm run tauri -- build --bundles appimage --config "$CARGO_TARGET_DIR/tether-bundle/tauri.tether.conf.json" \
   $TAURI_ARGS -- --locked
-ls -la /cache/target/release/bundle/appimage/
+bundle=/cache/target/release/bundle/appimage
+ls -la "$bundle"
+# A release AppImage without its .zsync could not be updated.
+ls "$bundle"/*.AppImage.zsync >/dev/null
