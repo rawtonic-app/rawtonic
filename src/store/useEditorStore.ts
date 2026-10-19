@@ -145,10 +145,6 @@ interface EditorState {
    * values arrive and replace them in place; they stay inert meanwhile.
    * See `panelsShowReady`. */
   panelsHeld: boolean;
-  /** Photographs whose recipes a batch edit (Auto straighten) is writing:
-   * while one of them is open, its edits, undo/redo, history navigation and
-   * autosave wait until the batch has reloaded it (`isRecipeHeld`). */
-  heldRecipePaths: string[];
   /** The native display shows the uncropped crop-editing frame. */
   nativeCropFrame: boolean;
   /** One tool's copied values (Capture One's per-tool copy/apply). */
@@ -185,10 +181,6 @@ interface EditorState {
  * `selectedImage.isReady`. */
 export const panelsShowReady = (state: Pick<EditorState, 'selectedImage' | 'panelsHeld'>) =>
   Boolean(state.selectedImage && (state.selectedImage.isReady || state.panelsHeld));
-
-/** Whether a batch edit is writing the open photograph's recipe. */
-export const isRecipeHeld = (state: Pick<EditorState, 'heldRecipePaths' | 'selectedImage'>): boolean =>
-  !!state.selectedImage && state.heldRecipePaths.includes(state.selectedImage.path);
 
 export const useEditorStore = create<EditorState>((set) => ({
   selectedImage: null,
@@ -258,7 +250,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   hasRenderedFirstFrame: false,
   holdingNativeFrame: false,
   panelsHeld: false,
-  heldRecipePaths: [],
   nativeCropFrame: false,
   toolClipboard: null,
   nativeMaskOverlay: null,
@@ -283,7 +274,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   undo: () => {
     debouncedSetHistory.flush();
     set((state) => {
-      if (isRecipeHeld(state)) return state;
       if (state.historyIndex > 0) {
         const newIndex = state.historyIndex - 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
@@ -296,7 +286,6 @@ export const useEditorStore = create<EditorState>((set) => ({
     // A pending edit branches history and invalidates the old redo chain.
     debouncedSetHistory.flush();
     set((state) => {
-      if (isRecipeHeld(state)) return state;
       if (state.historyIndex < state.history.length - 1) {
         const newIndex = state.historyIndex + 1;
         return { historyIndex: newIndex, adjustments: state.history[newIndex] };
@@ -322,7 +311,6 @@ export const useEditorStore = create<EditorState>((set) => ({
     if (!target) return;
     debouncedSetHistory.flush();
     set((state) => {
-      if (isRecipeHeld(state)) return state;
       const currentIndex = state.history.indexOf(target);
       if (currentIndex >= 0) {
         return { historyIndex: currentIndex, adjustments: target };

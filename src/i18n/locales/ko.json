@@ -188,8 +188,6 @@
       "autoAdjust_other": "이미지 자동 조정",
       "autoLensCorrection_one": "자동 렌즈 교정",
       "autoLensCorrection_other": "자동 렌즈 교정",
-      "autoStraighten_one": "자동 수평 맞추기",
-      "autoStraighten_other": "자동 수평 맞추기",
       "collage_one": "이미지 프레임",
       "collage_other": "콜라주 만들기",
       "confirmDelete": "삭제 확인",
@@ -1515,7 +1513,6 @@
         "straightenTool": "수평 맞추기 도구"
       },
       "autoStraighten": "자동",
-      "autoStraightenBatch": "수평 맞춤: {{straightened}} · 직선 없음: {{noLines}} · 그사이 변경됨: {{changed}} · 실패: {{failed}}",
       "autoStraightenFailed": "자동 수평 맞추기 실패: {{error}}",
       "autoStraightenNoLines": "수평을 맞출 직선을 찾지 못했습니다",
       "autoStraightenTitle": "수평선이나 수직선을 기준으로 사진 수평을 맞추고 자르기를 조정합니다",

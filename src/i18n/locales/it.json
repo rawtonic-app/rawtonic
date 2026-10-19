@@ -191,9 +191,6 @@
       "autoLensCorrection_one": "Correzione automatica obiettivo",
       "autoLensCorrection_many": "Correzione automatica obiettivo",
       "autoLensCorrection_other": "Correzione automatica obiettivo",
-      "autoStraighten_one": "Raddrizza automaticamente",
-      "autoStraighten_many": "Raddrizza automaticamente",
-      "autoStraighten_other": "Raddrizza automaticamente",
       "collage_one": "Incornicia Immagine",
       "collage_many": "Crea Collage",
       "collage_other": "Crea Collage",
@@ -1607,7 +1604,6 @@
         "straightenTool": "Strumento Raddrizza"
       },
       "autoStraighten": "Auto",
-      "autoStraightenBatch": "Raddrizzate: {{straightened}} · senza linee rette: {{noLines}} · modificate nel frattempo: {{changed}} · non riuscite: {{failed}}",
       "autoStraightenFailed": "Raddrizzamento automatico non riuscito: {{error}}",
       "autoStraightenNoLines": "Nessuna linea retta trovata per livellare la foto",
       "autoStraightenTitle": "Livella la foto in base all’orizzonte o alle verticali e adatta il ritaglio",

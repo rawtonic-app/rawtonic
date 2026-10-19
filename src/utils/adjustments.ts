@@ -433,19 +433,6 @@ export const withDiffractionVersion = <T extends Partial<Adjustments>>(
   return { ...picked, diffractionVersion: source?.diffractionVersion ?? 1 };
 };
 
-/** A delta taken from `source` (Auto Sync) with the values its keys are read
- * by — grain structure, AI Denoise version, diffraction version — taken from
- * `source` too, so the defaults for presets and recipes from before those
- * keys (withGrainStructure, withAiDenoiseVersion, withDiffractionVersion)
- * do not apply to a current edit. */
-export const withSourceVersions = <T extends Partial<Adjustments>>(delta: T, source: Partial<Adjustments>): T => {
-  let out: T = withDiffractionVersion(withAiDenoiseVersion(delta, source), source);
-  if (out.grainAmount !== undefined && out.grainStructure === undefined && source.grainStructure !== undefined) {
-    out = { ...out, grainStructure: source.grainStructure };
-  }
-  return out;
-};
-
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
  * structure starts as Clumped. */
 export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>
@@ -569,8 +556,10 @@ export interface Adjustments {
   lumaNoiseContrast?: number;
   colorNoiseDetail?: number;
   colorNoiseSmoothness?: number;
-  /** Colour noise reduction filter: 6 = multi-scale, measured per photo
-   * (crates/engine/src/color_noise.rs), the finest detail measured against
+  /** Colour noise reduction filter: 7 = multi-scale, measured per photo
+   * (crates/engine/src/color_noise.rs), an isolated off-colour pixel's
+   * finest detail taken from its 3 × 3 median chroma (fewer isolated colour
+   * specks); 6 = the same filter without that, the finest detail measured against
    * the same edge-aware expansion as the reconstruction (no halos or
    * blotchy rims along colour edges); 5 = the same filter without that, a
    * pixel whose colour is an outlier among its 3 × 3 neighbours keeps to
@@ -1162,7 +1151,7 @@ export const RAW_DETAIL_DEFAULTS = {
 
 /** The colour noise reduction new edits start with (notes: reference/detail.md,
  * reference/color-noise-reference.md). */
-export const COLOR_NOISE_VERSION = 6;
+export const COLOR_NOISE_VERSION = 7;
 
 /** The first colour noise version that is the multi-scale filter; versions
  * from it on share its base image (no decode-time chroma clean-up). */

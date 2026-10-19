@@ -121,38 +121,3 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   expect(useEditorStore.getState().adjustments).toBe(before);
   expect(useEditorStore.getState().history).toBe(history);
 });
-
-it("does nothing on the editor's Reset while a batch holds the photograph", () => {
-  const held = { path: raw, isReady: true, isRaw: true, width: 6000, height: 4000 } as never;
-  const shown = { ...useEditorStore.getState().adjustments, exposure: 4 };
-  useEditorStore.setState({ selectedImage: held, adjustments: shown, heldRecipePaths: [raw] });
-  const { result } = renderHook(() => useAppContextMenus(props));
-  result.current.handleEditorContextMenu(event);
-  const reset = showContextMenu.mock.lastCall![2].find((o) => o.label === 'contextMenus.editor.resetAdjustments')!;
-  reset.submenu!.find((o) => o.label === 'contextMenus.editor.confirmReset')!.onClick!();
-  expect(useEditorStore.getState().adjustments).toBe(shown);
-  // Released, the same Reset resets.
-  useEditorStore.setState({ heldRecipePaths: [] });
-  reset.submenu!.find((o) => o.label === 'contextMenus.editor.confirmReset')!.onClick!();
-  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
-});
-
-it("writes selection Auto Adjust after a photo's pending save", async () => {
-  const { invoke } = await import('@tauri-apps/api/core');
-  const { debouncedSave } = await import('./useEditorActions');
-  let finishSave!: () => void;
-  vi.mocked(invoke).mockImplementation((command) => {
-    if (command === 'save_metadata_and_update_thumbnail') return new Promise<void>((resolve) => { finishSave = resolve; }) as never;
-    if (command === 'load_metadata') return Promise.resolve({ adjustments: { exposure: 2 } }) as never;
-    return Promise.resolve() as never;
-  });
-  // A whole-recipe save of the photo is still being written.
-  debouncedSave(raw, { ...useEditorStore.getState().adjustments, exposure: 1 });
-  debouncedSave.flush();
-  useUIStore.setState({ activeView: 'library' });
-  find(openMenu(raw), 'contextMenus.thumbnail.autoAdjust')!.onClick!();
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  expect(invoke).not.toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] });
-  finishSave();
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] }));
-});

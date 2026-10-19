@@ -47,8 +47,8 @@ import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
-import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
-import { useLibraryStore } from '../store/useLibraryStore';
+import { useEditorStore } from '../store/useEditorStore';
+import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -61,15 +61,16 @@ import {
   AlbumItem,
   Album,
   AlbumGroup,
+  ImageMetadata,
 } from '../components/ui/AppProperties';
-import { Color, COLOR_LABELS, INITIAL_ADJUSTMENTS, initialAdjustmentsFor } from '../utils/adjustments';
+import { Color, COLOR_LABELS, INITIAL_ADJUSTMENTS, initialAdjustmentsFor, normalizeLoadedAdjustments } from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { afterRecipeSaves, exclusiveRecipeOperation, reloadWrittenRecipes, useEditorActions } from './useEditorActions';
+import { isCurrentEditorImage, useEditorActions } from './useEditorActions';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { runAutoStraighten, runAutoStraightenPaths } from '../utils/autoStraighten';
+import { runAutoStraighten } from '../utils/autoStraighten';
 import { previewsMenu } from '../utils/previews';
 import { MISSING_VIEW_ID, offlineMenu } from '../utils/offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from '../utils/folderSync';
@@ -103,7 +104,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
     handleAutoAdjustments,
     handleAutoLensCorrection,
     handleAutoStraighten,
-    handleAutoStraightenPaths,
     handleResetAdjustments,
     handleCopyAdjustments,
     handlePasteAdjustments,
@@ -349,8 +349,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               icon: Check,
               isDestructive: true,
               onClick: () => {
-                // A batch edit is writing this recipe: no edits until it is reloaded.
-                if (isRecipeHeld(useEditorStore.getState())) return;
                 const originalAspectRatio =
                   selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
                 const resetData = {
@@ -387,8 +385,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       event.preventDefault();
       event.stopPropagation();
 
-      const { selectedImage, copiedAdjustments } = useEditorStore.getState();
-      const { multiSelectedPaths, imageList, albumTree, activeAlbumId, setLibrary, sessionDirectory } =
+      const { selectedImage, copiedAdjustments, setEditor } = useEditorStore.getState();
+      const { multiSelectedPaths, imageList, libraryActivePath, albumTree, activeAlbumId, setLibrary, sessionDirectory } =
         useLibraryStore.getState();
       const { appSettings } = useSettingsStore.getState();
       const { activeView, setUI, setPanel } = useUIStore.getState();
@@ -520,11 +518,7 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
         if (selectedImage && !selectedImage.isReady && finalSelection.includes(selectedImage.path)) return;
         finalSelection.forEach((p) => globalImageCache.delete(p));
 
-        // Its reload replaces the whole recipe: after and before the other
-        // operations on these photographs (batch Auto straighten, Auto lens).
-        // Its write follows their pending saves (a failed one is retried
-        // first and, failing again, keeps that recipe as it is).
-        void exclusiveRecipeOperation(finalSelection, () => afterRecipeSaves(finalSelection, () => invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection }))
+        invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
           .then(
             () => [] as string[],
             (err) => {
@@ -537,13 +531,30 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
           )
           .then(async (failed) => {
             const applied = finalSelection.filter((p) => !failed.includes(p));
-            // Whichever of them is open now (maybe opened while this waited).
-            await reloadWrittenRecipes(applied);
+            // The open photograph may have changed meanwhile: its editor
+            // only takes the result while it is still the one open.
+            if (selectedImage && applied.includes(selectedImage.path) && isCurrentEditorImage(selectedImage.path)) {
+              const metadata = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
+              if (isCurrentEditorImage(selectedImage.path) && metadata.adjustments && !metadata.adjustments.is_null) {
+                const normalized = normalizeLoadedAdjustments(metadata.adjustments, selectedImage.isRaw);
+                setEditor({ adjustments: normalized });
+                useEditorStore.getState().resetHistory(normalized);
+              }
+            }
+            if (libraryActivePath && applied.includes(libraryActivePath)
+              && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
+              const metadata = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+              if (useLibraryStore.getState().libraryActivePath === libraryActivePath
+                && metadata.adjustments && !metadata.adjustments.is_null) {
+                const normalized = normalizeLoadedAdjustments(metadata.adjustments, isRawInLibrary(libraryActivePath));
+                setLibrary({ libraryActiveAdjustments: normalized });
+              }
+            }
           })
           .catch((err) => {
             console.error('Failed to apply auto adjustments to paths:', err);
             toast.error(t('contextMenus.toasts.failedApplyAuto', { err }));
-          }));
+          });
       };
 
       const onExportClick = () => {
@@ -653,11 +664,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               label: t('contextMenus.thumbnail.autoLensCorrection', { count: selectionCount }),
               icon: Aperture,
               onClick: () => handleAutoLensCorrection(finalSelection),
-            },
-            {
-              label: t('contextMenus.thumbnail.autoStraighten', { count: selectionCount }),
-              icon: Ruler,
-              onClick: () => void runAutoStraightenPaths(handleAutoStraightenPaths, finalSelection),
             },
             {
               label: conversionLabel,
@@ -888,7 +894,6 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
       handleCopyAdjustments,
       handlePasteAdjustments,
       handleAutoLensCorrection,
-      handleAutoStraightenPaths,
       handleRate,
       handleSetColorLabel,
       handleTagsChanged,

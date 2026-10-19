@@ -306,14 +306,6 @@ describe("Delete in Develop", () => {
     expect(masks()).toEqual(["m:r"]);
     expect(useEditorStore.getState().activeMaskContainerId).toBeNull();
   });
-
-  it("removes nothing while a batch edit holds the photograph", () => {
-    withLayers(null);
-    useEditorStore.setState({ heldRecipePaths: ["/a.raf"] });
-    press("Backspace");
-    expect(masks()).toEqual(["l:sk", "m:r"]);
-    useEditorStore.setState({ heldRecipePaths: [] });
-  });
 });
 
 describe("M after a layer's first adjustment (Lightroom's automatic overlay)", () => {

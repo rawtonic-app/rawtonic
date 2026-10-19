@@ -194,10 +194,6 @@
       "autoLensCorrection_few": "Автокоррекция объектива",
       "autoLensCorrection_many": "Автокоррекция объектива",
       "autoLensCorrection_other": "Автокоррекция объектива",
-      "autoStraighten_one": "Автовыравнивание",
-      "autoStraighten_few": "Автовыравнивание",
-      "autoStraighten_many": "Автовыравнивание",
-      "autoStraighten_other": "Автовыравнивание",
       "collage_one": "Добавить рамку",
       "collage_few": "Создать коллаж",
       "collage_many": "Создать коллаж",
@@ -1664,7 +1660,6 @@
         "straightenTool": "Инструмент выравнивания"
       },
       "autoStraighten": "Авто",
-      "autoStraightenBatch": "Выровнено: {{straightened}} · без прямых линий: {{noLines}} · изменено за это время: {{changed}} · с ошибкой: {{failed}}",
       "autoStraightenFailed": "Не удалось выполнить автовыравнивание: {{error}}",
       "autoStraightenNoLines": "Не найдено прямых линий для выравнивания фото",
       "autoStraightenTitle": "Выровнять фото по горизонту или вертикалям и подогнать кадрирование",

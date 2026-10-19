@@ -188,8 +188,6 @@
       "autoAdjust_other": "自动调整图像",
       "autoLensCorrection_one": "自动镜头校正",
       "autoLensCorrection_other": "自动镜头校正",
-      "autoStraighten_one": "自动拉直",
-      "autoStraighten_other": "自动拉直",
       "collage_one": "装裱图像",
       "collage_other": "创建拼贴画",
       "confirmDelete": "确认删除",
@@ -1515,7 +1513,6 @@
         "straightenTool": "拉直工具"
       },
       "autoStraighten": "自动",
-      "autoStraightenBatch": "已拉直：{{straightened}} · 无直线：{{noLines}} · 期间已更改：{{changed}} · 失败：{{failed}}",
       "autoStraightenFailed": "自动拉直失败：{{error}}",
       "autoStraightenNoLines": "未找到可用于拉直照片的直线",
       "autoStraightenTitle": "根据地平线或垂直线将照片拉直并调整裁剪",

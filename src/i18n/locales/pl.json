@@ -194,10 +194,6 @@
       "autoLensCorrection_few": "Automatyczna korekcja obiektywu",
       "autoLensCorrection_many": "Automatyczna korekcja obiektywu",
       "autoLensCorrection_other": "Automatyczna korekcja obiektywu",
-      "autoStraighten_one": "Prostuj automatycznie",
-      "autoStraighten_few": "Prostuj automatycznie",
-      "autoStraighten_many": "Prostuj automatycznie",
-      "autoStraighten_other": "Prostuj automatycznie",
       "collage_one": "Dodaj ramkę do obrazu",
       "collage_few": "Dodaj ramki do obrazów",
       "collage_many": "Utwórz kolaż z {{count}} obrazów",
@@ -1664,7 +1660,6 @@
         "straightenTool": "Narzędzie prostowania"
       },
       "autoStraighten": "Auto",
-      "autoStraightenBatch": "Wyprostowane: {{straightened}} · bez prostych linii: {{noLines}} · zmienione w międzyczasie: {{changed}} · nieudane: {{failed}}",
       "autoStraightenFailed": "Automatyczne prostowanie nie powiodło się: {{error}}",
       "autoStraightenNoLines": "Nie znaleziono prostych linii do wyrównania zdjęcia",
       "autoStraightenTitle": "Wyrównaj zdjęcie według horyzontu lub pionów i dopasuj kadr",

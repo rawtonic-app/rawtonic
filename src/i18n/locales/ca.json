@@ -191,9 +191,6 @@
       "autoLensCorrection_one": "Correcció d'objectiu automàtica",
       "autoLensCorrection_many": "Correcció d'objectiu automàtica",
       "autoLensCorrection_other": "Correcció d'objectiu automàtica",
-      "autoStraighten_one": "Redreça automàticament",
-      "autoStraighten_many": "Redreça automàticament",
-      "autoStraighten_other": "Redreça automàticament",
       "collage_one": "Emmarcar imatge",
       "collage_many": "Crear collage",
       "collage_other": "Crear collage",
@@ -1607,7 +1604,6 @@
         "straightenTool": "Eina Redreça"
       },
       "autoStraighten": "Auto",
-      "autoStraightenBatch": "Redreçades: {{straightened}} · sense línies rectes: {{noLines}} · canviades mentrestant: {{changed}} · amb error: {{failed}}",
       "autoStraightenFailed": "No s’ha pogut redreçar automàticament: {{error}}",
       "autoStraightenNoLines": "No s’han trobat línies rectes per anivellar la foto",
       "autoStraightenTitle": "Anivella la foto per l’horitzó o les verticals i ajusta el retall",

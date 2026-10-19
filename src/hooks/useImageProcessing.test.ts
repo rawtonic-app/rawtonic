@@ -12,14 +12,7 @@ import { debouncedSave } from "./useEditorActions";
 import { toast } from "react-toastify";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-const { applyAdjustmentsToPaths } = vi.hoisted(() => ({
-  applyAdjustmentsToPaths: vi.fn((_partial: unknown, _paths?: string[]) => Promise.resolve()),
-}));
-vi.mock("./useEditorActions", () => ({
-  debouncedSave: vi.fn(),
-  registerScheduledRecipe: vi.fn(() => () => {}),
-  useEditorActions: () => ({ applyAdjustmentsToPaths }),
-}));
+vi.mock("./useEditorActions", () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
 
 const photo = (path: string, isReady = true) => ({
@@ -239,57 +232,6 @@ it("keeps original-preview overrides out of saved adjustments", async () => {
   expect(calls()[1][1]).toMatchObject({ jsAdjustments: { exposure: -2 } });
   expect(debouncedSave).not.toHaveBeenCalled();
   await finish();
-});
-
-it("takes a batch's reloaded recipe as the sync baseline, so the next edit syncs only itself", async () => {
-  useSettingsStore.setState({
-    appSettings: { copyPasteSettings: { autoSync: true, includedAdjustments: ["exposure", "rotation", "crop"] } } as never,
-  });
-  useLibraryStore.setState({ multiSelectedPaths: ["/first.dng", "/second.dng"] });
-  mount();
-  await finish();
-  // A batch holds the open photo and reloads it with its own result.
-  act(() => useEditorStore.setState({ heldRecipePaths: ["/first.dng"] }));
-  act(() =>
-    useEditorStore.setState({
-      adjustments: { ...useEditorStore.getState().adjustments, rotation: -2.5, crop: { unit: "px", x: 10, y: 8, width: 380, height: 250 } },
-    }),
-  );
-  await finish();
-  act(() => useEditorStore.setState({ heldRecipePaths: [] }));
-  vi.mocked(invoke).mockClear();
-  applyAdjustmentsToPaths.mockClear();
-  act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, exposure: 0.5 } }));
-  const synced = applyAdjustmentsToPaths.mock.calls;
-  expect(synced).toHaveLength(1);
-  expect(synced[0][1]).toEqual(["/second.dng"]);
-  const delta = synced[0][0] as Record<string, unknown>;
-  expect(delta.exposure).toBe(0.5);
-  expect(delta).not.toHaveProperty("rotation");
-  expect(delta).not.toHaveProperty("crop");
-  await finish();
-});
-
-it("takes a batch's result as the sync baseline also when it arrives during a before preview", async () => {
-  useSettingsStore.setState({
-    appSettings: { copyPasteSettings: { autoSync: true, includedAdjustments: ["exposure", "rotation", "crop"] } } as never,
-  });
-  useLibraryStore.setState({ multiSelectedPaths: ["/first.dng", "/second.dng"] });
-  mount();
-  await finish();
-  const before = useEditorStore.getState().adjustments;
-  act(() => useEditorStore.setState({ previewOverride: { ...before, exposure: -2 }, heldRecipePaths: ["/first.dng"] }));
-  act(() =>
-    useEditorStore.setState({
-      adjustments: { ...before, rotation: -2.5, crop: { unit: "px", x: 10, y: 8, width: 380, height: 250 } },
-    }),
-  );
-  act(() => useEditorStore.setState({ heldRecipePaths: [] }));
-  vi.mocked(invoke).mockClear();
-  applyAdjustmentsToPaths.mockClear();
-  act(() => useEditorStore.setState({ previewOverride: null }));
-  expect(applyAdjustmentsToPaths).not.toHaveBeenCalled();
-  while (complete.length) await finish();
 });
 
 it("reports a native render failure but not a superseded preview", async () => {

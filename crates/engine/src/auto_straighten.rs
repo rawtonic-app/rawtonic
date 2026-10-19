@@ -470,40 +470,6 @@ pub fn reframe_crop(
     None
 }
 
-/// Recipe keys that decide a crop's frame (as the editor's
-/// `REFRAMING_KEYS`): an Auto straighten answer is only written while they
-/// are as they were analysed.
-pub const REFRAMING_KEYS: [&str; 19] = [
-    "rotation",
-    "crop",
-    "aspectRatio",
-    "orientationSteps",
-    "flipHorizontal",
-    "flipVertical",
-    "transformDistortion",
-    "transformVertical",
-    "transformHorizontal",
-    "transformRotate",
-    "transformAspect",
-    "transformScale",
-    "transformXOffset",
-    "transformYOffset",
-    "lensCorrectionMode",
-    "lensDistortionParams",
-    "lensDistortionAmount",
-    "lensDistortionEnabled",
-    "guidedPerspective",
-];
-
-/// The reframing inputs of a recipe, comparable between reads.
-pub fn reframing_inputs(adjustments: &serde_json::Value) -> String {
-    let values: Vec<&serde_json::Value> = REFRAMING_KEYS
-        .iter()
-        .map(|key| adjustments.get(*key).unwrap_or(&serde_json::Value::Null))
-        .collect();
-    serde_json::to_string(&values).unwrap_or_default()
-}
-
 /// Analysis size (long side), as Upright's.
 pub const ANALYSIS_SIDE: u32 = 1400;
 

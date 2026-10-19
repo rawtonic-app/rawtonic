@@ -188,8 +188,6 @@
       "autoAdjust_other": "Auto Adjust Images",
       "autoLensCorrection_one": "Auto Lens Correction",
       "autoLensCorrection_other": "Auto Lens Correction",
-      "autoStraighten_one": "Auto Straighten",
-      "autoStraighten_other": "Auto Straighten",
       "collage_one": "Frame Image",
       "collage_other": "Create Collage",
       "confirmDelete": "Confirm Delete",
@@ -1554,7 +1552,6 @@
         "straightenTool": "Straighten tool"
       },
       "autoStraighten": "Auto",
-      "autoStraightenBatch": "Straightened: {{straightened}} · no straight lines: {{noLines}} · changed meanwhile: {{changed}} · failed: {{failed}}",
       "autoStraightenFailed": "Auto straighten failed: {{error}}",
       "autoStraightenNoLines": "No straight lines found to level the photo by",
       "autoStraightenTitle": "Level the photo by its horizon or verticals and fit the crop",

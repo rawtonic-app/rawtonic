@@ -1,8 +1,10 @@
 # Auto straighten: measurement and remaining gaps
 
 Implementation: `crates/engine/src/auto_straighten.rs` (estimator, crop
-reframing), `src-tauri/src/auto_straighten.rs` (one click),
-`src-tauri/src/file_management/edits.rs` (batch). Measured 2026-10-18 on the
+reframing), `src-tauri/src/auto_straighten.rs` (one click: crop panel Auto,
+Shift+R, the editor's context menu). Batch Auto straighten for a selection is
+not part of this version (user decision 2026-10-19: one click first; the batch
+needs its own design for photos open in the editor). Measured 2026-10-18 on the
 Mac mini M4 Pro. Inputs are public photographs (Wikimedia Commons Quality
 Images, raw.pixls.us CC0 frames); they and the scripts are not checked in.
 
@@ -54,6 +56,5 @@ crop validity and reframing about 105 ms at 45 MP (release build,
 Better median and harm than both references; p90 0.04° above Lightroom's and
 one failure more than Camera Raw Level (within the noise of 51 photographs,
 still not ≤). Not measured: Capture One, crop preservation side by side,
-one-click screen recording and 20-photo batch timing against the
-references. Set B's truths are hand constructions and its horizon class has
+one-click screen recording against the references; no batch. Set B's truths are hand constructions and its horizon class has
 one photograph.

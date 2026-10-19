@@ -56,7 +56,6 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let state = app_handle.state::<AppState>();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
 
-    let turn = sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
 
     let mut final_adjustments = adjustments;
@@ -78,7 +77,6 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
         .map_err(|e| e.to_string())?;
-    drop(turn);
 
     if let Ok(settings) = load_settings(app_handle.clone())
         && settings.enable_xmp_sync.unwrap_or(false)
@@ -211,16 +209,12 @@ fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
 /// Writes the editor sidecar of each of `paths` as `edit` changes its
 /// metadata (in parallel), and its XMP when `xmp` (`xmp_sync`). Returns
 /// the photos whose sidecar could not be written, with the reason; an
-/// `edit` error counts as one. The whole batch takes one turn of the
-/// sidecar guard, outside the parallel work (as rating and label edits do):
-/// workers of the shared pool never wait on the guard, so an edit holding it
-/// can always run its own parallel work.
+/// `edit` error counts as one.
 fn edit_sidecars(
     paths: &[String],
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
 ) -> Vec<(String, String)> {
-    let _turn = sidecar_field_edit();
     paths
         .par_iter()
         .filter_map(|path| {
@@ -423,149 +417,6 @@ pub async fn apply_auto_lens_correction_to_paths(
     .await
 }
 
-/// What a batch Auto straighten did.
-#[derive(Debug, Default, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StraightenReport {
-    pub straightened: Vec<String>,
-    /// No straight lines to level by: left as they were.
-    pub no_lines: Vec<String>,
-    /// Their frame (crop, geometry) changed while they were analysed, twice:
-    /// left as they were.
-    pub changed: Vec<String>,
-    pub failed: Vec<(String, String)>,
-}
-
-enum Straighten {
-    Done,
-    NoLines,
-    Changed,
-}
-
-/// Auto straighten's answer for one photo: analysed on a fast decode with
-/// the defaults its render adds (lens profile of a never-edited RAW). The
-/// recipe it was analysed for, the answer (None: no lines) and the photo's
-/// full size.
-type Analysed = (
-    Value,
-    Option<crate::auto_straighten::Straightened>,
-    (u32, u32),
-);
-
-fn analyse_straighten(
-    path: &str,
-    settings: &crate::app_settings::AppSettings,
-) -> Result<Analysed, String> {
-    let (source_path, sidecar_path) = parse_virtual_path(path);
-    let name = source_path.to_string_lossy().to_string();
-    let analysed = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
-    let mut developed = if analysed.is_object() {
-        analysed.clone()
-    } else {
-        serde_json::json!({})
-    };
-    // The geometry as it renders (lens parameters of a recipe saved while
-    // the photo could not be read resolved, the camera's defaults).
-    rawtonic_export::exif_processing::prepare_recipe_lens(&mut developed, &source_path)?;
-    let bytes = fs::read(&source_path).map_err(|e| e.to_string())?;
-    // The full decode, as the editor's: its size is the developed frame the
-    // crop is in, exactly (a reduced decode's scale cannot be told from a
-    // RAW's default crop). One photo at a time, freed before the next.
-    let image = image_loader::load_base_image_from_bytes(&bytes, &name, false, settings, None)
-        .map_err(|e| e.to_string())?;
-    let size = (image.width(), image.height());
-    let result = crate::auto_straighten::straighten_recipe(&image, size.0, size.1, &developed);
-    Ok((analysed, result, size))
-}
-
-/// Writes an answer under the recipe guard, on the recipe as it is now and
-/// only if its frame (crop, geometry) is still the one analysed: only
-/// `rotation` and `crop` change, legacy drawn masks stay on the photo. None
-/// when the frame changed meanwhile (nothing written).
-fn commit_straighten(
-    path: &str,
-    analysed: &Value,
-    result: &crate::auto_straighten::Straightened,
-    size: (u32, u32),
-) -> Result<Option<ImageMetadata>, String> {
-    let (source_path, sidecar_path) = parse_virtual_path(path);
-    let _turn = sidecar_field_edit();
-    let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
-    let inputs = crate::auto_straighten::reframing_inputs;
-    if inputs(&metadata.adjustments) != inputs(analysed) {
-        return Ok(None);
-    }
-    let previous = metadata.adjustments.clone();
-    if !metadata.adjustments.is_object() {
-        metadata.adjustments = serde_json::json!({});
-    }
-    metadata.adjustments["rotation"] = serde_json::json!(result.rotation);
-    metadata.adjustments["crop"] = serde_json::json!({
-        "unit": "px",
-        "x": result.crop.x,
-        "y": result.crop.y,
-        "width": result.crop.width,
-        "height": result.crop.height,
-    });
-    crate::mask_generation::keep_drawn_masks_on_photo(
-        &previous,
-        &mut metadata.adjustments,
-        Some((size.0 as f64, size.1 as f64)),
-    );
-    save_sidecar(path, &metadata)?;
-    Ok(Some(metadata))
-}
-
-/// One photo: analysed and committed; analysed once more when its frame
-/// changed meanwhile.
-fn straighten_photo(
-    path: &str,
-    settings: &crate::app_settings::AppSettings,
-) -> Result<Straighten, String> {
-    for _ in 0..2 {
-        let (analysed, result, size) = analyse_straighten(path, settings)?;
-        let Some(result) = result else {
-            return Ok(Straighten::NoLines);
-        };
-        if commit_straighten(path, &analysed, &result, size)?.is_some() {
-            return Ok(Straighten::Done);
-        }
-    }
-    Ok(Straighten::Changed)
-}
-
-/// Auto straighten for the selected photos, one at a time (one decode in
-/// memory). The webview holds the open photo's editor and has its pending
-/// saves written before calling this, and reloads it afterwards.
-#[tauri::command]
-pub async fn apply_auto_straighten_to_paths(
-    paths: Vec<String>,
-    app_handle: AppHandle,
-) -> Result<StraightenReport, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let settings = load_settings(app_handle.clone()).unwrap_or_default();
-        let mut report = StraightenReport::default();
-        for path in &paths {
-            match straighten_photo(path, &settings) {
-                // No XMP sync: it carries rating, label and keywords, which
-                // Auto straighten does not change (a sync from this snapshot
-                // could undo a newer rating edit's).
-                Ok(Straighten::Done) => report.straightened.push(path.clone()),
-                Ok(Straighten::NoLines) => report.no_lines.push(path.clone()),
-                Ok(Straighten::Changed) => report.changed.push(path.clone()),
-                Err(e) => report.failed.push((path.clone(), e)),
-            }
-        }
-        // Counted in the thumbnail progress, as every batch edit's.
-        let state = app_handle.state::<AppState>();
-        add_to_thumbnail_queue(&state, report.straightened.len(), &app_handle);
-        regenerate_thumbnails(app_handle.clone(), report.straightened.clone());
-        report
-    })
-    .await
-    .map_err(|e| format!("Auto straighten failed: {e}"))
-}
-
 /// Decodes each photo for its auto adjustments, so it waits until every
 /// recipe is written (or failed) and makes the thumbnails from the decoded
 /// photos meanwhile.
@@ -591,16 +442,10 @@ pub async fn apply_auto_adjustments_to_paths(
 
         let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
 
-        // A few photos at a time: decoded and measured in parallel, their
-        // recipes written in turn under the sidecar guard on this thread
-        // (never inside the shared pool), then their thumbnails made in
-        // parallel from the decodes, which are freed before the next chunk.
-        const CHUNK: usize = 4;
-        let mut failures = Vec::new();
-        for chunk in paths.chunks(CHUNK) {
-            let measured: Vec<Result<(DynamicImage, Value), String>> = chunk
-                .par_iter()
-                .map(|path| {
+        paths
+            .par_iter()
+            .filter_map(|path| {
+                let applied = (|| -> Result<DynamicImage, String> {
                     let (source_path, sidecar_path) = parse_virtual_path(path);
                     let source_path_str = source_path.to_string_lossy().to_string();
 
@@ -614,7 +459,7 @@ pub async fn apply_auto_adjustments_to_paths(
                     )
                     .map_err(|e| e.to_string())?;
 
-                    let existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
                     let tone_mapper = existing_metadata
                         .adjustments
                         .get("toneMapper")
@@ -632,66 +477,65 @@ pub async fn apply_auto_adjustments_to_paths(
                         tone_mapper.as_deref(),
                         base_curve.as_deref(),
                     );
-                    Ok((image, auto_adjustments_json))
-                })
-                .collect();
 
-            let applied: Vec<Result<DynamicImage, String>> = {
-                let _turn = sidecar_field_edit();
-                chunk
-                    .iter()
-                    .zip(measured)
-                    .map(|(path, measured)| {
-                        let (image, auto_adjustments_json) = measured?;
-                        let written = merge_auto_into_sidecar(path, &auto_adjustments_json)?;
-                        if enable_xmp_sync {
-                            let (source_path, _) = parse_virtual_path(path);
-                            sync_metadata_to_xmp(&source_path, &written, create_xmp_if_missing);
-                        }
-                        Ok(image)
-                    })
-                    .collect()
-            };
+                    let previous = existing_metadata.adjustments.clone();
+                    crate::auto_adjust::merge_auto_adjustments(
+                        &mut existing_metadata.adjustments,
+                        &auto_adjustments_json,
+                    );
+                    // Should Auto ever set the geometry, drawn masks stay
+                    // on the photo's content (the decode may be reduced:
+                    // frames take the photo's size when drawn).
+                    crate::mask_generation::keep_drawn_masks_on_photo(
+                        &previous,
+                        &mut existing_metadata.adjustments,
+                        None,
+                    );
 
-            failures.extend(
-                chunk
-                    .par_iter()
-                    .zip(applied)
-                    .filter_map(|(path, applied)| {
-                        if let Err(e) = &applied {
-                            log::warn!("Failed to apply auto adjustments to {}: {}", path, e);
+                    save_sidecar(path, &existing_metadata)?;
+
+                    if enable_xmp_sync {
+                        sync_metadata_to_xmp(
+                            &source_path,
+                            &existing_metadata,
+                            create_xmp_if_missing,
+                        );
+                    }
+                    Ok(image)
+                })();
+                if let Err(e) = &applied {
+                    log::warn!("Failed to apply auto adjustments to {}: {}", path, e);
+                }
+
+                match &thumb_cache_dir {
+                    Ok(thumb_cache_dir) => {
+                        let result = generate_single_thumbnail_and_cache(
+                            path,
+                            thumb_cache_dir,
+                            gpu_context.as_ref(),
+                            applied.as_ref().ok(),
+                            true,
+                            &app_handle,
+                            &settings,
+                        );
+                        if let Some((small_path, medium_path, rating, is_edited)) = result {
+                            emit_thumbnail_generated(
+                                &app_handle,
+                                path,
+                                &small_path,
+                                &medium_path,
+                                rating,
+                                is_edited,
+                            );
                         }
-                        match &thumb_cache_dir {
-                            Ok(thumb_cache_dir) => {
-                                let result = generate_single_thumbnail_and_cache(
-                                    path,
-                                    thumb_cache_dir,
-                                    gpu_context.as_ref(),
-                                    applied.as_ref().ok(),
-                                    true,
-                                    &app_handle,
-                                    &settings,
-                                );
-                                if let Some((small_path, medium_path, rating, is_edited)) = result {
-                                    emit_thumbnail_generated(
-                                        &app_handle,
-                                        path,
-                                        &small_path,
-                                        &medium_path,
-                                        rating,
-                                        is_edited,
-                                    );
-                                }
-                            }
-                            Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
-                        }
-                        increment_thumbnail_progress(&state, &app_handle);
-                        applied.err().map(|e| (path.clone(), e))
-                    })
-                    .collect::<Vec<_>>(),
-            );
-        }
-        failures
+                    }
+                    Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
+                }
+                increment_thumbnail_progress(&state, &app_handle);
+
+                applied.err().map(|e| (path.clone(), e))
+            })
+            .collect::<Vec<_>>()
     })
     .await
     .map_err(|e| SaveFailure {
@@ -749,39 +593,14 @@ fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
 
 static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Edits that read a photo's recipe sidecar, change it and write it back
-/// take turns through this guard, so none publishes a recipe read before
-/// another's write: rating, colour label and keyword edits and batch edits
-/// (`edit_sidecars`) for their whole batch, the editor's save and Auto
-/// straighten's commit and Auto Adjust's writes (per chunk). Never taken
-/// inside the shared pool (checked in debug builds).
+/// Rating, colour label and keyword edits read a photo's sidecar, change
+/// one field and write it back. They run on blocking workers (no longer one
+/// after the other on the main thread), so they take turns through this
+/// guard: none overwrites another's change.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
-    // Inside the shared pool a worker waiting here could hold up an edit that
-    // has the guard and waits for its own parallel work (work stealing).
-    debug_assert!(
-        rayon::current_thread_index().is_none(),
-        "the sidecar guard is taken outside the shared pool"
-    );
     SIDECAR_FIELD_EDITS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Auto Adjust's write, with the sidecar guard held by the caller: the
-/// recipe read again and the computed auto values merged into it, so an edit
-/// committed while they were computed (Auto straighten's rotation and crop,
-/// a rating) stays.
-fn merge_auto_into_sidecar(path: &str, auto_adjustments: &Value) -> Result<ImageMetadata, String> {
-    let (_, sidecar_path) = parse_virtual_path(path);
-    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-    let previous = metadata.adjustments.clone();
-    crate::auto_adjust::merge_auto_adjustments(&mut metadata.adjustments, auto_adjustments);
-    // Should Auto ever set the geometry, drawn masks stay on the photo's
-    // content (the decode may be reduced: frames take the photo's size when
-    // drawn).
-    crate::mask_generation::keep_drawn_masks_on_photo(&previous, &mut metadata.adjustments, None);
-    save_sidecar(path, &metadata)?;
-    Ok(metadata)
 }
 
 /// Every photo of `paths` unsaved: the worker saving them stopped (`error`).
@@ -925,39 +744,6 @@ pub async fn load_metadata(path: String, app_handle: AppHandle) -> Result<ImageM
     result
 }
 
-/// The sidecar as the editor or the Library loads it; with XMP sync it takes
-/// in the XMP's fields and is rewritten — a read-modify-write in turn with the
-/// others (sidecar_field_edit), so a recipe committed meanwhile (Auto
-/// straighten) is not replaced by an older snapshot. Inside the shared pool
-/// (Library listing) the guard is only tried: while another edit holds it,
-/// the XMP's fields are taken in memory and written by a later load.
-pub(crate) fn load_sidecar_taking_xmp(
-    source_path: &Path,
-    sidecar_path: &Path,
-    xmp_sync: bool,
-) -> ImageMetadata {
-    if !xmp_sync {
-        return crate::exif_processing::load_sidecar(sidecar_path);
-    }
-    let turn = if rayon::current_thread_index().is_some() {
-        match SIDECAR_FIELD_EDITS.try_lock() {
-            Ok(guard) => Some(guard),
-            Err(std::sync::TryLockError::Poisoned(poisoned)) => Some(poisoned.into_inner()),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-        }
-    } else {
-        Some(sidecar_field_edit())
-    };
-    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
-    if sync_metadata_from_xmp(source_path, &mut metadata)
-        && turn.is_some()
-        && let Ok(json) = serde_json::to_string_pretty(&metadata)
-    {
-        let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json);
-    }
-    metadata
-}
-
 pub(crate) fn load_metadata_blocking(
     path: String,
     app_handle: AppHandle,
@@ -966,7 +752,14 @@ pub(crate) fn load_metadata_blocking(
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
-    let mut metadata = load_sidecar_taking_xmp(&source_path, &sidecar_path, enable_xmp_sync);
+    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+
+    if enable_xmp_sync
+        && sync_metadata_from_xmp(&source_path, &mut metadata)
+        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+    {
+        let _ = crate::session_bridge::write_editor_sidecar(&sidecar_path, json);
+    }
 
     // For the editor only (not written): its history carries it (see
     // LensLookup::Keep).
@@ -1048,201 +841,6 @@ mod tests {
         );
         assert!(version.get("lensDistortionParams").is_none());
         forget(&path);
-    }
-
-    fn straightened() -> crate::auto_straighten::Straightened {
-        crate::auto_straighten::Straightened {
-            rotation: -2.5,
-            crop: crate::auto_straighten::CropRect {
-                x: 10.0,
-                y: 8.0,
-                width: 380.0,
-                height: 250.0,
-            },
-            support: 1.0,
-        }
-    }
-
-    fn photo_with_recipe(dir: &Path, recipe: Value) -> (String, std::path::PathBuf) {
-        let photo = dir.join("IMG_1.jpg");
-        std::fs::write(&photo, b"jpeg").unwrap();
-        let path = photo.to_string_lossy().into_owned();
-        let (_, sidecar) = parse_virtual_path(&path);
-        let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
-        metadata.rating = 2;
-        metadata.adjustments = recipe;
-        save_sidecar(&path, &metadata).unwrap();
-        (path, sidecar)
-    }
-
-    /// Auto straighten's commit changes only rotation and crop, on the recipe
-    /// as it is then: a rating or exposure saved meanwhile stays.
-    #[test]
-    fn auto_straighten_commits_on_the_current_recipe() {
-        let tmp = tempfile::tempdir().unwrap();
-        let analysed = serde_json::json!({"exposure": 1.0});
-        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
-        let mut meanwhile = crate::exif_processing::load_sidecar(&sidecar);
-        meanwhile.rating = 5;
-        meanwhile.adjustments["contrast"] = serde_json::json!(20);
-        save_sidecar(&path, &meanwhile).unwrap();
-        let written = commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
-        assert!(written.is_some());
-        let now = crate::exif_processing::load_sidecar(&sidecar);
-        assert_eq!(now.rating, 5);
-        assert_eq!(now.adjustments["contrast"], serde_json::json!(20));
-        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
-        assert_eq!(now.adjustments["crop"]["width"], serde_json::json!(380.0));
-    }
-
-    /// A crop or geometry saved while the photo was analysed wins: nothing
-    /// is written.
-    #[test]
-    fn auto_straighten_does_not_overwrite_a_changed_frame() {
-        let tmp = tempfile::tempdir().unwrap();
-        let analysed = serde_json::json!({"exposure": 1.0});
-        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
-        let mut meanwhile = crate::exif_processing::load_sidecar(&sidecar);
-        meanwhile.adjustments["crop"] =
-            serde_json::json!({"unit": "px", "x": 0, "y": 0, "width": 100, "height": 100});
-        save_sidecar(&path, &meanwhile).unwrap();
-        let before = std::fs::read(&sidecar).unwrap();
-        assert!(
-            commit_straighten(&path, &analysed, &straightened(), (400, 266))
-                .unwrap()
-                .is_none()
-        );
-        assert_eq!(std::fs::read(&sidecar).unwrap(), before);
-    }
-
-    /// Auto Adjust computes from the recipe it read, then writes: a straighten
-    /// committed meanwhile stays, as do the auto values.
-    #[test]
-    fn auto_adjust_keeps_a_straighten_committed_while_it_computed() {
-        let tmp = tempfile::tempdir().unwrap();
-        let analysed = serde_json::json!({"exposure": 1.0});
-        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
-        // Auto Adjust has read the recipe and computes; Auto straighten commits.
-        commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
-        {
-            let _turn = sidecar_field_edit();
-            merge_auto_into_sidecar(&path, &serde_json::json!({"exposure": 0.3, "contrast": 12}))
-                .unwrap();
-        }
-        let now = crate::exif_processing::load_sidecar(&sidecar);
-        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
-        assert_eq!(now.adjustments["crop"]["width"], serde_json::json!(380.0));
-        assert_eq!(now.adjustments["exposure"], serde_json::json!(0.3));
-        assert_eq!(now.rating, 2);
-    }
-
-    /// The sidecar guard is never taken inside the shared pool: a worker
-    /// waiting there could hold up an edit that has it and waits for its own
-    /// parallel work. Debug builds refuse it.
-    #[test]
-    fn the_sidecar_guard_is_refused_inside_the_shared_pool() {
-        let inside = rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .unwrap()
-            .install(|| std::panic::catch_unwind(|| drop(sidecar_field_edit())));
-        assert_eq!(inside.is_err(), cfg!(debug_assertions));
-        drop(sidecar_field_edit());
-    }
-
-    /// Loading with XMP sync reads in turn with a commit holding the guard,
-    /// so it never rewrites the sidecar from a snapshot older than that.
-    #[test]
-    fn loading_with_xmp_sync_waits_for_a_commit_in_progress() {
-        let tmp = tempfile::tempdir().unwrap();
-        let analysed = serde_json::json!({"exposure": 1.0});
-        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
-        let (source, _) = parse_virtual_path(&path);
-        let (held_tx, held_rx) = std::sync::mpsc::channel();
-        let committer = {
-            let (path, sidecar) = (path.clone(), sidecar.clone());
-            std::thread::spawn(move || {
-                let _turn = sidecar_field_edit();
-                held_tx.send(()).unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
-                metadata.adjustments["rotation"] = serde_json::json!(-2.5);
-                save_sidecar(&path, &metadata).unwrap();
-            })
-        };
-        held_rx.recv().unwrap();
-        let loaded = load_sidecar_taking_xmp(&source, &sidecar, true);
-        committer.join().unwrap();
-        assert_eq!(loaded.adjustments["rotation"], serde_json::json!(-2.5));
-    }
-
-    /// The Library lists in the shared pool: while a commit holds the guard it
-    /// takes the XMP's label in memory and writes nothing (no older snapshot
-    /// over the commit, no waiting in the pool); a load outside waits and
-    /// writes.
-    #[test]
-    fn listing_in_the_pool_never_writes_over_a_commit_in_progress() {
-        let tmp = tempfile::tempdir().unwrap();
-        let (path, sidecar) = photo_with_recipe(tmp.path(), serde_json::json!({"exposure": 1.0}));
-        let (source, _) = parse_virtual_path(&path);
-        std::fs::write(
-            source.with_extension("xmp"),
-            r#"<x:xmpmeta><rdf:Description xmp:Label="Red"/></x:xmpmeta>"#,
-        )
-        .unwrap();
-        let before = std::fs::read(&sidecar).unwrap();
-        let (held_tx, held_rx) = std::sync::mpsc::channel();
-        let (go_tx, go_rx) = std::sync::mpsc::channel::<()>();
-        let committer = std::thread::spawn(move || {
-            let _turn = sidecar_field_edit();
-            held_tx.send(()).unwrap();
-            go_rx.recv().unwrap();
-        });
-        held_rx.recv().unwrap();
-        let listed = rayon::ThreadPoolBuilder::new()
-            .num_threads(1)
-            .build()
-            .unwrap()
-            .install(|| load_sidecar_taking_xmp(&source, &sidecar, true));
-        let red = |m: &ImageMetadata| {
-            m.tags
-                .as_ref()
-                .is_some_and(|t| t.iter().any(|t| t.ends_with("red")))
-        };
-        assert!(red(&listed));
-        assert_eq!(std::fs::read(&sidecar).unwrap(), before);
-        go_tx.send(()).unwrap();
-        committer.join().unwrap();
-        assert!(red(&load_sidecar_taking_xmp(&source, &sidecar, true)));
-        assert!(red(&crate::exif_processing::load_sidecar(&sidecar)));
-    }
-
-    /// A rating edit that read the recipe before the commit and writes after
-    /// it would lose the straightening; the shared guard makes the commit
-    /// wait for it, so both survive.
-    #[test]
-    fn a_rating_edit_holding_the_guard_and_auto_straighten_both_survive() {
-        let tmp = tempfile::tempdir().unwrap();
-        let analysed = serde_json::json!({"exposure": 1.0});
-        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
-        let (locked_tx, locked_rx) = std::sync::mpsc::channel();
-        let rating = {
-            let (path, sidecar) = (path.clone(), sidecar.clone());
-            std::thread::spawn(move || {
-                let _turn = sidecar_field_edit();
-                let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
-                locked_tx.send(()).unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(100));
-                metadata.rating = 4;
-                save_sidecar(&path, &metadata).unwrap();
-            })
-        };
-        locked_rx.recv().unwrap();
-        commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
-        rating.join().unwrap();
-        let now = crate::exif_processing::load_sidecar(&sidecar);
-        assert_eq!(now.rating, 4);
-        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
     }
 
     /// A lens chosen under a name the database has since extended (Lensfun

@@ -3,24 +3,18 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import { toast } from 'react-toastify';
 import throttle from 'lodash.throttle';
-import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
+import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useRelightStore } from '../store/useRelightStore';
 import { stripSentRelightData } from '../utils/relight';
-import {
-  Adjustments,
-  AiPatch,
-  COPYABLE_ADJUSTMENT_KEYS,
-  MaskContainer,
-  withSharpenVersion,
-  withSourceVersions,
-} from '../utils/adjustments';
+import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer, withSharpenVersion } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
-import { debouncedSave, registerScheduledRecipe, useEditorActions } from './useEditorActions';
+import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
+import { saveFailure } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
@@ -89,11 +83,6 @@ export function useImageProcessing(
 ) {
   const { previewJobIdRef, latestRenderedJobIdRef, currentResRef } = renderRefs;
   const os = useOsPlatform();
-  // Auto Sync writes as a paste does: a queued recipe operation that also
-  // updates a target opened meanwhile (applyAdjustmentsToPaths).
-  const { applyAdjustmentsToPaths } = useEditorActions();
-  const applyRef = useRef(applyAdjustmentsToPaths);
-  applyRef.current = applyAdjustmentsToPaths;
 
   const selectedImage = useEditorStore((state) => state.selectedImage);
   const adjustments = useEditorStore((state) => state.adjustments);
@@ -773,13 +762,6 @@ export function useImageProcessing(
   ]);
 
   useLayoutEffect(() => {
-    // A batch edit is writing this recipe and reloads it afterwards: what is
-    // shown (the reloaded result) becomes the save and sync baseline, also
-    // while a before preview or a drag is shown, so the next edit syncs only
-    // its own change.
-    if (selectedImage && isRecipeHeld(useEditorStore.getState())) {
-      prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
-    }
     // A preview proxy renders before the full decode; its arrival
     // (isReady) renders again from the full source.
     if (!canRenderSource(selectedImage)) return;
@@ -812,8 +794,6 @@ export function useImageProcessing(
       const hasAdjustmentsChanged = prev.adjustments !== adjustments;
 
       if (hasAdjustmentsChanged) {
-        // Held by a batch edit: no save or sync (baseline taken above).
-        if (isRecipeHeld(useEditorStore.getState())) return;
         debouncedSave(selectedImage.path, adjustments);
 
         const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);
@@ -833,10 +813,13 @@ export function useImageProcessing(
             delta.masks = frameDrawnMasks(delta.masks, adjustments, selectedImage.width, selectedImage.height);
           if (Object.keys(delta).length > 0) {
             otherPaths.forEach((p) => globalImageCache.delete(p));
-            // In the other photographs' recipe queue, in the order made (a
-            // batch edit asked for after it runs after it); a target opened
-            // meanwhile shows it (errors are reported as a paste's).
-            void applyRef.current(withSourceVersions(withSharpenVersion(delta, adjustments), adjustments), otherPaths);
+            invoke(Invokes.ApplyAdjustmentsToPaths, {
+              paths: otherPaths,
+              adjustments: withSharpenVersion(delta, adjustments),
+            }).catch((err) => {
+              console.error('Failed to apply adjustments to multi-selection:', err);
+              toast.error(`Failed to sync adjustments to the selection: ${saveFailure(err, otherPaths).message}`);
+            });
           }
         }
 

@@ -8,7 +8,7 @@ import { isMaskOverlayShown, maskDisplayOf, toggleGrayscaleMask, toggleMaskDispl
 import { Mask } from '../components/panel/right/Masks';
 import { DEFAULT_BRUSH_SIZE, stepBrushSize } from '../utils/brushSize';
 import { deleteMaskSelection } from '../utils/maskUtils';
-import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
+import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { isAnyModalOpen, useUIStore } from '../store/useUIStore';
@@ -857,10 +857,7 @@ export const useKeyboardShortcuts = ({
       {
         match: (e: KeyboardEvent, s: ShortcutState) => {
           const isDeleteKey = s.settings.osPlatform === 'macos' ? e.code === 'Backspace' : e.code === 'Delete';
-          // Not while a batch edit holds the recipe (isRecipeHeld): no edits.
-          return (
-            isDeleteKey && s.editor.selectedImage?.isReady && !!s.editor.activeMaskContainerId && !isRecipeHeld(s.editor)
-          );
+          return isDeleteKey && s.editor.selectedImage?.isReady && !!s.editor.activeMaskContainerId;
         },
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();

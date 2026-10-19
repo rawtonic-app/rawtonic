@@ -3,10 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
 import { toast } from 'react-toastify';
-import { useEditorStore, debouncedSetHistory, isRecipeHeld } from '../store/useEditorStore';
+import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
-import { afterRecipeWork } from '../utils/recipeWork';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -75,14 +74,6 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   return pending;
 }, 300);
 
-/** `apply_auto_straighten_to_paths` (StraightenReport in edits.rs). */
-export interface StraightenReport {
-  straightened: string[];
-  noLines: string[];
-  changed: string[];
-  failed: [string, string][];
-}
-
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
 
@@ -99,18 +90,11 @@ export function registerScheduledRecipe(read: () => ScheduledRecipe | null): () 
 /** Schedules the open photograph's recipe when it changed after the last
  * one scheduled: a slider still being dragged is saved only when the drag
  * ends. Only a fully loaded photograph whose recipe was taken before. */
-/** The recipe scheduled here last, and the baseline it was scheduled
- * against: the same recipe against the same baseline is saved once (the
- * baseline moves only with the editor's own autosave). */
-let scheduledHere: { recipe: Adjustments; baseline: Adjustments } | null = null;
 function scheduleUnsavedEditorRecipe() {
   const scheduled = readScheduledRecipe?.();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!scheduled || !selectedImage?.isReady || scheduled.path !== selectedImage.path) return;
-  if (scheduled.adjustments === adjustments) return;
-  if (scheduledHere?.recipe === adjustments && scheduledHere.baseline === scheduled.adjustments) return;
-  scheduledHere = { recipe: adjustments, baseline: scheduled.adjustments };
-  debouncedSave(selectedImage.path, adjustments);
+  if (scheduled.adjustments !== adjustments) debouncedSave(selectedImage.path, adjustments);
 }
 
 /**
@@ -122,15 +106,6 @@ function scheduleUnsavedEditorRecipe() {
 export async function flushRecipeSaves(): Promise<string[]> {
   scheduleUnsavedEditorRecipe();
   debouncedSave.flush();
-  // The recipe operations queued by now (a batch, a paste behind it) finish
-  // first (quitting, moving or renaming photographs wait for them), then the
-  // saves their editor updates scheduled.
-  const queued = [...new Set(recipeOperations.values())];
-  if (queued.length > 0) {
-    await Promise.all(queued);
-    scheduleUnsavedEditorRecipe();
-    debouncedSave.flush();
-  }
   while (pendingMetadataSaves.size > 0) {
     await Promise.all(pendingMetadataSaves.values());
   }
@@ -173,7 +148,7 @@ export function isCurrentEditorImage(path: string): boolean {
   return image?.path === path && image.isReady;
 }
 
-export function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preserveUnsaved = true): Promise<T> {
+function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preserveUnsaved = true): Promise<T> {
   if (!paths.some((path) => pendingMetadataSaves.has(path) || unsavedRecipes.has(path))) return mutation();
   return Promise.all(paths.map(async (path) => {
     await pendingMetadataSaves.get(path);
@@ -202,23 +177,11 @@ function commitDraft(path: string, adjustments: Adjustments) {
 }
 
 /** The editor's adjustment update outside React (history included). During a
- * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS.
- * `queued`: the update of a queued recipe operation (exclusiveRecipeOperation)
- * running before a batch that already holds the photograph. */
-export function updateAdjustments(
-  value: AdjustmentsUpdate,
-  { queued = false, persisted = false }: { queued?: boolean; persisted?: boolean } = {},
-): boolean {
+ * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS. */
+export function updateAdjustments(value: AdjustmentsUpdate) {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
-  // A batch edit is writing this photograph's recipe (heldRecipePaths); the
-  // queued operations ahead of it still show their edits. False: refused
-  // (an asynchronous result computes again after the hold).
-  const heldUnsaved = !!image && isRecipeHeld(current) && !persisted;
-  if (image && isRecipeHeld(current) && !queued) return false;
-  // A queued operation's update commits at once (never a drag's draft that
-  // could commit later, over a newer result).
-  if (!queued && image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
+  if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
     const prev = draftFor(image.path) ?? current.adjustments;
     const next = keepDrawnMasksOnPhoto(
       prev,
@@ -226,7 +189,7 @@ export function updateAdjustments(
       image.width,
       image.height,
     );
-    if (next === prev || renderDraft(image.path, next, commitDraft)) return true;
+    if (next === prev || renderDraft(image.path, next, commitDraft)) return;
   }
   flushSliderDraft();
   useEditorStore.getState().setEditor((state) => {
@@ -247,12 +210,6 @@ export function updateAdjustments(
       ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
     };
   });
-  // Not written by its operation (a mask's result): the batch saves it
-  // before its analysis (autosave waits for the hold).
-  if (heldUnsaved && image && useEditorStore.getState().selectedImage?.path === image.path) {
-    unsavedHeldUpdates.set(image.path, useEditorStore.getState().adjustments);
-  }
-  return true;
 }
 
 /**
@@ -275,156 +232,6 @@ export function endBeforePeek() {
   useEditorStore.getState().setEditor((state) =>
     state.showOriginal ? { showOriginal: false, previewOverride: null } : state,
   );
-}
-
-/** Edit all selected's pending write (useEditAllSelected): flushed and
- * awaited before a batch, whose results it must not overwrite. */
-let editAllFlush: (() => Promise<unknown> | null) | null = null;
-
-/** Registers Edit all selected's flush (null to unregister); returns its
- * unregistration. */
-export function registerEditAllFlush(flush: () => Promise<unknown> | null): () => void {
-  editAllFlush = flush;
-  return () => {
-    if (editAllFlush === flush) editAllFlush = null;
-  };
-}
-
-/** Held photographs whose recipe took an update not saved yet (mask work
- * finishing during the hold, before the batch), with that recipe: the batch
- * saves it before its analysis, whichever photograph is open by then. */
-const unsavedHeldUpdates = new Map<string, Adjustments>();
-
-/** Running recipe operations by photograph — those that rewrite recipes in
- * the backend and then reload the open one (batch Auto straighten, Auto lens
- * correction, selection Auto Adjust): the latest one's end per photograph. */
-const recipeOperations = new Map<string, Promise<void>>();
-
-/** When an operation is running on any of `paths`: a promise for its end
- * (paste, presets and reset wait for it before they write), else null. */
-function afterRecipeOperations(paths: string[]): Promise<void> | null {
-  const waits = [...new Set(paths.map((path) => recipeOperations.get(path)).filter((wait) => wait !== undefined))];
-  return waits.length > 0 ? Promise.all(waits).then(() => undefined) : null;
-}
-
-/** When one of `paths` is the editor's photograph still loading: a promise
- * for the end of its load — loaded, or another photograph opened — however
- * long it takes (a queued operation then runs on it as on any other), else
- * null (nothing to wait for: it runs at once). */
-function afterEditorLoads(paths: string[]): Promise<void> | null {
-  const loading = () => {
-    const image = useEditorStore.getState().selectedImage;
-    return !!image && !image.isReady && paths.includes(image.path);
-  };
-  if (!loading()) return null;
-  return new Promise<void>((resolve) => {
-    const unsubscribe = useEditorStore.subscribe(() => {
-      if (loading()) return;
-      unsubscribe();
-      resolve();
-    });
-  });
-}
-
-/** After a queued operation rewrote the recipes of `written` in the backend:
- * the editor's photograph, when it is one of them (once loaded, if it was
- * opened while the operation waited), takes its recipe as written, with a
- * fresh history; so does the Library's active photograph. */
-export async function reloadWrittenRecipes(written: string[]): Promise<void> {
-  const open = useEditorStore.getState().selectedImage?.path;
-  if (open && written.includes(open)) {
-    const load = afterEditorLoads([open]);
-    if (load) await load;
-    if (isCurrentEditorImage(open)) {
-      const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: open });
-      const image = useEditorStore.getState().selectedImage;
-      if (image && isCurrentEditorImage(open) && meta.adjustments && !meta.adjustments.is_null) {
-        const normalized = normalizeLoadedAdjustments(meta.adjustments, image.isRaw);
-        useEditorStore.getState().setEditor({ adjustments: normalized });
-        useEditorStore.getState().resetHistory(normalized);
-      }
-    }
-  }
-  const { libraryActivePath, setLibrary } = useLibraryStore.getState();
-  if (libraryActivePath && written.includes(libraryActivePath)) {
-    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
-    if (useLibraryStore.getState().libraryActivePath === libraryActivePath && meta.adjustments && !meta.adjustments.is_null) {
-      setLibrary({
-        libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
-      });
-    }
-  }
-}
-
-/** Runs `operation` on the recipes of `paths` after the operations already
- * running on any of them, so one's write and reload never interleave with
- * another's; later ones wait for this one. */
-export async function exclusiveRecipeOperation<T>(paths: string[], operation: () => Promise<T>): Promise<T> {
-  const unique = [...new Set(paths)];
-  // The open photograph's edits made before this was asked for are saved
-  // first, in order (the operation waits for that save): its autosave must
-  // not land after it.
-  const open = useEditorStore.getState().selectedImage?.path;
-  if (open && unique.includes(open)) {
-    scheduleUnsavedEditorRecipe();
-    debouncedSave.flush();
-  }
-  const earlier = afterRecipeOperations(unique);
-  let ended!: () => void;
-  const end = new Promise<void>((resolve) => {
-    ended = resolve;
-  });
-  unique.forEach((path) => recipeOperations.set(path, end));
-  try {
-    if (earlier) await earlier;
-    return await operation();
-  } finally {
-    unique.forEach((path) => {
-      if (recipeOperations.get(path) === end) recipeOperations.delete(path);
-    });
-    ended();
-  }
-}
-
-/** The batch-written recipe of `path` into the editor as one undoable
- * step, once it is open and loaded (a photograph opened during the batch may
- * still be loading: its load is waited for, however long). Nothing when another
- * photograph was opened meanwhile. */
-async function reloadHeldRecipe(path: string): Promise<void> {
-  const status = () => {
-    const image = useEditorStore.getState().selectedImage;
-    return image?.path !== path ? 'gone' : image.isReady ? 'ready' : 'loading';
-  };
-  if (status() === 'loading') {
-    await new Promise<void>((resolve) => {
-      const unsubscribe = useEditorStore.subscribe(() => {
-        if (status() === 'loading') return;
-        unsubscribe();
-        resolve();
-      });
-    });
-  }
-  if (status() !== 'ready') return;
-  const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path });
-  if (isCurrentEditorImage(path) && meta.adjustments && !meta.adjustments.is_null) {
-    // The commit changed only these (apply_auto_straighten_to_paths: the
-    // rotation, the crop and the frames of drawn masks and AI patches); the
-    // rest stays as the editor shows it, with the defaults its loader gave a
-    // never-edited photograph (which the saved recipe leaves implicit).
-    const written = normalizeLoadedAdjustments(meta.adjustments, !!useEditorStore.getState().selectedImage?.isRaw);
-    const shown = useEditorStore.getState().adjustments;
-    const loaded = {
-      ...shown,
-      rotation: written.rotation,
-      crop: written.crop,
-      masks: written.masks,
-      aiPatches: written.aiPatches,
-    };
-    // An edit queued before (a paste) keeps its own undo step.
-    debouncedSetHistory.flush();
-    useEditorStore.getState().pushHistory(loaded);
-    useEditorStore.getState().setEditor({ adjustments: loaded });
-  }
 }
 
 export function useEditorActions() {
@@ -510,101 +317,6 @@ export function useEditorActions() {
     setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
     return 'done';
   }, [setAdjustments]);
-
-  /** Auto straighten for a selection (Library, filmstrip), one photo at a
-   * time in the backend. The open photograph, when selected, is held: its
-   * slider draft and edits are saved first, it takes no edits, undo or
-   * autosave while the batch writes, and it is reloaded with the result as
-   * one undoable step. Resolves with what was done, or null. */
-  const handleAutoStraightenPaths = useCallback(
-    async (paths?: string[]): Promise<StraightenReport | null> => {
-      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
-      const { selectedImage } = useEditorStore.getState();
-      const pathsToUpdate =
-        paths && paths.length > 0
-          ? paths
-          : multiSelectedPaths.length > 0
-            ? multiSelectedPaths
-            : selectedImage
-              ? [selectedImage.path]
-              : [];
-      if (pathsToUpdate.length === 0) return null;
-      if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return null;
-      const open = selectedImage && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
-      // The open photograph's slider draft is committed (Edit all selected
-      // passes it on), then every photograph of the batch is held, also one
-      // opened while it runs: no edits from here on.
-      flushSliderDraft();
-      debouncedSetHistory.flush();
-      // Its saves start now, before the hold makes the shown recipe the save
-      // baseline (useImageProcessing); the batch runs once they are written.
-      const saved = open ? flushRecipeSaves() : null;
-      const held = [...new Set(pathsToUpdate)];
-      useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
-      // Edit all selected's pending write takes its place in the queue before
-      // the batch (behind it, it would overwrite the others' results).
-      editAllFlush?.();
-      const release = (paths: string[]) =>
-        useEditorStore.getState().setEditor((state) => {
-          const remaining = [...state.heldRecipePaths];
-          for (const path of paths) {
-            const at = remaining.indexOf(path);
-            if (at >= 0) remaining.splice(at, 1);
-          }
-          return { heldRecipePaths: remaining };
-        });
-      let released = false;
-      // After the operations already running on these photographs (another
-      // batch, Auto lens correction, Auto Adjust).
-      return exclusiveRecipeOperation(held, async () => {
-        if (saved) await saved;
-        // Mask work started before the hold (AI masks, imported placements)
-        // ends first; its results pass the hold (they come before the
-        // batch) and are saved with the recipe the batch analyses.
-        // The recipes such results went into (whenever, while this waited,
-        // and whichever photograph is open now) are saved before the analysis.
-        if (open) {
-          for (let work = afterRecipeWork(); work; work = afterRecipeWork()) await work;
-        }
-        const results = held.filter((path) => unsavedHeldUpdates.has(path));
-        for (const path of results) {
-          debouncedSave(path, unsavedHeldUpdates.get(path)!);
-          debouncedSave.flush();
-          unsavedHeldUpdates.delete(path);
-        }
-        await Promise.all(results.map((path) => pendingMetadataSaves.get(path)));
-        try {
-          pathsToUpdate.forEach((p) => globalImageCache.delete(p));
-          const report = await afterRecipeSaves(pathsToUpdate, () =>
-            invoke<StraightenReport>(Invokes.ApplyAutoStraightenToPaths, { paths: pathsToUpdate }),
-          );
-          // Whichever batch photograph is open now (the one open at the start
-          // or one opened meanwhile, maybe still loading) shows the result.
-          const now = useEditorStore.getState().selectedImage?.path;
-          release(held.filter((path) => path !== now));
-          if (now && held.includes(now)) {
-            if (report.straightened.includes(now)) await reloadHeldRecipe(now);
-            release([now]);
-          }
-          released = true;
-          if (libraryActivePath && report.straightened.includes(libraryActivePath)
-            && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
-            const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
-            if (useLibraryStore.getState().libraryActivePath === libraryActivePath
-              && meta.adjustments && !meta.adjustments.is_null) {
-              setLibrary({
-                libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
-              });
-            }
-          }
-          return report;
-        } finally {
-          if (!released) release(held);
-        }
-      });
-    },
-    [],
-  );
 
   // Background only: a layer's white balance is a relative local correction.
   const handleAutoWhiteBalance = useCallback(async () => {
@@ -692,55 +404,47 @@ export function useEditorActions() {
 
   const handleResetAdjustments = useCallback(
     (paths?: string[]) => {
-      const { multiSelectedPaths } = useLibraryStore.getState();
+      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
+      const { selectedImage, pushHistory } = useEditorStore.getState();
       const pathsToReset = paths || multiSelectedPaths;
       if (pathsToReset.length === 0) return;
-      // One operation in these photographs' queue, in the order asked for:
-      // its write and editor update after those asked for before, before
-      // those asked for after (exclusiveRecipeOperation).
-      void exclusiveRecipeOperation(pathsToReset, async () => {
-        // Loading in the editor (opened meanwhile): reset once it is loaded.
-        const load = afterEditorLoads(pathsToReset);
-        if (load) await load;
-        const { libraryActivePath, setLibrary } = useLibraryStore.getState();
-        const { selectedImage, pushHistory } = useEditorStore.getState();
+      if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
 
-        pathsToReset.forEach((p) => globalImageCache.delete(p));
-        // The last edit stays a step of its own, before the reset.
-        debouncedSetHistory.flush();
+      pathsToReset.forEach((p) => globalImageCache.delete(p));
+      // The last edit stays a step of its own, before the reset.
+      debouncedSetHistory.flush();
 
-        await afterRecipeSaves(
-          pathsToReset,
-          () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
-          false,
-        )
-          .then((failed) => {
-            const reset = pathsToReset.filter((path) => !failed.includes(path));
-            reset.forEach((path) => unsavedRecipes.delete(path));
-            if (libraryActivePath && reset.includes(libraryActivePath)
-              && useLibraryStore.getState().libraryActivePath === libraryActivePath)
-              setLibrary({ libraryActiveAdjustments: { ...INITIAL_ADJUSTMENTS } });
-            if (selectedImage && reset.includes(selectedImage.path)
-              && isCurrentEditorImage(selectedImage.path)) {
-              const aspect =
-                selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-              const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
-              // One undoable step, as in Capture One and Lightroom.
-              debouncedSetHistory.flush();
-              pushHistory(resetData);
-              setEditor({ adjustments: resetData });
-            }
-          })
-          .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
-      });
+      afterRecipeSaves(
+        pathsToReset,
+        () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
+        false,
+      )
+        .then((failed) => {
+          const reset = pathsToReset.filter((path) => !failed.includes(path));
+          reset.forEach((path) => unsavedRecipes.delete(path));
+          if (libraryActivePath && reset.includes(libraryActivePath)
+            && useLibraryStore.getState().libraryActivePath === libraryActivePath)
+            setLibrary({ libraryActiveAdjustments: { ...INITIAL_ADJUSTMENTS } });
+          if (selectedImage && reset.includes(selectedImage.path)
+            && isCurrentEditorImage(selectedImage.path)) {
+            const aspect =
+              selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
+            const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
+            // One undoable step, as in Capture One and Lightroom.
+            debouncedSetHistory.flush();
+            pushHistory(resetData);
+            setEditor({ adjustments: resetData });
+          }
+        })
+        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
     },
     [setEditor],
   );
 
   const handleAutoLensCorrection = useCallback(
     (paths?: string[]) => {
-      const { multiSelectedPaths } = useLibraryStore.getState();
-      const { selectedImage } = useEditorStore.getState();
+      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
+      const { selectedImage, resetHistory } = useEditorStore.getState();
 
       const pathsToUpdate =
         paths && paths.length > 0
@@ -756,9 +460,7 @@ export function useEditorActions() {
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      // Its reload replaces the whole recipe: after and before the other
-      // operations on these photographs (exclusiveRecipeOperation).
-      void exclusiveRecipeOperation(pathsToUpdate, () => afterRecipeSaves(pathsToUpdate, () =>
+      afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke('apply_auto_lens_correction_to_paths', { paths: pathsToUpdate }),
           pathsToUpdate,
@@ -768,10 +470,27 @@ export function useEditorActions() {
         .then(async (failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
-          // Whichever of them is open now (maybe opened while this waited).
-          await reloadWrittenRecipes(updated);
+          if (selectedImage && updated.includes(selectedImage.path)
+            && isCurrentEditorImage(selectedImage.path)) {
+            const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
+            if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
+              const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
+              setEditor({ adjustments: normalized });
+              resetHistory(normalized);
+            }
+          }
+          if (libraryActivePath && updated.includes(libraryActivePath)
+            && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
+            const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+            if (useLibraryStore.getState().libraryActivePath === libraryActivePath
+              && meta.adjustments && !meta.adjustments.is_null) {
+              setLibrary({
+                libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+              });
+            }
+          }
         })
-        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`)));
+        .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`));
     },
     [setEditor],
   );
@@ -828,75 +547,57 @@ export function useEditorActions() {
    * loader has not read its recipe yet), so it may be written too; it then
    * reads its recipe after this write. */
   const applyAdjustmentsToPaths = useCallback(
-    (
-      partial: Partial<Adjustments>,
-      paths?: string[],
-      { openingNow = false }: { openingNow?: boolean } = {},
-    ): Promise<unknown> | undefined => {
+    (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
       const adjustmentsToApply = withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial))));
-      const { selectedImage: requestedOn } = useEditorStore.getState();
+      const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
-        paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : requestedOn ? [requestedOn.path] : []);
+        paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
       if (pathsToUpdate.length === 0) return;
-      // One operation in these photographs' queue, in the order asked for
-      // (after a batch edit asked for before, before one asked for after);
-      // with nothing ahead it runs at once.
-      // `openingNow` holds only when it runs at once: after a wait in the
-      // queue the photograph's loader may have read the recipe before this
-      // write, so it waits for the load and updates the loaded editor.
-      const immediate = afterRecipeOperations(pathsToUpdate) === null;
-      return exclusiveRecipeOperation(pathsToUpdate, async () => {
-        // Asked for while it is loading in the editor (opened meanwhile):
-        // applied once it is loaded, not dropped.
-        const load = openingNow && immediate ? null : afterEditorLoads(pathsToUpdate);
-        if (load) await load;
-        const { selectedImage, adjustments } = useEditorStore.getState();
+      if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
 
-        pathsToUpdate.forEach((p) => globalImageCache.delete(p));
+      pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-        if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-          updateAdjustments({ ...adjustments, ...adjustmentsToApply }, { queued: true, persisted: true });
-        }
+      if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
+        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+      }
 
-        const written = afterRecipeSaves(pathsToUpdate, () =>
-          savedBatch(
-            invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
-            pathsToUpdate,
-            'paste adjustments',
-          ),
-        );
-        // A photograph opened meanwhile reads its recipe after this write.
-        const settled = written.then(() => undefined, () => undefined);
-        pathsToUpdate.forEach((path) => {
-          pendingMetadataSaves.set(path, settled);
-          void settled.then(() => {
-            if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
-          });
+      const written = afterRecipeSaves(pathsToUpdate, () =>
+        savedBatch(
+          invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
+          pathsToUpdate,
+          'paste adjustments',
+        ),
+      );
+      // A photograph opened meanwhile reads its recipe after this write.
+      const settled = written.then(() => undefined, () => undefined);
+      pathsToUpdate.forEach((path) => {
+        pendingMetadataSaves.set(path, settled);
+        void settled.then(() => {
+          if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
         });
-        return written
-          .then((failed) => {
-            const updated = pathsToUpdate.filter((path) => !failed.includes(path));
-            updated.forEach((path) => unsavedRecipes.delete(path));
-            if (selectedImage && updated.includes(selectedImage.path)
-              && isCurrentEditorImage(selectedImage.path)) {
-              // Awaited: the editor update belongs to this queued operation.
-              return invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
-                if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
-                  updateAdjustments((prev: Adjustments) => ({
-                    ...prev,
-                    lensMaker: meta.adjustments!.lensMaker,
-                    lensModel: meta.adjustments!.lensModel,
-                    lensDistortionParams: meta.adjustments!.lensDistortionParams,
-                  }), { queued: true, persisted: true });
-                }
-              });
-            }
-          })
-          .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
       });
+      return written
+        .then((failed) => {
+          const updated = pathsToUpdate.filter((path) => !failed.includes(path));
+          updated.forEach((path) => unsavedRecipes.delete(path));
+          if (selectedImage && updated.includes(selectedImage.path)
+            && isCurrentEditorImage(selectedImage.path)) {
+            invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
+              if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
+                setAdjustments((prev: Adjustments) => ({
+                  ...prev,
+                  lensMaker: meta.adjustments!.lensMaker,
+                  lensModel: meta.adjustments!.lensModel,
+                  lensDistortionParams: meta.adjustments!.lensDistortionParams,
+                }));
+              }
+            });
+          }
+        })
+        .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
     },
     [setAdjustments],
   );
@@ -991,7 +692,6 @@ export function useEditorActions() {
     handleAutoAdjustments,
     handleAutoWhiteBalance,
     handleAutoStraighten,
-    handleAutoStraightenPaths,
     handleLutSelect,
     setLutPreviewOverride,
     handleResetAdjustments,

@@ -3,13 +3,12 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
-import { updateAdjustments, useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
+import { waitForPendingMetadataSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
-import { registerSliderDraftRenderer } from '../utils/sliderDraft';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -36,7 +35,6 @@ function edit(change: Partial<Adjustments>) {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
-  vi.mocked(invoke).mockImplementation(() => Promise.resolve());
   useSettingsStore.setState({ osPlatform: 'macos' });
   useLibraryStore.setState({ multiSelectedPaths: selection });
   useEditorStore.setState({
@@ -72,98 +70,6 @@ describe('Edit all selected', () => {
     ]);
     // The primary keeps its own edit (and its own history).
     expect(useEditorStore.getState().adjustments.exposure).toBe(0.8);
-  });
-
-  it("does not give the others a batch's reloaded result for the primary", () => {
-    renderHook(() => useEditAllSelected(true, selection));
-    // Batch Auto straighten holds the selection and reloads the primary's own answer.
-    act(() => useEditorStore.setState({ heldRecipePaths: [...selection] }));
-    edit({ rotation: -2.5, crop: { unit: 'px', x: 10, y: 8, width: 5900, height: 3900 } });
-    act(() => useEditorStore.setState({ heldRecipePaths: [] }));
-    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
-    expect(pasted()).toEqual([]);
-    // An edit afterwards still goes to the others, without the rotation.
-    edit({ exposure: 0.4 });
-    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
-    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.4 } }]);
-  });
-
-  it('writes a pending edit before a batch starts, so the batch results stay', async () => {
-    vi.mocked(invoke).mockImplementation(async (command) =>
-      command === Invokes.ApplyAutoStraightenToPaths
-        ? { straightened: [], noLines: [], changed: [], failed: [] }
-        : command === Invokes.LoadMetadata
-          ? { adjustments: useEditorStore.getState().adjustments }
-          : undefined,
-    );
-    renderHook(() => useEditAllSelected(true, selection));
-    const { result } = renderHook(useEditorActions);
-    edit({ rotation: 1.5 });
-    // Batch-straighten the selection before the settle time is over.
-    await act(async () => {
-      await result.current.handleAutoStraightenPaths(selection);
-    });
-    const order = vi
-      .mocked(invoke)
-      .mock.calls.map(([command]) => command)
-      .filter((c) => c === Invokes.ApplyAdjustmentsToPaths || c === Invokes.ApplyAutoStraightenToPaths);
-    expect(order).toEqual([Invokes.ApplyAdjustmentsToPaths, Invokes.ApplyAutoStraightenToPaths]);
-    // Nothing is written after the batch.
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
-    expect(pasted()).toHaveLength(1);
-  });
-
-  it('passes a slider draft pending when a batch starts on to the others first', async () => {
-    vi.mocked(invoke).mockImplementation(async (command) =>
-      command === Invokes.ApplyAutoStraightenToPaths
-        ? { straightened: [], noLines: [], changed: [], failed: [] }
-        : command === Invokes.LoadMetadata
-          ? { adjustments: useEditorStore.getState().adjustments }
-          : undefined,
-    );
-    renderHook(() => useEditAllSelected(true, selection));
-    const { result } = renderHook(useEditorActions);
-    // A slider is being dragged: its moves are a draft not yet committed.
-    act(() => useEditorStore.setState({ isSliderDragging: true }));
-    const unregister = registerSliderDraftRenderer(() => true);
-    act(() => updateAdjustments({ exposure: 4 }));
-    // Rendered as a draft, not committed yet.
-    expect(useEditorStore.getState().adjustments.exposure).not.toBe(4);
-    await act(async () => {
-      await result.current.handleAutoStraightenPaths(selection);
-    });
-    unregister();
-    act(() => useEditorStore.setState({ isSliderDragging: false }));
-    const order = vi
-      .mocked(invoke)
-      .mock.calls.map(([command]) => command)
-      .filter((c) => c === Invokes.ApplyAdjustmentsToPaths || c === Invokes.ApplyAutoStraightenToPaths);
-    expect(order).toEqual([Invokes.ApplyAdjustmentsToPaths, Invokes.ApplyAutoStraightenToPaths]);
-    expect(pasted()[0]).toMatchObject({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 4 } });
-  });
-
-  it('takes no edits from the moment a batch is asked for, so none is passed on after it', async () => {
-    let releasePaste!: () => void;
-    vi.mocked(invoke).mockImplementation(async (command) =>
-      command === Invokes.ApplyAdjustmentsToPaths
-        ? new Promise<void>((resolve) => { releasePaste = resolve; })
-        : command === Invokes.ApplyAutoStraightenToPaths
-          ? { straightened: [], noLines: [], changed: [], failed: [] }
-          : command === Invokes.LoadMetadata
-            ? { adjustments: useEditorStore.getState().adjustments }
-            : undefined,
-    );
-    renderHook(() => useEditAllSelected(true, selection));
-    const { result } = renderHook(useEditorActions);
-    edit({ rotation: 1.5 });
-    let batch!: Promise<unknown>;
-    act(() => { batch = result.current.handleAutoStraightenPaths(selection); });
-    // While the pending write is still being written: another edit.
-    act(() => updateAdjustments({ rotation: 3 }));
-    expect(useEditorStore.getState().adjustments.rotation).toBe(1.5);
-    await act(async () => { releasePaste(); await batch; });
-    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
-    expect(pasted().map((p) => p.adjustments.rotation)).toEqual([1.5]);
   });
 
   it('has the other cells developed again once their recipes are written', async () => {

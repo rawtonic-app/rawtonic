@@ -14,7 +14,6 @@ import {
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
   withDiffractionVersion,
-  withSourceVersions,
   withSharpenVersion,
   pastedAdjustments,
   PasteMode,
@@ -53,7 +52,7 @@ describe('RAW detail defaults', () => {
   });
 
   it('keep the colour noise filter a saved recipe rendered with', () => {
-    expect(COLOR_NOISE_VERSION).toBe(6);
+    expect(COLOR_NOISE_VERSION).toBe(7);
     expect(initialAdjustmentsFor(true).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     expect(initialAdjustmentsFor(false).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     // Saved colour amount without a version: the earlier filter.
@@ -64,7 +63,7 @@ describe('RAW detail defaults', () => {
     const partial = { exposure: 0.5 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(partial, true).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     expect(normalizeLoadedAdjustments(partial, false).colorNoiseVersion).toBeUndefined();
-    // Saved versions stay, also the earlier multi-scale tunings (2–5).
+    // Saved versions stay, also the earlier multi-scale tunings (2–6).
     const versioned = { colorNoiseReduction: 25, colorNoiseVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).colorNoiseVersion).toBe(2);
     const third = { colorNoiseReduction: 25, colorNoiseVersion: 3 } as unknown as Adjustments;
@@ -73,11 +72,14 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(fourth, true).colorNoiseVersion).toBe(4);
     const fifth = { colorNoiseReduction: 25, colorNoiseVersion: 5 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(fifth, true).colorNoiseVersion).toBe(5);
+    const sixth = { colorNoiseReduction: 25, colorNoiseVersion: 6 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(sixth, true).colorNoiseVersion).toBe(6);
     const first = { colorNoiseReduction: 25, colorNoiseVersion: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(first, true).colorNoiseVersion).toBe(1);
   });
 
-  it('develop versions 2 to 6 on the same base image (multi-scale filter)', () => {
+  it('develop versions 2 to 7 on the same base image (multi-scale filter)', () => {
+    expect(colorNoiseMultiscale({ colorNoiseVersion: 7 }, true)).toBe(true);
     expect(colorNoiseMultiscale({ colorNoiseVersion: 6 }, true)).toBe(true);
     expect(colorNoiseMultiscale({ colorNoiseVersion: 5 }, true)).toBe(true);
     expect(colorNoiseMultiscale({ colorNoiseVersion: 4 }, true)).toBe(true);
@@ -126,18 +128,6 @@ describe('RAW detail defaults', () => {
     expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 3 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(3);
     // Nothing to carry without an amount.
     expect('aiDenoiseVersion' in withAiDenoiseVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
-  });
-
-  it("keep a synced edit's grain structure and versions as the source has them", () => {
-    const source = { grainStructure: 'clumped', aiDenoiseVersion: 3, diffractionVersion: 2 } as Partial<Adjustments>;
-    // As applyAdjustmentsToPaths normalises what it writes (legacy defaults).
-    const written = (delta: Partial<Adjustments>) =>
-      withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(withSourceVersions(delta, source)))));
-    expect(written({ grainAmount: 40 }).grainStructure).toBe('clumped');
-    expect(written({ aiDenoise: 60 }).aiDenoiseVersion).toBe(3);
-    expect(written({ diffractionCorrection: true }).diffractionVersion).toBe(2);
-    // Without the source's values (a legacy preset), the legacy defaults.
-    expect(withGrainStructure({ grainAmount: 40 } as Partial<Adjustments>).grainStructure).toBe('even');
   });
 
   it('carry the diffraction version with a copied or preset correction', () => {

@@ -54,7 +54,6 @@ const layer = (type: string, parameters: Record<string, unknown>) => ({
 });
 
 beforeEach(() => {
-  useEditorStore.setState({ heldRecipePaths: [] });
   resetAiMaskSession();
   localStorage.clear();
   invoke.mockReset();
@@ -96,67 +95,6 @@ describe("automatic AI masks from imported presets", () => {
     });
     rerender();
     expect(generated()).toHaveLength(3);
-  });
-
-  it("applies a mask result that arrives while a batch edit holds the recipe (the batch waits for it)", async () => {
-    let finishFirst!: (value: unknown) => void;
-    invoke.mockImplementation((command: string) =>
-      command === "generate_ai_sky_mask"
-        ? new Promise((resolve) => { finishFirst = resolve; })
-        : Promise.resolve({ maskDataBase64: "data:image/png;base64,BBBB" }),
-    );
-    useEditorStore.setState({
-      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
-      adjustments: {
-        ...structuredClone(INITIAL_ADJUSTMENTS),
-        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
-      },
-    });
-    const generated = () => invoke.mock.calls.filter((c) => c[0] === "generate_ai_sky_mask");
-    renderHook(() => useAiMasking());
-    await waitFor(() => expect(generated()).toHaveLength(1));
-    act(() => useEditorStore.setState({ heldRecipePaths: ["/s/a.NEF"] }));
-    await act(async () => finishFirst({ maskDataBase64: "data:image/png;base64,AAAA" }));
-    const sky = () =>
-      useEditorStore.getState().adjustments.masks.flatMap((m) => m.subMasks).find((x) => x.id === "sub-ai-sky")?.parameters;
-    expect(sky()).toMatchObject({ maskDataBase64: "data:image/png;base64,AAAA" });
-    act(() => useEditorStore.setState({ heldRecipePaths: [] }));
-    await act(async () => {});
-    expect(generated()).toHaveLength(1);
-  });
-
-  it("starts no mask while a batch edit holds the recipe", async () => {
-    useEditorStore.setState({
-      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
-      heldRecipePaths: ["/s/a.NEF"],
-      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [layer("ai-foreground", {})] as never },
-    });
-    const { result } = renderHook(() => useAiMasking());
-    // A manual Subject click and the automatic Subject mask: neither starts.
-    await act(async () => { await result.current.handleGenerateAiMask("sub-ai-foreground", { x: 0, y: 0 }, { x: 1, y: 1 }); });
-    await act(async () => {});
-    expect(invoke.mock.calls.filter((c) => String(c[0]).startsWith("generate_"))).toHaveLength(0);
-    // Released: the automatic mask is computed.
-    act(() => useEditorStore.setState({ heldRecipePaths: [] }));
-    await waitFor(() => expect(invoke.mock.calls.filter((c) => c[0] === "generate_ai_foreground_mask")).toHaveLength(1));
-  });
-
-  it("applies imported spots placed while a batch edit holds the recipe", async () => {
-    let finishPlacement!: (value: unknown) => void;
-    invoke.mockImplementation((command: string) =>
-      command === "place_lightroom_masks"
-        ? new Promise((resolve) => { finishPlacement = resolve; })
-        : Promise.resolve(),
-    );
-    useEditorStore.setState({
-      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 600, height: 400 } as never,
-      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), spots: [{ id: "s1", lrNormalized: true }] as never },
-    });
-    renderHook(() => useAiMasking());
-    await waitFor(() => expect(invoke.mock.calls.some((c) => c[0] === "place_lightroom_masks")).toBe(true));
-    act(() => useEditorStore.setState({ heldRecipePaths: ["/s/a.NEF"] }));
-    await act(async () => finishPlacement({ spots: [{ id: "s1", x: 10, y: 20 }] }));
-    expect(useEditorStore.getState().adjustments.spots).toEqual([{ id: "s1", x: 10, y: 20 }]);
   });
 
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
