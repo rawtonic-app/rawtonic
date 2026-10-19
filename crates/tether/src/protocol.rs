@@ -84,7 +84,8 @@ pub struct CameraStatus {
     /// The camera keeps every tethered photo until the computer frees it
     /// (`Release`) and stops shooting when that queue is full. Whether it
     /// also writes a card copy is the camera's setting: a Fujifilm GFX 50R
-    /// in USB tether mode writes none, so freeing is the user's choice.
+    /// in USB tether mode writes none, so the app frees a photo only after
+    /// its verified commit, and the user can turn freeing off.
     #[serde(default)]
     pub transfer_queue: bool,
 }

@@ -86,7 +86,8 @@ fn refused(context: &str, e: gphoto2::Error) -> TetherError {
 /// queue is full (an X-H2S after 37 photos). Deleting the object frees the
 /// queue entry; a card copy stays (X-H2S, checked on the body), but a body
 /// may write none (GFX 50R in USB tether mode): then the library copy is the
-/// only one, so the app frees photos only when the user turned it on.
+/// only one, so the app frees a photo only after its verified commit (on
+/// unless the user turned it off, as in Capture One).
 /// notes: reference/tether.md
 fn has_transfer_queue(summary: &str) -> bool {
     summary.contains(": 0xe (") && summary.contains("(d212")

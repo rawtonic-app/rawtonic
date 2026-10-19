@@ -81,13 +81,14 @@ const LIVE_VIEW_INTERVAL_MS = 1000 / 30;
 /** How often the panel looks for a newly plugged-in camera. */
 const CAMERA_POLL_MS = 2000;
 
-/** The user's choice to free photos on cameras with a transfer queue. */
+/** Whether photos are freed on cameras with a transfer queue (on unless
+ * the user turned it off; only ever after the verified library commit). */
 const FREE_COPIES_KEY = "rawtonic.tether.freeCameraCopies";
 const storedFreeCopies = () => {
   try {
-    return localStorage.getItem(FREE_COPIES_KEY) === "1";
+    return localStorage.getItem(FREE_COPIES_KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
 };
 
@@ -121,7 +122,7 @@ export default function TetherPanel({
   // The camera went away; the backend connects it again when it is back.
   const [waiting, setWaiting] = useState(false);
   const [template, setTemplate] = useState("{orig}");
-  // Off unless the user turned it on: a camera may keep no card copy.
+  // On unless the user turned it off, as in Capture One.
   const [freeCopies, setFreeCopies] = useState(storedFreeCopies);
   const [nextCapture, setNextCapture] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
   const [presets, setPresets] = useState<PresetChoice[]>([]);

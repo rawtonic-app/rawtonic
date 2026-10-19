@@ -65,11 +65,11 @@ it("connects the camera found on USB for this library, with the next-capture set
     template: "{orig}",
     nextCapture: { mode: "defaults" },
     metadata: { rating: 3, keywords: ["studio", "Acme"] },
-    freeCameraCopies: false,
+    freeCameraCopies: true,
   });
 });
 
-it("frees photos on a camera with a transfer queue only once the user turns it on", async () => {
+it("frees photos on a camera with a transfer queue unless the user turns it off", async () => {
   localStorage.removeItem("rawtonic.tether.freeCameraCopies");
   render(<Harness initial={STATUS} />);
   await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
@@ -77,12 +77,12 @@ it("frees photos on a camera with a transfer queue only once the user turns it o
   cleanup();
   render(<Harness initial={{ ...STATUS, camera: { ...STATUS.camera, transferQueue: true } }} />);
   const box = await screen.findByRole("checkbox", { name: /Free photos on the camera/ });
-  expect((box as HTMLInputElement).checked).toBe(false);
+  expect((box as HTMLInputElement).checked).toBe(true);
   fireEvent.click(box);
   await waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith("tether_next_capture", expect.objectContaining({ freeCameraCopies: true })),
+    expect(invoke).toHaveBeenCalledWith("tether_next_capture", expect.objectContaining({ freeCameraCopies: false })),
   );
-  expect(localStorage.getItem("rawtonic.tether.freeCameraCopies")).toBe("1");
+  expect(localStorage.getItem("rawtonic.tether.freeCameraCopies")).toBe("0");
   localStorage.removeItem("rawtonic.tether.freeCameraCopies");
 });
 

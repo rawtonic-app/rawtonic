@@ -42,7 +42,8 @@ struct CaptureConfig {
     template: String,
     settings: CaptureSettings,
     /// Free each photo from the camera's transfer queue once it is in the
-    /// library (the user's choice: the camera may keep no card copy).
+    /// library (on unless the user turned it off; a camera may keep no card
+    /// copy, so never before the verified commit).
     free_camera_copies: bool,
 }
 
@@ -592,7 +593,7 @@ pub async fn tether_connect(
         let config = Arc::new(Mutex::new(CaptureConfig {
             template,
             settings,
-            free_camera_copies: free_camera_copies.unwrap_or(false),
+            free_camera_copies: free_camera_copies.unwrap_or(true),
         }));
         let (tx, rx) = mpsc::channel();
         spawn_ingest(
@@ -713,7 +714,7 @@ pub fn tether_next_capture(
     *connection.config.lock().unwrap() = CaptureConfig {
         template,
         settings,
-        free_camera_copies: free_camera_copies.unwrap_or(false),
+        free_camera_copies: free_camera_copies.unwrap_or(true),
     };
     Ok(())
 }
@@ -729,7 +730,7 @@ mod tests {
     /// The helper binary cargo built for the workspace (`--workspace`
     /// builds it for the tether crate's own tests).
     #[test]
-    fn photos_are_freed_on_the_camera_only_when_the_user_turned_it_on() {
+    fn photos_are_freed_on_the_camera_after_their_commit_unless_turned_off() {
         let tmp = tempfile::tempdir().unwrap();
         let session = session(tmp.path());
         let (tx, rx) = mpsc::channel::<(Captured, Instant)>();
@@ -763,7 +764,7 @@ mod tests {
         };
         send(1);
         captured(&seen, 1);
-        assert_eq!(freed.load(Ordering::SeqCst), 0, "off by default");
+        assert_eq!(freed.load(Ordering::SeqCst), 0, "turned off");
         config.lock().unwrap().free_camera_copies = true;
         send(2);
         captured(&seen, 1);
