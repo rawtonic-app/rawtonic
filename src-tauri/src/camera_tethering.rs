@@ -78,6 +78,9 @@ struct Helper {
     /// The connection whose camera went away, kept until it is connected
     /// again or the user connects or disconnects.
     lost: Option<Connection>,
+    /// The connection's ingest thread (joined before another one starts:
+    /// one ingest per transfer folder).
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 
 /// The running helper. Never held while waiting for the helper: its reader
@@ -88,6 +91,9 @@ static FRAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 /// Counts the user's connects and disconnects; a reconnect started before
 /// one of them gives up.
 static CHOICE: AtomicU64 = AtomicU64::new(0);
+/// Held while a connection changes (the user's connect or disconnect, a
+/// reconnect's look-and-connect), so they never interleave.
+static TRANSITION: Mutex<()> = Mutex::new(());
 /// How often a camera that went away is looked for.
 const RECONNECT_EVERY: Duration = Duration::from_secs(1);
 
@@ -203,6 +209,7 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         ingest,
         connection: None,
         lost: None,
+        worker: None,
     });
     Ok(client)
 }
@@ -231,7 +238,14 @@ fn reconnect_when_back(app: AppHandle) {
         )
     };
     let wanted = || CHOICE.load(Ordering::SeqCst) == choice;
-    let Some(status) = reconnect(&client, &model, &session, RECONNECT_EVERY, wanted) else {
+    let Some((status, _turn)) = reconnect(
+        &client,
+        &model,
+        &session,
+        RECONNECT_EVERY,
+        &TRANSITION,
+        wanted,
+    ) else {
         return;
     };
     let mut helper = HELPER.lock().unwrap();
@@ -258,15 +272,19 @@ fn reconnect_when_back(app: AppHandle) {
 
 /// Looks for `model` every `every` and connects it once it is listed again;
 /// `None` when the helper ended or `wanted` turned false first.
-fn reconnect(
+fn reconnect<'a>(
     client: &Client,
     model: &str,
     session: &Path,
     every: Duration,
+    transition: &'a Mutex<()>,
     wanted: impl Fn() -> bool,
-) -> Option<CameraStatus> {
+) -> Option<(CameraStatus, std::sync::MutexGuard<'a, ()>)> {
     loop {
         std::thread::sleep(every);
+        // One look-and-connect at a time with the user's connect and
+        // disconnect: a choice made meanwhile is seen before connecting.
+        let turn = transition.lock().unwrap();
         if !wanted() || !client.alive() {
             return None;
         }
@@ -276,12 +294,15 @@ fn reconnect(
         let Some(camera) = cameras.into_iter().find(|c| c.model == model) else {
             continue;
         };
+        if !wanted() {
+            return None;
+        }
         let connect = Request::Connect {
             port: Some(camera.port),
             staging: staging::root(session),
         };
         if let Ok(Reply::Connected { status }) = client.request(connect, SLOW) {
-            return Some(status);
+            return Some((status, turn));
         }
     }
 }
@@ -357,11 +378,13 @@ type Notify = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 /// `Release`; a no-op on cameras without one).
 type Release = Arc<dyn Fn(&Captured) + Send + Sync>;
 
-/// `Release` through the running helper.
-fn release_in_helper() -> Release {
-    Arc::new(|captured: &Captured| {
-        let client = HELPER.lock().unwrap().as_ref().map(|h| h.client.clone());
-        let Some(client) = client else { return };
+/// `Release` through the helper that delivered the photo: none once that
+/// helper ended (a new one numbers its connections afresh).
+fn release_via(client: std::sync::Weak<Client>) -> Release {
+    Arc::new(move |captured: &Captured| {
+        let Some(client) = client.upgrade() else {
+            return;
+        };
         let release = Request::Release {
             connection: captured.connection,
             camera_folder: captured.camera_folder.clone(),
@@ -393,7 +416,7 @@ fn spawn_ingest(
     session: PathBuf,
     config: Arc<Mutex<CaptureConfig>>,
     photos: mpsc::Receiver<(Captured, Instant)>,
-) -> Result<(), String> {
+) -> Result<std::thread::JoinHandle<()>, String> {
     let root = staging::root(&session);
     std::thread::Builder::new()
         .name("tether-ingest".into())
@@ -425,7 +448,6 @@ fn spawn_ingest(
                 ingest.one(&captured.path.clone(), Some((captured, received)));
             }
         })
-        .map(|_| ())
         .map_err(|e| e.to_string())
 }
 
@@ -585,50 +607,20 @@ pub async fn tether_connect(
             .canonicalize()
             .map_err(|e| e.to_string())?;
         drop(Library::open(&session).map_err(|e| format!("{e:#}"))?);
-        // The earlier connection's ingest finishes what it has.
-        disconnect_locally();
-        // What an earlier run left in the transfer folder, read while no
-        // camera is open (the helper writes there only while one is).
-        if HELPER.lock().unwrap().is_some() {
-            let _ = request(&app, Request::Disconnect, QUICK);
-        }
-        let recovered = staging::recover(&staging::root(&session)).unwrap_or_else(|e| {
-            log::warn!("Tether: the transfer folder cannot be read: {e}");
-            staging::Recovered::default()
-        });
-        let Reply::Connected { status } = request(
-            &app,
-            Request::Connect {
-                port,
-                staging: staging::root(&session),
-            },
-            SLOW,
-        )?
-        else {
-            return Err("Unexpected answer from the tether helper.".into());
-        };
         let config = Arc::new(Mutex::new(CaptureConfig {
             template,
             settings,
             free_camera_copies: free_camera_copies.unwrap_or(true),
         }));
-        let (tx, rx) = mpsc::channel();
-        spawn_ingest(
+        let status = open_session(
+            &HELPER,
+            &TRANSITION,
+            client(&app)?,
             notify_app(app.clone()),
-            release_in_helper(),
-            recovered,
             session.clone(),
-            config.clone(),
-            rx,
-        )?;
-        let mut helper = HELPER.lock().unwrap();
-        let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
-        *helper.ingest.lock().unwrap() = Some(tx);
-        helper.connection = Some(Connection {
-            session: session.clone(),
-            status: status.clone(),
+            port,
             config,
-        });
+        )?;
         Ok(TetherStatus {
             session,
             camera: status,
@@ -637,25 +629,96 @@ pub async fn tether_connect(
     .await
 }
 
-/// Forgets the connection here (its ingest ends after the photos it has).
-fn disconnect_locally() {
-    if let Some(h) = HELPER.lock().unwrap().as_mut() {
+/// Forgets the connection here and waits for its ingest to finish the
+/// photos it has (one ingest per transfer folder).
+fn finish_ingest(state: &Mutex<Option<Helper>>) {
+    let worker = state.lock().unwrap().as_mut().and_then(|h| {
         h.ingest.lock().unwrap().take();
         h.connection = None;
         h.lost = None;
-    }
+        h.worker.take()
+    });
     FRAME.lock().unwrap().take();
+    if let Some(worker) = worker {
+        let _ = worker.join();
+    }
+}
+
+/// Opens a camera for `session` on the running helper: the earlier
+/// connection's ingest finished, the transfer folder recovered while no
+/// camera is open, the new ingest listening before the camera is (a body
+/// shot right after the connect goes straight in).
+fn open_session(
+    state: &Mutex<Option<Helper>>,
+    transition: &Mutex<()>,
+    client: Arc<Client>,
+    notify: Notify,
+    session: PathBuf,
+    port: Option<String>,
+    config: Arc<Mutex<CaptureConfig>>,
+) -> Result<CameraStatus, String> {
+    let _turn = transition.lock().unwrap();
+    finish_ingest(state);
+    let _ = client.request(Request::Disconnect, QUICK);
+    let recovered = staging::recover(&staging::root(&session)).unwrap_or_else(|e| {
+        log::warn!("Tether: the transfer folder cannot be read: {e}");
+        staging::Recovered::default()
+    });
+    let (tx, rx) = mpsc::channel();
+    let worker = spawn_ingest(
+        notify,
+        release_via(Arc::downgrade(&client)),
+        recovered,
+        session.clone(),
+        config.clone(),
+        rx,
+    )?;
+    {
+        let mut helper = state.lock().unwrap();
+        let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
+        *helper.ingest.lock().unwrap() = Some(tx);
+        helper.worker = Some(worker);
+    }
+    let connect = Request::Connect {
+        port,
+        staging: staging::root(&session),
+    };
+    let status = match client.request(connect, SLOW) {
+        Ok(Reply::Connected { status }) => status,
+        other => {
+            if other
+                .as_ref()
+                .is_err_and(|e| e.kind == ErrorKind::Unresponsive)
+            {
+                client.kill();
+            }
+            finish_ingest(state);
+            return Err(match other {
+                Err(e) => text(e),
+                Ok(_) => "Unexpected answer from the tether helper.".into(),
+            });
+        }
+    };
+    let mut helper = state.lock().unwrap();
+    let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
+    helper.connection = Some(Connection {
+        session,
+        status: status.clone(),
+        config,
+    });
+    Ok(status)
 }
 
 #[tauri::command]
 pub async fn tether_disconnect(app: AppHandle) -> Result<(), String> {
     CHOICE.fetch_add(1, Ordering::SeqCst);
     blocking(move || {
+        let _turn = TRANSITION.lock().unwrap();
         let running = HELPER.lock().unwrap().is_some();
         if running {
             let _ = request(&app, Request::Disconnect, QUICK);
         }
-        disconnect_locally();
+        finish_ingest(&HELPER);
         Ok(())
     })
     .await
@@ -853,20 +916,203 @@ mod tests {
         let error = next(&mut files).expect("the camera went away");
         assert_eq!(error.kind, ErrorKind::Disconnected);
         assert_eq!(files, 2);
+        let transition = Mutex::new(());
         // A user's disconnect meanwhile stops the reconnect.
-        assert!(reconnect(&client, &spec.model, &session, Duration::ZERO, || false).is_none());
-        let status = reconnect(
+        assert!(
+            reconnect(
+                &client,
+                &spec.model,
+                &session,
+                Duration::ZERO,
+                &transition,
+                || false
+            )
+            .is_none()
+        );
+        // One made while the camera is being looked for: no connect follows.
+        let looks = std::sync::atomic::AtomicUsize::new(0);
+        let changed_during_the_look = || looks.fetch_add(1, Ordering::SeqCst) == 0;
+        assert!(
+            reconnect(
+                &client,
+                &spec.model,
+                &session,
+                Duration::ZERO,
+                &transition,
+                changed_during_the_look
+            )
+            .is_none()
+        );
+        assert_eq!(
+            client.request(Request::Settings, QUICK).unwrap_err().kind,
+            ErrorKind::NotConnected,
+            "not connected behind the user's back"
+        );
+        let (status, turn) = reconnect(
             &client,
             &spec.model,
             &session,
             Duration::from_millis(50),
+            &transition,
             || true,
         )
         .expect("connected again");
+        assert!(
+            transition.try_lock().is_err(),
+            "held until the state is updated"
+        );
+        drop(turn);
         assert_eq!(status.model, spec.model);
         client.request(Request::Capture, CAPTURE).unwrap();
         assert!(next(&mut files).is_none());
         assert_eq!(files, 3, "the camera fires again after the reconnect");
+    }
+
+    /// A helper on the mock camera as the app runs it: its photos go to
+    /// whichever ingest is installed.
+    fn mock_helper(spec: &MockSpec) -> (Mutex<Option<Helper>>, Arc<Client>) {
+        let ingest: IngestSender = Arc::new(Mutex::new(None));
+        let route = ingest.clone();
+        let (client, library) = Client::spawn(
+            &helper_binary(),
+            &["--mock".into()],
+            &[(
+                "RAWTONIC_TETHER_MOCK".into(),
+                serde_json::to_string(spec).unwrap().into(),
+            )],
+            move |incoming| {
+                if let Incoming::Event(Event::Captured { captured }) = incoming
+                    && let Some(tx) = route.lock().unwrap().as_ref()
+                {
+                    let _ = tx.send((captured, Instant::now()));
+                }
+            },
+        )
+        .unwrap();
+        let client = Arc::new(client);
+        let state = Mutex::new(Some(Helper {
+            client: client.clone(),
+            library,
+            ingest,
+            connection: None,
+            lost: None,
+            worker: None,
+        }));
+        (state, client)
+    }
+
+    #[test]
+    fn a_new_connection_ingests_what_was_left_and_a_shot_right_after_it_once_each() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        // Left by an earlier run, complete.
+        let root = staging::root(&session);
+        let mut left = staging::Partial::create(&root, 1, "LEFT0001.ARW").unwrap();
+        left.write(b"left from before").unwrap();
+        left.publish(16).unwrap();
+        // A body shot fired the moment the camera is open.
+        let spec = MockSpec {
+            file_size: 16 * 1024,
+            body_shots_ms: vec![0],
+            ..MockSpec::default()
+        };
+        let (state, client) = mock_helper(&spec);
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(0, "connect"),
+            free_camera_copies: false,
+        }));
+        let (notify, seen) = collector();
+        let transition = Mutex::new(());
+        open_session(
+            &state,
+            &transition,
+            client.clone(),
+            notify.clone(),
+            session.clone(),
+            None,
+            config.clone(),
+        )
+        .unwrap();
+        let seen_now = captured(&seen, 2);
+        assert!(
+            seen_now.iter().all(|c| c.error.is_none() && !c.skipped),
+            "{seen_now:?}"
+        );
+        // Connecting again waits for that ingest before reading the folder
+        // (the mock fires its body shot again on this connect).
+        open_session(
+            &state,
+            &transition,
+            client,
+            notify,
+            session.clone(),
+            None,
+            config,
+        )
+        .unwrap();
+        // Byte-identical to the first one (the mock's numbering and content
+        // restart per connection): recognised, not copied again.
+        let again = captured(&seen, 1);
+        assert!(again[0].skipped && again[0].error.is_none(), "{again:?}");
+        finish_ingest(&state);
+        assert_eq!(photos_in_capture(&session), 2, "each once");
+        assert_eq!(incoming_left(&session), 0);
+    }
+
+    #[test]
+    fn a_release_never_reaches_a_camera_of_a_later_helper() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let spec = MockSpec {
+            queue_limit: Some(1),
+            ..MockSpec::default()
+        };
+        let staging = staging::root(&session);
+        let first = {
+            let (_state, client) = mock_helper(&spec);
+            client
+                .request(
+                    Request::Connect {
+                        port: None,
+                        staging: staging.clone(),
+                    },
+                    SLOW,
+                )
+                .unwrap();
+            let release = release_via(Arc::downgrade(&client));
+            (
+                release,
+                Captured {
+                    path: staging.join("x"),
+                    connection: 1,
+                    camera_folder: "/".into(),
+                    camera_name: "DSC00001.ARW".into(),
+                    size: 1,
+                    requested: true,
+                    ms_to_event: None,
+                    ms_to_downloaded: 0,
+                },
+            )
+        };
+        // That helper ended; a new one numbers its first connection 1 too.
+        let (_state, client) = mock_helper(&spec);
+        client
+            .request(
+                Request::Connect {
+                    port: None,
+                    staging,
+                },
+                SLOW,
+            )
+            .unwrap();
+        client.request(Request::Capture, CAPTURE).unwrap();
+        let (release, captured) = first;
+        release(&captured);
+        assert!(
+            client.request(Request::Capture, CAPTURE).is_err(),
+            "the new camera's photo was not freed"
+        );
     }
 
     fn helper_binary() -> PathBuf {
