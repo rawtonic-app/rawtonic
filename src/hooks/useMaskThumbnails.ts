@@ -85,11 +85,17 @@ export function geometryKey(adjustments: Partial<Adjustments>): string {
   return JSON.stringify(GEOMETRY_FIELDS.map((field) => record[field] ?? null));
 }
 
-/** What a layer's thumbnail depends on: its components and invert (not its
- * name, visibility, opacity or adjustments; the thumbnail shows the mask). */
+/** What a layer's thumbnail depends on: its components, invert, mask version
+ * and Refine edge (not its name, visibility, opacity or adjustments; the
+ * thumbnail shows the mask). */
 export function layerThumbnailKey(layer: MaskContainer): string {
   return JSON.stringify(
-    { invert: !!layer.invert, subMasks: layer.subMasks.map((sub) => ({ ...sub, name: undefined })) },
+    {
+      invert: !!layer.invert,
+      maskVersion: layer.maskVersion ?? null,
+      refineEdge: layer.refineEdge ?? null,
+      subMasks: layer.subMasks.map((sub) => ({ ...sub, name: undefined })),
+    },
     summarizeMaskData,
   );
 }
