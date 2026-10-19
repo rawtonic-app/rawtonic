@@ -1067,6 +1067,8 @@
       "copyNote": "Le foto vengono copiate in <strong>{{target}}</strong> e verificate mentre le scatti. Sulla fotocamera non viene cancellato nulla.",
       "disconnect": "Scollega",
       "focus": "Messa a fuoco",
+      "freeCopies": "Libera le foto sulla fotocamera quando sono nella libreria",
+      "freeCopiesHint": "Questa fotocamera conserva ogni foto inviata finché il computer non la libera e smette di scattare quando ne tiene troppe. Una foto viene liberata solo dopo la verifica nella libreria. Alcuni corpi in questa modalità non salvano una copia sulla scheda (una GFX 50R no): allora la copia nella libreria è l’unica.",
       "importFailed": "Impossibile aggiungere {{file}}: {{error}}",
       "incomplete": "Un download interrotto è stato conservato in {{path}}; non è stato aggiunto.",
       "lastFailed": "Impossibile aggiungere {{file}}",

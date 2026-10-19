@@ -1110,6 +1110,8 @@
       "copyNote": "Zdjęcia są kopiowane do <strong>{{target}}</strong> i weryfikowane w trakcie fotografowania. Nic nie jest usuwane z aparatu.",
       "disconnect": "Rozłącz",
       "focus": "Ostrość",
+      "freeCopies": "Zwalniaj zdjęcia w aparacie, gdy są już w bibliotece",
+      "freeCopiesHint": "Ten aparat przechowuje każde wysłane zdjęcie, dopóki komputer go nie zwolni, i przestaje robić zdjęcia, gdy ma ich za dużo. Zdjęcie jest zwalniane dopiero po sprawdzeniu w bibliotece. Niektóre aparaty w tym trybie nie zapisują kopii na karcie (GFX 50R nie zapisuje): wtedy kopia w bibliotece jest jedyna.",
       "importFailed": "Nie udało się dodać {{file}}: {{error}}",
       "incomplete": "Przerwane pobieranie zachowano w {{path}}; nie zostało dodane.",
       "lastFailed": "Nie udało się dodać {{file}}",

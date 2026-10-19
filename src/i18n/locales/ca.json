@@ -1067,6 +1067,8 @@
       "copyNote": "Les fotos es copien a <strong>{{target}}</strong> i es verifiquen en fer-les. No s’esborra res de la càmera.",
       "disconnect": "Desconnecta",
       "focus": "Enfoca",
+      "freeCopies": "Allibera les fotos a la càmera quan siguin a la biblioteca",
+      "freeCopiesHint": "Aquesta càmera conserva cada foto que envia fins que l’ordinador l’allibera, i deixa de disparar quan en guarda massa. Una foto només s’allibera després de verificar-la a la biblioteca. Alguns cossos no desen cap còpia a la targeta en aquest mode (una GFX 50R no): llavors la còpia de la biblioteca és l’única.",
       "importFailed": "No s’ha pogut afegir {{file}}: {{error}}",
       "incomplete": "Una baixada interrompuda s’ha desat a {{path}}; no s’ha afegit.",
       "lastFailed": "No s’ha pogut afegir {{file}}",

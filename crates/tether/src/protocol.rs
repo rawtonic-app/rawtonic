@@ -81,6 +81,12 @@ pub struct CameraStatus {
     pub can_capture: bool,
     /// Whether it sends live view.
     pub can_preview: bool,
+    /// The camera keeps every tethered photo until the computer frees it
+    /// (`Release`) and stops shooting when that queue is full. Whether it
+    /// also writes a card copy is the camera's setting: a Fujifilm GFX 50R
+    /// in USB tether mode writes none, so freeing is the user's choice.
+    #[serde(default)]
+    pub transfer_queue: bool,
 }
 
 /// A camera setting the interface shows (`key` is ours; `camera_key` the

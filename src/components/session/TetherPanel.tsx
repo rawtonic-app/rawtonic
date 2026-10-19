@@ -39,6 +39,8 @@ interface CameraStatus {
   captureTarget: string | null;
   canCapture: boolean;
   canPreview: boolean;
+  /** The camera keeps each photo until the computer frees it. */
+  transferQueue?: boolean;
 }
 
 /** Mirrors `camera_tethering::TetherStatus`. */
@@ -79,6 +81,16 @@ const LIVE_VIEW_INTERVAL_MS = 1000 / 30;
 /** How often the panel looks for a newly plugged-in camera. */
 const CAMERA_POLL_MS = 2000;
 
+/** The user's choice to free photos on cameras with a transfer queue. */
+const FREE_COPIES_KEY = "rawtonic.tether.freeCameraCopies";
+const storedFreeCopies = () => {
+  try {
+    return localStorage.getItem(FREE_COPIES_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
 const sameCameras = (a: CameraInfo[], b: CameraInfo[]) =>
   a.length === b.length && a.every((c, i) => c.model === b[i].model && c.port === b[i].port);
 
@@ -109,6 +121,8 @@ export default function TetherPanel({
   // The camera went away; the backend connects it again when it is back.
   const [waiting, setWaiting] = useState(false);
   const [template, setTemplate] = useState("{orig}");
+  // Off unless the user turned it on: a camera may keep no card copy.
+  const [freeCopies, setFreeCopies] = useState(storedFreeCopies);
   const [nextCapture, setNextCapture] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
   const [presets, setPresets] = useState<PresetChoice[]>([]);
   const [settings, setSettings] = useState<CameraSetting[]>([]);
@@ -255,6 +269,7 @@ export default function TetherPanel({
         port: port || null,
         template,
         ...nextCaptureOf(nextCapture, presets),
+        freeCameraCopies: freeCopies,
       });
       onStatus(status);
       await readSettings();
@@ -336,7 +351,30 @@ export default function TetherPanel({
     setNextCapture(form);
     if (!connected) return;
     try {
-      await invoke(Invokes.TetherNextCapture, { template, ...nextCaptureOf(form, presets) });
+      await invoke(Invokes.TetherNextCapture, {
+        template,
+        ...nextCaptureOf(form, presets),
+        freeCameraCopies: freeCopies,
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const changeFreeCopies = async (on: boolean) => {
+    setFreeCopies(on);
+    try {
+      localStorage.setItem(FREE_COPIES_KEY, on ? "1" : "0");
+    } catch {
+      // Not kept for the next time; this connection still uses it.
+    }
+    if (!connected) return;
+    try {
+      await invoke(Invokes.TetherNextCapture, {
+        template,
+        ...nextCaptureOf(nextCapture, presets),
+        freeCameraCopies: on,
+      });
     } catch (e) {
       setError(String(e));
     }
@@ -479,6 +517,17 @@ export default function TetherPanel({
                 </label>
               ))}
             </div>
+          )}
+          {status.camera.transferQueue && (
+            <label className="tether-free-copies">
+              <input
+                type="checkbox"
+                checked={freeCopies}
+                onChange={(e) => void changeFreeCopies(e.target.checked)}
+              />
+              <span>{t("session.tether.freeCopies")}</span>
+              <small>{t("session.tether.freeCopiesHint")}</small>
+            </label>
           )}
           <details className="tether-next">
             <summary>{t("session.tether.nextCapture")}</summary>

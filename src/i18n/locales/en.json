@@ -1024,6 +1024,8 @@
       "copyNote": "Photos are copied to <strong>{{target}}</strong> and verified as they are taken. Nothing on the camera is deleted.",
       "disconnect": "Disconnect",
       "focus": "Focus",
+      "freeCopies": "Free photos on the camera once they are in the library",
+      "freeCopiesHint": "This camera keeps every photo it sends until the computer frees it, and stops shooting when it holds too many. A photo is freed only after it is verified in the library. Some bodies keep no card copy in this mode (a GFX 50R does not): then the library copy is the only one.",
       "importFailed": "{{file}} could not be added: {{error}}",
       "incomplete": "An interrupted download was kept at {{path}}; it was not added.",
       "lastFailed": "{{file}} could not be added",

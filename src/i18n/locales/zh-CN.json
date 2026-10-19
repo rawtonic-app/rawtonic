@@ -999,6 +999,8 @@
       "copyNote": "照片拍摄后复制到 <strong>{{target}}</strong> 并校验。相机上的内容不会被删除。",
       "disconnect": "断开连接",
       "focus": "对焦",
+      "freeCopies": "照片进入图库后在相机上释放",
+      "freeCopiesHint": "此相机会保留发送的每张照片，直到电脑将其释放；保留过多时会停止拍摄。照片仅在图库中验证后才会释放。有些机身在此模式下不在存储卡上保存副本（GFX 50R 不保存）：此时图库中的副本是唯一的副本。",
       "importFailed": "{{file}} 无法添加：{{error}}",
       "incomplete": "中断的下载已保存在 {{path}}，未添加。",
       "lastFailed": "{{file}} 无法添加",

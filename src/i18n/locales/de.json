@@ -1024,6 +1024,8 @@
       "copyNote": "Fotos werden beim Aufnehmen nach <strong>{{target}}</strong> kopiert und geprüft. Auf der Kamera wird nichts gelöscht.",
       "disconnect": "Trennen",
       "focus": "Fokus",
+      "freeCopies": "Fotos auf der Kamera freigeben, sobald sie in der Bibliothek sind",
+      "freeCopiesHint": "Diese Kamera behält jedes gesendete Foto, bis der Computer es freigibt, und löst nicht mehr aus, wenn sie zu viele hält. Ein Foto wird erst freigegeben, wenn es geprüft in der Bibliothek ist. Manche Kameras speichern in diesem Modus keine Kopie auf der Karte (eine GFX 50R nicht): dann ist die Kopie in der Bibliothek die einzige.",
       "importFailed": "{{file}} konnte nicht übernommen werden: {{error}}",
       "incomplete": "Ein abgebrochener Download liegt unter {{path}}; er wurde nicht übernommen.",
       "lastFailed": "{{file}} konnte nicht übernommen werden",

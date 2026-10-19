@@ -1067,6 +1067,8 @@
       "copyNote": "Les photos sont copiées dans <strong>{{target}}</strong> et vérifiées à la prise de vue. Rien n’est supprimé sur l’appareil.",
       "disconnect": "Déconnecter",
       "focus": "Mise au point",
+      "freeCopies": "Libérer les photos dans l’appareil une fois dans la bibliothèque",
+      "freeCopiesHint": "Cet appareil conserve chaque photo envoyée jusqu’à ce que l’ordinateur la libère, et cesse de déclencher quand il en garde trop. Une photo n’est libérée qu’après vérification dans la bibliothèque. Certains boîtiers ne gardent aucune copie sur la carte dans ce mode (un GFX 50R non) : la copie de la bibliothèque est alors la seule.",
       "importFailed": "{{file}} n’a pas pu être ajouté : {{error}}",
       "incomplete": "Un téléchargement interrompu a été conservé dans {{path}} ; il n’a pas été ajouté.",
       "lastFailed": "{{file}} n’a pas pu être ajouté",

@@ -41,6 +41,9 @@ const CAPTURE: Duration = Duration::from_secs(90);
 struct CaptureConfig {
     template: String,
     settings: CaptureSettings,
+    /// Free each photo from the camera's transfer queue once it is in the
+    /// library (the user's choice: the camera may keep no card copy).
+    free_camera_copies: bool,
 }
 
 /// What a photo was given, kept with its transfer file before its ingest.
@@ -530,7 +533,11 @@ impl Ingest<'_> {
         (self.notify)("tether-captured", json!(event));
         // Only now that the photo is in the library (or a verified duplicate
         // of one there) may the camera let go of it.
-        if committed && let Some((captured, _)) = &captured {
+        let free = self.config.lock().unwrap().free_camera_copies;
+        if committed
+            && free
+            && let Some((captured, _)) = &captured
+        {
             (self.release)(captured);
         }
     }
@@ -561,6 +568,7 @@ pub async fn tether_connect(
     template: String,
     next_capture: NextCapture,
     metadata: Option<NextCaptureMetadata>,
+    free_camera_copies: Option<bool>,
     app: AppHandle,
 ) -> Result<TetherStatus, String> {
     CHOICE.fetch_add(1, Ordering::SeqCst);
@@ -584,7 +592,11 @@ pub async fn tether_connect(
         else {
             return Err("Unexpected answer from the tether helper.".into());
         };
-        let config = Arc::new(Mutex::new(CaptureConfig { template, settings }));
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template,
+            settings,
+            free_camera_copies: free_camera_copies.unwrap_or(false),
+        }));
         let (tx, rx) = mpsc::channel();
         spawn_ingest(
             notify_app(app.clone()),
@@ -692,6 +704,7 @@ pub fn tether_next_capture(
     template: String,
     next_capture: NextCapture,
     metadata: Option<NextCaptureMetadata>,
+    free_camera_copies: Option<bool>,
 ) -> Result<(), String> {
     check_template(&template)?;
     let settings = capture_settings(next_capture, metadata)?;
@@ -700,7 +713,11 @@ pub fn tether_next_capture(
         .as_ref()
         .and_then(|h| h.connection.as_ref())
         .ok_or("No camera is connected.")?;
-    *connection.config.lock().unwrap() = CaptureConfig { template, settings };
+    *connection.config.lock().unwrap() = CaptureConfig {
+        template,
+        settings,
+        free_camera_copies: free_camera_copies.unwrap_or(false),
+    };
     Ok(())
 }
 
@@ -714,6 +731,53 @@ mod tests {
 
     /// The helper binary cargo built for the workspace (`--workspace`
     /// builds it for the tether crate's own tests).
+    #[test]
+    fn photos_are_freed_on_the_camera_only_when_the_user_turned_it_on() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let (tx, rx) = mpsc::channel::<(Captured, Instant)>();
+        let freed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = freed.clone();
+        let release: Release = Arc::new(move |_: &Captured| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(0, "off"),
+            free_camera_copies: false,
+        }));
+        let (notify, seen) = collector();
+        spawn_ingest(notify, release, session.clone(), config.clone(), rx).unwrap();
+        let staging = staging::root(&session);
+        let send = |n: u64| {
+            let path = staging.join(format!("incoming/{n:08}/DSCF{n:04}.RAF"));
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, format!("photo {n}")).unwrap();
+            let captured = Captured {
+                path,
+                camera_folder: "/store_10000001".into(),
+                camera_name: format!("DSCF{n:04}.RAF"),
+                size: 7,
+                requested: true,
+                ms_to_event: Some(1),
+                ms_to_downloaded: 1,
+            };
+            tx.send((captured, Instant::now())).unwrap();
+        };
+        send(1);
+        captured(&seen, 1);
+        assert_eq!(freed.load(Ordering::SeqCst), 0, "off by default");
+        config.lock().unwrap().free_camera_copies = true;
+        send(2);
+        captured(&seen, 1);
+        // Freed right after the interface heard of the photo.
+        let started = Instant::now();
+        while freed.load(Ordering::SeqCst) == 0 && started.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(freed.load(Ordering::SeqCst), 1, "freed after its commit");
+    }
+
     #[test]
     fn an_unplugged_camera_is_connected_again_when_it_is_back() {
         let tmp = tempfile::tempdir().unwrap();
@@ -904,6 +968,7 @@ mod tests {
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}".into(),
             settings: settings(3, "tether"),
+            free_camera_copies: true,
         }));
         let client = Arc::new(client);
         // Weak: the ingest thread must not keep the helper alive.
@@ -1002,6 +1067,7 @@ mod tests {
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}_{seq}".into(),
             settings: settings(1, "after"),
+            free_camera_copies: false,
         }));
         let (notify, seen) = collector();
         let (_tx, rx) = mpsc::channel();
@@ -1035,6 +1101,7 @@ mod tests {
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}".into(),
             settings: CaptureSettings::default(),
+            free_camera_copies: false,
         }));
         let (notify, seen) = collector();
         let (_tx, rx) = mpsc::channel();

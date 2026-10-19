@@ -241,6 +241,7 @@ impl Camera for MockCamera {
             capture_target: None,
             can_capture: true,
             can_preview: self.spec.preview,
+            transfer_queue: self.spec.queue_limit.is_some(),
         }
     }
 

@@ -1067,6 +1067,8 @@
       "copyNote": "As fotos são copiadas para <strong>{{target}}</strong> e verificadas ao serem tiradas. Nada é apagado na câmara.",
       "disconnect": "Desligar",
       "focus": "Focar",
+      "freeCopies": "Libertar as fotos na câmara quando estiverem na biblioteca",
+      "freeCopiesHint": "Esta câmara guarda cada foto que envia até o computador a libertar, e deixa de disparar quando guarda demasiadas. Uma foto só é libertada depois de verificada na biblioteca. Alguns corpos não guardam cópia no cartão neste modo (uma GFX 50R não): então a cópia da biblioteca é a única.",
       "importFailed": "Não foi possível adicionar {{file}}: {{error}}",
       "incomplete": "Uma transferência interrompida foi guardada em {{path}}; não foi adicionada.",
       "lastFailed": "Não foi possível adicionar {{file}}",

@@ -84,8 +84,10 @@ fn refused(context: &str, e: gphoto2::Error) -> TetherError {
 /// camera lists each tethered photo as an object in its transfer queue
 /// until the computer deletes that object, and refuses to fire when the
 /// queue is full (an X-H2S after 37 photos). Deleting the object frees the
-/// queue entry only: the photo stays on the memory card (checked on the
-/// body; Capture One does the same). notes: reference/tether.md
+/// queue entry; a card copy stays (X-H2S, checked on the body), but a body
+/// may write none (GFX 50R in USB tether mode): then the library copy is the
+/// only one, so the app frees photos only when the user turned it on.
+/// notes: reference/tether.md
 fn has_transfer_queue(summary: &str) -> bool {
     summary.contains(": 0xe (") && summary.contains("(d212")
 }
@@ -287,6 +289,7 @@ impl Camera for GphotoCamera {
             capture_target: self.single_text(&["capturetarget"]),
             can_capture: self.capture || self.trigger,
             can_preview: self.preview,
+            transfer_queue: self.transfer_queue,
         }
     }
 
@@ -407,6 +410,17 @@ impl Camera for GphotoCamera {
                 Err(e) if e.kind() == Gp::NotSupported => {
                     log::info!("trigger capture not supported; using capture");
                     self.trigger = false;
+                }
+                Err(e) if self.transfer_queue && e.kind() == Gp::Generic => {
+                    return Err(TetherError::new(
+                        ErrorKind::Other,
+                        format!(
+                            "Firing the shutter: the camera refused it ({e}). This camera keeps \
+                             every tethered photo until the computer frees it and stops \
+                             shooting when it holds too many: turn on \"Free photos on the \
+                             camera once they are in the library\" or reconnect the camera."
+                        ),
+                    ));
                 }
                 Err(e) => return Err(session_error("Firing the shutter", e)),
             }
