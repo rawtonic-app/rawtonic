@@ -244,6 +244,17 @@ export function endBeforePeek() {
   );
 }
 
+/** Running batch edits (Auto straighten) by photograph: other recipe writes
+ * to these photographs (paste, presets, reset) wait until the batch has
+ * written and reloaded them (`afterHeldBatches`). */
+const heldBatches = new Map<string, Promise<void>>();
+
+/** When a batch holds any of `paths`: a promise for its end, else null. */
+function afterHeldBatches(paths: string[]): Promise<void> | null {
+  const waits = [...new Set(paths.map((path) => heldBatches.get(path)).filter((wait) => wait !== undefined))];
+  return waits.length > 0 ? Promise.all(waits).then(() => undefined) : null;
+}
+
 /** The batch-written recipe of `path` into the editor as one undoable
  * step, once it is open and loaded (a photograph opened during the batch may
  * still be loading; at most a minute is waited). Nothing when another
@@ -394,6 +405,11 @@ export function useEditorActions() {
       // Every photograph of the batch is held, also one opened while it runs.
       const held = [...new Set(pathsToUpdate)];
       useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
+      let ended!: () => void;
+      const batchEnd = new Promise<void>((resolve) => {
+        ended = resolve;
+      });
+      held.forEach((path) => heldBatches.set(path, batchEnd));
       const release = (paths: string[]) =>
         useEditorStore.getState().setEditor((state) => {
           const remaining = [...state.heldRecipePaths];
@@ -436,6 +452,10 @@ export function useEditorActions() {
         return report;
       } finally {
         if (!released) release(held);
+        held.forEach((path) => {
+          if (heldBatches.get(path) === batchEnd) heldBatches.delete(path);
+        });
+        ended();
       }
     },
     [],
@@ -531,6 +551,12 @@ export function useEditorActions() {
       const { selectedImage, pushHistory } = useEditorStore.getState();
       const pathsToReset = paths || multiSelectedPaths;
       if (pathsToReset.length === 0) return;
+      // A batch is writing some of these recipes: reset once it is done.
+      const heldBatch = afterHeldBatches(pathsToReset);
+      if (heldBatch) {
+        void heldBatch.then(() => handleResetAdjustments(pathsToReset));
+        return;
+      }
       if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
 
       pathsToReset.forEach((p) => globalImageCache.delete(p));
@@ -670,7 +696,11 @@ export function useEditorActions() {
    * loader has not read its recipe yet), so it may be written too; it then
    * reads its recipe after this write. */
   const applyAdjustmentsToPaths = useCallback(
-    (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
+    (
+      partial: Partial<Adjustments>,
+      paths?: string[],
+      { openingNow = false }: { openingNow?: boolean } = {},
+    ): Promise<unknown> | undefined => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
       const adjustmentsToApply = withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial))));
@@ -679,6 +709,9 @@ export function useEditorActions() {
       const pathsToUpdate =
         paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
       if (pathsToUpdate.length === 0) return;
+      // A batch is writing some of these recipes: applied once it is done.
+      const heldBatch = afterHeldBatches(pathsToUpdate);
+      if (heldBatch) return heldBatch.then(() => applyAdjustmentsToPaths(partial, pathsToUpdate, { openingNow }));
       if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));

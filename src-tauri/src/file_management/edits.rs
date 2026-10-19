@@ -596,10 +596,16 @@ pub async fn apply_auto_adjustments_to_paths(
 
         let gpu_context = gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
 
-        paths
-            .par_iter()
-            .filter_map(|path| {
-                let applied = (|| -> Result<DynamicImage, String> {
+        // A few photos at a time: decoded and measured in parallel, their
+        // recipes written in turn under the sidecar guard on this thread
+        // (never inside the shared pool), then their thumbnails made in
+        // parallel from the decodes, which are freed before the next chunk.
+        const CHUNK: usize = 4;
+        let mut failures = Vec::new();
+        for chunk in paths.chunks(CHUNK) {
+            let measured: Vec<Result<(DynamicImage, Value), String>> = chunk
+                .par_iter()
+                .map(|path| {
                     let (source_path, sidecar_path) = parse_virtual_path(path);
                     let source_path_str = source_path.to_string_lossy().to_string();
 
@@ -631,46 +637,66 @@ pub async fn apply_auto_adjustments_to_paths(
                         tone_mapper.as_deref(),
                         base_curve.as_deref(),
                     );
+                    Ok((image, auto_adjustments_json))
+                })
+                .collect();
 
-                    let written = merge_auto_into_sidecar(path, &auto_adjustments_json)?;
-                    if enable_xmp_sync {
-                        sync_metadata_to_xmp(&source_path, &written, create_xmp_if_missing);
-                    }
-                    Ok(image)
-                })();
-                if let Err(e) = &applied {
-                    log::warn!("Failed to apply auto adjustments to {}: {}", path, e);
-                }
-
-                match &thumb_cache_dir {
-                    Ok(thumb_cache_dir) => {
-                        let result = generate_single_thumbnail_and_cache(
-                            path,
-                            thumb_cache_dir,
-                            gpu_context.as_ref(),
-                            applied.as_ref().ok(),
-                            true,
-                            &app_handle,
-                            &settings,
-                        );
-                        if let Some((small_path, medium_path, rating, is_edited)) = result {
-                            emit_thumbnail_generated(
-                                &app_handle,
-                                path,
-                                &small_path,
-                                &medium_path,
-                                rating,
-                                is_edited,
-                            );
+            let applied: Vec<Result<DynamicImage, String>> = {
+                let _turn = sidecar_field_edit();
+                chunk
+                    .iter()
+                    .zip(measured)
+                    .map(|(path, measured)| {
+                        let (image, auto_adjustments_json) = measured?;
+                        let written = merge_auto_into_sidecar(path, &auto_adjustments_json)?;
+                        if enable_xmp_sync {
+                            let (source_path, _) = parse_virtual_path(path);
+                            sync_metadata_to_xmp(&source_path, &written, create_xmp_if_missing);
                         }
-                    }
-                    Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
-                }
-                increment_thumbnail_progress(&state, &app_handle);
+                        Ok(image)
+                    })
+                    .collect()
+            };
 
-                applied.err().map(|e| (path.clone(), e))
-            })
-            .collect::<Vec<_>>()
+            failures.extend(
+                chunk
+                    .par_iter()
+                    .zip(applied)
+                    .filter_map(|(path, applied)| {
+                        if let Err(e) = &applied {
+                            log::warn!("Failed to apply auto adjustments to {}: {}", path, e);
+                        }
+                        match &thumb_cache_dir {
+                            Ok(thumb_cache_dir) => {
+                                let result = generate_single_thumbnail_and_cache(
+                                    path,
+                                    thumb_cache_dir,
+                                    gpu_context.as_ref(),
+                                    applied.as_ref().ok(),
+                                    true,
+                                    &app_handle,
+                                    &settings,
+                                );
+                                if let Some((small_path, medium_path, rating, is_edited)) = result {
+                                    emit_thumbnail_generated(
+                                        &app_handle,
+                                        path,
+                                        &small_path,
+                                        &medium_path,
+                                        rating,
+                                        is_edited,
+                                    );
+                                }
+                            }
+                            Err(e) => emit_thumbnail_cache_setup_error(&app_handle, path, e),
+                        }
+                        increment_thumbnail_progress(&state, &app_handle);
+                        applied.err().map(|e| (path.clone(), e))
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        failures
     })
     .await
     .map_err(|e| SaveFailure {
@@ -732,37 +758,26 @@ static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// take turns through this guard, so none publishes a recipe read before
 /// another's write: rating, colour label and keyword edits and batch edits
 /// (`edit_sidecars`) for their whole batch, the editor's save and Auto
-/// straighten's commit, and Auto Adjust's write of each photo — the only one
-/// inside parallel work, through `sidecar_field_edit_in_pool`.
+/// straighten's commit and Auto Adjust's writes (per chunk). Never taken
+/// inside the shared pool (checked in debug builds).
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
+    // Inside the shared pool a worker waiting here could hold up an edit that
+    // has the guard and waits for its own parallel work (work stealing).
+    debug_assert!(
+        rayon::current_thread_index().is_none(),
+        "the sidecar guard is taken outside the shared pool"
+    );
     SIDECAR_FIELD_EDITS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// `sidecar_field_edit` for a worker of the shared pool: while another edit
-/// holds the guard, the worker runs other pool jobs (that edit's own parallel
-/// work among them) instead of blocking, so the two cannot deadlock.
-fn sidecar_field_edit_in_pool() -> std::sync::MutexGuard<'static, ()> {
-    loop {
-        match SIDECAR_FIELD_EDITS.try_lock() {
-            Ok(guard) => return guard,
-            Err(std::sync::TryLockError::Poisoned(poisoned)) => return poisoned.into_inner(),
-            Err(std::sync::TryLockError::WouldBlock) => {
-                if rayon::yield_now() != Some(rayon::Yield::Executed) {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
-                }
-            }
-        }
-    }
-}
-
-/// Auto Adjust's write: the recipe read again under the sidecar guard and
-/// the computed auto values merged into it, so an edit committed while they
-/// were computed (Auto straighten's rotation and crop, a rating) stays.
+/// Auto Adjust's write, with the sidecar guard held by the caller: the
+/// recipe read again and the computed auto values merged into it, so an edit
+/// committed while they were computed (Auto straighten's rotation and crop,
+/// a rating) stays.
 fn merge_auto_into_sidecar(path: &str, auto_adjustments: &Value) -> Result<ImageMetadata, String> {
     let (_, sidecar_path) = parse_virtual_path(path);
-    let _turn = sidecar_field_edit_in_pool();
     let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
     let previous = metadata.adjustments.clone();
     crate::auto_adjust::merge_auto_adjustments(&mut metadata.adjustments, auto_adjustments);
@@ -1088,8 +1103,11 @@ mod tests {
         let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
         // Auto Adjust has read the recipe and computes; Auto straighten commits.
         commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
-        merge_auto_into_sidecar(&path, &serde_json::json!({"exposure": 0.3, "contrast": 12}))
-            .unwrap();
+        {
+            let _turn = sidecar_field_edit();
+            merge_auto_into_sidecar(&path, &serde_json::json!({"exposure": 0.3, "contrast": 12}))
+                .unwrap();
+        }
         let now = crate::exif_processing::load_sidecar(&sidecar);
         assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
         assert_eq!(now.adjustments["crop"]["width"], serde_json::json!(380.0));
@@ -1097,34 +1115,18 @@ mod tests {
         assert_eq!(now.rating, 2);
     }
 
-    /// An edit holding the sidecar guard runs parallel work while pool
-    /// workers wait for the guard: they run its jobs meanwhile, no deadlock.
+    /// The sidecar guard is never taken inside the shared pool: a worker
+    /// waiting there could hold up an edit that has it and waits for its own
+    /// parallel work. Debug builds refuse it.
     #[test]
-    fn pool_workers_waiting_for_the_sidecar_guard_do_not_block_its_holder() {
-        use rayon::prelude::*;
-        let (done_tx, done_rx) = std::sync::mpsc::channel();
-        let (held_tx, held_rx) = std::sync::mpsc::channel();
-        let holder = std::thread::spawn(move || {
-            let _turn = sidecar_field_edit();
-            held_tx.send(()).unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(50));
-            (0..256u64).into_par_iter().map(|n| n * 2).sum::<u64>()
-        });
-        held_rx.recv().unwrap();
-        let waiters = std::thread::spawn(move || {
-            (0..256).into_par_iter().for_each(|_| {
-                let _turn = sidecar_field_edit_in_pool();
-            });
-            done_tx.send(()).unwrap();
-        });
-        assert!(
-            done_rx
-                .recv_timeout(std::time::Duration::from_secs(20))
-                .is_ok(),
-            "deadlock"
-        );
-        assert_eq!(holder.join().unwrap(), 65280);
-        waiters.join().unwrap();
+    fn the_sidecar_guard_is_refused_inside_the_shared_pool() {
+        let inside = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap()
+            .install(|| std::panic::catch_unwind(|| drop(sidecar_field_edit())));
+        assert_eq!(inside.is_err(), cfg!(debug_assertions));
+        drop(sidecar_field_edit());
     }
 
     /// A rating edit that read the recipe before the commit and writes after

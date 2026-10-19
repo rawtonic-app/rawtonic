@@ -622,6 +622,27 @@ describe('Auto straighten for a selection', () => {
     expect(now.aiPatches).toMatchObject([{ id: 'p', framed: true }]);
   });
 
+  it('applies a paste made during the batch after it, so neither is lost', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    // Paste exposure 3 (beforeEach's clipboard) onto the held photo.
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    await act(async () => {});
+    expect(pending.some((r) => r.command === Invokes.ApplyAdjustmentsToPaths)).toBe(false);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1.5 } });
+    // The Library's active photograph is this one too.
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1.5 } });
+    await act(async () => {});
+    // Now the paste: written after the batch and shown in the editor.
+    const paste = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.ApplyAdjustmentsToPaths);
+    expect(paste?.[1]).toMatchObject({ paths: ['/first.dng'], adjustments: { exposure: 3 } });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1.5, exposure: 3 });
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
