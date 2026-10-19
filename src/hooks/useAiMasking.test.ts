@@ -238,6 +238,48 @@ describe("automatic AI masks from imported presets", () => {
     expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" });
   });
 
+  it("computes a mask again on returning to its photo when the first result came after leaving it", async () => {
+    const pending = deferredMasks();
+    const photoA = {
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    };
+    useEditorStore.setState(photoA);
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() =>
+      useEditorStore.setState({
+        selectedImage: { path: "/s/b.NEF", isReady: true, isRaw: true } as never,
+        adjustments: structuredClone(INITIAL_ADJUSTMENTS),
+      }),
+    );
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    act(() => useEditorStore.setState(structuredClone(photoA)));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => pending[1]({ maskDataBase64: "data:image/png;base64,CCCC" }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,CCCC" });
+  });
+
+  it("computes a copied component's mask on another photo too", async () => {
+    const pending = deferredMasks();
+    const on = (path: string) => ({
+      selectedImage: { path, isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    useEditorStore.setState(on("/s/a.NEF"));
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    act(() => useEditorStore.setState(on("/s/b.NEF")));
+    await waitFor(() => expect(pending).toHaveLength(2));
+  });
+
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
     toast.error.mockReset();
     useProcessStore.setState({ activeAiTasks: {} });

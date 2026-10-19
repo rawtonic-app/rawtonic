@@ -284,15 +284,16 @@ export function useAiMasking() {
    * now: Grow, Feather or depth limits changed while it ran stay (`keep`:
    * result fields the component's own values win over). Nothing changes when
    * another photo is open by then (components keep their ids when settings
-   * are copied) or the component is gone. */
+   * are copied) or the component is gone. False when the result was dropped
+   * because another photo is open. */
   const applyAiResult = (
     path: string,
     subMaskId: string,
     result: Record<string, unknown>,
     keep: readonly string[] = [],
-  ) => {
+  ): boolean => {
     const { selectedImage, patchesSentToBackend } = useEditorStore.getState();
-    if (selectedImage?.path !== path) return;
+    if (selectedImage?.path !== path) return false;
     patchesSentToBackend.delete(subMaskId);
     // Merged inside the update: during a slider drag `prev` is the drag's
     // newest draft, not the committed recipe.
@@ -313,6 +314,7 @@ export function useAiMasking() {
         })),
       };
     });
+    return true;
   };
 
   const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
@@ -342,9 +344,11 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings) => {
+  // Depth, Foreground and Sky resolve to whether their result was dropped
+  // because another photo opened meanwhile (it may then be asked for again).
+  const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'depth');
 
     try {
@@ -364,17 +368,18 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
     } catch (error) {
       toastAiError(error, `AI Depth Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
   };
 
-  const handleGenerateAiForegroundMask = async (subMaskId: string) => {
+  const handleGenerateAiForegroundMask = async (subMaskId: string): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'foreground');
     noteMaskingToolsUsed();
 
@@ -389,17 +394,18 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      applyAiResult(selectedImage.path, subMaskId, newParameters);
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Foreground Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
   };
 
-  const handleGenerateAiSkyMask = async (subMaskId: string) => {
+  const handleGenerateAiSkyMask = async (subMaskId: string): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'sky');
     noteMaskingToolsUsed();
 
@@ -414,9 +420,10 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      applyAiResult(selectedImage.path, subMaskId, newParameters);
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Sky Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
@@ -509,7 +516,7 @@ export function useAiMasking() {
       if (sub.type === 'ai-people') {
         const p = (sub.parameters ?? {}) as { parts?: string[]; person?: number | null; maskDataBase64?: string | null };
         const parts = p.parts ?? [];
-        const key = `${sub.id}:${JSON.stringify(parts)}:${p.person ?? ''}`;
+        const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}:${p.person ?? ''}`;
         if (p.maskDataBase64 || parts.length === 0 || requestedAutoMasks.current.has(key)) continue;
         requestedAutoMasks.current.add(key);
         // Done or superseded: the same choice may be asked for again later
@@ -524,16 +531,24 @@ export function useAiMasking() {
       const pending =
         (sub.type === 'ai-sky' || sub.type === 'ai-foreground' || sub.type === 'ai-depth') &&
         !(sub.parameters as { maskDataBase64?: string | null } | undefined)?.maskDataBase64;
-      if (!pending || requestedAutoMasks.current.has(sub.id)) continue;
-      requestedAutoMasks.current.add(sub.id);
-      if (sub.type === 'ai-depth') {
-        void handleGenerateAiDepthMask(sub.id, sub.parameters as AiDepthMaskSettings);
-        continue;
-      }
-      if (!sub.parameters || Object.keys(sub.parameters).length === 0) {
+      // Per photo: copied settings keep component ids.
+      const key = `${selectedImage?.path}:${sub.id}`;
+      if (!pending || requestedAutoMasks.current.has(key)) continue;
+      requestedAutoMasks.current.add(key);
+      if (sub.type !== 'ai-depth' && (!sub.parameters || Object.keys(sub.parameters).length === 0)) {
         updateSubMask(sub.id, { parameters: { maskDataBase64: null, grow: 0, feather: 0 } });
       }
-      void (sub.type === 'ai-sky' ? handleGenerateAiSkyMask(sub.id) : handleGenerateAiForegroundMask(sub.id));
+      const run =
+        sub.type === 'ai-depth'
+          ? handleGenerateAiDepthMask(sub.id, sub.parameters as AiDepthMaskSettings)
+          : sub.type === 'ai-sky'
+            ? handleGenerateAiSkyMask(sub.id)
+            : handleGenerateAiForegroundMask(sub.id);
+      // A result dropped because the photo changed is asked for again when
+      // the photo opens again.
+      void run.then((dropped) => {
+        if (dropped) requestedAutoMasks.current.delete(key);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedImageReady, masksKey]);
