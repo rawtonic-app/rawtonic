@@ -5,6 +5,11 @@ override ENABLE_NOISE_REDUCTION: bool = true;
 override ENABLE_SHARPEN: bool = true;
 override ENABLE_HIGHLIGHTS: bool = true;
 override ENABLE_CURVES: bool = true;
+// Contrast, Shadows, Whites, Blacks and the relight stage, idle at zero:
+// without them a display variant compiles in 3.3 instead of 5.8 s on a cold
+// NVIDIA driver cache (gpu_processing.rs `TONE_PREVIEW_FEATURE`).
+override ENABLE_TONE: bool = true;
+override ENABLE_RELIGHT: bool = true;
 // The luminance noise reduction's edge-preserving pass (LUMA_NR_EDGE_NOISE);
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
@@ -90,7 +95,9 @@ struct GlobalAdjustments {
     tint: f32,
     vibrance: f32,
     hue: f32,
-    _pad_color1: f32,
+    // The share of version 7's speck swap applied (color_noise.rs
+    // `Tuning::speck_strength`).
+    color_noise_speck: f32,
     _pad_color2: f32,
     _pad_color3: f32,
 
@@ -1226,26 +1233,30 @@ const CR_WHITES_RAISE_PEAK_DISPLAY: f32 = -1.0;
 // +0.39 with 0.2, +0.40 with 0.25, +0.37 before; Lightroom +0.27).
 const CR_ORDER_RISE_WHITES_RAISE: f32 = 0.2;
 
-fn cr_whites_gain(x: f32, amount: f32) -> f32 {
-    let gain = cr_whites_gain_unordered(x, amount);
-    if (amount > 0.0) {
-        let peak = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
-        if (x <= peak) {
-            return gain;
-        }
-        return max(gain, cr_order_gain(x, peak, cr_whites_gain_unordered(peak, amount), CR_ORDER_RISE_WHITES_RAISE));
-    }
-    let knee = cr_knee_level();
-    if (amount >= 0.0 || knee <= 0.0 || x <= knee) {
-        return gain;
-    }
-    return max(gain, cr_order_gain(x, knee, cr_whites_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
-}
-
+// The floor's anchor (the peak when raising, the knee when lowering) and its
+// gain are the same for every channel and pixel, so they are evaluated once:
+// each evaluation of `camera_raw_level_slope` is inlined, and a cold NVIDIA
+// driver cache compiled the copies for seconds (G56).
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    var anchor: f32;
+    var rise: f32;
+    if (amount > 0.0) {
+        anchor = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
+        rise = CR_ORDER_RISE_WHITES_RAISE;
+    } else {
+        anchor = cr_knee_level();
+        rise = CR_ORDER_RISE_SHOULDER;
+    }
+    let floored = amount > 0.0 || (amount < 0.0 && anchor > 0.0);
+    let anchor_gain = cr_whites_gain_unordered(anchor, amount);
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        out[c] = rgb[c] * cr_whites_gain(rgb[c], amount);
+        let x = rgb[c];
+        var gain = cr_whites_gain_unordered(x, amount);
+        if (floored && x > anchor) {
+            gain = max(gain, cr_order_gain(x, anchor, anchor_gain, rise));
+        }
+        out[c] = x * gain;
     }
     return out;
 }
@@ -1262,28 +1273,35 @@ fn cr_contrast_gain_unordered(x: f32, amount: f32) -> f32 {
 }
 
 // Raising darkens the deep tones (toe), lowering the highlights (shoulder).
-fn cr_contrast_gain(x: f32, amount: f32) -> f32 {
-    var gain = cr_contrast_gain_unordered(x, amount);
-    if (amount > 0.0) {
-        let bottom = cr_toe_bottom_level();
-        if (bottom > 0.0 && x > bottom) {
-            gain = max(gain, cr_order_gain(x, bottom, cr_contrast_gain_unordered(bottom, amount), 0.0));
-            let top = cr_toe_top_level();
-            gain = max(gain, cr_order_gain(x, top, cr_contrast_gain_unordered(top, amount), CR_ORDER_RISE_TOE));
-        }
-    } else {
-        let knee = cr_knee_level();
-        if (knee > 0.0 && x > knee) {
-            gain = max(gain, cr_order_gain(x, knee, cr_contrast_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
-        }
-    }
-    return gain;
-}
-
+// The anchors' gains are evaluated once for all channels (see `cr_whites`).
 fn cr_contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    // Raising: the toe's bottom (rise 0) and top; lowering: the knee only.
+    var first: f32;
+    var first_rise: f32;
+    if (amount > 0.0) {
+        first = cr_toe_bottom_level();
+        first_rise = 0.0;
+    } else {
+        first = cr_knee_level();
+        first_rise = CR_ORDER_RISE_SHOULDER;
+    }
+    let first_gain = cr_contrast_gain_unordered(first, amount);
+    let top = cr_toe_top_level();
+    var top_gain = 0.0;
+    if (amount > 0.0) {
+        top_gain = cr_contrast_gain_unordered(top, amount);
+    }
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        out[c] = rgb[c] * cr_contrast_gain(rgb[c], amount);
+        let x = rgb[c];
+        var gain = cr_contrast_gain_unordered(x, amount);
+        if (first > 0.0 && x > first) {
+            gain = max(gain, cr_order_gain(x, first, first_gain, first_rise));
+            if (amount > 0.0) {
+                gain = max(gain, cr_order_gain(x, top, top_gain, CR_ORDER_RISE_TOE));
+            }
+        }
+        out[c] = x * gain;
     }
     return out;
 }
@@ -1458,10 +1476,11 @@ fn apply_tonal_adjustments(
     if (wh != 0.0 && base_look_is_camera_raw()) {
         // Renderer value is slider / 30.
         let amount = clamp(wh * 0.3, -1.0, 1.0);
-        var whitened = cr_whites(rgb, amount);
-        if (any(rgb < vec3<f32>(0.0))) {
-            let floored = max(rgb, vec3<f32>(0.0));
-            whitened = carry_scene(rgb, floored, cr_whites(floored, amount));
+        let negative = any(rgb < vec3<f32>(0.0));
+        let floored = max(rgb, vec3<f32>(0.0));
+        var whitened = cr_whites(select(rgb, floored, negative), amount);
+        if (negative) {
+            whitened = carry_scene(rgb, floored, whitened);
         }
         let luma_before = max(get_luma(max(rgb, vec3<f32>(0.0))), 1e-6);
         let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
@@ -3577,6 +3596,39 @@ fn ms_guide(coords_i: vec2<i32>, c0: vec2<f32>, mode: f32, is_raw: u32) -> vec2<
     return c0;
 }
 
+// Version 7's detail chroma (color_noise.rs `speck_plane`): the 3 x 3
+// median chroma when the pixel's chroma `c0` lies more than `limit` from it
+// while its square-root luminance `lp0` lies within `luma_limit` (one noise
+// σ, `SPECK_LUMA`) of the luminance median, faded out over ± σ/2 around it
+// (an isolated off-colour pixel, not a coloured point brighter or darker than
+// its surroundings), else `c0`.
+fn ms_speck_chroma(coords_i: vec2<i32>, c0: vec2<f32>, lp0: f32, limit: f32, luma_limit: f32, strength: f32, is_raw: u32) -> vec2<f32> {
+    let max_idx = vec2<i32>(input_dims()) - vec2<i32>(1);
+    var c: array<vec2<f32>, 9>;
+    var l: array<vec2<f32>, 9>;
+    var i = 0;
+    for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
+        for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
+            var q = load_input(clamp(coords_i + vec2<i32>(dx, dy), vec2<i32>(0), max_idx)).rgb;
+            if (is_raw == 0u) { q = srgb_to_linear(q); }
+            let e = nr_encode(q);
+            c[i] = vec2<f32>(e.r - e.g, e.b - e.g);
+            l[i] = vec2<f32>(get_luma(e));
+            i = i + 1;
+        }
+    }
+    c[4] = c0;
+    l[4] = vec2<f32>(lp0);
+    let mc = ms_median9(c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]);
+    let ml = ms_median9(l[0], l[1], l[2], l[3], l[4], l[5], l[6], l[7], l[8]);
+    let dc = length(c0 - mc);
+    let swap = strength * clamp(1.5 - abs(lp0 - ml.x) / luma_limit, 0.0, 1.0);
+    if (dc > limit && swap > 0.0) {
+        return mix(c0, mc, swap);
+    }
+    return c0;
+}
+
 fn apply_color_noise_multiscale(
     center_linear: vec3<f32>,
     coords_i: vec2<i32>,
@@ -3596,6 +3648,15 @@ fn apply_color_noise_multiscale(
     // (color_noise.rs `Tuning::guide`).
     let guide_code = u32(round(adjustments.global.color_noise_guide));
     let edge2 = adjustments.global.color_noise.w;
+    // Version 7 (code bit 64): an isolated off-colour pixel's detail is its
+    // 3 x 3 median chroma, K = ((code >> 7) & 15) / 4 noise
+    // (color_noise.rs `Tuning::speck_swap`).
+    var cd = c0;
+    let speck = adjustments.global.color_noise_speck;
+    if ((guide_code & 64u) != 0u && aware2 > 0.0 && speck > 0.0) {
+        let sigma = sqrt(aware2);
+        cd = ms_speck_chroma(coords_i, c0, lp, f32((guide_code >> 7u) & 15u) * 0.25 * sigma, sigma, speck, is_raw);
+    }
     var guide = c0;
     var center_e: vec4<f32>;
     if (aware2 > 0.0) {
@@ -3638,7 +3699,7 @@ fn apply_color_noise_multiscale(
         if (edge2 > 0.0) {
             g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
         }
-        ab = center_e.zw + g0 * (c0 - center_e.xy);
+        ab = center_e.zw + g0 * (cd - center_e.xy);
     }
     // A layer with less colour noise reduction than the photo's returns
     // part of the pixel's own colour.
@@ -6194,7 +6255,9 @@ fn main(
         locally_contrasted_rgb = apply_camera_profile(locally_contrasted_rgb);
     }
     var processed_rgb = apply_linear_exposure(locally_contrasted_rgb, t_exposure);
-    processed_rgb = apply_relight(processed_rgb, absolute_coord, full_dims, exposure_gain);
+    if (ENABLE_RELIGHT) {
+        processed_rgb = apply_relight(processed_rgb, absolute_coord, full_dims, exposure_gain);
+    }
 
     if (t_glow > 0.0) {
         processed_rgb = apply_glow_bloom(
@@ -6227,7 +6290,9 @@ fn main(
     var composite_rgb_linear = apply_dehaze(processed_rgb, structure_blurred, is_raw, t_dehaze);
     composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
-    composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+    if (ENABLE_TONE) {
+        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+    }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
     }

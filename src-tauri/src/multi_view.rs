@@ -27,7 +27,7 @@ use crate::gpu_processing::{
     self, CellExtent, CellLayer, CellZoom, GpuContext, LatestJobSender, MultiViewCell,
     ReadbackShader, RenderOutputPrecision, RenderRequest, RenderSource,
 };
-use crate::image_processing::{self, get_all_adjustments_from_json};
+use crate::image_processing::{self, RegionMeasures, get_all_adjustments_from_json};
 use crate::mask_generation::{
     MaskBitmap, MaskDefinition, ParametricMaskSource, PhotoGeometry, generate_layer_mask,
     prepare_parametric_mask_source,
@@ -346,6 +346,148 @@ fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
     crate::image_loader::decoded_cache_key(&source, None, multiscale)
 }
 
+/// What zoomed regions need from photographs' whole decodes (the automatic
+/// lateral CA estimate, the edge-fringe radius: `RegionMeasures`), by the
+/// pixels they were measured on ([`MeasuredOn`]), what they depend on in the
+/// recipe and its geometry: a region is warped from the few rows of its 1:1
+/// preview it shows only with them. Recorded wherever a whole decode is at
+/// hand (the 1:1 preview being made, a decode in memory); a region from a
+/// 1:1 preview without them records the 1:1 preview's own, which its whole
+/// warp measured before.
+type MeasuresKey = (u64, u64, u64);
+/// With measures of a decode in memory, a weak reference to it: they count
+/// only while it lives (it also keeps its address from being reused).
+type MeasuresEntry = (RegionMeasures, Option<std::sync::Weak<DynamicImage>>);
+static REGION_MEASURES: Mutex<Option<HashMap<MeasuresKey, MeasuresEntry>>> = Mutex::new(None);
+
+/// Measures kept (a few bytes each; a session of many thousands of photos
+/// starts over rather than grow without bound).
+const REGION_MEASURES_KEPT: usize = 4096;
+
+/// The pixels measures were taken on.
+#[derive(Clone, Copy)]
+enum MeasuredOn<'a> {
+    /// A decode kept in memory (the decode cache's image).
+    Decode(&'a Arc<DynamicImage>),
+    /// The photograph's 1:1 preview with this header key (what it was made
+    /// from: file size, modification time, decoder settings, engine
+    /// version), as read: what its regions are cut from and what its whole
+    /// warp measured, so a region gets the same whether its measures were
+    /// recorded before or are taken now, and a preview rebuilt from other
+    /// settings or another file never finds those of the last one.
+    Preview(&'a crate::preview_proxy::ProxyKey),
+    /// A full decode used once (not kept): measured, not recorded.
+    Fresh,
+}
+
+fn source_identity(path: &str, recipe: &serde_json::Value, on: MeasuredOn) -> Option<u64> {
+    let mut hash = DefaultHasher::new();
+    let (source_path, _) = parse_virtual_path(path);
+    match on {
+        MeasuredOn::Decode(image) => {
+            decoded_key(path, recipe).hash(&mut hash);
+            (Arc::as_ptr(image) as usize).hash(&mut hash);
+            image.dimensions().hash(&mut hash);
+        }
+        MeasuredOn::Fresh => return None,
+        MeasuredOn::Preview(key) => {
+            source_path.hash(&mut hash);
+            (key.file_size, key.modified_ns, &key.decoder, key.engine).hash(&mut hash);
+        }
+    }
+    Some(hash.finish())
+}
+
+fn measures_key(path: &str, recipe: &serde_json::Value, on: MeasuredOn) -> Option<MeasuresKey> {
+    Some((
+        source_identity(path, recipe, on)?,
+        RegionMeasures::inputs_key(recipe)?,
+        crate::preview_cache::preparation_key(recipe),
+    ))
+}
+
+/// The measures recorded for `path` with `recipe` on `on`, if any.
+fn known_measures(
+    path: &str,
+    recipe: &serde_json::Value,
+    on: MeasuredOn,
+) -> Option<RegionMeasures> {
+    let key = measures_key(path, recipe, on)?;
+    let all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
+    let (measures, decode) = all.as_ref()?.get(&key)?;
+    let current = match (on, decode) {
+        (MeasuredOn::Decode(image), Some(weak)) => {
+            weak.strong_count() > 0 && std::sync::Weak::ptr_eq(weak, &Arc::downgrade(image))
+        }
+        (MeasuredOn::Preview(_), None) => true,
+        _ => false,
+    };
+    current.then_some(*measures)
+}
+
+/// Records the measures of the current 1:1 preview of `path` for `recipe`
+/// unless known (the multi view's background work, after making or finding
+/// the preview), so that the first zoom warps regions from its rows.
+pub(crate) fn measure_preview(
+    path: &str,
+    recipe: &serde_json::Value,
+    settings: &crate::app_settings::AppSettings,
+) {
+    if RegionMeasures::inputs_key(recipe).is_none() {
+        return;
+    }
+    let (source, _) = parse_virtual_path(path);
+    if crate::preview_proxy::full_key(&source, settings)
+        .is_some_and(|key| known_measures(path, recipe, MeasuredOn::Preview(&key)).is_some())
+    {
+        return;
+    }
+    let Some(proxy) =
+        crate::preview_proxy::read_kind(&source, crate::preview_proxy::ProxyKind::Full, settings)
+    else {
+        return;
+    };
+    if proxy.image.width() == proxy.full_width {
+        let on = MeasuredOn::Preview(&proxy.key);
+        note_measures(path, recipe, &proxy.image, on, true);
+    }
+}
+
+/// The stored recipe of `path` (for the multi view's background work).
+pub(crate) fn stored_recipe(path: &str) -> serde_json::Value {
+    recipe_of(path)
+}
+
+/// The measures of `image` (the pixels `on` stands for) for `recipe`:
+/// recorded ones when `reuse` (or None when the recipe needs none), else
+/// measured and recorded.
+fn note_measures(
+    path: &str,
+    recipe: &serde_json::Value,
+    image: &DynamicImage,
+    on: MeasuredOn,
+    reuse: bool,
+) -> Option<RegionMeasures> {
+    RegionMeasures::inputs_key(recipe)?;
+    if reuse && let Some(known) = known_measures(path, recipe, on) {
+        return Some(known);
+    }
+    let measures = RegionMeasures::of(image.as_rgb32f()?, recipe);
+    if let Some(key) = measures_key(path, recipe, on) {
+        let mut all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
+        let all = all.get_or_insert_with(HashMap::new);
+        if all.len() >= REGION_MEASURES_KEPT {
+            all.clear();
+        }
+        let decode = match on {
+            MeasuredOn::Decode(image) => Some(Arc::downgrade(image)),
+            _ => None,
+        };
+        all.insert(key, (measures, decode));
+    }
+    Some(measures)
+}
+
 /// A photograph's source for its cell: the preview proxy kept in memory, a
 /// decode still cached from Develop, the proxy on disk, else a fast decode
 /// (as thumbnails). Returns the image, its pixels per full-resolution pixel
@@ -456,6 +598,24 @@ fn current_key(context: &GpuContext, path: &str) -> Option<u64> {
         .and_then(|display| display.multi_view().texture_key(path))
 }
 
+/// What a prepared base of `path` depends on: the recipe's preparation
+/// (geometry, retouch) and the source it was made from (a full decode
+/// arriving after a proxy invalidates it).
+fn base_key(app_handle: &tauri::AppHandle, path: &str, recipe: &serde_json::Value) -> u64 {
+    let state = app_handle.state::<AppState>();
+    let mut hash = DefaultHasher::new();
+    crate::preview_cache::preparation_key(recipe).hash(&mut hash);
+    if let Some((image, _)) = state
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&decoded_key(path, recipe))
+    {
+        (Arc::as_ptr(&image) as usize).hash(&mut hash);
+    }
+    hash.finish()
+}
+
 fn prepare(
     app_handle: &tauri::AppHandle,
     worker: &Worker,
@@ -463,21 +623,7 @@ fn prepare(
     todo: Todo,
 ) -> Result<Option<Prepared>, String> {
     let start = Instant::now();
-    // A full decode arriving after a proxy invalidates its prepared base.
-    let preparation_key = {
-        let state = app_handle.state::<AppState>();
-        let mut hash = DefaultHasher::new();
-        crate::preview_cache::preparation_key(&todo.recipe).hash(&mut hash);
-        if let Some((image, _)) = state
-            .decoded_image_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&decoded_key(&todo.path, &todo.recipe))
-        {
-            (Arc::as_ptr(&image) as usize).hash(&mut hash);
-        }
-        hash.finish()
-    };
+    let preparation_key = base_key(app_handle, &todo.path, &todo.recipe);
     let known = worker
         .memory
         .lock()
@@ -1059,6 +1205,16 @@ pub(crate) async fn set_multi_view_zoom(
     .map_err(|e| format!("Multi view zoom task failed: {e}"))
 }
 
+/// A full-resolution source: the image, its pixels per full-resolution pixel,
+/// its facts, what it is and, for a 1:1 preview, its header key.
+type FullSource = (
+    Arc<DynamicImage>,
+    f32,
+    Facts,
+    &'static str,
+    Option<crate::preview_proxy::ProxyKey>,
+);
+
 /// A photograph at full resolution for zoomed regions: a decode still cached
 /// from Develop, its 1:1 preview, else a full decode. Returns the image, its
 /// pixels per full-resolution pixel and its facts.
@@ -1066,7 +1222,7 @@ fn load_full_source(
     app_handle: &tauri::AppHandle,
     path: &str,
     recipe: &serde_json::Value,
-) -> Result<(Arc<DynamicImage>, f32, Facts, &'static str), String> {
+) -> Result<FullSource, String> {
     let state = app_handle.state::<AppState>();
     let (source_path, _) = parse_virtual_path(path);
     let source_str = source_path.to_string_lossy().to_string();
@@ -1083,7 +1239,7 @@ fn load_full_source(
             full_height,
             is_raw,
         };
-        return Ok((image, 1.0, facts, "decoded"));
+        return Ok((image, 1.0, facts, "decoded", None));
     }
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     if is_raw
@@ -1099,7 +1255,13 @@ fn load_full_source(
             full_height: proxy.full_height,
             is_raw,
         };
-        return Ok((Arc::new(proxy.image), scale, facts, "proxy-1:1"));
+        return Ok((
+            Arc::new(proxy.image),
+            scale,
+            facts,
+            "proxy-1:1",
+            Some(proxy.key),
+        ));
     }
     let bytes = read_file_mapped(&source_path).map_err(|e| e.to_string())?;
     let image = crate::image_loader::load_base_image_for_recipe(
@@ -1118,7 +1280,7 @@ fn load_full_source(
         full_height,
         is_raw,
     };
-    Ok((Arc::new(image), 1.0, facts, "full-decode"))
+    Ok((Arc::new(image), 1.0, facts, "full-decode", None))
 }
 
 fn region_key(recipe: &serde_json::Value, zoom: CellZoom, context: &GpuContext) -> u64 {
@@ -1174,8 +1336,19 @@ fn prepare_region(
             log::info!("[multi_view] {path}: region from the whole photograph ({reason})")
         }
     }
-    let (source, source_scale, facts, source_kind) = load_full_source(app_handle, path, recipe)?;
-    if let Some(base) = region_from_full_decode(&source, source_scale, facts, area, zoom, recipe) {
+    let (source, source_scale, facts, source_kind, preview_key) =
+        load_full_source(app_handle, path, recipe)?;
+    if let Some(base) = region_from_full_decode(
+        path,
+        &source,
+        source_scale,
+        source_kind,
+        preview_key.as_ref(),
+        facts,
+        area,
+        zoom,
+        recipe,
+    ) {
         let kind = match source_kind {
             "full-decode" => "full-decode-rows",
             "decoded" => "decoded-rows",
@@ -1307,7 +1480,18 @@ fn prepare_region_from_rows(
         full_height: full_h,
         is_raw: known.is_raw,
     };
-    let plan = region_plan(facts, area, zoom, recipe)?;
+    // The measures of the decode in memory, else those recorded for the
+    // 1:1 preview's photograph.
+    let mut preview_key = None;
+    let measures = match &decoded {
+        Some(decoded) => note_measures(path, recipe, decoded, MeasuredOn::Decode(decoded), true),
+        None => crate::preview_proxy::full_key(&source_path, &settings).and_then(|key| {
+            let measures = known_measures(path, recipe, MeasuredOn::Preview(&key));
+            preview_key = Some(key);
+            measures
+        }),
+    };
+    let plan = region_plan(facts, area, zoom, recipe, measures)?;
     let (image, kind, read_ms) = match decoded {
         Some(decoded) => {
             let rgb = decoded.as_rgb32f().ok_or("not float RGB")?;
@@ -1323,6 +1507,9 @@ fn prepare_region_from_rows(
             let read =
                 crate::preview_proxy::read_full_rows(&source_path, &settings, plan.rows, plan.cols)
                     .ok_or("no current 1:1 preview")?;
+            if !rows_fit_measures(measures.is_some(), preview_key.as_ref(), &read.key) {
+                return Err("1:1 preview changed while planning");
+            }
             if (read.width, read.height) != (full_w, full_h) {
                 return Err("1:1 preview of another size");
             }
@@ -1354,6 +1541,17 @@ fn prepare_region_from_rows(
     Ok((region_base(image, &plan, facts, zoom, recipe), kind))
 }
 
+/// Whether rows read from a 1:1 preview with `read` key may be warped with
+/// the measures planned (of the preview with `planned` key): not when the
+/// preview was rebuilt in between.
+fn rows_fit_measures(
+    measured: bool,
+    planned: Option<&crate::preview_proxy::ProxyKey>,
+    read: &crate::preview_proxy::ProxyKey,
+) -> bool {
+    !measured || planned == Some(read)
+}
+
 /// How the region of a photograph of `facts` its cell `area` shows at
 /// `zoom` (with BASE_MARGIN) is made from the rows of its source.
 fn region_plan(
@@ -1361,17 +1559,19 @@ fn region_plan(
     area: [f32; 4],
     zoom: CellZoom,
     recipe: &serde_json::Value,
+    measures: Option<RegionMeasures>,
 ) -> Result<image_processing::RegionPlan, &'static str> {
     let (shown_w, shown_h) = shown_size(recipe, facts);
     let wanted =
         gpu_processing::multi_view::zoomed_region(area, [shown_w, shown_h], zoom, BASE_MARGIN);
-    image_processing::plan_transformed_region(
+    image_processing::plan_transformed_region_with(
         facts.full_width,
         facts.full_height,
         recipe,
         whole_pixels(wanted),
+        measures,
     )
-    .ok_or("lens blur or measured chromatic aberration")
+    .ok_or("lens blur, or whole-photograph measures (lateral CA, fringes) not known yet")
 }
 
 /// The region base of `image`, the pixels `plan` asks for.
@@ -1405,9 +1605,13 @@ fn region_base(
 /// region's rows only, instead of warping the whole photograph and cutting
 /// the region out (the same pixels; about a second less for a 61 MP
 /// photograph with lens corrections, and no whole-frame copy).
+#[allow(clippy::too_many_arguments)]
 fn region_from_full_decode(
-    source: &DynamicImage,
+    path: &str,
+    source: &Arc<DynamicImage>,
     source_scale: f32,
+    source_kind: &str,
+    preview_key: Option<&crate::preview_proxy::ProxyKey>,
     facts: Facts,
     area: [f32; 4],
     zoom: CellZoom,
@@ -1423,7 +1627,15 @@ fn region_from_full_decode(
         full_height: full_h,
         ..facts
     };
-    let plan = region_plan(facts, area, zoom, recipe).ok()?;
+    // A decode in memory or a 1:1 preview: its own, measured once. A full
+    // decode used once: its own, not recorded.
+    let on = match (source_kind, preview_key) {
+        ("decoded", _) => MeasuredOn::Decode(source),
+        (_, Some(key)) => MeasuredOn::Preview(key),
+        _ => MeasuredOn::Fresh,
+    };
+    let measures = note_measures(path, recipe, source, on, true);
+    let plan = region_plan(facts, area, zoom, recipe, measures).ok()?;
     let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
     let image = image_processing::transformed_region(&rows, recipe, &plan)?;
     Some(region_base(image, &plan, facts, zoom, recipe))
@@ -1684,6 +1896,14 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
                         &region.rgba,
                     );
                     shown += 1;
+                    #[cfg(feature = "performance-profiling")]
+                    log::info!(
+                        "[PERF] {}",
+                        serde_json::json!({
+                            "stage": "multi_view_region", "source": region.source_kind,
+                            "ms": region.ms, "end_epoch_ms": crate::performance::epoch_ms()
+                        })
+                    );
                     log::info!(
                         "[multi_view] {path}: region {}x{} at {:.4}x from {} in {:.1} ms",
                         region.rgba.width(),
@@ -1700,6 +1920,14 @@ fn run_regions(app_handle: &tauri::AppHandle, worker: &RegionWorker, job: Region
     log::info!(
         "[multi_view] {shown} of {count} zoomed regions developed in {:.1} ms",
         start.elapsed().as_secs_f64() * 1e3
+    );
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({
+            "stage": "multi_view_regions", "shown": shown, "count": count,
+            "ms": start.elapsed().as_secs_f64() * 1e3, "end_epoch_ms": crate::performance::epoch_ms()
+        })
     );
     // Full-resolution decodes made for the regions are freed: return them.
     rawtonic_runtime::allocator::release_freed_memory();
@@ -1721,7 +1949,19 @@ fn with_live_patch(mut recipe: serde_json::Value) -> serde_json::Value {
 /// other photographs (`None` once they are, or when it ends). The other cells
 /// follow them live, between the primary's frames.
 #[tauri::command]
-pub(crate) fn set_multi_view_live(patch: Option<serde_json::Value>) {
+pub(crate) fn set_multi_view_live(
+    patch: Option<serde_json::Value>,
+    state: tauri::State<'_, AppState>,
+) {
+    if set_live(patch) {
+        // The preview worker may be waiting for the primary's next frame,
+        // which a typed value never asks for.
+        state.preview_jobs.wake();
+    }
+}
+
+/// Keeps `patch` as the live changes; returns whether cells have to follow.
+fn set_live(patch: Option<serde_json::Value>) -> bool {
     let patch = patch.and_then(|patch| match patch {
         serde_json::Value::Object(map) if !map.is_empty() => Some(map),
         _ => None,
@@ -1733,6 +1973,7 @@ pub(crate) fn set_multi_view_live(patch: Option<serde_json::Value>) {
     live.patch = patch;
     live.settled = 0;
     LIVE_PENDING.store(pending, Ordering::Release);
+    pending
 }
 
 /// Whether [`live_step`] has a cell to develop (cheap; the preview worker
@@ -1846,7 +2087,7 @@ pub(crate) fn live_step(app_handle: &tauri::AppHandle) -> bool {
         let Some((facts, (preparation_key, dim, base, mask_source))) = base else {
             continue;
         };
-        if preparation_key != crate::preview_cache::preparation_key(&recipe) {
+        if preparation_key != base_key(app_handle, &path, &recipe) {
             continue;
         }
         let key = render_key(&recipe, dim, &context);
@@ -1974,6 +2215,140 @@ fn live_region(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tests of the shared measures store run one at a time.
+    static MEASURES_TESTS: Mutex<()> = Mutex::new(());
+
+    /// A session with photograph `A.RAF` (`content`) in a temporary folder.
+    fn session_photo(name: &str, content: &[u8]) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("rt-mv-{name}-{}", std::process::id()));
+        let session = dir.join("Job");
+        std::fs::create_dir_all(session.join("Capture")).unwrap();
+        std::fs::write(session.join("session.json"), "{}").unwrap();
+        std::fs::write(session.join("session.sqlite"), "").unwrap();
+        let photo = session.join("Capture").join("A.RAF");
+        std::fs::write(&photo, content).unwrap();
+        (dir, photo)
+    }
+
+    #[test]
+    fn region_measures_follow_the_preview_they_were_taken_on() {
+        let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, photo) = session_photo("follow", b"first");
+        let path = photo.to_string_lossy().to_string();
+        let recipe = serde_json::json!({"fringeVersion": 2});
+        let image = DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(64, 48, |x, y| {
+            image::Rgb([x as f32 / 64.0, y as f32 / 48.0, 0.5])
+        }));
+        let settings = crate::app_settings::AppSettings::default();
+        let other = crate::app_settings::AppSettings {
+            raw_highlight_compression: Some(1.0),
+            ..Default::default()
+        };
+        let current = |settings: &crate::app_settings::AppSettings| {
+            crate::preview_proxy::full_key(&photo, settings)
+                .and_then(|key| known_measures(&path, &recipe, MeasuredOn::Preview(&key)))
+        };
+        // The preview as the master's stored recipe has it (either filter).
+        let multiscale = [true, false]
+            .into_iter()
+            .find(|&m| {
+                crate::preview_proxy::write_full(&photo, &image, &settings, m).unwrap();
+                crate::preview_proxy::has_full(&photo, &settings)
+            })
+            .expect("a current preview");
+        let first_key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
+        measure_preview(&path, &recipe, &settings);
+        assert!(current(&settings).is_some_and(|m| m.fringe_radius.is_some()));
+        // Rebuilt with other decoder settings: the current preview has none.
+        crate::preview_proxy::write_full(&photo, &image, &other, multiscale).unwrap();
+        assert_eq!(current(&other), None);
+        assert_eq!(current(&settings), None);
+        // Rows read after a rebuild do not fit measures planned before it.
+        let rows = crate::preview_proxy::read_full_rows(&photo, &other, (0, 4), (0, 4)).unwrap();
+        assert!(!rows_fit_measures(true, Some(&first_key), &rows.key));
+        assert!(rows_fit_measures(true, Some(&rows.key), &rows.key));
+        assert!(rows_fit_measures(false, None, &rows.key));
+        // Another file at the same path: its old preview is not current.
+        crate::preview_proxy::write_full(&photo, &image, &settings, multiscale).unwrap();
+        measure_preview(&path, &recipe, &settings);
+        assert!(current(&settings).is_some());
+        std::fs::write(&photo, b"second, longer").unwrap();
+        assert_eq!(current(&settings), None);
+        // A decode in memory: measured once, then found.
+        let decode = Arc::new(image);
+        let on = MeasuredOn::Decode(&decode);
+        assert_eq!(known_measures(&path, &recipe, on), None);
+        let first = note_measures(&path, &recipe, &decode, on, true);
+        assert_eq!(known_measures(&path, &recipe, on), first);
+        // Evicted and decoded again (another allocation): measured anew.
+        let image = (*decode).clone();
+        drop(decode);
+        let again = Arc::new(image);
+        assert_eq!(
+            known_measures(&path, &recipe, MeasuredOn::Decode(&again)),
+            None
+        );
+        // A recipe that needs none records none.
+        let on = MeasuredOn::Decode(&again);
+        assert_eq!(
+            note_measures(&path, &serde_json::json!({}), &again, on, true),
+            None
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_region_gets_the_same_measures_from_a_warm_or_a_cold_store() {
+        let _one = MEASURES_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let (dir, photo) = session_photo("cold", b"raw");
+        let path = photo.to_string_lossy().to_string();
+        let settings = crate::app_settings::AppSettings::default();
+        // A decode with a fringed edge, stored lossily as the 1:1 preview.
+        let decode = DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(160, 120, |x, y| {
+            let edge = x as i64 - 80 - y as i64 / 9;
+            let v = 0.1 + if edge >= 0 { 0.6 } else { 0.0 };
+            let red = if (-1..2).contains(&edge) { 0.25 } else { 0.0 };
+            image::Rgb([v + red, v, v + 0.002 * (x % 3) as f32])
+        }));
+        for multiscale in [true, false] {
+            crate::preview_proxy::write_full(&photo, &decode, &settings, multiscale).unwrap();
+            if crate::preview_proxy::has_full(&photo, &settings) {
+                break;
+            }
+        }
+        let recipe = serde_json::json!({"fringeVersion": 2, "autoCaVersion": 2,
+            "lensDistortionParams": {"k1": -0.05}, "colorNoiseReduction": 25});
+        // Warm: measured by the background work after the preview was made.
+        measure_preview(&path, &recipe, &settings);
+        let key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
+        let warm = known_measures(&path, &recipe, MeasuredOn::Preview(&key)).expect("measured");
+        // Cold (restart): a region measures the preview it reads.
+        REGION_MEASURES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+            .unwrap()
+            .clear();
+        let proxy = crate::preview_proxy::read_kind(
+            &photo,
+            crate::preview_proxy::ProxyKind::Full,
+            &settings,
+        )
+        .unwrap();
+        assert_eq!(proxy.key, key);
+        let on = MeasuredOn::Preview(&proxy.key);
+        let cold = note_measures(&path, &recipe, &proxy.image, on, true);
+        assert_eq!(cold, Some(warm));
+        // A full decode used once is measured but never recorded.
+        let fresh = note_measures(&path, &recipe, &decode, MeasuredOn::Fresh, true);
+        assert!(fresh.is_some());
+        assert_eq!(
+            known_measures(&path, &recipe, MeasuredOn::Preview(&key)),
+            Some(warm)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_magnification_keeps_its_value_while_panning() {
@@ -2127,17 +2502,17 @@ mod tests {
     #[test]
     fn live_changes_show_over_the_stored_recipe_until_cleared() {
         let stored = serde_json::json!({"exposure": 0.0, "contrast": 10, "crop": null});
-        set_multi_view_live(Some(serde_json::json!({"exposure": 1.25})));
+        set_live(Some(serde_json::json!({"exposure": 1.25})));
         assert!(live_pending());
         let shown = with_live_patch(stored.clone());
         assert_eq!(shown["exposure"], 1.25);
         assert_eq!(shown["contrast"], 10);
         // Written: the stored recipe alone again, nothing left to develop.
-        set_multi_view_live(None);
+        set_live(None);
         assert!(!live_pending());
         assert_eq!(with_live_patch(stored.clone()), stored);
         // An empty patch is no patch.
-        set_multi_view_live(Some(serde_json::json!({})));
+        set_live(Some(serde_json::json!({})));
         assert!(!live_pending());
     }
 }

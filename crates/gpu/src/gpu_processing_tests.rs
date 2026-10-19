@@ -109,6 +109,10 @@ fn banded_input_upload_matches_the_full_conversion() {
     println!("{checked} banded input uploads match the full conversion");
 }
 
+/// The tests that occupy every thread of rayon's global pool run one at a
+/// time: two at once would each wait for threads the other holds.
+static GLOBAL_POOL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Thumbnail batches run on rayon's global pool and wait there for the GPU
 /// processor lock; a caller holding that lock must not need the pool for its
 /// input upload (an Edit-all write in the multi view froze every render).
@@ -116,6 +120,7 @@ fn banded_input_upload_matches_the_full_conversion() {
 fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
     let context = context();
     let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(64, 600, |x, y| {
         image::Rgb([x as f32 / 64.0, y as f32 / 600.0, 0.5])
@@ -159,6 +164,39 @@ fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
         inside == Ok(true) || done_rx.recv_timeout(Duration::from_secs(20)) == Ok(true),
         "upload on a pool thread"
     );
+}
+
+/// The colour noise pyramid is built under the GPU processor lock with
+/// rayon: a caller outside rayon holding the lock must not need the global
+/// pool while thumbnail batches wait there for it (Edit all selected's live
+/// cells froze every render after the recipes were written).
+#[test]
+fn parallel_work_under_the_processor_lock_does_not_wait_for_a_busy_pool() {
+    use std::sync::{Arc, Mutex, mpsc};
+    use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
+    let lock = Arc::new(Mutex::new(()));
+    let guard = lock.lock().unwrap();
+    let threads = rayon::current_num_threads();
+    let (started_tx, started_rx) = mpsc::channel();
+    for _ in 0..threads {
+        let (lock, started) = (lock.clone(), started_tx.clone());
+        rayon::spawn(move || {
+            started.send(()).unwrap();
+            drop(lock.lock().unwrap());
+        });
+    }
+    for _ in 0..threads {
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+    }
+    let (done_tx, done_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let sum: u64 = off_global_pool(|| (0..100_000u64).into_par_iter().map(|v| v % 7).sum());
+        done_tx.send(sum).unwrap();
+    });
+    let done = done_rx.recv_timeout(Duration::from_secs(20));
+    drop(guard);
+    assert_eq!(done, Ok((0..100_000u64).map(|v| v % 7).sum()));
 }
 
 fn all_sub_mask() -> serde_json::Value {
@@ -335,17 +373,27 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & 16 != 0 {
             effects["colorNoiseReduction"] = json!(30);
         }
-        let profile = if expected & 8 != 0 {
+        if expected & TONE_PREVIEW_FEATURE != 0 {
+            effects["whites"] = json!(-20);
+        }
+        let mut profile = if expected & 8 != 0 {
             local_profile(effects)
         } else {
             effects
         };
+        // Relight is photo-wide only.
+        if expected & RELIGHT_PREVIEW_FEATURE != 0 {
+            profile["relightLights"] = json!([{"intensity":65}]);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
         if expected & 8 != 0 {
             // Stale entries beyond mask_count must not affect the current image.
             adjustments.mask_count = 0;
-            assert_eq!(preview_features(&adjustments), 0);
+            assert_eq!(
+                preview_features(&adjustments),
+                expected & RELIGHT_PREVIEW_FEATURE
+            );
         }
     }
     // Opposing layers do not cancel everywhere: their bitmap coverage differs.
@@ -476,7 +524,7 @@ fn failed_export_variant_uses_the_general_pipeline() {
     let context = context();
     let processor = GpuProcessor::new(context, 64, 64).unwrap();
     let adjustments = get_all_adjustments_from_json(&json!({}), false, None);
-    let features = preview_features(&adjustments) | (1 << 2);
+    let features = export_features(&adjustments);
     assert_eq!(
         features & 0b1_0011,
         0,
@@ -8802,21 +8850,44 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
     // Wider than one tile, so the half-resolution texture is addressed in
     // image coordinates across tiles.
     let image = chroma_noise_frame(2300, 300);
-    for version in [2, 3, 4, 5, 6] {
+    // Version 7 also below Color 25 and above Detail 50, where its speck
+    // swap is weakened (`Tuning::speck_strength`), beside version 6 there.
+    let cases = [
+        (2, 25, 50),
+        (3, 25, 50),
+        (4, 25, 50),
+        (5, 25, 50),
+        (6, 25, 50),
+        (7, 25, 50),
+        (6, 15, 65),
+        (7, 15, 65),
+    ];
+    for (version, color, detail) in cases {
         let gpu = render_source(
             &context,
             &image,
-            json!({"colorNoiseReduction": 25, "colorNoiseVersion": version}),
+            json!({
+                "colorNoiseReduction": color,
+                "colorNoiseDetail": detail,
+                "colorNoiseVersion": version
+            }),
             RenderOutputPrecision::SixteenBit,
         )
         .to_rgba16();
         let settings = color_noise::Settings {
-            amount: 0.25,
-            detail: 0.5,
+            amount: color as f32 / 100.0,
+            detail: detail as f32 / 100.0,
             smoothness: 0.5,
         };
+        // The renderer reads its input as 16-bit floats: the CPU reference
+        // filters the same values, so discontinuous decisions (the switched
+        // guide, version 7's speck swap) see the same chroma.
+        let mut input = image.to_rgb32f();
+        input
+            .iter_mut()
+            .for_each(|v| *v = half::f16::from_f32(*v).to_f32());
         let filtered = color_noise::apply_to_linear(
-            &image.to_rgb32f(),
+            &input,
             settings,
             &color_noise::Tuning::for_version(version),
         );
@@ -8846,7 +8917,7 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         }
         let n = (gpu.width() * gpu.height() * 3) as f64;
         println!(
-            "version {version}: GPU vs CPU reference: max {worst}, mean {:.2}, {far} pixels above 64; filter changed mean {:.1} levels",
+            "version {version}, Color {color}, Detail {detail}: GPU vs CPU reference: max {worst}, mean {:.2}, {far} pixels above 64; filter changed mean {:.1} levels",
             sum as f64 / n,
             changed as f64 / n
         );
@@ -8855,10 +8926,12 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         assert!(sum as f64 / n < 4.0, "mean {}", sum as f64 / n);
         assert!(changed as f64 / n > 40.0 * (sum as f64 / n).max(1.0));
         assert!(worst < 600, "max {worst}");
-        // The switched guide of versions 5 and 6 is discontinuous: where a pixel's chroma
-        // lies about one noise unit from its 3 x 3 median, GPU and CPU
-        // rounding can flip the side it takes (10 of 690 000 pixels above 64
-        // levels, none for versions 2-4). Such flips must stay rare.
+        // The switched guide of versions 5-7 and version 7's speck swap are
+        // discontinuous: where a pixel's chroma lies at their thresholds,
+        // GPU and CPU rounding can flip the decision (on the same 16-bit
+        // input: 2 of 690 000 pixels above 64 levels for version 7, none
+        // for versions 2-6 at Color 25; at Color 15, Detail 65 14 for
+        // version 6, 16 for version 7). Such flips must stay rare.
         assert!(
             far * 10_000 < gpu.width() * gpu.height(),
             "{far} pixels above 64"
@@ -8912,6 +8985,16 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 6})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 5}))
+    );
+    // Version 7 changes only the detail of isolated off-colour pixels: at
+    // Color 0 it renders as version 6.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 7})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 6}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 7})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 6}))
     );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
@@ -9029,7 +9112,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=6 {
+        for version in 1..=7 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {

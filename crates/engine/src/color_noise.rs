@@ -80,7 +80,10 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 6 (2026-10-17) measures the finest detail against
+/// The newest version: 7 (2026-10-18) gives an isolated colour speck (a
+/// pixel far from its 3 × 3 median chroma while its luminance is not) its
+/// neighbourhood's median chroma as its finest detail ([`Tuning::speck_swap`]);
+/// 6 (2026-10-17) measures the finest detail against
 /// the same edge-aware expansion of level 1 the reconstruction takes, so a
 /// colour edge no longer gets a halo and dark sides of colour edges no
 /// longer blotchy rims ([`Tuning::finest_detail_aware`]); 5 (2026-10-17)
@@ -92,7 +95,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 6;
+pub const VERSION: u64 = 7;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -314,6 +317,21 @@ pub struct Tuning {
     /// 0.1–0.45 px wider than version 5's, which snapped them to a side
     /// (notes: reference/color-noise-reference.md, round 11). Version 6.
     pub finest_detail_aware: bool,
+    /// A pixel whose chroma lies more than this many finest noise σ from
+    /// the median of its 3 × 3 neighbourhood while its square-root
+    /// luminance lies within [`SPECK_LUMA`] ± ½ σ of theirs (fading out
+    /// over that σ; an off-colour
+    /// pixel, not a small bright or dark feature: a coloured point that
+    /// stands out of its surroundings by more than the noise, also a blue
+    /// one whose luminance weight is small, keeps its colour) keeps the
+    /// median chroma as its detail (0 = off, multiples of 0.25 up to 3.75).
+    /// Such pixels were the isolated specks left after version 6, mostly the
+    /// pixel's own input outlier kept by the energy gain or the finest edge
+    /// guard next to luminance edges: on 55 high-ISO RAWs −24 % specks at
+    /// Color 25 (−17 % at 50) for colour edges ≥ 0.998 of version 6 in every
+    /// ISO band and RawNIND ground-truth error equal or lower (notes:
+    /// reference/color-noise-reference.md, rounds 12–13). Version 7.
+    pub speck_swap: f32,
 }
 
 impl Default for Tuning {
@@ -356,9 +374,16 @@ impl Tuning {
         if version == 5 {
             return v5;
         }
-        Self {
+        let v6 = Self {
             finest_detail_aware: true,
             ..v5
+        };
+        if version == 6 {
+            return v6;
+        }
+        Self {
+            speck_swap: SPECK_SWAP,
+            ..v6
         }
     }
 
@@ -396,6 +421,7 @@ impl Tuning {
             guide_gate: false,
             guide_detail: false,
             finest_detail_aware: false,
+            speck_swap: 0.0,
         }
     }
 
@@ -403,9 +429,15 @@ impl Tuning {
     /// own chroma, 1 mean, 2 median, 3 switch, + 4 when the edge-kept detail
     /// is the guide's, + 8 with the edge gate, + 16 when all detail is the
     /// guide's; + 32 with the detail against the aware expansion
-    /// ([`Tuning::finest_detail_aware`]); and the switch's squared multiple.
+    /// ([`Tuning::finest_detail_aware`]); + 64 + 128 × 4 K with the speck
+    /// swap K ([`Tuning::speck_swap`]); and the switch's squared multiple.
     pub fn finest_guide_code(&self) -> (f32, f32) {
-        let aware = if self.finest_detail_aware { 32.0 } else { 0.0 };
+        let aware = if self.finest_detail_aware { 32.0 } else { 0.0 }
+            + if self.speck_swap > 0.0 {
+                64.0 + 128.0 * (self.speck_swap * 4.0).round().min(15.0)
+            } else {
+                0.0
+            };
         if !self.guide_finest {
             return (aware, 0.0);
         }
@@ -506,6 +538,19 @@ impl Tuning {
             return 1.0;
         }
         (thresholds[l] / base).powf(self.aware_follow)
+    }
+
+    /// The share of [`Tuning::speck_swap`] applied: the finest level's
+    /// threshold over its value at Amount 25 and Detail 50, at most 1.
+    /// Below Color 25 or above Detail 50 the swap weakens with the rest of
+    /// the filter and is gone at Color 0 (Smoothness leaves the finest
+    /// threshold, and so the swap, unchanged).
+    pub fn speck_strength(&self, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
+        let base = noise[0] * self.multiple(0, noise[0]);
+        if self.speck_swap <= 0.0 || base <= 0.0 {
+            return 0.0;
+        }
+        (thresholds[0] / base).clamp(0.0, 1.0)
     }
 
     /// The renderer's squared range of the finest level's aware expansion;
@@ -1006,6 +1051,12 @@ pub const AWARE_FLAT: f32 = 1e-3;
 /// leaves colour edges softer, higher more 1–4 px mottling; notes:
 /// reference/color-noise-reference.md).
 pub const AWARE_FAR: f32 = 25.0;
+
+/// Version 7's [`Tuning::speck_swap`] in finest noise σ and the luminance
+/// difference from the 3 × 3 median allowed for a swap, in the same σ (notes:
+/// reference/color-noise-reference.md, round 13).
+pub const SPECK_SWAP: f32 = 2.0;
+pub const SPECK_LUMA: f32 = 1.0;
 
 /// Taps and weights of the expansion of a coarser level at finer position
 /// `x` (`n` coarser samples): 1/8, 3/4, 1/8 around an even position, 1/2,
@@ -1907,6 +1958,54 @@ pub fn guide_plane(
         .collect()
 }
 
+/// The chroma each pixel's finest detail is measured from with
+/// [`Tuning::speck_swap`] `k` (in noise units, `noise2` the squared noise):
+/// the 3 × 3 median chroma for an isolated off-colour pixel (chroma more
+/// than `k` σ from that median, luminance within [`SPECK_LUMA`] σ, faded
+/// out over ± ½ σ around it), its own
+/// otherwise (renderer `apply_color_noise_multiscale`, code bit 64).
+pub fn speck_plane(
+    width: usize,
+    height: usize,
+    at: impl Fn(usize, usize) -> Px + Sync,
+    k: f32,
+    noise2: f32,
+    strength: f32,
+) -> Vec<[f32; 2]> {
+    let sigma = noise2.sqrt();
+    let limit = k * sigma;
+    (0..width * height)
+        .into_par_iter()
+        .map(|i| {
+            let (x, y) = (i % width, i / width);
+            let n: [Px; 9] = std::array::from_fn(|k| {
+                let (dx, dy) = ((k % 3) as isize - 1, (k / 3) as isize - 1);
+                at(
+                    (x as isize + dx).clamp(0, width as isize - 1) as usize,
+                    (y as isize + dy).clamp(0, height as isize - 1) as usize,
+                )
+            });
+            let median: Px = std::array::from_fn(|c| median9(std::array::from_fn(|i| n[i][c])));
+            let c0 = n[4];
+            let (da, db) = (c0[0] - median[0], c0[1] - median[1]);
+            let dc = (da * da + db * db).sqrt();
+            // Swapped fully within half a σ of SPECK_LUMA σ in luminance,
+            // fading to none half a σ beyond it: a hard cut would flip large
+            // chroma outliers between two colours on a tiny luminance change.
+            let swap =
+                strength * (SPECK_LUMA + 0.5 - (c0[2] - median[2]).abs() / sigma).clamp(0.0, 1.0);
+            if dc > limit && swap > 0.0 {
+                [
+                    c0[0] + swap * (median[0] - c0[0]),
+                    c0[1] + swap * (median[1] - c0[1]),
+                ]
+            } else {
+                [c0[0], c0[1]]
+            }
+        })
+        .collect()
+}
+
 /// The squared chroma gradient (central differences) of a level times the
 /// coherence of the chroma structure tensor over 5 × 5 (1 where all
 /// gradients share one direction, 0 where they point every way): edges
@@ -2005,9 +2104,21 @@ pub fn finest_relative2(profile: &[f32; PROFILE_BINS], rgb: [f32; 3]) -> f32 {
 /// as the renderer does it.
 #[inline]
 pub fn filtered_pixel(rgb: [f32; 3], level1: Px, rebuilt: Px, g: f32) -> [f32; 3] {
+    filtered_pixel_from(rgb, level1, rebuilt, g, chroma(rgb))
+}
+
+/// [`filtered_pixel`] with the detail taken from chroma `c` instead of the
+/// pixel's own ([`Tuning::speck_swap`]).
+#[inline]
+pub fn filtered_pixel_from(
+    rgb: [f32; 3],
+    level1: Px,
+    rebuilt: Px,
+    g: f32,
+    c0: [f32; 2],
+) -> [f32; 3] {
     let p = rgb.map(encode);
     let lp = LUMA[0] * p[0] + LUMA[1] * p[1] + LUMA[2] * p[2];
-    let c0 = [p[0] - p[1], p[2] - p[1]];
     let d = [c0[0] - level1[0], c0[1] - level1[1]];
     let a = rebuilt[0] + g * d[0];
     let b = rebuilt[1] + g * d[1];
@@ -2118,6 +2229,19 @@ pub fn apply_with(
     let guide_edge = guide.is_some() && tuning.guide_edge;
     let guide_gate = guide.is_some() && tuning.guide_gate;
     let guide_detail = guide.is_some() && tuning.guide_detail;
+    // Version 7 (renderer: code bit 64).
+    let strength = tuning.speck_strength(thresholds, &noise);
+    let speck = (strength > 0.0 && aware2 > 0.0).then(|| {
+        let k = (tuning.speck_swap * 4.0).round().min(15.0) * 0.25;
+        speck_plane(
+            w,
+            h,
+            |x, y| chroma_luma(pixel(y * w + x)),
+            k,
+            aware2,
+            strength,
+        )
+    });
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3)
         .enumerate()
@@ -2204,7 +2328,7 @@ pub fn apply_with(
                     row[x * 3..x * 3 + 3].copy_from_slice(&v);
                     continue;
                 }
-                let v = filtered_pixel(
+                let v = filtered_pixel_from(
                     rgb,
                     level1_at,
                     rebuilt_at,
@@ -2217,6 +2341,7 @@ pub fn apply_with(
                     } else {
                         gain(size2[i], t2, steepness)
                     },
+                    speck.as_ref().map_or_else(|| chroma(rgb), |s| s[i]),
                 );
                 row[x * 3..x * 3 + 3].copy_from_slice(&v);
             }
@@ -2480,7 +2605,7 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 6);
+        assert_eq!(VERSION, 7);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
@@ -2587,7 +2712,6 @@ mod tests {
         // Version 5 recipes render exactly as before version 6: the finest
         // detail against the plain expansion of level 1.
         let (v5, v6) = (Tuning::for_version(5), Tuning::for_version(6));
-        assert_eq!(v6, Tuning::default());
         assert!(!v5.finest_detail_aware && v6.finest_detail_aware);
         assert_eq!(v5.finest_guide_code(), (3.0, 1.0));
         assert_eq!(v6.finest_guide_code(), (35.0, 1.0));
@@ -2660,6 +2784,139 @@ mod tests {
         println!("overshoot past the dark side: version 5 {v5:.4}, version 6 {v6:.4}");
         assert!(v5 > 0.05 && v6 < 0.1 * v5, "{v5} → {v6}");
     }
+    #[test]
+    fn version_6_keeps_its_constants() {
+        // Version 6 recipes render exactly as before version 7.
+        let (v6, v7) = (Tuning::for_version(6), Tuning::for_version(7));
+        assert_eq!(v7, Tuning::default());
+        assert_eq!((v6.speck_swap, v7.speck_swap), (0.0, SPECK_SWAP));
+        assert_eq!(v7.finest_guide_code(), (35.0 + 64.0 + 128.0 * 8.0, 1.0));
+        assert_eq!(
+            Tuning {
+                speck_swap: 0.0,
+                ..v7
+            },
+            v6
+        );
+        for version in 2..=6 {
+            assert_eq!(Tuning::for_version(version).speck_swap, 0.0);
+        }
+    }
+
+    #[test]
+    fn version_7_removes_isolated_colour_specks() {
+        // A flat grey under colour noise with single off-colour pixels of the
+        // same luminance (notes: reference/color-noise-reference.md, round
+        // 13), and single darker pixels of the same chromaticity, which are
+        // luminance noise and keep their chroma.
+        let (w, h) = (128u32, 128u32);
+        let grey = 0.2f32;
+        let mut rng = Rng(9);
+        let mut image = Rgb32FImage::from_fn(w, h, |_, _| {
+            image::Rgb(std::array::from_fn(|_| {
+                (grey.sqrt() + 0.01 * rng.gaussian()).max(0.0).powi(2)
+            }))
+        });
+        let specks: Vec<(u32, u32)> = (0..40)
+            .map(|k| (8 + (k % 8) * 15, 8 + (k / 8) * 22))
+            .collect();
+        for &(x, y) in &specks {
+            // Same square-root luminance as the grey, chroma pushed.
+            let (r, b) = (grey.sqrt() + 0.12, grey.sqrt() - 0.10);
+            let g = (grey.sqrt() - LUMA[0] * r - LUMA[2] * b) / LUMA[1];
+            image.put_pixel(x, y, image::Rgb([r * r, g * g, b * b]));
+        }
+        let left = |tuning: &Tuning, amount: f32| {
+            let settings = Settings {
+                amount,
+                detail: 0.5,
+                smoothness: 0.5,
+            };
+            let out = apply_to_linear(&image, settings, tuning);
+            specks
+                .iter()
+                .map(|&(x, y)| {
+                    let c = chroma(out.get_pixel(x, y).0);
+                    c[0].hypot(c[1])
+                })
+                .sum::<f32>()
+                / specks.len() as f32
+        };
+        let (v6, v7) = (Tuning::for_version(6), Tuning::for_version(7));
+        let (at25, swapped25) = (left(&v6, 0.25), left(&v7, 0.25));
+        println!("speck chroma left at Color 25: version 6 {at25:.4}, version 7 {swapped25:.4}");
+        assert!(swapped25 < 0.5 * at25, "{at25} → {swapped25}");
+        // At Color 1 the swap is a fifth as strong: the specks stay.
+        let (at1, swapped1) = (left(&v6, 0.01), left(&v7, 0.01));
+        println!("speck chroma left at Color 1: version 6 {at1:.4}, version 7 {swapped1:.4}");
+        assert!(swapped1 > 0.7 * at1, "{at1} → {swapped1}");
+    }
+
+    #[test]
+    fn version_7_speck_swap_follows_the_filter_strength() {
+        // Full from the defaults on, weaker below Color 25 and above Detail
+        // 50, gone at Color 0: no jump between Color 0 and 1.
+        let v7 = Tuning::for_version(7);
+        let noise = [0.02; LEVELS];
+        let strength = |amount: f32, detail: f32| {
+            let settings = Settings {
+                amount,
+                detail,
+                smoothness: 0.5,
+            };
+            v7.speck_strength(&v7.thresholds(settings, &noise), &noise)
+        };
+        assert_eq!(strength(0.25, 0.5), 1.0);
+        assert_eq!(strength(1.0, 0.5), 1.0);
+        assert_eq!(strength(0.0, 0.5), 0.0);
+        assert!((strength(0.01, 0.5) - 0.2).abs() < 1e-5);
+        assert!(strength(0.25, 1.0) < 1.0 && strength(0.25, 1.0) > 0.0);
+        assert!(strength(0.25, 0.75) > strength(0.25, 1.0));
+        assert_eq!(Tuning::for_version(6).speck_strength(&noise, &noise), 0.0);
+    }
+
+    #[test]
+    fn version_7_keeps_coloured_points_that_stand_out_in_brightness() {
+        // Single blue points on dark grey and dark yellow points on light
+        // grey: blue carries little luminance, so their luminance differs
+        // from the surroundings by less than their chroma does, but by
+        // several times the noise. They are features, not specks.
+        let (w, h) = (128u32, 128u32);
+        let points: Vec<(u32, u32)> = (0..40)
+            .map(|k| (8 + (k % 8) * 15, 8 + (k / 8) * 22))
+            .collect();
+        let settings = Settings {
+            amount: 0.25,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        for (ground, point) in [(0.1f32, [0.1f32, 0.1, 0.6]), (0.8, [0.8, 0.8, 0.3])] {
+            let mut rng = Rng(11);
+            let mut image = Rgb32FImage::from_fn(w, h, |_, _| {
+                image::Rgb(std::array::from_fn(|_| {
+                    (ground + 0.01 * rng.gaussian()).max(0.0).powi(2)
+                }))
+            });
+            for &(x, y) in &points {
+                image.put_pixel(x, y, image::Rgb(point.map(|v| v * v)));
+            }
+            let kept = |tuning: &Tuning| {
+                let out = apply_to_linear(&image, settings, tuning);
+                points
+                    .iter()
+                    .map(|&(x, y)| {
+                        let c = chroma(out.get_pixel(x, y).0);
+                        c[0].hypot(c[1])
+                    })
+                    .sum::<f32>()
+                    / points.len() as f32
+            };
+            let (v6, v7) = (kept(&Tuning::for_version(6)), kept(&Tuning::for_version(7)));
+            println!("point chroma on {ground}: version 6 {v6:.4}, version 7 {v7:.4}");
+            assert!(v7 > 0.95 * v6, "{ground}: {v6} → {v7}");
+        }
+    }
+
     #[test]
     fn dark_noisy_colours_keep_their_mean_with_version_4() {
         // A black cat's bluish fur: red is weak against the noise. Versions
