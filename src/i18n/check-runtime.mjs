@@ -36,6 +36,8 @@ const localeFiles = fs
   .sort();
 const resources = {};
 const pluralKeysByLocale = new Map();
+/** Keys per locale, plural forms counted once (each locale has its own forms). */
+const baseKeysByLocale = new Map();
 const failures = [];
 
 for (const filename of localeFiles) {
@@ -55,6 +57,15 @@ for (const filename of localeFiles) {
 
   resources[locale] = { translation: translations };
   pluralKeysByLocale.set(locale, pluralKeys);
+  baseKeysByLocale.set(locale, new Set([...leaves.keys()].map((key) => key.replace(pluralSuffix, ''))));
+}
+
+// A key missing in a locale silently falls back to English, so every
+// English key must be in every locale.
+for (const [locale, keys] of baseKeysByLocale) {
+  for (const key of baseKeysByLocale.get('en')) {
+    if (!keys.has(key)) failures.push(`${locale}:${key} is missing (present in en)`);
+  }
 }
 
 const i18n = i18next.createInstance();
