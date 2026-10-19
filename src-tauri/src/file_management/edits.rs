@@ -211,17 +211,20 @@ fn xmp_sync(app_handle: &AppHandle) -> Option<bool> {
 /// Writes the editor sidecar of each of `paths` as `edit` changes its
 /// metadata (in parallel), and its XMP when `xmp` (`xmp_sync`). Returns
 /// the photos whose sidecar could not be written, with the reason; an
-/// `edit` error counts as one.
+/// `edit` error counts as one. The whole batch takes one turn of the
+/// sidecar guard, outside the parallel work (as rating and label edits do):
+/// workers of the shared pool never wait on the guard, so an edit holding it
+/// can always run its own parallel work.
 fn edit_sidecars(
     paths: &[String],
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
 ) -> Vec<(String, String)> {
+    let _turn = sidecar_field_edit();
     paths
         .par_iter()
         .filter_map(|path| {
             let (source_path, sidecar_path) = parse_virtual_path(path);
-            let _turn = sidecar_field_edit();
             let saved = edit(path, &source_path, &sidecar_path)
                 .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
             match saved {
@@ -750,9 +753,9 @@ static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Edits that read a photo's recipe sidecar, change it and write it back
 /// take turns through this guard, so none publishes a recipe read before
-/// another's write: rating, colour label and keyword edits (for their whole
-/// batch), the editor's save, each photo of a batch edit (`edit_sidecars`)
-/// and Auto straighten's commit.
+/// another's write: rating, colour label and keyword edits and batch edits
+/// (`edit_sidecars`) for their whole batch, the editor's save and Auto
+/// straighten's commit. Never taken inside parallel work.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()

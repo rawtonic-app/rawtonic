@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculateAutoCropForRotation, cropCameWithRotation } from './cropUtils';
+import { calculateAutoCropForRotation, cropCameWithRotation, keepsCropOnEntry } from './cropUtils';
 
 const px = (x: number, y: number, width: number, height: number) => ({ unit: 'px' as const, x, y, width, height });
 
@@ -27,5 +27,18 @@ describe('crop tool and a rotation that brings its crop', () => {
     expect(cropCameWithRotation(before, startCrop, { ...auto, aspectRatio: 1 })).toBe(false);
     expect(cropCameWithRotation(before, startCrop, { ...auto, orientationSteps: 1 })).toBe(false);
     expect(cropCameWithRotation(before, startCrop, { ...auto, rotation: 0 })).toBe(false);
+  });
+});
+
+describe('opening the crop tool', () => {
+  it("keeps Auto straighten's crop set before the tool was opened", () => {
+    expect(keepsCropOnEntry(px(2287, 305, 1200, 800), 6000, 4000, -5)).toBe(true);
+  });
+
+  it('recalculates only a crop that does not fit the frame at its rotation', () => {
+    // The full frame does not fit once turned by 5°.
+    expect(keepsCropOnEntry(px(0, 0, 6000, 4000), 6000, 4000, -5)).toBe(false);
+    expect(keepsCropOnEntry(px(0, 0, 6000, 4000), 6000, 4000, 0)).toBe(true);
+    expect(keepsCropOnEntry(null, 6000, 4000, 0)).toBe(false);
   });
 });

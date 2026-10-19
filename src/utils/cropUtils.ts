@@ -417,3 +417,14 @@ export const cropCameWithRotation = (
     Math.abs(a.height - b.height) <= 1;
   return !same;
 };
+
+/** Whether the crop tool, opening on a photograph (first time, after
+ * another photograph, or after it was closed), keeps the recipe's crop: any
+ * crop that lies inside the frame at its rotation (Auto straighten's, a
+ * saved one). Only a crop outside it is recalculated. */
+export const keepsCropOnEntry = (
+  crop: Crop | null | undefined,
+  orientedW: number,
+  orientedH: number,
+  rotation: number,
+): boolean => !!crop && crop.width > 0 && crop.height > 0 && isCropWithinBounds(crop, orientedW, orientedH, rotation);

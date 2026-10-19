@@ -269,7 +269,12 @@ async function reloadHeldRecipe(path: string): Promise<void> {
   if (status() !== 'ready') return;
   const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path });
   if (isCurrentEditorImage(path) && meta.adjustments && !meta.adjustments.is_null) {
-    const loaded = normalizeLoadedAdjustments(meta.adjustments, !!useEditorStore.getState().selectedImage?.isRaw);
+    // The commit changed only these (apply_auto_straighten_to_paths); the
+    // rest stays as the editor shows it, with the defaults its loader gave a
+    // never-edited photograph (which the saved recipe leaves implicit).
+    const written = normalizeLoadedAdjustments(meta.adjustments, !!useEditorStore.getState().selectedImage?.isRaw);
+    const shown = useEditorStore.getState().adjustments;
+    const loaded = { ...shown, rotation: written.rotation, crop: written.crop, masks: written.masks };
     useEditorStore.getState().pushHistory(loaded);
     useEditorStore.getState().setEditor({ adjustments: loaded });
   }

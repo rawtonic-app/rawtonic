@@ -586,6 +586,24 @@ describe('Auto straighten for a selection', () => {
     expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
   });
 
+  it("keeps a never-edited RAW's default corrections when it shows the result", async () => {
+    // The loader gave the never-edited photograph the camera's lens data; its
+    // saved recipe (rotation and crop only after the batch) leaves it implicit.
+    const shown = { ...useEditorStore.getState().adjustments, lensCorrectionMode: 'camera', lensDistortionParams: { k1: 0.02 } };
+    useEditorStore.setState({ adjustments: shown as never });
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: 2, crop: { unit: 'px', x: 5, y: 5, width: 3900, height: 2900 } } });
+    await act(async () => {});
+    const now = useEditorStore.getState().adjustments;
+    expect(now.rotation).toBe(2);
+    expect(now.crop).toMatchObject({ width: 3900 });
+    expect(now.lensCorrectionMode).toBe('camera');
+    expect(now.lensDistortionParams).toEqual({ k1: 0.02 });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

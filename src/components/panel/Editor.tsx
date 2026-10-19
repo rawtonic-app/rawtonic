@@ -13,6 +13,7 @@ import {
   calculateStraightenAngle,
   calculateAutoCropForRotation,
   cropCameWithRotation,
+  keepsCropOnEntry,
   fitCropTowards,
   moveCropInsideBounds,
   zoomCrop,
@@ -171,6 +172,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   // The crop the recalculation last saw: a rotation that arrives with a crop
   // of its own (Auto straighten, undo, paste) keeps that crop.
   const prevCrop = useRef<Adjustments['crop'] | undefined>(undefined);
+  // The photograph the crop tool last worked on.
+  const prevCropPath = useRef<string | null>(null);
   const lastValidCropRef = useRef<PercentCrop | null>(null);
   const cropResizeStartRef = useRef<PercentCrop | null>(null);
 
@@ -1787,11 +1790,27 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   useEffect(() => {
     if (!isCropping || !selectedImage?.width || !selectedImage?.height) {
+      // Closed: the next opening starts from the recipe as it then is.
+      prevCropParams.current = null;
+      prevCrop.current = undefined;
       return;
     }
 
     const { aspectRatio, orientationSteps = 0, crop: currentAdjCrop, rotation = 0 } = adjustments;
     const effectiveRotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : rotation;
+
+    // Opening (or another photograph): a crop that fits stays as it is.
+    const opening = !prevCropParams.current || prevCropPath.current !== selectedImage.path;
+    prevCropPath.current = selectedImage.path;
+    if (opening && liveRotation == null) {
+      const oriented = getOrientedDimensions(selectedImage.width, selectedImage.height, orientationSteps);
+      if (keepsCropOnEntry(currentAdjCrop, oriented.width, oriented.height, rotation)) {
+        prevCropParams.current = { rotation, aspectRatio, orientationSteps };
+        prevCrop.current = currentAdjCrop;
+        return;
+      }
+      prevCropParams.current = null;
+    }
 
     const geometryChanged =
       prevCropParams.current?.rotation !== rotation ||
