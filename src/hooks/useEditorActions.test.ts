@@ -713,6 +713,34 @@ describe('Auto straighten for a selection', () => {
     expect(useEditorStore.getState().adjustments.rotation).toBe(-4);
   });
 
+  it('runs batch, reset and batch on one photograph in the order asked for', async () => {
+    const { result } = renderHook(useEditorActions);
+    const commands = () =>
+      vi.mocked(invoke).mock.calls.map(([command]) => command)
+        .filter((c) => c === Invokes.ApplyAutoStraightenToPaths || c === Invokes.ResetAdjustmentsForPaths);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    act(() => result.current.handleResetAdjustments(['/first.dng']));
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    expect(commands()).toEqual([Invokes.ApplyAutoStraightenToPaths]);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -1 } });
+    await act(async () => {});
+    expect(commands()).toEqual([Invokes.ApplyAutoStraightenToPaths, Invokes.ResetAdjustmentsForPaths]);
+    await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+    await act(async () => {});
+    expect(commands()).toEqual([
+      Invokes.ApplyAutoStraightenToPaths, Invokes.ResetAdjustmentsForPaths, Invokes.ApplyAutoStraightenToPaths,
+    ]);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -2 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -2 } });
+    // The later batch's result is what stays.
+    expect(useEditorStore.getState().adjustments.rotation).toBe(-2);
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

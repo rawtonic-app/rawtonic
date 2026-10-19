@@ -36,6 +36,7 @@ function edit(change: Partial<Adjustments>) {
 beforeEach(() => {
   vi.useFakeTimers();
   vi.clearAllMocks();
+  vi.mocked(invoke).mockImplementation(() => Promise.resolve());
   useSettingsStore.setState({ osPlatform: 'macos' });
   useLibraryStore.setState({ multiSelectedPaths: selection });
   useEditorStore.setState({
@@ -139,6 +140,30 @@ describe('Edit all selected', () => {
       .filter((c) => c === Invokes.ApplyAdjustmentsToPaths || c === Invokes.ApplyAutoStraightenToPaths);
     expect(order).toEqual([Invokes.ApplyAdjustmentsToPaths, Invokes.ApplyAutoStraightenToPaths]);
     expect(pasted()[0]).toMatchObject({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 4 } });
+  });
+
+  it('takes no edits from the moment a batch is asked for, so none is passed on after it', async () => {
+    let releasePaste!: () => void;
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === Invokes.ApplyAdjustmentsToPaths
+        ? new Promise<void>((resolve) => { releasePaste = resolve; })
+        : command === Invokes.ApplyAutoStraightenToPaths
+          ? { straightened: [], noLines: [], changed: [], failed: [] }
+          : command === Invokes.LoadMetadata
+            ? { adjustments: useEditorStore.getState().adjustments }
+            : undefined,
+    );
+    renderHook(() => useEditAllSelected(true, selection));
+    const { result } = renderHook(useEditorActions);
+    edit({ rotation: 1.5 });
+    let batch!: Promise<unknown>;
+    act(() => { batch = result.current.handleAutoStraightenPaths(selection); });
+    // While the pending write is still being written: another edit.
+    act(() => updateAdjustments({ rotation: 3 }));
+    expect(useEditorStore.getState().adjustments.rotation).toBe(1.5);
+    await act(async () => { releasePaste(); await batch; });
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    expect(pasted().map((p) => p.adjustments.rotation)).toEqual([1.5]);
   });
 
   it('has the other cells developed again once their recipes are written', async () => {

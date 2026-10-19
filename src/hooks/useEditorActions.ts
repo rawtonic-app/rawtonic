@@ -425,12 +425,6 @@ export function useEditorActions() {
    * one undoable step. Resolves with what was done, or null. */
   const handleAutoStraightenPaths = useCallback(
     async (paths?: string[]): Promise<StraightenReport | null> => {
-      // The open photograph's slider draft is committed first (Edit all
-      // selected passes it on), then Edit all selected's pending write goes:
-      // queued behind the batch it would overwrite the others' results.
-      flushSliderDraft();
-      debouncedSetHistory.flush();
-      await editAllFlush?.()?.catch(() => {});
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage } = useEditorStore.getState();
       const pathsToUpdate =
@@ -444,9 +438,16 @@ export function useEditorActions() {
       if (pathsToUpdate.length === 0) return null;
       if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return null;
       const open = selectedImage && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
-      // Every photograph of the batch is held, also one opened while it runs.
+      // The open photograph's slider draft is committed (Edit all selected
+      // passes it on), then every photograph of the batch is held, also one
+      // opened while it runs: no edits from here on.
+      flushSliderDraft();
+      debouncedSetHistory.flush();
       const held = [...new Set(pathsToUpdate)];
       useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
+      // Edit all selected's pending write takes its place in the queue before
+      // the batch (behind it, it would overwrite the others' results).
+      editAllFlush?.();
       const release = (paths: string[]) =>
         useEditorStore.getState().setEditor((state) => {
           const remaining = [...state.heldRecipePaths];
@@ -584,47 +585,45 @@ export function useEditorActions() {
 
   const handleResetAdjustments = useCallback(
     (paths?: string[]) => {
-      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
-      const { selectedImage, pushHistory } = useEditorStore.getState();
+      const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToReset = paths || multiSelectedPaths;
       if (pathsToReset.length === 0) return;
-      // An operation is writing some of these recipes: reset once it is done.
-      const heldBatch = afterRecipeOperations(pathsToReset);
-      if (heldBatch) {
-        void heldBatch.then(() => handleResetAdjustments(pathsToReset));
-        return;
-      }
-      if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
+      // One operation in these photographs' queue, in the order asked for:
+      // its write and editor update after those asked for before, before
+      // those asked for after (exclusiveRecipeOperation).
+      void exclusiveRecipeOperation(pathsToReset, async () => {
+        const { libraryActivePath, setLibrary } = useLibraryStore.getState();
+        const { selectedImage, pushHistory } = useEditorStore.getState();
+        if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
 
-      pathsToReset.forEach((p) => globalImageCache.delete(p));
-      // The last edit stays a step of its own, before the reset.
-      debouncedSetHistory.flush();
+        pathsToReset.forEach((p) => globalImageCache.delete(p));
+        // The last edit stays a step of its own, before the reset.
+        debouncedSetHistory.flush();
 
-      // Its write and editor update are one operation: a batch started
-      // meanwhile runs after it (exclusiveRecipeOperation).
-      void exclusiveRecipeOperation(pathsToReset, () => afterRecipeSaves(
-        pathsToReset,
-        () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
-        false,
-      )
-        .then((failed) => {
-          const reset = pathsToReset.filter((path) => !failed.includes(path));
-          reset.forEach((path) => unsavedRecipes.delete(path));
-          if (libraryActivePath && reset.includes(libraryActivePath)
-            && useLibraryStore.getState().libraryActivePath === libraryActivePath)
-            setLibrary({ libraryActiveAdjustments: { ...INITIAL_ADJUSTMENTS } });
-          if (selectedImage && reset.includes(selectedImage.path)
-            && isCurrentEditorImage(selectedImage.path)) {
-            const aspect =
-              selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
-            const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
-            // One undoable step, as in Capture One and Lightroom.
-            debouncedSetHistory.flush();
-            pushHistory(resetData);
-            setEditor({ adjustments: resetData });
-          }
-        })
-        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`)));
+        await afterRecipeSaves(
+          pathsToReset,
+          () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
+          false,
+        )
+          .then((failed) => {
+            const reset = pathsToReset.filter((path) => !failed.includes(path));
+            reset.forEach((path) => unsavedRecipes.delete(path));
+            if (libraryActivePath && reset.includes(libraryActivePath)
+              && useLibraryStore.getState().libraryActivePath === libraryActivePath)
+              setLibrary({ libraryActiveAdjustments: { ...INITIAL_ADJUSTMENTS } });
+            if (selectedImage && reset.includes(selectedImage.path)
+              && isCurrentEditorImage(selectedImage.path)) {
+              const aspect =
+                selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
+              const resetData = { ...initialAdjustmentsFor(!!selectedImage.isRaw), aspectRatio: aspect, aiPatches: [] };
+              // One undoable step, as in Capture One and Lightroom.
+              debouncedSetHistory.flush();
+              pushHistory(resetData);
+              setEditor({ adjustments: resetData });
+            }
+          })
+          .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
+      });
     },
     [setEditor],
   );
@@ -745,56 +744,61 @@ export function useEditorActions() {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
       const adjustmentsToApply = withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial))));
-      const { selectedImage, adjustments } = useEditorStore.getState();
+      const { selectedImage: requestedOn } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
-        paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
+        paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : requestedOn ? [requestedOn.path] : []);
       if (pathsToUpdate.length === 0) return;
-      // A batch is writing some of these recipes: applied once it is done.
-      const heldBatch = afterRecipeOperations(pathsToUpdate);
-      if (heldBatch) return heldBatch.then(() => applyAdjustmentsToPaths(partial, pathsToUpdate, { openingNow }));
-      if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return;
+      // One operation in these photographs' queue, in the order asked for
+      // (after a batch edit asked for before, before one asked for after);
+      // with nothing ahead it runs at once.
+      return exclusiveRecipeOperation(pathsToUpdate, () => {
+        const { selectedImage, adjustments } = useEditorStore.getState();
+        if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) {
+          return Promise.resolve();
+        }
 
-      pathsToUpdate.forEach((p) => globalImageCache.delete(p));
+        pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
-      }
+        if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
+          setAdjustments({ ...adjustments, ...adjustmentsToApply });
+        }
 
-      const written = afterRecipeSaves(pathsToUpdate, () =>
-        savedBatch(
-          invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
-          pathsToUpdate,
-          'paste adjustments',
-        ),
-      );
-      // A photograph opened meanwhile reads its recipe after this write.
-      const settled = written.then(() => undefined, () => undefined);
-      pathsToUpdate.forEach((path) => {
-        pendingMetadataSaves.set(path, settled);
-        void settled.then(() => {
-          if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
+        const written = afterRecipeSaves(pathsToUpdate, () =>
+          savedBatch(
+            invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
+            pathsToUpdate,
+            'paste adjustments',
+          ),
+        );
+        // A photograph opened meanwhile reads its recipe after this write.
+        const settled = written.then(() => undefined, () => undefined);
+        pathsToUpdate.forEach((path) => {
+          pendingMetadataSaves.set(path, settled);
+          void settled.then(() => {
+            if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
+          });
         });
+        return written
+          .then((failed) => {
+            const updated = pathsToUpdate.filter((path) => !failed.includes(path));
+            updated.forEach((path) => unsavedRecipes.delete(path));
+            if (selectedImage && updated.includes(selectedImage.path)
+              && isCurrentEditorImage(selectedImage.path)) {
+              invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
+                if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
+                  setAdjustments((prev: Adjustments) => ({
+                    ...prev,
+                    lensMaker: meta.adjustments!.lensMaker,
+                    lensModel: meta.adjustments!.lensModel,
+                    lensDistortionParams: meta.adjustments!.lensDistortionParams,
+                  }));
+                }
+              });
+            }
+          })
+          .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
       });
-      return written
-        .then((failed) => {
-          const updated = pathsToUpdate.filter((path) => !failed.includes(path));
-          updated.forEach((path) => unsavedRecipes.delete(path));
-          if (selectedImage && updated.includes(selectedImage.path)
-            && isCurrentEditorImage(selectedImage.path)) {
-            invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
-              if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
-                setAdjustments((prev: Adjustments) => ({
-                  ...prev,
-                  lensMaker: meta.adjustments!.lensMaker,
-                  lensModel: meta.adjustments!.lensModel,
-                  lensDistortionParams: meta.adjustments!.lensDistortionParams,
-                }));
-              }
-            });
-          }
-        })
-        .catch((err) => toast.error(`Failed to paste adjustments: ${err}`));
     },
     [setAdjustments],
   );
