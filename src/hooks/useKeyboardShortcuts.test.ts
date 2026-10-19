@@ -543,3 +543,22 @@ it("H shows only the selected layer, or the picked component, and H again shows 
   press("KeyH", "h");
   expect(useEditorStore.getState().layerSolo).toBeNull();
 });
+
+it("leaves keys to a focused select or editable text, like to a text field", () => {
+  useLibraryStore.setState({ libraryActivePath: "/session/Capture/A.RAF" });
+  const select = document.createElement("select");
+  select.append(new Option("JPEG"), new Option("TIFF"));
+  const editable = document.createElement("div");
+  editable.setAttribute("contenteditable", "true");
+  editable.tabIndex = 0;
+  document.body.append(select, editable);
+  for (const control of [select, editable]) {
+    control.focus();
+    press("Enter");
+    expect(props.handleImageSelect).not.toHaveBeenCalled();
+  }
+  select.blur();
+  editable.blur();
+  press("Enter");
+  expect(props.handleImageSelect).toHaveBeenCalledWith("/session/Capture/A.RAF", true);
+});

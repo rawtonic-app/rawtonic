@@ -248,6 +248,14 @@ export default function StudioWorkspace(props: Props) {
       root.style.removeProperty("--ui-scale");
     };
   }, [uiScale]);
+  // The focus_search shortcut (Library) puts the cursor into the search field.
+  const searchRef = useRef<HTMLInputElement>(null);
+  const searchFocusRequest = useUIStore((s) => s.searchFocusRequest);
+  useEffect(() => {
+    if (!searchFocusRequest) return;
+    searchRef.current?.focus();
+    searchRef.current?.select();
+  }, [searchFocusRequest]);
   const hint = (action: string) => shortcutHint(action, keybinds, osPlatform);
   /** A label with its keyboard shortcut ("no key" when none is assigned). */
   const withShortcut = (label: string, shortcut: string | null | undefined) =>
@@ -1011,6 +1019,7 @@ export default function StudioWorkspace(props: Props) {
                 <label className="studio-search">
                   <Search size={13} />
                   <input
+                    ref={searchRef}
                     type="search"
                     aria-label={t("studio.workspace.grid.searchLabel")}
                     placeholder={t("studio.workspace.grid.search")}
