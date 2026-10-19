@@ -24,6 +24,8 @@ export APPIMAGE_EXTRACT_AND_RUN=1 CI=true RAWTONIC_BUNDLE_ONNX=1
 npm ci
 # The tether helper with libgphoto2 built from pinned sources (ADR 0012).
 scripts/tether/bundle_helper.sh
+# A bundle folder left by an earlier run would be shipped as it is.
+rm -rf "$CARGO_TARGET_DIR/release/bundle/appimage"
 # linuxdeploy copies the helper's libraries from there into usr/lib.
 # shellcheck disable=SC2086
 LD_LIBRARY_PATH="$CARGO_TARGET_DIR/tether-bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \

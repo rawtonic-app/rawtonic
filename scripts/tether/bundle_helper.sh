@@ -11,9 +11,11 @@
 #          the ImageCaptureCore one (icc), no libusb
 #   Linux: usr/bin/rawtonic-tether, <resources>/gphoto2/{camlibs,iolibs}/
 #          with libusb's port driver (usb1); the libraries are staged in
-#          target/tether-bundle/lib for linuxdeploy, which copies them into
-#          the AppImage's usr/lib (packaging/linux/build-appimage.sh runs
-#          this inside its container and puts lib/ on the library path).
+#          target/tether-bundle/lib for linuxdeploy, which copies the
+#          helper's into the AppImage's usr/lib (libusb, needed only by the
+#          usb1 driver, goes there by the overlay's appimage files);
+#          packaging/linux/build-appimage.sh runs this inside its container
+#          and puts lib/ on the library path.
 #
 # Every library reference is rewritten to the bundle and re-signed ad hoc;
 # the script fails if anything still points outside the bundle.
@@ -88,6 +90,11 @@ EOF
       # libtool records the build folder; linuxdeploy sets the AppImage's.
       patchelf --remove-rpath "$file"
     done
+    # The drivers are loaded from usr/lib/<product>/gphoto2/{camlibs,iolibs}
+    # in the AppImage; their libraries (libusb for usb1) from usr/lib.
+    for file in "$OUT"/gphoto2/camlibs/*.so "$OUT"/gphoto2/iolibs/*.so; do
+      patchelf --set-rpath '$ORIGIN/../../..' "$file"
+    done
     if LD_LIBRARY_PATH=$OUT/lib ldd "${FILES[@]}" | grep -v ':$' |
       grep -E "not found|libgphoto2|libusb|libltdl" | grep -v "=> $OUT/lib/"; then
       echo "bundle_helper: a library reference points outside the bundle" >&2
@@ -101,6 +108,11 @@ EOF
       "resources/": "resources/",
       "lensfun_db/": "lensfun_db/",
       "$OUT/gphoto2/": "gphoto2/"
+    },
+    "linux": {
+      "appimage": {
+        "files": { "/usr/lib/libusb-1.0.so.0": "$OUT/lib/libusb-1.0.so.0" }
+      }
     }
   }
 }
