@@ -2321,6 +2321,7 @@ version = "0.1.0"
 source = "git+https://github.com/CyberTimon/libgphoto2-rs#878ca523624223b95ed6b303de39e45b0c27c1a9"
 dependencies = [
  "gphoto2-sys",
+ "log",
 ]
 
 [[package]]
@@ -5279,7 +5280,6 @@ dependencies = [
  "futures",
  "fuzzy-matcher",
  "glam 0.33.5",
- "gphoto2",
  "gtk",
  "half",
  "hex",
@@ -5328,6 +5328,7 @@ dependencies = [
  "rawtonic-onnx",
  "rawtonic-rawdecode",
  "rawtonic-runtime",
+ "rawtonic-tether",
  "rayon",
  "regex",
  "reqwest",
@@ -5655,6 +5656,18 @@ dependencies = [
  "libmimalloc-sys",
  "log",
  "serde_json",
+]
+
+[[package]]
+name = "rawtonic-tether"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "gphoto2",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

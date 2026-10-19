@@ -24,6 +24,10 @@ Rawtonic goes online only when you ask it to:
   that address. You control that server.
 - **Links** in the app open in your browser.
 
+Tethered shooting talks to the camera over its USB cable only; Rawtonic's
+copy of the camera library is built without its network (Wi-Fi/PTP-IP)
+driver.
+
 Exported files carry the metadata you choose to keep. When you strip
 metadata, a photo with areas made by a generative AI tool still records
 that fact (IPTC Digital Source Type), as the EU AI Act requires; nothing

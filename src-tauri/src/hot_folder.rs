@@ -63,7 +63,7 @@ impl NextCaptureMetadata {
     }
 
     /// Trimmed keywords without empty ones or repeats; a rating of 0–5.
-    fn cleaned(self) -> Result<Self, String> {
+    pub(crate) fn cleaned(self) -> Result<Self, String> {
         if self.rating > 5 {
             return Err("The rating must be 0–5 stars.".into());
         }
@@ -177,6 +177,31 @@ fn for_new_capture(mut adjustments: Value) -> Value {
         );
     }
     adjustments
+}
+
+/// `settings` with Copy from last capture resolved to the adjustments
+/// `previous` has now (the defaults without one), so a capture can be
+/// ingested again later with exactly what it was given (tethering keeps it
+/// with the transfer file).
+pub(crate) fn resolved(
+    lib: &Library,
+    settings: &CaptureSettings,
+    previous: Option<&str>,
+) -> CaptureSettings {
+    let next_capture = match &settings.next_capture {
+        NextCapture::CopyFromLast => match next_state(lib, &NextCapture::CopyFromLast, previous) {
+            Some(adjustments) => NextCapture::Preset {
+                name: String::new(),
+                adjustments,
+            },
+            None => NextCapture::Defaults,
+        },
+        other => other.clone(),
+    };
+    CaptureSettings {
+        next_capture,
+        metadata: settings.metadata.clone(),
+    }
 }
 
 /// What a new capture is stored with: its next-capture adjustments and

@@ -315,3 +315,97 @@ it('shows ingested photographs in the grid as they arrive, listing the folder ag
   await act(() => vi.advanceTimersByTimeAsync(2000));
   expect(refreshImageList).toHaveBeenCalledTimes(listed);
 });
+
+it("shows a tethered capture at once: selected in the Library, opened when Develop is showing", async () => {
+  const handleImageSelect = vi.fn();
+  const refreshImageList = vi.fn(async () => {});
+  useLibraryStore.getState().setLibrary({ currentFolderPath: "/job/Capture", multiSelectedPaths: [] });
+  useUIStore.getState().setUI({ activeView: "library" });
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList, markGenerated: vi.fn(), handleImageSelect,
+  }));
+  await vi.waitFor(() => expect(callbacks.has("tether-captured")).toBe(true));
+  const capture = (destination: string, extra: object = {}) =>
+    act(() => callbacks.get("tether-captured")!({
+      payload: { destination, skipped: false, error: null, ...extra },
+    }));
+  capture("/job/Capture/A.ARW");
+  await vi.waitFor(() => expect(useLibraryStore.getState().libraryActivePath).toBe("/job/Capture/A.ARW"));
+  expect(handleImageSelect).not.toHaveBeenCalled();
+  useUIStore.getState().setUI({ activeView: "editor" });
+  capture("/job/Capture/B.ARW");
+  await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/B.ARW", true));
+  capture("/job/Capture/C.ARW", { error: "Disk full" });
+  await Promise.resolve();
+  expect(handleImageSelect).toHaveBeenCalledTimes(1);
+  // Another folder showing: the capture's folder is shown first, and
+  // Develop stays open (the real navigation leaves it unless asked not to).
+  const handleSelectSubfolder = vi.fn(
+    (path: string, _root?: boolean, _images?: unknown, _expand?: boolean, preserveEditor?: boolean) => {
+      if (!preserveEditor) useUIStore.getState().setUI({ activeView: "library" });
+      useLibraryStore.getState().setLibrary({ currentFolderPath: path });
+    },
+  );
+  cleanup();
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder,
+    refreshImageList, markGenerated: vi.fn(), handleImageSelect,
+  }));
+  useLibraryStore.getState().setLibrary({ currentFolderPath: "/job/Selects" });
+  capture("/job/Capture/D.ARW");
+  await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/D.ARW", true));
+  expect(handleSelectSubfolder).toHaveBeenCalledWith("/job/Capture", false, undefined, true, true);
+  expect(useUIStore.getState().activeView).toBe("editor");
+  // A capture of the library left behind (still arriving after a switch)
+  // does not pull this library's view back.
+  useLibraryStore.getState().setLibrary({ sessionDirectory: "/other", currentFolderPath: "/other/Capture" });
+  handleSelectSubfolder.mockClear();
+  handleImageSelect.mockClear();
+  capture("/job/Capture/E.ARW", { session: "/job" });
+  await Promise.resolve();
+  expect(handleSelectSubfolder).not.toHaveBeenCalled();
+  expect(handleImageSelect).not.toHaveBeenCalled();
+  // Two captures in another folder: the slower navigation of the first
+  // does not bring it back over the second.
+  useLibraryStore.getState().setLibrary({ sessionDirectory: "/job", currentFolderPath: "/job/Selects" });
+  handleImageSelect.mockClear();
+  let finishFirst: () => void = () => {};
+  handleSelectSubfolder.mockImplementationOnce((path: string) => new Promise<void>((resolve) => {
+    finishFirst = () => {
+      useLibraryStore.getState().setLibrary({ currentFolderPath: path });
+      resolve();
+    };
+  }) as never);
+  capture("/job/Capture/F.ARW", { session: "/job" });
+  useLibraryStore.getState().setLibrary({ currentFolderPath: "/job/Selects" });
+  capture("/job/Capture/G.ARW", { session: "/job" });
+  await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/G.ARW", true));
+  finishFirst();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(handleImageSelect).not.toHaveBeenCalledWith("/job/Capture/F.ARW", true);
+  useLibraryStore.getState().setLibrary({ sessionDirectory: null });
+  useUIStore.getState().setUI({ activeView: "library" });
+});
+
+it("says tether failures app-wide, with no tether panel shown", async () => {
+  const { toast } = await import("react-toastify");
+  const error = vi.spyOn(toast, "error").mockImplementation(() => 0 as never);
+  const warning = vi.spyOn(toast, "warning").mockImplementation(() => 0 as never);
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(async () => {}), markGenerated: vi.fn(), handleImageSelect: vi.fn(),
+  }));
+  await vi.waitFor(() => expect(callbacks.has("tether-capture-failed")).toBe(true));
+  act(() => callbacks.get("tether-capture-failed")!({ payload: { message: "The camera did not deliver the photo." } }));
+  act(() => callbacks.get("tether-captured")!({
+    payload: { destination: null, skipped: false, error: "Disk full", cameraName: "DSC00001.ARW", session: "/job" },
+  }));
+  act(() => callbacks.get("tether-incomplete")!({ payload: "/job/.tether/incomplete/00000001/DSC00002.ARW" }));
+  // One message each (the texts come from the locale files).
+  expect(error).toHaveBeenCalledTimes(2);
+  expect(warning).toHaveBeenCalledTimes(1);
+  error.mockRestore();
+  warning.mockRestore();
+});

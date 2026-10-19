@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
+import i18n from 'i18next';
 import { CullingSuggestions, ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
 import { ExportJob, ExternalEditSession, useProcessStore } from '../store/useProcessStore';
@@ -61,9 +62,17 @@ interface MergeCompletePayload {
 
 interface TauriListenerProps {
   refreshAllFolderTrees: () => void;
-  handleSelectSubfolder: (path: string, isNewRoot?: boolean, preloadedImages?: ImageFile[], expandParents?: boolean) => void;
+  handleSelectSubfolder: (
+    path: string,
+    isNewRoot?: boolean,
+    preloadedImages?: ImageFile[],
+    expandParents?: boolean,
+    preserveEditor?: boolean,
+  ) => void | Promise<void>;
   refreshImageList: () => void;
   markGenerated: (path: string) => void;
+  /** Opens a photograph (in Develop with `openInEditor`). */
+  handleImageSelect?: (path: string, openInEditor?: boolean) => void;
 }
 
 /** How often the grid lists its folder again while an ingest copies
@@ -82,11 +91,13 @@ export function useTauriListeners({
   handleSelectSubfolder,
   refreshImageList,
   markGenerated,
+  handleImageSelect,
 }: TauriListenerProps) {
-  const refs = useRef({ refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated });
+  const refs = useRef({ refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect });
+  const latestCapture = useRef(0);
 
   useEffect(() => {
-    refs.current = { refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated };
+    refs.current = { refreshAllFolderTrees, handleSelectSubfolder, refreshImageList, markGenerated, handleImageSelect };
   });
 
   const thumbnailBuffer = useRef<Record<string, string>>({});
@@ -94,6 +105,63 @@ export function useTauriListeners({
   const ratingBuffer = useRef<Record<string, number>>({});
   const editStatusBuffer = useRef<Record<string, boolean>>({});
   const flushHandle = useRef<number | null>(null);
+
+  /** A capture the hot folder or the tether brought in: it joined their
+   * import batch (Previous Import) and is selected in the Library, as in
+   * Capture One — with `inDevelop` (tether), also opened when Develop is
+   * showing, and its folder shown when another one is. */
+  const showCapture = (
+    {
+      destination,
+      skipped,
+      error,
+      session,
+    }: { destination: string | null; skipped: boolean; error: string | null; session?: string },
+    inDevelop: boolean,
+  ) => {
+    if (!destination || skipped || error) return;
+    // A capture of another library (still arriving after a switch) does not
+    // move this one's view.
+    const sameLibrary = () => {
+      const open = useLibraryStore.getState().sessionDirectory;
+      return !session || !open || session.replace(/[\\/]$/, '') === open.replace(/[\\/]$/, '');
+    };
+    if (!sameLibrary()) return;
+    // Only the newest capture is shown once the views have caught up (an
+    // earlier one's slower refresh must not bring it back).
+    const capture = ++latestCapture.current;
+    window.dispatchEvent(new Event(IMPORTS_CHANGED));
+    const { currentFolderPath, setLibrary } = useLibraryStore.getState();
+    const folder = destination.slice(0, Math.max(destination.lastIndexOf('/'), destination.lastIndexOf('\\')));
+    void refs.current.refreshAllFolderTrees();
+    // A tethered capture brings its folder into view (Capture One's viewer
+    // follows the captures); a hot folder capture does not move the view.
+    const shown =
+      currentFolderPath === folder
+        ? Promise.resolve(refs.current.refreshImageList())
+        : inDevelop
+          ? // Develop stays open while its folder changes (Capture One's
+            // viewer keeps showing the newest capture).
+            Promise.resolve(
+              refs.current.handleSelectSubfolder(
+                folder,
+                false,
+                undefined,
+                true,
+                useUIStore.getState().activeView === 'editor',
+              ),
+            )
+          : null;
+    if (!shown) return;
+    void shown.then(() => {
+      if (capture !== latestCapture.current || !sameLibrary()) return;
+      // The folder change did happen (a later navigation may have cut it).
+      if (useLibraryStore.getState().currentFolderPath !== folder) return;
+      if (useUIStore.getState().activeView !== 'editor')
+        setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
+      else if (inDevelop) refs.current.handleImageSelect?.(destination, true);
+    });
+  };
 
   useEffect(() => {
     // Exports a quit or crash interrupted are kept for resuming.
@@ -331,20 +399,27 @@ export function useTauriListeners({
         if (isEffectActive) useProcessStore.getState().setProcess({ exportQueue: event.payload });
       }),
       listen<{ destination: string | null; skipped: boolean; error: string | null }>('hot-folder-imported', (event) => {
-        if (!isEffectActive) return;
-        const { destination, skipped, error } = event.payload;
-        if (!destination || skipped || error) return;
-        // The capture joined the hot folder's import batch (Previous Import).
-        window.dispatchEvent(new Event(IMPORTS_CHANGED));
-        const { currentFolderPath, setLibrary } = useLibraryStore.getState();
-        const folder = destination.slice(0, Math.max(destination.lastIndexOf('/'), destination.lastIndexOf('\\')));
-        void refs.current.refreshAllFolderTrees();
-        if (currentFolderPath !== folder) return;
-        void Promise.resolve(refs.current.refreshImageList()).then(() => {
-          // The new capture is selected in the Library, as in Capture One.
-          if (useUIStore.getState().activeView !== 'editor')
-            setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
-        });
+        if (isEffectActive) showCapture(event.payload, false);
+      }),
+      // A tethered capture is shown at once, in Develop too (Capture One
+      // follows the newest capture in its viewer).
+      listen<{ destination: string | null; skipped: boolean; error: string | null; session: string; cameraName: string }>(
+        'tether-captured',
+        (event) => {
+          if (!isEffectActive) return;
+          const { error, cameraName } = event.payload;
+          // Said here, not in the tether panel: also with no panel shown
+          // (fullscreen).
+          if (error) toast.error(i18n.t('session.tether.importFailed', { file: cameraName, error }));
+          showCapture(event.payload, true);
+        },
+      ),
+      listen<{ message: string }>('tether-capture-failed', (event) => {
+        if (isEffectActive) toast.error(i18n.t('session.tether.captureFailed', { error: event.payload.message }));
+      }),
+      listen<string>('tether-incomplete', (event) => {
+        if (isEffectActive)
+          toast.warning(i18n.t('session.tether.incomplete', { path: event.payload }), { autoClose: false });
       }),
       // The files moved but the session/catalog database could not follow
       // (e.g. locked); it is retried with the next file operation or start.

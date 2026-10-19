@@ -36,6 +36,8 @@ pub enum ImportKind {
     /// keep joining the batch while it is the newest, so Previous Import
     /// shows the latest captures; after another import they start a new one.
     HotFolder,
+    /// Captures from a tethered camera; joined like hot folder captures.
+    Tether,
 }
 
 impl ImportKind {
@@ -45,6 +47,7 @@ impl ImportKind {
             Self::Add => "add",
             Self::Sync => "sync",
             Self::HotFolder => "hotfolder",
+            Self::Tether => "tether",
         }
     }
 
@@ -54,6 +57,7 @@ impl ImportKind {
             "add" => Self::Add,
             "sync" => Self::Sync,
             "hotfolder" => Self::HotFolder,
+            "tether" => Self::Tether,
             _ => return None,
         })
     }
@@ -342,7 +346,7 @@ impl Library {
                 write_recipe(&tx, &version, recipe)?;
             }
             if let Some((kind, batch_id)) = &mut batch {
-                if *kind == ImportKind::HotFolder
+                if matches!(kind, ImportKind::HotFolder | ImportKind::Tether)
                     && let Some(id) = *batch_id
                 {
                     let newest: i64 =
@@ -643,15 +647,36 @@ mod tests {
 
     #[test]
     fn hot_folder_captures_join_one_batch_until_another_import() {
+        captures_join_one_batch_until_another_import(ImportKind::HotFolder);
+    }
+
+    #[test]
+    fn tethered_captures_join_one_batch_until_another_import() {
+        captures_join_one_batch_until_another_import(ImportKind::Tether);
+    }
+
+    #[test]
+    fn a_new_library_takes_tethered_captures_on_its_first_connection() {
+        let d = tempfile::tempdir().unwrap();
+        // No second connection that would migrate it on opening.
+        let lib = session(d.path());
+        let paths = photos(&lib);
+        let _captures = lib.import_batch(ImportKind::Tether);
+        assert_eq!(lib.add_files(&paths[..1]).unwrap().added.len(), 1);
+        let batch = lib.previous_import().unwrap().unwrap();
+        assert_eq!((batch.kind, batch.count), (ImportKind::Tether, 1));
+    }
+
+    fn captures_join_one_batch_until_another_import(kind: ImportKind) {
         let d = tempfile::tempdir().unwrap();
         let lib = session(d.path());
         let paths = photos(&lib);
         let other = Library::open(&lib.directory).unwrap();
-        let _captures = lib.import_batch(ImportKind::HotFolder);
+        let _captures = lib.import_batch(kind);
         lib.add_files(&paths[..1]).unwrap();
         lib.add_files(&paths[1..2]).unwrap();
         let batch = lib.previous_import().unwrap().unwrap();
-        assert_eq!((batch.kind, batch.count), (ImportKind::HotFolder, 2));
+        assert_eq!((batch.kind, batch.count), (kind, 2));
         // An Add in another window becomes Previous Import...
         let added = capture_file(&lib, "D.ARW");
         {
@@ -665,7 +690,7 @@ mod tests {
         // ...and the next capture starts a new batch that shows it.
         lib.add_files(&paths[2..]).unwrap();
         let next = lib.previous_import().unwrap().unwrap();
-        assert_eq!((next.kind, next.count), (ImportKind::HotFolder, 1));
+        assert_eq!((next.kind, next.count), (kind, 1));
         assert_ne!(next.id, batch.id);
         assert_eq!(lib.previous_import_assets().unwrap()[0].path, paths[2]);
     }

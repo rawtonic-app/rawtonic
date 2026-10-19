@@ -12,7 +12,6 @@ use tokio::task::JoinHandle;
 
 use crate::ai_processing::AiState;
 use crate::cache_utils::DecodedImageCache;
-use crate::camera_tethering::CameraSession;
 pub use crate::gpu_processing::{AnalyticsConfig, AnalyticsJob, GpuImageCache, GpuProcessorState};
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
@@ -322,9 +321,6 @@ pub struct AppState {
     pub metadata_manager: Arc<MetadataManager>,
     pub disks_cache: Mutex<Option<Disks>>,
     pub disks_cache_refreshing: AtomicBool,
-    /// Read only by the tethering commands (`tethering` feature).
-    #[cfg_attr(not(feature = "tethering"), allow(dead_code))]
-    pub camera_session: Mutex<CameraSession>,
 }
 
 #[cfg(test)]

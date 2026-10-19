@@ -1,0 +1,122 @@
+.tether-panel {
+  position: fixed;
+  top: 52px;
+  right: 14px;
+  z-index: 40;
+  width: 316px;
+  max-height: calc(100vh - 68px);
+  overflow: auto;
+  border: 1px solid #4a4e51;
+  border-radius: 10px;
+  background: var(--app-bg-secondary, #242628);
+  color: var(--app-text-primary, #edf0f2);
+  box-shadow: 0 18px 60px #0007;
+  font-size: 12px;
+}
+.tether-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px 11px 16px;
+  border-bottom: 1px solid var(--app-border-color);
+}
+.tether-header h2 {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 550;
+}
+.tether-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+}
+.tether-body .session-field {
+  margin-bottom: 0;
+}
+.tether-camera {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--app-text-secondary);
+}
+.tether-camera strong {
+  color: var(--app-text-primary);
+  font-weight: 550;
+}
+.tether-actions {
+  display: flex;
+  gap: 6px;
+}
+.tether-capture {
+  flex: 1;
+  justify-content: center;
+}
+.tether-wide {
+  justify-content: center;
+}
+.tether-live-view {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 3 / 2;
+  background: #000;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.tether-live-view img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.tether-settings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+.tether-settings label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}
+.tether-settings select,
+.tether-settings output {
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid #53565a;
+  border-radius: 4px;
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  font-size: 12px;
+}
+.tether-settings output {
+  border-style: dashed;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tether-last,
+.tether-note {
+  color: var(--app-text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.tether-next summary {
+  cursor: default;
+  color: var(--app-text-secondary);
+  margin-bottom: 10px;
+}
+.tether-free-copies {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: center;
+}
+.tether-free-copies small {
+  grid-column: 2;
+  color: var(--app-text-secondary, #aab0b5);
+  line-height: 1.35;
+}

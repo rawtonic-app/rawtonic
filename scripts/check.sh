@@ -102,6 +102,17 @@ if [ "$RUST" = 1 ]; then
   run "rust: format" cargo fmt --all --check
   run "rust: clippy" cargo clippy --workspace --all-targets --locked -- -D warnings
   run "rust: layering" scripts/check_layering.sh
+  # The tether helper with camera support links libgphoto2, which only some
+  # machines have; CI installs it, so there the step is required.
+  if pkg-config --exists libgphoto2 2>/dev/null || [ -n "${GPHOTO2_LIB_DIR:-}" ]; then
+    run "rust: tether helper with libgphoto2" \
+      cargo clippy -p rawtonic-tether --all-targets --locked --features gphoto2 -- -D warnings
+  elif [ -n "${CI:-}" ]; then
+    echo "FAIL rust: tether helper with libgphoto2 — libgphoto2 not found in CI" >&2
+    exit 1
+  else
+    printf 'skip %-45s (no libgphoto2; brew install libgphoto2 / apt install libgphoto2-dev)\n' "rust: tether helper with libgphoto2"
+  fi
   if [ "$QUICK" = 0 ]; then run "rust: tests" rust_tests; fi
 fi
 run "scripts: ship.sh test" sh scripts/ship_test.sh

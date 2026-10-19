@@ -342,6 +342,13 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     defaultCombo: ['ctrl', 'KeyF'],
     section: 'library',
   },
+  // Capture One's Capture key; only while a camera is tethered.
+  {
+    action: 'tether_capture',
+    description: 'settings.keybinds.actions.tether_capture',
+    defaultCombo: ['ctrl', 'KeyK'],
+    section: 'library',
+  },
   // Cursor tools take Capture One's keys (user decision, 2026-10-03), in
   // Develop only; Lightroom's K (brush) stays as an alias. R is Capture
   // One's straighten tool (2026-10-04; it was Lightroom's crop alias).

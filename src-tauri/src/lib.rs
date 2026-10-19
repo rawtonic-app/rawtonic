@@ -209,24 +209,6 @@ pub fn run() {
         .setup(move |app| {
             // Before anything reads settings or user content (see the module).
             let carried_over = identity_migration::carry_over(app.handle());
-            #[cfg(feature = "tethering")]
-            {
-                std::thread::spawn(|| {
-                    match gphoto2::Context::new() {
-                        Ok(context) => {
-                            log::info!("gphoto2 context initialized successfully.");
-                            match gphoto2::Camera::autodetect(&context) {
-                                Ok(cameras) => {
-                                    log::info!("Found {} attached camera(s)", cameras.len());
-                                }
-                                Err(e) => log::warn!("Failed to autodetect cameras: {}", e),
-                            }
-                        }
-                        Err(e) => log::error!("Failed to initialize gphoto2 context: {}", e),
-                    }
-                });
-            }
-
             let state = app.state::<AppState>();
 
             #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
@@ -686,7 +668,6 @@ pub fn run() {
             metadata_manager: MetadataManager::new(),
             disks_cache: Mutex::new(None),
             disks_cache_refreshing: AtomicBool::new(false),
-            camera_session: Mutex::new(camera_tethering::CameraSession::new()),
         })
         .invoke_handler(tauri::generate_handler![
             session_bridge::session_create,
@@ -762,7 +743,6 @@ pub fn run() {
             cache_utils::clear_image_caches,
             app_settings::load_settings,
             app_settings::save_settings,
-            app_settings::is_tethering_supported,
             ai_commands::generate_ai_depth_mask,
             file_management::delete_files_from_disk,
             file_management::delete_files_with_associated,
@@ -879,13 +859,17 @@ pub fn run() {
             lens_correction::get_lens_distortion_params,
             negative_conversion::preview_negative_conversion,
             negative_conversion::convert_negatives,
-            camera_tethering::tether_list_cameras,
+            camera_tethering::tether_cameras,
             camera_tethering::tether_connect,
-            camera_tethering::tether_get_settings,
+            camera_tethering::tether_disconnect,
+            camera_tethering::tether_status,
+            camera_tethering::tether_settings,
             camera_tethering::tether_set_setting,
             camera_tethering::tether_capture,
-            camera_tethering::tether_get_preview,
             camera_tethering::tether_autofocus,
+            camera_tethering::tether_live_view,
+            camera_tethering::tether_live_view_frame,
+            camera_tethering::tether_next_capture,
             guided_perspective::calculate_guided_perspective,
             guided_perspective::calculate_manual_transform,
         ])

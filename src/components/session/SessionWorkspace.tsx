@@ -17,6 +17,7 @@ import { listen } from "@tauri-apps/api/event";
 import {
   ArrowDownToLine,
   ArrowRight,
+  Camera,
   Check,
   ChevronDown,
   Database,
@@ -38,7 +39,18 @@ import { useUIStore } from "../../store/useUIStore";
 import { Invokes } from "../ui/AppProperties";
 import RawtonicMark from "../ui/RawtonicMark";
 import type { FolderTree } from "../../utils/folderTree";
-import { withAiDenoiseVersion, withDiffractionVersion, withGrainStructure, withSharpenVersion } from "../../utils/adjustments";
+import NextCaptureFields from "./NextCaptureFields";
+import TetherPanel, { type TetherStatus } from "./TetherPanel";
+import {
+  DEFAULT_NEXT_CAPTURE,
+  flattenPresets,
+  nextCaptureOf,
+  type NextCapture,
+  type NextCaptureForm,
+  type NextCaptureMetadata,
+  type PresetChoice,
+  type PresetItemJson,
+} from "./nextCapture";
 import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
@@ -114,18 +126,6 @@ const NO_TARGET: IngestTarget = { folder: null, album: null };
 /** The ingest dialog's file dialog filter when the app's list of formats
  * has not loaded (it normally comes from `get_supported_file_types`). */
 const FALLBACK_EXTENSIONS = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "avif", "jxl"];
-/** Mirrors `hot_folder::NextCapture`. */
-type NextCapture =
-  | { mode: "defaults" }
-  | { mode: "copyFromLast" }
-  | { mode: "preset"; name: string; adjustments: Record<string, unknown> };
-
-/** Mirrors `hot_folder::NextCaptureMetadata`. */
-interface NextCaptureMetadata {
-  rating: number;
-  keywords: string[];
-}
-
 export interface HotFolderStatus {
   folder: string;
   session: string;
@@ -156,34 +156,6 @@ export function countHotFolderCapture(
 ): HotFolderStatus | null {
   if (!status || file.error || file.skipped) return status;
   return { ...status, imported: status.imported + 1 };
-}
-
-/** Next-capture keywords typed as a comma-separated list. */
-export function parseKeywords(text: string): string[] {
-  const keywords: string[] = [];
-  for (const part of text.split(/[,;]/)) {
-    const keyword = part.trim();
-    if (keyword && !keywords.includes(keyword)) keywords.push(keyword);
-  }
-  return keywords;
-}
-
-interface PresetChoice {
-  id: string;
-  name: string;
-  adjustments: Record<string, unknown>;
-}
-
-/** Presets of `load_presets`, folders flattened. */
-type PresetItemJson =
-  | { preset: PresetChoice }
-  | { folder: { name: string; children: PresetChoice[] } };
-export function flattenPresets(items: PresetItemJson[]): PresetChoice[] {
-  return items.flatMap((item) =>
-    "preset" in item
-      ? [item.preset]
-      : item.folder.children.map((p) => ({ ...p, name: `${item.folder.name} / ${p.name}` })),
-  );
 }
 
 /** Mirrors `library_import::ImportPreview`. */
@@ -250,6 +222,14 @@ export function restoreLastSession(
     });
 }
 
+/** Whether the open library is another one than the library a camera was
+ * connected for. Not while no library is known yet (restoring, or this
+ * view remounted): that is not leaving it. */
+export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: string | null) {
+  if (!tetheredFor || !openLibrary) return false;
+  return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
+}
+
 export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
@@ -259,10 +239,10 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const [relinks, setRelinks] = useState<Record<string, string>>({});
   const [hotFolder, setHotFolder] = useState<HotFolderStatus | null>(null);
   const [hotPath, setHotPath] = useState("");
-  const [nextCapture, setNextCapture] = useState("defaults");
+  const [nextCaptureForm, setNextCaptureForm] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
+  const [tetherOpen, setTetherOpen] = useState(false);
+  const [tether, setTether] = useState<TetherStatus | null>(null);
   const [includeSubfolders, setIncludeSubfolders] = useState(false);
-  const [nextRating, setNextRating] = useState(0);
-  const [nextKeywords, setNextKeywords] = useState("");
   // The library whose kept hot folder was asked to resume.
   const resumedFor = useRef<string | null>(null);
   const [presets, setPresets] = useState<PresetChoice[]>([]);
@@ -409,6 +389,24 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     };
   }, []);
 
+  // A camera that came back after a cable pull is connected again by the
+  // backend, also while the tether panel is closed.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ connected: boolean; status?: TetherStatus }>("tether-state", (event) => {
+      if (event.payload.connected && event.payload.status) setTether(event.payload.status);
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+
   // The photograph count follows an ingest as each photograph arrives.
   useEffect(() => {
     if (!isTauri()) return;
@@ -477,6 +475,44 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     }
   }, [session, hotFolder]);
 
+  // The library a camera was connected for, kept while the camera is away
+  // (unplugged, waiting to be connected again): leaving that library also
+  // cancels the pending reconnect.
+  const tetheredFor = useRef<string | null>(null);
+  // A tethered camera feeds the library it was connected for: another
+  // library disconnects it (its photos must not land in the wrong one).
+  useEffect(() => {
+    if (!isTauri()) return;
+    // A camera still connected (the window was reloaded).
+    void invoke<TetherStatus | null>(Invokes.TetherStatus)
+      .then((status) => {
+        if (!status?.camera || typeof status.session !== "string") return;
+        // Also a camera that is away: leaving its library cancels its
+        // reconnect — at once if another library is already open.
+        tetheredFor.current = status.session.replace(/\/$/, "");
+        if (leavesTetheredLibrary(tetheredFor.current, useLibraryStore.getState().sessionDirectory)) {
+          tetheredFor.current = null;
+          void invoke(Invokes.TetherDisconnect).catch(() => {});
+          return;
+        }
+        if (status.connected !== false) setTether(status);
+      })
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (tether) tetheredFor.current = tether.session.replace(/\/$/, "");
+  }, [tether]);
+  // The open library as the store knows it: set when a library opens, kept
+  // while this view is remounted (fullscreen) or still restoring it.
+  const openLibrary = useLibraryStore((s) => s.sessionDirectory);
+  useEffect(() => {
+    if (!leavesTetheredLibrary(tetheredFor.current, openLibrary)) return;
+    tetheredFor.current = null;
+    void invoke(Invokes.TetherDisconnect).catch(() => {});
+    setTether(null);
+    setTetherOpen(false);
+  }, [openLibrary, tether]);
+
   // Opening a library (also at start-up) resumes the hot folder it keeps.
   const sessionDirectory = session?.directory ?? null;
   const openDirectory = useRef(sessionDirectory);
@@ -502,19 +538,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const startHotFolder = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!session) return;
-    const preset = presets.find((p) => `preset:${p.id}` === nextCapture);
-    const next: NextCapture = preset
-      ? { mode: "preset", name: preset.name, adjustments: withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(preset.adjustments)))) }
-      : nextCapture === "copyFromLast"
-        ? { mode: "copyFromLast" }
-        : { mode: "defaults" };
+    const { nextCapture, metadata } = nextCaptureOf(nextCaptureForm, presets);
     try {
       const status = await invoke<HotFolderStatus>("hot_folder_start", {
         directory: session.directory,
         folder: hotPath,
         template,
-        nextCapture: next,
-        metadata: { rating: nextRating, keywords: parseKeywords(nextKeywords) },
+        nextCapture,
+        metadata,
         includeSubfolders,
       });
       setHotFolder(status);
@@ -536,8 +567,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (hotFolder) {
       setHotPath(hotFolder.folder);
       setIncludeSubfolders(!!hotFolder.includeSubfolders);
-      setNextRating(hotFolder.metadata?.rating ?? 0);
-      setNextKeywords((hotFolder.metadata?.keywords ?? []).join(", "));
+      setNextCaptureForm((form) => ({
+        ...form,
+        rating: hotFolder.metadata?.rating ?? 0,
+        keywords: (hotFolder.metadata?.keywords ?? []).join(", "),
+      }));
     }
     setForm("hotfolder");
     try {
@@ -1158,6 +1192,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                   : t("session.bar.hotFolder")}
             </span>
           </button>
+          <button
+            className={`session-action${tether ? " is-active" : ""}`}
+            disabled={!session}
+            aria-pressed={tetherOpen}
+            title={tether ? t("session.bar.tetherConnected", { camera: tether.camera.model }) : t("session.bar.tetherTitle")}
+            onClick={() => setTetherOpen((open) => !open)}
+          >
+            <Camera size={14} />
+            <span>{tether ? tether.camera.model : t("session.bar.tether")}</span>
+          </button>
           <div
             className="session-bar-slot"
             ref={setEndSlot}
@@ -1165,6 +1209,18 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           {windowControls}
         </div>
       </div>
+      {/* Stays mounted while a camera is connected, so ⌘K, capture
+          reports and disconnects work with the panel closed. */}
+      {(tetherOpen || tether) && session && (
+        <TetherPanel
+          hidden={!tetherOpen}
+          directory={session.directory}
+          jobName={session.manifest.name}
+          status={tether}
+          onStatus={setTether}
+          onClose={() => setTetherOpen(false)}
+        />
+      )}
       {!session && imageList.length === 0 && roots.length === 0 && (
         <div className="session-welcome">
           <RawtonicMark size={48} />
@@ -1464,47 +1520,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             <NamingEditor mode="ingest" value={template} onChange={setTemplate}
               label={t("session.fields.filenameTemplate")} job={session?.manifest.name} />
 
-            <label className="session-field">
-              {t("session.hotFolder.nextCapture")}
-              <select
-                aria-label={t("session.hotFolder.nextCapture")}
-                value={nextCapture}
-                onChange={(e) => setNextCapture(e.target.value)}
-              >
-                <option value="defaults">{t("session.hotFolder.defaults")}</option>
-                <option value="copyFromLast">{t("session.hotFolder.copyFromLast")}</option>
-                {presets.map((p) => (
-                  <option key={p.id} value={`preset:${p.id}`}>
-                    {t("session.hotFolder.preset", { name: p.name })}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="session-field">
-              {t("session.hotFolder.rating")}
-              <select
-                aria-label={t("session.hotFolder.rating")}
-                value={nextRating}
-                onChange={(e) => setNextRating(Number(e.target.value))}
-              >
-                <option value={0}>{t("session.hotFolder.noRating")}</option>
-                {[1, 2, 3, 4, 5].map((stars) => (
-                  <option key={stars} value={stars}>
-                    {"★".repeat(stars)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="session-field">
-              {t("session.hotFolder.keywords")}
-              <input
-                aria-label={t("session.hotFolder.keywords")}
-                value={nextKeywords}
-                placeholder={t("session.hotFolder.keywordsPlaceholder")}
-                spellCheck={false}
-                onChange={(e) => setNextKeywords(e.target.value)}
-              />
-            </label>
+            <NextCaptureFields value={nextCaptureForm} onChange={setNextCaptureForm} presets={presets} />
             <div className="session-copy-note">
               <Check size={16} />
               <span>

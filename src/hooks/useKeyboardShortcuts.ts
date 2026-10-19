@@ -19,6 +19,7 @@ import { useLibraryActions } from './useLibraryActions';
 import { libraryTool, ownsPanelShortcut, revealLibraryTool } from '../components/studio/workspaceInteractions';
 import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore';
 import { orderedSelection, stepPrimary } from '../utils/multiView';
+import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 
 interface KeyboardShortcutsProps {
   sortedImageList: Array<ImageFile>;
@@ -660,6 +661,13 @@ export const useKeyboardShortcuts = ({
         execute: (e, s) => {
           e.preventDefault();
           s.ui.setUI({ isSettingsOpen: true });
+        },
+      },
+      tether_capture: {
+        shouldFire: () => isTetherConnected(),
+        execute: (e) => {
+          e.preventDefault();
+          window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
         },
       },
       focus_search: {

@@ -228,7 +228,7 @@ export const IMPORTS_CHANGED = 'rawtonic:imports-changed';
 
 export interface ImportBatchInfo {
   id: number;
-  kind: 'ingest' | 'add' | 'sync' | 'hotfolder';
+  kind: 'ingest' | 'add' | 'sync' | 'hotfolder' | 'tether';
   created_at: string;
   count: number;
 }

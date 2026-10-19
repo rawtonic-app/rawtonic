@@ -2,7 +2,8 @@ import "../../i18n";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import SessionWorkspace, { countHotFolderCapture, flattenPresets, parseKeywords, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
+import SessionWorkspace, { countHotFolderCapture, leavesTetheredLibrary, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
+import { flattenPresets, parseKeywords } from "./nextCapture";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "react-toastify";
@@ -490,4 +491,12 @@ it("starts from Lightroom or Capture One on the welcome screen: a catalog first,
     }),
   );
   expect(await screen.findByLabelText("Library to import")).toBeTruthy();
+});
+
+it("keeps a tethered camera while the library is still restoring and disconnects it in another library", () => {
+  // tether_status answered before session_last: no library known yet.
+  expect(leavesTetheredLibrary("/jobs/Acme", null)).toBe(false);
+  expect(leavesTetheredLibrary("/jobs/Acme/", "/jobs/Acme")).toBe(false);
+  expect(leavesTetheredLibrary("/jobs/Acme", "/jobs/Other")).toBe(true);
+  expect(leavesTetheredLibrary(null, "/jobs/Other")).toBe(false);
 });
