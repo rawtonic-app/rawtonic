@@ -29,7 +29,7 @@ pub async fn get_or_init_relight_model(
     }
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
     let dir = get_models_dir(app)?;
-    download_and_verify_model(app, &dir, FILE, FILE, SHA256, "Relight geometry").await?;
+    download_verified(app, &dir, FILE, SHA256, "Relight geometry").await?;
     let path = dir.join(FILE);
     let model = tokio::task::spawn_blocking(move || {
         rawtonic_onnx::Model::load(&path, rawtonic_onnx::ModelKind::Relight)
@@ -72,10 +72,9 @@ pub async fn get_or_init_people_normals_model(
     }
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
     let dir = get_models_dir(app)?;
-    download_and_verify_model(
+    download_verified(
         app,
         &dir,
-        PEOPLE_FILE,
         PEOPLE_FILE,
         PEOPLE_SHA256,
         "Relight people normals",
