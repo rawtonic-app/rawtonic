@@ -536,3 +536,11 @@ describe("Quick Adjust (Capture One)", () => {
     expect(editor().adjustments.saturation).toBe(0);
   });
 });
+
+it("puts the cursor into the Library search field on its shortcut", () => {
+  useUIStore.setState({ activeView: "library" });
+  workspace();
+  const search = screen.getByRole("searchbox");
+  act(() => useUIStore.getState().requestSearchFocus());
+  expect(document.activeElement).toBe(search);
+});

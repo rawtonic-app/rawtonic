@@ -926,8 +926,8 @@ export const useKeyboardShortcuts = ({
 
       if (isAnyModalOpen(state.ui)) return;
 
-      const isInputFocused =
-        document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA';
+      // A select's arrows, Enter and type-to-find belong to it, as a text field's keys do.
+      const isInputFocused = Boolean(document.activeElement?.closest('input, textarea, select, [contenteditable="true"]'));
       const rangeFocused = document.activeElement instanceof HTMLInputElement && document.activeElement.type === 'range';
       // Range controls have no text undo stack. Keep their arrow keys native,
       // but let Undo/Redo reach edit history immediately after a slider drag.
