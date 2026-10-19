@@ -391,6 +391,10 @@ pub fn calculate_resize_target(
 
 pub fn parse_hex_color(hex: &str) -> Option<[u8; 3]> {
     let raw = hex.trim().trim_start_matches('#');
+    // Sliced by byte below: anything but hex digits is no colour.
+    if !raw.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
     let normalized: String = match raw.len() {
         3 => raw.chars().flat_map(|c| [c, c]).collect(),
         6 => raw.to_string(),
@@ -1031,7 +1035,7 @@ pub fn save_export_image(
         .path
         .extension()
         .and_then(|s| s.to_str())
-        .unwrap_or("")
+        .unwrap_or(output.format)
         .to_lowercase();
 
     let (width, height) = image.dimensions();
@@ -1576,7 +1580,11 @@ pub fn encode_image_to_bytes(
         "webp" => {
             let encoder = webp::Encoder::from_image(image)
                 .map_err(|_| "Failed to create WebP encoder".to_string())?;
-            let webp_mem = encoder.encode(jpeg_quality as f32);
+            // `encode` panics where libwebp refuses the image (a side over
+            // 16383 pixels): an error instead.
+            let webp_mem = encoder
+                .encode_simple(false, jpeg_quality as f32)
+                .map_err(|e| format!("Failed to encode WebP: {e:?}"))?;
             return crate::webp_container::set_chunks(
                 &webp_mem,
                 Some(crate::icc_profile::for_space(color_space)),
@@ -2255,6 +2263,75 @@ mod encoding_memory_tests {
                 .unwrap();
             assert!(avif.windows(icc.len()).any(|w| w == icc), "avif {space:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod encoding_input_tests {
+    use super::*;
+
+    #[test]
+    fn colours_that_are_not_hex_digits_are_refused() {
+        assert_eq!(parse_hex_color("#1a2B3c"), Some([0x1a, 0x2b, 0x3c]));
+        assert_eq!(parse_hex_color("fa0"), Some([0xff, 0xaa, 0x00]));
+        assert_eq!(parse_hex_color("#11223380"), Some([0x11, 0x22, 0x33]));
+        // Six or eight bytes, not six characters: no panic.
+        assert_eq!(parse_hex_color("#\u{20ac}abc"), None);
+        assert_eq!(parse_hex_color("ab\u{e9}cdef"), None);
+        assert_eq!(parse_hex_color("#12345g"), None);
+    }
+
+    #[test]
+    fn a_webp_larger_than_libwebp_takes_is_an_error() {
+        let image = DynamicImage::new_rgb8(16384, 1);
+        let encoded = encode_image_to_bytes(
+            &image,
+            "webp",
+            90,
+            TiffBitDepth::default(),
+            OutputColorSpace::Srgb,
+            None,
+        );
+        assert!(encoded.is_err());
+    }
+
+    /// `ExportOutput::format` names the format of a path without extension,
+    /// for the encoder as for the render.
+    #[test]
+    fn an_output_without_extension_is_encoded_in_its_format() {
+        let settings: ExportSettings = serde_json::from_value(serde_json::json!({
+            "jpegQuality": 85, "keepMetadata": false, "stripGps": false,
+        }))
+        .unwrap();
+        let written = Arc::new(std::sync::Mutex::new(None));
+        let write = {
+            let written = written.clone();
+            move |_: &Path, extension: &str, bytes: Vec<u8>| {
+                *written.lock().unwrap() = Some((extension.to_string(), bytes));
+                Ok(())
+            }
+        };
+        let output = ExportOutput {
+            path: Path::new("/nowhere/photo"),
+            format: "png",
+            exif_sidecar: &|| None,
+            catalog: &|| None,
+            write: &write,
+        };
+        save_export_image(
+            DynamicImage::new_rgb8(4, 4),
+            "/nowhere/photo.jpg",
+            &settings,
+            false,
+            &output,
+        )
+        .unwrap();
+        let (extension, bytes) = written.lock().unwrap().take().unwrap();
+        assert_eq!(extension, "png");
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
     }
 }
 
