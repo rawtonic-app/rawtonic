@@ -90,3 +90,35 @@ describe("filmstrip selection reveal", () => {
     expect(strip.scrollLeft).toBeGreaterThan(8000);
   });
 });
+
+describe("grid scroll position", () => {
+  it("keeps its place when photos leave or arrive, and starts at the top for a new listing", () => {
+    const files = Array.from({ length: 400 }, (_, n) => ({
+      path: `/qa/photo-${n}.jpg`,
+      rating: 0,
+      is_raw: false,
+      is_edited: false,
+      tags: null,
+      exif: null,
+      modified: 0,
+      is_virtual_copy: false,
+      is_cloud_placeholder: false,
+      group_id: null,
+    })) satisfies ImageFile[];
+    const props = {
+      onSelect: vi.fn(),
+      onOpen: vi.fn(),
+      onRate: vi.fn(),
+      onContextMenu: vi.fn(),
+      requestThumbnails: vi.fn(),
+    };
+    const { rerender } = render(<StudioBrowser {...props} files={files} listing="a" />);
+    const grid = screen.getByRole("listbox");
+    grid.scrollTop = 5000;
+    // A rejected photo trashed while culling.
+    rerender(<StudioBrowser {...props} files={files.slice(1)} listing="a" />);
+    expect(grid.scrollTop).toBe(5000);
+    rerender(<StudioBrowser {...props} files={files.slice(1)} listing="b" />);
+    expect(grid.scrollTop).toBe(0);
+  });
+});

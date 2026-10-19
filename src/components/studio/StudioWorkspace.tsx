@@ -262,6 +262,7 @@ export default function StudioWorkspace(props: Props) {
     t("studio.workspace.withShortcut", { label, shortcut: shortcut ?? t("studio.workspace.noKey") });
   const {
     currentFolderPath,
+    activeAlbumId,
     multiSelectedPaths,
     searchCriteria,
     filterCriteria,
@@ -270,6 +271,7 @@ export default function StudioWorkspace(props: Props) {
   } = useLibraryStore(
     useShallow((s) => ({
       currentFolderPath: s.currentFolderPath,
+      activeAlbumId: s.activeAlbumId,
       multiSelectedPaths: s.multiSelectedPaths,
       searchCriteria: s.searchCriteria,
       filterCriteria: s.filterCriteria,
@@ -1083,7 +1085,12 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                 </label>
               </div>
-              <StudioBrowser {...browserProps} size={size} onClearSelection={clearLibrarySelection} />
+              <StudioBrowser
+                {...browserProps}
+                size={size}
+                onClearSelection={clearLibrarySelection}
+                listing={JSON.stringify([currentFolderPath, activeAlbumId, searchCriteria, filterCriteria, sortCriteria])}
+              />
               {panels.bars && (
               <div className="studio-library-footer">
                 <span>

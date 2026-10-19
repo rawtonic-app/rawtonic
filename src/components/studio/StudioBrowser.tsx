@@ -188,9 +188,13 @@ export default function StudioBrowser({
   requestThumbnails,
   onClearSelection,
   size = 190,
+  listing,
 }: {
   files: ImageFile[];
   film?: boolean;
+  /** Which listing `files` is (folder or album, search, filter, sort): a new
+   * one starts at the top; photos added or removed keep the place. */
+  listing?: string;
   currentPath?: string;
   onSelect(path: string, event: MouseEvent): void;
   onOpen(path: string): void;
@@ -281,7 +285,7 @@ export default function StudioBrowser({
     ref.current.scrollTop = 0;
     ref.current.scrollLeft = 0;
     setOffset(0);
-  }, [film, files.length]);
+  }, [film, listing]);
   return (
     <PerfProfiler id={film ? "filmstrip" : "grid"}>
     <div
