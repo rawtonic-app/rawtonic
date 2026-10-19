@@ -8561,6 +8561,75 @@ fn readback_render_fails_when_the_gpu_reports_an_error() {
     assert!(error.contains("graphics card"), "{error}");
 }
 
+/// GPU work a render hands to the upload pool (the colour noise scales'
+/// reconstruction) runs outside the caller's error scopes: it fails only
+/// through its own ([`gpu_scoped`] on the pool's thread).
+#[test]
+#[ignore = "requires a native GPU"]
+fn gpu_work_on_the_pool_fails_inside_its_own_scope() {
+    let context = context();
+    context
+        .device
+        .on_uncaptured_error(Arc::new(|error: wgpu::Error| {
+            log::error!("[wgpu-error] {error}")
+        }));
+    let too_wide = context.limits.max_texture_dimension_2d + 1;
+    let invalid_texture = || {
+        context.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("too wide"),
+            size: wgpu::Extent3d {
+                width: too_wide,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    };
+    // The test thread is not a rayon thread, so the work moves to the pool.
+    assert!(rayon::current_thread_index().is_none());
+    let missed = gpu_scoped(&context.device, || off_global_pool(invalid_texture));
+    assert!(
+        missed.is_ok(),
+        "the caller's scope does not see the pool's errors"
+    );
+    let caught = gpu_scoped(&context.device, || {
+        off_global_pool(|| gpu_scoped(&context.device, invalid_texture))
+    })
+    .expect("the caller's scope sees nothing");
+    assert!(caught.is_err(), "the pool's own scope catches its error");
+}
+
+/// A mask layer that cannot be written (here: its array destroyed, as one
+/// the GPU had no memory for is invalid) fails the upload instead of
+/// rendering an empty mask.
+#[test]
+#[ignore = "requires a native GPU"]
+fn mask_upload_fails_when_the_gpu_reports_an_error() {
+    let context = context();
+    context
+        .device
+        .on_uncaptured_error(Arc::new(|error: wgpu::Error| {
+            log::error!("[wgpu-error] {error}")
+        }));
+    let mask = masked(ImageBuffer::from_pixel(32, 16, Luma([200u8])));
+    let mut intact = MaskUploader::new(&context, 32, 16, 1, false);
+    intact
+        .push_at(&context, 0, &mask)
+        .expect("an intact array takes the mask");
+    intact.finish(&context).expect("an intact array finishes");
+    let mut broken = MaskUploader::new(&context, 32, 16, 1, false);
+    broken.texture.destroy();
+    let error = broken
+        .push_at(&context, 0, &mask)
+        .expect_err("a GPU error must fail the upload");
+    assert!(error.contains("graphics card"), "{error}");
+}
+
 fn chunk_test_render(
     context: &GpuContext,
     source: &DynamicImage,
