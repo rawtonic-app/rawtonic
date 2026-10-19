@@ -363,6 +363,15 @@ describe('moving to the Trash', () => {
     expect(calls()).not.toContain(Invokes.DeleteFolder);
   });
 
+  it('with the associated files, a failed save of the RAW+JPEG partner holds the trash up too', async () => {
+    failSaves();
+    debouncedSave('/s/D.JPG', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/s/D.RAF'], { includeAssociated: true });
+    expect(calls()).not.toContain('delete_files_with_associated');
+    await hook().executeDelete(['/s/D.RAF']);
+    expect(calls()).toContain('delete_files_from_disk');
+  });
+
   it('a failed save of another photo does not hold the operation up', async () => {
     failSaves();
     debouncedSave('/q/B.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });

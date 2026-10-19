@@ -29,11 +29,13 @@ export interface FileOperationSummary {
 
 /** Before files change place: the open photograph's recipe is written to
  * where it is now, not after it moved. False (and the user is told) when the
- * recipe of a photograph in `moving` (photographs or folders about to move)
+ * recipe of a photograph in `moving` (photographs or folders about to move;
+ * with `sameName` also the photographs sharing their name, RAW+JPEG pairs)
  * could not be saved: the operation must not run, or that edit would stay
  * behind at the old place. A failed save elsewhere does not hold it up. */
-async function saveEditsFirst(moving: string[] = []): Promise<boolean> {
+async function saveEditsFirst(moving: string[] = [], sameName = false): Promise<boolean> {
   const physical = (path: string) => path.split('?vc=')[0];
+  const withoutExtension = (path: string) => physical(path).replace(/\.[^.\\/]*$/, '');
   let failed: string[];
   try {
     failed = await flushRecipeSaves();
@@ -42,7 +44,12 @@ async function saveEditsFirst(moving: string[] = []): Promise<boolean> {
     failed = moving;
   }
   const kept = failed.filter((path) =>
-    moving.some((target) => physical(path) === physical(target) || isBelow(physical(path), physical(target))),
+    moving.some(
+      (target) =>
+        physical(path) === physical(target) ||
+        isBelow(physical(path), physical(target)) ||
+        (sameName && withoutExtension(path) === withoutExtension(target)),
+    ),
   );
   if (!kept.length) return true;
   toast.error(
@@ -174,7 +181,7 @@ export function useFileOperations(
       }
 
       try {
-        if (!(await saveEditsFirst(pathsToDelete))) return;
+        if (!(await saveEditsFirst(pathsToDelete, options.includeAssociated))) return;
         const command = options.includeAssociated ? 'delete_files_with_associated' : 'delete_files_from_disk';
         const summary = await invoke<FileOperationSummary>(command, { paths: pathsToDelete });
         if (summary) toast.success(describeFileOperation(summary, undoKey()));
