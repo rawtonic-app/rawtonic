@@ -216,7 +216,7 @@ fn a_full_transfer_queue_fires_again_once_photos_are_released() {
 }
 
 #[test]
-fn a_shot_refused_as_busy_right_after_the_connect_is_taken_once_the_camera_is_ready() {
+fn a_shot_refused_as_busy_is_reported_not_fired_again() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {
         busy_for_ms: 400,
@@ -224,6 +224,10 @@ fn a_shot_refused_as_busy_right_after_the_connect_is_taken_once_the_camera_is_re
     };
     let helper = start(&spec, dir.path());
     helper.connect().unwrap();
+    // Busy does not prove nothing was exposed: said, never repeated.
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Busy);
+    std::thread::sleep(Duration::from_millis(500));
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
 }
@@ -454,14 +458,15 @@ fn a_card_taken_out_during_the_connection_stops_firing_and_reading() {
     let spec = MockSpec {
         capture_target: Some("card+sdram".into()),
         card_out_after_ms: Some(500),
-        body_shots_ms: vec![3000],
+        // Fired on the body right after the card came out.
+        body_shots_ms: vec![600],
         ..MockSpec::default()
     };
     let helper = start(&spec, dir.path());
     helper.connect().unwrap();
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
-    // Found at the next check and said once.
+    // Found before the camera is read again, and said once.
     match helper.next_event(Duration::from_secs(5)) {
         Some(Event::CaptureFailed { error }) => assert_eq!(error.kind, ErrorKind::Unsupported),
         other => panic!("{other:?}"),
@@ -475,7 +480,7 @@ fn a_card_taken_out_during_the_connection_stops_firing_and_reading() {
         ErrorKind::Unsupported
     );
     // The shot fired on the body afterwards stays in the camera.
-    std::thread::sleep(Duration::from_millis(1500));
+    std::thread::sleep(Duration::from_millis(500));
     let incoming = helper.staging.join(staging::INCOMING);
     let files = std::fs::read_dir(&incoming).unwrap().count();
     assert_eq!(files, 1, "only the photo from before");

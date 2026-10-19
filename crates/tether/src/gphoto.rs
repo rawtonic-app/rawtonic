@@ -516,11 +516,8 @@ impl Camera for GphotoCamera {
         let Some(widget) = self.widget("capturetarget") else {
             return false;
         };
-        let Some(card) =
-            widget.choices().unwrap_or_default().into_iter().find(|c| {
-                !crate::camera::memory_only(Some(c)) && c.to_lowercase().contains("card")
-            })
-        else {
+        let choices = widget.choices().unwrap_or_default();
+        let Some(card) = crate::camera::card_choice(&choices).cloned() else {
             return false;
         };
         let set = widget.set_choice(&card).and_then(|()| {

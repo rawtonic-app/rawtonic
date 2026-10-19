@@ -161,7 +161,12 @@ impl Driver for MockDriver {
             ]
             .into_iter()
             .chain(self.spec.capture_target.as_deref().map(|target| {
-                setting("capturetarget", "Save to", target, &["sdram", "card+sdram"])
+                setting(
+                    "capturetarget",
+                    "Save to",
+                    target,
+                    &["sdram", "card", "card+sdram"],
+                )
             }))
             .collect(),
         }))
@@ -394,7 +399,10 @@ impl Camera for MockCamera {
         let Some(target) = self.settings.iter_mut().find(|s| s.key == "capturetarget") else {
             return false;
         };
-        target.value = "card+sdram".into();
+        let Some(card) = crate::camera::card_choice(&target.choices).cloned() else {
+            return false;
+        };
+        target.value = card;
         true
     }
 

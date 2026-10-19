@@ -97,6 +97,20 @@ pub fn memory_only(capture_target: Option<&str>) -> bool {
     })
 }
 
+/// The Save to choice that keeps a card copy and still hands each photo to
+/// the computer ("card+sdram" before "card": card alone may not transfer).
+pub fn card_choice(choices: &[String]) -> Option<&String> {
+    let lower = |c: &String| c.to_lowercase();
+    choices
+        .iter()
+        .find(|c| lower(c).contains("card") && lower(c).contains("ram"))
+        .or_else(|| {
+            choices
+                .iter()
+                .find(|c| lower(c).contains("card") && !memory_only(Some(c)))
+        })
+}
+
 /// The settings the interface shows, each with the names camera drivers
 /// use for it (libgphoto2's names differ between makers and models; the
 /// first one a camera has is used).
@@ -144,4 +158,23 @@ pub fn setting_aliases(key: &str) -> Option<(&'static str, &'static [&'static st
         .iter()
         .find(|(k, _, _)| *k == key)
         .map(|(_, label, aliases)| (*label, *aliases))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_to_keeps_a_card_copy_and_still_hands_photos_to_the_computer() {
+        let choices = |c: &[&str]| c.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Sony: card alone would not transfer.
+        let sony = choices(&["sdram", "card", "card+sdram"]);
+        assert_eq!(card_choice(&sony).unwrap(), "card+sdram");
+        // Canon: the card is the only option with one.
+        let canon = choices(&["Internal RAM", "Memory card"]);
+        assert_eq!(card_choice(&canon).unwrap(), "Memory card");
+        assert!(card_choice(&choices(&["sdram"])).is_none());
+        assert!(memory_only(Some("Internal RAM")) && memory_only(Some("sdram")));
+        assert!(!memory_only(Some("card+sdram")) && !memory_only(None));
+    }
 }

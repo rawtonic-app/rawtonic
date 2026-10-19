@@ -31,16 +31,10 @@ fn content_hash(data: &[u8]) -> u64 {
     data.hash(&mut hasher);
     hasher.finish()
 }
-/// How often an open camera is checked for keeping photos only in its memory
-/// (a card taken out, Save to changed on the body).
-const MEMORY_CHECK: Duration = Duration::from_secs(2);
-
 const MEMORY_ONLY: &str = "The camera keeps photos only in its memory now (no card, or Save to \
      without the card), where a photo could be lost on its way: Rawtonic no longer fires it or \
      takes photos from it. Put a card in, set Save to with the card, and connect again.";
 
-/// How long a shot the camera refuses as busy is tried again.
-const BUSY_RETRY: Duration = Duration::from_secs(5);
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -65,8 +59,6 @@ struct Open {
     /// the card, or no card): not polled or fired for the rest of this
     /// connection (photos it took meanwhile have no card copy).
     memory_only: bool,
-    /// When that was last checked.
-    memory_checked: Instant,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -182,19 +174,10 @@ impl<W: Write> Server<W> {
     fn handle(&mut self, Envelope { id, request }: Envelope) -> io::Result<bool> {
         let shutdown = request == Request::Shutdown;
         let mut fired = None;
-        let capture = request == Request::Capture;
-        let started = Instant::now();
-        let mut result = self.answer(request.clone(), &mut fired);
-        // A shot the camera refused as busy fired nothing: after a normal
-        // turn with its events (some bodies stay busy until those are read,
-        // e.g. a GFX 50R right after the connect) it is tried again.
-        while capture
-            && result.as_ref().is_err_and(|e| e.kind == ErrorKind::Busy)
-            && started.elapsed() < BUSY_RETRY
-        {
-            self.tick()?;
-            result = self.answer(request.clone(), &mut fired);
-        }
+        // A shot refused as busy is not tried again here: busy does not
+        // prove that nothing was exposed (the camera may refuse a step after
+        // the shutter); a photo that still comes is downloaded as it comes.
+        let result = self.answer(request, &mut fired);
         // A camera lost during a request is lost like one lost between
         // requests: the app hears it (and connects it again when it is back).
         let lost = match &result {
@@ -270,7 +253,6 @@ impl<W: Write> Server<W> {
                     downloads: Default::default(),
                     exposure: None,
                     memory_only,
-                    memory_checked: Instant::now(),
                     connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
@@ -387,14 +369,13 @@ impl<W: Write> Server<W> {
         let Some(open) = self.open.as_mut() else {
             return Ok(());
         };
-        if !open.memory_only && open.memory_checked.elapsed() >= MEMORY_CHECK {
-            open.memory_checked = Instant::now();
-            if open.camera.memory_only() {
-                open.memory_only = true;
-                return self.event(Event::CaptureFailed {
-                    error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
-                });
-            }
+        // Checked before every read of the camera's events: reading them may
+        // already take a photo out of the camera's memory.
+        if !open.memory_only && open.camera.memory_only() {
+            open.memory_only = true;
+            return self.event(Event::CaptureFailed {
+                error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
+            });
         }
         let Some(open) = self.open.as_mut() else {
             return Ok(());
