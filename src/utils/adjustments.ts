@@ -595,6 +595,13 @@ export interface Adjustments {
    * the same at Amount 40 with Radius, Detail and Masking at their
    * defaults). Photo-wide (layers follow it). */
   sharpenVersion?: number;
+  /** Luminance noise reduction (crates/engine/src/image_processing.rs
+   * `LUMA_NOISE_VERSION`): 2 = noisy photos also lose isolated luminance
+   * specks (single pixels darker or brighter than all their neighbours,
+   * which the sharpening no longer lifts); 1 or missing on recipes that
+   * reduced luminance noise before it = the earlier filter (both are the
+   * same without luminance noise reduction). Photo-wide (layers follow it). */
+  lumaNoiseVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1169,6 +1176,9 @@ export const DEFRINGE_VERSION = 2;
 /** The sharpening response new edits start with (notes: reference/detail.md). */
 export const SHARPEN_VERSION = 2;
 
+/** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
+export const LUMA_NOISE_VERSION = 2;
+
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */
 export const AI_DENOISE_VERSION = 3;
@@ -1215,6 +1225,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         autoCaVersion: AUTO_CA_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         sharpenVersion: SHARPEN_VERSION,
+        lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
       }
     : {
@@ -1223,6 +1234,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         toneVersion: TONE_VERSION,
         defringeVersion: DEFRINGE_VERSION,
         sharpenVersion: SHARPEN_VERSION,
+        lumaNoiseVersion: LUMA_NOISE_VERSION,
       };
 
 /** The Defringe detector of a saved recipe: its own; else the current one
@@ -1276,12 +1288,14 @@ export const pastedAdjustments = (
 ): Partial<Adjustments> => {
   const picked: Partial<Adjustments> = {};
   for (const key of includedAdjustments) {
-    if (key === 'sharpenVersion' || !Object.prototype.hasOwnProperty.call(copied, key)) continue;
+    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion' || !Object.prototype.hasOwnProperty.call(copied, key)) {
+      continue;
+    }
     const value = copied[key as keyof Adjustments];
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  return withSharpenVersion(picked, copied);
+  return withLumaNoiseVersion(withSharpenVersion(picked, copied), copied);
 };
 
 /** Keys whose values mean what the sharpening response makes of them. */
@@ -1316,6 +1330,47 @@ export const withSharpenVersion = <T extends Partial<Adjustments>>(
     return picked;
   }
   return { ...picked, sharpenVersion: source?.sharpenVersion ?? 1 };
+};
+
+/** The luminance noise reduction of a saved recipe: its own; else the
+ * current one when it reduces no luminance noise (photo or layer), the
+ * earlier one otherwise (missing key). */
+const loadedLumaNoiseVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
+  if (loaded.lumaNoiseVersion !== undefined && loaded.lumaNoiseVersion !== null) {
+    return loaded.lumaNoiseVersion;
+  }
+  // RAW recipes without an amount reduce at the RAW default (15).
+  const amount = loaded.lumaNoiseReduction ?? (isRaw ? RAW_DETAIL_DEFAULTS.lumaNoiseReduction : 0);
+  const layerReduces = (loaded.masks ?? []).some(
+    (mask) => ((mask?.adjustments?.lumaNoiseReduction as number | undefined) ?? 0) !== 0,
+  );
+  return amount <= 0 && !layerReduces ? LUMA_NOISE_VERSION : undefined;
+};
+
+/** Keys whose values mean what the luminance noise reduction version makes of them. */
+const LUMA_NOISE_KEYS = ['lumaNoiseReduction', 'lumaNoiseDetail', 'lumaNoiseContrast'] as const;
+
+/** As `withSharpenVersion` for the luminance noise reduction: wherever
+ * luminance values are copied (paste, tool copy, Edit all selected, presets)
+ * its version goes along explicitly — the source's, else 1 (a source or
+ * preset from before the key). Layers count when their luminance amount is
+ * set. */
+export const withLumaNoiseVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'lumaNoiseVersion'> => {
+  // A change back to a missing key (an undo to a recipe from before it)
+  // would vanish in JSON too: it is version 1.
+  if (Object.prototype.hasOwnProperty.call(picked, 'lumaNoiseVersion') && picked.lumaNoiseVersion == null) {
+    return { ...picked, lumaNoiseVersion: 1 };
+  }
+  const reduces =
+    LUMA_NOISE_KEYS.some((key) => picked[key] !== undefined) ||
+    (picked.masks ?? []).some((mask) => ((mask?.adjustments?.lumaNoiseReduction as number | undefined) ?? 0) !== 0);
+  if (!reduces || (picked.lumaNoiseVersion !== undefined && picked.lumaNoiseVersion !== null)) {
+    return picked;
+  }
+  return { ...picked, lumaNoiseVersion: source?.lumaNoiseVersion ?? 1 };
 };
 
 /** The AI Denoise version of a saved recipe: its own; else the current one
@@ -1462,6 +1517,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     toneVersion: loadedToneVersion(loadedAdjustments),
     defringeVersion: loadedDefringeVersion(loadedAdjustments),
     sharpenVersion: loadedSharpenVersion(loadedAdjustments, isRaw),
+    lumaNoiseVersion: loadedLumaNoiseVersion(loadedAdjustments, isRaw),
     aiDenoiseVersion: loadedAiDenoiseVersion(loadedAdjustments, isRaw),
     // Saved recipes keep rendering as they were made: no pass unless they
     // carry the key (never-edited RAWs get it in useImageLoader).
@@ -1609,6 +1665,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         'colorNoiseDetail',
         'colorNoiseSmoothness',
         'colorNoiseVersion',
+        'lumaNoiseVersion',
         'aiDenoise',
         'aiDenoiseVersion',
       ],

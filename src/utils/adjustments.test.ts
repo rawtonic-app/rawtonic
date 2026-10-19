@@ -11,10 +11,12 @@ import {
   FRINGE_VERSION,
   DEFRINGE_VERSION,
   SHARPEN_VERSION,
+  LUMA_NOISE_VERSION,
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withSharpenVersion,
+  withLumaNoiseVersion,
   pastedAdjustments,
   PasteMode,
   AUTO_CA_VERSION,
@@ -218,6 +220,44 @@ describe('RAW detail defaults', () => {
     expect(load({}, false)).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: 80, sharpenVersion: 1 })).toBe(1);
     expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
+  });
+
+  it('keep the luminance noise reduction a saved recipe rendered with', () => {
+    expect(initialAdjustmentsFor(true).lumaNoiseVersion).toBe(LUMA_NOISE_VERSION);
+    expect(initialAdjustmentsFor(false).lumaNoiseVersion).toBe(LUMA_NOISE_VERSION);
+    const load = (recipe: object, isRaw = true) =>
+      normalizeLoadedAdjustments(recipe as unknown as Adjustments, isRaw).lumaNoiseVersion;
+    // Reduces luminance noise (RAWs at the default 15 without an amount):
+    // the earlier filter, key absent.
+    expect(load({})).toBeUndefined();
+    expect(load({ lumaNoiseReduction: 30 })).toBeUndefined();
+    expect(load({ lumaNoiseReduction: 0, masks: [{ adjustments: { lumaNoiseReduction: 20 }, subMasks: [] }] })).toBeUndefined();
+    expect('lumaNoiseVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({} as Adjustments, true)))).toBe(false);
+    // No luminance noise reduction renders the same with either: the current one.
+    expect(load({ lumaNoiseReduction: 0 })).toBe(LUMA_NOISE_VERSION);
+    expect(load({}, false)).toBe(LUMA_NOISE_VERSION);
+    expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 1 })).toBe(1);
+    expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 2 })).toBe(2);
+  });
+
+  it('carry the luminance noise reduction version with luminance values', () => {
+    const all = COPYABLE_ADJUSTMENT_KEYS;
+    // A recipe from before the key (version 1 on load): its luminance values
+    // paste with version 1, also onto a version-2 photo.
+    const old = normalizeLoadedAdjustments({ lumaNoiseReduction: 30 } as unknown as Adjustments, true);
+    expect(pastedAdjustments(old, all, PasteMode.Merge).lumaNoiseVersion).toBe(1);
+    expect(JSON.parse(JSON.stringify(pastedAdjustments(old, all, PasteMode.Merge))).lumaNoiseVersion).toBe(1);
+    const now = { ...INITIAL_ADJUSTMENTS, lumaNoiseReduction: 30, lumaNoiseVersion: LUMA_NOISE_VERSION } as Adjustments;
+    expect(pastedAdjustments(now, all, PasteMode.Merge)).toMatchObject({ lumaNoiseReduction: 30, lumaNoiseVersion: LUMA_NOISE_VERSION });
+    // Without luminance values the version stays out of the patch.
+    const exposure = { ...INITIAL_ADJUSTMENTS, exposure: 0.5, lumaNoiseVersion: 1 } as Adjustments;
+    expect('lumaNoiseVersion' in pastedAdjustments(exposure, all, PasteMode.Merge)).toBe(false);
+    // Tool copy and Edit all selected: an undefined copied key becomes 1.
+    expect(withLumaNoiseVersion({ lumaNoiseReduction: 30, lumaNoiseVersion: undefined }).lumaNoiseVersion).toBe(1);
+    expect(withLumaNoiseVersion({ lumaNoiseDetail: 70 }, { lumaNoiseVersion: 2 } as Adjustments).lumaNoiseVersion).toBe(2);
+    const layered = { masks: [{ adjustments: { lumaNoiseReduction: 20 }, subMasks: [] }] } as unknown as Adjustments;
+    expect(withLumaNoiseVersion(layered, {} as Adjustments).lumaNoiseVersion).toBe(1);
+    expect('lumaNoiseVersion' in withLumaNoiseVersion({ exposure: 1 }, {} as Adjustments)).toBe(false);
   });
 
   it('paste the sharpening response only with sharpening values', () => {

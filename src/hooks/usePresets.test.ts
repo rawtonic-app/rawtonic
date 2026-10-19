@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { collectPresetAdjustments } from './usePresets';
-import { SHARPEN_VERSION, initialAdjustmentsFor, type Adjustments } from '../utils/adjustments';
+import { LUMA_NOISE_VERSION, SHARPEN_VERSION, initialAdjustmentsFor, type Adjustments } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 
@@ -22,6 +22,18 @@ describe('collectPresetAdjustments', () => {
     expect(collectPresetAdjustments(current, initialAdjustmentsFor(true), options)).toEqual({
       sharpness: 80,
       sharpenVersion: SHARPEN_VERSION,
+    });
+  });
+
+  it('takes the luminance noise reduction version along with luminance values only', () => {
+    const current = { ...initialAdjustmentsFor(true), exposure: 0.5, lumaNoiseVersion: 1 } as Adjustments;
+    expect(collectPresetAdjustments(current, initialAdjustmentsFor(true), options)).toEqual({ exposure: 0.5 });
+    const old = { ...initialAdjustmentsFor(true), lumaNoiseReduction: 30, lumaNoiseVersion: undefined } as Adjustments;
+    expect(collectPresetAdjustments(old, initialAdjustmentsFor(true), options)).toEqual({ lumaNoiseReduction: 30, lumaNoiseVersion: 1 });
+    const now = { ...initialAdjustmentsFor(true), lumaNoiseReduction: 30 } as Adjustments;
+    expect(collectPresetAdjustments(now, initialAdjustmentsFor(true), options)).toEqual({
+      lumaNoiseReduction: 30,
+      lumaNoiseVersion: LUMA_NOISE_VERSION,
     });
   });
 });

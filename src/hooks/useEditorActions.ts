@@ -23,6 +23,7 @@ import {
   sameAdjustmentValue,
   withAiDenoiseVersion,
   withDiffractionVersion,
+  withLumaNoiseVersion,
   withSharpenVersion,
   withGrainStructure,
 } from '../utils/adjustments';
@@ -589,7 +590,7 @@ export function useEditorActions() {
     (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
-      const adjustmentsToApply = withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial))));
+      const adjustmentsToApply = withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial)))));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =

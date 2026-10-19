@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Fewer isolated dark and bright single-pixel specks in noisy photos (recipe `lumaNoiseVersion` 2, new edits): the luminance noise reduction keeps a pixel within the range of its eight neighbours plus half its noise, and the sharpening no longer lifts such noise-like extremes; a point that stands far out of the noise (a light, a star) is left alone. On 55 high-ISO RAWs (paired, same settings otherwise), isolated specks fell from 20.3 to 16.4 per million pixels at Color 25 (11.4 → 10.6 at 50, 12.5 → 8.2 at 100) and isolated lightness outliers by 28 %; colour edges are unchanged, and against clean ground-truth frames (RawNIND) the error is lower at 0.7–2 px (−0.8 %) and in flat areas (−3.4 %). The cost: about 1 % of the finest lightness texture (texture kept 0.7–2 px −1.3 %, 2–4 px error +0.5 %). Saved edits render exactly as before, and so do photos whose measured noise is at most 0.002 (most base-ISO photos; two ISO 50/100 test frames measured just above it and changed by at most 60/65535, below one 8-bit step); a preview frame takes about 0.2 ms more on the GPU.
+
 ## 0.1.0-alpha.3 — 2026-10-20
 
 The third alpha: about a hundred changes since alpha.2. Tethered shooting arrives (experimental), local adjustments get finer masks and a faster brush, AI Denoise gets a new model, and colour noise reduction, fringe and chromatic aberration removal, highlight recovery, Auto white balance and sharpening were reworked and measured against the leading RAW editors.

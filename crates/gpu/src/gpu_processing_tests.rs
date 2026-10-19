@@ -1786,6 +1786,68 @@ fn preview_render_timing_probe() {
 }
 
 #[test]
+#[ignore = "native GPU timing probe; compares luminance noise reductions 1 and 2"]
+fn luma_noise_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks of a noisy photo (the speck step active) at the RAW detail
+    // defaults; the luminance amount moves a little every frame so the
+    // detail stage is computed again, as during a slider drag. Versions 1
+    // and 2 alternate within one process.
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        let mut times = [Vec::new(), Vec::new()];
+        for frame in 0..frames + 2 {
+            for version in [1, 2] {
+                let profile = json!({"sharpness": 40, "colorNoiseReduction": 25,
+                    "lumaNoiseReduction": 15.0 + 0.01 * frame as f64, "lumaNoiseVersion": version});
+                let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+                adjustments.global.noise_level = 0.02;
+                let start = Instant::now();
+                processor
+                    .run(
+                        &view,
+                        width,
+                        height,
+                        RenderRequest {
+                            adjustments,
+                            mask_bitmaps: &[],
+                            lut: None,
+                            roi: None,
+                        },
+                        display,
+                        if display {
+                            RenderOutputPrecision::EightBit
+                        } else {
+                            RenderOutputPrecision::SixteenBit
+                        },
+                    )
+                    .unwrap();
+                context
+                    .device
+                    .poll(wgpu::PollType::wait_indefinitely())
+                    .unwrap();
+                // The first two frames warm shaders and caches.
+                if frame >= 2 {
+                    times[version - 1].push(start.elapsed().as_secs_f64() * 1000.0);
+                }
+            }
+        }
+        let median = |t: &mut Vec<f64>| {
+            t.sort_by(f64::total_cmp);
+            t[t.len() / 2]
+        };
+        let (v1, v2) = (median(&mut times[0]), median(&mut times[1]));
+        println!(
+            "{}",
+            json!({"size":format!("{width}x{height}"),"v1_ms":v1,"v2_ms":v2,
+                "change_pct":(v2 / v1 - 1.0) * 100.0,"frames":frames})
+        );
+    }
+}
+
+#[test]
 #[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
 fn sharpen_version_timing_probe() {
     let context = context();
@@ -9783,6 +9845,190 @@ fn high_iso_noise_reduction_leaves_no_speckles_near_bright_objects() {
     assert!(
         e_fixed > 0.93 * e_plain,
         "edges softened: {e_plain:.2} -> {e_fixed:.2}"
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; isolated luminance specks at high ISO"]
+#[allow(clippy::excessive_precision)] // Oklab constants as published.
+fn luma_noise_version_2_removes_isolated_specks_and_keeps_point_lights() {
+    const SIZE: usize = 1024;
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), SIZE as u32, SIZE as u32).unwrap();
+    let SpeckleScene {
+        noisy, clean, edge, ..
+    } = speckle_scene(SIZE);
+    let level = rawtonic_rawdecode::noise_level::measure(&image::DynamicImage::ImageRgb32F(
+        image::Rgb32FImage::from_raw(SIZE as u32, SIZE as u32, noisy.as_flattened().to_vec())
+            .unwrap(),
+    ))
+    .unwrap();
+    let render = |rgb: &[[f32; 3]], recipe: serde_json::Value, noise: f32| -> Vec<u16> {
+        let view = linear_texture(&context, rgb, SIZE as u32, SIZE as u32);
+        let mut adjustments = get_all_adjustments_from_json(&recipe, true, None);
+        adjustments.global.noise_level = noise;
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                SIZE as u32,
+                SIZE as u32,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        let RenderedPixels::U16(words) = pixels else {
+            unreachable!()
+        };
+        words
+    };
+    // Oklab lightness ×100 of the sRGB output.
+    let lightness = |words: &[u16]| -> Vec<f32> {
+        let channels = words.len() / (SIZE * SIZE);
+        words
+            .chunks(channels)
+            .map(|p| {
+                let lin = |v: u16| {
+                    let c = v as f32 / 65535.0;
+                    if c <= 0.04045 {
+                        c / 12.92
+                    } else {
+                        ((c + 0.055) / 1.055).powf(2.4)
+                    }
+                };
+                let [r, g, b] = [lin(p[0]), lin(p[1]), lin(p[2])];
+                let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+                let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+                let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+                100.0 * (0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s)
+            })
+            .collect()
+    };
+    let recipe = |version: u64| {
+        json!({"sharpness": 40, "lumaNoiseReduction": 15, "colorNoiseReduction": 25,
+               "lumaNoiseVersion": version})
+    };
+    let truth = lightness(&render(
+        &clean,
+        json!({"sharpness": 0, "lumaNoiseReduction": 0, "colorNoiseReduction": 0}),
+        0.0,
+    ));
+    let v1 = lightness(&render(&noisy, recipe(1), level));
+    let v2 = lightness(&render(&noisy, recipe(2), level));
+    // Isolated specks: pixels whose error differs from the median error of
+    // their 5 x 5 neighbourhood by more than 4 (Oklab ×100) while that
+    // neighbourhood's median difference stays below 4/3.
+    let specks = |out: &[f32]| {
+        let error: Vec<f32> = out.iter().zip(&truth).map(|(o, t)| o - t).collect();
+        let mut deviation = vec![0.0f32; SIZE * SIZE];
+        let mut window = [0.0f32; 25];
+        for y in 2..SIZE - 2 {
+            for x in 2..SIZE - 2 {
+                for (k, w) in window.iter_mut().enumerate() {
+                    *w = error[(y + k / 5 - 2) * SIZE + x + k % 5 - 2];
+                }
+                window.sort_unstable_by(f32::total_cmp);
+                deviation[y * SIZE + x] = (error[y * SIZE + x] - window[12]).abs();
+            }
+        }
+        let mut count = 0usize;
+        for y in 4..SIZE - 4 {
+            for x in 4..SIZE - 4 {
+                for (k, w) in window.iter_mut().enumerate() {
+                    *w = deviation[(y + k / 5 - 2) * SIZE + x + k % 5 - 2];
+                }
+                window.sort_unstable_by(f32::total_cmp);
+                if deviation[y * SIZE + x] > 4.0 && window[12] < 4.0 / 3.0 {
+                    count += 1;
+                }
+            }
+        }
+        1e6 * count as f64 / (SIZE * SIZE) as f64
+    };
+    let rms = |out: &[f32]| {
+        let sum: f64 = out
+            .iter()
+            .zip(&truth)
+            .map(|(o, t)| f64::from(o - t).powi(2))
+            .sum();
+        (sum / (SIZE * SIZE) as f64).sqrt()
+    };
+    // Edges of the bright objects (discs and point lights): mean lightness
+    // step to the outside.
+    let sharpness = |out: &[f32]| {
+        let (mut step, mut n) = (0.0f64, 0usize);
+        for i in 0..SIZE * SIZE {
+            if edge[i] {
+                let outside = [i - 1, i + 1, i - SIZE, i + SIZE]
+                    .iter()
+                    .map(|&j| out[j])
+                    .fold(f32::INFINITY, f32::min);
+                step += f64::from(out[i] - outside);
+                n += 1;
+            }
+        }
+        step / n as f64
+    };
+    // The point lights' peaks (single bright pixels with a faint rim).
+    let peaks: Vec<usize> = (SIZE + 1..SIZE * SIZE - SIZE - 1)
+        .filter(|&i| {
+            truth[i] > 80.0
+                && [i - 1, i + 1, i - SIZE, i + SIZE]
+                    .iter()
+                    .all(|&j| truth[j] < truth[i] - 10.0)
+        })
+        .collect();
+    let peak =
+        |out: &[f32]| peaks.iter().map(|&i| f64::from(out[i])).sum::<f64>() / peaks.len() as f64;
+    let (s1, s2) = (specks(&v1), specks(&v2));
+    println!(
+        "noise level {level:.4}; isolated specks per Mpx {s1:.0} -> {s2:.0}; error RMS {:.3} -> {:.3}; \
+         edge step {:.2} -> {:.2}; {} point-light peaks {:.2} -> {:.2}",
+        rms(&v1),
+        rms(&v2),
+        sharpness(&v1),
+        sharpness(&v2),
+        peaks.len(),
+        peak(&v1),
+        peak(&v2)
+    );
+    assert!(s2 < 0.8 * s1, "isolated specks {s1:.0} -> {s2:.0}");
+    assert!(
+        rms(&v2) <= rms(&v1),
+        "error {:.3} -> {:.3}",
+        rms(&v1),
+        rms(&v2)
+    );
+    assert!(
+        sharpness(&v2) > 0.99 * sharpness(&v1),
+        "edges softened: {:.2} -> {:.2}",
+        sharpness(&v1),
+        sharpness(&v2)
+    );
+    assert!(peaks.len() > 50, "{} point lights", peaks.len());
+    assert!(
+        peak(&v2) > peak(&v1) - 0.5,
+        "point lights dimmed: {:.2} -> {:.2}",
+        peak(&v1),
+        peak(&v2)
+    );
+    // Clean photos (measured noise below LUMA_SPECK_NOISE) and recipes
+    // without the key render exactly as before.
+    let quiet = 0.0015;
+    assert_eq!(
+        render(&noisy, recipe(2), quiet),
+        render(&noisy, recipe(1), quiet)
+    );
+    let mut keyless = recipe(1);
+    keyless.as_object_mut().unwrap().remove("lumaNoiseVersion");
+    assert_eq!(
+        render(&noisy, keyless, level),
+        render(&noisy, recipe(1), level)
     );
 }
 

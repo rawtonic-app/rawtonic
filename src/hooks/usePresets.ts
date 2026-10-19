@@ -10,6 +10,7 @@ import {
   initialAdjustmentsFor,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withLumaNoiseVersion,
   withSharpenVersion,
 } from '../utils/adjustments';
 import { Folder, Invokes, Preset } from '../components/ui/AppProperties';
@@ -36,13 +37,13 @@ export function collectPresetAdjustments(
   for (const key of COPYABLE_ADJUSTMENT_KEYS) {
     if (!includeMasks && MASK_KEYS.includes(key)) continue;
     if (!includeCropTransform && GEOMETRY_KEYS.includes(key)) continue;
-    if (key === 'sharpenVersion') continue;
+    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion') continue;
     if (!Object.prototype.hasOwnProperty.call(current, key)) continue;
     const currentValue = current[key as keyof Adjustments];
     if (presetType === 'tool' && sameAdjustmentValue(currentValue, defaults[key as keyof Adjustments])) continue;
     presetAdjustments[key] = currentValue;
   }
-  return withSharpenVersion(presetAdjustments, current);
+  return withLumaNoiseVersion(withSharpenVersion(presetAdjustments, current), current);
 }
 
 export enum PresetListType {
@@ -195,7 +196,7 @@ export function usePresets(
     });
 
     const newPresetData: Preset = {
-      adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
+      adjustments: framed(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current), current),
       id: crypto.randomUUID(),
       name,
       includeMasks,
@@ -331,7 +332,7 @@ export function usePresets(
       if (item.preset?.id === id) {
         updatedPreset = {
           ...item.preset,
-          adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
+          adjustments: framed(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current), current),
           includeMasks,
           includeCropTransform,
           presetType,
@@ -345,7 +346,7 @@ export function usePresets(
             found = true;
             updatedPreset = {
               ...child,
-              adjustments: framed(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current),
+              adjustments: framed(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(presetAdjustments, current), current), current), current),
               includeMasks,
               includeCropTransform,
               presetType,
