@@ -865,6 +865,26 @@ describe('Auto straighten for a selection', () => {
     expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1, lensCorrectionMode: 'auto' });
   });
 
+  it('updates a photograph being opened with a write that had to wait in its queue', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/second.dng']); });
+    await act(async () => {});
+    // Edit all selected writes while switching to the target (openingNow).
+    act(() => { void result.current.applyAdjustmentsToPaths({ exposure: 1 }, ['/second.dng'], { openingNow: true }); });
+    act(() => select('/second.dng', false));
+    await finish(Invokes.ApplyAutoStraightenToPaths, { ...report, straightened: [] });
+    await act(async () => {});
+    const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+    // Its loader may have read the recipe before the write: it waits for the load.
+    expect(commands()).not.toContain(Invokes.ApplyAdjustmentsToPaths);
+    act(() => useEditorStore.setState({ selectedImage: { ...useEditorStore.getState().selectedImage!, isReady: true } }));
+    await act(async () => {});
+    expect(commands()).toContain(Invokes.ApplyAdjustmentsToPaths);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

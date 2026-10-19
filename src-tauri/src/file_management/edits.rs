@@ -925,6 +925,28 @@ pub async fn load_metadata(path: String, app_handle: AppHandle) -> Result<ImageM
     result
 }
 
+/// The sidecar as the editor loads it; with XMP sync it takes in the XMP's
+/// fields and is rewritten — a read-modify-write in turn with the others
+/// (sidecar_field_edit), so a recipe committed meanwhile (Auto straighten) is
+/// not replaced by an older snapshot.
+fn load_sidecar_taking_xmp(
+    source_path: &Path,
+    sidecar_path: &Path,
+    xmp_sync: bool,
+) -> ImageMetadata {
+    if !xmp_sync {
+        return crate::exif_processing::load_sidecar(sidecar_path);
+    }
+    let _turn = sidecar_field_edit();
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    if sync_metadata_from_xmp(source_path, &mut metadata)
+        && let Ok(json) = serde_json::to_string_pretty(&metadata)
+    {
+        let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json);
+    }
+    metadata
+}
+
 pub(crate) fn load_metadata_blocking(
     path: String,
     app_handle: AppHandle,
@@ -933,14 +955,7 @@ pub(crate) fn load_metadata_blocking(
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 
     let (source_path, sidecar_path) = parse_virtual_path(&path);
-    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-
-    if enable_xmp_sync
-        && sync_metadata_from_xmp(&source_path, &mut metadata)
-        && let Ok(json) = serde_json::to_string_pretty(&metadata)
-    {
-        let _ = crate::session_bridge::write_editor_sidecar(&sidecar_path, json);
-    }
+    let mut metadata = load_sidecar_taking_xmp(&source_path, &sidecar_path, enable_xmp_sync);
 
     // For the editor only (not written): its history carries it (see
     // LensLookup::Keep).
@@ -1122,6 +1137,32 @@ mod tests {
             .install(|| std::panic::catch_unwind(|| drop(sidecar_field_edit())));
         assert_eq!(inside.is_err(), cfg!(debug_assertions));
         drop(sidecar_field_edit());
+    }
+
+    /// Loading with XMP sync reads in turn with a commit holding the guard,
+    /// so it never rewrites the sidecar from a snapshot older than that.
+    #[test]
+    fn loading_with_xmp_sync_waits_for_a_commit_in_progress() {
+        let tmp = tempfile::tempdir().unwrap();
+        let analysed = serde_json::json!({"exposure": 1.0});
+        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
+        let (source, _) = parse_virtual_path(&path);
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let committer = {
+            let (path, sidecar) = (path.clone(), sidecar.clone());
+            std::thread::spawn(move || {
+                let _turn = sidecar_field_edit();
+                held_tx.send(()).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                let mut metadata = crate::exif_processing::load_sidecar(&sidecar);
+                metadata.adjustments["rotation"] = serde_json::json!(-2.5);
+                save_sidecar(&path, &metadata).unwrap();
+            })
+        };
+        held_rx.recv().unwrap();
+        let loaded = load_sidecar_taking_xmp(&source, &sidecar, true);
+        committer.join().unwrap();
+        assert_eq!(loaded.adjustments["rotation"], serde_json::json!(-2.5));
     }
 
     /// A rating edit that read the recipe before the commit and writes after

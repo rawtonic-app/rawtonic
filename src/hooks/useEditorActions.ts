@@ -800,10 +800,14 @@ export function useEditorActions() {
       // One operation in these photographs' queue, in the order asked for
       // (after a batch edit asked for before, before one asked for after);
       // with nothing ahead it runs at once.
+      // `openingNow` holds only when it runs at once: after a wait in the
+      // queue the photograph's loader may have read the recipe before this
+      // write, so it waits for the load and updates the loaded editor.
+      const immediate = afterRecipeOperations(pathsToUpdate) === null;
       return exclusiveRecipeOperation(pathsToUpdate, async () => {
         // Asked for while it is loading in the editor (opened meanwhile):
         // applied once it is loaded, not dropped.
-        const load = openingNow ? null : afterEditorLoads(pathsToUpdate);
+        const load = openingNow && immediate ? null : afterEditorLoads(pathsToUpdate);
         if (load) await load;
         const { selectedImage, adjustments } = useEditorStore.getState();
 
