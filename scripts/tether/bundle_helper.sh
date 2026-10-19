@@ -87,8 +87,8 @@ EOF
       # libtool records the build folder; the app passes the bundled one.
       patchelf --remove-rpath "$file"
     done
-    if LD_LIBRARY_PATH=$OUT/gphoto2/lib ldd "${FILES[@]}" | grep -E "not found|libgphoto2|libusb|libltdl" |
-      grep -v "=> $OUT/gphoto2/lib/"; then
+    if LD_LIBRARY_PATH=$OUT/gphoto2/lib ldd "${FILES[@]}" | grep -v ':$' |
+      grep -E "not found|libgphoto2|libusb|libltdl" | grep -v "=> $OUT/gphoto2/lib/"; then
       echo "bundle_helper: a library reference points outside the bundle" >&2
       exit 1
     fi
