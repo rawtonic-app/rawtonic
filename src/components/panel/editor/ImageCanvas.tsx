@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
+import { cropGestureEnded, cropGestureStarted } from '../../../utils/cropGesture';
 import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Group, Circle, Rect } from 'react-konva';
@@ -2796,6 +2797,7 @@ const ImageCanvas = memo(
         let latest: { px: Crop; percent: PercentCrop } | null = null;
         cropEdgeDragging.current = true;
         setIsCropDragging(true);
+        cropGestureStarted();
         const move = (event: PointerEvent) => {
           event.preventDefault();
           const rect = resizeCropFromEdge(
@@ -2826,6 +2828,7 @@ const ImageCanvas = memo(
           cropEdgeDragging.current = false;
           setIsCropDragging(false);
           if (latest) handleCropComplete(latest.px, latest.percent);
+          cropGestureEnded();
         };
         window.addEventListener('pointermove', move, true);
         window.addEventListener('pointerup', end, true);
@@ -3494,8 +3497,14 @@ const ImageCanvas = memo(
                 crop={crop ?? undefined}
                 onChange={setCrop}
                 onComplete={handleCropComplete}
-                onDragStart={() => setIsCropDragging(true)}
-                onDragEnd={() => setIsCropDragging(false)}
+                onDragStart={() => {
+                  setIsCropDragging(true);
+                  cropGestureStarted();
+                }}
+                onDragEnd={() => {
+                  setIsCropDragging(false);
+                  cropGestureEnded();
+                }}
                 style={{ '--crop-shade': cropShade } as React.CSSProperties}
                 ruleOfThirds={false}
                 renderSelectionAddon={() => {

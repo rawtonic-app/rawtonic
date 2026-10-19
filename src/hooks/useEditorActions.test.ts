@@ -19,6 +19,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
+import { cropGestureEnded, cropGestureStarted } from '../utils/cropGesture';
 import { toast } from 'react-toastify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -561,6 +562,23 @@ describe('Auto straighten', () => {
     expect(outcome).toBe('stale');
     expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
     act(() => useEditorStore.setState({ isRotationActive: false, liveRotation: null }));
+  });
+
+  it('drops the answer when the crop was dragged meanwhile (its frame commits on release)', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    // A side-handle drag starts and ends before the answer.
+    cropGestureStarted();
+    cropGestureEnded();
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('stale');
+    // During a drag nothing is asked.
+    cropGestureStarted();
+    let during: string | undefined;
+    await act(async () => { during = await result.current.handleAutoStraighten(); });
+    expect(during).toBe('stale');
+    cropGestureEnded();
   });
 
   it('runs one analysis for requests made while one is running', async () => {

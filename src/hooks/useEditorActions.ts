@@ -27,6 +27,7 @@ import {
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
+import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
@@ -253,7 +254,8 @@ async function runAutoStraightenOnce(
   // as it is shown.
   flushSliderDraft();
   const { selectedImage, adjustments } = useEditorStore.getState();
-  if (!selectedImage?.isReady || rotatingNow()) return 'stale';
+  const gestures = cropGestures();
+  if (!selectedImage?.isReady || rotatingNow() || gestures.active) return 'stale';
   const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
   let result: { rotation: number; crop: Adjustments['crop'] } | null;
   try {
@@ -267,7 +269,11 @@ async function runAutoStraightenOnce(
     string,
     unknown
   >;
-  if (!isCurrentEditorImage(selectedImage.path) || rotatingNow() || reframingInputs(now) !== asked) return 'stale';
+  // A crop drag since the request (its frame commits on release) too.
+  const cropDragged = cropGestures().started !== gestures.started || cropGestures().active;
+  if (!isCurrentEditorImage(selectedImage.path) || rotatingNow() || cropDragged || reframingInputs(now) !== asked) {
+    return 'stale';
+  }
   if (!result) return 'none';
   setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
   return 'done';
