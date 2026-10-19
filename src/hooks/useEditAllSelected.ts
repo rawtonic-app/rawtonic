@@ -5,7 +5,7 @@ import { Invokes } from '../components/ui/AppProperties';
 import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useEditorActions } from './useEditorActions';
+import { registerEditAllFlush, useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -117,6 +117,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         sendLive();
       });
     }, EDIT_ALL_SETTLE_MS);
+    // A batch edit writes what is pending first and waits for it.
+    const unregisterFlush = registerEditAllFlush(() => {
+      flush.flush();
+      return lastWrite;
+    });
     const unsubscribe = useEditorStore.subscribe((state, previous) => {
       // Another primary: what the last one gathered is written now, before
       // the new one's loader reads its recipe (it may be one of the others).
@@ -153,6 +158,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
     });
     return () => {
       unsubscribe();
+      unregisterFlush();
       // Switching it off keeps what was already done (for the photographs
       // selected when it was done).
       flush.flush();

@@ -3,7 +3,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
-import { waitForPendingMetadataSave } from './useEditorActions';
+import { useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -84,6 +84,31 @@ describe('Edit all selected', () => {
     edit({ exposure: 0.4 });
     act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
     expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.4 } }]);
+  });
+
+  it('writes a pending edit before a batch starts, so the batch results stay', async () => {
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === Invokes.ApplyAutoStraightenToPaths
+        ? { straightened: [], noLines: [], changed: [], failed: [] }
+        : command === Invokes.LoadMetadata
+          ? { adjustments: useEditorStore.getState().adjustments }
+          : undefined,
+    );
+    renderHook(() => useEditAllSelected(true, selection));
+    const { result } = renderHook(useEditorActions);
+    edit({ rotation: 1.5 });
+    // Batch-straighten the selection before the settle time is over.
+    await act(async () => {
+      await result.current.handleAutoStraightenPaths(selection);
+    });
+    const order = vi
+      .mocked(invoke)
+      .mock.calls.map(([command]) => command)
+      .filter((c) => c === Invokes.ApplyAdjustmentsToPaths || c === Invokes.ApplyAutoStraightenToPaths);
+    expect(order).toEqual([Invokes.ApplyAdjustmentsToPaths, Invokes.ApplyAutoStraightenToPaths]);
+    // Nothing is written after the batch.
+    await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
+    expect(pasted()).toHaveLength(1);
   });
 
   it('has the other cells developed again once their recipes are written', async () => {

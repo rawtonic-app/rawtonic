@@ -244,6 +244,19 @@ export function endBeforePeek() {
   );
 }
 
+/** Edit all selected's pending write (useEditAllSelected): flushed and
+ * awaited before a batch, whose results it must not overwrite. */
+let editAllFlush: (() => Promise<unknown> | null) | null = null;
+
+/** Registers Edit all selected's flush (null to unregister); returns its
+ * unregistration. */
+export function registerEditAllFlush(flush: () => Promise<unknown> | null): () => void {
+  editAllFlush = flush;
+  return () => {
+    if (editAllFlush === flush) editAllFlush = null;
+  };
+}
+
 /** Running recipe operations by photograph — those that rewrite recipes in
  * the backend and then reload the open one (batch Auto straighten, Auto lens
  * correction, selection Auto Adjust): the latest one's end per photograph. */
@@ -412,6 +425,9 @@ export function useEditorActions() {
    * one undoable step. Resolves with what was done, or null. */
   const handleAutoStraightenPaths = useCallback(
     async (paths?: string[]): Promise<StraightenReport | null> => {
+      // Edit all selected's pending write goes first: queued behind the
+      // batch it would overwrite the others' results.
+      await editAllFlush?.()?.catch(() => {});
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage } = useEditorStore.getState();
       const pathsToUpdate =
