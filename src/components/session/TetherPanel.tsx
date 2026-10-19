@@ -82,12 +82,14 @@ const LIVE_VIEW_INTERVAL_MS = 1000 / 30;
  * it, see its live view. Photos taken — here or on the camera — are copied
  * into the library's Capture folder with the next-capture settings. */
 export default function TetherPanel({
+  hidden = false,
   directory,
   jobName,
   status,
   onStatus,
   onClose,
 }: {
+  hidden?: boolean;
   directory: string;
   jobName: string;
   status: TetherStatus | null;
@@ -279,6 +281,14 @@ export default function TetherPanel({
     }
   };
 
+  // Live view is shown only while the panel is open.
+  useEffect(() => {
+    if (!hidden || !liveView) return;
+    setLiveView(false);
+    setFrame(null);
+    void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
+  }, [hidden, liveView]);
+
   const setSetting = async (key: string, value: string) => {
     setError("");
     try {
@@ -300,7 +310,7 @@ export default function TetherPanel({
   };
 
   return (
-    <aside className="tether-panel" aria-label={t("session.tether.title")}>
+    <aside className="tether-panel" hidden={hidden} aria-label={t("session.tether.title")}>
       <header className="tether-header">
         <Camera size={15} />
         <h2>{t("session.tether.title")}</h2>

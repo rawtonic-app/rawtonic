@@ -1165,8 +1165,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           {windowControls}
         </div>
       </div>
-      {tetherOpen && session && (
+      {/* Stays mounted while a camera is connected, so ⌘K, capture
+          reports and disconnects work with the panel closed. */}
+      {(tetherOpen || tether) && session && (
         <TetherPanel
+          hidden={!tetherOpen}
           directory={session.directory}
           jobName={session.manifest.name}
           status={tether}

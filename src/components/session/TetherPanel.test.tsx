@@ -46,8 +46,8 @@ afterEach(() => {
   invoke.mockReset();
 });
 
-function Harness({ initial = null as TetherStatus | null, onStatus = vi.fn() }) {
-  return <TetherPanel directory="/jobs/Acme" jobName="Acme" status={initial} onStatus={onStatus} onClose={vi.fn()} />;
+function Harness({ initial = null as TetherStatus | null, onStatus = vi.fn(), hidden = false }) {
+  return <TetherPanel hidden={hidden} directory="/jobs/Acme" jobName="Acme" status={initial} onStatus={onStatus} onClose={vi.fn()} />;
 }
 
 it("connects the camera found on USB for this library, with the next-capture settings", async () => {
@@ -87,6 +87,16 @@ it("fires from the button and the Capture shortcut, shows settings set on the bo
     }),
   );
   expect(screen.getByText(/DSC00001.ARW in the library 530 ms/)).toBeTruthy();
+});
+
+it("a closed panel of a connected camera still fires on the Capture shortcut", async () => {
+  render(<Harness initial={STATUS} hidden />);
+  await waitFor(() => expect(isTetherConnected()).toBe(true));
+  expect(screen.queryByRole("button", { name: "Capture" })).toBeNull();
+  act(() => {
+    window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
+  });
+  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "tether_capture")).toHaveLength(1));
 });
 
 it("an unplugged camera is reported and the panel offers to connect again", async () => {
