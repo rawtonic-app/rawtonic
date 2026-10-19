@@ -114,7 +114,8 @@ pub async fn denoiser(
 }
 
 /// Downloads the files of a Core ML package from the pack and puts the
-/// package back together in the model folder.
+/// package back together in the model folder, each file checked by its
+/// SHA-256 (`ai_processing::assemble_package`).
 #[cfg(target_os = "macos")]
 async fn assemble_package(
     app_handle: &tauri::AppHandle,
@@ -122,26 +123,17 @@ async fn assemble_package(
     package: &Path,
     files: &[(&str, &str, &str)],
 ) -> Result<(), String> {
-    for &(file, inner, sha) in files {
-        crate::ai_processing::download_verified(app_handle, models, file, sha, "AI Denoise model")
-            .await
-            .map_err(|e| e.to_string())?;
-        let target = package.join(inner);
-        let source = models.join(file);
-        let same = std::fs::metadata(&target)
-            .ok()
-            .zip(std::fs::metadata(&source).ok())
-            .is_some_and(|(a, b)| a.len() == b.len());
-        if !same {
-            std::fs::create_dir_all(target.parent().unwrap()).map_err(|e| e.to_string())?;
-            let staging = target.with_extension("partial");
-            std::fs::copy(&source, &staging).map_err(|e| e.to_string())?;
-            std::fs::rename(&staging, &target).map_err(|e| e.to_string())?;
-            // A changed package needs compiling again.
-            let _ = std::fs::remove_dir_all(package.with_extension("mlmodelc"));
-        }
-    }
-    Ok(())
+    crate::ai_processing::assemble_package(
+        app_handle,
+        models,
+        package,
+        files,
+        true,
+        "AI Denoise model",
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| e.to_string())
 }
 
 #[cfg(target_os = "macos")]

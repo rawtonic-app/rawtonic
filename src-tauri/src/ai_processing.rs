@@ -29,13 +29,10 @@ use tokio::sync::Mutex as TokioMutex;
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
     "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-18";
-// The `*_URL` constants name a file of the pack (see `model_url`).
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by
 // scripts/models/export_sam2.py: the photo stretched to 1024 x 1024 in,
 // point/box masks out. It replaced SAM ViT-B on 2026-10-09 (docs/MODELS.md).
-const ENCODER_URL: &str = "sam2.1_tiny_encoder.onnx";
-const DECODER_URL: &str = "sam2.1_tiny_decoder.onnx";
 const ENCODER_FILENAME: &str = "sam2.1_tiny_encoder.onnx";
 const DECODER_FILENAME: &str = "sam2.1_tiny_decoder.onnx";
 const SAM_INPUT_SIZE: u32 = 1024;
@@ -54,7 +51,6 @@ const DECODER_SHA256: &str = "998c1cc053a2aad703fd2519fe890a1f80115b238a0da6d7b5
 // stretched to 1024 × 1024 in, the subject probability out. It replaced
 // U²-Net: on 300 DUTS-TE images IoU 0.883 vs 0.715, boundary F 0.882 vs
 // 0.693 (docs/MODELS.md).
-const SUBJECT_URL: &str = "birefnet_subject.onnx";
 const SUBJECT_FILENAME: &str = "birefnet_subject.onnx";
 const SUBJECT_INPUT_SIZE: u32 = 1024;
 const SUBJECT_SHA256: &str = "1019aa4d150a10830d95d05b0e0e08ed2703c39d3e168dea3333bb0272c16cbf";
@@ -86,17 +82,16 @@ const SUBJECT_CORE_ML_FILES: [(&str, &str, &str); 3] = [
         "3e890026789c6dbe487caff5d28dde5df6baea9e4e117fc8071b07d88b1259ae",
     ),
 ];
-/// Core ML's processors for BiRefNet: CPU and GPU. With the Neural Engine
-/// the first load compiled for about 15 minutes and runs were no faster
-/// (docs/MODELS.md).
+/// Core ML's processors for the mask models (BiRefNet, sky): CPU and GPU.
+/// With the Neural Engine BiRefNet's first load compiled for about 15
+/// minutes and runs were no faster (docs/MODELS.md).
 #[cfg(target_os = "macos")]
-const SUBJECT_CORE_ML_UNITS: rawtonic_denoise::coreml::ComputeUnits =
+const CORE_ML_UNITS: rawtonic_denoise::coreml::ComputeUnits =
     rawtonic_denoise::coreml::ComputeUnits::CpuAndGpu;
 
 // UperNet + ConvNeXt-T on ADE20K (Meta's checkpoint, MIT), exported by
 // scripts/models/export_sky.py: the photo letterboxed into 512 × 512 in, the
 // sky probability out.
-const SKYSEG_URL: &str = "skyseg_upernet_convnext_t.onnx";
 const SKYSEG_FILENAME: &str = "skyseg_upernet_convnext_t.onnx";
 const SKYSEG_INPUT_SIZE: u32 = 512;
 const SKYSEG_SHA256: &str = "e5dc2a0bee8b4cdfbd866d8f811b4390d04ba621644d99de25478338a5b15bbf";
@@ -146,11 +141,9 @@ pub const SIGLIP_EMBED_DIM: usize = 768;
 
 // MI-GAN (Picsart AI Research, MIT weights): the authors' ONNX pipeline,
 // which crops around the hole, inpaints at 512 × 512 and blends back.
-const INPAINT_URL: &str = "migan_pipeline_v2.onnx";
 const INPAINT_FILENAME: &str = "migan_pipeline_v2.onnx";
 const INPAINT_SHA256: &str = "6f1f3530a1a2324b19752018ce756088b07973cda8d7d890034ace5c8a48c40b";
 
-const DEPTH_URL: &str = "depth_anything_v2_vits.onnx";
 const DEPTH_FILENAME: &str = "depth_anything_v2_vits.onnx";
 const DEPTH_INPUT_SIZE: u32 = 518;
 const DEPTH_SHA256: &str = "d2b11a11c1d4a12b47608fa65a17ee9a4c605b55ee1730c8e3b526304f2562be";
@@ -533,26 +526,6 @@ pub(crate) fn models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     get_models_dir(app_handle)
 }
 
-/// Downloads `file` of the model pack into `models_dir` unless it is there
-/// with `expected_hash`.
-pub(crate) async fn download_verified(
-    app_handle: &tauri::AppHandle,
-    models_dir: &Path,
-    file: &str,
-    expected_hash: &str,
-    model_name: &str,
-) -> Result<()> {
-    download_and_verify_model(
-        app_handle,
-        models_dir,
-        file,
-        file,
-        expected_hash,
-        model_name,
-    )
-    .await
-}
-
 /// GPU execution providers for the AI models (rawtonic-onnx): the plugin
 /// libraries bundled beside ONNX Runtime in `resources` (WebGPU), then the
 /// model folder (where `install_models.sh --cuda` puts NVIDIA's CUDA
@@ -897,15 +870,16 @@ fn file_has_sha256(path: &Path, expected_hash: &str) -> Result<bool> {
     Ok(hex_hash == expected_hash)
 }
 
-async fn download_and_verify_model(
+/// Downloads `file` of the model pack into `models_dir` unless it is there
+/// with `expected_hash`.
+pub(crate) async fn download_verified(
     app_handle: &tauri::AppHandle,
     models_dir: &Path,
-    filename: &str,
-    url: &str,
+    file: &str,
     expected_hash: &str,
     model_name: &str,
 ) -> Result<()> {
-    let dest_path = models_dir.join(filename);
+    let dest_path = models_dir.join(file);
     let is_valid = verify_sha256(&dest_path, expected_hash)?;
 
     if !is_valid {
@@ -913,7 +887,7 @@ async fn download_and_verify_model(
             println!("Model {} has incorrect hash. Re-downloading.", model_name);
         }
         let _ = app_handle.emit("ai-model-download-start", model_name);
-        let download_result = download_verified_model(url, &dest_path, expected_hash).await;
+        let download_result = download_verified_model(file, &dest_path, expected_hash).await;
         let _ = app_handle.emit("ai-model-download-finish", model_name);
         download_result?;
     }
@@ -950,15 +924,15 @@ pub async fn get_or_init_sky_model(
     let models_dir = get_models_dir(app_handle)?;
     let path = models_dir.join(SKYSEG_FILENAME);
     let start = std::time::Instant::now();
-    // Core ML when its files are installed (scripts/models/install_models.sh);
-    // they are not fetched on demand until the model pack carries them.
+    // Core ML on macOS: its files (in the model pack) are fetched on a
+    // request that may download, like the ONNX model elsewhere.
     #[cfg(target_os = "macos")]
     if let Some(model) = load_core_ml(
         app_handle,
         &models_dir,
         SKY_CORE_ML_PACKAGE,
         &SKY_CORE_ML_FILES,
-        false,
+        download,
         "sky",
         "Sky Model",
     )
@@ -981,11 +955,10 @@ pub async fn get_or_init_sky_model(
     }
     ensure_local_runtime()?;
     if download {
-        download_and_verify_model(
+        download_verified(
             app_handle,
             &models_dir,
             SKYSEG_FILENAME,
-            SKYSEG_URL,
             SKYSEG_SHA256,
             "Sky Model",
         )
@@ -1030,11 +1003,10 @@ pub async fn get_or_init_depth_model(
     }
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
+    download_verified(
         app_handle,
         &models_dir,
         DEPTH_FILENAME,
-        DEPTH_URL,
         DEPTH_SHA256,
         "Depth Model",
     )
@@ -1101,11 +1073,11 @@ pub async fn get_or_init_sam_models(
     }
     let generation = crate::ai_lifecycle::LIFECYCLE.generation();
     let models_dir = get_models_dir(app_handle)?;
-    for (file, url, hash, name) in [
-        (ENCODER_FILENAME, ENCODER_URL, ENCODER_SHA256, "SAM Encoder"),
-        (DECODER_FILENAME, DECODER_URL, DECODER_SHA256, "SAM Decoder"),
+    for (file, hash, name) in [
+        (ENCODER_FILENAME, ENCODER_SHA256, "SAM Encoder"),
+        (DECODER_FILENAME, DECODER_SHA256, "SAM Decoder"),
     ] {
-        download_and_verify_model(app_handle, &models_dir, file, url, hash, name).await?;
+        download_verified(app_handle, &models_dir, file, hash, name).await?;
     }
     let start = std::time::Instant::now();
     let models = Arc::new(SamModels {
@@ -1196,11 +1168,10 @@ pub async fn get_or_init_subject_model(
             ensure_local_runtime()?;
             let path = models_dir.join(SUBJECT_FILENAME);
             if download {
-                download_and_verify_model(
+                download_verified(
                     app_handle,
                     &models_dir,
                     SUBJECT_FILENAME,
-                    SUBJECT_URL,
                     SUBJECT_SHA256,
                     "Subject Model",
                 )
@@ -1227,7 +1198,7 @@ pub async fn get_or_init_subject_model(
 /// BiRefNet on Core ML when its files are installed (with `download`,
 /// fetched first): `None` when they are missing or Core ML fails, and the
 /// ONNX model is used instead. The files are linked into the package, which
-/// Core ML compiles once into `birefnet_subject.mlmodelc` beside it.
+/// Core ML compiles once into `birefnet_fp16.mlmodelc` beside it.
 #[cfg(target_os = "macos")]
 async fn load_subject_core_ml(
     app_handle: &tauri::AppHandle,
@@ -1249,6 +1220,36 @@ async fn load_subject_core_ml(
     })
 }
 
+/// Puts the files of a Core ML program of the model pack (`files`: pack
+/// file, place in the package, SHA-256) into `package`, each checked by its
+/// SHA-256 (with `download`, fetched first when missing). `Ok(false)` when
+/// a file is missing and `download` is false.
+#[cfg(target_os = "macos")]
+pub(crate) async fn assemble_package(
+    app_handle: &tauri::AppHandle,
+    models_dir: &Path,
+    package: &Path,
+    files: &[(&str, &str, &str)],
+    download: bool,
+    model_name: &str,
+) -> Result<bool> {
+    for &(file, inner, sha) in files {
+        let source = models_dir.join(file);
+        if !verify_sha256(&source, sha).unwrap_or(false) {
+            if !download {
+                return Ok(false);
+            }
+            download_verified(app_handle, models_dir, file, sha, model_name).await?;
+        }
+        // A new hard link changes the file's status-change time: keep the
+        // check just made, or the next launch hashes it again.
+        if link_into_package(&source, &package.join(inner), sha)? {
+            verified_files::refresh(&source, sha);
+        }
+    }
+    Ok(true)
+}
+
 /// A Core ML program of the model pack (`files`: pack file, place in the
 /// package, SHA-256), assembled into `package` in the models folder and
 /// loaded on the CPU and GPU: `None` when its files are missing (with
@@ -1265,40 +1266,19 @@ async fn load_core_ml(
 ) -> Option<rawtonic_denoise::coreml::CoreMlModel> {
     let package = models_dir.join(package);
     let start = std::time::Instant::now();
-    let mut verify_ms = 0;
-    let mut link_ms = 0;
-    for &(file, inner, sha) in files {
-        let source = models_dir.join(file);
-        let verify = std::time::Instant::now();
-        let verified = verify_sha256(&source, sha).unwrap_or(false);
-        verify_ms += verify.elapsed().as_millis();
-        if !verified {
-            if !download {
-                return None;
-            }
-            if let Err(e) =
-                download_and_verify_model(app_handle, models_dir, file, file, sha, model_name).await
-            {
-                log::warn!("AI {label} mask: no Core ML model ({e}); using ONNX Runtime");
-                return None;
-            }
-        }
-        let link = std::time::Instant::now();
-        let linked = link_into_package(&source, &package.join(inner), sha);
-        link_ms += link.elapsed().as_millis();
-        match linked {
-            // A new hard link changes the file's status-change time: keep
-            // the check just made, or the next launch hashes it again.
-            Ok(true) => verified_files::refresh(&source, sha),
-            Ok(false) => {}
-            Err(e) => {
-                log::warn!(
-                    "AI {label} mask: Core ML package not assembled ({e}); using ONNX Runtime"
-                );
-                return None;
-            }
+    match assemble_package(
+        app_handle, models_dir, &package, files, download, model_name,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => return None,
+        Err(e) => {
+            log::warn!("AI {label} mask: no Core ML model ({e}); using ONNX Runtime");
+            return None;
         }
     }
+    let files_ms = start.elapsed().as_millis();
     let loaded = tokio::task::spawn_blocking(move || {
         let compiled = rawtonic_denoise::coreml::compiled_path(&package)
             .join("coremldata.bin")
@@ -1308,7 +1288,7 @@ async fn load_core_ml(
         // page-by-page reads (0.53-0.67 s instead of 0.26 s for Subject).
         let prefetch = rawtonic_denoise::coreml::prefetch_device_cache(&package);
         let load = std::time::Instant::now();
-        let model = rawtonic_denoise::coreml::CoreMlModel::load(&package, SUBJECT_CORE_ML_UNITS);
+        let model = rawtonic_denoise::coreml::CoreMlModel::load(&package, CORE_ML_UNITS);
         let load_ms = load.elapsed().as_millis();
         let prefetched = match prefetch {
             Some(reader) if reader.is_finished() => match reader.join() {
@@ -1327,7 +1307,7 @@ async fn load_core_ml(
     .await;
     if let Ok((_, compiled, load_ms, prefetched, qos)) = &loaded {
         log::info!(
-            "AI {label} mask: Core ML load: files checked {verify_ms} ms, package {link_ms} ms, \
+            "AI {label} mask: Core ML load: package files {files_ms} ms, \
              Core ML {load_ms} ms ({}, {prefetched}, thread QoS {qos}), total {} ms",
             if *compiled {
                 "compiled model found"
@@ -1452,7 +1432,7 @@ pub async fn get_or_init_tag_models(
         ));
     }
     for (file, hash, name) in files {
-        download_and_verify_model(app_handle, &models_dir, file, file, hash, name).await?;
+        download_verified(app_handle, &models_dir, file, hash, name).await?;
     }
 
     let vision = rawtonic_onnx::Model::load(
@@ -1539,11 +1519,10 @@ pub async fn get_or_init_inpaint_model(
     }
 
     let models_dir = get_models_dir(app_handle)?;
-    download_and_verify_model(
+    download_verified(
         app_handle,
         &models_dir,
         INPAINT_FILENAME,
-        INPAINT_URL,
         INPAINT_SHA256,
         "Inpainting Model",
     )
@@ -3004,7 +2983,7 @@ mod tool_tests {
                 backend: super::SkyBackend::CoreMl(
                     rawtonic_denoise::coreml::CoreMlModel::load(
                         std::path::Path::new(&package),
-                        super::SUBJECT_CORE_ML_UNITS,
+                        super::CORE_ML_UNITS,
                     )
                     .unwrap(),
                 ),
@@ -3079,11 +3058,11 @@ mod tool_tests {
     #[test]
     fn models_come_from_the_pack() {
         assert_eq!(
-            super::model_url(super::ENCODER_URL),
+            super::model_url(super::ENCODER_FILENAME),
             format!("{}/sam2.1_tiny_encoder.onnx", super::MODEL_PACK_URL)
         );
         assert_eq!(
-            super::model_url(super::SKYSEG_URL),
+            super::model_url(super::SKYSEG_FILENAME),
             format!("{}/skyseg_upernet_convnext_t.onnx", super::MODEL_PACK_URL)
         );
     }
@@ -3162,6 +3141,27 @@ mod tool_tests {
         std::fs::write(&list, text.replacen(&good, &other, 1)).unwrap();
         super::verified_files::reset_memory();
         assert!(super::verify_sha256(&model, &other).unwrap());
+    }
+
+    /// A package file of the right size but other content (a stale or
+    /// damaged copy) is replaced by the checked file, and the compiled
+    /// model goes with it. AI Denoise's packages compared sizes only.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_package_file_of_the_same_size_but_other_content_is_replaced() {
+        use sha2::Digest;
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("x_coreml_weight.bin");
+        std::fs::write(&model, b"weights").unwrap();
+        let good = hex::encode(sha2::Sha256::digest(b"weights"));
+        let target = dir.path().join("x.mlpackage/Data/weights/weight.bin");
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"stale!!").unwrap();
+        let compiled = dir.path().join("x.mlmodelc");
+        std::fs::create_dir_all(&compiled).unwrap();
+        assert!(super::link_into_package(&model, &target, &good).unwrap());
+        assert_eq!(std::fs::read(&target).unwrap(), b"weights");
+        assert!(!compiled.exists(), "the compiled model is built again");
     }
 
     #[test]
@@ -3686,7 +3686,7 @@ mod tool_tests {
         let units = match std::env::var("SUBJECT_UNITS").as_deref() {
             Ok("all") => ComputeUnits::All,
             Ok("ne") => ComputeUnits::CpuAndNeuralEngine,
-            _ => super::SUBJECT_CORE_ML_UNITS,
+            _ => super::CORE_ML_UNITS,
         };
         let mut loads = Vec::new();
         let mut core_ml = None;
@@ -3761,11 +3761,8 @@ mod tool_tests {
         let out = std::path::PathBuf::from(var("AI_OUT"));
         let load = |key: &str| super::SubjectModel {
             backend: super::SubjectBackend::CoreMl(
-                CoreMlModel::load(
-                    &std::path::PathBuf::from(var(key)),
-                    super::SUBJECT_CORE_ML_UNITS,
-                )
-                .unwrap(),
+                CoreMlModel::load(&std::path::PathBuf::from(var(key)), super::CORE_ML_UNITS)
+                    .unwrap(),
             ),
         };
         let (a, b) = (load("SUBJECT_COREML_A"), load("SUBJECT_COREML_B"));
@@ -3870,11 +3867,10 @@ mod tool_tests {
             println!("cycle {cycle}");
             let (mut subject, mut sky) = (None, None);
             step("load Subject", &mut || {
-                subject =
-                    Some(CoreMlModel::load(&subject_package, super::SUBJECT_CORE_ML_UNITS).unwrap())
+                subject = Some(CoreMlModel::load(&subject_package, super::CORE_ML_UNITS).unwrap())
             });
             step("load Sky", &mut || {
-                sky = Some(CoreMlModel::load(&sky_package, super::SUBJECT_CORE_ML_UNITS).unwrap())
+                sky = Some(CoreMlModel::load(&sky_package, super::CORE_ML_UNITS).unwrap())
             });
             for run in 1..=2 {
                 step(&format!("Subject run {run}"), &mut || {
@@ -3965,11 +3961,7 @@ mod tool_tests {
                 .unwrap();
         let warm = std::env::var("WARM_UP").as_deref() == Ok("1");
         let load = |key: &str| {
-            CoreMlModel::load(
-                std::path::Path::new(&var(key)),
-                super::SUBJECT_CORE_ML_UNITS,
-            )
-            .unwrap()
+            CoreMlModel::load(std::path::Path::new(&var(key)), super::CORE_ML_UNITS).unwrap()
         };
         let zeros = |size: u32| ndarray::Array4::<f32>::zeros((1, 3, size as usize, size as usize));
         match var("WARM_MODEL").as_str() {
