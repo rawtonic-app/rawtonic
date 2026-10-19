@@ -392,3 +392,14 @@ export const REFRAMING_KEYS = [
 export function reframingInputs(adjustments: Record<string, unknown>): string {
   return JSON.stringify(REFRAMING_KEYS.map((key) => adjustments[key] ?? null));
 }
+
+/** Whether the crop tool, opening on a photograph (first time, or another
+ * photograph), keeps the recipe's crop: any crop that lies inside the frame
+ * at its rotation (a saved one, Auto straighten's). Only a crop outside it is
+ * fitted again. */
+export const keepsCropOnEntry = (
+  crop: Crop | null | undefined,
+  orientedW: number,
+  orientedH: number,
+  rotation: number,
+): boolean => !!crop && crop.width > 0 && crop.height > 0 && isCropWithinBounds(crop, orientedW, orientedH, rotation);

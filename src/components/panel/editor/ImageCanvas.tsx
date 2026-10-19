@@ -2968,6 +2968,9 @@ const ImageCanvas = memo(
       }
 
       isStraightening.current = true;
+      // A line being drawn changes the rotation on release (Auto's pending
+      // answer is out of date then).
+      cropGesture.start();
       const pos = e.target.getStage()!.getPointerPosition()!;
       setStraightenLine({ start: pos, end: pos });
     };
@@ -2987,6 +2990,7 @@ const ImageCanvas = memo(
         return;
       }
       isStraightening.current = false;
+      cropGesture.end();
       if (
         !straightenLine ||
         (straightenLine.start.x === straightenLine.end.x && straightenLine.start.y === straightenLine.end.y)
@@ -3005,6 +3009,7 @@ const ImageCanvas = memo(
     const handleStraightenMouseLeave = () => {
       if (isStraightening.current) {
         isStraightening.current = false;
+        cropGesture.end();
         setStraightenLine(null);
       }
     };

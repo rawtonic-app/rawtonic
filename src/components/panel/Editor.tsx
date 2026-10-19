@@ -6,12 +6,14 @@ import { invoke } from '@tauri-apps/api/core';
 
 import { ImageDimensions, RenderSize, useImageRenderSize } from '../../hooks/useImageRenderSize';
 import { Adjustments, MaskContainer, INITIAL_ADJUSTMENTS } from '../../utils/adjustments';
+import { useCropGestures } from '../../utils/cropGesture';
 import {
   calculateCenteredCrop,
   getOrientedDimensions,
   isCropWithinBounds,
   calculateStraightenAngle,
   calculateAutoCropForRotation,
+  keepsCropOnEntry,
   fitCropTowards,
   moveCropInsideBounds,
   zoomCrop,
@@ -167,6 +169,8 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   const [crop, setCrop] = useState<Crop | null>(null);
   const prevCropParams = useRef<{ rotation: number; aspectRatio: number | null; orientationSteps: number } | null>(null);
+  // The photograph the crop tool last worked on.
+  const prevCropPath = useRef<string | null>(null);
   const lastValidCropRef = useRef<PercentCrop | null>(null);
   const cropResizeStartRef = useRef<PercentCrop | null>(null);
 
@@ -182,6 +186,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     end: { x: number; y: number };
   } | null>(null);
   const straightenDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const straightenGesture = useCropGestures();
   const straightenDragCurrentRef = useRef<{ x: number; y: number } | null>(null);
   const isStraightenDraggingRef = useRef(false);
 
@@ -885,6 +890,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         straightenDragStartRef.current = { x, y };
         straightenDragCurrentRef.current = { x, y };
         isStraightenDraggingRef.current = false;
+        // Changes the rotation on release (Auto's pending answer is out of
+        // date then).
+        straightenGesture.start();
         e.currentTarget.setPointerCapture(e.pointerId);
         return;
       }
@@ -1098,6 +1106,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
         straightenDragStartRef.current = null;
         straightenDragCurrentRef.current = null;
+        straightenGesture.end();
         isStraightenDraggingRef.current = false;
         setStraightenDragLine(null);
 
@@ -1800,7 +1809,21 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     const auto = useEditorStore.getState().autoStraightened;
     if (!isDraggingRotation && auto && currentAdjCrop === auto.crop && rotation === auto.rotation) {
       prevCropParams.current = { rotation, aspectRatio, orientationSteps };
+      prevCropPath.current = selectedImage.path;
       return;
+    }
+    // Opening the tool (first time, or on another photograph): a saved crop
+    // that fits the frame at its rotation stays as it is (an Auto crop after
+    // a restart among them); only one that does not is fitted again.
+    const opening = !prevCropParams.current || prevCropPath.current !== selectedImage.path;
+    prevCropPath.current = selectedImage.path;
+    if (opening && !isDraggingRotation) {
+      const oriented = getOrientedDimensions(selectedImage.width, selectedImage.height, orientationSteps);
+      if (keepsCropOnEntry(currentAdjCrop, oriented.width, oriented.height, rotation)) {
+        prevCropParams.current = { rotation, aspectRatio, orientationSteps };
+        return;
+      }
+      prevCropParams.current = null;
     }
     const needsRecalc = currentAdjCrop === null || geometryChanged || isDraggingRotation;
 
