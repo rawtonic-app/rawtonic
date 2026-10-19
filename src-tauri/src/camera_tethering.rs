@@ -357,6 +357,8 @@ fn reconnect_lost(
     wanted: impl Fn() -> bool,
     connected: impl FnOnce(TetherStatus),
 ) {
+    // The lost connection this reconnect is for (set at its first look).
+    let mut for_lost: Option<u64> = None;
     loop {
         let attempt = connect_attempt();
         // Checked under the transition lock before touching the state: a
@@ -368,13 +370,18 @@ fn reconnect_lost(
         let (client, session, model, serial, config) = {
             let mut helper = state.lock().unwrap();
             let Some(h) = helper.as_mut() else { return };
-            // Not connected any more; kept for connecting it again.
-            if let Some(connection) = h.connection.take() {
-                h.lost = Some(connection);
+            // Only a lost connection, and only the one this reconnect is
+            // for: a connection installed meanwhile is never taken.
+            if h.connection.is_some() {
+                return;
             }
             let Some(c) = h.lost.as_ref() else {
                 return;
             };
+            if for_lost.is_some_and(|id| id != c.id) {
+                return;
+            }
+            for_lost = Some(c.id);
             h.connecting = Some(attempt);
             h.lost_while_connecting = false;
             (
@@ -1400,6 +1407,35 @@ mod tests {
             Some(u64::MAX),
             "the newer connect's mark stays"
         );
+    }
+
+    #[test]
+    fn a_reconnect_started_after_a_newer_connect_leaves_that_connection_alone() {
+        let (state, _client) = mock_helper(&MockSpec::default());
+        // The user's connect finished first; the old camera's loss started
+        // this reconnect with the new choice count (wanted stays true).
+        let newer = Connection::new(
+            "/b".into(),
+            CameraStatus::default(),
+            Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "x"),
+                free_camera_copies: true,
+            })),
+        );
+        let id = newer.id;
+        state.lock().unwrap().as_mut().unwrap().connection = Some(newer);
+        reconnect_lost(
+            &state,
+            &Mutex::new(()),
+            Duration::ZERO,
+            || true,
+            |_| panic!("connected"),
+        );
+        let helper = state.lock().unwrap();
+        let helper = helper.as_ref().unwrap();
+        assert_eq!(helper.connection.as_ref().map(|c| c.id), Some(id));
+        assert!(helper.lost.is_none() && helper.connecting.is_none());
     }
 
     #[test]

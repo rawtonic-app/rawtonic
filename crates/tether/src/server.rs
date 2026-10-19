@@ -47,8 +47,8 @@ struct Open {
     waiting: VecDeque<Instant>,
     /// Files downloaded from this camera.
     downloaded: u64,
-    /// The last file downloaded, with its length and content hash.
-    last: Option<(CameraFile, usize, u64)>,
+    /// Each camera file's last published download: length and content hash.
+    published: std::collections::HashMap<CameraFile, (usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
     /// The last exposure a file was matched to: its file name without the
@@ -259,7 +259,7 @@ impl<W: Write> Server<W> {
                     live_view: false,
                     waiting: VecDeque::new(),
                     downloaded: 0,
-                    last: None,
+                    published: Default::default(),
                     downloads: Default::default(),
                     exposure: None,
                     memory_only,
@@ -447,12 +447,14 @@ impl<W: Write> Server<W> {
         let downloaded = open.camera.download(&file);
         // The same photo reported twice (libgphoto2's Fujifilm event polling
         // finds it in the object list and the camera's ObjectAdded names it
-        // again): same name and same bytes as the last one. A new photo
-        // under a reused name has other bytes and is kept.
+        // again; RAW and JPEG may be repeated in turn): same file and same
+        // bytes as its last download. A new photo under a reused name has
+        // other bytes and is kept.
         if let Ok((data, _)) = &downloaded
-            && open.last.as_ref().is_some_and(|(last, len, hash)| {
-                *last == file && *len == data.len() && *hash == content_hash(data)
-            })
+            && open
+                .published
+                .get(&file)
+                .is_some_and(|(len, hash)| *len == data.len() && *hash == content_hash(data))
         {
             log::debug!("{} reported again; already downloaded", file.name);
             return Ok(());
@@ -517,7 +519,7 @@ impl<W: Write> Server<W> {
         };
         // Only a photo that is safely in the transfer folder counts as
         // downloaded (a repeat of a failed one is taken again).
-        open.last = Some((file.clone(), identity.0, identity.1));
+        open.published.insert(file.clone(), identity);
         open.downloads.insert(file.clone(), shot);
         if open.camera.abort_at(AbortPoint::BeforeEvent, shot) {
             std::process::exit(70);
