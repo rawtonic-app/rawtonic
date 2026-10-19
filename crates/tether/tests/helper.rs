@@ -770,6 +770,30 @@ fn a_killed_helper_fails_waiting_requests_at_once() {
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
+/// A helper that ended is reaped even when the end of its output was heard
+/// first (else it stays a zombie while the app keeps its client).
+#[cfg(unix)]
+#[test]
+fn an_ended_helper_is_reaped() {
+    let dir = tempfile::tempdir().unwrap();
+    let helper = start(&MockSpec::default(), dir.path());
+    let pid = helper.client.pid().to_string();
+    let _ = helper.client.request(Request::Shutdown, WAIT);
+    assert!(helper.exited().is_some());
+    let state = || {
+        let out = std::process::Command::new("ps")
+            .args(["-o", "stat=", "-p", &pid])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !state().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(state(), "", "the ended helper is still a process (zombie)");
+}
+
 #[test]
 fn live_view_frames_arrive_while_on() {
     let dir = tempfile::tempdir().unwrap();
