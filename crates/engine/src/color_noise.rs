@@ -541,9 +541,10 @@ impl Tuning {
     }
 
     /// The share of [`Tuning::speck_swap`] applied: the finest level's
-    /// threshold over its value at Amount 25, Detail and Smoothness 50, at
-    /// most 1. Below Color 25, above Detail 50 or below Smoothness 50 the
-    /// swap weakens with the rest of the filter and is gone at Color 0.
+    /// threshold over its value at Amount 25 and Detail 50, at most 1.
+    /// Below Color 25 or above Detail 50 the swap weakens with the rest of
+    /// the filter and is gone at Color 0 (Smoothness leaves the finest
+    /// threshold, and so the swap, unchanged).
     pub fn speck_strength(&self, thresholds: &[f32; LEVELS], noise: &[f32; LEVELS]) -> f32 {
         let base = noise[0] * self.multiple(0, noise[0]);
         if self.speck_swap <= 0.0 || base <= 0.0 {
