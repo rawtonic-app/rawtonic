@@ -19,9 +19,10 @@ AVIF sources are decoded with [rav1d](https://github.com/memorysafety/rav1d) 1.1
 ## Local dependency patch
 `vendor/little_exif` contains little_exif 0.6.23, Copyright Tobias J. Prisching and contributors, MIT OR Apache-2.0; both license texts are preserved there. Only two dependencies were changed: quick-xml from 0.37.5 to 0.41.0 to remove known XML denial-of-service advisories, and the unmaintained `paste` macro crate for its maintained drop-in successor `pastey` 0.2 (MIT OR Apache-2.0; `use pastey::paste`) (ADR 0005). It is patched through the workspace Cargo.toml.
 
-Three more crates are patched the same way to keep unmaintained macro crates out of the build (ADR 0005):
+More crates are patched the same way to keep unmaintained crates out of the build (ADR 0005):
 - `vendor/paste` is a Rawtonic stand-in under the `paste` 1.0.15 name for crates that still depend on `paste` (pulp, through image → exr). It contains no code of `paste`; it re-exports the macros of `pastey` 0.2 (Aditya Kumar and David Tolnay, MIT OR Apache-2.0; both license texts kept there).
 - `vendor/glib-macros` contains glib-macros 0.18.5 and `vendor/gtk3-macros` gtk3-macros 0.18.2 (Copyright the gtk-rs Project Developers, MIT; LICENSE and COPYRIGHT preserved), the proc-macro crates of the GTK 3 bindings Tauri uses on Linux. Both no longer depend on proc-macro-error (or its fork proc-macro-error2, also unmaintained): the few parts they used are reimplemented in each crate's `src/abort.rs` (MIT, like the crates); the changes are listed in their `RAWTONIC_PATCH.md`.
+- `vendor/tauri-plugin-single-instance` contains tauri-plugin-single-instance 2.5.4 (Copyright Tauri Programme within The Commons Conservancy, Apache-2.0 OR MIT; both license texts and LICENSE.spdx preserved). Its Linux D-Bus code uses zbus 6 instead of zbus 5, whose zvariant, zvariant_derive and zbus_names are unmaintained since zbus 6 merged them; the changes are listed in its `RAWTONIC_PATCH.md`.
 
 Original Rawtonic work permits AGPL v3 or later. Inherited AGPL-3.0-only components, including jxl-encoder, retain their original terms; the combined development distribution uses AGPL v3. Our license does not relicense those dependencies.
 
@@ -102,15 +103,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | as-slice | 0.2.1 | MIT OR Apache-2.0 |
 | ash | 0.38.0+1.3.281 | MIT OR Apache-2.0 |
 | assert_matches | 1.5.0 | MIT/Apache-2.0 |
-| async-broadcast | 0.7.2 | MIT OR Apache-2.0 |
-| async-channel | 2.5.0 | Apache-2.0 OR MIT |
-| async-executor | 1.14.0 | Apache-2.0 OR MIT |
-| async-io | 2.6.0 | Apache-2.0 OR MIT |
-| async-lock | 3.4.2 | Apache-2.0 OR MIT |
-| async-process | 2.5.0 | Apache-2.0 OR MIT |
-| async-recursion | 1.1.1 | MIT OR Apache-2.0 |
-| async-signal | 0.2.14 | Apache-2.0 OR MIT |
-| async-task | 4.7.1 | Apache-2.0 OR MIT |
 | async-trait | 0.1.92 | MIT OR Apache-2.0 |
 | atk | 0.18.2 | MIT |
 | atk-sys | 0.18.2 | MIT |
@@ -135,14 +127,13 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | bit-vec | 0.9.1 | Apache-2.0 OR MIT |
 | bit_field | 0.10.3 | Apache-2.0/MIT |
 | bitflags | 1.3.2 | MIT/Apache-2.0 |
-| bitflags | 2.13.1 | MIT OR Apache-2.0 |
+| bitflags | 2.13.2 | MIT OR Apache-2.0 |
 | bitreader | 0.3.11 | MIT OR Apache-2.0 |
 | bitstream-io | 4.10.0 | MIT/Apache-2.0 |
 | blake3 | 1.8.7 | CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception |
 | block-buffer | 0.10.4 | MIT OR Apache-2.0 |
 | block-buffer | 0.12.1 | MIT OR Apache-2.0 |
 | block2 | 0.6.2 | MIT |
-| blocking | 1.6.2 | Apache-2.0 OR MIT |
 | brotli | 8.0.4 | BSD-3-Clause AND MIT |
 | brotli | 9.0.0 | BSD-3-Clause AND MIT |
 | brotli-decompressor | 5.0.3 | BSD-3-Clause/MIT |
@@ -185,7 +176,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | colorchoice | 1.0.5 | MIT OR Apache-2.0 |
 | combine | 4.6.7 | MIT |
 | compact_str | 0.9.1 | MIT |
-| concurrent-queue | 2.5.0 | Apache-2.0 OR MIT |
 | const-oid | 0.10.2 | Apache-2.0 OR MIT |
 | constant_time_eq | 0.4.2 | CC0-1.0 OR MIT-0 OR Apache-2.0 |
 | cookie | 0.18.2 | MIT OR Apache-2.0 |
@@ -251,8 +241,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | encoding_rs | 0.8.35 | (Apache-2.0 OR MIT) AND BSD-3-Clause |
 | endi | 1.1.1 | MIT |
 | enough | 0.4.4 | MIT OR Apache-2.0 |
-| enumflags2 | 0.7.12 | MIT OR Apache-2.0 |
-| enumflags2_derive | 0.7.12 | MIT OR Apache-2.0 |
 | enumn | 0.1.14 | MIT OR Apache-2.0 |
 | env_filter | 2.0.0 | MIT OR Apache-2.0 |
 | env_logger | 0.11.11 | MIT OR Apache-2.0 |
@@ -262,8 +250,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | erased-serde | 0.4.10 | MIT OR Apache-2.0 |
 | errno | 0.3.14 | MIT OR Apache-2.0 |
 | esaxx-rs | 0.1.10 | Apache-2.0 |
-| event-listener | 5.4.2 | Apache-2.0 OR MIT |
-| event-listener-strategy | 0.5.4 | Apache-2.0 OR MIT |
 | exr | 1.74.2 | BSD-3-Clause |
 | fallible-iterator | 0.3.0 | MIT/Apache-2.0 |
 | fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 |
@@ -291,7 +277,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | futures-core | 0.3.34 | MIT OR Apache-2.0 |
 | futures-executor | 0.3.34 | MIT OR Apache-2.0 |
 | futures-io | 0.3.34 | MIT OR Apache-2.0 |
-| futures-lite | 2.6.1 | Apache-2.0 OR MIT |
 | futures-macro | 0.3.34 | MIT OR Apache-2.0 |
 | futures-sink | 0.3.34 | MIT OR Apache-2.0 |
 | futures-task | 0.3.34 | MIT OR Apache-2.0 |
@@ -340,7 +325,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | hashlink | 0.12.2 | MIT OR Apache-2.0 |
 | heck | 0.4.1 | MIT OR Apache-2.0 |
 | heck | 0.5.0 | MIT OR Apache-2.0 |
-| hermit-abi | 0.5.2 | MIT OR Apache-2.0 |
 | hex | 0.4.3 | MIT OR Apache-2.0 |
 | hexf-parse | 0.2.1 | CC0-1.0 |
 | html5ever | 0.39.0 | MIT OR Apache-2.0 |
@@ -538,7 +522,6 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | page_size | 0.6.0 | MIT/Apache-2.0 |
 | pango | 0.18.3 | MIT |
 | pango-sys | 0.18.0 | MIT |
-| parking | 2.2.1 | Apache-2.0 OR MIT |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 |
 | parking_lot_core | 0.9.12 | MIT OR Apache-2.0 |
 | paste | 1.0.15 | MIT OR Apache-2.0 |
@@ -551,12 +534,10 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | phf_macros | 0.13.1 | MIT |
 | phf_shared | 0.13.1 | MIT |
 | pin-project-lite | 0.2.17 | Apache-2.0 OR MIT |
-| piper | 0.2.5 | MIT OR Apache-2.0 |
 | pkg-config | 0.3.34 | MIT OR Apache-2.0 |
 | plist | 1.10.0 | MIT |
 | png | 0.17.16 | MIT OR Apache-2.0 |
 | png | 0.18.1 | MIT OR Apache-2.0 |
-| polling | 3.11.0 | Apache-2.0 OR MIT |
 | pollster | 1.0.1 | Apache-2.0/MIT |
 | portable-atomic | 1.15.0 | Apache-2.0 OR MIT |
 | portable-atomic-util | 0.2.7 | Apache-2.0 OR MIT |
@@ -647,7 +628,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 |
 | rustdct | 0.7.1 | MIT OR Apache-2.0 |
 | rustfft | 6.4.1 | MIT OR Apache-2.0 |
-| rustix | 1.1.4 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
+| rustix | 1.1.5 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT |
 | rustls | 0.23.46 | Apache-2.0 OR ISC OR MIT |
 | rustls-native-certs | 0.8.4 | Apache-2.0 OR ISC OR MIT |
 | rustls-pki-types | 1.15.1 | MIT OR Apache-2.0 |
@@ -739,7 +720,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | tauri-plugin-os | 2.3.2 | Apache-2.0 OR MIT |
 | tauri-plugin-process | 2.3.1 | Apache-2.0 OR MIT |
 | tauri-plugin-shell | 2.3.5 | Apache-2.0 OR MIT |
-| tauri-plugin-single-instance | 2.4.3 | Apache-2.0 OR MIT |
+| tauri-plugin-single-instance | 2.5.4 | Apache-2.0 OR MIT |
 | tauri-plugin-wayland-nvidia-quirk | 0.1.0 | Apache-2.0 |
 | tauri-runtime | 2.12.1 | Apache-2.0 OR MIT |
 | tauri-runtime-wry | 2.12.1 | Apache-2.0 OR MIT |
@@ -763,7 +744,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | tinyvec_macros | 0.1.1 | MIT OR Apache-2.0 OR Zlib |
 | to_method | 1.1.0 | CC0-1.0 |
 | tokenizers | 0.23.1 | Apache-2.0 |
-| tokio | 1.53.1 | MIT |
+| tokio | 1.53.3 | MIT |
 | tokio-macros | 2.7.2 | MIT |
 | tokio-rustls | 0.26.4 | MIT OR Apache-2.0 |
 | tokio-util | 0.7.19 | MIT |
@@ -912,9 +893,9 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | y4m | 0.8.0 | MIT |
 | yoke | 0.8.3 | Unicode-3.0 |
 | yoke-derive | 0.8.2 | Unicode-3.0 |
-| zbus | 5.19.0 | MIT |
-| zbus_macros | 5.19.0 | MIT |
-| zbus_names | 4.3.4 | MIT |
+| zbus | 6.0.0 | MIT |
+| zbus_macros | 6.0.0 | MIT |
+| zbus_utils | 6.0.0 | MIT |
 | zcheapstr | 1.1.0 | MIT |
 | zenyuv | 0.1.3 | MIT OR Apache-2.0 |
 | zerocopy | 0.7.35 | BSD-2-Clause OR Apache-2.0 OR MIT |
@@ -928,12 +909,10 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | zerovec | 0.11.8 | Unicode-3.0 |
 | zerovec-derive | 0.11.6 | Unicode-3.0 |
 | zmij | 1.0.23 | MIT |
+| zruntime | 0.2.0 | MIT |
 | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib |
 | zune-inflate | 0.2.54 | MIT OR Apache-2.0 OR Zlib |
 | zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib |
-| zvariant | 5.15.0 | MIT |
-| zvariant_derive | 5.15.0 | MIT |
-| zvariant_utils | 4.2.0 | MIT |
 
 ## Resolved npm dependencies (including build and test tools)
 

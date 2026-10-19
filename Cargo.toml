@@ -57,6 +57,9 @@ little_exif = { path = "vendor/little_exif" }
 paste = { path = "vendor/paste" }
 glib-macros = { path = "vendor/glib-macros" }
 gtk3-macros = { path = "vendor/gtk3-macros" }
+# zvariant, zvariant_derive and zbus_names (unmaintained, merged into zbus 6):
+# tauri-plugin-single-instance with its Linux D-Bus code on zbus 6.
+tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
 
 [patch."https://github.com/CyberTimon/RapidRAW-DngLab.git"]
 rawler = { path = "third_party/rawler" }
