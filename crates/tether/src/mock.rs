@@ -40,6 +40,9 @@ pub struct MockSpec {
     /// The helper stops dead here (crash tests).
     pub abort_mid_download: Option<u64>,
     pub abort_before_event: Option<u64>,
+    /// The camera keeps each shot in a USB transfer queue of this many
+    /// entries until it is released, and refuses to fire when it is full.
+    pub queue_limit: Option<usize>,
     /// Each file is reported a second time right after (as libgphoto2 does
     /// for Fujifilm bodies: object-list polling and the camera's event).
     pub report_twice: bool,
@@ -69,6 +72,7 @@ impl Default for MockSpec {
             read_only: vec![],
             abort_mid_download: None,
             abort_before_event: None,
+            queue_limit: None,
             report_twice: false,
             preview: true,
             photo: None,
@@ -120,6 +124,7 @@ impl Driver for MockDriver {
             due: VecDeque::new(),
             body,
             repeat: None,
+            queued: 0,
             settings: vec![
                 setting("iso", "ISO", "100", &["100", "200", "400", "800"]),
                 setting(
@@ -159,6 +164,8 @@ pub struct MockCamera {
     settings: Vec<Setting>,
     /// A file to report once more (`report_twice`).
     repeat: Option<CameraFile>,
+    /// Shots in the transfer queue (`queue_limit`).
+    queued: usize,
 }
 
 impl MockCamera {
@@ -171,8 +178,11 @@ impl MockCamera {
     }
 
     /// Releases the shutter: the file the camera will report for it.
-    fn release(&mut self, now: Instant) -> Option<(Instant, CameraFile)> {
+    fn shutter(&mut self, now: Instant) -> Option<(Instant, CameraFile)> {
         self.fired += 1;
+        if self.spec.queue_limit.is_some() {
+            self.queued += 1;
+        }
         if self.spec.lost_shots.contains(&self.fired) {
             return None;
         }
@@ -274,8 +284,18 @@ impl Camera for MockCamera {
         if self.unplugged() {
             return Err(Self::gone());
         }
+        if self
+            .spec
+            .queue_limit
+            .is_some_and(|limit| self.queued >= limit)
+        {
+            return Err(TetherError::new(
+                ErrorKind::Busy,
+                "The camera's transfer queue is full.",
+            ));
+        }
         let now = Instant::now();
-        let file = self.release(now);
+        let file = self.shutter(now);
         if self.spec.no_trigger {
             // The driver waits for the file itself.
             let (at, file) = file.ok_or_else(|| {
@@ -289,6 +309,11 @@ impl Camera for MockCamera {
             self.due.make_contiguous().sort_by_key(|(at, _)| *at);
         }
         Ok(Fired::Pending)
+    }
+
+    fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {
+        self.queued = self.queued.saturating_sub(1);
+        Ok(())
     }
 
     fn autofocus(&mut self) -> Result<(), TetherError> {
@@ -319,7 +344,7 @@ impl Camera for MockCamera {
         let now = Instant::now();
         while self.body.front().is_some_and(|&at| at <= now) {
             self.body.pop_front();
-            if let Some(due) = self.release(now) {
+            if let Some(due) = self.shutter(now) {
                 self.due.push_back(due);
             }
         }

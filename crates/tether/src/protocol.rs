@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -40,6 +40,13 @@ pub enum Request {
     /// Starts or stops sending live-view frames.
     LiveView {
         on: bool,
+    },
+    /// The app committed this photo: frees it from the camera's USB
+    /// transfer queue on cameras that keep one and stop shooting when it is
+    /// full (never a file on a card); nothing on other cameras.
+    Release {
+        camera_folder: String,
+        camera_name: String,
     },
     /// Ends the helper (it closes the camera first).
     Shutdown,

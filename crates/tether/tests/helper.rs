@@ -190,6 +190,29 @@ fn a_photo_the_camera_reports_twice_arrives_once() {
 }
 
 #[test]
+fn a_full_transfer_queue_fires_again_once_photos_are_released() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    let (photos, _) = helper.photos(2);
+    let full = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(full.kind, ErrorKind::Busy);
+    let release = Request::Release {
+        camera_folder: photos[0].camera_folder.clone(),
+        camera_name: photos[0].camera_name.clone(),
+    };
+    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    helper.capture();
+    assert_eq!(helper.photos(1).0.len(), 1);
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {

@@ -230,6 +230,16 @@ impl<W: Write> Server<W> {
                 open.live_view = on;
                 Ok(Reply::Ok)
             }
+            Request::Release {
+                camera_folder,
+                camera_name,
+            } => {
+                self.camera()?.camera.release(&CameraFile {
+                    folder: camera_folder,
+                    name: camera_name,
+                })?;
+                Ok(Reply::Ok)
+            }
             Request::Shutdown => {
                 self.open = None;
                 Ok(Reply::Ok)

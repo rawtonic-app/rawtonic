@@ -78,6 +78,18 @@ fn refused(context: &str, e: gphoto2::Error) -> TetherError {
     )
 }
 
+/// Whether libgphoto2's summary shows a Fujifilm camera in USB tether mode
+/// (vendor extension 0xe with the CurrentState property 0xd212 — what
+/// libgphoto2 itself tests for its Fujifilm tether event handling). Such a
+/// camera lists each tethered photo as an object in its transfer queue
+/// until the computer deletes that object, and refuses to fire when the
+/// queue is full (an X-H2S after 37 photos). Deleting the object frees the
+/// queue entry only: the photo stays on the memory card (checked on the
+/// body; Capture One does the same). notes: reference/tether.md
+fn has_transfer_queue(summary: &str) -> bool {
+    summary.contains(": 0xe (") && summary.contains("(d212")
+}
+
 pub struct GphotoDriver {
     context: gphoto2::Context,
 }
@@ -156,10 +168,20 @@ impl Driver for GphotoDriver {
             operations.capture_preview,
             operations.config
         );
+        let transfer_queue = camera
+            .summary(&context)
+            .is_ok_and(|summary| has_transfer_queue(&summary));
+        if transfer_queue {
+            log::info!(
+                "{} keeps a USB transfer queue: committed photos are freed from it",
+                info.model
+            );
+        }
         Ok(Box::new(GphotoCamera {
             context,
             camera,
             info,
+            transfer_queue,
             trigger: true,
             capture: true,
             preview: true,
@@ -177,6 +199,9 @@ pub struct GphotoCamera {
     trigger: bool,
     capture: bool,
     preview: bool,
+    /// The camera keeps every tethered photo in a USB transfer queue until
+    /// the computer frees it, and stops shooting when the queue is full.
+    transfer_queue: bool,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
 }
@@ -410,6 +435,15 @@ impl Camera for GphotoCamera {
         file.data()
             .map(<[u8]>::to_vec)
             .map_err(|e| session_error("Live view", e))
+    }
+
+    fn release(&mut self, file: &CameraFile) -> Result<(), TetherError> {
+        if !self.transfer_queue {
+            return Ok(());
+        }
+        self.camera
+            .delete_file(&self.context, &file.folder, &file.name)
+            .map_err(|e| session_error(&format!("Freeing {} on the camera", file.name), e))
     }
 
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError> {

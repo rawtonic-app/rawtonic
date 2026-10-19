@@ -62,6 +62,12 @@ pub trait Camera {
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError>;
     /// The file's bytes and the size the camera reports for it, if it does.
     fn download(&mut self, file: &CameraFile) -> Result<(Vec<u8>, Option<u64>), TetherError>;
+    /// Frees a downloaded photo the app committed from the camera's USB
+    /// transfer queue, on cameras that keep one; never a file on a card.
+    /// Nothing on others.
+    fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {
+        Ok(())
+    }
     /// Test hook: whether the helper should stop dead at `point` while
     /// handling the camera's `shot`-th file (1-based). Only the mock says yes.
     fn abort_at(&self, _point: AbortPoint, _shot: u64) -> bool {

@@ -340,6 +340,28 @@ pub struct TetherStatus {
 
 /// Tells the interface (`AppHandle::emit` in the app).
 type Notify = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
+/// Frees a committed photo from the camera's transfer queue (the helper's
+/// `Release`; a no-op on cameras without one).
+type Release = Arc<dyn Fn(&Captured) + Send + Sync>;
+
+/// `Release` through the running helper.
+fn release_in_helper() -> Release {
+    Arc::new(|captured: &Captured| {
+        let client = HELPER.lock().unwrap().as_ref().map(|h| h.client.clone());
+        let Some(client) = client else { return };
+        let release = Request::Release {
+            camera_folder: captured.camera_folder.clone(),
+            camera_name: captured.camera_name.clone(),
+        };
+        if let Err(e) = client.request(release, QUICK) {
+            log::warn!(
+                "Tether: {} not freed on the camera: {}",
+                captured.camera_name,
+                e.message
+            );
+        }
+    })
+}
 
 fn notify_app(app: AppHandle) -> Notify {
     Arc::new(move |name: &str, value: serde_json::Value| {
@@ -352,6 +374,7 @@ fn notify_app(app: AppHandle) -> Notify {
 /// left in the transfer folder.
 fn spawn_ingest(
     notify: Notify,
+    release: Release,
     session: PathBuf,
     config: Arc<Mutex<CaptureConfig>>,
     photos: mpsc::Receiver<(Captured, Instant)>,
@@ -370,6 +393,7 @@ fn spawn_ingest(
             let _batch = lib.import_batch(ImportKind::Tether);
             let mut ingest = Ingest {
                 notify: &*notify,
+                release: &*release,
                 lib: &lib,
                 root: &root,
                 config: &config,
@@ -415,6 +439,7 @@ pub struct TetherCaptured {
 
 struct Ingest<'a> {
     notify: &'a (dyn Fn(&str, serde_json::Value) + Send + Sync),
+    release: &'a (dyn Fn(&Captured) + Send + Sync),
     lib: &'a Library,
     root: &'a Path,
     config: &'a Mutex<CaptureConfig>,
@@ -487,6 +512,7 @@ impl Ingest<'_> {
         if let Some(asset) = &asset {
             self.previous = Some(asset.clone());
         }
+        let committed = asset.is_some() || result.skipped;
         let timing = captured.as_ref();
         let event = TetherCaptured {
             camera_name,
@@ -501,6 +527,11 @@ impl Ingest<'_> {
                 .map(|(c, received)| c.ms_to_downloaded + received.elapsed().as_millis() as u64),
         };
         (self.notify)("tether-captured", json!(event));
+        // Only now that the photo is in the library (or a verified duplicate
+        // of one there) may the camera let go of it.
+        if committed && let Some((captured, _)) = &captured {
+            (self.release)(captured);
+        }
     }
 }
 
@@ -554,7 +585,13 @@ pub async fn tether_connect(
         };
         let config = Arc::new(Mutex::new(CaptureConfig { template, settings }));
         let (tx, rx) = mpsc::channel();
-        spawn_ingest(notify_app(app.clone()), session.clone(), config.clone(), rx)?;
+        spawn_ingest(
+            notify_app(app.clone()),
+            release_in_helper(),
+            session.clone(),
+            config.clone(),
+            rx,
+        )?;
         let mut helper = HELPER.lock().unwrap();
         let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
         *helper.ingest.lock().unwrap() = Some(tx);
@@ -828,10 +865,13 @@ mod tests {
     fn two_hundred_shots_arrive_once_each_with_their_metadata() {
         let tmp = tempfile::tempdir().unwrap();
         let session = session(tmp.path());
+        // The camera holds at most 10 photos until they are released after
+        // their commit: all 200 arrive only if every one is released.
         let spec = MockSpec {
             file_size: 16 * 1024,
             restart_numbering_every: Some(50),
             body_shots_ms: vec![300, 900],
+            queue_limit: Some(10),
             ..MockSpec::default()
         };
         let (photos_tx, photos_rx) = mpsc::channel::<(Captured, Instant)>();
@@ -864,9 +904,27 @@ mod tests {
             template: "{orig}".into(),
             settings: settings(3, "tether"),
         }));
-        spawn_ingest(notify, session.clone(), config, photos_rx).unwrap();
+        let client = Arc::new(client);
+        let releasing = client.clone();
+        let release: Release = Arc::new(move |captured: &Captured| {
+            let release = Request::Release {
+                camera_folder: captured.camera_folder.clone(),
+                camera_name: captured.camera_name.clone(),
+            };
+            releasing.request(release, QUICK).unwrap();
+        });
+        spawn_ingest(notify, release, session.clone(), config, photos_rx).unwrap();
         for _ in 0..198 {
-            client.request(Request::Capture, CAPTURE).unwrap();
+            // A full queue refuses until the ingest has released a photo.
+            let started = Instant::now();
+            while let Err(e) = client.request(Request::Capture, CAPTURE) {
+                assert_eq!(e.kind, ErrorKind::Busy, "{e:?}");
+                assert!(
+                    started.elapsed() < Duration::from_secs(30),
+                    "never released"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
         }
         // 198 from the app and 2 fired on the body.
         let seen = captured(&seen, 200);
@@ -943,7 +1001,14 @@ mod tests {
         }));
         let (notify, seen) = collector();
         let (_tx, rx) = mpsc::channel();
-        spawn_ingest(notify, session.clone(), config, rx).unwrap();
+        spawn_ingest(
+            notify,
+            Arc::new(|_: &Captured| {}),
+            session.clone(),
+            config,
+            rx,
+        )
+        .unwrap();
         let seen = captured(&seen, 1);
         assert!(seen[0].error.is_none(), "{seen:?}");
         assert_eq!(seen[0].destination.as_deref(), Some(orphan.as_path()));
@@ -969,7 +1034,14 @@ mod tests {
         }));
         let (notify, seen) = collector();
         let (_tx, rx) = mpsc::channel();
-        spawn_ingest(notify, session.clone(), config, rx).unwrap();
+        spawn_ingest(
+            notify,
+            Arc::new(|_: &Captured| {}),
+            session.clone(),
+            config,
+            rx,
+        )
+        .unwrap();
         let (name, path) = seen.recv_timeout(Duration::from_secs(10)).unwrap();
         assert_eq!(name, "tether-incomplete");
         let path = PathBuf::from(path.as_str().unwrap());
