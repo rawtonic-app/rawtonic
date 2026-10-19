@@ -12,8 +12,6 @@ import {
   isCropWithinBounds,
   calculateStraightenAngle,
   calculateAutoCropForRotation,
-  cropCameWithRotation,
-  keepsCropOnEntry,
   fitCropTowards,
   moveCropInsideBounds,
   zoomCrop,
@@ -169,14 +167,6 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   const [crop, setCrop] = useState<Crop | null>(null);
   const prevCropParams = useRef<{ rotation: number; aspectRatio: number | null; orientationSteps: number } | null>(null);
-  // The crop the recalculation last saw: a rotation that arrives with a crop
-  // of its own (Auto straighten, undo, paste) keeps that crop.
-  const prevCrop = useRef<Adjustments['crop'] | undefined>(undefined);
-  // The crops this recalculation made (they may come back later, with a
-  // newer angle, through a slider drag's draft).
-  const toolCrops = useRef(new WeakSet<object>());
-  // The photograph the crop tool last worked on.
-  const prevCropPath = useRef<string | null>(null);
   const lastValidCropRef = useRef<PercentCrop | null>(null);
   const cropResizeStartRef = useRef<PercentCrop | null>(null);
 
@@ -1793,27 +1783,11 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   useEffect(() => {
     if (!isCropping || !selectedImage?.width || !selectedImage?.height) {
-      // Closed: the next opening starts from the recipe as it then is.
-      prevCropParams.current = null;
-      prevCrop.current = undefined;
       return;
     }
 
     const { aspectRatio, orientationSteps = 0, crop: currentAdjCrop, rotation = 0 } = adjustments;
     const effectiveRotation = liveRotation !== null && liveRotation !== undefined ? liveRotation : rotation;
-
-    // Opening (or another photograph): a crop that fits stays as it is.
-    const opening = !prevCropParams.current || prevCropPath.current !== selectedImage.path;
-    prevCropPath.current = selectedImage.path;
-    if (opening && liveRotation == null) {
-      const oriented = getOrientedDimensions(selectedImage.width, selectedImage.height, orientationSteps);
-      if (keepsCropOnEntry(currentAdjCrop, oriented.width, oriented.height, rotation)) {
-        prevCropParams.current = { rotation, aspectRatio, orientationSteps };
-        prevCrop.current = currentAdjCrop;
-        return;
-      }
-      prevCropParams.current = null;
-    }
 
     const geometryChanged =
       prevCropParams.current?.rotation !== rotation ||
@@ -1821,20 +1795,10 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       prevCropParams.current?.orientationSteps !== orientationSteps;
 
     const isDraggingRotation = liveRotation !== null && liveRotation !== undefined;
-    const seenCrop = prevCrop.current;
-    if (!isDraggingRotation) prevCrop.current = currentAdjCrop;
-    const oriented = getOrientedDimensions(selectedImage.width, selectedImage.height, orientationSteps);
-    if (
-      !isDraggingRotation &&
-      cropCameWithRotation(
-        prevCropParams.current,
-        seenCrop,
-        { rotation, aspectRatio, orientationSteps, crop: currentAdjCrop },
-        oriented.width,
-        oriented.height,
-        !!currentAdjCrop && toolCrops.current.has(currentAdjCrop),
-      )
-    ) {
+    // Auto straighten's answer (its rotation and the crop it fitted to it,
+    // useEditorActions) is kept exactly, on opening the tool too.
+    const auto = useEditorStore.getState().autoStraightened;
+    if (!isDraggingRotation && auto && currentAdjCrop === auto.crop && rotation === auto.rotation) {
       prevCropParams.current = { rotation, aspectRatio, orientationSteps };
       return;
     }
@@ -1964,7 +1928,6 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
             Math.abs(currentAdjCrop.width - nextPixelCrop.width) > 1 ||
             Math.abs(currentAdjCrop.height - nextPixelCrop.height) > 1)
         ) {
-          toolCrops.current.add(nextPixelCrop);
           setAdjustments((prev: Adjustments) => ({ ...prev, crop: nextPixelCrop }));
         }
       }

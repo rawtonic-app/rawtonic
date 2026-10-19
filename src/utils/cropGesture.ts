@@ -28,9 +28,10 @@ export function cropGestures(): { started: number; active: boolean } {
   return { started, active: active > 0 };
 }
 
-/** A component's crop drags: `start`/`end` count them, and a component that
- * unmounts during one (the photo or view left mid-drag) ends it. */
-export function useCropGestures(): { start: () => void; end: () => void } {
+/** A component's crop drags: `start`/`end` count them; `endAll` ends those
+ * still open (the crop tool closed or the photo changed mid-drag, where the
+ * crop component reports no end), as unmounting does. */
+export function useCropGestures(): { start: () => void; end: () => void; endAll: () => void } {
   const open = useRef(0);
   const start = useCallback(() => {
     open.current += 1;
@@ -41,14 +42,12 @@ export function useCropGestures(): { start: () => void; end: () => void } {
     open.current -= 1;
     cropGestureEnded();
   }, []);
-  useEffect(
-    () => () => {
-      while (open.current > 0) {
-        open.current -= 1;
-        cropGestureEnded();
-      }
-    },
-    [],
-  );
-  return { start, end };
+  const endAll = useCallback(() => {
+    while (open.current > 0) {
+      open.current -= 1;
+      cropGestureEnded();
+    }
+  }, []);
+  useEffect(() => endAll, [endAll]);
+  return { start, end, endAll };
 }

@@ -1707,6 +1707,13 @@ const ImageCanvas = memo(
     // is dragged; Lightroom can show the grid always (crop grid setting).
     const [isCropDragging, setIsCropDragging] = useState(false);
     const cropGesture = useCropGestures();
+    // Closed or another photograph mid-drag: the crop component reports no
+    // end then.
+    const cropGestureEndAll = cropGesture.endAll;
+    useEffect(() => {
+      if (!isCropping || !crop) cropGestureEndAll();
+    }, [isCropping, crop, cropGestureEndAll]);
+    useEffect(() => cropGestureEndAll, [selectedImage.path, cropGestureEndAll]);
     const cropGrid = appSettings?.cropGrid ?? 'drag';
     const cropShade = (appSettings?.cropShade ?? 50) / 100;
     useEffect(() => {

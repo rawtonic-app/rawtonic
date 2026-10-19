@@ -502,6 +502,10 @@ describe('Auto straighten', () => {
     await finish(Invokes.CalculateAutoStraighten, answer);
     expect(outcome).toBe('done');
     expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2.4, crop: answer.crop });
+    // The crop tool keeps exactly this crop with this rotation (same object).
+    const given = useEditorStore.getState().autoStraightened;
+    expect(given?.rotation).toBe(-2.4);
+    expect(given?.crop).toBe(useEditorStore.getState().adjustments.crop);
   });
 
   it('drops the answer when the crop changed meanwhile or the photograph is another', async () => {

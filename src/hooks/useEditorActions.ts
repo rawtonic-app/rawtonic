@@ -276,6 +276,8 @@ async function runAutoStraightenOnce(
   }
   if (!result) return 'none';
   setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
+  // The crop tool keeps this crop with this rotation (Editor's crop effect).
+  useEditorStore.getState().setEditor({ autoStraightened: { rotation: result.rotation, crop: result.crop } });
   return 'done';
 }
 

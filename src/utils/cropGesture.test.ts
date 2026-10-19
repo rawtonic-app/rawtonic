@@ -15,6 +15,15 @@ describe('crop gestures', () => {
     expect(cropGestures().active).toBe(false);
   });
 
+  it('ends the open drags when the crop tool closes mid-drag (endAll)', () => {
+    const { result } = renderHook(useCropGestures);
+    result.current.start();
+    result.current.start();
+    expect(cropGestures().active).toBe(true);
+    result.current.endAll();
+    expect(cropGestures().active).toBe(false);
+  });
+
   it('counts cancelling the crop edit as a gesture', () => {
     const before = cropGestures().started;
     cropEditCancelled();
