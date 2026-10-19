@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Progress } from '../components/ui/AppProperties';
-import { ExportState, ImportState, Status } from '../components/ui/ExportImportProperties';
+import { ExportState, Status } from '../components/ui/ExportImportProperties';
 
 export interface ExternalEditSession {
   source: string;
@@ -39,7 +39,6 @@ interface ProcessState {
   exportState: ExportState;
   /** The persistent export queue (running, waiting and resumable jobs). */
   exportQueue: ExportJob[];
-  importState: ImportState;
   isIndexing: boolean;
   indexingProgress: Progress;
   thumbnails: Record<string, string>;
@@ -56,7 +55,6 @@ interface ProcessState {
 
   setProcess: (state: Partial<ProcessState> | ((state: ProcessState) => Partial<ProcessState>)) => void;
   setExportState: (updater: Partial<ExportState> | ((state: ExportState) => Partial<ExportState>)) => void;
-  setImportState: (updater: Partial<ImportState> | ((state: ImportState) => Partial<ImportState>)) => void;
   setPreview: (path: string, url: string, thumbKey: string) => void;
   clearPreviews: () => void;
   registerAiTask: (id: string, type: string) => void;
@@ -65,7 +63,6 @@ interface ProcessState {
 }
 
 let exportTimeout: ReturnType<typeof setTimeout>;
-let importTimeout: ReturnType<typeof setTimeout>;
 let copyTimeout: ReturnType<typeof setTimeout>;
 let pasteTimeout: ReturnType<typeof setTimeout>;
 
@@ -74,7 +71,6 @@ const MAX_PREVIEW_CACHE_SIZE = 10;
 export const useProcessStore = create<ProcessState>((set, get) => ({
   exportState: { errorMessage: '', progress: { current: 0, total: 0 }, status: Status.Idle },
   exportQueue: [],
-  importState: { errorMessage: '', path: '', progress: { current: 0, total: 0 }, status: Status.Idle },
   isIndexing: false,
   indexingProgress: { current: 0, total: 0 },
   thumbnails: {},
@@ -120,29 +116,6 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
         set((prev) => ({
           exportState: {
             ...prev.exportState,
-            status: Status.Idle,
-            errorMessage: '',
-            progress: { current: 0, total: 0 },
-          },
-        }));
-      }, 5000);
-    }
-  },
-
-  setImportState: (updater) => {
-    set((prev) => ({
-      importState: { ...prev.importState, ...(typeof updater === 'function' ? updater(prev.importState) : updater) },
-    }));
-
-    const status = get().importState.status;
-
-    clearTimeout(importTimeout);
-
-    if ([Status.Success, Status.Error, Status.Cancelled].includes(status)) {
-      importTimeout = setTimeout(() => {
-        set((prev) => ({
-          importState: {
-            ...prev.importState,
             status: Status.Idle,
             errorMessage: '',
             progress: { current: 0, total: 0 },

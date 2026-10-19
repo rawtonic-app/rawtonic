@@ -1,6 +1,6 @@
 /**
- * Colours of the inherited panels (`bg-surface`, `text-accent`, …) shown in the
- * studio's tools dialog. The studio chrome uses its own fixed colours; there is
+ * Colours of the inherited UI (`bg-surface`, `text-accent`, …): the Develop canvas,
+ * Preferences and the dialogs. The studio chrome uses its own fixed colours; there is
  * no theme choice, so a `theme` value in old settings files is ignored.
  */
 export const APP_COLOR_VARIABLES: Record<string, string> = {

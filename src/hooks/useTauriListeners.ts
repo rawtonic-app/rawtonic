@@ -290,9 +290,6 @@ export function useTauriListeners({
           refreshIngestTree();
         },
       ),
-      listen<string>('preview-update-uncropped', (event) => {
-        if (isEffectActive) useEditorStore.getState().setEditor({ uncroppedAdjustedPreviewUrl: event.payload });
-      }),
       listen<AnalyticsUpdatePayload>('analytics-update', (event) => {
         if (isEffectActive && event.payload.path === useEditorStore.getState().selectedImage?.path) {
           const update: Pick<Partial<EditorState>, 'histogram' | 'waveform'> = {};
@@ -454,39 +451,6 @@ export function useTauriListeners({
       }),
       listen('export-cancelled', () => {
         if (isEffectActive) useProcessStore.getState().setExportState({ status: Status.Cancelled });
-      }),
-      listen<{ total: number }>('import-start', (event) => {
-        if (isEffectActive)
-          useProcessStore.getState().setImportState({
-            errorMessage: '',
-            path: '',
-            progress: { current: 0, total: event.payload.total },
-            status: Status.Importing,
-          });
-      }),
-      listen<PathProgressPayload>('import-progress', (event) => {
-        if (isEffectActive)
-          useProcessStore.getState().setImportState({
-            path: event.payload.path,
-            progress: { current: event.payload.current, total: event.payload.total },
-          });
-      }),
-      listen('import-complete', () => {
-        if (isEffectActive) {
-          useProcessStore.getState().setImportState({ status: Status.Success });
-          refs.current.refreshAllFolderTrees();
-          const currentPath = useLibraryStore.getState().currentFolderPath;
-          if (currentPath) {
-            refs.current.handleSelectSubfolder(currentPath, false);
-          }
-        }
-      }),
-      listen<string>('import-error', (event) => {
-        if (isEffectActive)
-          useProcessStore.getState().setImportState({
-            status: Status.Error,
-            errorMessage: typeof event.payload === 'string' ? event.payload : 'Unknown error',
-          });
       }),
       listen<{ path: string }>('wgpu-frame-ready', (event) => {
         if (isEffectActive && event.payload?.path === useEditorStore.getState().selectedImage?.path) {

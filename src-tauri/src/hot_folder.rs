@@ -592,7 +592,7 @@ pub fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
     lib.set_hot_folder(None).map_err(|e| format!("{e:#}"))
 }
 
-#[tauri::command]
+/// The running watch's state (the session commands report it).
 pub fn hot_folder_status() -> Option<HotFolderStatus> {
     let watch = WATCH.lock().ok()?;
     Some(watch.as_ref()?.status())
