@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "Ajuste automático de imagen",
       "autoLensCorrection": "Corrección de lente automática",
+      "autoStraighten": "Enderezar automáticamente",
       "cancel": "Cancelar",
       "colorLabel": "Etiqueta de color",
       "confirmReset": "Confirmar restablecimiento",
@@ -1234,6 +1235,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Ajuste automático",
+        "auto_straighten": "Enderezar automáticamente",
         "auto_white_balance": "Balance de blancos automático",
         "brush_size_down": "Reducir tamaño del pincel",
         "brush_size_up": "Aumentar tamaño del pincel",
@@ -1601,6 +1603,10 @@
         "size": "Tamaño del recorte",
         "straightenTool": "Herramienta Enderezar"
       },
+      "autoStraighten": "Auto",
+      "autoStraightenFailed": "Error al enderezar automáticamente: {{error}}",
+      "autoStraightenNoLines": "No se encontraron líneas rectas para nivelar la foto",
+      "autoStraightenTitle": "Nivelar la foto por el horizonte o las verticales y ajustar el recorte",
       "flipHorizontal": "Voltear horizontalmente",
       "flipVertical": "Voltear verticalmente",
       "grid": {

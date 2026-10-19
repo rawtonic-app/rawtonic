@@ -146,6 +146,7 @@
     "editor": {
       "autoAdjust": "Regolazione Automatica Immagine",
       "autoLensCorrection": "Correzione automatica obiettivo",
+      "autoStraighten": "Raddrizza automaticamente",
       "cancel": "Annulla",
       "colorLabel": "Etichetta Colore",
       "confirmReset": "Conferma Ripristino",
@@ -1234,6 +1235,7 @@
     "keybinds": {
       "actions": {
         "auto_adjust": "Regolazione automatica",
+        "auto_straighten": "Raddrizza automaticamente",
         "auto_white_balance": "Bilanciamento del bianco automatico",
         "brush_size_down": "Riduci dimensione pennello",
         "brush_size_up": "Aumenta dimensione pennello",
@@ -1601,6 +1603,10 @@
         "size": "Dimensioni del ritaglio",
         "straightenTool": "Strumento Raddrizza"
       },
+      "autoStraighten": "Auto",
+      "autoStraightenFailed": "Raddrizzamento automatico non riuscito: {{error}}",
+      "autoStraightenNoLines": "Nessuna linea retta trovata per livellare la foto",
+      "autoStraightenTitle": "Livella la foto in base all’orizzonte o alle verticali e adatta il ritaglio",
       "flipHorizontal": "Rifletti orizzontalmente",
       "flipVertical": "Rifletti verticalmente",
       "grid": {

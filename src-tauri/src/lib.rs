@@ -16,6 +16,7 @@ mod app_quit;
 mod app_settings;
 mod app_state;
 mod apple_raw;
+mod auto_straighten;
 mod auto_white_balance;
 #[cfg(any(target_os = "linux", test))]
 mod browser_preview_transport;
@@ -859,6 +860,7 @@ pub fn run() {
             lens_correction::get_lensfun_makers,
             embedded_lens::get_camera_lens_profile,
             upright::calculate_upright,
+            auto_straighten::calculate_auto_straighten,
             image_loader::load_image_proxy,
             editor_preview::activate_photo,
             multi_view::set_multi_view,

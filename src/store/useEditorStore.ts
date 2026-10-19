@@ -121,6 +121,9 @@ interface EditorState {
   softProofWarning: boolean;
   isGuidedPerspectiveActive: boolean;
   liveRotation: number | null;
+  /** The last Auto straighten answer applied (rotation and the crop object
+   * fitted to it): the crop tool keeps that crop as it is. */
+  autoStraightened: { rotation: number; crop: Adjustments['crop'] } | null;
   brushSettings: BrushSettings | null;
 
   // Masks & AI
@@ -237,6 +240,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   softProofWarning: false,
   isGuidedPerspectiveActive: false,
   liveRotation: null,
+  autoStraightened: null,
 
   copiedSectionAdjustments: null,
   copiedMask: null,

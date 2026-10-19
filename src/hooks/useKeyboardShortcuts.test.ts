@@ -7,6 +7,7 @@ import { isAnyModalOpen, useUIStore } from "../store/useUIStore";
 import { AppSettings, Panel } from "../components/ui/AppProperties";
 import { useEditorStore, debouncedSetHistory } from "../store/useEditorStore";
 import { readModuleLayout } from "../utils/panelLayout";
+import { cropGestures } from "../utils/cropGesture";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(() => Promise.resolve()),
@@ -197,10 +198,13 @@ it("Escape in the crop tool restores the crop it opened with, Enter keeps the ch
       rotation: 3,
     },
   });
+  const gesturesBefore = cropGestures().started;
   press("Escape");
   expect(useEditorStore.getState().adjustments.crop).toEqual(crop);
   expect(useEditorStore.getState().adjustments.rotation).toBe(0);
   expect(useUIStore.getState().activePanel).toBe(Panel.Adjustments);
+  // A pending Auto straighten answer is for the cancelled edit.
+  expect(cropGestures().started).toBe(gesturesBefore + 1);
   // Enter keeps the new crop.
   useUIStore.setState({ activePanel: Panel.Crop });
   useEditorStore.setState({

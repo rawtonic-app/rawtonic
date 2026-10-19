@@ -22,6 +22,7 @@ import type { CropGrid } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
 import { useStudioTools } from "./useStudioTools";
 import { shortcutHint } from "../../utils/keyboardUtils";
+import { runAutoStraighten } from "../../utils/autoStraighten";
 
 const withKey = (title: string, key: string | null) =>
   key ? `${title} (${key})` : title;
@@ -103,10 +104,22 @@ export default function StudioCropControls({
       handleSettingsChange: s.handleSettingsChange,
     })),
   );
-  const { setAdjustments, handleRotate } = useEditorActions();
+  const { setAdjustments, handleRotate, handleAutoStraighten } = useEditorActions();
+  const [straightening, setStraightening] = useState(false);
+  const autoStraighten = async () => {
+    setStraightening(true);
+    try {
+      await runAutoStraighten(handleAutoStraighten);
+    } finally {
+      setStraightening(false);
+    }
+  };
   const { activeTool, selectTool } = useStudioTools();
   const straightenKey = useSettingsStore((s) =>
     shortcutHint("tool_straighten", s.appSettings?.keybinds, s.osPlatform),
+  );
+  const autoStraightenKey = useSettingsStore((s) =>
+    shortcutHint("auto_straighten", s.appSettings?.keybinds, s.osPlatform),
   );
   // In the tools panel it keeps its look while the next photograph loads
   // (the panel is inert meanwhile); the viewer's popover is not inert.
@@ -285,6 +298,13 @@ export default function StudioCropControls({
           onClick={() => selectTool("straighten")}
         >
           <Ruler size={14} />
+        </button>
+        <button
+          title={withKey(t("studio.crop.autoStraightenTitle"), autoStraightenKey)}
+          disabled={!ready || straightening}
+          onClick={() => void autoStraighten()}
+        >
+          {t("studio.crop.autoStraighten")}
         </button>
       </div>
       <div className="studio-inline studio-inline-wrap">

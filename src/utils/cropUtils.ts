@@ -1,4 +1,4 @@
-import { Crop } from 'react-image-crop';
+import { Crop, PercentCrop } from 'react-image-crop';
 
 export function getOrientedDimensions(
   imageWidth: number,
@@ -376,4 +376,45 @@ export function zoomCrop(
   }
 
   return bestCrop;
+}
+
+/** Recipe keys that decide a crop's frame: geometry before the crop, the
+ * orientation, the straightening and the crop itself. Auto straighten's
+ * answer is only applied while these are as they were asked for. */
+export const REFRAMING_KEYS = [
+  'rotation', 'crop', 'aspectRatio', 'orientationSteps', 'flipHorizontal', 'flipVertical',
+  'transformDistortion', 'transformVertical', 'transformHorizontal', 'transformRotate',
+  'transformAspect', 'transformScale', 'transformXOffset', 'transformYOffset',
+  'lensCorrectionMode', 'lensDistortionParams', 'lensDistortionAmount', 'lensDistortionEnabled',
+  'guidedPerspective',
+] as const;
+
+export function reframingInputs(adjustments: Record<string, unknown>): string {
+  return JSON.stringify(REFRAMING_KEYS.map((key) => adjustments[key] ?? null));
+}
+
+/** Whether the crop tool, opening on a photograph (first time, or another
+ * photograph), keeps the recipe's crop: any crop that lies inside the frame
+ * at its rotation (a saved one, Auto straighten's). Only a crop outside it is
+ * fitted again. */
+export const keepsCropOnEntry = (
+  crop: Crop | null | undefined,
+  orientedW: number,
+  orientedH: number,
+  rotation: number,
+): boolean => !!crop && crop.width > 0 && crop.height > 0 && isCropWithinBounds(crop, orientedW, orientedH, rotation);
+
+/** The pixel crop of a percentage crop of the oriented frame `baseW` ×
+ * `baseH`, inside it (edges rounded inwards). Stable: a pixel crop shown as
+ * a percentage and read back is the same (the float round trip of 102 px
+ * gives 102.00000000000001, which must not round up to 103). */
+export function pixelCropFromPercent(pc: PercentCrop, baseW: number, baseH: number): Crop {
+  const EPS = 1e-6;
+  return {
+    unit: 'px',
+    x: Math.ceil((pc.x / 100) * baseW - EPS),
+    y: Math.ceil((pc.y / 100) * baseH - EPS),
+    width: Math.floor((pc.width / 100) * baseW + EPS),
+    height: Math.floor((pc.height / 100) * baseH + EPS),
+  };
 }
