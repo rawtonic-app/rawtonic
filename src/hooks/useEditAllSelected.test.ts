@@ -72,6 +72,20 @@ describe('Edit all selected', () => {
     expect(useEditorStore.getState().adjustments.exposure).toBe(0.8);
   });
 
+  it("does not give the others a batch's reloaded result for the primary", () => {
+    renderHook(() => useEditAllSelected(true, selection));
+    // Batch Auto straighten holds the selection and reloads the primary's own answer.
+    act(() => useEditorStore.setState({ heldRecipePaths: [...selection] }));
+    edit({ rotation: -2.5, crop: { unit: 'px', x: 10, y: 8, width: 5900, height: 3900 } });
+    act(() => useEditorStore.setState({ heldRecipePaths: [] }));
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    expect(pasted()).toEqual([]);
+    // An edit afterwards still goes to the others, without the rotation.
+    edit({ exposure: 0.4 });
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    expect(pasted()).toEqual([{ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 0.4 } }]);
+  });
+
   it('has the other cells developed again once their recipes are written', async () => {
     const before = useMultiViewStore.getState().recipeRevision;
     renderHook(() => useEditAllSelected(true, selection));

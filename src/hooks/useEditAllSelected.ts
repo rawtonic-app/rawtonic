@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import debounce from 'lodash.debounce';
 import { invoke } from '@tauri-apps/api/core';
 import { Invokes } from '../components/ui/AppProperties';
-import { useEditorStore } from '../store/useEditorStore';
+import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorActions } from './useEditorActions';
@@ -122,6 +122,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       // the new one's loader reads its recipe (it may be one of the others).
       if (state.selectedImage?.path !== previous.selectedImage?.path) flush.flush();
       if (state.adjustments === previous.adjustments) return;
+      // A batch edit (Auto straighten) writing this photograph reloads its
+      // own result: not an edit to give the others, which have their own.
+      if (isRecipeHeld(state)) return;
       const image = state.selectedImage;
       // Only edits: not a photograph being opened or its recipe arriving,
       // nor the loader adapting the recipe as it updates the photograph

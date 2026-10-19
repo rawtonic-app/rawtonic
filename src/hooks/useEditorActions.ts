@@ -569,7 +569,7 @@ export function useEditorActions() {
       const { selectedImage, pushHistory } = useEditorStore.getState();
       const pathsToReset = paths || multiSelectedPaths;
       if (pathsToReset.length === 0) return;
-      // A batch is writing some of these recipes: reset once it is done.
+      // An operation is writing some of these recipes: reset once it is done.
       const heldBatch = afterRecipeOperations(pathsToReset);
       if (heldBatch) {
         void heldBatch.then(() => handleResetAdjustments(pathsToReset));
@@ -581,7 +581,9 @@ export function useEditorActions() {
       // The last edit stays a step of its own, before the reset.
       debouncedSetHistory.flush();
 
-      afterRecipeSaves(
+      // Its write and editor update are one operation: a batch started
+      // meanwhile runs after it (exclusiveRecipeOperation).
+      void exclusiveRecipeOperation(pathsToReset, () => afterRecipeSaves(
         pathsToReset,
         () => savedBatch(invoke(Invokes.ResetAdjustmentsForPaths, { paths: pathsToReset }), pathsToReset, 'reset adjustments'),
         false,
@@ -603,7 +605,7 @@ export function useEditorActions() {
             setEditor({ adjustments: resetData });
           }
         })
-        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`));
+        .catch((err) => toast.error(`Failed to reset adjustments: ${err}`)));
     },
     [setEditor],
   );

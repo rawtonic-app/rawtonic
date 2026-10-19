@@ -695,6 +695,24 @@ describe('Auto straighten for a selection', () => {
     expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -3, lensCorrectionMode: 'auto' });
   });
 
+  it('runs a batch started right after a reset once the reset is done', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handleResetAdjustments(['/first.dng']));
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+    expect(commands()).toContain(Invokes.ResetAdjustmentsForPaths);
+    expect(commands()).not.toContain(Invokes.ApplyAutoStraightenToPaths);
+    await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+    await act(async () => {});
+    expect(commands()).toContain(Invokes.ApplyAutoStraightenToPaths);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -4 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -4 } });
+    // The reset's editor update came first; the batch's result stays.
+    expect(useEditorStore.getState().adjustments.rotation).toBe(-4);
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
