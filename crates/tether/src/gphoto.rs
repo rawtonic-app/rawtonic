@@ -34,6 +34,19 @@ fn error(context: &str, e: gphoto2::Error) -> TetherError {
     TetherError::new(kind, format!("{context}: {e}.{hint}"))
 }
 
+/// An error from an open camera. "Device not found on the USB port" there
+/// means it was unplugged or switched off: the connection is gone, so the
+/// helper drops it and says so (the app connects again).
+fn session_error(context: &str, e: gphoto2::Error) -> TetherError {
+    if e.kind() == Gp::UsbFind {
+        return TetherError::new(
+            ErrorKind::Disconnected,
+            format!("{context}: {e}. The camera was disconnected or switched off."),
+        );
+    }
+    error(context, e)
+}
+
 pub struct GphotoDriver {
     context: gphoto2::Context,
 }
@@ -226,7 +239,7 @@ impl Camera for GphotoCamera {
             // A camera without readable settings still answers this.
             self.camera
                 .summary(&self.context)
-                .map_err(|e| error("Reading the camera's settings", e))?;
+                .map_err(|e| session_error("Reading the camera's settings", e))?;
         }
         Ok(settings)
     }
@@ -278,10 +291,10 @@ impl Camera for GphotoCamera {
                 ));
             }
         };
-        set.map_err(|e| error(&format!("{name} = {value}"), e))?;
+        set.map_err(|e| session_error(&format!("{name} = {value}"), e))?;
         self.camera
             .set_single_config(&self.context, &name, &widget)
-            .map_err(|e| error(&format!("Setting {name} to {value}"), e))
+            .map_err(|e| session_error(&format!("Setting {name} to {value}"), e))
     }
 
     fn fire(&mut self) -> Result<Fired, TetherError> {
@@ -295,7 +308,7 @@ impl Camera for GphotoCamera {
                     log::info!("trigger capture not supported; using capture");
                     self.trigger = false;
                 }
-                Err(e) => return Err(error("Firing the shutter", e)),
+                Err(e) => return Err(session_error("Firing the shutter", e)),
             }
         }
         if !self.capture {
@@ -307,7 +320,7 @@ impl Camera for GphotoCamera {
         let path = self
             .camera
             .capture_image(&self.context)
-            .map_err(|e| error("Capturing", e))?;
+            .map_err(|e| session_error("Capturing", e))?;
         Ok(Fired::File(CameraFile {
             folder: path.folder,
             name: path.name,
@@ -325,14 +338,14 @@ impl Camera for GphotoCamera {
             widget
                 .set_toggle(true)
                 .and_then(|()| self.camera.set_single_config(&self.context, name, &widget))
-                .map_err(|e| error("Focusing", e))?;
+                .map_err(|e| session_error("Focusing", e))?;
             if name == "autofocus" {
                 // A half-press: held, then released.
                 std::thread::sleep(Duration::from_millis(300));
                 widget
                     .set_toggle(false)
                     .and_then(|()| self.camera.set_single_config(&self.context, name, &widget))
-                    .map_err(|e| error("Focusing", e))?;
+                    .map_err(|e| session_error("Focusing", e))?;
             }
             return Ok(());
         }
@@ -346,17 +359,17 @@ impl Camera for GphotoCamera {
         let file = self
             .camera
             .capture_preview(&self.context)
-            .map_err(|e| error("Live view", e))?;
+            .map_err(|e| session_error("Live view", e))?;
         file.data()
             .map(<[u8]>::to_vec)
-            .map_err(|e| error("Live view", e))
+            .map_err(|e| session_error("Live view", e))
     }
 
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError> {
         let event = self
             .camera
             .wait_for_event(&self.context, timeout)
-            .map_err(|e| error("Waiting for the camera", e))?;
+            .map_err(|e| session_error("Waiting for the camera", e))?;
         Ok(match event {
             gphoto2::CameraEvent::Timeout => CameraEvent::Timeout,
             gphoto2::CameraEvent::FileAdded(path) => CameraEvent::FileAdded(CameraFile {
@@ -393,11 +406,11 @@ impl Camera for GphotoCamera {
         let data = self
             .camera
             .download(&self.context, &path)
-            .map_err(|e| error(&format!("Downloading {}", file.name), e))?;
+            .map_err(|e| session_error(&format!("Downloading {}", file.name), e))?;
         let bytes = data
             .data()
             .map(<[u8]>::to_vec)
-            .map_err(|e| error(&format!("Downloading {}", file.name), e))?;
+            .map_err(|e| session_error(&format!("Downloading {}", file.name), e))?;
         Ok((bytes, size))
     }
 }

@@ -22,16 +22,16 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-struct StderrLog;
+struct StderrLog(log::Level);
 
 impl log::Log for StderrLog {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Info
+        metadata.level() <= self.0
     }
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            eprintln!("{} {}", record.level(), record.args());
+            eprintln!("{} {} {}", record.level(), record.target(), record.args());
         }
     }
 
@@ -100,7 +100,20 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 }
 
 fn main() {
-    let _ = log::set_logger(&StderrLog).map(|()| log::set_max_level(log::LevelFilter::Info));
+    // RAWTONIC_TETHER_LOG=debug also logs libgphoto2's own messages (what a
+    // body answers, step by step) — for diagnosing a camera.
+    let debug = std::env::var("RAWTONIC_TETHER_LOG").is_ok_and(|v| v == "debug");
+    let level = if debug {
+        log::Level::Debug
+    } else {
+        log::Level::Info
+    };
+    let logger: &'static StderrLog = Box::leak(Box::new(StderrLog(level)));
+    let _ = log::set_logger(logger).map(|()| log::set_max_level(level.to_level_filter()));
+    #[cfg(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux")))]
+    let _gphoto_log = debug
+        .then(|| gphoto2::log_bridge::forward_to_log(gphoto2::log_bridge::LogLevel::Debug).ok())
+        .flatten();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mock = args.iter().any(|a| a == "--mock");
     let result = match args.first().map(String::as_str) {

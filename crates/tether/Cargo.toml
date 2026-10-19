@@ -19,7 +19,7 @@ tempfile.workspace = true
 log = "0.4"
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
-gphoto2 = { git = "https://github.com/CyberTimon/libgphoto2-rs", optional = true }
+gphoto2 = { git = "https://github.com/CyberTimon/libgphoto2-rs", optional = true, features = ["log"] }
 
 [[bin]]
 name = "rawtonic-tether"

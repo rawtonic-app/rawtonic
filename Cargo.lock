@@ -2517,6 +2517,7 @@ version = "0.1.0"
 source = "git+https://github.com/CyberTimon/libgphoto2-rs#878ca523624223b95ed6b303de39e45b0c27c1a9"
 dependencies = [
  "gphoto2-sys",
+ "log",
 ]
 
 [[package]]
