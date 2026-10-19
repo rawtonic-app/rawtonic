@@ -282,8 +282,9 @@ function afterRecipeOperations(paths: string[]): Promise<void> | null {
 }
 
 /** When one of `paths` is the editor's photograph still loading: a promise
- * for its load (a queued operation then runs on it as on any other; at most
- * a minute), else null (nothing to wait for: it runs at once). */
+ * for the end of its load — loaded, or another photograph opened — however
+ * long it takes (a queued operation then runs on it as on any other), else
+ * null (nothing to wait for: it runs at once). */
 function afterEditorLoads(paths: string[]): Promise<void> | null {
   const loading = () => {
     const image = useEditorStore.getState().selectedImage;
@@ -291,15 +292,11 @@ function afterEditorLoads(paths: string[]): Promise<void> | null {
   };
   if (!loading()) return null;
   return new Promise<void>((resolve) => {
-    const timer = setTimeout(done, 60_000);
     const unsubscribe = useEditorStore.subscribe(() => {
-      if (!loading()) done();
-    });
-    function done() {
-      clearTimeout(timer);
+      if (loading()) return;
       unsubscribe();
       resolve();
-    }
+    });
   });
 }
 
@@ -357,7 +354,7 @@ export async function exclusiveRecipeOperation<T>(paths: string[], operation: ()
 
 /** The batch-written recipe of `path` into the editor as one undoable
  * step, once it is open and loaded (a photograph opened during the batch may
- * still be loading; at most a minute is waited). Nothing when another
+ * still be loading: its load is waited for, however long). Nothing when another
  * photograph was opened meanwhile. */
 async function reloadHeldRecipe(path: string): Promise<void> {
   const status = () => {
@@ -366,15 +363,11 @@ async function reloadHeldRecipe(path: string): Promise<void> {
   };
   if (status() === 'loading') {
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(done, 60_000);
       const unsubscribe = useEditorStore.subscribe(() => {
-        if (status() !== 'loading') done();
-      });
-      function done() {
-        clearTimeout(timer);
+        if (status() === 'loading') return;
         unsubscribe();
         resolve();
-      }
+      });
     });
   }
   if (status() !== 'ready') return;

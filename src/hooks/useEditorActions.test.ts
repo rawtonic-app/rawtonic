@@ -888,6 +888,29 @@ describe('Auto straighten for a selection', () => {
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
   });
 
+  it('keeps a queued paste waiting through a load longer than a minute', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(useEditorActions);
+      act(() => { void result.current.handleAutoStraightenPaths(['/second.dng']); });
+      await act(async () => {});
+      act(() => result.current.handlePasteAdjustments(['/second.dng']));
+      act(() => select('/second.dng', false));
+      await finish(Invokes.ApplyAutoStraightenToPaths, { ...report, straightened: [] });
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+      const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+      expect(commands()).not.toContain(Invokes.ApplyAdjustmentsToPaths);
+      act(() => useEditorStore.setState({ selectedImage: { ...useEditorStore.getState().selectedImage!, isReady: true } }));
+      await act(async () => {});
+      expect(commands()).toContain(Invokes.ApplyAdjustmentsToPaths);
+      expect(useEditorStore.getState().adjustments.exposure).toBe(3);
+      await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+      await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
