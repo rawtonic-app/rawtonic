@@ -3139,7 +3139,7 @@ struct BlurTile {
 /// tile: the global noise-reduction and sharpening settings, the preview
 /// scale of the sharpening radius and the chromatic aberration correction.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct DetailKey([u32; 34]);
+struct DetailKey([u32; 35]);
 
 impl DetailKey {
     fn of(global: &crate::image_processing::GlobalAdjustments) -> Self {
@@ -3159,6 +3159,8 @@ impl DetailKey {
             global.sharpen_falloff[0].to_bits(),
             global.sharpen_falloff[1].to_bits(),
             global.sharpen_falloff[2].to_bits(),
+            // The sharpening response (`sharpenVersion`).
+            global.sharpen_falloff[3].to_bits(),
             global.moire[0].to_bits(),
             global.moire[1].to_bits(),
             global.noise_detail[0].to_bits(),

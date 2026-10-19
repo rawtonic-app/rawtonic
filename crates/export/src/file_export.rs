@@ -85,7 +85,7 @@ impl FileExporter {
 
         let mut js_adjustments = job.recipe.clone().unwrap_or(Value::Null);
         hydrate_adjustments_from_cache(&mut HashMap::new(), &mut js_adjustments);
-        rawtonic_engine::embedded_lens::apply_default(&mut js_adjustments, job.source);
+        crate::exif_processing::prepare_recipe_lens(&mut js_adjustments, job.source)?;
         let is_raw = is_raw_file(&source_path_str);
 
         // The recipe's colour noise filter decides the decode-time chroma

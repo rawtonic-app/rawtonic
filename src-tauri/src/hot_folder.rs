@@ -159,7 +159,24 @@ fn next_state(lib: &Library, next: &NextCapture, previous: Option<&str>) -> Opti
             .get("adjustments")
             .cloned()?,
     };
-    Some(adjustments)
+    Some(for_new_capture(adjustments))
+}
+
+/// Lens settings applied to a new capture are looked up for it (its focal
+/// length, aperture, camera data), not taken over with the last capture's
+/// or a preset's parameters: marked unresolved, resolved by its first render
+/// and save (`rawtonic_engine::lens_recipe`).
+fn for_new_capture(mut adjustments: Value) -> Value {
+    if let Some(map) = adjustments.as_object_mut()
+        && map.contains_key("lensCorrectionMode")
+    {
+        map.remove("lensDistortionParams");
+        map.insert(
+            rawtonic_engine::lens_recipe::LENS_PROFILE_FOR.to_string(),
+            json!(rawtonic_engine::lens_recipe::LENS_UNRESOLVED),
+        );
+    }
+    adjustments
 }
 
 /// What a new capture is stored with: its next-capture adjustments and
@@ -667,6 +684,78 @@ mod tests {
             &cancel,
         );
         assert!(lib.editor_state(&b.unwrap()).unwrap().is_none());
+    }
+
+    #[test]
+    fn lens_settings_given_to_a_new_capture_are_looked_up_for_it() {
+        use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED};
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = session(tmp.path());
+        let hot = tmp.path().join("Hot");
+        fs::create_dir(&hot).unwrap();
+        for name in ["A.ARW", "B.ARW", "C.ARW"] {
+            fs::write(hot.join(name), name.as_bytes()).unwrap();
+        }
+        let cancel = AtomicBool::new(false);
+        let next = NextCapture::CopyFromLast;
+        let (_, a) = ingest_capture(
+            &lib,
+            &hot.join("A.ARW"),
+            "{orig}",
+            1,
+            &next.clone().into(),
+            None,
+            None,
+            &cancel,
+        );
+        let a = a.unwrap();
+        // The last capture's lens was resolved for its own focal length.
+        lib.save_editor_state(
+            &a,
+            &json!({"version":1,"adjustments":{
+                "exposure":0.7,"lensCorrectionMode":"manual","lensMaker":"Canon",
+                "lensModel":"Canon RF 24-70mm F2.8L IS USM",
+                "lensDistortionParams":{"k1":0.03},"lensProfileFor":"stamp of A"}}),
+        )
+        .unwrap();
+        let (_, b) = ingest_capture(
+            &lib,
+            &hot.join("B.ARW"),
+            "{orig}",
+            2,
+            &next.clone().into(),
+            Some(&a),
+            None,
+            &cancel,
+        );
+        let copied = &lib.editor_state(&b.unwrap()).unwrap().unwrap()["adjustments"];
+        assert_eq!(copied["exposure"], 0.7);
+        assert_eq!(copied["lensModel"], "Canon RF 24-70mm F2.8L IS USM");
+        assert!(copied.get("lensDistortionParams").is_none());
+        assert_eq!(copied[LENS_PROFILE_FOR], LENS_UNRESOLVED);
+        // A preset's lens choice: looked up for the capture too.
+        let preset = NextCapture::Preset {
+            name: "Lens".into(),
+            adjustments: json!({"lensCorrectionMode": "auto"}),
+        };
+        let (_, c) = ingest_capture(
+            &lib,
+            &hot.join("C.ARW"),
+            "{orig}",
+            3,
+            &preset.into(),
+            None,
+            None,
+            &cancel,
+        );
+        let applied = &lib.editor_state(&c.unwrap()).unwrap().unwrap()["adjustments"];
+        assert_eq!(applied[LENS_PROFILE_FOR], LENS_UNRESOLVED);
+        // Without a lens setting nothing is marked.
+        assert!(
+            for_new_capture(json!({"contrast": 12}))
+                .get(LENS_PROFILE_FOR)
+                .is_none()
+        );
     }
 
     /// A capture copied but not recorded (the database was locked) is

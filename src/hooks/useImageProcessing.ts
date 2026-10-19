@@ -9,7 +9,7 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useRelightStore } from '../store/useRelightStore';
 import { stripSentRelightData } from '../utils/relight';
-import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer } from '../utils/adjustments';
+import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer, withSharpenVersion } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
@@ -815,7 +815,10 @@ export function useImageProcessing(
             delta.masks = frameDrawnMasks(delta.masks, adjustments, selectedImage.width, selectedImage.height);
           if (Object.keys(delta).length > 0) {
             otherPaths.forEach((p) => globalImageCache.delete(p));
-            invoke(Invokes.ApplyAdjustmentsToPaths, { paths: otherPaths, adjustments: delta }).catch((err) => {
+            invoke(Invokes.ApplyAdjustmentsToPaths, {
+              paths: otherPaths,
+              adjustments: withSharpenVersion(delta, adjustments),
+            }).catch((err) => {
               console.error('Failed to apply adjustments to multi-selection:', err);
               toast.error(`Failed to sync adjustments to the selection: ${saveFailure(err, otherPaths).message}`);
             });

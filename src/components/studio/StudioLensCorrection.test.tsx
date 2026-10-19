@@ -118,6 +118,17 @@ describe("Lens correction tool", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Remove chromatic aberration" }));
     expect(current.autoChromaticAberration).toBeUndefined();
   });
+  it("writes the current diffraction version when the correction is switched on", async () => {
+    await renderTool();
+    const diffraction = () => screen.getByRole("checkbox", { name: "Diffraction correction" });
+    fireEvent.click(diffraction());
+    expect(current.diffractionCorrection).toBe(true);
+    expect(current.diffractionVersion).toBe(2);
+    fireEvent.click(diffraction());
+    expect(current.diffractionCorrection).toBeUndefined();
+    expect(current.diffractionVersion).toBeUndefined();
+  });
+
   it("shows the automatic default of new RAW edits and stores only a change from it", async () => {
     current = { ...INITIAL_ADJUSTMENTS, autoCaVersion: 2 };
     useEditorStore.setState({ adjustments: current });

@@ -1567,6 +1567,32 @@ mod tests {
     }
 
     #[test]
+    fn previews_with_facts_from_before_the_diffraction_versions_are_remade() {
+        let dir = tempfile::tempdir().unwrap();
+        let photo = session_with_photo(dir.path(), b"raw bytes");
+        let settings = AppSettings::default();
+        write(&photo, &gradient(80, 60), 40, &settings, true).unwrap();
+        write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
+        assert!(stored_size(&photo, &settings).is_some());
+        assert!(has_full(&photo, &settings));
+        // Facts of version 3 lack diffraction_sigma from the newer database.
+        for kind in [ProxyKind::Standard, ProxyKind::Full] {
+            let path = proxy_path_of(&photo, kind).unwrap();
+            let bytes = fs::read(&path).unwrap();
+            let (mut header, at) = parse_header(&bytes).unwrap();
+            header.facts.as_mut().unwrap().version = 3;
+            let json = serde_json::to_vec(&header).unwrap();
+            let mut out = bytes[..8].to_vec();
+            out.extend_from_slice(&(json.len() as u32).to_le_bytes());
+            out.extend_from_slice(&json);
+            out.extend_from_slice(&bytes[at..]);
+            fs::write(&path, out).unwrap();
+        }
+        assert_eq!(stored_size(&photo, &settings), None);
+        assert!(!has_full(&photo, &settings));
+    }
+
+    #[test]
     fn offline_photographs_render_with_the_file_facts_their_previews_keep() {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");

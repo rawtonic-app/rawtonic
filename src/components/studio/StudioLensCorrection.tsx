@@ -203,6 +203,7 @@ export default function StudioLensCorrection() {
           ...prev,
           ...LENS_PROFILE_OFF,
           diffractionCorrection: undefined,
+          diffractionVersion: undefined,
         }))
       }
     >
@@ -313,6 +314,8 @@ export default function StudioLensCorrection() {
             setAdjustments((prev) => ({
               ...prev,
               diffractionCorrection: e.target.checked || undefined,
+              // The current lookup (diffraction.rs VERSION) for a new request.
+              diffractionVersion: e.target.checked ? 2 : undefined,
             }))
           }
         />
