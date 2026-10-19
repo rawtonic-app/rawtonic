@@ -6,7 +6,7 @@ import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { trackRecipeWork } from '../utils/recipeWork';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
-import { useEditorActions } from './useEditorActions';
+import { updateAdjustments, useEditorActions } from './useEditorActions';
 import { Adjustments, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes, Panel } from '../components/ui/AppProperties';
@@ -268,13 +268,18 @@ export function useAiMasking() {
   const requestedAutoMasks = useRef(new Set<string>());
   const updateSubMask = useCallback(
     (subMaskId: string, updatedData: Partial<SubMask>) => {
-      const applied = setAdjustments((prev: Adjustments) => ({
-        ...prev,
-        masks: prev.masks.map((c: MaskContainer) => ({
-          ...c,
-          subMasks: c.subMasks.map((sm: SubMask) => (sm.id === subMaskId ? { ...sm, ...updatedData } : sm)),
-        })),
-      }));
+      // Mask work is counted (recipeWork): a batch edit waits for it before
+      // it writes, so its result passes the batch's hold (queued).
+      const applied = updateAdjustments(
+        (prev: Adjustments) => ({
+          ...prev,
+          masks: prev.masks.map((c: MaskContainer) => ({
+            ...c,
+            subMasks: c.subMasks.map((sm: SubMask) => (sm.id === subMaskId ? { ...sm, ...updatedData } : sm)),
+          })),
+        }),
+        { queued: true },
+      );
       // Refused while a batch edit holds the recipe (it changes the geometry
       // the mask is computed in): asked for again once the hold ends.
       if (applied === false) {
@@ -283,7 +288,7 @@ export function useAiMasking() {
         }
       }
     },
-    [setAdjustments],
+    [],
   );
 
   const handleGenerateAiMaskRun = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {

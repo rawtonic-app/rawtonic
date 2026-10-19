@@ -979,20 +979,75 @@ describe('Auto straighten for a selection', () => {
     }
   });
 
-  it('waits for mask work on the open photograph before it holds the recipe', async () => {
+  it('holds at once and writes after mask work on the open photograph, with its result saved', async () => {
     let finishMask!: () => void;
     void trackRecipeWork(new Promise<void>((resolve) => { finishMask = resolve; }));
     const { result } = renderHook(useEditorActions);
     act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
     await act(async () => {});
-    expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
+    expect(useEditorStore.getState().heldRecipePaths).toEqual(['/first.dng']);
     expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain(Invokes.ApplyAutoStraightenToPaths);
+    // The mask's result passes the hold (it comes before the batch).
+    act(() => { updateAdjustments({ exposure: 0.25 }, { queued: true }); });
     await act(async () => finishMask());
     await act(async () => {});
-    expect(useEditorStore.getState().heldRecipePaths).toEqual(['/first.dng']);
+    const save = pending.find((r) => !r.settled && r.command === Invokes.SaveMetadataAndUpdateThumbnail);
+    expect(save).toBeDefined();
+    expect(vi.mocked(invoke).mock.calls.find(([c]) => c === Invokes.SaveMetadataAndUpdateThumbnail)?.[1])
+      .toMatchObject({ adjustments: { exposure: 0.25 } });
+    await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+    await act(async () => {});
     await finish(Invokes.ApplyAutoStraightenToPaths, report);
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+  });
+
+  it('keeps a batch asked for during mask work ahead of a reset asked for after it', async () => {
+    let finishMask!: () => void;
+    void trackRecipeWork(new Promise<void>((resolve) => { finishMask = resolve; }));
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    act(() => result.current.handleResetAdjustments(['/first.dng']));
+    await act(async () => {});
+    const writes = () =>
+      vi.mocked(invoke).mock.calls.map(([c]) => c)
+        .filter((c) => c === Invokes.ApplyAutoStraightenToPaths || c === Invokes.ResetAdjustmentsForPaths);
+    expect(writes()).toEqual([]);
+    await act(async () => finishMask());
+    await act(async () => {});
+    expect(writes()).toEqual([Invokes.ApplyAutoStraightenToPaths]);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await act(async () => {});
+    expect(writes()).toEqual([Invokes.ApplyAutoStraightenToPaths, Invokes.ResetAdjustmentsForPaths]);
+    await finish(Invokes.ResetAdjustmentsForPaths, undefined);
+  });
+
+  it('saves again a recipe brought back by undo after a later save', async () => {
+    const a = { ...useEditorStore.getState().adjustments, exposure: 1 };
+    const b = { ...a, exposure: 2 };
+    let baseline = useEditorStore.getState().adjustments;
+    const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: baseline }));
+    try {
+      const saves = () =>
+        vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.SaveMetadataAndUpdateThumbnail)
+          .map(([, x]) => (x as { adjustments: { exposure: number } }).adjustments.exposure);
+      useEditorStore.setState({ adjustments: a });
+      act(() => { void flushRecipeSaves(); });
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      // The editor's own autosave writes B and moves the baseline.
+      useEditorStore.setState({ adjustments: b });
+      baseline = b;
+      // Undo brings A (the same object) back; quitting flushes.
+      useEditorStore.setState({ adjustments: a });
+      act(() => { void flushRecipeSaves(); });
+      await act(async () => {});
+      expect(saves()).toEqual([1, 1]);
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+    } finally {
+      unregister();
+    }
   });
 
   it('releases the hold when the batch fails', async () => {

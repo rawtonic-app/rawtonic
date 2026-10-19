@@ -99,17 +99,18 @@ export function registerScheduledRecipe(read: () => ScheduledRecipe | null): () 
 /** Schedules the open photograph's recipe when it changed after the last
  * one scheduled: a slider still being dragged is saved only when the drag
  * ends. Only a fully loaded photograph whose recipe was taken before. */
-let scheduledHere: Adjustments | null = null;
+/** The recipe scheduled here last, and the baseline it was scheduled
+ * against: the same recipe against the same baseline is saved once (the
+ * baseline moves only with the editor's own autosave). */
+let scheduledHere: { recipe: Adjustments; baseline: Adjustments } | null = null;
 function scheduleUnsavedEditorRecipe() {
   const scheduled = readScheduledRecipe?.();
   const { selectedImage, adjustments } = useEditorStore.getState();
   if (!scheduled || !selectedImage?.isReady || scheduled.path !== selectedImage.path) return;
-  // Once per recipe: the baseline moves only when the editor's own autosave
-  // runs, so a second call would save the same recipe again.
-  if (scheduled.adjustments !== adjustments && scheduledHere !== adjustments) {
-    scheduledHere = adjustments;
-    debouncedSave(selectedImage.path, adjustments);
-  }
+  if (scheduled.adjustments === adjustments) return;
+  if (scheduledHere?.recipe === adjustments && scheduledHere.baseline === scheduled.adjustments) return;
+  scheduledHere = { recipe: adjustments, baseline: scheduled.adjustments };
+  debouncedSave(selectedImage.path, adjustments);
 }
 
 /**
@@ -516,11 +517,6 @@ export function useEditorActions() {
       if (pathsToUpdate.length === 0) return null;
       if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return null;
       const open = selectedImage && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
-      // Mask work on the open photograph (AI masks, imported placements)
-      // finishes first: its result would be refused by the hold.
-      if (open) {
-        for (let work = afterRecipeWork(); work; work = afterRecipeWork()) await work;
-      }
       // The open photograph's slider draft is committed (Edit all selected
       // passes it on), then every photograph of the batch is held, also one
       // opened while it runs: no edits from here on.
@@ -548,6 +544,20 @@ export function useEditorActions() {
       // batch, Auto lens correction, Auto Adjust).
       return exclusiveRecipeOperation(held, async () => {
         if (saved) await saved;
+        // Mask work started before the hold (AI masks, imported placements)
+        // ends first; its results pass the hold (they come before the
+        // batch) and are saved with the recipe the batch analyses.
+        const shown = useEditorStore.getState().selectedImage;
+        if (shown && held.includes(shown.path)) {
+          const before = useEditorStore.getState().adjustments;
+          for (let work = afterRecipeWork(); work; work = afterRecipeWork()) await work;
+          const after = useEditorStore.getState().adjustments;
+          if (after !== before && isCurrentEditorImage(shown.path)) {
+            debouncedSave(shown.path, after);
+            debouncedSave.flush();
+            await pendingMetadataSaves.get(shown.path);
+          }
+        }
         try {
           pathsToUpdate.forEach((p) => globalImageCache.delete(p));
           const report = await afterRecipeSaves(pathsToUpdate, () =>
