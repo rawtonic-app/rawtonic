@@ -12,10 +12,13 @@ import { debouncedSave } from "./useEditorActions";
 import { toast } from "react-toastify";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+const { applyAdjustmentsToPaths } = vi.hoisted(() => ({
+  applyAdjustmentsToPaths: vi.fn((_partial: unknown, _paths?: string[]) => Promise.resolve()),
+}));
 vi.mock("./useEditorActions", () => ({
   debouncedSave: vi.fn(),
   registerScheduledRecipe: vi.fn(() => () => {}),
-  exclusiveRecipeOperation: (_paths: string[], operation: () => Promise<unknown>) => operation(),
+  useEditorActions: () => ({ applyAdjustmentsToPaths }),
 }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
 
@@ -255,11 +258,12 @@ it("takes a batch's reloaded recipe as the sync baseline, so the next edit syncs
   await finish();
   act(() => useEditorStore.setState({ heldRecipePaths: [] }));
   vi.mocked(invoke).mockClear();
+  applyAdjustmentsToPaths.mockClear();
   act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, exposure: 0.5 } }));
-  const synced = vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.ApplyAdjustmentsToPaths);
+  const synced = applyAdjustmentsToPaths.mock.calls;
   expect(synced).toHaveLength(1);
-  expect(synced[0][1]).toMatchObject({ paths: ["/second.dng"] });
-  const delta = (synced[0][1] as { adjustments: Record<string, unknown> }).adjustments;
+  expect(synced[0][1]).toEqual(["/second.dng"]);
+  const delta = synced[0][0] as Record<string, unknown>;
   expect(delta.exposure).toBe(0.5);
   expect(delta).not.toHaveProperty("rotation");
   expect(delta).not.toHaveProperty("crop");
@@ -282,9 +286,9 @@ it("takes a batch's result as the sync baseline also when it arrives during a be
   );
   act(() => useEditorStore.setState({ heldRecipePaths: [] }));
   vi.mocked(invoke).mockClear();
+  applyAdjustmentsToPaths.mockClear();
   act(() => useEditorStore.setState({ previewOverride: null }));
-  const synced = vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.ApplyAdjustmentsToPaths);
-  expect(synced).toHaveLength(0);
+  expect(applyAdjustmentsToPaths).not.toHaveBeenCalled();
   while (complete.length) await finish();
 });
 

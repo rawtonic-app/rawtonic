@@ -826,6 +826,28 @@ describe('Auto straighten for a selection', () => {
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
   });
 
+  it('flushes for quitting only after the queued recipe operations are done', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    let flushed = false;
+    act(() => { void flushRecipeSaves().then(() => { flushed = true; }); });
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -1 } });
+    await act(async () => {});
+    expect(flushed).toBe(false);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await act(async () => {});
+    // The paste's editor update is saved before it resolves.
+    const save = pending.find((r) => !r.settled && r.command === Invokes.SaveMetadataAndUpdateThumbnail);
+    if (save) await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+    await act(async () => {});
+    expect(flushed).toBe(true);
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

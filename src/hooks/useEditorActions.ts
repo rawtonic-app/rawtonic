@@ -114,6 +114,15 @@ function scheduleUnsavedEditorRecipe() {
 export async function flushRecipeSaves(): Promise<string[]> {
   scheduleUnsavedEditorRecipe();
   debouncedSave.flush();
+  // The recipe operations queued by now (a batch, a paste behind it) finish
+  // first (quitting, moving or renaming photographs wait for them), then the
+  // saves their editor updates scheduled.
+  const queued = [...new Set(recipeOperations.values())];
+  if (queued.length > 0) {
+    await Promise.all(queued);
+    scheduleUnsavedEditorRecipe();
+    debouncedSave.flush();
+  }
   while (pendingMetadataSaves.size > 0) {
     await Promise.all(pendingMetadataSaves.values());
   }

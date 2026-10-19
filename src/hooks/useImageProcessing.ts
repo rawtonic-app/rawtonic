@@ -13,8 +13,7 @@ import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer, withShar
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
-import { debouncedSave, exclusiveRecipeOperation, registerScheduledRecipe } from './useEditorActions';
-import { saveFailure } from './useLibraryActions';
+import { debouncedSave, registerScheduledRecipe, useEditorActions } from './useEditorActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
@@ -83,6 +82,11 @@ export function useImageProcessing(
 ) {
   const { previewJobIdRef, latestRenderedJobIdRef, currentResRef } = renderRefs;
   const os = useOsPlatform();
+  // Auto Sync writes as a paste does: a queued recipe operation that also
+  // updates a target opened meanwhile (applyAdjustmentsToPaths).
+  const { applyAdjustmentsToPaths } = useEditorActions();
+  const applyRef = useRef(applyAdjustmentsToPaths);
+  applyRef.current = applyAdjustmentsToPaths;
 
   const selectedImage = useEditorStore((state) => state.selectedImage);
   const adjustments = useEditorStore((state) => state.adjustments);
@@ -823,16 +827,9 @@ export function useImageProcessing(
           if (Object.keys(delta).length > 0) {
             otherPaths.forEach((p) => globalImageCache.delete(p));
             // In the other photographs' recipe queue, in the order made (a
-            // batch edit asked for after it runs after it).
-            exclusiveRecipeOperation(otherPaths, () =>
-              invoke(Invokes.ApplyAdjustmentsToPaths, {
-                paths: otherPaths,
-                adjustments: withSharpenVersion(delta, adjustments),
-              }),
-            ).catch((err) => {
-              console.error('Failed to apply adjustments to multi-selection:', err);
-              toast.error(`Failed to sync adjustments to the selection: ${saveFailure(err, otherPaths).message}`);
-            });
+            // batch edit asked for after it runs after it); a target opened
+            // meanwhile shows it (errors are reported as a paste's).
+            void applyRef.current(withSharpenVersion(delta, adjustments), otherPaths);
           }
         }
 
