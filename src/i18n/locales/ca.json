@@ -1064,7 +1064,7 @@
       "captureTitle": "Dispara la càmera (⌘K / Ctrl+K)",
       "connect": "Connecta",
       "connecting": "Connectant…",
-      "copyNote": "Les fotos es copien a <strong>{{target}}</strong> i es verifiquen en fer-les. No s’esborra res de la càmera.",
+      "copyNote": "Les fotos es copien a <strong>{{target}}</strong> i es verifiquen en fer-les. No s’esborra res de la targeta de memòria de la càmera.",
       "disconnect": "Desconnecta",
       "focus": "Enfoca",
       "freeCopies": "Allibera les fotos a la càmera quan siguin a la biblioteca",

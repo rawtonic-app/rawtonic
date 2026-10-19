@@ -996,7 +996,7 @@
       "captureTitle": "카메라 셔터 누르기(⌘K / Ctrl+K)",
       "connect": "연결",
       "connecting": "연결 중…",
-      "copyNote": "촬영한 사진은 <strong>{{target}}</strong>에 복사되고 검증됩니다. 카메라의 내용은 삭제되지 않습니다.",
+      "copyNote": "사진은 촬영할 때 <strong>{{target}}</strong>(으)로 복사되고 확인됩니다. 카메라 메모리 카드의 내용은 삭제되지 않습니다.",
       "disconnect": "연결 해제",
       "focus": "초점",
       "freeCopies": "라이브러리에 들어간 사진을 카메라에서 해제",

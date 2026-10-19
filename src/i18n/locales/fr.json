@@ -1064,7 +1064,7 @@
       "captureTitle": "Déclencher l’appareil (⌘K / Ctrl+K)",
       "connect": "Connecter",
       "connecting": "Connexion…",
-      "copyNote": "Les photos sont copiées dans <strong>{{target}}</strong> et vérifiées à la prise de vue. Rien n’est supprimé sur l’appareil.",
+      "copyNote": "Les photos sont copiées dans <strong>{{target}}</strong> et vérifiées à la prise de vue. Rien n’est supprimé sur la carte mémoire de l’appareil.",
       "disconnect": "Déconnecter",
       "focus": "Mise au point",
       "freeCopies": "Libérer les photos dans l’appareil une fois dans la bibliothèque",

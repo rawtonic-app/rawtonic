@@ -1021,7 +1021,7 @@
       "captureTitle": "Kamera auslösen (⌘K / Strg+K)",
       "connect": "Verbinden",
       "connecting": "Verbinde …",
-      "copyNote": "Fotos werden beim Aufnehmen nach <strong>{{target}}</strong> kopiert und geprüft. Auf der Kamera wird nichts gelöscht.",
+      "copyNote": "Fotos werden beim Aufnehmen nach <strong>{{target}}</strong> kopiert und geprüft. Auf der Speicherkarte der Kamera wird nichts gelöscht.",
       "disconnect": "Trennen",
       "focus": "Fokus",
       "freeCopies": "Fotos auf der Kamera freigeben, sobald sie in der Bibliothek sind",

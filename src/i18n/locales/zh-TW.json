@@ -996,7 +996,7 @@
       "captureTitle": "觸發相機（⌘K / Ctrl+K）",
       "connect": "連線",
       "connecting": "正在連線…",
-      "copyNote": "照片拍攝後複製到 <strong>{{target}}</strong> 並驗證。相機上的內容不會被刪除。",
+      "copyNote": "照片在拍攝時複製到 <strong>{{target}}</strong> 並經過校驗。相機記憶卡上的任何內容都不會被刪除。",
       "disconnect": "中斷連線",
       "focus": "對焦",
       "freeCopies": "照片進入圖庫後在相機上釋放",

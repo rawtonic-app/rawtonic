@@ -996,7 +996,7 @@
       "captureTitle": "カメラのシャッターを切る（⌘K / Ctrl+K）",
       "connect": "接続",
       "connecting": "接続しています…",
-      "copyNote": "撮影した写真は <strong>{{target}}</strong> にコピーして検証します。カメラ内のものは削除しません。",
+      "copyNote": "写真は撮影時に <strong>{{target}}</strong> にコピーされ検証されます。カメラのメモリーカード上のものは削除されません。",
       "disconnect": "切断",
       "focus": "ピント",
       "freeCopies": "ライブラリに入った写真をカメラ上で解放する",

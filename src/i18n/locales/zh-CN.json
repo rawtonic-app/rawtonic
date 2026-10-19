@@ -996,7 +996,7 @@
       "captureTitle": "触发相机（⌘K / Ctrl+K）",
       "connect": "连接",
       "connecting": "正在连接…",
-      "copyNote": "照片拍摄后复制到 <strong>{{target}}</strong> 并校验。相机上的内容不会被删除。",
+      "copyNote": "照片在拍摄时复制到 <strong>{{target}}</strong> 并经过校验。相机存储卡上的任何内容都不会被删除。",
       "disconnect": "断开连接",
       "focus": "对焦",
       "freeCopies": "照片进入图库后在相机上释放",

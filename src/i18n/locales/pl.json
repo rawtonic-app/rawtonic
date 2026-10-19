@@ -1107,7 +1107,7 @@
       "captureTitle": "Wyzwól aparat (⌘K / Ctrl+K)",
       "connect": "Połącz",
       "connecting": "Łączenie…",
-      "copyNote": "Zdjęcia są kopiowane do <strong>{{target}}</strong> i weryfikowane w trakcie fotografowania. Nic nie jest usuwane z aparatu.",
+      "copyNote": "Zdjęcia są kopiowane do <strong>{{target}}</strong> i sprawdzane podczas robienia. Nic na karcie pamięci aparatu nie jest usuwane.",
       "disconnect": "Rozłącz",
       "focus": "Ostrość",
       "freeCopies": "Zwalniaj zdjęcia w aparacie, gdy są już w bibliotece",

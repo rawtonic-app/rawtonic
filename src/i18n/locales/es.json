@@ -1064,7 +1064,7 @@
       "captureTitle": "Disparar la cámara (⌘K / Ctrl+K)",
       "connect": "Conectar",
       "connecting": "Conectando…",
-      "copyNote": "Las fotos se copian en <strong>{{target}}</strong> y se verifican al tomarlas. No se borra nada de la cámara.",
+      "copyNote": "Las fotos se copian a <strong>{{target}}</strong> y se verifican al hacerlas. No se borra nada de la tarjeta de memoria de la cámara.",
       "disconnect": "Desconectar",
       "focus": "Enfocar",
       "freeCopies": "Liberar las fotos en la cámara cuando estén en la biblioteca",

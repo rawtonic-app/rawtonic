@@ -1064,7 +1064,7 @@
       "captureTitle": "Scatta con la fotocamera (⌘K / Ctrl+K)",
       "connect": "Collega",
       "connecting": "Collegamento…",
-      "copyNote": "Le foto vengono copiate in <strong>{{target}}</strong> e verificate mentre le scatti. Sulla fotocamera non viene cancellato nulla.",
+      "copyNote": "Le foto vengono copiate in <strong>{{target}}</strong> e verificate durante lo scatto. Non viene eliminato nulla dalla scheda di memoria della fotocamera.",
       "disconnect": "Scollega",
       "focus": "Messa a fuoco",
       "freeCopies": "Libera le foto sulla fotocamera quando sono nella libreria",
