@@ -2797,19 +2797,22 @@ impl MaskUploader {
             return Err("A 16-bit mask layer in an 8-bit mask array.".to_string());
         }
         self.any_wide |= mask.wide().is_some();
-        self.pending += write_mask_rows(
-            &context.queue,
-            &self.texture,
-            index,
-            mask,
-            0,
-            mask.height(),
-            self.wide,
-        );
+        // Callers push from several threads, each outside the render's scopes.
+        gpu_scoped(&context.device, || {
+            self.pending += write_mask_rows(
+                &context.queue,
+                &self.texture,
+                index,
+                mask,
+                0,
+                mask.height(),
+                self.wide,
+            );
+            if self.pending >= MASK_UPLOAD_FLUSH_BYTES {
+                self.flush(context);
+            }
+        })?;
         self.uploaded[index] = true;
-        if self.pending >= MASK_UPLOAD_FLUSH_BYTES {
-            self.flush(context);
-        }
         Ok(())
     }
 
@@ -2828,7 +2831,7 @@ impl MaskUploader {
         if self.any_wide != self.wide {
             return Err("No 16-bit mask layer in a 16-bit mask array.".to_string());
         }
-        self.flush(context);
+        gpu_scoped(&context.device, || self.flush(context))?;
         Ok(UploadedMasks {
             view: self.texture.create_view(&wgpu::TextureViewDescriptor {
                 dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -6677,12 +6680,14 @@ pub fn upload_render_source(
     }
     #[cfg(feature = "performance-profiling")]
     let _stage = crate::performance::PerformanceStage::new("gpu_texture_upload");
-    let texture = create_input_texture(
-        &context.device,
-        &context.queue,
-        image,
-        INPUT_UPLOAD_BAND_ROWS,
-    )?;
+    let texture = gpu_scoped(&context.device, || {
+        create_input_texture(
+            &context.device,
+            &context.queue,
+            image,
+            INPUT_UPLOAD_BAND_ROWS,
+        )
+    })??;
     let texture_view = texture.create_view(&Default::default());
     let chroma = color_noise
         .and_then(|(linear, tuning)| ChromaPyramid::build_for(image, linear, &tuning))
@@ -7160,8 +7165,73 @@ pub enum RenderSource<'a> {
 /// Renders on the GPU with the caller's processor slot and uploaded-source
 /// cache (the app keeps both in its state), creating or resizing the
 /// processor as needed.
+///
+/// A CPU-readback render (export, thumbnail) fails when the GPU reports an
+/// error while it runs ([`gpu_scoped`]); before, an export wrote the black
+/// readback as its file.
 #[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_inner(
+    context: &GpuContext,
+    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    source: RenderSource,
+    request: RenderRequest,
+    caller_id: &str,
+    output_precision: RenderOutputPrecision,
+    output_to_display: bool,
+    analytics_config: Option<AnalyticsConfig>,
+    display_identity: Option<DisplayFrameIdentity>,
+    readback_shader: ReadbackShader,
+) -> Result<DynamicImage, String> {
+    let render = || {
+        render_dynamic_image(
+            context,
+            processor_slot,
+            image_cache,
+            source,
+            request,
+            caller_id,
+            output_precision,
+            output_to_display,
+            analytics_config,
+            display_identity,
+            readback_shader,
+        )
+    };
+    if output_to_display {
+        return render();
+    }
+    gpu_scoped(&context.device, render).and_then(|image| image)
+}
+
+/// Runs GPU work of a CPU-readback render (export, thumbnail) inside
+/// out-of-memory, validation and internal error scopes and fails when the
+/// GPU reports one. wgpu otherwise hands back invalid objects or leaves
+/// textures unwritten, reports the error only to the uncaptured-error
+/// handler (which logs it), and the readback comes back black. Scopes are
+/// per thread: GPU work a render hands to another thread runs its own.
+pub fn gpu_scoped<T>(device: &wgpu::Device, work: impl FnOnce() -> T) -> Result<T, String> {
+    let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let value = work();
+    let internal = pollster::block_on(internal.pop());
+    let validation = pollster::block_on(validation.pop());
+    let memory = pollster::block_on(memory.pop());
+    match memory.or(validation).or(internal) {
+        Some(error) => {
+            log::error!("GPU render failed: {error}");
+            Err(match error {
+                wgpu::Error::OutOfMemory { .. } => "The graphics card ran out of memory for this photograph. Close other programs that use it and try again.".to_string(),
+                _ => format!("The graphics card could not render this photograph: {error}"),
+            })
+        }
+        None => Ok(value),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_dynamic_image(
     context: &GpuContext,
     processor_slot: &Mutex<Option<GpuProcessorState>>,
     image_cache: &Mutex<Option<GpuImageCache>>,
@@ -7296,7 +7366,7 @@ pub fn process_and_get_dynamic_image_inner(
     let cache = cache_lock.as_mut().unwrap();
     let interactive = output_to_display || readback_shader != ReadbackShader::Export;
     let adjustments = &mut request.adjustments;
-    let chroma = off_global_pool(|| {
+    let prepare = || {
         prepare_color_noise(
             context,
             processor,
@@ -7305,7 +7375,13 @@ pub fn process_and_get_dynamic_image_inner(
             adjustments,
             interactive,
         )
-    });
+    };
+    // The pool's thread is outside this thread's error scopes.
+    let chroma = if output_to_display {
+        off_global_pool(prepare)
+    } else {
+        off_global_pool(|| gpu_scoped(&context.device, prepare))?
+    };
 
     let skip_readback = output_to_display;
     let display_targets = output_to_display.then(|| processor.display_targets(width, height));
