@@ -617,7 +617,7 @@ pub async fn apply_auto_adjustments_to_paths(
                     )
                     .map_err(|e| e.to_string())?;
 
-                    let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    let existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
                     let tone_mapper = existing_metadata
                         .adjustments
                         .get("toneMapper")
@@ -636,28 +636,9 @@ pub async fn apply_auto_adjustments_to_paths(
                         base_curve.as_deref(),
                     );
 
-                    let previous = existing_metadata.adjustments.clone();
-                    crate::auto_adjust::merge_auto_adjustments(
-                        &mut existing_metadata.adjustments,
-                        &auto_adjustments_json,
-                    );
-                    // Should Auto ever set the geometry, drawn masks stay
-                    // on the photo's content (the decode may be reduced:
-                    // frames take the photo's size when drawn).
-                    crate::mask_generation::keep_drawn_masks_on_photo(
-                        &previous,
-                        &mut existing_metadata.adjustments,
-                        None,
-                    );
-
-                    save_sidecar(path, &existing_metadata)?;
-
+                    let written = merge_auto_into_sidecar(path, &auto_adjustments_json)?;
                     if enable_xmp_sync {
-                        sync_metadata_to_xmp(
-                            &source_path,
-                            &existing_metadata,
-                            create_xmp_if_missing,
-                        );
+                        sync_metadata_to_xmp(&source_path, &written, create_xmp_if_missing);
                     }
                     Ok(image)
                 })();
@@ -755,11 +736,46 @@ static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// take turns through this guard, so none publishes a recipe read before
 /// another's write: rating, colour label and keyword edits and batch edits
 /// (`edit_sidecars`) for their whole batch, the editor's save and Auto
-/// straighten's commit. Never taken inside parallel work.
+/// straighten's commit, and Auto Adjust's write of each photo — the only one
+/// inside parallel work, through `sidecar_field_edit_in_pool`.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// `sidecar_field_edit` for a worker of the shared pool: while another edit
+/// holds the guard, the worker runs other pool jobs (that edit's own parallel
+/// work among them) instead of blocking, so the two cannot deadlock.
+fn sidecar_field_edit_in_pool() -> std::sync::MutexGuard<'static, ()> {
+    loop {
+        match SIDECAR_FIELD_EDITS.try_lock() {
+            Ok(guard) => return guard,
+            Err(std::sync::TryLockError::Poisoned(poisoned)) => return poisoned.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if rayon::yield_now() != Some(rayon::Yield::Executed) {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            }
+        }
+    }
+}
+
+/// Auto Adjust's write: the recipe read again under the sidecar guard and
+/// the computed auto values merged into it, so an edit committed while they
+/// were computed (Auto straighten's rotation and crop, a rating) stays.
+fn merge_auto_into_sidecar(path: &str, auto_adjustments: &Value) -> Result<ImageMetadata, String> {
+    let (_, sidecar_path) = parse_virtual_path(path);
+    let _turn = sidecar_field_edit_in_pool();
+    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+    let previous = metadata.adjustments.clone();
+    crate::auto_adjust::merge_auto_adjustments(&mut metadata.adjustments, auto_adjustments);
+    // Should Auto ever set the geometry, drawn masks stay on the photo's
+    // content (the decode may be reduced: frames take the photo's size when
+    // drawn).
+    crate::mask_generation::keep_drawn_masks_on_photo(&previous, &mut metadata.adjustments, None);
+    save_sidecar(path, &metadata)?;
+    Ok(metadata)
 }
 
 /// Every photo of `paths` unsaved: the worker saving them stopped (`error`).
@@ -1065,6 +1081,54 @@ mod tests {
                 .is_none()
         );
         assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+    }
+
+    /// Auto Adjust computes from the recipe it read, then writes: a straighten
+    /// committed meanwhile stays, as do the auto values.
+    #[test]
+    fn auto_adjust_keeps_a_straighten_committed_while_it_computed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let analysed = serde_json::json!({"exposure": 1.0});
+        let (path, sidecar) = photo_with_recipe(tmp.path(), analysed.clone());
+        // Auto Adjust has read the recipe and computes; Auto straighten commits.
+        commit_straighten(&path, &analysed, &straightened(), (400, 266)).unwrap();
+        merge_auto_into_sidecar(&path, &serde_json::json!({"exposure": 0.3, "contrast": 12}))
+            .unwrap();
+        let now = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
+        assert_eq!(now.adjustments["crop"]["width"], serde_json::json!(380.0));
+        assert_eq!(now.adjustments["exposure"], serde_json::json!(0.3));
+        assert_eq!(now.rating, 2);
+    }
+
+    /// An edit holding the sidecar guard runs parallel work while pool
+    /// workers wait for the guard: they run its jobs meanwhile, no deadlock.
+    #[test]
+    fn pool_workers_waiting_for_the_sidecar_guard_do_not_block_its_holder() {
+        use rayon::prelude::*;
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let holder = std::thread::spawn(move || {
+            let _turn = sidecar_field_edit();
+            held_tx.send(()).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            (0..256u64).into_par_iter().map(|n| n * 2).sum::<u64>()
+        });
+        held_rx.recv().unwrap();
+        let waiters = std::thread::spawn(move || {
+            (0..256).into_par_iter().for_each(|_| {
+                let _turn = sidecar_field_edit_in_pool();
+            });
+            done_tx.send(()).unwrap();
+        });
+        assert!(
+            done_rx
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .is_ok(),
+            "deadlock"
+        );
+        assert_eq!(holder.join().unwrap(), 65280);
+        waiters.join().unwrap();
     }
 
     /// A rating edit that read the recipe before the commit and writes after

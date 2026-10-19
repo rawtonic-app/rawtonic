@@ -262,6 +262,28 @@ it("takes a batch's reloaded recipe as the sync baseline, so the next edit syncs
   await finish();
 });
 
+it("takes a batch's result as the sync baseline also when it arrives during a before preview", async () => {
+  useSettingsStore.setState({
+    appSettings: { copyPasteSettings: { autoSync: true, includedAdjustments: ["exposure", "rotation", "crop"] } } as never,
+  });
+  useLibraryStore.setState({ multiSelectedPaths: ["/first.dng", "/second.dng"] });
+  mount();
+  await finish();
+  const before = useEditorStore.getState().adjustments;
+  act(() => useEditorStore.setState({ previewOverride: { ...before, exposure: -2 }, heldRecipePaths: ["/first.dng"] }));
+  act(() =>
+    useEditorStore.setState({
+      adjustments: { ...before, rotation: -2.5, crop: { unit: "px", x: 10, y: 8, width: 380, height: 250 } },
+    }),
+  );
+  act(() => useEditorStore.setState({ heldRecipePaths: [] }));
+  vi.mocked(invoke).mockClear();
+  act(() => useEditorStore.setState({ previewOverride: null }));
+  const synced = vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.ApplyAdjustmentsToPaths);
+  expect(synced).toHaveLength(0);
+  while (complete.length) await finish();
+});
+
 it("reports a native render failure but not a superseded preview", async () => {
   mount();
   await act(async () => {

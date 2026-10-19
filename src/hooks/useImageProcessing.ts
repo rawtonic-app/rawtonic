@@ -762,6 +762,13 @@ export function useImageProcessing(
   ]);
 
   useLayoutEffect(() => {
+    // A batch edit is writing this recipe and reloads it afterwards: what is
+    // shown (the reloaded result) becomes the save and sync baseline, also
+    // while a before preview or a drag is shown, so the next edit syncs only
+    // its own change.
+    if (selectedImage && isRecipeHeld(useEditorStore.getState())) {
+      prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
+    }
     // A preview proxy renders before the full decode; its arrival
     // (isReady) renders again from the full source.
     if (!canRenderSource(selectedImage)) return;
@@ -794,13 +801,8 @@ export function useImageProcessing(
       const hasAdjustmentsChanged = prev.adjustments !== adjustments;
 
       if (hasAdjustmentsChanged) {
-        // A batch edit is writing this recipe and reloads it afterwards: no
-        // save or sync, but what is shown (the reloaded result) becomes the
-        // baseline, so the next edit syncs only its own change.
-        if (isRecipeHeld(useEditorStore.getState())) {
-          prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
-          return;
-        }
+        // Held by a batch edit: no save or sync (baseline taken above).
+        if (isRecipeHeld(useEditorStore.getState())) return;
         debouncedSave(selectedImage.path, adjustments);
 
         const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);
