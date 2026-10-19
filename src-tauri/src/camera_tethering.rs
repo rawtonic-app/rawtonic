@@ -813,7 +813,20 @@ fn open_session(
 ) -> Result<CameraStatus, String> {
     let _turn = transition.lock().unwrap();
     finish_ingest(state);
-    let _ = client.request(Request::Disconnect, QUICK);
+    // The transfer folder is read only once the helper has confirmed that
+    // no camera is open (a download in progress would still write there);
+    // a helper that does not confirm is ended first.
+    if let Err(e) = client.request(Request::Disconnect, QUICK) {
+        client.kill();
+        let started = Instant::now();
+        while client.alive() && started.elapsed() < QUICK {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        return Err(format!(
+            "{} The tether helper was restarted; connect the camera again.",
+            e.message
+        ));
+    }
     let recovered = staging::recover(&staging::root(&session)).unwrap_or_else(|e| {
         log::warn!("Tether: the transfer folder cannot be read: {e}");
         staging::Recovered::default()
@@ -1481,6 +1494,41 @@ mod tests {
         finish_ingest(&state);
         assert_eq!(photos_in_capture(&session), 2, "each once");
         assert_eq!(incoming_left(&session), 0);
+    }
+
+    #[test]
+    fn the_transfer_folder_is_not_touched_without_a_confirmed_disconnect() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let root = staging::root(&session);
+        // Being written by a helper that does not answer.
+        let writing = staging::Partial::create(&root, 1, "DSC00001.ARW").unwrap();
+        let (state, client) = mock_helper(&MockSpec::default());
+        client.kill();
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(0, "x"),
+            free_camera_copies: false,
+        }));
+        let (notify, _seen) = collector();
+        let opened = open_session(
+            &state,
+            &Mutex::new(()),
+            client,
+            notify,
+            Opening {
+                session: session.clone(),
+                port: None,
+                config,
+            },
+            || {},
+        );
+        assert!(opened.is_err());
+        assert!(
+            !root.join(staging::INCOMPLETE).exists(),
+            "the partial download was not moved aside"
+        );
+        drop(writing);
     }
 
     #[test]

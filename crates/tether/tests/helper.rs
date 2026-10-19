@@ -584,3 +584,28 @@ fn the_probe_never_writes_over_a_file_in_its_output_folder() {
     );
     assert_eq!(std::fs::read(&mine).unwrap(), b"mine");
 }
+
+#[test]
+fn a_short_request_behind_a_long_capture_is_not_taken_for_a_hung_helper() {
+    let dir = tempfile::tempdir().unwrap();
+    // A camera that captures the blocking way, taking 1.5 s per photo.
+    let spec = MockSpec {
+        no_trigger: true,
+        event_delay_ms: 1500,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let client = std::sync::Arc::new(helper.client);
+    let capturing = client.clone();
+    let capture = std::thread::spawn(move || capturing.request(Request::Capture, WAIT));
+    std::thread::sleep(Duration::from_millis(100));
+    // Its own answer takes milliseconds; it waits for the capture first.
+    let settings = client.request(Request::Settings, Duration::from_millis(1000));
+    assert!(
+        matches!(settings, Ok(Reply::Settings { .. })),
+        "{settings:?}"
+    );
+    assert_eq!(capture.join().unwrap().unwrap(), Reply::Ok);
+    assert!(client.alive());
+}

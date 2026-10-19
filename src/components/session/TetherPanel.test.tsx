@@ -198,3 +198,12 @@ it("fires on the Capture shortcut with no panel mounted (fullscreen) and keeps t
   fireEvent.click(screen.getByText("Next capture"));
   expect((screen.getByLabelText("Next capture rating") as HTMLSelectElement).value).toBe("4");
 });
+
+it("stops the camera's live view when the panel goes away", async () => {
+  const { unmount } = render(<Harness initial={STATUS} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Live view" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: true }));
+  unmount();
+  expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: false });
+});

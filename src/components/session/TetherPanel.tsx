@@ -364,6 +364,15 @@ export default function TetherPanel({
     setFrame(null);
     void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
   }, [hidden, liveView]);
+  // Nor after the panel is gone (the view hidden in fullscreen).
+  const liveViewOn = useRef(false);
+  liveViewOn.current = liveView;
+  useEffect(
+    () => () => {
+      if (liveViewOn.current) void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
+    },
+    [],
+  );
 
   const setSetting = async (key: string, value: string) => {
     setError("");

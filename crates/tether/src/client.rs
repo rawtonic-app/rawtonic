@@ -28,6 +28,10 @@ type Waiting = Arc<Mutex<HashMap<u64, mpsc::Sender<Result<Reply, TetherError>>>>
 pub struct Client {
     child: Arc<Mutex<Child>>,
     stdin: Mutex<Option<ChildStdin>>,
+    /// Held while a request is out: the helper answers one at a time, so a
+    /// request's timeout starts when it is its turn (a short request queued
+    /// behind a long capture is not "unresponsive").
+    dispatch: Mutex<()>,
     waiting: Waiting,
     next: AtomicU64,
     ended: Arc<AtomicBool>,
@@ -162,6 +166,7 @@ impl Client {
         let client = Self {
             child,
             stdin: Mutex::new(stdin),
+            dispatch: Mutex::new(()),
             waiting,
             next: AtomicU64::new(1),
             ended,
@@ -181,6 +186,7 @@ impl Client {
 
     /// Sends `request` and waits up to `timeout` for its reply.
     pub fn request(&self, request: Request, timeout: Duration) -> Result<Reply, TetherError> {
+        let _turn = self.dispatch.lock().unwrap_or_else(|e| e.into_inner());
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
         self.waiting.lock().unwrap().insert(id, tx);
