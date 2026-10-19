@@ -36,12 +36,6 @@ export const MASK_KIND_LABELS: Record<MaskKind, string> = {
   depth: 'Depth range',
 };
 
-/** What to do on the photo after creating a component of this kind. */
-export const MASK_KIND_HINTS: Partial<Record<MaskKind, string>> = {
-  object: 'Drag a box around the object.',
-  color: 'Click the colour to select.',
-};
-
 /** Parts of a People mask (`rawtonic_faces::Part` names), in Lightroom's order. */
 export const PEOPLE_PARTS = [
   { part: 'entirePerson', label: 'Entire person' },

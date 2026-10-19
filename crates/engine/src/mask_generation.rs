@@ -924,7 +924,9 @@ struct BrushLine {
     auto_mask: bool,
     /// Auto Mask method. Absent: version 1, the Camera Raw-fitted colour
     /// distance of `auto_mask_weight` (old recipes and imported Lightroom
-    /// strokes keep it). 2: the edge-aware mask of `AutoMaskModel`.
+    /// strokes keep it). 2: the edge-aware mask of `AutoMaskModel`, one model
+    /// per dab. 3: the same with the stroke's dabs modelled together
+    /// (`stroke_models_v3`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     auto_mask_version: Option<u32>,
     /// Dab placement of a dab-based stroke (not Lightroom's, which has a dab
@@ -3048,7 +3050,7 @@ fn apply_brush_line(
                 "cols": bounds.2 - bounds.0 + 1,
                 "radius_px": radius,
                 "auto_mask": auto_mask.is_some(),
-                "auto_mask_version": if edge_aware { 2 } else { 1 },
+                "auto_mask_version": line.auto_mask_version.unwrap_or(1),
                 "colours_ms": colours_ms,
             }),
         );
@@ -4739,15 +4741,15 @@ pub fn generate_mask_bitmap(
     .map(MaskBitmap::into_bytes)
 }
 
-/// A layer's mask. Layers before `maskVersion` 2, and version 2 layers whose
-/// every step is exact at 8 bits (see `precise::needs_wide`), keep the 8-bit
-/// mask; other version 2 layers are computed in floating point.
 /// Whether `generate_layer_mask` gives this layer a 16-bit mask, known
 /// before generating it.
 pub fn layer_mask_is_wide(mask_def: &MaskDefinition) -> bool {
     mask_def.produces_bitmap() && mask_def.precise() && precise::needs_wide(mask_def)
 }
 
+/// A layer's mask. Layers before `maskVersion` 2, and later layers whose
+/// every step is exact at 8 bits (see `precise::needs_wide`), keep the 8-bit
+/// mask; other layers of version 2 and up are computed in floating point.
 pub fn generate_layer_mask(
     mask_def: &MaskDefinition,
     width: u32,
