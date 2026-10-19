@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use tauri::ipc::Response;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 const QUICK: Duration = Duration::from_secs(15);
 const SLOW: Duration = Duration::from_secs(45);
@@ -92,7 +92,7 @@ fn text(e: TetherError) -> String {
 /// overrides the path; `RAWTONIC_TETHER_MOCK` (a mock script, for tests and
 /// QA without a camera) starts the mock camera. Bundled camera drivers
 /// (packaging) are passed in libgphoto2's variables.
-fn helper_command() -> Result<HelperCommand, String> {
+fn helper_command(app: &AppHandle) -> Result<HelperCommand, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("no executable folder")?;
     let path = std::env::var_os("RAWTONIC_TETHER_HELPER")
@@ -106,15 +106,16 @@ fn helper_command() -> Result<HelperCommand, String> {
     } else {
         vec![]
     };
-    let mut envs = Vec::new();
-    for libs in [
-        dir.join("../Resources/gphoto2"),
-        dir.join("../lib/rawtonic/gphoto2"),
-    ] {
-        if libs.join("camlibs").is_dir() {
-            envs.push(("CAMLIBS".into(), libs.join("camlibs").into()));
-            envs.push(("IOLIBS".into(), libs.join("iolibs").into()));
-            break;
+    // The bundled camera and port drivers (and on Linux the libraries,
+    // which macOS bundles as frameworks), never the system's.
+    let mut envs: Vec<(OsString, OsString)> = Vec::new();
+    if let Ok(libs) = app.path().resource_dir().map(|r| r.join("gphoto2"))
+        && libs.join("camlibs").is_dir()
+    {
+        envs.push(("CAMLIBS".into(), libs.join("camlibs").into()));
+        envs.push(("IOLIBS".into(), libs.join("iolibs").into()));
+        if libs.join("lib").is_dir() {
+            envs.push(("LD_LIBRARY_PATH".into(), libs.join("lib").into()));
         }
     }
     Ok((path, args, envs))
@@ -182,7 +183,7 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         }
         log::info!("Tether helper gone; starting a new one");
     }
-    let (path, args, envs) = helper_command()?;
+    let (path, args, envs) = helper_command(app)?;
     let ingest = Arc::new(Mutex::new(None));
     let (client, library) = Client::spawn(
         &path,

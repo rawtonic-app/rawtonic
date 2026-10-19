@@ -22,6 +22,9 @@ export PATH=$CARGO_HOME/bin:/home/builder/.cargo/bin:$PATH RUSTUP_HOME=/home/bui
 # linuxdeploy is itself an AppImage; containers have no FUSE mount.
 export APPIMAGE_EXTRACT_AND_RUN=1 CI=true RAWTONIC_BUNDLE_ONNX=1
 npm ci
+# The tether helper with libgphoto2 built from pinned sources (ADR 0012).
+scripts/tether/bundle_helper.sh
 # shellcheck disable=SC2086
-npm run tauri -- build --bundles appimage $TAURI_ARGS -- --locked
+npm run tauri -- build --bundles appimage --config "$CARGO_TARGET_DIR/tether-bundle/tauri.tether.conf.json" \
+  $TAURI_ARGS -- --locked
 ls -la /cache/target/release/bundle/appimage/

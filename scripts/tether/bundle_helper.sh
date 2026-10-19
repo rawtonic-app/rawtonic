@@ -9,6 +9,10 @@
 #          Contents/Resources/gphoto2/{camlibs,iolibs}/ (CAMLIBS/IOLIBS are
 #          set by the app when it starts the helper); the port driver is
 #          the ImageCaptureCore one (icc), no libusb
+#   Linux: usr/bin/rawtonic-tether, <resources>/gphoto2/{camlibs,iolibs,lib}/
+#          (the app also sets LD_LIBRARY_PATH to lib/); libusb's port
+#          driver (usb1). packaging/linux/build-appimage.sh runs this inside
+#          its container.
 #
 # Every library reference is rewritten to the bundle and re-signed ad hoc;
 # the script fails if anything still points outside the bundle.
@@ -18,8 +22,9 @@
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
-PREFIX=$REPO/target/gphoto2
-OUT=$REPO/target/tether-bundle
+TARGET=${CARGO_TARGET_DIR:-$REPO/target}
+PREFIX=$TARGET/gphoto2
+OUT=$TARGET/tether-bundle
 "$REPO/scripts/tether/build_libgphoto2.sh" "$PREFIX"
 
 TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
@@ -29,7 +34,7 @@ GPHOTO2_LIB_DIR=$PREFIX/lib GPHOTO2_INCLUDE_DIR=$PREFIX/include \
 rm -rf "$OUT"
 mkdir -p "$OUT/binaries" "$OUT/Frameworks" "$OUT/gphoto2/camlibs" "$OUT/gphoto2/iolibs"
 HELPER=$OUT/binaries/rawtonic-tether-$TRIPLE
-cp "$REPO/target/release/rawtonic-tether" "$HELPER"
+cp "$TARGET/release/rawtonic-tether" "$HELPER"
 cp "$PREFIX"/lib/libgphoto2/*/ptp2.so "$OUT/gphoto2/camlibs/"
 
 case "$(uname -s)" in
@@ -70,8 +75,38 @@ case "$(uname -s)" in
 }
 EOF
     ;;
+  Linux)
+    cp "$PREFIX"/lib/libgphoto2_port/*/usb1.so "$OUT/gphoto2/iolibs/"
+    mkdir -p "$OUT/gphoto2/lib"
+    for lib in libgphoto2.so.6 libgphoto2_port.so.12 libltdl.so.7 libusb-1.0.so.0; do
+      cp -L "$PREFIX/lib/$lib" "$OUT/gphoto2/lib/$lib"
+    done
+    FILES=("$HELPER" "$OUT"/gphoto2/lib/*.so* "$OUT"/gphoto2/camlibs/*.so "$OUT"/gphoto2/iolibs/*.so)
+    for file in "${FILES[@]}"; do
+      chmod u+w "$file"
+      # libtool records the build folder; the app passes the bundled one.
+      patchelf --remove-rpath "$file"
+    done
+    if LD_LIBRARY_PATH=$OUT/gphoto2/lib ldd "${FILES[@]}" | grep -E "not found|libgphoto2|libusb|libltdl" |
+      grep -v "=> $OUT/gphoto2/lib/"; then
+      echo "bundle_helper: a library reference points outside the bundle" >&2
+      exit 1
+    fi
+    cat >"$OUT/tauri.tether.conf.json" <<EOF
+{
+  "bundle": {
+    "externalBin": ["$OUT/binaries/rawtonic-tether"],
+    "resources": {
+      "resources/": "resources/",
+      "lensfun_db/": "lensfun_db/",
+      "$OUT/gphoto2/": "gphoto2/"
+    }
+  }
+}
+EOF
+    ;;
   *)
-    echo "bundle_helper: Linux bundles are staged by packaging/linux/build-appimage.sh" >&2
+    echo "bundle_helper: unsupported system $(uname -s)" >&2
     exit 1
     ;;
 esac
