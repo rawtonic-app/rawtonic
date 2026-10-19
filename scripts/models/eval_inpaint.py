@@ -9,9 +9,7 @@ Usage:
   eval_inpaint.py sheet  CASES.json PHOTOS/ OUT/  METHOD [METHOD ...]
 
 Needs numpy, onnxruntime, opencv-python-headless, scipy (and torch + lpips
-for `score`). Environment: MIGAN (migan_pipeline_v2.onnx), LAMA (a LaMa ONNX
-export with 512 x 512 inputs, evaluation only: its weights carry no
-license), PATCH_FILL (the `patch_fill` example of rawtonic-engine, built
+for `score`). Environment: MIGAN (migan_pipeline_v2.onnx), PATCH_FILL (the `patch_fill` example of rawtonic-engine, built
 with --release).
 
 CASES.json: [{"id", "photo", "box": [x0, y0, x1, y1]} or "click": [x, y]],
@@ -29,7 +27,6 @@ in percent of the photo; PHOTOS/<photo>.png are 8- or 16-bit sRGB renders.
   Methods:
     migan      the app before (run_inpainting: crop 1.5 x the hole around
                it, the authors' MI-GAN pipeline, blended by the mask)
-    lama       the same crop, LaMa at 512 x 512, scaled back
     patch      patch_fill without a guide on the same crop
     hybrid     patch_fill guided by the MI-GAN fill
     hybrid:K=V,... the same with patch_fill parameters
@@ -295,20 +292,6 @@ def hifill_raw(img, hole):
     return np.where(hole[..., None], out, raw).astype(np.uint8)
 
 
-def lama_raw(img, hole):
-    s = session(os.environ["LAMA"])
-    h, w = hole.shape
-    x = cv2.resize(img, (512, 512), interpolation=cv2.INTER_AREA).astype(np.float32) / 255.0
-    m = cv2.resize(hole.astype(np.uint8), (512, 512), interpolation=cv2.INTER_NEAREST).astype(np.float32)
-    names = [i.name for i in s.get_inputs()]
-    out = s.run(None, {names[0]: x.transpose(2, 0, 1)[None], names[1]: m[None, None]})[0][0]
-    out = out.transpose(1, 2, 0)
-    if out.max() <= 1.5:
-        out = out * 255.0
-    out = np.clip(out, 0, 255).astype(np.uint8)
-    return cv2.resize(out, (w, h), interpolation=cv2.INTER_CUBIC)
-
-
 def patch_raw(img, hole, guide, params, tmp):
     tmp.mkdir(parents=True, exist_ok=True)
     save_rgb(tmp / "img.png", img)
@@ -350,8 +333,6 @@ def run_method(method, photo, mask, tmp):
         filled = migan_tiled(img, hole, tile) if tile else migan_raw(img, hole)
     elif name == "hifill":
         filled = hifill_raw(img, hole)
-    elif name == "lama":
-        filled = lama_raw(img, hole)
     elif name == "patch":
         filled = patch_raw(img, hole, None, params, tmp)
     elif name == "hybrid":

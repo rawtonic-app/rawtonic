@@ -21,7 +21,9 @@ weights tensor by tensor.
   it, Adobe Firefly excepted.
 - Rawtonic hosts the files it ships itself, built from the authors' files by
   `scripts/models/build_model_pack.py`, with the license texts beside them
-  (`licenses/models/`). The app pins every file by SHA-256.
+  (`licenses/models/`). The app pins every file by SHA-256. The app downloads
+  only the model files, so it carries those license texts itself (About →
+  Third-party licenses, `scripts/third_party_licenses.py`).
 
 ## Inventory
 
@@ -52,7 +54,7 @@ weights tensor by tensor.
 | `face_detection_yunet_2023mar.onnx` | People masks (faces) | YuNet 2023mar (Wu, Peng and Yu), OpenCV Zoo `models/face_detection_yunet` at commit f12e127 (Git LFS object), unchanged; `LICENSE` in that folder: MIT, © 2020 Shiqi Yu. Trained on WIDER FACE (residual risk under Training data). | MIT | In the pack since 2026-10-09 |
 | `face_mesh_v2.onnx` | People masks (eyes, brows, lips, teeth) | MediaPipe Face Mesh V2 (Google), the `face_landmarks_detector.tflite` of `face_landmarker.task` (float16, version 1, storage.googleapis.com/mediapipe-models), converted by `scripts/models/export_faces.py` (tf2onnx, checked against the TFLite interpreter, reproducible: same SHA-256 in two exports). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
 | `selfie_multiclass_256.onnx` | People masks (hair, face and body skin, clothes, accessories) | MediaPipe multiclass selfie segmentation (Google; `selfie_multiclass_256x256.tflite`, float32, version 1), converted by `scripts/models/export_faces.py` (as above). Model card: "Licensed under Apache License, Version 2.0". | Apache-2.0 (Google) | In the pack since 2026-10-09 |
-| `lama_fp16.onnx` | Inpainting (inherited) | LaMa (Samsung, Apache-2.0 code); no license statement for the big-lama weights; trained on Places365 (research/education terms). | Unclear | Replaced by MI-GAN 2026-10-09 |
+| `lama_fp16.onnx` | Inpainting (inherited) | LaMa (Samsung, Apache-2.0 code); no license statement for the big-lama weights; trained on Places365 (research/education terms). | Unclear | Replaced by MI-GAN 2026-10-09; the evaluation path in `eval_inpaint.py` removed 2026-10-19 (no weight license; the numbers below stay as measured) |
 
 Subject masks: BiRefNet against the inherited U²-Net (the app's
 preprocessing: U²-Net letterboxed to 320 px and min-max scaled, BiRefNet
