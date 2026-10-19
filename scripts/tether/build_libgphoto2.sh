@@ -30,10 +30,16 @@ GPHOTO_URL=https://downloads.sourceforge.net/project/gphoto/libgphoto/2.5.34/lib
 GPHOTO_SHA=5df9e774eb4ab6087a193afff84dcafe9f666e3443fe29e73e6779f659ff7f28
 
 STAMP="$LIBUSB $LIBTOOL $GPHOTO ptp2 usb1"
+LIBUSB_CONFIGURE=()
 case "$(uname -s)" in
   Darwin)
     export MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-13.0}
-    STAMP="$STAMP macos$MACOSX_DEPLOYMENT_TARGET"
+    # A newer SDK declares functions the minimum macOS lacks (pipe2 since
+    # macOS 27): configure finds them, they get weak-linked and are NULL on
+    # older systems — libusb_init then jumps to address 0 on macOS 26. Use
+    # the portable fallback; the check after the build catches others.
+    LIBUSB_CONFIGURE=(ac_cv_func_pipe2=no)
+    STAMP="$STAMP macos$MACOSX_DEPLOYMENT_TARGET nopipe2"
     sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
     ;;
   *) sha256() { sha256sum "$1" | cut -d' ' -f1; } ;;
@@ -68,7 +74,7 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
 
 tar -xjf "$SRC/$LIBUSB.tar.bz2" -C "$BUILD"
 (cd "$BUILD/$LIBUSB" && ./configure --prefix="$PREFIX" --disable-static --disable-udev \
-  --disable-examples-build --disable-tests-build >/dev/null && make -j"$JOBS" >/dev/null && make install >/dev/null)
+  --disable-examples-build --disable-tests-build "${LIBUSB_CONFIGURE[@]}" >/dev/null && make -j"$JOBS" >/dev/null && make install >/dev/null)
 
 tar -xJf "$SRC/$LIBTOOL.tar.xz" -C "$BUILD"
 (cd "$BUILD/$LIBTOOL" && ./configure --prefix="$PREFIX" --disable-static --enable-ltdl-install >/dev/null &&
@@ -81,5 +87,17 @@ tar -xjf "$SRC/$GPHOTO.tar.bz2" -C "$BUILD"
   LTDLINCL="-I$PREFIX/include" LIBLTDL="-L$PREFIX/lib -lltdl" >/dev/null &&
   make -j"$JOBS" >/dev/null && make install >/dev/null)
 
+if [ "$(uname -s)" = Darwin ]; then
+  # A weak import from the system libraries is a function newer than the
+  # minimum macOS: it would be NULL there.
+  WEAK=$(for f in "$PREFIX"/lib/*.dylib "$PREFIX"/lib/libgphoto2/*/*.so "$PREFIX"/lib/libgphoto2_port/*/*.so; do
+    [ -L "$f" ] || nm -m "$f" | grep 'weak external' | grep -E 'from lib(System|objc)|from [A-Z]' | sed "s|^|$f: |"
+  done) || true
+  if [ -n "$WEAK" ]; then
+    echo "libgphoto2: functions newer than macOS $MACOSX_DEPLOYMENT_TARGET are weak-linked:" >&2
+    echo "$WEAK" >&2
+    exit 1
+  fi
+fi
 echo "$STAMP" >"$PREFIX/.rawtonic-build"
 echo "libgphoto2: built into $PREFIX"
