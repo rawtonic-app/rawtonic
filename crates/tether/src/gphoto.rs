@@ -45,6 +45,18 @@ fn session_error(context: &str, e: gphoto2::Error) -> TetherError {
             format!("{context}: {e}. The camera was disconnected or switched off."),
         );
     }
+    // Busy on a camera this helper holds: the camera itself is busy (still
+    // saving, or showing the last photo), not another program.
+    if e.kind() == Gp::CameraBusy {
+        return TetherError::new(
+            ErrorKind::Busy,
+            format!(
+                "{context}: the camera is busy ({e}). It may still be saving or showing the last \
+                 photo (image review set to continuous): half-press its shutter release or wait, \
+                 then try again."
+            ),
+        );
+    }
     error(context, e)
 }
 
