@@ -76,6 +76,11 @@ interface TetherError {
 }
 
 const LIVE_VIEW_INTERVAL_MS = 1000 / 30;
+/** How often the panel looks for a newly plugged-in camera. */
+const CAMERA_POLL_MS = 2000;
+
+const sameCameras = (a: CameraInfo[], b: CameraInfo[]) =>
+  a.length === b.length && a.every((c, i) => c.model === b[i].model && c.port === b[i].port);
 
 /** The camera tool (Capture One's Camera tool, Lightroom's tethered
  * capture bar): connect a camera on USB, read and set its settings, fire
@@ -125,6 +130,24 @@ export default function TetherPanel({
       setError(String(e));
     }
   }, []);
+
+  // A camera plugged in while the panel is open shows up by itself.
+  useEffect(() => {
+    if (connected || hidden || waiting) return;
+    const timer = window.setInterval(() => {
+      void invoke<TetherCameras>(Invokes.TetherCameras)
+        .then((found) => {
+          setCameras((current) =>
+            current !== null && sameCameras(current, found.cameras) ? current : found.cameras,
+          );
+          setPort((current) =>
+            found.cameras.some((c) => c.port === current) ? current : (found.cameras[0]?.port ?? ""),
+          );
+        })
+        .catch(() => undefined);
+    }, CAMERA_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [connected, hidden, waiting]);
 
   const readSettings = useCallback(async () => {
     try {

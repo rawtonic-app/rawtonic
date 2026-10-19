@@ -1,5 +1,6 @@
 import "../../i18n";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import TetherPanel, { type TetherStatus } from "./TetherPanel";
 import { TETHER_CAPTURE_EVENT, isTetherConnected } from "./tether";
@@ -109,4 +110,47 @@ it("an unplugged camera is reported and the panel offers to connect again", asyn
     }),
   );
   expect(onStatus).toHaveBeenCalledWith(null);
+});
+
+it("a camera plugged in while the panel is open shows up without a refresh", async () => {
+  let cameras: { model: string; port: string }[] = [];
+  invoke.mockImplementation((command: string) =>
+    Promise.resolve(command === "tether_cameras" ? { library: "2.5.34", cameras } : command === "load_presets" ? [] : null),
+  );
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByText("No camera found on USB")).toBeTruthy());
+    cameras = [{ model: "Sony ILCE-7M4", port: "usb:020,004" }];
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Sony ILCE-7M4" })).toBeTruthy());
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("a camera that came back is shown as connected again, without an error", async () => {
+  let setStatus: (status: TetherStatus | null) => void = () => undefined;
+  function Stateful() {
+    const [status, set] = useState<TetherStatus | null>(STATUS);
+    setStatus = set;
+    return <TetherPanel directory="/jobs/Acme" jobName="Acme" status={status} onStatus={set} onClose={vi.fn()} />;
+  }
+  render(<Stateful />);
+  await waitFor(() => expect(callbacks.has("tether-state")).toBe(true));
+  act(() =>
+    callbacks.get("tether-state")!({
+      payload: { connected: false, error: { kind: "disconnected", message: "The camera was disconnected." } },
+    }),
+  );
+  expect(screen.getByText(/connects the camera again when it is back/)).toBeTruthy();
+  // The workspace sets the status again; the panel clears its error.
+  act(() => {
+    setStatus(STATUS);
+    callbacks.get("tether-state")!({ payload: { connected: true, status: STATUS } });
+  });
+  await waitFor(() => expect(screen.queryByText("The camera was disconnected.")).toBeNull());
+  expect(screen.queryByText(/connects the camera again when it is back/)).toBeNull();
 });
