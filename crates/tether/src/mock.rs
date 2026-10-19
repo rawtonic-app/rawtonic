@@ -58,6 +58,8 @@ pub struct MockSpec {
     pub no_card: bool,
     /// The card is taken out this long after the connect.
     pub card_out_after_ms: Option<u64>,
+    /// Save to cannot be read.
+    pub target_read_fails: bool,
     /// Each exposure gives a RAW and a JPEG file (same name, .JPG).
     pub raw_and_jpeg: bool,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
@@ -96,6 +98,7 @@ impl Default for MockSpec {
             raw_and_jpeg: false,
             no_card: false,
             card_out_after_ms: None,
+            target_read_fails: false,
             photo: None,
         }
     }
@@ -406,14 +409,27 @@ impl Camera for MockCamera {
         true
     }
 
-    fn memory_only(&mut self) -> bool {
+    fn memory_only(&mut self) -> Result<bool, TetherError> {
+        if self.unplugged() {
+            // A quiet unplug shows only in requests.
+            if self.spec.quiet_unplug {
+                return Ok(false);
+            }
+            return Err(Self::gone());
+        }
+        if self.spec.target_read_fails {
+            return Err(TetherError::new(
+                ErrorKind::Other,
+                "Save to could not be read.",
+            ));
+        }
         let card_out = self
             .spec
             .card_out_after_ms
             .is_some_and(|ms| self.opened.elapsed() >= Duration::from_millis(ms));
-        self.spec.no_card
+        Ok(self.spec.no_card
             || card_out
-            || crate::camera::memory_only(self.status().capture_target.as_deref())
+            || crate::camera::memory_only(self.status().capture_target.as_deref()))
     }
 
     fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {

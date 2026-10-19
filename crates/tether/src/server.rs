@@ -238,7 +238,7 @@ impl<W: Write> Server<W> {
                 // A connection never starts with photos kept only in the
                 // camera's memory: Save to goes to the card where the camera
                 // offers that; else the camera is not opened.
-                if camera.memory_only() && (!camera.prefer_card() || camera.memory_only()) {
+                if camera.memory_only()? && (!camera.prefer_card() || camera.memory_only()?) {
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
                 let memory_only = false;
@@ -277,7 +277,7 @@ impl<W: Write> Server<W> {
             }
             Request::Capture => {
                 let open = self.camera()?;
-                if open.memory_only || open.camera.memory_only() {
+                if open.memory_only || open.camera.memory_only()? {
                     open.memory_only = true;
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
@@ -371,11 +371,23 @@ impl<W: Write> Server<W> {
         };
         // Checked before every read of the camera's events: reading them may
         // already take a photo out of the camera's memory.
-        if !open.memory_only && open.camera.memory_only() {
-            open.memory_only = true;
-            return self.event(Event::CaptureFailed {
-                error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
-            });
+        if !open.memory_only {
+            match open.camera.memory_only() {
+                Ok(false) => {}
+                Ok(true) => {
+                    open.memory_only = true;
+                    return self.event(Event::CaptureFailed {
+                        error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
+                    });
+                }
+                Err(error) if error.kind == ErrorKind::Disconnected => return self.lost(error),
+                Err(error) => {
+                    // Not read while it cannot be told; tried again next turn.
+                    log::warn!("camera memory check: {error}");
+                    std::thread::sleep(wait);
+                    return Ok(());
+                }
+            }
         }
         let Some(open) = self.open.as_mut() else {
             return Ok(());

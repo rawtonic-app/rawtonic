@@ -411,17 +411,15 @@ impl Camera for GphotoCamera {
 
     fn fire(&mut self) -> Result<Fired, TetherError> {
         if self.trigger {
-            // Refused as busy while the body has priority: a camera whose
-            // controls go to the body between shots (libgphoto2's Fujifilm
-            // event wait hands priority back each time) fires once the
-            // computer has it. Nothing was fired, so trying again is no
-            // second exposure (the helper also retries after reading the
-            // camera's events).
-            let mut fired = self.camera.trigger_capture(&self.context);
-            if fired.as_ref().is_err_and(|e| e.kind() == Gp::CameraBusy) && self.take_priority() {
-                fired = self.camera.trigger_capture(&self.context);
+            // libgphoto2's Fujifilm tether path hands priority back to the
+            // body each time it reads the camera's events, and a body that
+            // has it refuses the shot (GFX 50R): the computer takes it
+            // before every shot, as libgphoto2 does when it prepares
+            // capturing. A shot is triggered once; a refusal is reported.
+            if self.transfer_queue {
+                self.take_priority();
             }
-            match fired {
+            match self.camera.trigger_capture(&self.context) {
                 Ok(()) => return Ok(Fired::Pending),
                 // Chosen by the result code: this driver needs the blocking
                 // capture. Nothing was fired, so firing that way is no second
@@ -536,21 +534,35 @@ impl Camera for GphotoCamera {
         }
     }
 
-    fn memory_only(&mut self) -> bool {
-        if crate::camera::memory_only(self.single_text(&["capturetarget"]).as_deref()) {
-            return true;
+    fn memory_only(&mut self) -> Result<bool, TetherError> {
+        // A camera without the setting has nothing to tell; a read that
+        // fails tells nothing either (an error: then nothing is read).
+        let target = match self
+            .camera
+            .get_single_config(&self.context, "capturetarget")
+        {
+            Ok(widget) => widget
+                .value()
+                .map_err(|e| session_error("Reading Save to", e))
+                .map(text)?,
+            Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
+            Err(e) => return Err(session_error("Reading Save to", e)),
+        };
+        if crate::camera::memory_only(target.as_deref()) {
+            return Ok(true);
+        }
+        if !self.canon {
+            return Ok(false);
         }
         // A card copy needs a card: on the Canon path "Memory card" alone
         // does not prove one is in.
-        self.canon
-            && !self
-                .camera
-                .storage_info(&self.context)
-                .is_ok_and(|storages| {
-                    storages
-                        .iter()
-                        .any(|s| s.capacity_kb.is_some_and(|kb| kb > 0))
-                })
+        let storages = self
+            .camera
+            .storage_info(&self.context)
+            .map_err(|e| session_error("Reading the camera's cards", e))?;
+        Ok(!storages
+            .iter()
+            .any(|s| s.capacity_kb.is_some_and(|kb| kb > 0)))
     }
 
     fn release(&mut self, file: &CameraFile) -> Result<(), TetherError> {

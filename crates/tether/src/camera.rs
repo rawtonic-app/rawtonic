@@ -65,8 +65,9 @@ pub trait Camera {
     /// Whether the camera keeps its photos only in its memory now (no card
     /// copy): such a photo exists only until it is transferred, so the
     /// helper neither polls nor fires it then.
-    fn memory_only(&mut self) -> bool {
-        memory_only(self.status().capture_target.as_deref())
+    /// An error when it cannot be told (then nothing is read or fired).
+    fn memory_only(&mut self) -> Result<bool, TetherError> {
+        Ok(memory_only(self.status().capture_target.as_deref()))
     }
     /// Sets Save to to an option that keeps a card copy, where the camera
     /// offers one; whether it did.

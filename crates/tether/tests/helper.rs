@@ -487,6 +487,43 @@ fn a_card_taken_out_during_the_connection_stops_firing_and_reading() {
 }
 
 #[test]
+fn a_camera_whose_save_to_cannot_be_read_is_not_read_or_fired() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        capture_target: Some("card+sdram".into()),
+        target_read_fails: true,
+        body_shots_ms: vec![100],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    assert!(
+        helper.connect().is_err(),
+        "not opened while it cannot be told"
+    );
+    std::thread::sleep(Duration::from_millis(300));
+    let incoming = helper.staging.join(staging::INCOMING);
+    assert!(!incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none());
+}
+
+#[test]
+fn a_camera_unplugged_during_the_memory_check_is_reported_disconnected() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        capture_target: Some("card+sdram".into()),
+        unplug_after: Some(1),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    assert_eq!(helper.photos(1).0.len(), 1);
+    match helper.next_event(WAIT) {
+        Some(Event::Disconnected { error }) => assert_eq!(error.kind, ErrorKind::Disconnected),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {
