@@ -416,6 +416,23 @@ export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
   return { ...picked, aiDenoiseVersion: version };
 };
 
+/** diffraction.rs VERSION for a request made now. */
+export const DIFFRACTION_VERSION = 2;
+
+/** The diffraction correction's crop-factor lookup depends on its version,
+ * so wherever the switch is copied (paste, presets) its version goes along:
+ * the source's, else — presets and recipes from before the key — version 1
+ * for a correction that is on. */
+export const withDiffractionVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'diffractionVersion'> => {
+  if (picked.diffractionCorrection !== true || (picked.diffractionVersion !== undefined && picked.diffractionVersion !== null)) {
+    return picked;
+  }
+  return { ...picked, diffractionVersion: source?.diffractionVersion ?? 1 };
+};
+
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
  * structure starts as Clumped. */
 export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>
@@ -511,6 +528,10 @@ export interface Adjustments {
   /** Capture One's diffraction correction: sharpening by the f-number and
    * pixel pitch (diffraction.rs), RAW only. */
   diffractionCorrection?: boolean;
+  /** diffraction.rs VERSION, written when the correction is switched on;
+   * missing = 1 (crop factors without the bodies the 2026-10-18 database
+   * update added). */
+  diffractionVersion?: number;
   lensDistortionParams: {
     k1: number;
     k2: number;
@@ -523,6 +544,10 @@ export interface Adjustments {
     vig_k3: number;
   } | null;
   lensMaker: string | null;
+  /** The lens choice `lensDistortionParams` were resolved for; written by
+   * the backend's save (edits.rs, LensLookup) and never copied: a save keeps
+   * the parameters while it matches the recipe's lens choice. */
+  lensProfileFor?: string | null;
   lensModel: string | null;
   lumaNoiseReduction: number;
   /** Lightroom's noise reduction refinements (0–100): luminance Detail
@@ -1669,6 +1694,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
         LensAdjustment.LensTcaEnabled,
         LensAdjustment.LensVignetteEnabled,
         'diffractionCorrection',
+        'diffractionVersion',
         'autoChromaticAberration',
         'cameraCaVersion',
         'autoCaVersion',
@@ -1704,6 +1730,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensBlurMinDepth',
   'lensBlurMinFade',
   'lensDistortionParams',
+  'lensProfileFor',
   'sectionVisibility',
   'showClipping',
 ];

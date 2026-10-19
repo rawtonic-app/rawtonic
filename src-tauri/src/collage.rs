@@ -127,7 +127,9 @@ fn render_and_write(spec: &CollageSpec, app_handle: &tauri::AppHandle) -> Result
         let is_raw = is_raw_file(&source);
         let mut adjustments = cell.adjustments.clone();
         crate::adjustment_utils::hydrate_adjustments(&state, &mut adjustments);
-        rawtonic_engine::embedded_lens::apply_default(&mut adjustments, &source_path);
+        // A written image: never with a lens correction that could not be
+        // resolved (as the single-photo export).
+        rawtonic_export::exif_processing::prepare_recipe_lens(&mut adjustments, &source_path)?;
         generated |= rawtonic_engine::image_loader::has_generated_areas(&adjustments);
         let pristine = crate::export_processing::load_export_base_image(
             &state,

@@ -27,6 +27,28 @@ const MAX_AMOUNT: f32 = 1.2;
 /// Airy σ (px) below which the correction fades out.
 const ONSET: (f32, f32) = (0.35, 0.55);
 
+/// `adjustments.diffractionVersion`, written when the correction is switched
+/// on. `2`: a body without FocalPlaneXResolution takes its crop factor from
+/// the whole bundled database. Missing (`1`, recipes from before
+/// 2026-10-18): without the camera entries that update added
+/// (`lens_correction::CAMERAS_ADDED_2026_10_18`), so those renders stay as
+/// they were.
+pub const VERSION: u64 = 2;
+pub const VERSION_KEY: &str = "diffractionVersion";
+
+/// The shader flag for a recipe that asks for the correction: its version
+/// (`apply` reads it back).
+pub fn requested_flag(adjustments: &serde_json::Value) -> f32 {
+    if adjustments["diffractionCorrection"].as_bool() != Some(true) {
+        return 0.0;
+    }
+    if adjustments[VERSION_KEY].as_u64().unwrap_or(1) >= 2 {
+        2.0
+    } else {
+        1.0
+    }
+}
+
 fn smoothstep(a: f32, b: f32, x: f32) -> f32 {
     let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -48,22 +70,40 @@ pub fn airy_sigma(f_number: f32, pitch_um: f32) -> Option<f32> {
     (f_number > 0.0 && pitch_um > 0.0).then(|| AIRY_SIGMA * WAVELENGTH_UM * f_number / pitch_um)
 }
 
-fn cache() -> &'static Mutex<HashMap<String, Option<f32>>> {
-    static CACHE: OnceLock<Mutex<HashMap<String, Option<f32>>>> = OnceLock::new();
+/// Airy σ for the current version and for version 1 (`VERSION`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Sigmas {
+    pub current: Option<f32>,
+    pub v1: Option<f32>,
+}
+
+fn cache() -> &'static Mutex<HashMap<String, Sigmas>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Sigmas>>> = OnceLock::new();
     CACHE.get_or_init(Default::default)
 }
 
 /// Airy σ in pixels of the developed frame from the file's f-number and the
 /// frame's width (FocalPlaneXResolution, else the camera's crop factor).
-pub(crate) fn sigma_for_path(path: &str) -> Option<f32> {
-    // Offline: the value the file gave (source_facts).
+pub(crate) fn sigmas_for_path(path: &str) -> Sigmas {
+    // Offline: the values the file gave (source_facts).
     if let Some(facts) = crate::source_facts::registered(path) {
-        return facts.diffraction_sigma;
+        return Sigmas {
+            current: facts.diffraction_sigma,
+            v1: if facts.diffraction_v1_differs {
+                facts.diffraction_sigma_v1
+            } else {
+                facts.diffraction_sigma
+            },
+        };
     }
     if let Some(found) = cache().lock().unwrap_or_else(|e| e.into_inner()).get(path) {
         return *found;
     }
-    let sigma = (|| {
+    let none = Sigmas {
+        current: None,
+        v1: None,
+    };
+    let sigmas = (|| {
         let source = RawSource::new(std::path::Path::new(path)).ok()?;
         let decoder = rawler::get_decoder(&source).ok()?;
         let metadata = decoder
@@ -87,40 +127,59 @@ pub(crate) fn sigma_for_path(path: &str) -> Option<f32> {
                 _ => return None,
             };
             Some(unit_mm * 1000.0 / resolution)
-        })();
-        let pitch_um = from_focal_plane
-            .filter(|p| (1.0..20.0).contains(p))
+        })()
+        .filter(|p| (1.0..20.0).contains(p));
+        let from_database = |excluded: &[(&str, &str)]| {
+            let db = crate::lens_correction::global_lens_db()?;
+            let crop = crate::lens_correction::camera_crop_factor_without(
+                &db,
+                &metadata.make,
+                &metadata.model,
+                excluded,
+            )
             .or_else(|| {
-                let db = crate::lens_correction::global_lens_db()?;
-                let crop = crate::lens_correction::camera_crop_factor(
+                crate::lens_correction::camera_crop_factor_loose_without(
                     &db,
-                    &metadata.make,
                     &metadata.model,
+                    excluded,
                 )
-                .or_else(|| {
-                    crate::lens_correction::camera_crop_factor_loose(&db, &metadata.model)
-                })?;
-                Some(36.0 / crop * 1000.0 / width_px)
             })?;
-        airy_sigma(f_number, pitch_um)
-    })();
+            Some(36.0 / crop * 1000.0 / width_px)
+        };
+        let sigma = |pitch_um: Option<f32>| airy_sigma(f_number, pitch_um?);
+        Some(Sigmas {
+            current: sigma(from_focal_plane.or_else(|| from_database(&[]))),
+            v1: sigma(
+                from_focal_plane
+                    .or_else(|| from_database(crate::lens_correction::CAMERAS_ADDED_2026_10_18)),
+            ),
+        })
+    })()
+    .unwrap_or(none);
     cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(path.to_string(), sigma);
-    sigma
+        .insert(path.to_string(), sigmas);
+    sigmas
 }
 
 /// Fills the correction for the photo at `path` when the recipe asked for it
-/// (`sharpen_falloff[2]` = 1): `[1]` radius in original pixels, `[2]` amount.
+/// (`sharpen_falloff[2]` = its version, `requested_flag`): `[1]` radius in
+/// original pixels, `[2]` amount.
 pub fn apply(global: &mut GlobalAdjustments, path: &str) {
-    let requested = global.sharpen_falloff[2] > 0.5;
+    let requested = global.sharpen_falloff[2];
     global.sharpen_falloff[1] = 0.0;
     global.sharpen_falloff[2] = 0.0;
-    if !requested || global.is_raw_image == 0 {
+    if requested < 0.5 || global.is_raw_image == 0 {
         return;
     }
-    if let Some(sigma) = sigma_for_path(path) {
+    let sigmas = sigmas_for_path(path);
+    let sigma = if requested > 1.5 {
+        sigmas.current
+    } else {
+        sigmas.v1
+    };
+    if let Some(sigma) = sigma {
         let (radius, amount) = correction(sigma);
         global.sharpen_falloff[1] = radius;
         global.sharpen_falloff[2] = amount;
@@ -130,6 +189,21 @@ pub fn apply(global: &mut GlobalAdjustments, path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_shader_flag_carries_the_recipes_version() {
+        let flag = |recipe: serde_json::Value| requested_flag(&recipe);
+        assert_eq!(flag(serde_json::json!({})), 0.0);
+        assert_eq!(flag(serde_json::json!({"diffractionVersion": 2})), 0.0);
+        assert_eq!(
+            flag(serde_json::json!({"diffractionCorrection": true})),
+            1.0
+        );
+        assert_eq!(
+            flag(serde_json::json!({"diffractionCorrection": true, "diffractionVersion": 2})),
+            2.0
+        );
+    }
 
     /// Prints the Airy σ found for `$DIFFRACTION_FILES` (`;`-separated).
     #[test]
@@ -145,7 +219,7 @@ mod tests {
                 .raw_metadata(&source, &RawDecodeParams::default())
                 .unwrap();
             println!("{} | {} | {:?}", m.make, m.model, m.exif.fnumber);
-            println!("{path}: {:?}", sigma_for_path(path));
+            println!("{path}: {:?}", sigmas_for_path(path));
         }
     }
 

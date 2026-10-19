@@ -3959,12 +3959,9 @@ fn get_global_adjustments_from_json(
                 0.0
             },
             0.0,
-            // Diffraction correction requested; diffraction.rs fills y/z.
-            if js_adjustments["diffractionCorrection"].as_bool() == Some(true) {
-                1.0
-            } else {
-                0.0
-            },
+            // Diffraction correction requested (its version); diffraction.rs
+            // fills y/z.
+            crate::diffraction::requested_flag(js_adjustments),
             sharpen_version(js_adjustments) as f32,
         ],
         camera_profile: [
