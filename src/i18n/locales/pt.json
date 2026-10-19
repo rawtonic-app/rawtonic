@@ -1084,6 +1084,7 @@
       "refresh": "Procurar câmaras de novo",
       "setOnBody": "Definido no corpo da câmara",
       "title": "Captura conectada",
+      "untested": "Suportada, mas ainda não testada com este modelo de câmara.",
       "usbHint": "Defina o modo USB da câmara para disparo remoto (Sony: PC Remote; Fujifilm: disparo USB conectado)."
     },
     "toasts": {

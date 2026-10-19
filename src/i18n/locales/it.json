@@ -1084,6 +1084,7 @@
       "refresh": "Cerca di nuovo le fotocamere",
       "setOnBody": "Impostato sul corpo macchina",
       "title": "Scatto collegato",
+      "untested": "Supportata, ma non ancora provata con questo modello di fotocamera.",
       "usbHint": "Imposta la modalità USB della fotocamera su scatto remoto (Sony: PC Remote; Fujifilm: scatto USB collegato)."
     },
     "toasts": {

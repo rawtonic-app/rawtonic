@@ -402,6 +402,51 @@ fn a_camera_keeping_photos_only_in_its_memory_is_not_fired_or_read_until_it_keep
 }
 
 #[test]
+fn raw_and_jpeg_of_one_exposure_answer_one_request() {
+    let dir = tempfile::tempdir().unwrap();
+    // RAW + JPEG per exposure; the second exposure never delivers.
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        lost_shots: vec![2],
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 1500);
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    let (photos, other) = helper.photos(3);
+    let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(names, ["DSC00001.ARW", "DSC00001.JPG"], "{other:?}");
+    assert!(photos.iter().all(|p| p.requested));
+    // The second request is still open and times out as not delivered.
+    assert!(
+        other
+            .iter()
+            .any(|e| matches!(e, Some(Event::CaptureFailed { error }) if error.kind == ErrorKind::Timeout)),
+        "{other:?}"
+    );
+}
+
+#[test]
+fn a_camera_set_to_the_card_without_a_card_in_is_not_fired_or_read() {
+    let dir = tempfile::tempdir().unwrap();
+    // "Save to" says the card, but none is in: it would keep photos in memory.
+    let spec = MockSpec {
+        capture_target: Some("card+sdram".into()),
+        no_card: true,
+        body_shots_ms: vec![0],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Unsupported);
+    std::thread::sleep(Duration::from_millis(300));
+    let incoming = helper.staging.join(staging::INCOMING);
+    assert!(!incoming.exists() || std::fs::read_dir(&incoming).unwrap().next().is_none());
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {

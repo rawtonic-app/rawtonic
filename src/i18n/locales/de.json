@@ -1041,6 +1041,7 @@
       "refresh": "Erneut nach Kameras suchen",
       "setOnBody": "Am Kameragehäuse eingestellt",
       "title": "Tethered fotografieren",
+      "untested": "Unterstützt, aber mit diesem Kameramodell noch nicht getestet.",
       "usbHint": "Den USB-Modus der Kamera auf Fernsteuerung stellen (Sony: PC-Fernbedienung; Fujifilm: USB-Tether-Aufnahme)."
     },
     "toasts": {

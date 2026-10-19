@@ -1084,6 +1084,7 @@
       "refresh": "Rechercher à nouveau",
       "setOnBody": "Réglé sur le boîtier",
       "title": "Prise de vue connectée",
+      "untested": "Pris en charge, mais pas encore testé avec ce modèle d’appareil.",
       "usbHint": "Réglez le mode USB de l’appareil sur la prise de vue à distance (Sony : PC Remote ; Fujifilm : prise de vue USB connectée)."
     },
     "toasts": {

@@ -1127,6 +1127,7 @@
       "refresh": "Szukaj aparatów ponownie",
       "setOnBody": "Ustawione na korpusie aparatu",
       "title": "Fotografowanie z podłączeniem",
+      "untested": "Obsługiwany, ale jeszcze nie testowany z tym modelem aparatu.",
       "usbHint": "Ustaw tryb USB aparatu na zdalne fotografowanie (Sony: PC Remote; Fujifilm: USB tether)."
     },
     "toasts": {

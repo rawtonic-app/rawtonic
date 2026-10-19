@@ -1084,6 +1084,7 @@
       "refresh": "Buscar cámaras de nuevo",
       "setOnBody": "Se ajusta en la cámara",
       "title": "Disparo conectado",
+      "untested": "Compatible, pero aún no probado con este modelo de cámara.",
       "usbHint": "Pon el modo USB de la cámara en disparo remoto (Sony: PC Remote; Fujifilm: disparo USB conectado)."
     },
     "toasts": {

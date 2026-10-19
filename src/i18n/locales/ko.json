@@ -1016,6 +1016,7 @@
       "refresh": "카메라 다시 찾기",
       "setOnBody": "카메라 본체에서 설정",
       "title": "테더 촬영",
+      "untested": "지원되지만 이 카메라 모델에서는 아직 테스트되지 않았습니다.",
       "usbHint": "카메라의 USB 모드를 원격 촬영으로 설정하세요(Sony: PC 리모트, Fujifilm: USB 테더 촬영)."
     },
     "toasts": {

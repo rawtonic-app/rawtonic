@@ -1041,6 +1041,7 @@
       "refresh": "Look for cameras again",
       "setOnBody": "Set on the camera body",
       "title": "Tethered shooting",
+      "untested": "Supported, but not yet tested with this camera model.",
       "usbHint": "Set the camera’s USB mode to remote shooting (Sony: PC Remote; Fujifilm: USB tether shooting)."
     },
     "toasts": {

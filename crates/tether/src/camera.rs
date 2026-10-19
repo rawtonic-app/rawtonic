@@ -62,6 +62,12 @@ pub trait Camera {
     fn wait_event(&mut self, timeout: Duration) -> Result<CameraEvent, TetherError>;
     /// The file's bytes and the size the camera reports for it, if it does.
     fn download(&mut self, file: &CameraFile) -> Result<(Vec<u8>, Option<u64>), TetherError>;
+    /// Whether the camera keeps its photos only in its memory now (no card
+    /// copy): such a photo exists only until it is transferred, so the
+    /// helper neither polls nor fires it then.
+    fn memory_only(&mut self) -> bool {
+        memory_only(self.status().capture_target.as_deref())
+    }
     /// Frees a downloaded photo the app committed from the camera's USB
     /// transfer queue, on cameras that keep one; never a file on a card.
     /// Nothing on others.

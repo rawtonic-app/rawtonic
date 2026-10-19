@@ -54,6 +54,10 @@ pub struct MockSpec {
     pub preview: bool,
     /// The body's serial number.
     pub serial: Option<String>,
+    /// No memory card in (a camera that then keeps photos in its memory).
+    pub no_card: bool,
+    /// Each exposure gives a RAW and a JPEG file (same name, .JPG).
+    pub raw_and_jpeg: bool,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
     pub capture_target: Option<String>,
     /// A real photo to hand out (each shot gets its number appended, so no
@@ -87,6 +91,8 @@ impl Default for MockSpec {
             preview: true,
             serial: Some("MOCK0001".into()),
             capture_target: None,
+            raw_and_jpeg: false,
+            no_card: false,
             photo: None,
         }
     }
@@ -201,6 +207,29 @@ impl MockCamera {
 
     fn gone() -> TetherError {
         TetherError::new(ErrorKind::Disconnected, "The camera was disconnected.")
+    }
+
+    /// The JPEG of an exposure that also gives one (`raw_and_jpeg`).
+    fn jpeg_of(&mut self, (at, raw): &(Instant, CameraFile)) -> Option<(Instant, CameraFile)> {
+        if !self.spec.raw_and_jpeg {
+            return None;
+        }
+        let stem = raw
+            .name
+            .rsplit_once('.')
+            .map_or(raw.name.as_str(), |(s, _)| s);
+        let name = format!("{stem}.JPG");
+        self.named
+            .entry(name.clone())
+            .or_default()
+            .push_back(self.fired);
+        Some((
+            *at + Duration::from_millis(1),
+            CameraFile {
+                folder: raw.folder.clone(),
+                name,
+            },
+        ))
     }
 
     /// Releases the shutter: the file the camera will report for it.
@@ -349,10 +378,17 @@ impl Camera for MockCamera {
             return Ok(Fired::File(file));
         }
         if let Some(due) = file {
+            if let Some(jpeg) = self.jpeg_of(&due) {
+                self.due.push_back(jpeg);
+            }
             self.due.push_back(due);
             self.due.make_contiguous().sort_by_key(|(at, _)| *at);
         }
         Ok(Fired::Pending)
+    }
+
+    fn memory_only(&mut self) -> bool {
+        self.spec.no_card || crate::camera::memory_only(self.status().capture_target.as_deref())
     }
 
     fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {
@@ -393,6 +429,9 @@ impl Camera for MockCamera {
         while self.body.front().is_some_and(|&at| at <= now) {
             self.body.pop_front();
             if let Some(due) = self.shutter(now) {
+                if let Some(jpeg) = self.jpeg_of(&due) {
+                    self.due.push_back(jpeg);
+                }
                 self.due.push_back(due);
             }
         }

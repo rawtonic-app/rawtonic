@@ -182,6 +182,7 @@ impl Driver for GphotoDriver {
         );
         let summary = camera.summary(&context).unwrap_or_default();
         let transfer_queue = has_transfer_queue(&summary);
+        let canon = summary.contains(": 0xb (");
         let serial = serial_number(&summary);
         if transfer_queue {
             log::info!(
@@ -195,6 +196,7 @@ impl Driver for GphotoDriver {
             info,
             transfer_queue,
             serial,
+            canon,
             trigger: true,
             capture: true,
             preview: true,
@@ -216,6 +218,10 @@ pub struct GphotoCamera {
     /// the computer frees it, and stops shooting when the queue is full.
     transfer_queue: bool,
     serial: Option<String>,
+    /// libgphoto2's Canon path: its "Save to" shows the preference, and it
+    /// captures to the camera's memory when no card is in (config.c,
+    /// camera_canon_eos_update_capture_target).
+    canon: bool,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
 }
@@ -504,6 +510,23 @@ impl Camera for GphotoCamera {
         file.data()
             .map(<[u8]>::to_vec)
             .map_err(|e| session_error("Live view", e))
+    }
+
+    fn memory_only(&mut self) -> bool {
+        if crate::camera::memory_only(self.single_text(&["capturetarget"]).as_deref()) {
+            return true;
+        }
+        // A card copy needs a card: on the Canon path "Memory card" alone
+        // does not prove one is in.
+        self.canon
+            && !self
+                .camera
+                .storage_info(&self.context)
+                .is_ok_and(|storages| {
+                    storages
+                        .iter()
+                        .any(|s| s.capacity_kb.is_some_and(|kb| kb > 0))
+                })
     }
 
     fn release(&mut self, file: &CameraFile) -> Result<(), TetherError> {

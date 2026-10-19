@@ -2,7 +2,7 @@
 //! waits briefly for camera events, so photos fired on the body are
 //! downloaded like the ones the app asks for, and sends live-view frames
 //! while they are wanted.
-use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired, memory_only};
+use crate::camera::{AbortPoint, Camera, CameraEvent, CameraFile, Driver, Fired};
 use crate::frame;
 use crate::protocol::{
     Captured, Envelope, ErrorKind, Event, Message, PROTOCOL, Reply, Request, TetherError,
@@ -49,6 +49,10 @@ struct Open {
     last: Option<(CameraFile, usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
+    /// The last exposure a file was matched to: its file name without the
+    /// extension and its app request, if any (RAW and JPEG of one exposure
+    /// share the name and answer one request).
+    exposure: Option<(String, String, Option<Instant>)>,
     /// The camera keeps photos only in its memory ("Save to" without the
     /// card): not polled or fired until that changes.
     memory_only: bool,
@@ -237,6 +241,7 @@ impl<W: Write> Server<W> {
                         "Another body of that model is on this port.",
                     ));
                 }
+                let memory_only = camera.memory_only();
                 self.connections += 1;
                 self.open = Some(Open {
                     camera,
@@ -246,7 +251,8 @@ impl<W: Write> Server<W> {
                     downloaded: 0,
                     last: None,
                     downloads: Default::default(),
-                    memory_only: memory_only(status.capture_target.as_deref()),
+                    exposure: None,
+                    memory_only,
                     connection: self.connections,
                 });
                 Ok(Reply::Connected { status })
@@ -262,7 +268,7 @@ impl<W: Write> Server<W> {
                 let open = self.camera()?;
                 open.camera.set_setting(&key, &value)?;
                 if key == "capturetarget" {
-                    open.memory_only = memory_only(open.camera.status().capture_target.as_deref());
+                    open.memory_only = open.camera.memory_only();
                 }
                 Ok(Reply::Ok)
             }
@@ -407,10 +413,24 @@ impl<W: Write> Server<W> {
             log::debug!("{} reported again; already downloaded", file.name);
             return Ok(());
         }
+        let (stem, extension) = match file.name.rsplit_once('.') {
+            Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
+            None => (file.name.clone(), String::new()),
+        };
         let requested = match shot_of {
-            Shot::Waiting => open.waiting.pop_front(),
+            // Another file of the same exposure (same name, other kind):
+            // the same request, not the next one.
+            Shot::Waiting => match &open.exposure {
+                Some((last_stem, last_extension, at))
+                    if *last_stem == stem && *last_extension != extension =>
+                {
+                    *at
+                }
+                _ => open.waiting.pop_front(),
+            },
             Shot::At(at) => Some(at),
         };
+        open.exposure = Some((stem, extension, requested));
         let started = requested.unwrap_or(reported);
         let (data, size) = match downloaded {
             Ok(downloaded) => downloaded,
@@ -425,8 +445,7 @@ impl<W: Write> Server<W> {
             }
         };
         open.downloaded = shot;
-        open.last = Some((file.clone(), data.len(), content_hash(&data)));
-        open.downloads.insert(file.clone(), shot);
+        let identity = (data.len(), content_hash(&data));
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,
@@ -444,6 +463,10 @@ impl<W: Write> Server<W> {
             Ok(path) => path,
             Err(e) => return self.storage_failed(&file, e),
         };
+        // Only a photo that is safely in the transfer folder counts as
+        // downloaded (a repeat of a failed one is taken again).
+        open.last = Some((file.clone(), identity.0, identity.1));
+        open.downloads.insert(file.clone(), shot);
         if open.camera.abort_at(AbortPoint::BeforeEvent, shot) {
             std::process::exit(70);
         }

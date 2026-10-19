@@ -100,8 +100,26 @@ struct Helper {
     worker: Option<std::thread::JoinHandle<()>>,
     /// A connect is waiting for the helper; `lost_while_connecting` notes a
     /// camera lost before its connection was installed.
-    connecting: bool,
+    connecting: Option<u64>,
     lost_while_connecting: bool,
+}
+
+/// A connect attempt's own mark for `Helper::connecting`: only the attempt
+/// that set it clears it (a cancelled reconnect never clears a newer
+/// connect's).
+fn connect_attempt() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::SeqCst)
+}
+
+/// Clears `connecting` if `attempt` set it; whether the camera was lost
+/// meanwhile.
+fn end_attempt(h: &mut Helper, attempt: u64) -> bool {
+    if h.connecting != Some(attempt) {
+        return false;
+    }
+    h.connecting = None;
+    std::mem::take(&mut h.lost_while_connecting)
 }
 
 /// The camera went away: its connection is kept for connecting it again.
@@ -122,7 +140,7 @@ fn camera_lost(state: &Mutex<Option<Helper>>, only: Option<u64>) -> bool {
         h.lost = Some(connection);
         return true;
     }
-    if h.connecting {
+    if h.connecting.is_some() {
         h.lost_while_connecting = true;
     }
     false
@@ -300,7 +318,7 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         connection: None,
         lost: None,
         worker: None,
-        connecting: false,
+        connecting: None,
         lost_while_connecting: false,
         generation,
     });
@@ -340,6 +358,7 @@ fn reconnect_lost(
     connected: impl FnOnce(TetherStatus),
 ) {
     loop {
+        let attempt = connect_attempt();
         // Checked under the transition lock before touching the state: a
         // connect or disconnect of the user's since the loss wins.
         let turn = transition.lock().unwrap();
@@ -356,7 +375,7 @@ fn reconnect_lost(
             let Some(c) = h.lost.as_ref() else {
                 return;
             };
-            h.connecting = true;
+            h.connecting = Some(attempt);
             h.lost_while_connecting = false;
             (
                 h.client.clone(),
@@ -378,14 +397,14 @@ fn reconnect_lost(
         );
         let mut helper = state.lock().unwrap();
         let Some(h) = helper.as_mut() else { return };
-        h.connecting = false;
+        let lost_again = end_attempt(h, attempt);
         let Some((status, _turn)) = found else {
             return;
         };
         if !wanted() || !Arc::ptr_eq(&h.client, &client) {
             return;
         }
-        if std::mem::take(&mut h.lost_while_connecting) {
+        if lost_again {
             // Gone again before it was installed: still lost, look again.
             continue;
         }
@@ -875,6 +894,7 @@ fn open_session(
     on_lost: impl FnOnce(),
 ) -> Result<CameraStatus, String> {
     let _turn = transition.lock().unwrap();
+    let attempt = connect_attempt();
     finish_ingest(state);
     // The transfer folder is read only once the helper has confirmed that
     // no camera is open (a download in progress would still write there);
@@ -908,7 +928,7 @@ fn open_session(
         let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
         *helper.ingest.lock().unwrap() = Some(tx);
         helper.worker = Some(worker);
-        helper.connecting = true;
+        helper.connecting = Some(attempt);
         helper.lost_while_connecting = false;
     }
     let connect = Request::Connect {
@@ -926,7 +946,7 @@ fn open_session(
                 client.kill();
             }
             if let Some(h) = state.lock().unwrap().as_mut() {
-                h.connecting = false;
+                end_attempt(h, attempt);
             }
             finish_ingest(state);
             return Err(match other {
@@ -937,9 +957,9 @@ fn open_session(
     };
     let mut helper = state.lock().unwrap();
     let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
-    helper.connecting = false;
+    let lost_meanwhile = end_attempt(helper, attempt);
     let connection = Connection::new(session, status.clone(), config);
-    if std::mem::take(&mut helper.lost_while_connecting) {
+    if lost_meanwhile {
         // Gone again before it was installed: kept for the reconnect.
         helper.lost = Some(connection);
         on_lost();
@@ -1277,7 +1297,7 @@ mod tests {
             connection: None,
             lost: None,
             worker: None,
-            connecting: false,
+            connecting: None,
             lost_while_connecting: false,
             generation: 7,
         });
@@ -1339,6 +1359,47 @@ mod tests {
         assert!(current_helper(&state, 7));
         assert!(!current_helper(&state, 6), "the one it replaced");
         assert!(!current_helper(&Mutex::new(None), 7));
+    }
+
+    #[test]
+    fn a_cancelled_reconnect_leaves_a_newer_connects_mark_alone() {
+        let (state, _client) = mock_helper(&MockSpec {
+            serial: Some("ELSEWHERE".into()),
+            ..MockSpec::default()
+        });
+        state.lock().unwrap().as_mut().unwrap().lost = Some(Connection {
+            id: 0,
+            session: PathBuf::from("/job"),
+            status: CameraStatus {
+                model: "Mock Camera".into(),
+                serial: Some("MOCK0001".into()),
+                ..CameraStatus::default()
+            },
+            config: Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "x"),
+                free_camera_copies: true,
+            })),
+        });
+        let checks = std::sync::atomic::AtomicUsize::new(0);
+        reconnect_lost(
+            &state,
+            &Mutex::new(()),
+            Duration::ZERO,
+            || {
+                // The user connects while this reconnect is looking.
+                if checks.fetch_add(1, Ordering::SeqCst) == 1 {
+                    state.lock().unwrap().as_mut().unwrap().connecting = Some(u64::MAX);
+                }
+                checks.load(Ordering::SeqCst) < 3
+            },
+            |_| panic!("connected"),
+        );
+        assert_eq!(
+            state.lock().unwrap().as_ref().unwrap().connecting,
+            Some(u64::MAX),
+            "the newer connect's mark stays"
+        );
     }
 
     #[test]
@@ -1455,7 +1516,7 @@ mod tests {
                 "every install whose body went away started a reconnect"
             );
         }
-        assert!(!helper.connecting);
+        assert!(helper.connecting.is_none());
     }
 
     #[test]
@@ -1508,7 +1569,7 @@ mod tests {
         let helper = state.lock().unwrap();
         let helper = helper.as_ref().unwrap();
         assert!(helper.connection.is_none() && helper.lost.is_some());
-        assert!(!helper.connecting);
+        assert!(helper.connecting.is_none());
     }
 
     #[test]

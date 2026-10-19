@@ -1016,6 +1016,7 @@
       "refresh": "重新尋找相機",
       "setOnBody": "在機身上設定",
       "title": "連線拍攝",
+      "untested": "受支援，但尚未在此相機型號上測試。",
       "usbHint": "將相機的 USB 模式設為遙控拍攝（Sony：PC 遙控；Fujifilm：USB 連線拍攝）。"
     },
     "toasts": {

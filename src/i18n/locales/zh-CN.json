@@ -1016,6 +1016,7 @@
       "refresh": "重新查找相机",
       "setOnBody": "在机身上设置",
       "title": "联机拍摄",
+      "untested": "受支持，但尚未在此相机型号上测试。",
       "usbHint": "将相机的 USB 模式设为遥控拍摄（Sony：PC 遥控；Fujifilm：USB 联机拍摄）。"
     },
     "toasts": {

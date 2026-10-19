@@ -100,6 +100,16 @@ export const ramOnly = (settings: { key: string; value: string }[]) => {
   return target.includes("ram") && !target.includes("card");
 };
 
+/** Bodies tethering was tested with (libgphoto2's model names; notes:
+ * reference/tether.md). Information for the user only: every camera is
+ * handled the same way. */
+export const TESTED_BODIES = [
+  "Sony Alpha-A7 III (PC Control)",
+  "Sony Alpha-A7 IV (PC Control)",
+  "Fuji Fujifilm X-H2S",
+  "Fuji GFX 50 R",
+];
+
 /** The panel's naming template and next-capture choice, kept across its
  * unmounting (the connection keeps using them). */
 let remembered: { template: string; nextCapture: NextCaptureForm } = {
@@ -494,6 +504,9 @@ export default function TetherPanel({
               <span>{t("session.tether.battery", { level: status.camera.battery })}</span>
             )}
           </div>
+          {!TESTED_BODIES.includes(status.camera.model) && (
+            <p className="tether-note">{t("session.tether.untested")}</p>
+          )}
           <div className="tether-actions">
             <button
               type="button"

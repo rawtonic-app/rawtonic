@@ -224,3 +224,13 @@ it("stops a live view whose start was still on its way when the panel went away"
   expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: false });
   answer(null);
 });
+
+it("says when a camera model has not been tested yet", async () => {
+  render(<Harness initial={STATUS} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  expect(screen.getByText(/not yet tested with this camera model/)).toBeTruthy();
+  cleanup();
+  render(<Harness initial={{ ...STATUS, camera: { ...STATUS.camera, model: "Fuji Fujifilm X-H2S" } }} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  expect(screen.queryByText(/not yet tested with this camera model/)).toBeNull();
+});

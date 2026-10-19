@@ -1084,6 +1084,7 @@
       "refresh": "Torna a cercar càmeres",
       "setOnBody": "Es configura a la càmera",
       "title": "Captura connectada",
+      "untested": "Compatible, però encara no provada amb aquest model de càmera.",
       "usbHint": "Posa el mode USB de la càmera en captura remota (Sony: PC Remote; Fujifilm: captura USB connectada)."
     },
     "toasts": {
