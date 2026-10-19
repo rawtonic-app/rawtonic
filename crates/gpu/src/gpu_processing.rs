@@ -2245,7 +2245,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 32;
+const PREVIEW_PIPELINE_COUNT: usize = 128;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -2254,8 +2254,15 @@ const PREVIEW_PIPELINE_COUNT: usize = 32;
 /// and changed a few deep-shadow values by one 16-bit step.
 const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
-/// highlights 2, curves 4, masks 8, noise reduction 16.
+/// highlights 2, curves 4, masks 8, noise reduction 16, tone sliders 32,
+/// relight 64.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
+/// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
+/// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
+/// without both a variant compiled in 3.3 instead of 5.8 s (RTX 3080, G56).
+const TONE_PREVIEW_FEATURE: usize = 32;
+/// A relight light or depth surface.
+const RELIGHT_PREVIEW_FEATURE: usize = 64;
 /// A RAW with the default detail settings (Sharpening 40, Color 25).
 const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
 
@@ -2354,6 +2361,8 @@ pub struct GpuProcessor {
     /// The general pipeline, compiled on its own thread from construction:
     /// without a warm driver cache it takes 16 s on NVIDIA/Linux.
     main_pipeline: BackgroundPipeline,
+    /// Opens when the RAW default variant settles (see `StartGate`).
+    start_gate: Arc<StartGate>,
     /// The general pipelines (8-bit, high precision) with the luminance
     /// noise reduction's edge-preserving pass, compiled on first use.
     edge_pipelines: [std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2],
@@ -3278,6 +3287,14 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         (&g.blue_curve, g.blue_curve_count),
     ]);
     let mut noise_reduction = g.luma_noise_reduction != 0.0 || g.color_noise_reduction != 0.0;
+    let tone_of = |contrast: f32, shadows: f32, whites: f32, blacks: f32| {
+        contrast != 0.0 || shadows != 0.0 || whites != 0.0 || blacks != 0.0
+    };
+    let mut tone = tone_of(g.contrast, g.shadows, g.whites, g.blacks);
+    // Without a light and a depth surface the relight stage multiplies by 1
+    // and adds 0 (shader `apply_relight`).
+    let relight =
+        g.relight.chunks(5).any(|light| light[0][3] > 0.0) || g.relight_depth[..2] != [0, 0];
     for m in adjustments
         .mask_adjustments
         .iter()
@@ -3292,12 +3309,21 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
             (&m.blue_curve, m.blue_curve_count),
         ]);
         noise_reduction |= m.luma_noise_reduction != 0.0 || m.color_noise_reduction != 0.0;
+        tone |= tone_of(m.contrast, m.shadows, m.whites, m.blacks);
     }
     usize::from(sharpen)
         | (usize::from(highlights) << 1)
         | (usize::from(curves) << 2)
         | (usize::from(adjustments.mask_count > 0) << 3)
         | (usize::from(noise_reduction) << 4)
+        | if tone { TONE_PREVIEW_FEATURE } else { 0 }
+        | if relight { RELIGHT_PREVIEW_FEATURE } else { 0 }
+}
+
+/// The variant an export compiles: the curves, tone and relight code stay in
+/// even where idle (see `LUMA_NR_EDGE_NOISE_START` for why idle code matters).
+fn export_features(adjustments: &AllAdjustments) -> usize {
+    preview_features(adjustments) | (1 << 2) | TONE_PREVIEW_FEATURE | RELIGHT_PREVIEW_FEATURE
 }
 
 /// Per mask layer: the curve data its table was built from, and whether the
@@ -3347,34 +3373,71 @@ fn validated<T>(
     }
 }
 
-/// A pipeline compiled on its own thread. `wait` blocks until it is done
-/// (or failed); `get` only looks.
-struct BackgroundPipeline(Arc<std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>>);
+/// Holds the pipelines compiled ahead back until the first display variant
+/// is ready, or until one of them is needed. On a cold NVIDIA driver cache
+/// (Linux) the compiles compete for the CPU with each other and with the
+/// library: the RAW default variant took 9.1 s beside them, 6.0 s alone (G56).
+#[derive(Default)]
+struct StartGate {
+    open: Mutex<bool>,
+    opened: std::sync::Condvar,
+}
+
+impl StartGate {
+    fn open(&self) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        if !*open {
+            *open = true;
+            self.opened.notify_all();
+        }
+    }
+
+    fn wait(&self) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        while !*open {
+            open = self.opened.wait(open).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+/// A pipeline compiled on its own thread once `gate` opens. `wait` opens the
+/// gate and blocks until the pipeline is done (or failed); `get` only looks.
+struct BackgroundPipeline {
+    cell: Arc<std::sync::OnceLock<Result<wgpu::ComputePipeline, String>>>,
+    gate: Arc<StartGate>,
+}
 
 impl BackgroundPipeline {
     fn compile(
         device: &wgpu::Device,
+        gate: &Arc<StartGate>,
         create: impl FnOnce(&wgpu::Device) -> Result<wgpu::ComputePipeline, String> + Send + 'static,
     ) -> Self {
         let cell = Arc::new(std::sync::OnceLock::new());
         let result = Arc::clone(&cell);
         let device = device.clone();
+        let start = Arc::clone(gate);
         std::thread::spawn(move || {
+            start.wait();
             let created = create(&device);
             if let Err(error) = &created {
                 log::error!("{error}");
             }
             let _ = result.set(created);
         });
-        Self(cell)
+        Self {
+            cell,
+            gate: Arc::clone(gate),
+        }
     }
 
     fn wait(&self) -> Result<&wgpu::ComputePipeline, String> {
-        self.0.wait().as_ref().map_err(Clone::clone)
+        self.gate.open();
+        self.cell.wait().as_ref().map_err(Clone::clone)
     }
 
     fn get(&self) -> Option<Result<&wgpu::ComputePipeline, String>> {
-        self.0
+        self.cell
             .get()
             .map(|result| result.as_ref().map_err(Clone::clone))
     }
@@ -3412,10 +3475,12 @@ fn create_preview_pipeline(
     prepared_layers: bool,
     layer_sums: bool,
 ) -> Result<wgpu::ComputePipeline, String> {
+    // The variant in the label tells the slow-compile log lines apart.
+    let label = format!("Specialized image processing {features}");
     create_compute_pipeline(
         device,
         &wgpu::ComputePipelineDescriptor {
-            label: Some("Specialized image processing"),
+            label: Some(&label),
             layout: Some(pipeline_layout),
             module: shader_module,
             entry_point: Some("main"),
@@ -3429,6 +3494,8 @@ fn create_preview_pipeline(
                     ("ENABLE_SHARPEN", (features & 1) as f64),
                     ("ENABLE_HIGHLIGHTS", ((features >> 1) & 1) as f64),
                     ("ENABLE_CURVES", ((features >> 2) & 1) as f64),
+                    ("ENABLE_TONE", ((features >> 5) & 1) as f64),
+                    ("ENABLE_RELIGHT", ((features >> 6) & 1) as f64),
                 ],
                 ..Default::default()
             },
@@ -4027,7 +4094,8 @@ impl GpuProcessor {
         // cold driver cache (NVIDIA/Linux: 16 s for each general pipeline)
         // does not hold the processor back; a render waits only for the
         // pipeline it needs (`BackgroundPipeline::wait`, `preview_pipeline`).
-        let main_pipeline = BackgroundPipeline::compile(device, {
+        let start_gate = Arc::new(StartGate::default());
+        let main_pipeline = BackgroundPipeline::compile(device, &start_gate, {
             let module = shader_module.clone();
             let layout = pipeline_layout.clone();
             move |device| {
@@ -4078,7 +4146,7 @@ impl GpuProcessor {
                 "override HIGH_PRECISION_OUTPUT: u32 = 1u;",
             ),
         )?;
-        let high_precision_pipeline = BackgroundPipeline::compile(device, {
+        let high_precision_pipeline = BackgroundPipeline::compile(device, &start_gate, {
             let module = high_precision_shader.clone();
             let layout = high_precision_pipeline_layout.clone();
             move |device| {
@@ -4233,6 +4301,7 @@ impl GpuProcessor {
             relight_pattern_cache: Mutex::new(None),
             main_bgl,
             main_pipeline,
+            start_gate,
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
             detail_bgl,
@@ -4315,12 +4384,18 @@ impl GpuProcessor {
             #[cfg(test)]
             layer_sum_frames: Default::default(),
         };
-        // RAWs open with the default detail settings, other photos often
-        // without any detail feature, and the all-enabled variant renders any
-        // recipe until its own variant is ready.
+        // RAWs open with the default detail settings: that variant compiles
+        // first. Then edited RAWs, other photos often without any detail
+        // feature, and the all-enabled variant that renders any recipe until
+        // its own variant is ready.
         processor.compile_preview_variant(RAW_DEFAULT_PREVIEW_FEATURES);
-        processor.compile_preview_variant(0);
-        processor.compile_preview_variant(ALL_PREVIEW_FEATURES);
+        for features in [
+            RAW_DEFAULT_PREVIEW_FEATURES | TONE_PREVIEW_FEATURE,
+            0,
+            ALL_PREVIEW_FEATURES,
+        ] {
+            processor.compile_preview_variant_after_start(features);
+        }
         Ok(processor)
     }
 
@@ -5140,15 +5215,22 @@ impl GpuProcessor {
         // shader only before that, as it is far slower with many layers.
         if self.preview_pipelines[features].get().is_none() {
             self.compile_preview_variant(features);
+            // Another photo than a default RAW: the compiles held back at
+            // start may serve it sooner.
+            if features != RAW_DEFAULT_PREVIEW_FEATURES {
+                self.start_gate.open();
+            }
         }
-        // Right after start all three may still compile: the first one ready
-        // renders. A variant that fails is never set, but the general
+        // Right after start several may still compile: the first one ready
+        // that covers these features renders (an idle feature changes no
+        // pixel). A variant that fails is never set, but the general
         // pipeline always settles, so this ends.
         loop {
-            if let Some(pipeline) = self.preview_pipelines[features]
-                .get()
-                .or_else(|| self.preview_pipelines[ALL_PREVIEW_FEATURES].get())
-            {
+            if let Some(pipeline) = self.preview_pipelines[features].get().or_else(|| {
+                (features..PREVIEW_PIPELINE_COUNT)
+                    .filter(|&superset| superset & features == features)
+                    .find_map(|superset| self.preview_pipelines[superset].get())
+            }) {
                 return Ok(pipeline);
             }
             if let Some(general) = self.main_pipeline.get() {
@@ -5186,12 +5268,26 @@ impl GpuProcessor {
 
     /// Compile a display variant off the render worker (once).
     fn compile_preview_variant(&self, features: usize) {
+        self.compile_preview_variant_gated(features, None);
+    }
+
+    /// Compile a display variant once the start gate opens (see `StartGate`).
+    fn compile_preview_variant_after_start(&self, features: usize) {
+        self.compile_preview_variant_gated(features, Some(Arc::clone(&self.start_gate)));
+    }
+
+    fn compile_preview_variant_gated(&self, features: usize, gate: Option<Arc<StartGate>>) {
         self.preview_compilation[features].get_or_init(|| {
+            // The RAW default variant opens the gate when it settles.
+            let opens = (features == RAW_DEFAULT_PREVIEW_FEATURES).then(|| Arc::clone(&self.start_gate));
             let pipelines = Arc::clone(&self.preview_pipelines);
             let device = Arc::clone(&self.context.device);
             let shader = self.preview_shader.clone();
             let layout = self.preview_layout.clone();
             std::thread::spawn(move || {
+                if let Some(gate) = gate {
+                    gate.wait();
+                }
                 // The general pipeline was validated at construction and
                 // stays in use if this variant cannot be created.
                 match create_preview_pipeline(&device, &shader, &layout, features, true, true, false) {
@@ -5201,6 +5297,9 @@ impl GpuProcessor {
                     Err(error) => log::error!(
                         "Specialized preview variant {features} unavailable; using the general shader: {error}"
                     ),
+                }
+                if let Some(gate) = opens {
+                    gate.open();
                 }
             });
         });
@@ -5246,7 +5345,7 @@ impl GpuProcessor {
         adjustments: &AllAdjustments,
         high_precision: bool,
     ) -> Result<&wgpu::ComputePipeline, String> {
-        let features = preview_features(adjustments) | (1 << 2);
+        let features = export_features(adjustments);
         // Metal may reassociate active neighbourhood operations when unrelated
         // branches are removed. Their full general pipeline preserves exact
         // 8/16-bit exports; specialize only recipes without those operations.

@@ -335,17 +335,27 @@ fn preview_features_preserve_global_and_local_effects() {
         if expected & 16 != 0 {
             effects["colorNoiseReduction"] = json!(30);
         }
-        let profile = if expected & 8 != 0 {
+        if expected & TONE_PREVIEW_FEATURE != 0 {
+            effects["whites"] = json!(-20);
+        }
+        let mut profile = if expected & 8 != 0 {
             local_profile(effects)
         } else {
             effects
         };
+        // Relight is photo-wide only.
+        if expected & RELIGHT_PREVIEW_FEATURE != 0 {
+            profile["relightLights"] = json!([{"intensity":65}]);
+        }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
         if expected & 8 != 0 {
             // Stale entries beyond mask_count must not affect the current image.
             adjustments.mask_count = 0;
-            assert_eq!(preview_features(&adjustments), 0);
+            assert_eq!(
+                preview_features(&adjustments),
+                expected & RELIGHT_PREVIEW_FEATURE
+            );
         }
     }
     // Opposing layers do not cancel everywhere: their bitmap coverage differs.
@@ -476,7 +486,7 @@ fn failed_export_variant_uses_the_general_pipeline() {
     let context = context();
     let processor = GpuProcessor::new(context, 64, 64).unwrap();
     let adjustments = get_all_adjustments_from_json(&json!({}), false, None);
-    let features = preview_features(&adjustments) | (1 << 2);
+    let features = export_features(&adjustments);
     assert_eq!(
         features & 0b1_0011,
         0,
