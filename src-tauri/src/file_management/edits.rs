@@ -437,7 +437,7 @@ pub struct StraightenReport {
 }
 
 enum Straighten {
-    Done(ImageMetadata),
+    Done,
     NoLines,
     Changed,
 }
@@ -532,8 +532,8 @@ fn straighten_photo(
         let Some(result) = result else {
             return Ok(Straighten::NoLines);
         };
-        if let Some(metadata) = commit_straighten(path, &analysed, &result, size)? {
-            return Ok(Straighten::Done(metadata));
+        if commit_straighten(path, &analysed, &result, size)?.is_some() {
+            return Ok(Straighten::Done);
         }
     }
     Ok(Straighten::Changed)
@@ -549,17 +549,13 @@ pub async fn apply_auto_straighten_to_paths(
 ) -> Result<StraightenReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
-        let xmp = xmp_sync(&app_handle);
         let mut report = StraightenReport::default();
         for path in &paths {
             match straighten_photo(path, &settings) {
-                Ok(Straighten::Done(metadata)) => {
-                    if let Some(create_if_missing) = xmp {
-                        let (source_path, _) = parse_virtual_path(path);
-                        sync_metadata_to_xmp(&source_path, &metadata, create_if_missing);
-                    }
-                    report.straightened.push(path.clone());
-                }
+                // No XMP sync: it carries rating, label and keywords, which
+                // Auto straighten does not change (a sync from this snapshot
+                // could undo a newer rating edit's).
+                Ok(Straighten::Done) => report.straightened.push(path.clone()),
                 Ok(Straighten::NoLines) => report.no_lines.push(path.clone()),
                 Ok(Straighten::Changed) => report.changed.push(path.clone()),
                 Err(e) => report.failed.push((path.clone(), e)),

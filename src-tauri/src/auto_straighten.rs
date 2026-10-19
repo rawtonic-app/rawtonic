@@ -43,16 +43,26 @@ impl From<Straightened> for AutoStraightenResult {
     }
 }
 
-/// Auto straighten for the open photograph under `adjustments` (its full
-/// decode): None when it has too few straight lines. Off the main thread.
+/// The error of `calculate_auto_straighten` when the decode is another
+/// photograph's (the selection changed): the webview drops the request.
+pub const ANOTHER_PHOTO: &str = "auto straighten: another photograph is open";
+
+/// Auto straighten for the open photograph `path` under `adjustments` (its
+/// full decode): None when it has too few straight lines; `ANOTHER_PHOTO`
+/// when the decode is not `path`'s. Off the main thread.
 #[tauri::command]
 pub async fn calculate_auto_straighten(
+    path: String,
     adjustments: serde_json::Value,
     app_handle: tauri::AppHandle,
 ) -> Result<Option<AutoStraightenResult>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<crate::app_state::AppState>();
-        let image = crate::image_loader::wait_for_original_image(&state)?.image;
+        let loaded = crate::image_loader::wait_for_original_image(&state)?;
+        if loaded.path != path {
+            return Err(ANOTHER_PHOTO.to_string());
+        }
+        let image = loaded.image;
         let (width, height) = (image.width(), image.height());
         Ok(straighten_recipe(&image, width, height, &adjustments).map(AutoStraightenResult::from))
     })

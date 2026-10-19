@@ -269,12 +269,19 @@ async function reloadHeldRecipe(path: string): Promise<void> {
   if (status() !== 'ready') return;
   const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path });
   if (isCurrentEditorImage(path) && meta.adjustments && !meta.adjustments.is_null) {
-    // The commit changed only these (apply_auto_straighten_to_paths); the
+    // The commit changed only these (apply_auto_straighten_to_paths: the
+    // rotation, the crop and the frames of drawn masks and AI patches); the
     // rest stays as the editor shows it, with the defaults its loader gave a
     // never-edited photograph (which the saved recipe leaves implicit).
     const written = normalizeLoadedAdjustments(meta.adjustments, !!useEditorStore.getState().selectedImage?.isRaw);
     const shown = useEditorStore.getState().adjustments;
-    const loaded = { ...shown, rotation: written.rotation, crop: written.crop, masks: written.masks };
+    const loaded = {
+      ...shown,
+      rotation: written.rotation,
+      crop: written.crop,
+      masks: written.masks,
+      aiPatches: written.aiPatches,
+    };
     useEditorStore.getState().pushHistory(loaded);
     useEditorStore.getState().setEditor({ adjustments: loaded });
   }
@@ -349,10 +356,14 @@ export function useEditorActions() {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.isReady) return 'stale';
     const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
-    const result = await invoke<{ rotation: number; crop: Adjustments['crop'] } | null>(
-      Invokes.CalculateAutoStraighten,
-      { adjustments },
-    );
+    let result: { rotation: number; crop: Adjustments['crop'] } | null;
+    try {
+      result = await invoke(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
+    } catch (err) {
+      // The decode was another photograph's (auto_straighten.rs ANOTHER_PHOTO).
+      if (String(err).includes('another photograph is open')) return 'stale';
+      throw err;
+    }
     const now = useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
     if (!isCurrentEditorImage(selectedImage.path) || reframingInputs(now) !== asked) return 'stale';
     if (!result) return 'none';

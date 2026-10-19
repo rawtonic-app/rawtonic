@@ -518,6 +518,20 @@ describe('Auto straighten', () => {
     expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
   });
 
+  it('asks for the open photograph and drops an answer about another', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    await act(async () => {});
+    expect(vi.mocked(invoke).mock.calls.at(-1)?.[1]).toMatchObject({ path: '/first.dng' });
+    const request = pending.find((r) => r.command === Invokes.CalculateAutoStraighten)!;
+    request.settled = true;
+    await act(async () => request.resolve(Promise.reject('auto straighten: another photograph is open')));
+    await act(async () => {});
+    expect(outcome).toBe('stale');
+    expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+  });
+
   it('reports a photograph without straight lines', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;
@@ -595,13 +609,17 @@ describe('Auto straighten for a selection', () => {
     act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
     await act(async () => {});
     await finish(Invokes.ApplyAutoStraightenToPaths, report);
-    await finish(Invokes.LoadMetadata, { adjustments: { rotation: 2, crop: { unit: 'px', x: 5, y: 5, width: 3900, height: 2900 } } });
+    await finish(Invokes.LoadMetadata, {
+      adjustments: { rotation: 2, crop: { unit: 'px', x: 5, y: 5, width: 3900, height: 2900 }, aiPatches: [{ id: 'p', framed: true }] },
+    });
     await act(async () => {});
     const now = useEditorStore.getState().adjustments;
     expect(now.rotation).toBe(2);
     expect(now.crop).toMatchObject({ width: 3900 });
     expect(now.lensCorrectionMode).toBe('camera');
     expect(now.lensDistortionParams).toEqual({ k1: 0.02 });
+    // Drawn masks and AI patches as the commit re-framed them.
+    expect(now.aiPatches).toMatchObject([{ id: 'p', framed: true }]);
   });
 
   it('releases the hold when the batch fails', async () => {
