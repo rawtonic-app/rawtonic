@@ -54,7 +54,7 @@ struct Open {
     /// The last exposure a file was matched to: its file name without the
     /// extension and its app request, if any (RAW and JPEG of one exposure
     /// share the name and answer one request).
-    exposure: Option<(String, String, Option<Instant>)>,
+    exposure: Option<(String, Vec<String>, Option<Instant>)>,
     /// The camera came to keep photos only in its memory ("Save to" without
     /// the card, or no card): not polled or fired for the rest of this
     /// connection (photos it took meanwhile have no card copy).
@@ -464,17 +464,25 @@ impl<W: Write> Server<W> {
         let requested = match shot_of {
             // Another file of the same exposure (same name, other kind):
             // the same request, not the next one.
-            Shot::Waiting => match &open.exposure {
-                Some((last_stem, last_extension, at))
-                    if *last_stem == stem && *last_extension != extension =>
+            // A file of a kind the exposure already gave starts the next one.
+            Shot::Waiting => match &mut open.exposure {
+                Some((last_stem, kinds, at))
+                    if *last_stem == stem && !kinds.contains(&extension) =>
                 {
+                    kinds.push(extension.clone());
                     *at
                 }
-                _ => open.waiting.pop_front(),
+                _ => {
+                    let at = open.waiting.pop_front();
+                    open.exposure = Some((stem, vec![extension], at));
+                    at
+                }
             },
-            Shot::At(at) => Some(at),
+            Shot::At(at) => {
+                open.exposure = Some((stem, vec![extension], Some(at)));
+                Some(at)
+            }
         };
-        open.exposure = Some((stem, extension, requested));
         let started = requested.unwrap_or(reported);
         let (data, size) = match downloaded {
             Ok(downloaded) => downloaded,

@@ -542,6 +542,30 @@ fn what_the_camera_reported_before_a_shot_is_taken_in_before_firing() {
 }
 
 #[test]
+fn raw_and_jpeg_under_reused_names_answer_their_own_requests() {
+    let dir = tempfile::tempdir().unwrap();
+    // Every exposure is DSC00001.ARW + DSC00001.JPG.
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        restart_numbering_every: Some(1),
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 1500);
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    let (photos, other) = helper.photos(4);
+    assert_eq!(photos.len(), 4, "{other:?}");
+    assert!(photos.iter().all(|p| p.requested));
+    // Both requests answered: none times out.
+    std::thread::sleep(Duration::from_millis(1700));
+    assert!(
+        helper.next_event(Duration::from_millis(100)).is_none(),
+        "no request left without its photos"
+    );
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {
