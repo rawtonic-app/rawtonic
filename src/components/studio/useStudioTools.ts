@@ -224,6 +224,8 @@ export function useStudioTools() {
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
       ...(kind === "luminance" ? { lumaPickerLayer: target.id } : {}),
+      // A brush component (Intersect's) paints, as `paintOnLayer` does.
+      ...(kind === "brush" ? { brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE) } : {}),
     });
     useUIStore.getState().setPanel(Panel.Masks);
   };

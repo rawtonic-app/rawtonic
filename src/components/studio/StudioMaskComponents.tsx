@@ -111,8 +111,11 @@ export default function StudioMaskComponents() {
       maskKindMenu(
         t,
         (kind) =>
-          // A subtracting brush is the layer's eraser.
-          kind === "brush" ? paintOnLayer(layer, mode !== SubMaskMode.Subtractive) : addComponent(layer, kind, mode),
+          // Adding and subtracting brushes are the layer's brush and eraser;
+          // an intersecting one is a component of its own.
+          kind === "brush" && mode !== SubMaskMode.Intersect
+            ? paintOnLayer(layer, mode === SubMaskMode.Additive)
+            : addComponent(layer, kind, mode),
         (kind) => mode === SubMaskMode.Additive || kind !== "background",
       ),
     );
