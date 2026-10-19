@@ -19,6 +19,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { INITIAL_ADJUSTMENTS, PasteMode } from '../utils/adjustments';
 import { AppSettings, Invokes } from '../components/ui/AppProperties';
 import { COMMIT_INTERVAL_MS, registerSliderDraftRenderer } from '../utils/sliderDraft';
+import { trackRecipeWork } from '../utils/recipeWork';
 import { toast } from 'react-toastify';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -976,6 +977,22 @@ describe('Auto straighten for a selection', () => {
     } finally {
       unregisterDraft();
     }
+  });
+
+  it('waits for mask work on the open photograph before it holds the recipe', async () => {
+    let finishMask!: () => void;
+    void trackRecipeWork(new Promise<void>((resolve) => { finishMask = resolve; }));
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
+    expect(vi.mocked(invoke).mock.calls.map(([c]) => c)).not.toContain(Invokes.ApplyAutoStraightenToPaths);
+    await act(async () => finishMask());
+    await act(async () => {});
+    expect(useEditorStore.getState().heldRecipePaths).toEqual(['/first.dng']);
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
   });
 
   it('releases the hold when the batch fails', async () => {

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
 import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
+import { trackRecipeWork } from '../utils/recipeWork';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { useEditorActions } from './useEditorActions';
@@ -285,7 +286,7 @@ export function useAiMasking() {
     [setAdjustments],
   );
 
-  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
+  const handleGenerateAiMaskRun = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
     const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'subject');
@@ -318,7 +319,7 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings) => {
+  const handleGenerateAiDepthMaskRun = async (subMaskId: string, parameters: AiDepthMaskSettings) => {
     const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'depth');
@@ -354,7 +355,7 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiForegroundMask = async (subMaskId: string) => {
+  const handleGenerateAiForegroundMaskRun = async (subMaskId: string) => {
     const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'foreground');
@@ -385,7 +386,7 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiSkyMask = async (subMaskId: string) => {
+  const handleGenerateAiSkyMaskRun = async (subMaskId: string) => {
     const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'sky');
@@ -417,7 +418,7 @@ export function useAiMasking() {
   };
 
   /** A People mask of its stored parts and person (`generate_ai_people_mask`). */
-  const handleGenerateAiPeopleMask = async (
+  const handleGenerateAiPeopleMaskRun = async (
     subMaskId: string,
     parts: string[],
     person: number | null,
@@ -463,6 +464,20 @@ export function useAiMasking() {
   // Select Subject) are computed for the open photo, once each; geometry
   // kept in normalised raw coordinates (gradients, brushes) is placed in its
   // pixels by the backend, which knows the photo's EXIF orientation.
+  // Counted while they run (recipeWork): a batch edit waits for them before
+  // it holds the recipe, and none starts while it does.
+  const heldNow = () => isRecipeHeld(useEditorStore.getState());
+  const handleGenerateAiMask = (...args: Parameters<typeof handleGenerateAiMaskRun>) =>
+    heldNow() ? Promise.resolve() : trackRecipeWork(handleGenerateAiMaskRun(...args));
+  const handleGenerateAiDepthMask = (...args: Parameters<typeof handleGenerateAiDepthMaskRun>) =>
+    heldNow() ? Promise.resolve() : trackRecipeWork(handleGenerateAiDepthMaskRun(...args));
+  const handleGenerateAiForegroundMask = (...args: Parameters<typeof handleGenerateAiForegroundMaskRun>) =>
+    heldNow() ? Promise.resolve() : trackRecipeWork(handleGenerateAiForegroundMaskRun(...args));
+  const handleGenerateAiSkyMask = (...args: Parameters<typeof handleGenerateAiSkyMaskRun>) =>
+    heldNow() ? Promise.resolve() : trackRecipeWork(handleGenerateAiSkyMaskRun(...args));
+  const handleGenerateAiPeopleMask = (...args: Parameters<typeof handleGenerateAiPeopleMaskRun>) =>
+    heldNow() ? Promise.resolve(false) : trackRecipeWork(handleGenerateAiPeopleMaskRun(...args));
+
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
   // Nothing is asked for while a batch edit holds the recipe; its end runs
@@ -483,7 +498,7 @@ export function useAiMasking() {
     if (unplaced.length > 0 && selectedImage) {
       unplaced.forEach((sub: SubMask) => requestedPlacements.current.add(sub.id));
       const path = selectedImage.path;
-      void invoke<{ masks?: MaskContainer[] }>(Invokes.PlaceLightroomMasks, {
+      void trackRecipeWork(invoke<{ masks?: MaskContainer[] }>(Invokes.PlaceLightroomMasks, {
         path,
         adjustments: { masks: [{ subMasks: unplaced }] },
         width: selectedImage.width,
@@ -497,7 +512,7 @@ export function useAiMasking() {
             }
           }
         })
-        .catch((error) => console.error('Placing Lightroom masks failed:', error));
+        .catch((error) => console.error('Placing Lightroom masks failed:', error)));
     }
     for (const sub of masks.flatMap((m: MaskContainer) => m.subMasks)) {
       if ((sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) continue;
@@ -541,13 +556,13 @@ export function useAiMasking() {
   const requestedSpotPlacements = useRef(new Set<string>());
   useEffect(() => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImageReady || !selectedImage) return;
+    if (!selectedImageReady || !selectedImage || recipeHeld) return;
     const isUnplaced = (spot: unknown) => !!(spot as { lrNormalized?: unknown }).lrNormalized;
     const unplaced = (adjustments.spots ?? []).filter(isUnplaced);
     const path = selectedImage.path;
     if (unplaced.length === 0 || requestedSpotPlacements.current.has(path)) return;
     requestedSpotPlacements.current.add(path);
-    void invoke<{ spots?: Adjustments['spots'] }>(Invokes.PlaceLightroomMasks, {
+    void trackRecipeWork(invoke<{ spots?: Adjustments['spots'] }>(Invokes.PlaceLightroomMasks, {
       path,
       adjustments: { spots: unplaced },
       width: selectedImage.width,
@@ -560,9 +575,9 @@ export function useAiMasking() {
           spots: [...(prev.spots ?? []).filter((spot) => !isUnplaced(spot)), ...(placed.spots ?? [])],
         }));
       })
-      .catch((error) => console.error('Placing Lightroom spots failed:', error));
+      .catch((error) => console.error('Placing Lightroom spots failed:', error)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageReady, spotsKey]);
+  }, [selectedImageReady, spotsKey, recipeHeld]);
 
   // SAM encodes the open photo in the background, so a click or box only
   // runs the decoder: after Subject and Sky where those are computed ahead

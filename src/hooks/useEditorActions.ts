@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { useEditorStore, debouncedSetHistory, isRecipeHeld } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
+import { afterRecipeWork } from '../utils/recipeWork';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -515,6 +516,11 @@ export function useEditorActions() {
       if (pathsToUpdate.length === 0) return null;
       if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return null;
       const open = selectedImage && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
+      // Mask work on the open photograph (AI masks, imported placements)
+      // finishes first: its result would be refused by the hold.
+      if (open) {
+        for (let work = afterRecipeWork(); work; work = afterRecipeWork()) await work;
+      }
       // The open photograph's slider draft is committed (Edit all selected
       // passes it on), then every photograph of the batch is held, also one
       // opened while it runs: no edits from here on.

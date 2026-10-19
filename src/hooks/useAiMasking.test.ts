@@ -54,6 +54,7 @@ const layer = (type: string, parameters: Record<string, unknown>) => ({
 });
 
 beforeEach(() => {
+  useEditorStore.setState({ heldRecipePaths: [] });
   resetAiMaskSession();
   localStorage.clear();
   invoke.mockReset();
@@ -125,6 +126,22 @@ describe("automatic AI masks from imported presets", () => {
     act(() => useEditorStore.setState({ heldRecipePaths: [] }));
     await waitFor(() => expect(generated()).toHaveLength(2));
     await waitFor(() => expect(sky()).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" }));
+  });
+
+  it("starts no mask while a batch edit holds the recipe", async () => {
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      heldRecipePaths: ["/s/a.NEF"],
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [layer("ai-foreground", {})] as never },
+    });
+    const { result } = renderHook(() => useAiMasking());
+    // A manual Subject click and the automatic Subject mask: neither starts.
+    await act(async () => { await result.current.handleGenerateAiMask("sub-ai-foreground", { x: 0, y: 0 }, { x: 1, y: 1 }); });
+    await act(async () => {});
+    expect(invoke.mock.calls.filter((c) => String(c[0]).startsWith("generate_"))).toHaveLength(0);
+    // Released: the automatic mask is computed.
+    act(() => useEditorStore.setState({ heldRecipePaths: [] }));
+    await waitFor(() => expect(invoke.mock.calls.filter((c) => c[0] === "generate_ai_foreground_mask")).toHaveLength(1));
   });
 
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
