@@ -551,6 +551,28 @@ describe('Auto straighten', () => {
     }
   });
 
+  it('drops the answer when the crop is being rotated by hand meanwhile', async () => {
+    const { result } = renderHook(useEditorActions);
+    let outcome: string | undefined;
+    act(() => { void result.current.handleAutoStraighten().then((o) => { outcome = o; }); });
+    // A rotation gesture: its angle is live, not in the recipe, until release.
+    act(() => useEditorStore.setState({ isRotationActive: true, liveRotation: 4 }));
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcome).toBe('stale');
+    expect(useEditorStore.getState().adjustments.rotation).not.toBe(-2.4);
+    act(() => useEditorStore.setState({ isRotationActive: false, liveRotation: null }));
+  });
+
+  it('runs one analysis for requests made while one is running', async () => {
+    const { result } = renderHook(useEditorActions);
+    const outcomes: string[] = [];
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    act(() => { void result.current.handleAutoStraighten().then((o) => outcomes.push(o)); });
+    expect(vi.mocked(invoke).mock.calls.filter(([c]) => c === Invokes.CalculateAutoStraighten)).toHaveLength(1);
+    await finish(Invokes.CalculateAutoStraighten, answer);
+    expect(outcomes).toEqual(['done', 'done']);
+  });
+
   it('reports a photograph without straight lines', async () => {
     const { result } = renderHook(useEditorActions);
     let outcome: string | undefined;

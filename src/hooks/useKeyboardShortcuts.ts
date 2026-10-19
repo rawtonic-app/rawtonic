@@ -456,6 +456,8 @@ export const useKeyboardShortcuts = ({
         shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady,
         execute: (e) => {
           e.preventDefault();
+          // Held down: one request, not one per key repeat.
+          if (e.repeat) return;
           void runAutoStraighten(handleAutoStraighten);
         },
       },

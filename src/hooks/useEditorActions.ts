@@ -234,6 +234,45 @@ export function endBeforePeek() {
   );
 }
 
+let autoStraightenRunning: Promise<'done' | 'none' | 'stale'> | null = null;
+
+/** A crop rotation gesture in progress (its angle lives outside the recipe
+ * until release). */
+const rotatingNow = () => {
+  const { liveRotation, isRotationActive } = useEditorStore.getState();
+  return isRotationActive || (liveRotation !== null && liveRotation !== undefined);
+};
+
+/** One Auto straighten request (handleAutoStraighten): the answer belongs to
+ * the photograph and the frame it was asked for and is dropped when either
+ * changed meanwhile — also in a drag's draft or a rotation gesture. */
+async function runAutoStraightenOnce(
+  setAdjustments: (value: AdjustmentsUpdate) => unknown,
+): Promise<'done' | 'none' | 'stale'> {
+  // A slider drag's draft is committed first: the answer is for the frame
+  // as it is shown.
+  flushSliderDraft();
+  const { selectedImage, adjustments } = useEditorStore.getState();
+  if (!selectedImage?.isReady || rotatingNow()) return 'stale';
+  const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
+  let result: { rotation: number; crop: Adjustments['crop'] } | null;
+  try {
+    result = await invoke(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
+  } catch (err) {
+    // The decode was another photograph's (auto_straighten.rs ANOTHER_PHOTO).
+    if (String(err).includes('another photograph is open')) return 'stale';
+    throw err;
+  }
+  const now = (draftFor(selectedImage.path) ?? useEditorStore.getState().adjustments) as unknown as Record<
+    string,
+    unknown
+  >;
+  if (!isCurrentEditorImage(selectedImage.path) || rotatingNow() || reframingInputs(now) !== asked) return 'stale';
+  if (!result) return 'none';
+  setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
+  return 'done';
+}
+
 export function useEditorActions() {
   const setEditor = useEditorStore((s) => s.setEditor);
 
@@ -299,31 +338,13 @@ export function useEditorActions() {
    * from its horizon or verticals and fits the crop without empty corners.
    * The answer belongs to the photograph and the frame it was asked for:
    * it is dropped when either changed meanwhile. One history step. */
-  const handleAutoStraighten = useCallback(async (): Promise<'done' | 'none' | 'stale'> => {
-    // A slider drag's draft is committed first: the answer is for the frame
-    // as it is shown.
-    flushSliderDraft();
-    const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.isReady) return 'stale';
-    const asked = reframingInputs(adjustments as unknown as Record<string, unknown>);
-    let result: { rotation: number; crop: Adjustments['crop'] } | null;
-    try {
-      result = await invoke(Invokes.CalculateAutoStraighten, { path: selectedImage.path, adjustments });
-    } catch (err) {
-      // The decode was another photograph's (auto_straighten.rs ANOTHER_PHOTO).
-      if (String(err).includes('another photograph is open')) return 'stale';
-      throw err;
-    }
-    // Stale when the frame changed meanwhile, also in a drag's draft not
-    // committed yet.
-    const now = (draftFor(selectedImage.path) ?? useEditorStore.getState().adjustments) as unknown as Record<
-      string,
-      unknown
-    >;
-    if (!isCurrentEditorImage(selectedImage.path) || reframingInputs(now) !== asked) return 'stale';
-    if (!result) return 'none';
-    setAdjustments((prev: Adjustments) => ({ ...prev, rotation: result.rotation, crop: result.crop }));
-    return 'done';
+  const handleAutoStraighten = useCallback((): Promise<'done' | 'none' | 'stale'> => {
+    // One analysis at a time, whichever way it was asked for (button,
+    // shortcut, menu): a second request joins the running one.
+    autoStraightenRunning ??= runAutoStraightenOnce(setAdjustments).finally(() => {
+      autoStraightenRunning = null;
+    });
+    return autoStraightenRunning;
   }, [setAdjustments]);
 
   // Background only: a layer's white balance is a relative local correction.
