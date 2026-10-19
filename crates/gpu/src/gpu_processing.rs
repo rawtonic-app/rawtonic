@@ -3165,7 +3165,7 @@ struct BlurTile {
 /// tile: the global noise-reduction and sharpening settings, the preview
 /// scale of the sharpening radius and the chromatic aberration correction.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct DetailKey([u32; 35]);
+struct DetailKey([u32; 36]);
 
 impl DetailKey {
     fn of(global: &crate::image_processing::GlobalAdjustments) -> Self {
@@ -3208,6 +3208,8 @@ impl DetailKey {
             global.luma_noise_profile[1][1].to_bits(),
             global.luma_noise_profile[1][2].to_bits(),
             global.luma_noise_profile[1][3].to_bits(),
+            // The isolated-speck step (`lumaNoiseVersion`).
+            global.luma_speck.to_bits(),
         ])
     }
 

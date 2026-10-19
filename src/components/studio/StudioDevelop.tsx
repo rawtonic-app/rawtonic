@@ -1419,9 +1419,9 @@ export default function StudioDevelop() {
                   "lumaNoiseContrast",
                   "colorNoiseDetail",
                   "colorNoiseSmoothness",
-                  // The photo's colour noise filter and AI Denoise version
-                  // go back to a new edit's.
-                  ...(layer ? [] : ["colorNoiseVersion", "aiDenoiseVersion"]),
+                  // The photo's colour and luminance noise filters and AI
+                  // Denoise version go back to a new edit's.
+                  ...(layer ? [] : ["colorNoiseVersion", "lumaNoiseVersion", "aiDenoiseVersion"]),
                 ])
               }
             >

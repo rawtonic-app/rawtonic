@@ -5,7 +5,7 @@ import { ArrowLeftRight } from "lucide-react";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
-import { withSharpenVersion, type Adjustments } from "../../utils/adjustments";
+import { withLumaNoiseVersion, withSharpenVersion, type Adjustments } from "../../utils/adjustments";
 
 /** A tool's parameters: recipe key and (translated) label. */
 export type ToolParams = [keyof Adjustments & string, string][];
@@ -20,6 +20,10 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   colorNoiseReduction: ["colorNoiseVersion"],
   colorNoiseDetail: ["colorNoiseVersion"],
   colorNoiseSmoothness: ["colorNoiseVersion"],
+  // The luminance amounts mean what its noise reduction version makes of them.
+  lumaNoiseReduction: ["lumaNoiseVersion"],
+  lumaNoiseDetail: ["lumaNoiseVersion"],
+  lumaNoiseContrast: ["lumaNoiseVersion"],
   // Shadows means what the recipe's tone-slider response makes of it.
   shadows: ["toneVersion"],
   // Defringe means what the recipe's fringe detector makes of it.
@@ -42,7 +46,7 @@ function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
     [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
   ) as Partial<Adjustments>;
   // A missing response key would vanish on the way: say it explicitly.
-  return withSharpenVersion(picked, values);
+  return withLumaNoiseVersion(withSharpenVersion(picked, values), values);
 }
 
 /** Capture One's copy/apply for one tool: a press opens a list of the tool's

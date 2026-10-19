@@ -2964,7 +2964,9 @@ pub struct GlobalAdjustments {
     /// (`color_noise::Tuning::speck_strength`), set by the renderer with
     /// `color_noise`.
     pub color_noise_speck: f32,
-    _pad_color2: f32,
+    /// 1 when the recipe's luminance noise reduction also takes out
+    /// isolated luminance specks (`lumaNoiseVersion` 2), else 0.
+    pub luma_speck: f32,
     _pad_color3: f32,
 
     pub sharpness: f32,
@@ -3932,7 +3934,11 @@ fn get_global_adjustments_from_json(
         vibrance: get_val("color", "vibrance", SCALES.vibrance, None),
         hue: get_val("color", "hue", 1.0, None),
         color_noise_speck: 0.0,
-        _pad_color2: 0.0,
+        luma_speck: if luma_noise_version(js_adjustments) >= 2 {
+            1.0
+        } else {
+            0.0
+        },
         _pad_color3: 0.0,
 
         sharpness: raw_detail_default("sharpness", RAW_DEFAULT_SHARPNESS, SCALES.sharpness),
@@ -4520,6 +4526,31 @@ pub fn sharpen_version(adjustments: &serde_json::Value) -> u64 {
         .and_then(serde_json::Value::as_u64)
         .unwrap_or(1)
         .clamp(1, SHARPEN_VERSION)
+}
+
+/// The recipe key naming the luminance noise reduction a recipe was made with.
+pub const LUMA_NOISE_VERSION_KEY: &str = "lumaNoiseVersion";
+/// The newest: 2 (2026-10-19) also takes isolated luminance specks out of
+/// noisy photos (single pixels darker or brighter than all their
+/// neighbours, left by demosaicing and the noise reduction and lifted by
+/// the sharpening): such a pixel is kept within its eight neighbours' range
+/// plus half its noise, and the sharpening leaves it alone, unless it stands
+/// far out of the noise (a point light); it fades in between measured noise
+/// levels 0.002 and 0.004 and is skipped at or below 0.002, where photos
+/// render exactly as 1 (most base-ISO photos; notes:
+/// reference/luma-noise-reference.md "Isolated luminance specks").
+/// Photo-wide: layers' luminance amounts follow it. Recipes without the key
+/// keep version 1.
+pub const LUMA_NOISE_VERSION: u64 = 2;
+
+/// The recipe's luminance noise reduction, 1 when missing, never newer than
+/// this renderer knows.
+pub fn luma_noise_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(LUMA_NOISE_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, LUMA_NOISE_VERSION)
 }
 
 /// The recipe key naming the Defringe fringe detector a recipe was made with.
@@ -6564,6 +6595,25 @@ mod editing_tool_tests {
         assert_eq!(
             version(json!({"sharpenVersion": 2, "sectionVisibility": {"details": false}})),
             2.0
+        );
+    }
+
+    #[test]
+    fn luma_noise_version_reaches_the_shader() {
+        let speck = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).luma_speck
+        };
+        // Recipes without the key keep the first luminance noise reduction.
+        assert_eq!(speck(json!({"lumaNoiseReduction": 30})), 0.0);
+        assert_eq!(speck(json!({"lumaNoiseVersion": 1})), 0.0);
+        assert_eq!(speck(json!({"lumaNoiseVersion": 2})), 1.0);
+        assert_eq!(speck(json!({"lumaNoiseVersion": 9})), 1.0);
+        assert_eq!(luma_noise_version(&json!({"lumaNoiseVersion": 0})), 1);
+        // Layers' luminance noise reduction follows it when the photo's
+        // Detail tool is hidden.
+        assert_eq!(
+            speck(json!({"lumaNoiseVersion": 2, "sectionVisibility": {"details": false}})),
+            1.0
         );
     }
 

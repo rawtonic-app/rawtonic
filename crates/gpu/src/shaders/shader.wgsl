@@ -98,7 +98,9 @@ struct GlobalAdjustments {
     // The share of version 7's speck swap applied (color_noise.rs
     // `Tuning::speck_strength`).
     color_noise_speck: f32,
-    _pad_color2: f32,
+    // 1: the luminance noise reduction also takes out isolated luminance
+    // specks (`lumaNoiseVersion` 2, luma_speck).
+    luma_speck: f32,
     _pad_color3: f32,
 
     sharpness: f32,
@@ -2711,6 +2713,8 @@ var<private> nr_fine_keep: f32 = 1.0;
 // Luminance the edge-preserving average took out of the kept finest band
 // (luma_nr_edge_smooth): the sharpening does not lift that grain again.
 var<private> nr_edge_removed: f32 = 0.0;
+// Share of the sharpening a noise-like isolated extreme loses (luma_speck).
+var<private> nr_speck_sharpen: f32 = 0.0;
 
 /// The sharpening high-pass of `l` against `blur`, after noise reduction
 /// from the input it started from.
@@ -2724,7 +2728,11 @@ fn sharpen_detail(l: f32, blur: f32, is_raw: u32) -> f32 {
     } else {
         l_in = get_luma(linear_to_srgb_extended(nr_input));
     }
-    return (l_in - blur) * nr_fine_keep;
+    let d = (l_in - blur) * nr_fine_keep;
+    if (nr_speck_sharpen > 0.0) {
+        return d * (1.0 - nr_speck_sharpen);
+    }
+    return d;
 }
 
 const SHARPEN_GAIN: f32 = 1.2;
@@ -3397,6 +3405,50 @@ fn luma_nr_edge_smooth(coords_i: vec2<i32>, max_idx: vec2<i32>, is_raw: u32, ran
     return vec2<f32>(sum / max(weight, 1e-12), near / 8.0);
 }
 
+// Isolated luminance specks (`lumaNoiseVersion` 2; notes:
+// reference/luma-noise-reference.md "Isolated luminance specks"). Single
+// pixels darker or brighter than all their neighbours (noise and X-Trans
+// demosaicing leave them; the finest band's residual and the sharpening
+// lifted them into dark dots on saturated colours) are kept within their
+// eight neighbours' range plus LUMA_SPECK_MARGIN of the pixel's noise, at
+// the same chromaticity, and the sharpening leaves such an extreme alone
+// (`nr_speck_sharpen`, fading in over the first half noise level beyond the
+// range). A pixel further than LUMA_SPECK_FAR noise levels out of its
+// neighbours' range is a point of the scene (a light, a star): it stays.
+// Fades in with the luminance amount up to its default and with the
+// photo's measured noise (LUMA_SPECK_NOISE); at or below its start (most
+// base-ISO photos) the step is skipped and photos render exactly as
+// version 1.
+const LUMA_SPECK_MARGIN: f32 = 0.5;
+const LUMA_SPECK_FAR: vec2<f32> = vec2<f32>(4.0, 6.0);
+const LUMA_SPECK_NOISE: vec2<f32> = vec2<f32>(0.002, 0.004);
+
+/// The luminance `l_c` of the pixel at `coords_i` kept within its eight
+/// neighbours' range; `sig` is its single-pixel noise (linear). Sets
+/// `nr_speck_sharpen`.
+fn luma_speck(coords_i: vec2<i32>, max_idx: vec2<i32>, is_raw: u32, l_c: f32, sig: f32, luma_a: f32, measured: f32) -> f32 {
+    var lo = 1e9;
+    var hi = -1e9;
+    for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
+        for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
+            if (dx == 0 && dy == 0) { continue; }
+            var c = load_input(clamp(coords_i + vec2<i32>(dx, dy), vec2<i32>(0), max_idx)).rgb;
+            if (is_raw == 0u) { c = srgb_to_linear(c); }
+            let l = get_luma(c);
+            lo = min(lo, l);
+            hi = max(hi, l);
+        }
+    }
+    let margin = LUMA_SPECK_MARGIN * sig;
+    let bounded = clamp(l_c, lo - margin, hi + margin);
+    let strength = clamp(luma_a / 0.15, 0.0, 1.0) * smoothstep(LUMA_SPECK_NOISE.x, LUMA_SPECK_NOISE.y, measured);
+    // How far the pixel stands out of its neighbours' range, in noise levels.
+    let e = max(l_c - hi, lo - l_c) / max(sig, 1e-9);
+    let keep_far = 1.0 - smoothstep(LUMA_SPECK_FAR.x, LUMA_SPECK_FAR.y, e);
+    nr_speck_sharpen = strength * smoothstep(0.0, 0.5, e) * keep_far;
+    return mix(l_c, max(bounded, 0.0), strength * keep_far);
+}
+
 // --- Multi-scale colour noise reduction (rawtonic_engine::color_noise) ---
 // The coarse levels of the chroma pyramid are thresholded on the CPU by the
 // colour noise measured in the source; here the finest level is, per pixel:
@@ -3795,6 +3847,13 @@ fn apply_noise_reduction_default(
         // The photo's luminance noise at this brightness (shadows carry
         // read noise beyond the shot-noise model the units assume).
         let prof = luma_noise_at(get_luma(nr_encode(g2_c)));
+        var speck_shift = 0.0;
+        if (adjustments.global.luma_speck > 0.0 && measured > LUMA_SPECK_NOISE.x) {
+            let l_old = get_luma(v_c);
+            let l_new = luma_speck(coords_i, max_idx, is_raw, l_old, sigma_n * prof * 2.0 * sqrt(max(l2_c, floor)), luma_a, measured);
+            if (l_old > 1e-10) { v_c = v_c * (l_new / l_old); }
+            speck_shift = l_new - l_old;
+        }
         let c_bands = vec2<f32>(get_luma(v_c) - l1_c, l1_c - l2_c);
         // One brightness unit for the whole neighbourhood.
         let unit = 2.0 * sqrt(max(l2_c, floor));
@@ -3849,7 +3908,7 @@ fn apply_noise_reduction_default(
                 * (get_luma(v_c) - smoothed.x);
         }
         let removed = dot(c_bands, vec2<f32>(1.0) - keep);
-        new_luma = max(center_luma - removed - edge_removed, 0.0);
+        new_luma = max(center_luma + speck_shift - removed - edge_removed, 0.0);
         nr_active = true;
         nr_input = v_c;
         nr_edge_removed = edge_removed;
@@ -4037,6 +4096,13 @@ fn apply_noise_reduction_refined(
         // The photo's luminance noise at this brightness (as the default
         // path).
         let prof = luma_noise_at(get_luma(nr_encode(g2_c)));
+        var speck_shift = 0.0;
+        if (adjustments.global.luma_speck > 0.0 && measured > LUMA_SPECK_NOISE.x) {
+            let l_old = get_luma(v_c);
+            let l_new = luma_speck(coords_i, max_idx, is_raw, l_old, sigma_n * prof * 2.0 * sqrt(max(l2_c, floor)), luma_a, measured);
+            if (l_old > 1e-10) { v_c = v_c * (l_new / l_old); }
+            speck_shift = l_new - l_old;
+        }
         let c_bands = vec2<f32>(get_luma(v_c) - l1_c, l1_c - l2_c);
         // One brightness unit for the whole neighbourhood.
         let unit = 2.0 * sqrt(max(l2_c, floor));
@@ -4094,7 +4160,7 @@ fn apply_noise_reduction_refined(
                 * (get_luma(v_c) - smoothed.x);
         }
         let removed = dot(c_bands, vec2<f32>(1.0) - keep);
-        new_luma = max(center_luma - removed - edge_removed, 0.0);
+        new_luma = max(center_luma + speck_shift - removed - edge_removed, 0.0);
         nr_active = true;
         nr_input = v_c;
         nr_edge_removed = edge_removed;
