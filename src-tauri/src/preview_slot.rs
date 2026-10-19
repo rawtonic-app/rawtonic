@@ -54,17 +54,6 @@ impl<T: Supersedes> LatestSlot<T> {
 }
 
 impl<T> LatestSlot<T> {
-    /// Waits for a job.
-    pub fn take(&self) -> T {
-        let mut pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
-        loop {
-            if let Some(job) = pending.take() {
-                return job;
-            }
-            pending = self.ready.wait(pending).unwrap_or_else(|e| e.into_inner());
-        }
-    }
-
     /// Waits up to `timeout` for a job.
     pub fn take_timeout(&self, timeout: Duration) -> Option<T> {
         let pending = self.pending.lock().unwrap_or_else(|e| e.into_inner());
@@ -293,7 +282,7 @@ mod tests {
             let mut rendered = Vec::new();
             loop {
                 let seen = worker_newest.load(Ordering::SeqCst);
-                let job = worker_slot.take();
+                let job = worker_slot.take_unless(|| false).unwrap();
                 let sequence = job.sequence.unwrap();
                 // Never older than what had been submitted before the take.
                 assert!(sequence >= seen, "rendered {sequence}, {seen} was waiting");

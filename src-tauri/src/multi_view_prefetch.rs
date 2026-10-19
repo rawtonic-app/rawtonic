@@ -346,6 +346,12 @@ fn ready(app_handle: &tauri::AppHandle, path: &str, cancel: (Arc<AtomicUsize>, u
         return Outcome::Cancelled;
     }
     let decoded_ms = start.elapsed().as_secs_f64() * 1e3;
+    // A zoom warps regions from the 1:1 preview's rows with the estimate of
+    // the whole decode (automatic lateral CA).
+    crate::multi_view::note_decode_ca_estimate(path, &image);
+    if cancel.0.load(Ordering::SeqCst) != cancel.1 {
+        return Outcome::Cancelled;
+    }
     if needs_standard {
         match preview_proxy::write(&source, &image, standard, &settings, multiscale) {
             // The thumbnail is then developed from it (as proxy_worker does).
