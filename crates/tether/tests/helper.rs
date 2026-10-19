@@ -202,12 +202,25 @@ fn a_full_transfer_queue_fires_again_once_photos_are_released() {
     helper.capture();
     let (photos, _) = helper.photos(2);
     let full = helper.client.request(Request::Capture, WAIT).unwrap_err();
-    assert_eq!(full.kind, ErrorKind::Busy);
+    assert_eq!(full.kind, ErrorKind::Other);
     let release = Request::Release {
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
     assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    helper.capture();
+    assert_eq!(helper.photos(1).0.len(), 1);
+}
+
+#[test]
+fn a_shot_refused_as_busy_right_after_the_connect_is_taken_once_the_camera_is_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        busy_for_ms: 400,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
 }

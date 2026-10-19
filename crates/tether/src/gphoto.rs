@@ -216,6 +216,38 @@ fn text(value: WidgetValue) -> Option<String> {
 }
 
 impl GphotoCamera {
+    /// Gives the computer priority over the body's controls, when the camera
+    /// has a priority mode that is on the body ("Camera"). Whether it did.
+    fn take_priority(&self) -> bool {
+        let Some(widget) = self.widget("prioritymode") else {
+            return false;
+        };
+        let (Ok(WidgetValue::Choice(current)), Ok(choices)) = (widget.value(), widget.choices())
+        else {
+            return false;
+        };
+        if current != "Camera" {
+            return false;
+        }
+        let Some(computer) = choices.into_iter().find(|c| c != "Camera") else {
+            return false;
+        };
+        let set = widget.set_choice(&computer).and_then(|()| {
+            self.camera
+                .set_single_config(&self.context, "prioritymode", &widget)
+        });
+        match set {
+            Ok(()) => {
+                log::info!("priority mode set to {computer}");
+                true
+            }
+            Err(e) => {
+                log::warn!("priority mode not set to {computer}: {e}");
+                false
+            }
+        }
+    }
+
     fn widget(&self, name: &str) -> Option<gphoto2::widget::Widget> {
         self.camera.get_single_config(&self.context, name).ok()
     }
@@ -357,7 +389,17 @@ impl Camera for GphotoCamera {
 
     fn fire(&mut self) -> Result<Fired, TetherError> {
         if self.trigger {
-            match self.camera.trigger_capture(&self.context) {
+            // Refused as busy while the body has priority: a camera whose
+            // controls go to the body between shots (libgphoto2's Fujifilm
+            // event wait hands priority back each time) fires once the
+            // computer has it. Nothing was fired, so trying again is no
+            // second exposure (the helper also retries after reading the
+            // camera's events).
+            let mut fired = self.camera.trigger_capture(&self.context);
+            if fired.as_ref().is_err_and(|e| e.kind() == Gp::CameraBusy) && self.take_priority() {
+                fired = self.camera.trigger_capture(&self.context);
+            }
+            match fired {
                 Ok(()) => return Ok(Fired::Pending),
                 // Chosen by the result code: this driver needs the blocking
                 // capture. Nothing was fired, so firing that way is no second

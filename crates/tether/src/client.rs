@@ -184,6 +184,12 @@ impl Client {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
         self.waiting.lock().unwrap().insert(id, tx);
+        // The helper's end marks `ended` before it fails the waiting
+        // requests: one registered after that would wait for its timeout.
+        if self.ended.load(Ordering::Acquire) {
+            self.waiting.lock().unwrap().remove(&id);
+            return Err(helper_gone());
+        }
         let sent = {
             let mut stdin = self.stdin.lock().unwrap();
             match stdin.as_mut() {

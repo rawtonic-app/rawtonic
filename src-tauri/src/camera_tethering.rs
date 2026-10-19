@@ -905,20 +905,23 @@ mod tests {
             settings: settings(3, "tether"),
         }));
         let client = Arc::new(client);
-        let releasing = client.clone();
+        // Weak: the ingest thread must not keep the helper alive.
+        let releasing = Arc::downgrade(&client);
         let release: Release = Arc::new(move |captured: &Captured| {
             let release = Request::Release {
                 camera_folder: captured.camera_folder.clone(),
                 camera_name: captured.camera_name.clone(),
             };
-            releasing.request(release, QUICK).unwrap();
+            if let Some(client) = releasing.upgrade() {
+                client.request(release, QUICK).unwrap();
+            }
         });
         spawn_ingest(notify, release, session.clone(), config, photos_rx).unwrap();
         for _ in 0..198 {
             // A full queue refuses until the ingest has released a photo.
             let started = Instant::now();
             while let Err(e) = client.request(Request::Capture, CAPTURE) {
-                assert_eq!(e.kind, ErrorKind::Busy, "{e:?}");
+                assert_eq!(e.kind, ErrorKind::Other, "{e:?}");
                 assert!(
                     started.elapsed() < Duration::from_secs(30),
                     "never released"

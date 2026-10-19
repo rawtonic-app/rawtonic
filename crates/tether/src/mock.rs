@@ -40,6 +40,8 @@ pub struct MockSpec {
     /// The helper stops dead here (crash tests).
     pub abort_mid_download: Option<u64>,
     pub abort_before_event: Option<u64>,
+    /// The camera refuses to fire as busy for this long after the connect.
+    pub busy_for_ms: u64,
     /// The camera keeps each shot in a USB transfer queue of this many
     /// entries until it is released, and refuses to fire when it is full.
     pub queue_limit: Option<usize>,
@@ -72,6 +74,7 @@ impl Default for MockSpec {
             read_only: vec![],
             abort_mid_download: None,
             abort_before_event: None,
+            busy_for_ms: 0,
             queue_limit: None,
             report_twice: false,
             preview: true,
@@ -125,6 +128,7 @@ impl Driver for MockDriver {
             body,
             repeat: None,
             queued: 0,
+            opened: now,
             settings: vec![
                 setting("iso", "ISO", "100", &["100", "200", "400", "800"]),
                 setting(
@@ -166,6 +170,7 @@ pub struct MockCamera {
     repeat: Option<CameraFile>,
     /// Shots in the transfer queue (`queue_limit`).
     queued: usize,
+    opened: Instant,
 }
 
 impl MockCamera {
@@ -284,13 +289,17 @@ impl Camera for MockCamera {
         if self.unplugged() {
             return Err(Self::gone());
         }
+        if self.opened.elapsed() < Duration::from_millis(self.spec.busy_for_ms) {
+            return Err(TetherError::new(ErrorKind::Busy, "The camera is busy."));
+        }
         if self
             .spec
             .queue_limit
             .is_some_and(|limit| self.queued >= limit)
         {
+            // As a Fujifilm body answers (0xa002, no PTP busy code).
             return Err(TetherError::new(
-                ErrorKind::Busy,
+                ErrorKind::Other,
                 "The camera's transfer queue is full.",
             ));
         }

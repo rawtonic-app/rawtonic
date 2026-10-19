@@ -22,6 +22,8 @@ const EVENT_POLL: Duration = Duration::from_millis(20);
 /// names it again). Cameras number their files, so a new shot never has the
 /// name of the one before it.
 const REPEAT_WINDOW: Duration = Duration::from_secs(2);
+/// How long a shot the camera refuses as busy is tried again.
+const BUSY_RETRY: Duration = Duration::from_secs(5);
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -145,7 +147,19 @@ impl<W: Write> Server<W> {
     fn handle(&mut self, Envelope { id, request }: Envelope) -> io::Result<bool> {
         let shutdown = request == Request::Shutdown;
         let mut fired = None;
-        let result = self.answer(request, &mut fired);
+        let capture = request == Request::Capture;
+        let started = Instant::now();
+        let mut result = self.answer(request.clone(), &mut fired);
+        // A shot the camera refused as busy fired nothing: after a normal
+        // turn with its events (some bodies stay busy until those are read,
+        // e.g. a GFX 50R right after the connect) it is tried again.
+        while capture
+            && result.as_ref().is_err_and(|e| e.kind == ErrorKind::Busy)
+            && started.elapsed() < BUSY_RETRY
+        {
+            self.tick()?;
+            result = self.answer(request.clone(), &mut fired);
+        }
         if let Err(e) = &result
             && e.kind == ErrorKind::Disconnected
         {
