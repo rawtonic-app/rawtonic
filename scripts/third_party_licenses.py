@@ -127,6 +127,10 @@ def rust_packages() -> list[dict]:
 def npm_packages() -> list[dict]:
     listing = subprocess.run(["npm", "ls", "--omit=dev", "--all", "--parseable"],
                              cwd=REPO, text=True, capture_output=True)
+    # A missing or incomplete node_modules makes npm ls exit non-zero with a
+    # partial (or empty) listing, which would read as "every package covered".
+    if listing.returncode != 0:
+        sys.exit("npm ls --omit=dev failed (run `npm ci` first):\n" + listing.stderr.strip()[-2000:])
     out, seen = [], set()
     for line in listing.stdout.splitlines()[1:]:
         root = Path(line)

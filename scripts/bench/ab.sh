@@ -9,7 +9,8 @@
 #   --bench LIST      comma list of decode,develop,encode (default all)
 #   --filter REGEX    criterion filter, e.g. 'raw_decode|demosaic'
 #   --min-band PCT    smallest noise band (default 3; scripts/bench/ab_table.py)
-#   --fail-on-slower  exit 3 when a benchmark is slower beyond its noise band
+#   --fail-on-slower  exit 3 when a benchmark is slower beyond its noise band,
+#                     or when no benchmark was measured on both sides
 #   --keep            keep the base worktree and bench binaries
 # Inputs: $RAWTONIC_BENCH_FIXTURES (scripts/bench/fetch_fixtures.sh), else
 # synthetic stand-ins. Work files: $RAWTONIC_BENCH_WORK (default

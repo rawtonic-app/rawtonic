@@ -28,6 +28,10 @@ for arg in "$@"; do
 done
 
 FRONTEND=1; RUST=1; RUST_PKGS=''; DEPS=1
+# The pass stamp written at the end names the commit the gates ran on, so the
+# run must start and end on that commit with a clean tree.
+START_HEAD=$(git rev-parse HEAD)
+START_CLEAN=0; [ -n "$(git status --porcelain)" ] || START_CLEAN=1
 if [ "$CHANGED" = 1 ]; then
   eval "$(python3 scripts/changed_scope.py)"
   printf 'changed scope: frontend=%s rust=%s deps=%s packages=%s\n' \
@@ -111,8 +115,11 @@ if [ "$DEPS" = 1 ]; then
     # (they often need an upstream release first) and block releases instead
     # (ADR 0005: the release workflows run the full check).
     run "dependencies: advisories (unmaintained warns)" cargo deny check -W unmaintained advisories
-  else
+  elif [ "$CHANGED" = 1 ]; then
     printf '\n== dependencies: skipped (cargo-deny not installed)\n'
+  else
+    echo "dependencies: cargo-deny not installed; the full check needs it (cargo install --locked cargo-deny)" >&2
+    exit 1
   fi
 fi
 if [ "$BENCH" = 1 ]; then
@@ -121,7 +128,8 @@ if [ "$BENCH" = 1 ]; then
 fi
 rm -rf "$LOGDIR"
 # A full pass on a clean tree lets scripts/ship.sh skip re-running the check.
-if [ "$CHANGED" = 0 ] && [ "$QUICK" = 0 ] && [ -z "$(git status --porcelain)" ]; then
+if [ "$CHANGED" = 0 ] && [ "$QUICK" = 0 ] && [ "$START_CLEAN" = 1 ] &&
+  [ "$(git rev-parse HEAD)" = "$START_HEAD" ] && [ -z "$(git status --porcelain)" ]; then
   git rev-parse HEAD >"$(git rev-parse --git-dir)/rawtonic-check-passed"
 fi
 if [ "$CHANGED" = 1 ]; then
