@@ -93,8 +93,6 @@ fn decode(v: f32) -> f32 {
 /// up to 5 %).
 pub const BORDER: usize = 20;
 
-/// Demosaics `mosaic` (row-major, `width` × `height`, colours by `cfa` at
-/// absolute positions) into RGB.
 /// Whether the pattern is X-Trans sized (6 x 6), so 3 x 3 blocks hold all
 /// three colours.
 pub fn is_xtrans_like(cfa: &CfaPattern) -> bool {
@@ -143,6 +141,8 @@ pub fn bin(
     out
 }
 
+/// Demosaics `mosaic` (row-major, `width` × `height`, colours by `cfa` at
+/// absolute positions) into RGB.
 pub fn demosaic(mosaic: &[f32], width: usize, height: usize, cfa: &CfaPattern) -> Vec<[f32; 3]> {
     assert_eq!(mosaic.len(), width * height);
     if cfa.is_bayer() {

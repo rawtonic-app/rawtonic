@@ -208,8 +208,9 @@ pub fn get_or_init_gpu_context(
     Ok(new_context)
 }
 
-/// Builds the processing pipelines ahead of the first render (about 25 ms),
-/// so an export overlaps it with decoding. A processor that already exists
+/// Builds the processing pipelines ahead of the first render (shader
+/// compilation: seconds on a cold driver cache), so an export overlaps it
+/// with decoding. A processor that already exists
 /// is kept; the render path creates one itself if this has not finished.
 pub fn prewarm_gpu_processor(state: &AppState, context: &GpuContext) {
     let mut processor_lock = match state.gpu_processor.lock() {

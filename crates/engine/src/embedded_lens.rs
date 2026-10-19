@@ -1040,7 +1040,8 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     // the editor's new edits do.
     let is_raw = crate::formats::is_raw_file(source);
     crate::edge_fringe::apply_default(adjustments, true, is_raw);
-    // And with the automatic lateral CA where the camera has no CA data.
+    // And with the current automatic lateral CA, which decides itself
+    // against the camera's CA data (`lateral_ca::applies`, `competes`).
     crate::lateral_ca::apply_default(adjustments, true, is_raw);
     if let Some(params) = params_for(source) {
         if adjustments.is_null() {

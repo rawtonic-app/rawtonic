@@ -5,10 +5,11 @@
 //! fitted to Capture One's response (notes: reference/diffraction.md).
 //!
 //! The Airy disk is approximated by a Gaussian of σ = 0.42 λ N (λ = 0.55
-//! µm). Capture One's gain matched an unsharp mask of radius 1.85 σ and
-//! amount 0.34 / σ (σ in pixels) on four cameras from f/11 to f/27, and it
-//! left an f/5.6 frame (σ 0.29 px) alone; the shader's kernel reaches
-//! 1.6 px.
+//! µm). Capture One's gain matched an unsharp mask of radius 1.85 σ and an
+//! amount falling with σ on four cameras from f/11 to f/27, and it left an
+//! f/5.6 frame (σ 0.29 px) alone. The correction uses amount 0.6 / σ (σ in
+//! pixels, at most 1.2), faded in from σ 0.35 to 0.55 px; the shader's
+//! kernel reaches 1.6 px.
 
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};

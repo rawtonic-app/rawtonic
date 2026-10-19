@@ -4223,7 +4223,7 @@ fn get_global_adjustments_from_json(
             global.calibration_luma[0] = calibration.luminance_keep();
         }
     }
-    if is_visible("curves") && tool_on("curves") {
+    if is_visible("curves") {
         let region = crate::region_curve::RegionCurve::from_json(&js_adjustments["regionCurve"]);
         if !region.is_neutral() {
             let lut = region.lut();
