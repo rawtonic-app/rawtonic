@@ -7160,8 +7160,74 @@ pub enum RenderSource<'a> {
 /// Renders on the GPU with the caller's processor slot and uploaded-source
 /// cache (the app keeps both in its state), creating or resizing the
 /// processor as needed.
+///
+/// A CPU-readback render (export, thumbnail) fails when the GPU reports an
+/// error while it runs: wgpu otherwise hands back invalid objects (a texture
+/// it ran out of memory for, or a mask texture uploaded meanwhile that is
+/// invalid for that reason) and the readback is black, which an export
+/// wrote as its file. Error scopes are per thread; errors of another
+/// thread's uploads surface here when this render uses their objects.
 #[allow(clippy::too_many_arguments)]
 pub fn process_and_get_dynamic_image_inner(
+    context: &GpuContext,
+    processor_slot: &Mutex<Option<GpuProcessorState>>,
+    image_cache: &Mutex<Option<GpuImageCache>>,
+    source: RenderSource,
+    request: RenderRequest,
+    caller_id: &str,
+    output_precision: RenderOutputPrecision,
+    output_to_display: bool,
+    analytics_config: Option<AnalyticsConfig>,
+    display_identity: Option<DisplayFrameIdentity>,
+    readback_shader: ReadbackShader,
+) -> Result<DynamicImage, String> {
+    let render = || {
+        render_dynamic_image(
+            context,
+            processor_slot,
+            image_cache,
+            source,
+            request,
+            caller_id,
+            output_precision,
+            output_to_display,
+            analytics_config,
+            display_identity,
+            readback_shader,
+        )
+    };
+    if output_to_display {
+        return render();
+    }
+    let device = &context.device;
+    let memory = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let validation = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let internal = device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let image = render();
+    let internal = pollster::block_on(internal.pop());
+    let validation = pollster::block_on(validation.pop());
+    let memory = pollster::block_on(memory.pop());
+    match memory.or(validation).or(internal) {
+        Some(error) => {
+            log::error!("GPU render for {caller_id} failed: {error}");
+            Err(gpu_render_error(&error))
+        }
+        None => image,
+    }
+}
+
+/// The message for a CPU-readback render the GPU failed.
+fn gpu_render_error(error: &wgpu::Error) -> String {
+    match error {
+        wgpu::Error::OutOfMemory { .. } => {
+            "The graphics card ran out of memory for this photograph. Close other programs that use it and try again.".to_string()
+        }
+        _ => format!("The graphics card could not render this photograph: {error}"),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_dynamic_image(
     context: &GpuContext,
     processor_slot: &Mutex<Option<GpuProcessorState>>,
     image_cache: &Mutex<Option<GpuImageCache>>,

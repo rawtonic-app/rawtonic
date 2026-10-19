@@ -8509,6 +8509,58 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
     ]
 }
 
+/// A CPU-readback render the GPU fails (here: a source texture destroyed,
+/// as an out-of-memory upload leaves an invalid one) is an error, not a
+/// black image an export would write as its file.
+#[test]
+#[ignore = "requires a native GPU"]
+fn readback_render_fails_when_the_gpu_reports_an_error() {
+    let context = context();
+    // As in the app: errors outside a scope are only logged.
+    context
+        .device
+        .on_uncaptured_error(Arc::new(|error: wgpu::Error| {
+            log::error!("[wgpu-error] {error}")
+        }));
+    let source =
+        DynamicImage::ImageRgba32F(ImageBuffer::from_pixel(64, 48, Rgba([0.5, 0.4, 0.3, 1.0])));
+    let render = |source: RenderSource| {
+        let processor = Mutex::new(None);
+        let cache = Mutex::new(None);
+        process_and_get_dynamic_image_inner(
+            &context,
+            &processor,
+            &cache,
+            source,
+            RenderRequest {
+                adjustments: get_all_adjustments_from_json(&json!({}), false, Some(2)),
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            "gpu_error_test",
+            RenderOutputPrecision::EightBit,
+            false,
+            None,
+            None,
+            ReadbackShader::Export,
+        )
+    };
+    let intact = upload_render_source(&context, &source, 7, None)
+        .unwrap()
+        .unwrap();
+    let image = render(RenderSource::Uploaded(intact)).expect("an intact source renders");
+    assert!(image.to_rgb8().pixels().any(|p| p.0 != [0, 0, 0]));
+
+    let broken = upload_render_source(&context, &source, 8, None)
+        .unwrap()
+        .unwrap();
+    broken.0.texture.destroy();
+    let error =
+        render(RenderSource::Uploaded(broken)).expect_err("a GPU error must fail the render");
+    assert!(error.contains("graphics card"), "{error}");
+}
+
 fn chunk_test_render(
     context: &GpuContext,
     source: &DynamicImage,
