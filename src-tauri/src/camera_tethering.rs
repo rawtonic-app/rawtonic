@@ -650,7 +650,11 @@ impl Ingest<'_> {
         let committed = asset.is_some() || result.skipped;
         let timing = captured.as_ref();
         let event = TetherCaptured {
-            session: self.root.parent().map(Path::to_path_buf).unwrap_or_default(),
+            session: self
+                .root
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
             camera_name,
             destination: result.destination,
             asset_id: asset,
