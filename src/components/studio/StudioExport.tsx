@@ -6,7 +6,7 @@ import i18n from "i18next";
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { useLibraryStore } from "../../store/useLibraryStore";
-import { useEditorStore } from "../../store/useEditorStore";
+import { currentEditForExport, useEditorStore } from "../../store/useEditorStore";
 import { useProcessStore, type ExportJob } from "../../store/useProcessStore";
 import { renderErrorMessage } from "../../utils/renderErrors";
 import { toast } from "react-toastify";
@@ -188,7 +188,8 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
       outputFormat,
     })),
   });
-  const editPath = image?.path ?? null;
+  // Estimated again once the open photograph's own recipe is in.
+  const editPath = image?.isReady ? image.path : null;
   useEffect(() => {
     const { paths, jobs } = JSON.parse(estimateRequest) as {
       paths: string[];
@@ -204,9 +205,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             paths,
             exportSettings: job.settings,
             outputFormat: job.outputFormat,
-            currentEditPath: editPath,
-            currentEditAdjustments:
-              useEditorStore.getState().adjustments ?? null,
+            ...currentEditForExport(useEditorStore.getState()),
           });
           if (typeof size !== "number") return;
           total += size;
@@ -387,8 +386,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           baseOriginFolders: useLibraryStore.getState().rootPaths,
           exportSettings: job.settings,
           outputFormat: job.outputFormat,
-          currentEditPath: image?.path || null,
-          currentEditAdjustments: useEditorStore.getState().adjustments,
+          ...currentEditForExport(useEditorStore.getState()),
         });
         started++;
       }
