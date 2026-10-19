@@ -2297,7 +2297,8 @@
         "nothingToRedo": "やり直せるファイル操作はありません。",
         "redoFailed": "やり直せませんでした：{{error}}",
         "redone": "やり直しました：{{label}}。{{key}} で取り消せます。",
-        "undone": "取り消しました：{{label}}。{{key}} でやり直せます。"
+        "undone": "取り消しました：{{label}}。{{key}} でやり直せます。",
+        "unsavedEdits": "{{files}} の編集を保存できなかったため、何も移動していません。"
       },
       "filters": {
         "allLabels": "すべてのラベル",

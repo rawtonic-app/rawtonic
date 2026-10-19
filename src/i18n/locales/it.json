@@ -2414,7 +2414,8 @@
         "nothingToRedo": "Nessuna operazione sui file da ripristinare.",
         "redoFailed": "Impossibile ripristinare: {{error}}",
         "redone": "Ripristinato: {{label}}. {{key}} lo annulla.",
-        "undone": "Annullato: {{label}}. {{key}} lo ripristina."
+        "undone": "Annullato: {{label}}. {{key}} lo ripristina.",
+        "unsavedEdits": "Impossibile salvare le modifiche di {{files}}, quindi non è stato spostato nulla."
       },
       "filters": {
         "allLabels": "Tutte le etichette",

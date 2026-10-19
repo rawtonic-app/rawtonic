@@ -277,6 +277,26 @@ it('saves the recipe of a slider still being dragged when quitting, never a half
   }
 });
 
+it('saves a drag\'s uncommitted draft before files move or the app quits', async () => {
+  const taken = useEditorStore.getState().adjustments;
+  const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: taken }));
+  const stopDrafts = registerSliderDraftRenderer(() => true);
+  try {
+    useEditorStore.setState({ isSliderDragging: true });
+    updateAdjustments({ exposure: 1.4 });
+    // Within the commit interval the move is only a draft.
+    expect(useEditorStore.getState().adjustments.exposure).toBe(taken.exposure);
+    const flushing = flushRecipeSaves();
+    await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+    expect(await flushing).toEqual([]);
+    expect(vi.mocked(invoke).mock.calls[0][1]).toMatchObject({ path: '/first.dng', adjustments: { exposure: 1.4 } });
+  } finally {
+    stopDrafts();
+    unregister();
+    useEditorStore.setState({ isSliderDragging: false });
+  }
+});
+
 it('retries a failed recipe save before quitting and reports it if it fails again', async () => {
   const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.mocked(invoke).mockRejectedValueOnce(new Error('disk full')).mockRejectedValueOnce(new Error('disk full'));

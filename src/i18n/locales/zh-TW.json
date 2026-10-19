@@ -2297,7 +2297,8 @@
         "nothingToRedo": "沒有可重做的檔案操作。",
         "redoFailed": "無法重做：{{error}}",
         "redone": "已重做：{{label}}。按 {{key}} 還原。",
-        "undone": "已還原：{{label}}。按 {{key}} 重做。"
+        "undone": "已還原：{{label}}。按 {{key}} 重做。",
+        "unsavedEdits": "無法儲存 {{files}} 的編輯，因此未移動任何內容。"
       },
       "filters": {
         "allLabels": "全部標籤",

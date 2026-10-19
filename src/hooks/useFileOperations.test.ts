@@ -17,6 +17,8 @@ import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { OFFLINE_COUNTED } from '../utils/offline';
+import { debouncedSave } from './useEditorActions';
+import { INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn(), info: vi.fn(), warn: vi.fn() } }));
@@ -321,5 +323,67 @@ describe('emptying the session Trash', () => {
     await result.current.handleEmptySessionTrash();
     expect(useUIStore.getState().confirmModalState.isOpen).toBe(false);
     expect(toast.info).toHaveBeenCalledWith("The session's Trash folder is empty.");
+  });
+});
+
+describe('moving to the Trash', () => {
+  const hook = () =>
+    renderHook(() =>
+      useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+    ).result.current;
+  const calls = () => vi.mocked(invoke).mock.calls.map((call) => call[0]);
+
+  beforeEach(() => {
+    vi.mocked(invoke).mockReset();
+    vi.mocked(invoke).mockResolvedValue(undefined);
+  });
+
+  it('saves a pending edit before the photo moves, not afterwards at its old place', async () => {
+    debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/p/A.RAF']);
+    expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeGreaterThanOrEqual(0);
+    expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeLessThan(calls().indexOf('delete_files_from_disk'));
+  });
+
+  const failSaves = () =>
+    vi.mocked(invoke).mockImplementation((command) =>
+      command === Invokes.SaveMetadataAndUpdateThumbnail ? Promise.reject('disk full') : Promise.resolve(undefined),
+    );
+
+  it('moves nothing when the edit of a photo to move could not be saved', async () => {
+    failSaves();
+    debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/p/A.RAF']);
+    expect(calls()).not.toContain('delete_files_from_disk');
+    expect(toast.error).toHaveBeenCalledWith('Edits of A.RAF could not be saved, so nothing was moved.');
+
+    debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 2 });
+    hook().handleTrashFolder('/p');
+    await useUIStore.getState().confirmModalState.onConfirm?.();
+    expect(calls()).not.toContain(Invokes.DeleteFolder);
+  });
+
+  it('with the associated files, a failed save of the RAW+JPEG partner holds the trash up too', async () => {
+    failSaves();
+    debouncedSave('/s/D.JPG', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/s/D.RAF'], { includeAssociated: true });
+    expect(calls()).not.toContain('delete_files_with_associated');
+    await hook().executeDelete(['/s/D.RAF']);
+    expect(calls()).toContain('delete_files_from_disk');
+  });
+
+  it('a failed save of another photo does not hold the operation up', async () => {
+    failSaves();
+    debouncedSave('/q/B.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    await hook().executeDelete(['/r/C.RAF']);
+    expect(calls()).toContain('delete_files_from_disk');
+  });
+
+  it('saves a pending edit before a folder moves', async () => {
+    debouncedSave('/p/A.RAF', { ...INITIAL_ADJUSTMENTS, exposure: 1 });
+    hook().handleTrashFolder('/p');
+    await useUIStore.getState().confirmModalState.onConfirm?.();
+    expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeGreaterThanOrEqual(0);
+    expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeLessThan(calls().indexOf(Invokes.DeleteFolder));
   });
 });

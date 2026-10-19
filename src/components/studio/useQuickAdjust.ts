@@ -6,6 +6,7 @@ import { useEditorActions } from "../../hooks/useEditorActions";
 import { Panel } from "../ui/AppProperties";
 import type { Adjustments } from "../../utils/adjustments";
 import { swallowNextClick } from "../../utils/swallowClick";
+import { draftFor } from "../../utils/sliderDraft";
 
 type QuickAdjustLabel =
   | "studio.develop.sliders.exposure"
@@ -73,18 +74,20 @@ export function useQuickAdjust(active: boolean) {
 
     const target = () => {
       const editor = useEditorStore.getState();
+      // Steps within a commit interval build on the drag's uncommitted draft.
+      const adjustments = (editor.selectedImage && draftFor(editor.selectedImage.path)) || editor.adjustments;
       const layer =
         useUIStore.getState().activePanel === Panel.Masks
-          ? editor.adjustments.masks.find((m) => m.id === editor.activeMaskContainerId)
+          ? adjustments.masks.find((m) => m.id === editor.activeMaskContainerId)
           : undefined;
-      return { editor, layer };
+      return { editor, adjustments, layer };
     };
     const change = (amount: number) => {
       if (!held) return;
       const spec = QUICK_ADJUST[held.letter];
-      const { editor, layer } = target();
+      const { editor, adjustments, layer } = target();
       if (!editor.selectedImage?.isReady) return;
-      const values = (layer?.adjustments ?? editor.adjustments) as unknown as Record<string, number>;
+      const values = (layer?.adjustments ?? adjustments) as unknown as Record<string, number>;
       const current = Number(values[spec.key] ?? 0);
       const digits = spec.wheel < 1 ? 2 : 0;
       const next = Number(Math.min(spec.max, Math.max(spec.min, current + amount)).toFixed(digits));

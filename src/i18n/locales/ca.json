@@ -2414,7 +2414,8 @@
         "nothingToRedo": "No hi ha cap operació de fitxers per refer.",
         "redoFailed": "No s'ha pogut refer: {{error}}",
         "redone": "Refet: {{label}}. {{key}} ho desfà.",
-        "undone": "Desfet: {{label}}. {{key}} ho refà."
+        "undone": "Desfet: {{label}}. {{key}} ho refà.",
+        "unsavedEdits": "No s'han pogut desar les edicions de {{files}}, així que no s'ha mogut res."
       },
       "filters": {
         "allLabels": "Totes les etiquetes",

@@ -105,6 +105,8 @@ function scheduleUnsavedEditorRecipe() {
  * is still not saved (quitting, utils/quit.ts).
  */
 export async function flushRecipeSaves(): Promise<string[]> {
+  // A drag's moves since the last store commit are only a draft.
+  flushSliderDraft();
   scheduleUnsavedEditorRecipe();
   debouncedSave.flush();
   while (pendingMetadataSaves.size > 0) {

@@ -20,6 +20,7 @@ import {
   INITIAL_MASK_CONTAINER,
 } from "../../utils/adjustments";
 import { createSubMask } from "../../utils/maskUtils";
+import { registerSliderDraftRenderer } from "../../utils/sliderDraft";
 import { kindOf } from "../../utils/maskKinds";
 import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { Panel, type SelectedImage } from "../ui/AppProperties";
@@ -487,6 +488,23 @@ describe("Quick Adjust (Capture One)", () => {
     fireEvent.keyUp(document.body, { key: "q", code: "KeyQ" });
     expect(screen.queryByRole("status")).toBeNull();
     expect(editor().isSliderDragging).toBe(false);
+  });
+
+  it("adds up wheel steps that come faster than the drag's store commits", () => {
+    // As in the app: the preview renders the moves between commits as a draft.
+    const stop = registerSliderDraftRenderer(() => true);
+    try {
+      workspace();
+      const photo = screen.getByTestId("photo");
+      fireEvent.keyDown(document.body, { key: "q", code: "KeyQ" });
+      fireEvent.wheel(photo, { deltaY: -100, clientX: 300, clientY: 200 });
+      fireEvent.wheel(photo, { deltaY: -100, clientX: 300, clientY: 200 });
+      expect(screen.getByRole("status").textContent).toBe("Exposure+0.1");
+      fireEvent.keyUp(document.body, { key: "q", code: "KeyQ" });
+      expect(editor().adjustments.exposure).toBeCloseTo(0.1);
+    } finally {
+      stop();
+    }
   });
 
   it("keeps a tapped key's own action and drags change the value", () => {
