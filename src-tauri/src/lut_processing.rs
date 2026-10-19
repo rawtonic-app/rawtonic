@@ -229,19 +229,33 @@ pub fn remove_lut(app_handle: AppHandle, path: String) -> Result<Vec<LutEntry>, 
         return Err("Cannot delete built-in film emulations".to_string());
     }
 
-    if !target_path.starts_with(&luts_dir) {
+    let target_path = user_lut_file(&luts_dir, &target_path)?;
+    std::fs::remove_file(&target_path).map_err(|e| e.to_string())?;
+
+    list_luts(app_handle)
+}
+
+/// The directory entry `path` names when it lies inside the user LUT folder
+/// `luts_dir` (its folder resolved, `..` and links included) and is a file or
+/// a link; any other path is refused, so a removal never reaches another file.
+/// A link itself is removed, never the file it points to.
+fn user_lut_file(luts_dir: &Path, path: &Path) -> Result<PathBuf, String> {
+    let (Some(parent), Some(name)) = (path.parent(), path.file_name()) else {
+        return Err("LUT file not found".to_string());
+    };
+    let entry = std::fs::canonicalize(parent)
+        .map_err(|_| "LUT file not found".to_string())?
+        .join(name);
+    let kind = std::fs::symlink_metadata(&entry)
+        .map_err(|_| "LUT file not found".to_string())?
+        .file_type();
+    let dir = std::fs::canonicalize(luts_dir).map_err(|e| e.to_string())?;
+    if !entry.starts_with(&dir) || kind.is_dir() {
         return Err(
             "Access denied: Cannot remove files outside the user LUT directory".to_string(),
         );
     }
-
-    if target_path.exists() {
-        std::fs::remove_file(&target_path).map_err(|e| e.to_string())?;
-    } else {
-        return Err("LUT file not found".to_string());
-    }
-
-    list_luts(app_handle)
+    Ok(entry)
 }
 
 #[tauri::command]
@@ -253,4 +267,41 @@ pub fn load_and_parse_lut(path: String, state: State<AppState>) -> Result<LutPar
     cache.insert(path, Arc::new(lut));
 
     Ok(LutParseResult { size: lut_size })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_lut_file;
+
+    #[test]
+    fn only_files_inside_the_user_lut_folder_may_be_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir(&luts).unwrap();
+        std::fs::write(luts.join("Warm.cube"), "x").unwrap();
+        std::fs::write(temp.path().join("photo.ARW"), "x").unwrap();
+
+        assert!(user_lut_file(&luts, &luts.join("Warm.cube")).is_ok());
+        // Lexically below the folder, really beside it.
+        let escape = luts.join("..").join("photo.ARW");
+        assert!(escape.starts_with(&luts));
+        assert!(user_lut_file(&luts, &escape).is_err());
+        assert!(user_lut_file(&luts, &luts).is_err());
+        assert!(user_lut_file(&luts, &luts.join("Gone.cube")).is_err());
+        assert!(user_lut_file(&luts, &luts.join("..")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn removing_a_linked_lut_removes_the_link_not_its_target() {
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir(&luts).unwrap();
+        std::fs::write(luts.join("Warm.cube"), "x").unwrap();
+        std::os::unix::fs::symlink(luts.join("Warm.cube"), luts.join("Alias.cube")).unwrap();
+        let entry = user_lut_file(&luts, &luts.join("Alias.cube")).unwrap();
+        assert_eq!(entry.file_name().unwrap(), "Alias.cube");
+        std::fs::remove_file(&entry).unwrap();
+        assert!(luts.join("Warm.cube").exists());
+    }
 }

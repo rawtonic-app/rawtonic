@@ -422,43 +422,54 @@ pub async fn update_exif_fields(
     updates: HashMap<String, String>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        paths.par_iter().for_each(|path| {
-            let original_path = Path::new(&path);
-            let primary_path = crate::exif_processing::get_primary_sidecar_path(original_path);
-            let temp_metadata = crate::exif_processing::load_sidecar(&primary_path);
-
-            let mut exif_data = temp_metadata.exif.unwrap_or_else(|| {
-                if let Some(existing) = crate::exif_processing::read_rrexif_sidecar(original_path) {
-                    existing
-                } else if let Ok(mmap) = read_file_mapped(original_path) {
-                    crate::exif_processing::read_exif_data_from_bytes(path, &mmap)
-                } else if let Ok(bytes) = fs::read(original_path) {
-                    crate::exif_processing::read_exif_data_from_bytes(path, &bytes)
-                } else {
-                    HashMap::new()
-                }
-            });
-
-            for (k, v) in &updates {
-                let trimmed = v.trim();
-                if trimmed.is_empty() {
-                    exif_data.remove(k);
-                } else {
-                    exif_data.insert(k.clone(), trimmed.to_string());
-                }
-            }
-
-            let mut final_metadata = crate::exif_processing::load_sidecar(&primary_path);
-
-            final_metadata.exif = Some(exif_data);
-            if let Ok(json) = serde_json::to_string_pretty(&final_metadata) {
-                let _ = crate::session_bridge::write_editor_sidecar(&primary_path, json);
-            }
-        });
-        Ok(())
+        let failures: Vec<String> = paths
+            .par_iter()
+            .filter_map(|path| update_exif_of(path, &updates).err())
+            .collect();
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(failures.join("; "))
+        }
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?
+}
+
+/// Applies `updates` to one photo's EXIF fields in its sidecar (an empty value
+/// removes the field). Takes its turn with the other sidecar field edits, so a
+/// rating or recipe saved meanwhile is not overwritten.
+fn update_exif_of(path: &str, updates: &HashMap<String, String>) -> Result<(), String> {
+    let original_path = Path::new(path);
+    let primary_path = crate::exif_processing::get_primary_sidecar_path(original_path);
+    let _turn = super::sidecar_field_edit();
+    let mut metadata = crate::exif_processing::load_sidecar(&primary_path);
+
+    let mut exif_data = metadata.exif.take().unwrap_or_else(|| {
+        if let Some(existing) = crate::exif_processing::read_rrexif_sidecar(original_path) {
+            existing
+        } else if let Ok(mmap) = read_file_mapped(original_path) {
+            crate::exif_processing::read_exif_data_from_bytes(path, &mmap)
+        } else if let Ok(bytes) = fs::read(original_path) {
+            crate::exif_processing::read_exif_data_from_bytes(path, &bytes)
+        } else {
+            HashMap::new()
+        }
+    });
+
+    for (k, v) in updates {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            exif_data.remove(k);
+        } else {
+            exif_data.insert(k.clone(), trimmed.to_string());
+        }
+    }
+
+    metadata.exif = Some(exif_data);
+    let json = serde_json::to_string_pretty(&metadata).map_err(|e| format!("{path}: {e}"))?;
+    crate::session_bridge::write_editor_sidecar(&primary_path, json)
+        .map_err(|e| format!("{path}: {e}"))
 }
 
 pub(crate) fn match_disk_kind(disks: &Disks, canonical: &Path) -> Option<bool> {
@@ -825,6 +836,30 @@ mod listing_metadata_tests {
         )
         .unwrap();
         sidecar
+    }
+
+    #[test]
+    fn exif_field_edits_are_saved_and_a_failed_save_is_reported() {
+        let temp = tempfile::tempdir().unwrap();
+        let photo = temp.path().join("a.jpg");
+        let sidecar = write_sidecar(&photo, 3);
+        let updates = HashMap::from([("Artist".to_string(), " Ana ".to_string())]);
+        tauri::async_runtime::block_on(update_exif_fields(
+            vec![photo.to_string_lossy().into()],
+            updates.clone(),
+        ))
+        .unwrap();
+        let saved = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(saved.exif.unwrap()["Artist"], "Ana");
+        assert_eq!(saved.rating, 3);
+
+        // The sidecar cannot be written into a folder that does not exist.
+        let missing = temp.path().join("gone").join("b.jpg");
+        let result = tauri::async_runtime::block_on(update_exif_fields(
+            vec![missing.to_string_lossy().into()],
+            updates,
+        ));
+        assert!(result.is_err(), "{result:?}");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -895,16 +895,68 @@ fn migrate_viewer_background(settings: &mut AppSettings) -> bool {
     }
 }
 
+/// A settings file that did not parse and could not be kept aside: nothing
+/// may replace it in this run (the app then works from fallback settings).
+static UNKEPT_SETTINGS: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+/// Refuses to write settings over `path` when it is an unreadable file that
+/// could not be kept.
+fn may_replace_settings(path: &Path) -> Result<(), String> {
+    let unkept = UNKEPT_SETTINGS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if unkept.as_deref() == Some(path) {
+        return Err(format!(
+            "Settings not saved: {} could not be read or kept aside",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+/// The settings in `path` (defaults when there is none). A file that no longer
+/// parses (a hand edit, a value another version wrote) is kept beside it as
+/// `settings.unreadable-<digest>.json` before the defaults are used and saved
+/// over it; when it cannot be kept, loading fails and no save replaces it.
+fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
+    let protect = || {
+        *UNKEPT_SETTINGS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path.to_path_buf());
+    };
+    let content = match fs::read(path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(AppSettings::default()),
+        Err(e) => {
+            protect();
+            return Err(format!("Settings file could not be read: {e}"));
+        }
+    };
+    let error = match serde_json::from_slice(&content) {
+        Ok(settings) => return Ok(settings),
+        Err(error) => error,
+    };
+    // Named by its content: loading the same file again finds it kept.
+    let digest = rawtonic_metadata::digest(&content);
+    let kept = path.with_file_name(format!("settings.unreadable-{}.json", &digest[..16]));
+    let already_kept = fs::read(&kept).is_ok_and(|existing| existing == content);
+    if !already_kept && let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {
+        protect();
+        return Err(format!(
+            "Settings file unreadable ({error}) and could not be kept: {e}"
+        ));
+    }
+    log::warn!(
+        "Settings file unreadable ({error}); kept as {} and starting from defaults",
+        kept.display()
+    );
+    Ok(AppSettings::default())
+}
+
 #[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let path = get_settings_path(&app_handle)?;
-
-    let mut settings: AppSettings = if path.exists() {
-        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).unwrap_or_default()
-    } else {
-        AppSettings::default()
-    };
+    let mut settings = read_settings_file(&path)?;
 
     if settings.ai_provider.as_deref() == Some("cloud") {
         settings.ai_provider = Some("cpu".into());
@@ -972,6 +1024,7 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
         settings.ai_provider = Some("cpu".into());
     }
     let json_string = serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())?;
+    may_replace_settings(&path)?;
     rawtonic_metadata::atomic_write(&path, json_string).map_err(|e| e.to_string())?;
 
     let state = app_handle.state::<AppState>();
@@ -987,6 +1040,92 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unreadable_settings_file_is_kept_before_defaults_replace_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        // A field of the wrong type fails the whole file; the app's first
+        // settings save (its workspace layout at start-up) then writes the
+        // defaults over it.
+        let content = r#"{"rootFolders":"/Photos","lastRootPath":"/Photos"}"#;
+        fs::write(&path, content).unwrap();
+        let settings = read_settings_file(&path).unwrap();
+        assert!(settings.root_folders.is_empty());
+        let kept: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|p| p != &path)
+            .collect();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert!(
+            kept[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("settings.unreadable-")
+        );
+        assert_eq!(fs::read_to_string(&kept[0]).unwrap(), content);
+        // Loaded again before anything was saved (start-up loads twice).
+        assert!(read_settings_file(&path).is_ok());
+        assert!(may_replace_settings(&path).is_ok());
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 2);
+
+        fs::write(&path, r#"{"lastRootPath":"/Photos"}"#).unwrap();
+        assert_eq!(
+            read_settings_file(&path).unwrap().last_root_path.as_deref(),
+            Some("/Photos")
+        );
+        assert!(read_settings_file(&temp.path().join("none.json")).is_ok());
+
+        // Not even UTF-8: kept byte for byte as well.
+        let garbled = temp.path().join("garbled").join("settings.json");
+        fs::create_dir(garbled.parent().unwrap()).unwrap();
+        fs::write(&garbled, [0xff, 0xfe, b'{']).unwrap();
+        assert!(read_settings_file(&garbled).is_ok());
+        let kept: Vec<_> = fs::read_dir(garbled.parent().unwrap())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|p| p != &garbled)
+            .collect();
+        assert_eq!(fs::read(&kept[0]).unwrap(), [0xff, 0xfe, b'{']);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_settings_file_that_cannot_be_kept_is_never_replaced() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        fs::write(&path, r#"{"rootFolders":"/Photos"}"#).unwrap();
+        assert!(may_replace_settings(&path).is_ok());
+        // No room beside it for the kept copy.
+        fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        let read = read_settings_file(&path);
+        fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(read.is_err());
+        assert!(may_replace_settings(&path).is_err());
+        assert!(may_replace_settings(&temp.path().join("other.json")).is_ok());
+
+        // Nor one in a folder that cannot be searched.
+        let closed = temp.path().join("closed");
+        fs::create_dir(&closed).unwrap();
+        fs::write(closed.join("settings.json"), "{}").unwrap();
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o000)).unwrap();
+        let read = read_settings_file(&closed.join("settings.json"));
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(read.is_err());
+        assert!(may_replace_settings(&closed.join("settings.json")).is_err());
+
+        // A file that cannot be read at all is not replaced either.
+        let locked = temp.path().join("locked.json");
+        fs::write(&locked, "{}").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let read = read_settings_file(&locked);
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(read.is_err());
+        assert!(may_replace_settings(&locked).is_err());
+    }
 
     #[test]
     fn neutral_grey_canvas_becomes_the_medium_viewer_background() {
