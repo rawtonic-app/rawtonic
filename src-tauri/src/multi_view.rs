@@ -27,7 +27,7 @@ use crate::gpu_processing::{
     self, CellExtent, CellLayer, CellZoom, GpuContext, LatestJobSender, MultiViewCell,
     ReadbackShader, RenderOutputPrecision, RenderRequest, RenderSource,
 };
-use crate::image_processing::{self, MeasuredCa, get_all_adjustments_from_json};
+use crate::image_processing::{self, RegionMeasures, get_all_adjustments_from_json};
 use crate::mask_generation::{
     MaskBitmap, MaskDefinition, ParametricMaskSource, PhotoGeometry, generate_layer_mask,
     prepare_parametric_mask_source,
@@ -346,61 +346,68 @@ fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
     crate::image_loader::decoded_cache_key(&source, None, multiscale)
 }
 
-/// Automatic lateral CA estimates of photographs' whole decodes, by
-/// [`decoded_key`] and what the estimate depends on besides the photograph:
-/// a zoomed region is warped from the few rows of its 1:1 preview it shows
-/// only with one, as the estimate is measured on the whole photograph.
-/// Recorded wherever a whole decode is at hand (the 1:1 preview being made,
-/// a decode in memory); a region from a 1:1 preview without one records the
-/// estimate of the 1:1 preview, which its whole warp measured before.
-static CA_ESTIMATES: Mutex<Option<HashMap<(String, u64), MeasuredCa>>> = Mutex::new(None);
+/// What zoomed regions need from photographs' whole decodes (the automatic
+/// lateral CA estimate, the edge-fringe radius: `RegionMeasures`), by
+/// [`decoded_key`], what they depend on in the recipe and its geometry: a
+/// region is warped from the few rows of its 1:1 preview it shows only with
+/// them. Recorded wherever a whole decode is at hand (the 1:1 preview being
+/// made, a decode in memory); a region from a 1:1 preview without them
+/// records the 1:1 preview's own, which its whole warp measured before.
+type MeasuresKey = (String, u64, u64);
+static REGION_MEASURES: Mutex<Option<HashMap<MeasuresKey, RegionMeasures>>> = Mutex::new(None);
 
-/// Estimates kept (a few bytes each; a session of many thousands of photos
+/// Measures kept (a few bytes each; a session of many thousands of photos
 /// starts over rather than grow without bound).
-const CA_ESTIMATES_KEPT: usize = 4096;
+const REGION_MEASURES_KEPT: usize = 4096;
 
-fn ca_key(path: &str, recipe: &serde_json::Value) -> Option<(String, u64)> {
-    Some((decoded_key(path, recipe), MeasuredCa::inputs_key(recipe)?))
+fn measures_key(path: &str, recipe: &serde_json::Value) -> Option<MeasuresKey> {
+    Some((
+        decoded_key(path, recipe),
+        RegionMeasures::inputs_key(recipe)?,
+        crate::preview_cache::preparation_key(recipe),
+    ))
 }
 
-/// The estimate recorded for `path` with `recipe`, if any.
-fn known_ca_estimate(path: &str, recipe: &serde_json::Value) -> Option<MeasuredCa> {
-    let key = ca_key(path, recipe)?;
-    CA_ESTIMATES
+/// The measures recorded for `path` with `recipe`, if any; `Some(None)` when
+/// the recipe needs none.
+fn known_measures(path: &str, recipe: &serde_json::Value) -> Option<Option<RegionMeasures>> {
+    let Some(key) = measures_key(path, recipe) else {
+        return Some(None);
+    };
+    REGION_MEASURES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()?
         .get(&key)
-        .copied()
+        .map(|m| Some(*m))
 }
 
-/// Records the estimate of `image`, a whole decode of `path`, for its stored
+/// Records the measures of `image`, a whole decode of `path`, for its stored
 /// recipe (the 1:1 preview being made from it).
-pub(crate) fn note_decode_ca_estimate(path: &str, image: &DynamicImage) {
-    note_ca_estimate(path, &recipe_of(path), image, false);
+pub(crate) fn note_decode_measures(path: &str, image: &DynamicImage) {
+    note_measures(path, &recipe_of(path), image, false);
 }
 
-/// Measures (or finds in the estimator's cache) the estimate of `image`, a
-/// whole decode of `path` (or its 1:1 preview, with `only_if_unknown`), for
-/// `recipe` and records it.
-pub(crate) fn note_ca_estimate(
+/// Measures `image`, a whole decode of `path` (or its 1:1 preview, with
+/// `only_if_unknown`), for `recipe` and records them.
+fn note_measures(
     path: &str,
     recipe: &serde_json::Value,
     image: &DynamicImage,
     only_if_unknown: bool,
-) -> Option<MeasuredCa> {
-    let key = ca_key(path, recipe)?;
-    if only_if_unknown && let Some(known) = known_ca_estimate(path, recipe) {
+) -> Option<RegionMeasures> {
+    let key = measures_key(path, recipe)?;
+    if only_if_unknown && let Some(known) = known_measures(path, recipe).flatten() {
         return Some(known);
     }
-    let estimate = MeasuredCa::of(image.as_rgb32f()?, recipe)?;
-    let mut estimates = CA_ESTIMATES.lock().unwrap_or_else(|e| e.into_inner());
-    let estimates = estimates.get_or_insert_with(HashMap::new);
-    if estimates.len() >= CA_ESTIMATES_KEPT {
-        estimates.clear();
+    let measures = RegionMeasures::of(image.as_rgb32f()?, recipe);
+    let mut all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
+    let all = all.get_or_insert_with(HashMap::new);
+    if all.len() >= REGION_MEASURES_KEPT {
+        all.clear();
     }
-    estimates.insert(key, estimate);
-    Some(estimate)
+    all.insert(key, measures);
+    Some(measures)
 }
 
 /// A photograph's source for its cell: the preview proxy kept in memory, a
@@ -1377,13 +1384,13 @@ fn prepare_region_from_rows(
         full_height: full_h,
         is_raw: known.is_raw,
     };
-    // The estimate of the decode in memory, else the one recorded for the
+    // The measures of the decode in memory, else those recorded for the
     // 1:1 preview's photograph.
-    let estimate = match &decoded {
-        Some(decoded) => note_ca_estimate(path, recipe, decoded, false),
-        None => known_ca_estimate(path, recipe),
+    let measures = match &decoded {
+        Some(decoded) => note_measures(path, recipe, decoded, false),
+        None => known_measures(path, recipe).flatten(),
     };
-    let plan = region_plan(facts, area, zoom, recipe, estimate)?;
+    let plan = region_plan(facts, area, zoom, recipe, measures)?;
     let (image, kind, read_ms) = match decoded {
         Some(decoded) => {
             let rgb = decoded.as_rgb32f().ok_or("not float RGB")?;
@@ -1437,7 +1444,7 @@ fn region_plan(
     area: [f32; 4],
     zoom: CellZoom,
     recipe: &serde_json::Value,
-    estimate: Option<MeasuredCa>,
+    measures: Option<RegionMeasures>,
 ) -> Result<image_processing::RegionPlan, &'static str> {
     let (shown_w, shown_h) = shown_size(recipe, facts);
     let wanted =
@@ -1447,9 +1454,9 @@ fn region_plan(
         facts.full_height,
         recipe,
         whole_pixels(wanted),
-        estimate,
+        measures,
     )
-    .ok_or("lens blur, or measured chromatic aberration not estimated yet")
+    .ok_or("lens blur, or whole-photograph measures (lateral CA, fringes) not known yet")
 }
 
 /// The region base of `image`, the pixels `plan` asks for.
@@ -1504,10 +1511,10 @@ fn region_from_full_decode(
         full_height: full_h,
         ..facts
     };
-    // A decode's own estimate; for a 1:1 preview the one recorded for its
-    // photograph, else its own (as its whole warp measured it).
-    let estimate = note_ca_estimate(path, recipe, source, source_kind == "proxy-1:1");
-    let plan = region_plan(facts, area, zoom, recipe, estimate).ok()?;
+    // A decode's own measures; for a 1:1 preview those recorded for its
+    // photograph, else its own (as its whole warp measured them).
+    let measures = note_measures(path, recipe, source, source_kind == "proxy-1:1");
+    let plan = region_plan(facts, area, zoom, recipe, measures).ok()?;
     let rows = image_processing::SourceRows::whole(rgb.as_raw(), full_w, full_h);
     let image = image_processing::transformed_region(&rows, recipe, &plan)?;
     Some(region_base(image, &plan, facts, zoom, recipe))

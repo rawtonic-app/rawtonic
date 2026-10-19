@@ -2335,23 +2335,72 @@ impl MeasuredCa {
     pub fn of(image: &Rgb32FImage, adjustments: &Value) -> Option<Self> {
         Self::of_params(&get_geometry_params_from_json(adjustments), Some(image))
     }
+}
 
-    /// What the estimate of `adjustments` depends on besides the photograph:
-    /// None when they warp without one.
+/// What a region warped from some of a photograph's rows needs that only
+/// the whole photograph tells (its whole decode, at full resolution): the
+/// automatic lateral CA estimate and the edge-fringe radius.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RegionMeasures {
+    pub ca: Option<MeasuredCa>,
+    /// `edge_fringe::full_resolution_radius` of the warped photograph.
+    pub fringe_radius: Option<usize>,
+}
+
+impl RegionMeasures {
+    /// The measures of `image`, a whole decode, for `adjustments`.
+    pub fn of(image: &Rgb32FImage, adjustments: &Value) -> Self {
+        let params = get_geometry_params_from_json(adjustments);
+        let ca = MeasuredCa::of_params(&params, Some(image));
+        let (width, height) = image.dimensions();
+        let raw = image.as_raw();
+        let row_len = width as usize * 3;
+        let fringe_radius = if is_geometry_identity(&params) {
+            crate::edge_fringe::full_resolution_radius(
+                adjustments,
+                width as usize,
+                height as usize,
+                |y| raw[y * row_len..(y + 1) * row_len].to_vec(),
+            )
+        } else {
+            let kernel = WarpKernel::with_estimate(&params, width, height, ca);
+            let source = SourceRows::whole(raw, width, height);
+            crate::edge_fringe::full_resolution_radius(
+                adjustments,
+                width as usize,
+                height as usize,
+                |y| {
+                    let mut row = vec![0.0f32; row_len];
+                    kernel.warp_row(&source, y as u32, 0, &mut row);
+                    row
+                },
+            )
+        };
+        Self { ca, fringe_radius }
+    }
+
+    /// What the measures of `adjustments` depend on besides the photograph:
+    /// None when a region needs none.
     pub fn inputs_key(adjustments: &Value) -> Option<u64> {
         use std::hash::{Hash, Hasher};
         let params = get_geometry_params_from_json(adjustments);
-        if !params.auto_ca {
+        let fringe = crate::edge_fringe::version_of(adjustments);
+        if !params.auto_ca && fringe == 0 {
             return None;
         }
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        params.auto_ca_version.hash(&mut hasher);
-        if params.auto_ca_versus_own {
-            let own = own_tca_model(&params);
-            for v in [own.red.0, own.red.1, own.blue.0, own.blue.1] {
-                v.to_bits().hash(&mut hasher);
+        fringe.hash(&mut hasher);
+        if params.auto_ca {
+            params.auto_ca_version.hash(&mut hasher);
+            if params.auto_ca_versus_own {
+                let own = own_tca_model(&params);
+                for v in [own.red.0, own.red.1, own.blue.0, own.blue.1] {
+                    v.to_bits().hash(&mut hasher);
+                }
             }
         }
+        // The fringe radius is measured on the warped photograph: callers
+        // key it with the geometry too.
         Some(hasher.finish())
     }
 }
@@ -2374,6 +2423,8 @@ pub struct RegionPlan {
     warp: bool,
     /// The automatic lateral CA estimate the warp uses.
     estimate: Option<MeasuredCa>,
+    /// The edge-fringe radius, when the recipe suppresses fringes.
+    fringe: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2442,25 +2493,30 @@ pub fn plan_transformed_region(
     plan_transformed_region_with(width, height, adjustments, rect, None)
 }
 
-/// [`plan_transformed_region`] with the photograph's automatic lateral CA
-/// estimate (`MeasuredCa::of` its whole decode): a warp with automatic
-/// lateral CA has a plan only with it.
+/// [`plan_transformed_region`] with what the whole photograph tells
+/// (`RegionMeasures::of` its whole decode): a warp with automatic lateral CA
+/// or a recipe that suppresses edge fringes has a plan only with them.
 pub fn plan_transformed_region_with(
     width: u32,
     height: u32,
     adjustments: &Value,
     rect: [u32; 4],
-    estimate: Option<MeasuredCa>,
+    measures: Option<RegionMeasures>,
 ) -> Option<RegionPlan> {
     if width == 0 || height == 0 || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false) {
         return None;
     }
     let params = get_geometry_params_from_json(adjustments);
     let warp = !is_geometry_identity(&params);
-    let estimate = estimate.filter(|_| params.auto_ca);
+    let estimate = measures.and_then(|m| m.ca).filter(|_| params.auto_ca);
     if warp && params.auto_ca && estimate.is_none() {
         return None;
     }
+    let fringe = if crate::edge_fringe::version_of(adjustments) > 0 {
+        Some(measures?.fringe_radius?)
+    } else {
+        None
+    };
     let spatial = SpatialSteps::of(adjustments);
     let frame = spatial.oriented(width, height);
     let (frame_w, frame_h) = (frame.width, frame.height);
@@ -2519,6 +2575,14 @@ pub fn plan_transformed_region_with(
         wx1 = wx1.max(sx);
         wy1 = wy1.max(sy);
     }
+    // Fringe suppression reads around each pixel: the warped pixels it
+    // reads too (clamped to the frame, where the whole frame clamps alike).
+    let margin = fringe.map_or(0, crate::edge_fringe::reach) as i64;
+    let (wx0, wy0) = ((wx0 - margin).max(0), (wy0 - margin).max(0));
+    let (wx1, wy1) = (
+        (wx1 + margin).min(width as i64 - 1),
+        (wy1 + margin).min(height as i64 - 1),
+    );
     let warped = [
         wx0 as u32,
         wy0 as u32,
@@ -2593,6 +2657,7 @@ pub fn plan_transformed_region_with(
         spatial,
         warp,
         estimate,
+        fringe,
     })
 }
 
@@ -2639,6 +2704,10 @@ pub fn transformed_region(
                     + (wx - source.col0) as usize * 3;
                 row.copy_from_slice(&source.pixels[start..start + row_len]);
             });
+    }
+
+    if let Some(r) = plan.fringe {
+        crate::edge_fringe::suppress(&mut warped, ww as usize, wh as usize, 3, r);
     }
 
     let spatial = &plan.spatial;
@@ -6923,16 +6992,16 @@ mod region_tests {
         ] {
             let params = get_geometry_params_from_json(&adjustments);
             assert!(params.auto_ca, "{adjustments}");
-            let estimate = MeasuredCa::of(rgb, &adjustments);
-            assert!(estimate.is_some());
-            assert!(MeasuredCa::inputs_key(&adjustments).is_some());
+            let measures = RegionMeasures::of(rgb, &adjustments);
+            assert!(measures.ca.is_some());
+            assert!(RegionMeasures::inputs_key(&adjustments).is_some());
             let warped = apply_geometry_warp(&image, &adjustments);
             let (whole, _) = apply_spatial_transformations(warped, &adjustments);
             let (fw, fh) = whole.dimensions();
             for rect in [[0, 0, fw, fh], [5, 7, 40, 30], [fw - 20, fh - 9, 60, 60]] {
                 // Without the estimate the warp cannot be planned.
                 assert!(plan_transformed_region(w, h, &adjustments, rect).is_none());
-                let plan = plan_transformed_region_with(w, h, &adjustments, rect, estimate)
+                let plan = plan_transformed_region_with(w, h, &adjustments, rect, Some(measures))
                     .expect("plannable with the estimate");
                 let [x, y, rw, rh] = plan.rect;
                 let expected = whole.crop_imm(x, y, rw, rh);
@@ -6953,7 +7022,80 @@ mod region_tests {
         }
         // No automatic lateral CA: no estimate, and none needed.
         assert_eq!(MeasuredCa::of(rgb, &json!({})), None);
-        assert_eq!(MeasuredCa::inputs_key(&json!({})), None);
+        assert_eq!(RegionMeasures::inputs_key(&json!({})), None);
+    }
+
+    /// A smooth photograph with a fringed edge: low noise (fringe radius 3).
+    fn fringed_frame(width: u32, height: u32) -> DynamicImage {
+        DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(width, height, |x, y| {
+            let base = 0.1 + 0.3 * x as f32 / width as f32 + 0.1 * y as f32 / height as f32;
+            let edge = x as i64 - (width as i64 / 2 + (y as i64 / 9));
+            let bright = if edge >= 0 { 0.6 } else { 0.0 };
+            // Red leads and blue trails the edge by a pixel or two.
+            let red = if (-1..2).contains(&edge) { 0.25 } else { 0.0 };
+            let blue = if (-3..0).contains(&edge) { 0.2 } else { 0.0 };
+            image::Rgb([base + bright + red, base + bright, base + bright + blue])
+        }))
+    }
+
+    #[test]
+    fn a_region_with_fringe_suppression_is_the_same_pixels_given_the_radius() {
+        let (w, h) = (301u32, 211u32);
+        let lens = json!({"k1": -0.12, "k2": 0.03, "k3": 0.0, "model": 0,
+            "tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr2": 0.0004});
+        let mut radii = std::collections::BTreeSet::new();
+        for image in [frame(w, h), fringed_frame(w, h)] {
+            let rgb = image.as_rgb32f().unwrap();
+            let raw = rgb.as_raw().clone();
+            for adjustments in [
+                json!({"fringeVersion": 2}),
+                json!({"fringeVersion": 1, "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
+                json!({"fringeVersion": 2, "lensDistortionParams": lens, "rotation": 2.0}),
+                json!({"fringeVersion": 2, "lensDistortionParams": {"k1": -0.1}, "autoCaVersion": 2,
+                    "orientationSteps": 1, "flipHorizontal": true}),
+            ] {
+                let measures = RegionMeasures::of(rgb, &adjustments);
+                radii.insert(measures.fringe_radius.expect("a fringe radius"));
+                assert!(RegionMeasures::inputs_key(&adjustments).is_some());
+                let warped = apply_geometry_warp(&image, &adjustments);
+                let plain = apply_spatial_transformations(warped.clone(), &adjustments)
+                    .0
+                    .into_owned();
+                let fringed = crate::edge_fringe::apply_for_recipe(warped, &adjustments, 1.0);
+                let (whole, _) = apply_spatial_transformations(fringed, &adjustments);
+                assert_ne!(bits(&plain), bits(&whole), "the pass changes {adjustments}");
+                let (fw, fh) = whole.dimensions();
+                for rect in [
+                    [0, 0, fw, fh],
+                    [5, 7, 40, 30],
+                    [fw / 3, fh / 2, 50, 41],
+                    [fw - 20, fh - 9, 60, 60],
+                ] {
+                    // Without the radius the fringe pass cannot be planned.
+                    assert!(plan_transformed_region(w, h, &adjustments, rect).is_none());
+                    let plan =
+                        plan_transformed_region_with(w, h, &adjustments, rect, Some(measures))
+                            .expect("plannable with the measures");
+                    let [x, y, rw, rh] = plan.rect;
+                    let expected = whole.crop_imm(x, y, rw, rh);
+                    let ((c0, c1), (r0, r1)) = (plan.cols, plan.rows);
+                    let part = crop_rows(&raw, w, (c0, c1), (r0, r1));
+                    let source = SourceRows {
+                        pixels: &part,
+                        width: w,
+                        height: h,
+                        row0: r0,
+                        col0: c0,
+                        cols: c1 - c0,
+                    };
+                    let region = transformed_region(&source, &adjustments, &plan)
+                        .unwrap_or_else(|| panic!("{adjustments} {rect:?}"));
+                    assert_eq!(bits(&region), bits(&expected), "{adjustments} {rect:?}");
+                }
+            }
+        }
+        // Both radii occur (noisy texture, smooth photograph).
+        assert_eq!(radii.into_iter().collect::<Vec<_>>(), vec![2, 3]);
     }
 
     #[test]

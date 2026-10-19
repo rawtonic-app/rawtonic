@@ -109,6 +109,10 @@ fn banded_input_upload_matches_the_full_conversion() {
     println!("{checked} banded input uploads match the full conversion");
 }
 
+/// The tests that occupy every thread of rayon's global pool run one at a
+/// time: two at once would each wait for threads the other holds.
+static GLOBAL_POOL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Thumbnail batches run on rayon's global pool and wait there for the GPU
 /// processor lock; a caller holding that lock must not need the pool for its
 /// input upload (an Edit-all write in the multi view froze every render).
@@ -116,6 +120,7 @@ fn banded_input_upload_matches_the_full_conversion() {
 fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
     let context = context();
     let image = DynamicImage::ImageRgb32F(ImageBuffer::from_fn(64, 600, |x, y| {
         image::Rgb([x as f32 / 64.0, y as f32 / 600.0, 0.5])
@@ -169,6 +174,7 @@ fn input_uploads_do_not_wait_for_a_busy_rayon_pool() {
 fn parallel_work_under_the_processor_lock_does_not_wait_for_a_busy_pool() {
     use std::sync::{Arc, Mutex, mpsc};
     use std::time::Duration;
+    let _pool = GLOBAL_POOL.lock().unwrap_or_else(|e| e.into_inner());
     let lock = Arc::new(Mutex::new(()));
     let guard = lock.lock().unwrap();
     let threads = rayon::current_num_threads();
