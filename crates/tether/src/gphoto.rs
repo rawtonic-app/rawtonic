@@ -93,6 +93,15 @@ fn has_transfer_queue(summary: &str) -> bool {
     summary.contains(": 0xe (") && summary.contains("(d212")
 }
 
+/// Whether libgphoto2 drives the camera on its Canon path (vendor extension
+/// 0xb). Not offered yet (user decision 2026-10-19): untested with a body,
+/// and libgphoto2's EOS trigger discards the events it collected (a report
+/// of a photo can be lost), its Save to shows a preference and it captures
+/// to the camera's memory when no card is in. notes: reference/tether.md
+fn on_canon_path(summary: &str) -> bool {
+    summary.contains(": 0xb (")
+}
+
 /// The serial number in libgphoto2's summary ("Serial Number: …").
 fn serial_number(summary: &str) -> Option<String> {
     summary
@@ -180,13 +189,19 @@ impl Driver for GphotoDriver {
             operations.capture_preview,
             operations.config
         );
-        // The safety checks rest on it (the Fujifilm queue, the Canon card
-        // check): a camera that cannot report it is not opened.
+        // The safety checks rest on it (the Fujifilm queue, the Canon path):
+        // a camera that cannot report it is not opened.
         let summary = camera
             .summary(&context)
             .map_err(|e| error("Reading the camera's description", e))?;
+        if on_canon_path(&summary) {
+            return Err(TetherError::new(
+                ErrorKind::Unsupported,
+                "Tethering Canon cameras is not supported yet: it has not been tested with a Canon \
+                 body. Use the hot folder with Canon's tethering app meanwhile.",
+            ));
+        }
         let transfer_queue = has_transfer_queue(&summary);
-        let canon = summary.contains(": 0xb (");
         let serial = serial_number(&summary);
         if transfer_queue {
             log::info!(
@@ -200,7 +215,6 @@ impl Driver for GphotoDriver {
             info,
             transfer_queue,
             serial,
-            canon,
             trigger: true,
             capture: true,
             preview: true,
@@ -222,10 +236,6 @@ pub struct GphotoCamera {
     /// the computer frees it, and stops shooting when the queue is full.
     transfer_queue: bool,
     serial: Option<String>,
-    /// libgphoto2's Canon path: its "Save to" shows the preference, and it
-    /// captures to the camera's memory when no card is in (config.c,
-    /// camera_canon_eos_update_capture_target).
-    canon: bool,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
 }
@@ -552,21 +562,7 @@ impl Camera for GphotoCamera {
             Err(e) if matches!(e.kind(), Gp::BadParameters | Gp::NotSupported) => None,
             Err(e) => return Err(session_error("Reading Save to", e)),
         };
-        if crate::camera::memory_only(target.as_deref()) {
-            return Ok(true);
-        }
-        if !self.canon {
-            return Ok(false);
-        }
-        // A card copy needs a card: on the Canon path "Memory card" alone
-        // does not prove one is in.
-        let storages = self
-            .camera
-            .storage_info(&self.context)
-            .map_err(|e| session_error("Reading the camera's cards", e))?;
-        Ok(!storages
-            .iter()
-            .any(|s| s.capacity_kb.is_some_and(|kb| kb > 0)))
+        Ok(crate::camera::memory_only(target.as_deref()))
     }
 
     fn release(&mut self, file: &CameraFile) -> Result<(), TetherError> {
@@ -625,5 +621,22 @@ impl Camera for GphotoCamera {
             .map(<[u8]>::to_vec)
             .map_err(|e| session_error(&format!("Downloading {}", file.name), e))?;
         Ok((bytes, size))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_summary_tells_the_driver_paths_and_the_serial() {
+        let canon = "Model: Canon EOS R5\n  Serial Number: 0123\nVendor Extension ID: 0xb (1.0)\n";
+        assert!(on_canon_path(canon) && !has_transfer_queue(canon));
+        assert_eq!(serial_number(canon).as_deref(), Some("0123"));
+        let fuji =
+            "Vendor Extension ID: 0xe (1.0)\nDevice Property Summary:\nCurrent State (d212)\n";
+        assert!(has_transfer_queue(fuji) && !on_canon_path(fuji));
+        let sony = "Vendor Extension ID: 0x11 (1.0)\n";
+        assert!(!on_canon_path(sony) && !has_transfer_queue(sony) && serial_number(sony).is_none());
     }
 }
