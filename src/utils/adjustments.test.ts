@@ -14,6 +14,7 @@ import {
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
   withDiffractionVersion,
+  withSourceVersions,
   withSharpenVersion,
   pastedAdjustments,
   PasteMode,
@@ -125,6 +126,18 @@ describe('RAW detail defaults', () => {
     expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 3 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(3);
     // Nothing to carry without an amount.
     expect('aiDenoiseVersion' in withAiDenoiseVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
+  });
+
+  it("keep a synced edit's grain structure and versions as the source has them", () => {
+    const source = { grainStructure: 'clumped', aiDenoiseVersion: 3, diffractionVersion: 2 } as Partial<Adjustments>;
+    // As applyAdjustmentsToPaths normalises what it writes (legacy defaults).
+    const written = (delta: Partial<Adjustments>) =>
+      withDiffractionVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(withSourceVersions(delta, source)))));
+    expect(written({ grainAmount: 40 }).grainStructure).toBe('clumped');
+    expect(written({ aiDenoise: 60 }).aiDenoiseVersion).toBe(3);
+    expect(written({ diffractionCorrection: true }).diffractionVersion).toBe(2);
+    // Without the source's values (a legacy preset), the legacy defaults.
+    expect(withGrainStructure({ grainAmount: 40 } as Partial<Adjustments>).grainStructure).toBe('even');
   });
 
   it('carry the diffraction version with a copied or preset correction', () => {

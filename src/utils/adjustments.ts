@@ -433,6 +433,19 @@ export const withDiffractionVersion = <T extends Partial<Adjustments>>(
   return { ...picked, diffractionVersion: source?.diffractionVersion ?? 1 };
 };
 
+/** A delta taken from `source` (Auto Sync) with the values its keys are read
+ * by — grain structure, AI Denoise version, diffraction version — taken from
+ * `source` too, so the defaults for presets and recipes from before those
+ * keys (withGrainStructure, withAiDenoiseVersion, withDiffractionVersion)
+ * do not apply to a current edit. */
+export const withSourceVersions = <T extends Partial<Adjustments>>(delta: T, source: Partial<Adjustments>): T => {
+  let out: T = withDiffractionVersion(withAiDenoiseVersion(delta, source), source);
+  if (out.grainAmount !== undefined && out.grainStructure === undefined && source.grainStructure !== undefined) {
+    out = { ...out, grainStructure: source.grainStructure };
+  }
+  return out;
+};
+
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
  * structure starts as Clumped. */
 export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>

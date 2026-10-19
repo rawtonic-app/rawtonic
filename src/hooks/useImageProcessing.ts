@@ -9,7 +9,14 @@ import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useRelightStore } from '../store/useRelightStore';
 import { stripSentRelightData } from '../utils/relight';
-import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer, withSharpenVersion } from '../utils/adjustments';
+import {
+  Adjustments,
+  AiPatch,
+  COPYABLE_ADJUSTMENT_KEYS,
+  MaskContainer,
+  withSharpenVersion,
+  withSourceVersions,
+} from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
@@ -829,7 +836,7 @@ export function useImageProcessing(
             // In the other photographs' recipe queue, in the order made (a
             // batch edit asked for after it runs after it); a target opened
             // meanwhile shows it (errors are reported as a paste's).
-            void applyRef.current(withSharpenVersion(delta, adjustments), otherPaths);
+            void applyRef.current(withSourceVersions(withSharpenVersion(delta, adjustments), adjustments), otherPaths);
           }
         }
 
