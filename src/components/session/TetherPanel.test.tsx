@@ -180,3 +180,21 @@ it("says when a camera keeps its photos only in its memory", () => {
   expect(ramOnly([{ key: "capturetarget", value: "Memory card" }])).toBe(false);
   expect(ramOnly([{ key: "iso", value: "100" }])).toBe(false);
 });
+
+it("fires on the Capture shortcut with no panel mounted (fullscreen) and keeps the next-capture choice", async () => {
+  const { unmount } = render(<Harness initial={STATUS} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  fireEvent.click(screen.getByText("Next capture"));
+  fireEvent.change(screen.getByLabelText("Next capture rating"), { target: { value: "4" } });
+  unmount();
+  expect(isTetherConnected()).toBe(true);
+  act(() => {
+    window.dispatchEvent(new Event(TETHER_CAPTURE_EVENT));
+  });
+  await waitFor(() => expect(invoke.mock.calls.filter(([c]) => c === "tether_capture")).toHaveLength(1));
+  // Shown again: the choice the connection uses, not the defaults.
+  render(<Harness initial={STATUS} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  fireEvent.click(screen.getByText("Next capture"));
+  expect((screen.getByLabelText("Next capture rating") as HTMLSelectElement).value).toBe("4");
+});

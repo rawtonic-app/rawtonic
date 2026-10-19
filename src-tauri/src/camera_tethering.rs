@@ -187,7 +187,8 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
             );
             if error.kind == ErrorKind::Disconnected && camera_lost(&HELPER) {
                 let app = app.clone();
-                std::thread::spawn(move || reconnect_when_back(app));
+                let choice = CHOICE.load(Ordering::SeqCst);
+                std::thread::spawn(move || reconnect_when_back(app, choice));
             }
         }
         Incoming::Event(Event::LiveViewStopped { error }) => {
@@ -264,8 +265,9 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
 /// when it is back, into the same session with the same capture settings
 /// and the same ingest — unless the user connected or disconnected
 /// meanwhile or the helper ended (Capture One reconnects on its own too).
-fn reconnect_when_back(app: AppHandle) {
-    let choice = CHOICE.load(Ordering::SeqCst);
+/// `choice`: the user's connects and disconnects counted when the camera
+/// was lost; a later connect or disconnect cancels this reconnect.
+fn reconnect_when_back(app: AppHandle, choice: u64) {
     reconnect_lost(
         &HELPER,
         &TRANSITION,
@@ -292,6 +294,12 @@ fn reconnect_lost(
     connected: impl FnOnce(TetherStatus),
 ) {
     loop {
+        // Checked under the transition lock before touching the state: a
+        // connect or disconnect of the user's since the loss wins.
+        let turn = transition.lock().unwrap();
+        if !wanted() {
+            return;
+        }
         let (client, session, model, serial, config) = {
             let mut helper = state.lock().unwrap();
             let Some(h) = helper.as_mut() else { return };
@@ -312,6 +320,7 @@ fn reconnect_lost(
                 c.config.clone(),
             )
         };
+        drop(turn);
         let found = reconnect(
             &client,
             &model,
@@ -414,7 +423,8 @@ fn request(app: &AppHandle, request: Request, timeout: Duration) -> Result<Reply
             // follows this reply): whichever is first starts the reconnect.
             if camera_lost(&HELPER) {
                 let app = app.clone();
-                std::thread::spawn(move || reconnect_when_back(app));
+                let choice = CHOICE.load(Ordering::SeqCst);
+                std::thread::spawn(move || reconnect_when_back(app, choice));
             }
             Err(e.message)
         }
@@ -546,6 +556,8 @@ fn spawn_ingest(
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TetherCaptured {
+    /// The library it went into.
+    pub session: PathBuf,
     pub camera_name: String,
     pub destination: Option<PathBuf>,
     pub asset_id: Option<String>,
@@ -638,6 +650,7 @@ impl Ingest<'_> {
         let committed = asset.is_some() || result.skipped;
         let timing = captured.as_ref();
         let event = TetherCaptured {
+            session: self.root.parent().map(Path::to_path_buf).unwrap_or_default(),
             camera_name,
             destination: result.destination,
             asset_id: asset,
@@ -715,7 +728,8 @@ pub async fn tether_connect(
             },
             || {
                 let app = app.clone();
-                std::thread::spawn(move || reconnect_when_back(app));
+                let choice = CHOICE.load(Ordering::SeqCst);
+                std::thread::spawn(move || reconnect_when_back(app, choice));
             },
         )?;
         Ok(TetherStatus {
@@ -1161,6 +1175,31 @@ mod tests {
         assert!(camera_lost(&state));
         assert!(!camera_lost(&state));
         assert!(state.lock().unwrap().as_ref().unwrap().lost.is_some());
+    }
+
+    #[test]
+    fn a_late_reconnect_never_touches_a_newer_connection() {
+        let (state, _client) = mock_helper(&MockSpec::default());
+        state.lock().unwrap().as_mut().unwrap().connection = Some(Connection {
+            session: PathBuf::from("/job"),
+            status: CameraStatus::default(),
+            config: Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "new"),
+                free_camera_copies: true,
+            })),
+        });
+        // Started for a loss before the user's newer connect.
+        reconnect_lost(
+            &state,
+            &Mutex::new(()),
+            Duration::ZERO,
+            || false,
+            |_| panic!("connected"),
+        );
+        let helper = state.lock().unwrap();
+        let helper = helper.as_ref().unwrap();
+        assert!(helper.connection.is_some() && helper.lost.is_none());
     }
 
     #[test]

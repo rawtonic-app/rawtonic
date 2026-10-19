@@ -109,10 +109,22 @@ export function useTauriListeners({
    * Capture One — with `inDevelop` (tether), also opened when Develop is
    * showing, and its folder shown when another one is. */
   const showCapture = (
-    { destination, skipped, error }: { destination: string | null; skipped: boolean; error: string | null },
+    {
+      destination,
+      skipped,
+      error,
+      session,
+    }: { destination: string | null; skipped: boolean; error: string | null; session?: string },
     inDevelop: boolean,
   ) => {
     if (!destination || skipped || error) return;
+    // A capture of another library (still arriving after a switch) does not
+    // move this one's view.
+    const sameLibrary = () => {
+      const open = useLibraryStore.getState().sessionDirectory;
+      return !session || !open || session.replace(/[\\/]$/, '') === open.replace(/[\\/]$/, '');
+    };
+    if (!sameLibrary()) return;
     window.dispatchEvent(new Event(IMPORTS_CHANGED));
     const { currentFolderPath, setLibrary } = useLibraryStore.getState();
     const folder = destination.slice(0, Math.max(destination.lastIndexOf('/'), destination.lastIndexOf('\\')));
@@ -137,6 +149,7 @@ export function useTauriListeners({
           : null;
     if (!shown) return;
     void shown.then(() => {
+      if (!sameLibrary()) return;
       if (useUIStore.getState().activeView !== 'editor')
         setLibrary({ multiSelectedPaths: [destination], libraryActivePath: destination });
       else if (inDevelop) refs.current.handleImageSelect?.(destination, true);
@@ -383,9 +396,12 @@ export function useTauriListeners({
       }),
       // A tethered capture is shown at once, in Develop too (Capture One
       // follows the newest capture in its viewer).
-      listen<{ destination: string | null; skipped: boolean; error: string | null }>('tether-captured', (event) => {
-        if (isEffectActive) showCapture(event.payload, true);
-      }),
+      listen<{ destination: string | null; skipped: boolean; error: string | null; session: string }>(
+        'tether-captured',
+        (event) => {
+          if (isEffectActive) showCapture(event.payload, true);
+        },
+      ),
       // The files moved but the session/catalog database could not follow
       // (e.g. locked); it is retried with the next file operation or start.
       listen<{ label: string; error: string }>('file-operation-sync-failed', (event) => {

@@ -16,7 +16,7 @@ import {
   type PresetChoice,
   type PresetItemJson,
 } from "./nextCapture";
-import { TETHER_CAPTURE_EVENT, setTetherConnected } from "./tether";
+import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected } from "./tether";
 import "./tether.css";
 
 /** Mirrors `rawtonic_tether::protocol::CameraInfo`. */
@@ -100,6 +100,13 @@ export const ramOnly = (settings: { key: string; value: string }[]) => {
   return target.includes("ram") && !target.includes("card");
 };
 
+/** The panel's naming template and next-capture choice, kept across its
+ * unmounting (the connection keeps using them). */
+let remembered: { template: string; nextCapture: NextCaptureForm } = {
+  template: "{orig}",
+  nextCapture: DEFAULT_NEXT_CAPTURE,
+};
+
 const sameCameras = (a: CameraInfo[], b: CameraInfo[]) =>
   a.length === b.length && a.every((c, i) => c.model === b[i].model && c.port === b[i].port);
 
@@ -129,10 +136,10 @@ export default function TetherPanel({
   const [error, setError] = useState("");
   // The camera went away; the backend connects it again when it is back.
   const [waiting, setWaiting] = useState(false);
-  const [template, setTemplate] = useState("{orig}");
+  const [template, setTemplate] = useState(remembered.template);
   // On unless the user turned it off, as in Capture One.
   const [freeCopies, setFreeCopies] = useState(storedFreeCopies);
-  const [nextCapture, setNextCapture] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
+  const [nextCapture, setNextCapture] = useState<NextCaptureForm>(remembered.nextCapture);
   const [presets, setPresets] = useState<PresetChoice[]>([]);
   const [settings, setSettings] = useState<CameraSetting[]>([]);
   const [liveView, setLiveView] = useState(false);
@@ -190,10 +197,16 @@ export default function TetherPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The connection outlives the panel (closed, or the view hidden in
+  // fullscreen): unmounting it does not say "disconnected".
   useEffect(() => {
     setTetherConnected(connected);
-    return () => setTetherConnected(false);
   }, [connected]);
+  // What the connection was given, for the panel shown again (it must not
+  // send defaults over what the camera's photos are ingested with).
+  useEffect(() => {
+    remembered = { template, nextCapture };
+  }, [template, nextCapture]);
 
   // What the camera and the helper report.
   useEffect(() => {
@@ -315,7 +328,11 @@ export default function TetherPanel({
     if (!connected) return;
     const fire = () => void capture();
     window.addEventListener(TETHER_CAPTURE_EVENT, fire);
-    return () => window.removeEventListener(TETHER_CAPTURE_EVENT, fire);
+    const handled = panelHandlesCapture();
+    return () => {
+      window.removeEventListener(TETHER_CAPTURE_EVENT, fire);
+      handled();
+    };
   }, [connected, capture]);
 
   const focus = async () => {

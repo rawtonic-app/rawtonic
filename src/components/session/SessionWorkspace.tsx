@@ -222,6 +222,14 @@ export function restoreLastSession(
     });
 }
 
+/** Whether the open library is another one than the library a camera was
+ * connected for. Not while no library is known yet (restoring, or this
+ * view remounted): that is not leaving it. */
+export function leavesTetheredLibrary(tetheredFor: string | null, openLibrary: string | null) {
+  if (!tetheredFor || !openLibrary) return false;
+  return tetheredFor.replace(/\/$/, "") !== openLibrary.replace(/\/$/, "");
+}
+
 export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, windowControls }: Props) {
   const { t } = useTranslation();
   const [session, setSession] = useState<SessionSummary | null>(null);
@@ -485,14 +493,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => {
     if (tether) tetheredFor.current = tether.session.replace(/\/$/, "");
   }, [tether]);
+  // The open library as the store knows it: set when a library opens, kept
+  // while this view is remounted (fullscreen) or still restoring it.
+  const openLibrary = useLibraryStore((s) => s.sessionDirectory);
   useEffect(() => {
-    const directory = session?.directory.replace(/\/$/, "") ?? null;
-    if (!tetheredFor.current || tetheredFor.current === directory) return;
+    if (!leavesTetheredLibrary(tetheredFor.current, openLibrary)) return;
     tetheredFor.current = null;
     void invoke(Invokes.TetherDisconnect).catch(() => {});
     setTether(null);
     setTetherOpen(false);
-  }, [session, tether]);
+  }, [openLibrary, tether]);
 
   // Opening a library (also at start-up) resumes the hot folder it keeps.
   const sessionDirectory = session?.directory ?? null;

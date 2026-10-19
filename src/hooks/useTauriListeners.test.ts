@@ -356,5 +356,15 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
   await vi.waitFor(() => expect(handleImageSelect).toHaveBeenCalledWith("/job/Capture/D.ARW", true));
   expect(handleSelectSubfolder).toHaveBeenCalledWith("/job/Capture", false, undefined, true, true);
   expect(useUIStore.getState().activeView).toBe("editor");
+  // A capture of the library left behind (still arriving after a switch)
+  // does not pull this library's view back.
+  useLibraryStore.getState().setLibrary({ sessionDirectory: "/other", currentFolderPath: "/other/Capture" });
+  handleSelectSubfolder.mockClear();
+  handleImageSelect.mockClear();
+  capture("/job/Capture/E.ARW", { session: "/job" });
+  await Promise.resolve();
+  expect(handleSelectSubfolder).not.toHaveBeenCalled();
+  expect(handleImageSelect).not.toHaveBeenCalled();
+  useLibraryStore.getState().setLibrary({ sessionDirectory: null });
   useUIStore.getState().setUI({ activeView: "library" });
 });
