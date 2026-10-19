@@ -478,18 +478,6 @@ pub async fn redo_file_operation(app: AppHandle) -> Result<Option<OperationSumma
     .map_err(|e| e.to_string())?
 }
 
-/// The file operation Undo would revert, for menus and hints. Off the main
-/// thread: the journal waits while an operation runs.
-#[tauri::command]
-pub async fn last_file_operation(app: AppHandle) -> Result<Option<OperationSummary>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        with_journal(&app, |journal| journal.last_undoable())
-            .map(|op| op.as_ref().map(OperationSummary::from))
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 /// Rolls back operations a crash interrupted and finishes syncs a crash cut
 /// short. Called once at start-up.
 pub fn recover(app: &AppHandle) {

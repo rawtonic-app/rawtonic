@@ -121,20 +121,12 @@ export interface FileFormat {
   name: string;
 }
 
-export interface ImportState {
-  errorMessage: string;
-  path?: string;
-  progress?: Progress;
-  status: Status;
-}
-
 export enum Status {
   Cancelled = 'cancelled',
   Cancelling = 'cancelling',
   Exporting = 'exporting',
   Error = 'error',
   Idle = 'idle',
-  Importing = 'importing',
   Success = 'success',
 }
 

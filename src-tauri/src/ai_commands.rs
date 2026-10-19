@@ -224,42 +224,6 @@ pub async fn generate_ai_depth_mask(
     })
 }
 
-#[tauri::command]
-pub async fn generate_full_image_depth_map(
-    js_adjustments: serde_json::Value,
-    state: tauri::State<'_, AppState>,
-    app_handle: tauri::AppHandle,
-) -> Result<String, String> {
-    LIFECYCLE.touch();
-    let _running = LIFECYCLE.run();
-    let depth_model = crate::ai_processing::get_or_init_depth_model(
-        &app_handle,
-        &state.ai_state,
-        &state.ai_init_lock,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-
-    let (mask_source, source_is_raw) = crate::editor_preview::get_original_image(&state)?;
-    let warped_image =
-        get_cached_full_warped_image(&state, &mask_source, source_is_raw, &js_adjustments);
-
-    let depth_img = crate::ai_processing::run_depth_anything_model(
-        warped_image.as_ref(),
-        &depth_model,
-        source_is_raw,
-    )
-    .map_err(|e| e.to_string())?;
-
-    let mut buf = std::io::Cursor::new(Vec::new());
-    depth_img
-        .write_to(&mut buf, image::ImageFormat::Png)
-        .map_err(|e| e.to_string())?;
-    let base64_str = base64::engine::general_purpose::STANDARD.encode(buf.get_ref());
-
-    Ok(format!("data:image/png;base64,{}", base64_str))
-}
-
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn generate_ai_subject_mask(

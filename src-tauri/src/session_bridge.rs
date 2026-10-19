@@ -220,13 +220,6 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
 /// `--output` of the headless export), whose parent is the empty path.
 pub use rawtonic_export::output::{output_folder, write_new_output};
 
-pub fn require_verified_import() -> Result<(), String> {
-    Err(
-        "Use the Rawtonic session Ingest action for verified copies. Legacy import is disabled."
-            .into(),
-    )
-}
-
 /// The photographs in a session folder (its working folders, not caches,
 /// Trash or outputs), in walk order. Hidden files and folders are skipped,
 /// as in ingest: macOS writes `._name` companions on exFAT and network
@@ -922,21 +915,6 @@ fn write_text_metadata(
         .into_iter()
         .map(|(path, id)| (path, changed[&id].clone().into()))
         .collect())
-}
-
-/// Title, description, creator and copyright per registered path (virtual
-/// copies share their original's metadata).
-#[tauri::command]
-pub async fn session_text_metadata(
-    directory: String,
-    paths: Vec<String>,
-) -> Result<HashMap<String, TextMetadata>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        read_text_metadata(&lib, paths)
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Title, description, creator and copyright of every photograph in the

@@ -6,15 +6,13 @@ import throttle from 'lodash.throttle';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { useLibraryStore } from '../store/useLibraryStore';
 import { useRelightStore } from '../store/useRelightStore';
 import { stripSentRelightData } from '../utils/relight';
-import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer, withSharpenVersion } from '../utils/adjustments';
+import { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
 import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
-import { saveFailure } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
@@ -34,7 +32,6 @@ import {
 } from '../utils/liveMaskRender';
 import { registerSliderDraftRenderer, wasRenderedAsDraft } from '../utils/sliderDraft';
 import { useMultiViewStore } from '../store/useMultiViewStore';
-import { frameDrawnMasks } from '../utils/maskGeometry';
 import { interactivePreview } from '../utils/interactivePreview';
 import { retireDraftPatches, showDraftPatch } from '../utils/browserDraftPatch';
 import { previewBuffer } from '../utils/previewBuffer';
@@ -98,7 +95,6 @@ export function useImageProcessing(
   const activeView = useUIStore((state) => state.activeView);
   const activePanel = useUIStore((state) => state.activePanel);
   const appSettings = useSettingsStore((state) => state.appSettings);
-  const multiSelectedPaths = useLibraryStore((state) => state.multiSelectedPaths);
 
   const uncroppedJobIdRef = useRef(0);
   const latestUncroppedJobIdRef = useRef(0);
@@ -796,33 +792,6 @@ export function useImageProcessing(
       if (hasAdjustmentsChanged) {
         debouncedSave(selectedImage.path, adjustments);
 
-        const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);
-        if (appSettings?.copyPasteSettings?.autoSync && otherPaths.length > 0) {
-          const delta: Partial<Adjustments> = {};
-          const includedKeys = appSettings?.copyPasteSettings?.includedAdjustments || COPYABLE_ADJUSTMENT_KEYS;
-          for (const key of Object.keys(adjustments) as Array<keyof Adjustments>) {
-            if (includedKeys.includes(key as string)) {
-              if (JSON.stringify(adjustments[key]) !== JSON.stringify(prev.adjustments[key])) {
-                delta[key] = adjustments[key];
-              }
-            }
-          }
-          // Synced drawn masks keep the frame of this photo, so the others
-          // place them on the same part of themselves.
-          if (delta.masks)
-            delta.masks = frameDrawnMasks(delta.masks, adjustments, selectedImage.width, selectedImage.height);
-          if (Object.keys(delta).length > 0) {
-            otherPaths.forEach((p) => globalImageCache.delete(p));
-            invoke(Invokes.ApplyAdjustmentsToPaths, {
-              paths: otherPaths,
-              adjustments: withSharpenVersion(delta, adjustments),
-            }).catch((err) => {
-              console.error('Failed to apply adjustments to multi-selection:', err);
-              toast.error(`Failed to sync adjustments to the selection: ${saveFailure(err, otherPaths).message}`);
-            });
-          }
-        }
-
         prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
       }
     }
@@ -836,10 +805,7 @@ export function useImageProcessing(
     selectedImage?.isPreviewReady,
     selectedImage?.isDecoded,
     isSliderDragging,
-    multiSelectedPaths,
     appSettings?.enableLivePreviews,
-    appSettings?.copyPasteSettings?.includedAdjustments,
-    appSettings?.copyPasteSettings?.autoSync,
     isWaveformVisible,
   ]);
 
