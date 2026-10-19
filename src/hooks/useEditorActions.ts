@@ -203,12 +203,13 @@ function commitDraft(path: string, adjustments: Adjustments) {
  * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS.
  * `queued`: the update of a queued recipe operation (exclusiveRecipeOperation)
  * running before a batch that already holds the photograph. */
-export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: { queued?: boolean } = {}) {
+export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: { queued?: boolean } = {}): boolean {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
   // A batch edit is writing this photograph's recipe (heldRecipePaths); the
-  // queued operations ahead of it still show their edits.
-  if (image && isRecipeHeld(current) && !queued) return;
+  // queued operations ahead of it still show their edits. False: refused
+  // (an asynchronous result computes again after the hold).
+  if (image && isRecipeHeld(current) && !queued) return false;
   // A queued operation's update commits at once (never a drag's draft that
   // could commit later, over a newer result).
   if (!queued && image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
@@ -219,7 +220,7 @@ export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: 
       image.width,
       image.height,
     );
-    if (next === prev || renderDraft(image.path, next, commitDraft)) return;
+    if (next === prev || renderDraft(image.path, next, commitDraft)) return true;
   }
   flushSliderDraft();
   useEditorStore.getState().setEditor((state) => {
@@ -240,6 +241,7 @@ export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: 
       ...(state.showOriginal ? { showOriginal: false, previewOverride: null } : {}),
     };
   });
+  return true;
 }
 
 /**

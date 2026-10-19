@@ -97,6 +97,36 @@ describe("automatic AI masks from imported presets", () => {
     expect(generated()).toHaveLength(3);
   });
 
+  it("computes a mask again after a batch edit that held the recipe when its result arrived", async () => {
+    let finishFirst!: (value: unknown) => void;
+    invoke.mockImplementation((command: string) =>
+      command === "generate_ai_sky_mask" && !finishFirst
+        ? new Promise((resolve) => { finishFirst = resolve; })
+        : Promise.resolve({ maskDataBase64: "data:image/png;base64,BBBB" }),
+    );
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      heldRecipePaths: [],
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    const generated = () => invoke.mock.calls.filter((c) => c[0] === "generate_ai_sky_mask");
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(generated()).toHaveLength(1));
+    // Batch Auto straighten holds the recipe; the first result comes in then.
+    act(() => useEditorStore.setState({ heldRecipePaths: ["/s/a.NEF"] }));
+    await act(async () => finishFirst({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    const sky = () =>
+      useEditorStore.getState().adjustments.masks.flatMap((m) => m.subMasks).find((x) => x.id === "sub-ai-sky")?.parameters;
+    expect(sky()).toMatchObject({ maskDataBase64: null });
+    // Released (the batch reloaded the new geometry): computed again.
+    act(() => useEditorStore.setState({ heldRecipePaths: [] }));
+    await waitFor(() => expect(generated()).toHaveLength(2));
+    await waitFor(() => expect(sky()).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" }));
+  });
+
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
     toast.error.mockReset();
     useProcessStore.setState({ activeAiTasks: {} });

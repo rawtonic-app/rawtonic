@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
-import { useEditorStore } from '../store/useEditorStore';
+import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
 import { useEditorActions } from './useEditorActions';
@@ -263,15 +263,24 @@ export function useAiMasking() {
   const registerAiTask = useProcessStore((state) => state.registerAiTask);
   const unregisterAiTask = useProcessStore((state) => state.unregisterAiTask);
 
+  // Automatic masks asked for (by id, People by id and choice).
+  const requestedAutoMasks = useRef(new Set<string>());
   const updateSubMask = useCallback(
     (subMaskId: string, updatedData: Partial<SubMask>) => {
-      setAdjustments((prev: Adjustments) => ({
+      const applied = setAdjustments((prev: Adjustments) => ({
         ...prev,
         masks: prev.masks.map((c: MaskContainer) => ({
           ...c,
           subMasks: c.subMasks.map((sm: SubMask) => (sm.id === subMaskId ? { ...sm, ...updatedData } : sm)),
         })),
       }));
+      // Refused while a batch edit holds the recipe (it changes the geometry
+      // the mask is computed in): asked for again once the hold ends.
+      if (applied === false) {
+        for (const key of [...requestedAutoMasks.current]) {
+          if (key === subMaskId || key.startsWith(`${subMaskId}:`)) requestedAutoMasks.current.delete(key);
+        }
+      }
     },
     [setAdjustments],
   );
@@ -456,10 +465,12 @@ export function useAiMasking() {
   // pixels by the backend, which knows the photo's EXIF orientation.
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
-  const requestedAutoMasks = useRef(new Set<string>());
+  // Nothing is asked for while a batch edit holds the recipe; its end runs
+  // this again (results refused meanwhile are asked for again).
+  const recipeHeld = useEditorStore(isRecipeHeld);
   const requestedPlacements = useRef(new Set<string>());
   useEffect(() => {
-    if (!selectedImageReady) return;
+    if (!selectedImageReady || recipeHeld) return;
     const { selectedImage } = useEditorStore.getState();
     const masks = useEditorStore.getState().adjustments.masks ?? [];
     const unplaced = masks
@@ -522,7 +533,7 @@ export function useAiMasking() {
       void (sub.type === 'ai-sky' ? handleGenerateAiSkyMask(sub.id) : handleGenerateAiForegroundMask(sub.id));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageReady, masksKey]);
+  }, [selectedImageReady, masksKey, recipeHeld]);
 
   // Lightroom Heal/Clone spots imported from a sidecar or catalog stay
   // normalised until the photo they belong to is shown.
