@@ -5,7 +5,7 @@ import { ArrowLeftRight } from "lucide-react";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useEditorActions } from "../../hooks/useEditorActions";
-import type { Adjustments } from "../../utils/adjustments";
+import { withSharpenVersion, type Adjustments } from "../../utils/adjustments";
 
 /** A tool's parameters: recipe key and (translated) label. */
 export type ToolParams = [keyof Adjustments & string, string][];
@@ -25,15 +25,24 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   // Defringe means what the recipe's fringe detector makes of it.
   defringePurpleAmount: ["defringeVersion"],
   defringeGreenAmount: ["defringeVersion"],
+  // The sharpening means what the recipe's sharpening response makes of it.
+  sharpness: ["sharpenVersion"],
+  sharpnessThreshold: ["sharpenVersion"],
+  sharpenRadius: ["sharpenVersion"],
+  sharpenDetail: ["sharpenVersion"],
+  sharpenMasking: ["sharpenVersion"],
+  sharpnessFalloff: ["sharpenVersion"],
   // AI Denoise means what the recipe's AI Denoise version makes of it.
   aiDenoise: ["aiDenoiseVersion"],
 };
 
 function pick(values: Adjustments, keys: string[]): Partial<Adjustments> {
   const all = new Set(keys.flatMap((key) => [key, ...(COPIED_ALONG[key] ?? [])]));
-  return Object.fromEntries(
+  const picked = Object.fromEntries(
     [...all].map((key) => [key, structuredClone(values[key as keyof Adjustments])]),
   ) as Partial<Adjustments>;
+  // A missing response key would vanish on the way: say it explicitly.
+  return withSharpenVersion(picked, values);
 }
 
 /** Capture One's copy/apply for one tool: a press opens a list of the tool's

@@ -28,7 +28,7 @@ use tokio::sync::Mutex as TokioMutex;
 /// licenses (docs/MODELS.md, scripts/models/build_model_pack.py);
 /// `scripts/models/install_models.sh` installs them ahead with `gh`.
 const MODEL_PACK_URL: &str =
-    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-08";
+    "https://github.com/rawtonic-app/models/releases/download/pack-2026-10-18";
 // The `*_URL` constants name a file of the pack (see `model_url`).
 
 // SAM 2.1 Hiera-T (Meta, Apache-2.0 weights), exported by

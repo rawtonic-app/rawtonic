@@ -2936,6 +2936,7 @@ pub struct GlobalAdjustments {
     /// x: Capture One's Sharpness Falloff (0–1): extra sharpening towards
     /// the corners, up to twice the amount there. y, z: diffraction
     /// correction radius (original pixels) and amount (diffraction.rs).
+    /// w: the recipe's sharpening response (`sharpenVersion`, 1 or 2).
     pub sharpen_falloff: [f32; 4],
     /// Camera profile (camera_profile.rs). Before the base look: x = key of
     /// the recipe's `cameraProfile`. After it: x = 1 when applied, y = key
@@ -3961,7 +3962,7 @@ fn get_global_adjustments_from_json(
             // Diffraction correction requested (its version); diffraction.rs
             // fills y/z.
             crate::diffraction::requested_flag(js_adjustments),
-            0.0,
+            sharpen_version(js_adjustments) as f32,
         ],
         camera_profile: [
             crate::camera_profile::register(js_adjustments["cameraProfile"].as_str().unwrap_or("")),
@@ -4323,6 +4324,28 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
     );
     let version = defringe_version(adjustments) as f32;
     [[purple, p_lo, p_hi, version], [green, g_lo, g_hi, 0.0]]
+}
+
+/// The recipe key naming the sharpening response a recipe was made with.
+pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
+/// The newest response: 2 (2026-10-19) keeps the halo ceiling nearly
+/// constant over the amount, grows the small-signal gain as Camera Raw's
+/// does and bounds the Detail tilt, so high amounts follow Camera Raw's
+/// band gains with halos that grow far less than version 1's (at most 2.7
+/// Oklab L ×100 above Camera Raw's on the measured frames, version 1 up to
+/// 21; notes: reference/detail.md "Sharpening response 2"); at Amount 40 with Radius, Detail and Masking
+/// at their defaults it renders as 1. Photo-wide: layers' sharpening amounts
+/// follow it. Recipes without the key keep version 1.
+pub const SHARPEN_VERSION: u64 = 2;
+
+/// The recipe's sharpening response, 1 when missing, never newer than this
+/// renderer knows.
+pub fn sharpen_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(SHARPEN_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, SHARPEN_VERSION)
 }
 
 /// The recipe key naming the Defringe fringe detector a recipe was made with.
@@ -6348,6 +6371,26 @@ mod editing_tool_tests {
         assert!((g.defringe[0][1] - 282.0).abs() < 1e-3 && (g.defringe[0][2] - 358.0).abs() < 1e-3);
         assert_eq!(g.defringe[1][0], 1.0);
         assert!((g.defringe[1][1] - 136.0).abs() < 1e-3 && (g.defringe[1][2] - 174.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn sharpen_version_reaches_the_shader() {
+        let version = |recipe: serde_json::Value| {
+            get_global_adjustments_from_json(&recipe, true, None).sharpen_falloff[3]
+        };
+        // Recipes without the key keep the first response.
+        assert_eq!(version(json!({"sharpness": 80})), 1.0);
+        assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 2})), 2.0);
+        assert_eq!(
+            version(json!({"sharpenVersion": 9})),
+            SHARPEN_VERSION as f32
+        );
+        assert_eq!(version(json!({"sharpenVersion": 0})), 1.0);
+        // Layers' sharpening follows it when the photo's Detail tool is hidden.
+        assert_eq!(
+            version(json!({"sharpenVersion": 2, "sectionVisibility": {"details": false}})),
+            2.0
+        );
     }
 
     #[test]

@@ -13,10 +13,12 @@
 #                   CUDA 13 and cuDNN 9 (docs/decisions/0011-gpu-ai.md)
 #
 # Each file is checked against models.json before it replaces an installed one.
+# On macOS the Core ML packages are put together too, so the `rawtonic` CLI
+# can use the folder (--models).
 set -eu
 
 REPO=rawtonic-app/models
-TAG=pack-2026-10-08
+TAG=pack-2026-10-18
 RUNTIME=0
 CUDA=0
 while [ $# -gt 0 ]; do
@@ -58,7 +60,7 @@ fi
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern '*.onnx' --pattern 'siglip2_tags.bin' \
-  --pattern 'siglip2_tokenizer.json' --pattern 'nlmf_coreml_*' --pattern 'birefnet_fp16_coreml_*' --pattern 'skyseg_coreml_*' --pattern models.json
+  --pattern 'siglip2_tokenizer.json' --pattern 'nlmf_coreml_*' --pattern 'nlmf_mixed640_macos13_coreml_*' --pattern 'birefnet_fp16_coreml_*' --pattern 'skyseg_coreml_*' --pattern models.json
 if [ "$RUNTIME" = 1 ]; then
   for pair in $LIBS; do
     gh release download "$TAG" --repo "$REPO" --dir "$WORK" --pattern "${pair%%:*}"
@@ -92,10 +94,29 @@ install_file() {
 }
 
 mkdir -p "$MODELS"
-for file in "$WORK"/*.onnx "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_*; do
+for file in "$WORK"/*.onnx "$WORK"/siglip2_tags.bin "$WORK"/siglip2_tokenizer.json "$WORK"/nlmf_coreml_* "$WORK"/nlmf_mixed640_macos13_coreml_* "$WORK"/birefnet_fp16_coreml_* "$WORK"/skyseg_coreml_*; do
   [ -e "$file" ] || continue
   install_file "$file" "$MODELS" "$(basename "$file")"
 done
+# macOS: put the Core ML packages back together from their three files, as
+# the app does on first use (the `rawtonic` CLI loads them as they are and
+# downloads nothing). "file prefix:package".
+if [ "$(uname -s)" = Darwin ]; then
+  for pair in nlmf_coreml_:nlmf nlmf_mixed640_macos13_coreml_:nlmf_mixed640 birefnet_fp16_coreml_:birefnet_fp16 skyseg_coreml_:skyseg_upernet; do
+    prefix=${pair%%:*}; package="$MODELS/${pair##*:}.mlpackage"
+    [ -e "$MODELS/${prefix}weight.bin" ] || continue
+    changed=0
+    for part in Manifest.json: model.mlmodel:Data/com.apple.CoreML weight.bin:Data/com.apple.CoreML/weights; do
+      name=${part%%:*}; sub=${part#*:}; dir="$package${sub:+/$sub}"
+      cmp -s "$MODELS/$prefix$name" "$dir/$name" && continue
+      mkdir -p "$dir"
+      install_file "$MODELS/$prefix$name" "$dir" "$name"
+      changed=1
+    done
+    # A changed package is compiled again on first use.
+    [ "$changed" = 0 ] || rm -rf "${package%.mlpackage}.mlmodelc"
+  done
+fi
 if [ "$CUDA" = 1 ]; then
   install_file "$WORK/${CUDA_LIB%%:*}" "$MODELS" "${CUDA_LIB##*:}"
 fi

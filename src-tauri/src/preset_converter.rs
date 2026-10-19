@@ -656,6 +656,36 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         adjustments.insert("masks".to_string(), Value::Array(layers));
     }
 
+    // Lightroom's sharpening sliders map 1:1 onto the response fitted to
+    // Camera Raw at every amount (notes: reference/detail.md "Sharpening
+    // response 2"); without the key the photo would read them with response 1.
+    // Layers' sharpening adds to the photo's amount, so it counts too.
+    let layer_sharpens = adjustments
+        .get("masks")
+        .and_then(Value::as_array)
+        .is_some_and(|layers| {
+            layers.iter().any(|layer| {
+                layer["adjustments"]["sharpness"]
+                    .as_f64()
+                    .is_some_and(|v| v != 0.0)
+            })
+        });
+    if layer_sharpens
+        || [
+            "sharpness",
+            "sharpenRadius",
+            "sharpenDetail",
+            "sharpenMasking",
+        ]
+        .iter()
+        .any(|key| adjustments.contains_key(*key))
+    {
+        adjustments.insert(
+            rawtonic_engine::image_processing::SHARPEN_VERSION_KEY.to_string(),
+            json!(rawtonic_engine::image_processing::SHARPEN_VERSION),
+        );
+    }
+
     let preset_name =
         extract_xmp_name(xmp_content).unwrap_or_else(|| "Imported Preset".to_string());
 
@@ -1634,6 +1664,43 @@ mod tests {
         assert_eq!(adjustments["clarity"], 25);
         // Lightroom's Texture is fine-detail contrast, Rawtonic's Structure.
         assert_eq!(adjustments["structure"], 40);
+    }
+
+    #[test]
+    fn lightroom_sharpening_reads_with_the_current_response() {
+        let xmp = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Sharpness="80"
+            crs:SharpenDetail="100"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(xmp).unwrap().adjustments;
+        assert_eq!(adjustments["sharpness"], 80.0);
+        assert_eq!(adjustments["sharpenDetail"], 100);
+        assert_eq!(
+            adjustments["sharpenVersion"],
+            rawtonic_engine::image_processing::SHARPEN_VERSION
+        );
+        let none = r#"<x:xmpmeta><rdf:RDF><rdf:Description crs:Exposure2012="+0.5"/></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(none).unwrap().adjustments;
+        assert!(adjustments.get("sharpenVersion").is_none());
+        // A layer's sharpening alone counts too.
+        let local = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+  <crs:MaskGroupBasedCorrections><rdf:Seq>
+   <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Sharper" crs:LocalSharpness="0.5">
+     <crs:CorrectionMasks><rdf:Seq>
+      <rdf:li crs:What="Mask/Gradient" crs:ZeroX="0.5" crs:ZeroY="0.4" crs:FullX="0.5" crs:FullY="0.1"/>
+     </rdf:Seq></crs:CorrectionMasks>
+   </rdf:Description></rdf:li>
+  </rdf:Seq></crs:MaskGroupBasedCorrections>
+ </rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let adjustments = convert_xmp_to_preset(local).unwrap().adjustments;
+        assert!(adjustments.get("sharpness").is_none());
+        assert_ne!(
+            adjustments["masks"][0]["adjustments"]["sharpness"],
+            json!(0)
+        );
+        assert_eq!(
+            adjustments["sharpenVersion"],
+            rawtonic_engine::image_processing::SHARPEN_VERSION
+        );
     }
 
     #[test]

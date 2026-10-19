@@ -9,7 +9,7 @@ import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import type { Adjustments } from '../utils/adjustments';
+import { withSharpenVersion, type Adjustments } from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
  * other photographs (a slider drag writes once it pauses or ends). */
@@ -68,7 +68,10 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       liveTimer = null;
       lastSentAt = performance.now();
       const others = selectionRef.current.filter((path) => path !== source?.path);
-      const patch = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
+      // The cells develop the values with the primary's sharpening response
+      // (inferred after drawn masks are left out of the live patch).
+      const shown = others.length > 0 ? livePatch({ ...inflight, ...pending }) : null;
+      const patch = shown ? withSharpenVersion(shown, source?.adjustments) : null;
       const key = JSON.stringify(patch);
       if (key === sent) return;
       sent = key;
@@ -99,7 +102,7 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const write = ++writes;
       // Written at the switch to another primary (see below): that one may
       // be one of the others, still opening.
-      const done = applyRef.current(changes, others, { openingNow: true });
+      const done = applyRef.current(withSharpenVersion(changes, from.adjustments), others, { openingNow: true });
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (write === writes) inflight = shownBefore;

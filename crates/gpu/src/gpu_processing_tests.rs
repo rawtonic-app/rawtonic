@@ -820,6 +820,29 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         ("sharpenDetail", 0., 100., 25., json!({"sharpness":70})),
         ("sharpenMasking", 100., 100., 0., json!({"sharpness":70})),
         ("sharpnessFalloff", 50., 100., 0., json!({"sharpness":70})),
+        // Sharpening response 2 (`sharpenVersion`).
+        ("sharpness", 60., 150., 0., json!({"sharpenVersion":2})),
+        (
+            "sharpenRadius",
+            0.5,
+            3.,
+            1.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
+        (
+            "sharpenDetail",
+            0.,
+            100.,
+            25.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
+        (
+            "sharpenMasking",
+            100.,
+            100.,
+            0.,
+            json!({"sharpness":120,"sharpenVersion":2}),
+        ),
         ("moireAmount", 50., 100., 0., json!({})),
         ("moirePattern", 0., 100., 30., json!({"moireAmount":100})),
         ("lumaNoiseReduction", 30., 100., 0., json!({})),
@@ -1102,6 +1125,64 @@ fn develop_controls_change_pixels_and_reset_exactly() {
         }
     }
     println!("{checked} individual control endpoint/reset GPU probes passed");
+}
+
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 1 and 2"]
+fn sharpen_version_2_keeps_amount_40_and_caps_halos() {
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), 256, 128).unwrap();
+    let view = input(&context, 256, 128, 5);
+    let render = |profile: serde_json::Value| {
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                256,
+                128,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let recipe = |amount: f64, version: u64| {
+        json!({"sharpness": amount, "lumaNoiseReduction": 0, "colorNoiseReduction": 0,
+            "sharpenVersion": version})
+    };
+    // At Amount 40 with the other controls at their defaults both responses
+    // are the same path, bit for bit.
+    assert_eq!(render(recipe(40., 2)), render(recipe(40., 1)));
+    // Above it they differ, and response 2 keeps the strongest change (the
+    // halo) below response 1's, whose ceiling grew with the amount.
+    let flat = render(recipe(0., 1));
+    let strongest = |pixels: &[u16]| {
+        let mut change: Vec<i32> = pixels
+            .iter()
+            .zip(&flat)
+            .map(|(a, b)| (*a as i32 - *b as i32).abs())
+            .collect();
+        change.sort_unstable();
+        change[change.len() * 99 / 100]
+    };
+    let v1 = render(recipe(150., 1));
+    let v2 = render(recipe(150., 2));
+    assert_ne!(v1, v2);
+    assert!(
+        strongest(&v2) < strongest(&v1),
+        "halo {} not below response 1's {}",
+        strongest(&v2),
+        strongest(&v1)
+    );
 }
 
 fn context() -> GpuContext {
@@ -1652,6 +1733,84 @@ fn preview_render_timing_probe() {
                     json!({"profile":name,"full_preparation":full,"frame":frame,"submit_ms":submit_ms,"complete_ms":start.elapsed().as_secs_f64()*1000.0})
                 );
             }
+        }
+    }
+}
+
+#[test]
+#[ignore = "native GPU timing probe; compares sharpening responses 1 and 2"]
+fn sharpen_version_timing_probe() {
+    let context = context();
+    // Warm display frames at preview size and full-resolution 16-bit
+    // readbacks; the amount moves a little every frame so the detail stage
+    // is computed again, as during a slider drag. Responses 1 and 2
+    // alternate within one process (response 1's path is unchanged).
+    for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
+        let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+        let view = input(&context, width, height, 3);
+        for (name, base) in [
+            ("a40d25", json!({"sharpness":40})),
+            ("a80d25", json!({"sharpness":80})),
+            ("a150d25", json!({"sharpness":150})),
+            ("a80d100", json!({"sharpness":80,"sharpenDetail":100})),
+            (
+                "a120d100r2",
+                json!({"sharpness":120,"sharpenDetail":100,"sharpenRadius":2.0}),
+            ),
+            ("a120d25r0.5", json!({"sharpness":120,"sharpenRadius":0.5})),
+        ] {
+            let mut times = [Vec::new(), Vec::new()];
+            for frame in 0..frames + 2 {
+                for version in [1, 2] {
+                    let mut profile = base.clone();
+                    let amount = profile["sharpness"].as_f64().unwrap();
+                    // Amount 40 stays exact (both responses share its path).
+                    if amount != 40.0 {
+                        profile["sharpness"] = json!(amount + 0.01 * frame as f64);
+                    } else {
+                        profile["sharpnessThreshold"] = json!(15.0 + 0.01 * frame as f64);
+                    }
+                    profile["sharpenVersion"] = json!(version);
+                    let start = Instant::now();
+                    processor
+                        .run(
+                            &view,
+                            width,
+                            height,
+                            RenderRequest {
+                                adjustments: get_all_adjustments_from_json(&profile, true, Some(1)),
+                                mask_bitmaps: &[],
+                                lut: None,
+                                roi: None,
+                            },
+                            display,
+                            if display {
+                                RenderOutputPrecision::EightBit
+                            } else {
+                                RenderOutputPrecision::SixteenBit
+                            },
+                        )
+                        .unwrap();
+                    context
+                        .device
+                        .poll(wgpu::PollType::wait_indefinitely())
+                        .unwrap();
+                    // The first two frames warm shaders and caches.
+                    if frame >= 2 {
+                        times[version - 1].push(start.elapsed().as_secs_f64() * 1000.0);
+                    }
+                }
+            }
+            let median = |t: &mut Vec<f64>| {
+                t.sort_by(f64::total_cmp);
+                t[t.len() / 2]
+            };
+            let (v1, v2) = (median(&mut times[0]), median(&mut times[1]));
+            println!(
+                "{}",
+                json!({"size":format!("{width}x{height}"),"setting":name,"v1_ms":v1,"v2_ms":v2,
+                    "change_pct":(v2 / v1 - 1.0) * 100.0,"frames":frames})
+            );
         }
     }
 }

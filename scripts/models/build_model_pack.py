@@ -17,7 +17,13 @@ Usage:
       --with transformers==4.57.3 --with sentencepiece \
       --with timm==1.0.30 --with kornia==0.8.3 --with einops==0.8.2 \
       --with onnx==1.23.2 --with onnxruntime==1.22.0 \
-      python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR]
+      python scripts/models/build_model_pack.py OUT_DIR [--cache CACHE_DIR] [--previous PACK_DIR]
+`--previous` takes an earlier pack (its release assets with `models.json`,
+e.g. `gh release download pack-2026-10-08 --repo rawtonic-app/models`): its
+files go into the new pack unchanged, checked against its `models.json` and
+against the SHA-256 pinned here, and only the files it lacks are built. That
+keeps files the current steps no longer build (older builds' models) and
+leaves the heavy exports out when a pack only adds a model.
 The face models are converted in an environment of their own (TensorFlow,
 tf2onnx), which `uv` sets up (export_faces.py).
 """
@@ -189,19 +195,20 @@ SUBJECT_COREML_EXPORT = [
 
 # AI Denoise version 3 on macOS: the same MatchFilter checkpoint converted by
 # convert_nlmf_coreml.py from the authors' release (mixed precision, 640 px
-# tiles; reproducible, same SHA-256 in two conversions). Prepared
-# 2026-10-18; not yet uploaded to a pack release (version 3 needs it; the
-# default stays version 2 on nlmf_coreml_* until it is uploaded).
+# tiles, macOS 13 like the app; reproducible). In the packs from
+# pack-2026-10-18. That release also holds a macOS 15 build of it
+# (nlmf_mixed640_coreml_*, model a4da0846…), uploaded first and used by no
+# build; it is carried over with the pack, not built again.
 MATCHFILTER_MIXED_ENTRY = {
-    "used_by": "AI Denoise version 3 (raw Bayer mosaic, Core ML, macOS)",
-    "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, release v1.0.0 checkpoint rawnoise_25_15_9nbr), converted by convert_nlmf_coreml.py (Core ML, convolutions fp16, matching fp32, 640 px tiles) with RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW denoise/, commit 2375e17)",
+    "used_by": "AI Denoise version 3 (raw Bayer mosaic, Core ML, macOS 13 and later)",
+    "source": "Nonlocal MatchFilter (Sanchez-Beeckman and Buades, github.com/MIA-UIB/nonlocal-matchfilter, release v1.0.0 checkpoint rawnoise_25_15_9nbr), converted by convert_nlmf_coreml.py (Core ML for macOS 13, convolutions fp16, matching fp32, 640 px tiles) with RapidRAW's vendored network and static packed sampler (sheldonxxxx/RapidRAW denoise/, commit 2375e17)",
     "license": "MIT",
     "license_files": ["nonlocal-matchfilter-MIT.txt", "nonlocal-matchfilter-NOTICE.txt"],
 }
 MATCHFILTER_MIXED_SHA256 = {
-    "nlmf_mixed640_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
-    "nlmf_mixed640_coreml_model.mlmodel": "a4da084674a43eb69f33e94e73c9454a993867ee5d5e38ed4afaec8dcda8d4f6",
-    "nlmf_mixed640_coreml_weight.bin": "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
+    "nlmf_mixed640_macos13_coreml_Manifest.json": "935b1ef0c97fe51b4999919c28b9c91151c648c72571c1d5c3c49dd6e9b3b184",
+    "nlmf_mixed640_macos13_coreml_model.mlmodel": "e466563ad1dba0ee8d143b43c930dee9852b77e2cbb492f7b89cde991044c164",
+    "nlmf_mixed640_macos13_coreml_weight.bin": "e50e91a84be8ca50f58566020eae4dc0bcd165e77c2c999bab418a4c492e3fe9",
 }
 MATCHFILTER_MIXED_EXPORT = [
     "uv", "run", "--python", "3.12", "--with", "torch==2.7.0", "--with", "coremltools==9.0",
@@ -394,74 +401,121 @@ def place(source: Path, out: Path, name: str, expected: str | None = None) -> di
     return {"file": name, "size": target.stat().st_size, "sha256": digest}
 
 
+def carry_over(previous: Path, out: Path) -> tuple[list[dict], dict[str, str]]:
+    """The files of an earlier pack, copied unchanged and checked against its
+    models.json; returns their entries and SHA-256 by name."""
+    entries = []
+    for entry in json.loads((previous / "models.json").read_text())["files"]:
+        meta = {k: v for k, v in entry.items() if k not in ("file", "size", "sha256")}
+        entries.append(place(previous / entry["file"], out, entry["file"], entry["sha256"]) | meta)
+    return entries, {entry["file"]: entry["sha256"] for entry in entries}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("out", type=Path)
     parser.add_argument("--cache", type=Path, default=Path("model-pack-cache"))
+    parser.add_argument("--previous", type=Path, help="earlier pack whose files are carried over unchanged")
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     args.cache.mkdir(parents=True, exist_ok=True)
-    entries = []
+    entries, carried = carry_over(args.previous, args.out) if args.previous else ([], {})
+
+    def todo(pinned: dict[str, str | None]) -> bool:
+        """Whether a step has to run: some of its files are not carried over.
+        A carried file must have the SHA-256 pinned here (None: not pinned)."""
+        for name, expected in pinned.items():
+            if name in carried and expected and carried[name] != expected:
+                sys.exit(f"{name}: SHA-256 {carried[name]} in the previous pack, expected {expected}")
+        return any(name not in carried for name in pinned)
 
     for model in DIRECT:
+        if not todo({model["file"]: model["sha256"]}):
+            continue
         source = fetch(model["url"], model["sha256"], args.cache, model["file"])
         meta = {k: v for k, v in model.items() if k not in ("file", "sha256")}
         entries.append(place(source, args.out, model["file"], model["sha256"]) | meta)
 
-    relight_dir = args.cache / "relight"
-    subprocess.run(RELIGHT_EXPORT + [str(relight_dir)], check=True)
     relight_name = "relight_geometry_da3_base.onnx"
-    entries.append(place(relight_dir / relight_name, args.out, relight_name, RELIGHT_SHA256) | RELIGHT_ENTRY)
+    if todo({relight_name: RELIGHT_SHA256}):
+        relight_dir = args.cache / "relight"
+        subprocess.run(RELIGHT_EXPORT + [str(relight_dir)], check=True)
+        entries.append(place(relight_dir / relight_name, args.out, relight_name, RELIGHT_SHA256) | RELIGHT_ENTRY)
 
-    from export_sam import export  # needs torch; imported only when building
+    if todo({f"sam_vit_b_01ec64_{part}.onnx": None for part in ("encoder", "decoder")}):
+        from export_sam import export  # needs torch; imported only when building
 
-    checkpoint = fetch(SAM_CHECKPOINT["url"], SAM_CHECKPOINT["sha256"], args.cache)
-    for path in export(checkpoint, args.cache / "sam"):
-        entries.append(place(path, args.out, path.name) | SAM_ENTRY | {"checkpoint_sha256": SAM_CHECKPOINT["sha256"]})
+        checkpoint = fetch(SAM_CHECKPOINT["url"], SAM_CHECKPOINT["sha256"], args.cache)
+        for path in export(checkpoint, args.cache / "sam"):
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(path, args.out, path.name) | SAM_ENTRY | {"checkpoint_sha256": SAM_CHECKPOINT["sha256"]})
 
-    from export_sam2 import export as export_sam2
+    if todo(SAM2_SHA256):
+        from export_sam2 import export as export_sam2
 
-    checkpoint = fetch(SAM2_CHECKPOINT["url"], SAM2_CHECKPOINT["sha256"], args.cache)
-    for path in export_sam2(checkpoint, "tiny", args.cache / "sam2"):
-        entries.append(place(path, args.out, path.name, SAM2_SHA256[path.name]) | SAM2_ENTRY
-                       | {"checkpoint_sha256": SAM2_CHECKPOINT["sha256"]})
+        checkpoint = fetch(SAM2_CHECKPOINT["url"], SAM2_CHECKPOINT["sha256"], args.cache)
+        for path in export_sam2(checkpoint, "tiny", args.cache / "sam2"):
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(path, args.out, path.name, SAM2_SHA256[path.name]) | SAM2_ENTRY
+                           | {"checkpoint_sha256": SAM2_CHECKPOINT["sha256"]})
 
-    from export_siglip2 import export as export_siglip2
+    if todo(dict.fromkeys(SIGLIP_USE)):
+        from export_siglip2 import export as export_siglip2
 
-    for path in export_siglip2(args.cache / "siglip2"):
-        entries.append(place(path, args.out, path.name) | {"used_by": SIGLIP_USE[path.name]} | SIGLIP_ENTRY)
+        for path in export_siglip2(args.cache / "siglip2"):
+            if path.name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(path, args.out, path.name) | {"used_by": SIGLIP_USE[path.name]} | SIGLIP_ENTRY)
 
-    from export_sky import export as export_sky
+    if todo({"skyseg_upernet_convnext_t.onnx": SKY_SHA256}):
+        from export_sky import export as export_sky
 
-    sky = export_sky(args.cache / "sky")
-    entries.append(place(sky, args.out, sky.name, SKY_SHA256) | SKY_ENTRY)
-    sky_coreml = args.cache / "sky-coreml"
-    subprocess.run(SUBJECT_COREML_EXPORT[:-1] + [str(Path(__file__).resolve().parent / "convert_sky_coreml.py"),
-                                                 str(sky_coreml)],
-                   check=True, env=os.environ | {"PYTHONHASHSEED": "0"})
-    for name, expected in SKY_COREML_SHA256.items():
-        entries.append(place(sky_coreml / name, args.out, name, expected) | SKY_COREML_ENTRY)
+        sky = export_sky(args.cache / "sky")
+        entries.append(place(sky, args.out, sky.name, SKY_SHA256) | SKY_ENTRY)
+    if todo(SKY_COREML_SHA256):
+        sky_coreml = args.cache / "sky-coreml"
+        subprocess.run(SUBJECT_COREML_EXPORT[:-1] + [str(Path(__file__).resolve().parent / "convert_sky_coreml.py"),
+                                                     str(sky_coreml)],
+                       check=True, env=os.environ | {"PYTHONHASHSEED": "0"})
+        for name, expected in SKY_COREML_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(sky_coreml / name, args.out, name, expected) | SKY_COREML_ENTRY)
 
-    from export_birefnet import export as export_birefnet
+    if todo({"birefnet_subject.onnx": SUBJECT_SHA256}):
+        from export_birefnet import export as export_birefnet
 
-    subject = export_birefnet(args.cache / "subject")
-    entries.append(place(subject, args.out, subject.name, SUBJECT_SHA256) | SUBJECT_ENTRY)
-    subject_coreml = args.cache / "subject-coreml"
-    subprocess.run(SUBJECT_COREML_EXPORT + [str(subject_coreml), "--precision", "fp16"], check=True)
-    for name, expected in SUBJECT_COREML_SHA256.items():
-        entries.append(place(subject_coreml / name, args.out, name, expected) | SUBJECT_COREML_ENTRY)
+        subject = export_birefnet(args.cache / "subject")
+        entries.append(place(subject, args.out, subject.name, SUBJECT_SHA256) | SUBJECT_ENTRY)
+    if todo(SUBJECT_COREML_SHA256):
+        subject_coreml = args.cache / "subject-coreml"
+        subprocess.run(SUBJECT_COREML_EXPORT + [str(subject_coreml), "--precision", "fp16"], check=True)
+        for name, expected in SUBJECT_COREML_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(subject_coreml / name, args.out, name, expected) | SUBJECT_COREML_ENTRY)
 
-    nlmf_mixed = args.cache / "nlmf-mixed"
-    subprocess.run(MATCHFILTER_MIXED_EXPORT + [str(nlmf_mixed)], check=True)
-    for name, expected in MATCHFILTER_MIXED_SHA256.items():
-        entries.append(place(nlmf_mixed / name, args.out, name, expected) | MATCHFILTER_MIXED_ENTRY)
+    if todo(MATCHFILTER_MIXED_SHA256):
+        nlmf_mixed = args.cache / "nlmf-mixed"
+        subprocess.run(MATCHFILTER_MIXED_EXPORT + [str(nlmf_mixed)], check=True)
+        for name, expected in MATCHFILTER_MIXED_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(nlmf_mixed / name, args.out, name, expected) | MATCHFILTER_MIXED_ENTRY)
 
-    faces = args.cache / "faces-out"
-    subprocess.run(FACES_EXPORT + [str(faces), "--cache", str(args.cache / "faces")], check=True)
-    for name, expected in FACES_SHA256.items():
-        entries.append(place(faces / name, args.out, name, expected) | {"used_by": FACES_USE[name]} | FACES_ENTRY)
+    if todo(FACES_SHA256):
+        faces = args.cache / "faces-out"
+        subprocess.run(FACES_EXPORT + [str(faces), "--cache", str(args.cache / "faces")], check=True)
+        for name, expected in FACES_SHA256.items():
+            if name in carried:  # a group step builds all its files; carried ones stay
+                continue
+            entries.append(place(faces / name, args.out, name, expected) | {"used_by": FACES_USE[name]} | FACES_ENTRY)
 
     for archive_name, member, name, expected in ORT + ORT123:
+        if not todo({name: expected}):
+            continue
         base = ORT123_BASE if "1.23.2" in archive_name else ORT_BASE
         meta = ORT_ENTRY if base == ORT_BASE else ORT_ENTRY | {
             "source": "ONNX Runtime 1.23.2 release (github.com/microsoft/onnxruntime)",
@@ -483,6 +537,8 @@ def main() -> None:
 
     for files, meta in ((ORT130, ORT130_ENTRY), (WEBGPU, WEBGPU_ENTRY), (CUDA, CUDA_ENTRY)):
         for url, archive_sha, member, name, expected in files:
+            if not todo({name: expected}):
+                continue
             archive = fetch(url, archive_sha, args.cache)
             extracted = args.cache / name
             if archive.name.endswith((".zip", ".whl")):
