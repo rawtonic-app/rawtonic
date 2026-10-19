@@ -51,3 +51,14 @@ export function useCropGestures(): { start: () => void; end: () => void; endAll:
   useEffect(() => endAll, [endAll]);
   return { start, end, endAll };
 }
+
+/** The gesture of a tool that can be switched off mid-drag (the straighten
+ * line: Escape removes its layer before the release): ended then, as on
+ * unmount. */
+export function useToolGesture(active: boolean): { start: () => void; end: () => void } {
+  const { start, end, endAll } = useCropGestures();
+  useEffect(() => {
+    if (!active) endAll();
+  }, [active, endAll]);
+  return { start, end };
+}

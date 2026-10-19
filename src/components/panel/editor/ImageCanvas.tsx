@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, memo, useMemo, type MutableRefObject } from 'react';
-import { useCropGestures } from '../../../utils/cropGesture';
+import { useCropGestures, useToolGesture } from '../../../utils/cropGesture';
 import ReactCrop from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
 import { Stage, Layer, Ellipse, Line, Group, Circle, Rect } from 'react-konva';
@@ -1404,8 +1404,24 @@ const ImageCanvas = memo(
     // position React drew).
     const cursorPosition = useRef<Coord>({ x: 0, y: 0 });
     const brushCursorRef = useRef<Konva.Group>(null);
+    const cropGesture = useCropGestures();
+    // Closed or another photograph mid-drag: the crop component reports no
+    // end then.
+    const cropGestureEndAll = cropGesture.endAll;
+    useEffect(() => {
+      if (!isCropping || !crop) cropGestureEndAll();
+    }, [isCropping, crop, cropGestureEndAll]);
+    useEffect(() => cropGestureEndAll, [selectedImage.path, cropGestureEndAll]);
     const [straightenLine, setStraightenLine] = useState<{ start: Coord; end: Coord } | null>(null);
     const isStraightening = useRef(false);
+    // The line's gesture; switched off mid-line (Escape removes the drawing
+    // layer before its release), the line and its gesture end.
+    const lineGesture = useToolGesture(isStraightenActive);
+    useEffect(() => {
+      if (isStraightenActive || !isStraightening.current) return;
+      isStraightening.current = false;
+      setStraightenLine(null);
+    }, [isStraightenActive]);
 
     const decodedBase = useDecodedPreview(
       finalPreviewUrl || selectedImage.thumbnailUrl ? { url: (finalPreviewUrl || selectedImage.thumbnailUrl)! } : null,
@@ -1706,14 +1722,6 @@ const ImageCanvas = memo(
     // Capture One shows the grid and the frame's size only while the frame
     // is dragged; Lightroom can show the grid always (crop grid setting).
     const [isCropDragging, setIsCropDragging] = useState(false);
-    const cropGesture = useCropGestures();
-    // Closed or another photograph mid-drag: the crop component reports no
-    // end then.
-    const cropGestureEndAll = cropGesture.endAll;
-    useEffect(() => {
-      if (!isCropping || !crop) cropGestureEndAll();
-    }, [isCropping, crop, cropGestureEndAll]);
-    useEffect(() => cropGestureEndAll, [selectedImage.path, cropGestureEndAll]);
     const cropGrid = appSettings?.cropGrid ?? 'drag';
     const cropShade = (appSettings?.cropShade ?? 50) / 100;
     useEffect(() => {
@@ -2970,7 +2978,7 @@ const ImageCanvas = memo(
       isStraightening.current = true;
       // A line being drawn changes the rotation on release (Auto's pending
       // answer is out of date then).
-      cropGesture.start();
+      lineGesture.start();
       const pos = e.target.getStage()!.getPointerPosition()!;
       setStraightenLine({ start: pos, end: pos });
     };
@@ -2990,7 +2998,7 @@ const ImageCanvas = memo(
         return;
       }
       isStraightening.current = false;
-      cropGesture.end();
+      lineGesture.end();
       if (
         !straightenLine ||
         (straightenLine.start.x === straightenLine.end.x && straightenLine.start.y === straightenLine.end.y)
@@ -3009,7 +3017,7 @@ const ImageCanvas = memo(
     const handleStraightenMouseLeave = () => {
       if (isStraightening.current) {
         isStraightening.current = false;
-        cropGesture.end();
+        lineGesture.end();
         setStraightenLine(null);
       }
     };

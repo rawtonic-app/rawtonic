@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { cropEditCancelled, cropGestures, useCropGestures } from './cropGesture';
+import { cropEditCancelled, cropGestures, useCropGestures, useToolGesture } from './cropGesture';
 
 describe('crop gestures', () => {
   it('ends a drag of a component that unmounts during it, once', () => {
@@ -21,6 +21,14 @@ describe('crop gestures', () => {
     result.current.start();
     expect(cropGestures().active).toBe(true);
     result.current.endAll();
+    expect(cropGestures().active).toBe(false);
+  });
+
+  it("ends a straighten line's gesture when its tool is switched off before release (Escape)", () => {
+    const { result, rerender } = renderHook(({ active }) => useToolGesture(active), { initialProps: { active: true } });
+    result.current.start();
+    expect(cropGestures().active).toBe(true);
+    rerender({ active: false });
     expect(cropGestures().active).toBe(false);
   });
 
