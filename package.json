@@ -8,7 +8,6 @@
     "licenses": "python3 scripts/third_party_licenses.py",
     "tauri": "tauri",
     "start": "tauri dev",
-    "start:tethering": "node -e \"console.error('Tethering is disabled pending process isolation.'); process.exit(1)\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

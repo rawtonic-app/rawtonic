@@ -270,7 +270,7 @@ mod tests {
             id: 7,
             request: Request::Connect {
                 port: Some("usb:020,005".into()),
-                staging: "/s/.cache/tether".into(),
+                staging: "/s/.tether".into(),
                 serial: Some("CA7F603B7405".into()),
             },
         };
