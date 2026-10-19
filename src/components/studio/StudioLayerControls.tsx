@@ -95,7 +95,8 @@ export default function StudioLayerControls({
       {!brushOnly && (
         // Capture One's Refine Mask: near its edge the layer follows the
         // photo's own edges (notes: reference/local-masks-baseline.md "WP5").
-        // It needs the 16-bit mask, so it moves an older layer to version 2.
+        // It needs the 16-bit mask, so it moves the layer to the current
+        // mask version (MASK_VERSION).
         <div title={t("studio.layers.refineEdgeTitle")}>
           <AdjustmentControl
             label={t("studio.layers.refineEdge")}
