@@ -146,7 +146,12 @@ for f in v["findings"]:
     print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
 ' "$VERDICT_FILE" "$HEAD_SHA" >"$NOTE"
 fi
-if PR_URL=$(gh pr view "$BRANCH" --repo rawtonic-app/rawtonic --json url --jq .url 2>/dev/null); then
+# Only an open pull request counts: `gh pr view BRANCH` also returns a merged
+# or closed one, and a branch name shipped again would then get its review note
+# on the old pull request and be merged under that number.
+PR_URL=$(gh pr view "$BRANCH" --repo rawtonic-app/rawtonic --json url,state \
+  --jq 'select(.state == "OPEN") | .url' 2>/dev/null) || PR_URL=''
+if [ -n "$PR_URL" ]; then
   say "pull request exists: $PR_URL"
   gh pr comment "$PR_URL" --body-file "$NOTE" >/dev/null || die "review note not added to $PR_URL; nothing merged"
 else

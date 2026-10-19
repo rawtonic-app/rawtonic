@@ -20,9 +20,13 @@ git config --global init.defaultBranch main
 mkdir "$T/bin"
 cat >"$T/bin/gh" <<'EOF'
 #!/bin/sh
-# gh stub: no pull request exists until `gh pr create`.
+# gh stub: no pull request exists until `gh pr create`. `pr view` prints what
+# ship.sh's --jq selects: the URL of an open pull request ($GH_STATE.state
+# holds another state, as for a merged one), else nothing.
 case "$1 $2" in
-  "pr view") [ -f "$GH_STATE" ] && cat "$GH_STATE" || exit 1 ;;
+  "pr view")
+    [ -f "$GH_STATE" ] || exit 1
+    [ "$(cat "$GH_STATE.state" 2>/dev/null || echo OPEN)" != OPEN ] || cat "$GH_STATE" ;;
   "pr comment") while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$GH_STATE.comment"; shift; done ;;
   "pr create")
     while [ $# -gt 0 ]; do [ "$1" = --body-file ] && cp "$2" "$GH_STATE.body"; shift; done
@@ -75,7 +79,7 @@ new_branch() {
     *) mkdir -p "$gd/rawtonic-review"
        echo '{"verdict": "approve", "summary": "ok", "findings": []}' >"$gd/rawtonic-review/$head.json" ;;
   esac
-  rm -f "$T/gh-$1" "$T/gh-$1.body" "$T/gh-$1.comment"
+  rm -f "$T/gh-$1" "$T/gh-$1.body" "$T/gh-$1.comment" "$T/gh-$1.state"
 }
 ship() { # name dir args... (runs ship.sh of worktree NAME from DIR)
   name=$1 dir=$2; shift 2
@@ -167,6 +171,16 @@ new_branch reship
 ship reship "$T/wt-reship" --no-merge || fail "--no-merge exited $?"
 ship reship "$T/main" || fail "re-ship exited $?"
 grep -q "Verdict on" "$T/gh-reship.comment" || fail "existing pull request got no review comment"
+
+# 13. A merged pull request of the same branch name is not reused: a new one is
+# opened and merged under its own number.
+new_branch again
+echo https://github.com/rawtonic-app/rawtonic/pull/5 >"$T/gh-again"
+echo MERGED >"$T/gh-again.state"
+ship again "$T/main" || fail "re-used branch name exited $?"
+expect_last "$T/out" "ship: merged PR #7 as *"
+[ -f "$T/gh-again.comment" ] && fail "review note went to the merged pull request"
+[ -f "$T/gh-again.body" ] || fail "no new pull request for a re-used branch name"
 
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
