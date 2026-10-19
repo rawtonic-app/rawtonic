@@ -11,6 +11,7 @@ import {
   DEFRINGE_VERSION,
   AI_DENOISE_VERSION,
   withAiDenoiseVersion,
+  withDiffractionVersion,
   AUTO_CA_VERSION,
   autoCaOn,
   colorNoiseMultiscale,
@@ -119,6 +120,18 @@ describe('RAW detail defaults', () => {
     expect(withAiDenoiseVersion({ aiDenoise: 60, aiDenoiseVersion: 3 }, { aiDenoiseVersion: 2 }).aiDenoiseVersion).toBe(3);
     // Nothing to carry without an amount.
     expect('aiDenoiseVersion' in withAiDenoiseVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
+  });
+
+  it('carry the diffraction version with a copied or preset correction', () => {
+    // A recipe or preset from before the key renders version 1; pasted onto a
+    // photo whose recipe says 2, it must still render 1.
+    expect(withDiffractionVersion({ diffractionCorrection: true }).diffractionVersion).toBe(1);
+    expect(withDiffractionVersion({ diffractionCorrection: true }, {}).diffractionVersion).toBe(1);
+    // The source's version goes along; an explicit one stays.
+    expect(withDiffractionVersion({ diffractionCorrection: true }, { diffractionVersion: 2 }).diffractionVersion).toBe(2);
+    expect(withDiffractionVersion({ diffractionCorrection: true, diffractionVersion: 2 }).diffractionVersion).toBe(2);
+    // Nothing to carry when the correction is not copied on.
+    expect('diffractionVersion' in withDiffractionVersion({ exposure: 1 } as Partial<Adjustments>)).toBe(false);
   });
 
   it('keep the AI Denoise version a saved recipe rendered with', () => {

@@ -21,6 +21,7 @@ import {
   normalizeLoadedAdjustments,
   sameAdjustmentValue,
   withAiDenoiseVersion,
+  withDiffractionVersion,
   withGrainStructure,
 } from '../utils/adjustments';
 import { calculateCenteredCrop } from '../utils/cropUtils';
@@ -524,7 +525,7 @@ export function useEditorActions() {
     (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
-      const adjustmentsToApply = withAiDenoiseVersion(withGrainStructure(partial));
+      const adjustmentsToApply = withDiffractionVersion(withAiDenoiseVersion(withGrainStructure(partial)));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
@@ -610,7 +611,10 @@ export function useEditorActions() {
         setProcess({ isPasted: true });
         return;
       }
-      applyAdjustmentsToPaths(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), paths);
+      applyAdjustmentsToPaths(
+        withDiffractionVersion(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), copiedAdjustments),
+        paths,
+      );
       setProcess({ isPasted: true });
     },
     [applyAdjustmentsToPaths],

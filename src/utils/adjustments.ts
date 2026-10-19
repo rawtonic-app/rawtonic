@@ -416,6 +416,23 @@ export const withAiDenoiseVersion = <T extends Partial<Adjustments>>(
   return { ...picked, aiDenoiseVersion: version };
 };
 
+/** diffraction.rs VERSION for a request made now. */
+export const DIFFRACTION_VERSION = 2;
+
+/** The diffraction correction's crop-factor lookup depends on its version,
+ * so wherever the switch is copied (paste, presets) its version goes along:
+ * the source's, else — presets and recipes from before the key — version 1
+ * for a correction that is on. */
+export const withDiffractionVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T & Pick<Partial<Adjustments>, 'diffractionVersion'> => {
+  if (picked.diffractionCorrection !== true || (picked.diffractionVersion !== undefined && picked.diffractionVersion !== null)) {
+    return picked;
+  }
+  return { ...picked, diffractionVersion: source?.diffractionVersion ?? 1 };
+};
+
 /** `next` after an edit of `previous`: grain turned on in a recipe without a
  * structure starts as Clumped. */
 export const withNewGrainStructure = <T extends Partial<Adjustments>>(previous: Partial<Adjustments>, next: T): T =>

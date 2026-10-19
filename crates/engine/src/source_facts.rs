@@ -28,7 +28,9 @@ use crate::lens_correction::LensDistortionParams;
 /// Version of what `collect` gathers; raise when a reader starts to depend
 /// on something new, so previews without it are re-made. 3: `camera_lens`
 /// carries Panasonic lateral CA data (`embedded_lens::CA_VERSION` 1).
-pub const VERSION: u32 = 3;
+/// 4: `diffraction_sigma` from the 2026-10-18 lens database (bodies it newly
+/// covers) and `diffraction_sigma_v1` for recipes from before it.
+pub const VERSION: u32 = 4;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
