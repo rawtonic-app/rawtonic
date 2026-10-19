@@ -948,6 +948,36 @@ describe('Auto straighten for a selection', () => {
     }
   });
 
+  it('commits a queued paste at once during a drag, so no draft brings an older result back', async () => {
+    const unregisterDraft = registerSliderDraftRenderer(() => true);
+    try {
+      const { result } = renderHook(useEditorActions);
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+      await act(async () => {});
+      act(() => result.current.handlePasteAdjustments(['/first.dng']));
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+      await act(async () => {});
+      // A slider drag is in progress while the queue runs.
+      act(() => useEditorStore.setState({ isSliderDragging: true }));
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+      await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1 } });
+      await finish(Invokes.LoadMetadata, { adjustments: { rotation: -1 } });
+      await act(async () => {});
+      expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1, exposure: 3 });
+      await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+      await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+      await act(async () => {});
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+      await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -2 } });
+      await finish(Invokes.LoadMetadata, { adjustments: { rotation: -2 } });
+      act(() => useEditorStore.setState({ isSliderDragging: false }));
+      await act(async () => { await new Promise((r) => setTimeout(r, COMMIT_INTERVAL_MS + 20)); });
+      expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2, exposure: 3 });
+    } finally {
+      unregisterDraft();
+    }
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

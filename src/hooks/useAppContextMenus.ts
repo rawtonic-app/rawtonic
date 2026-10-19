@@ -66,7 +66,7 @@ import { Color, COLOR_LABELS, INITIAL_ADJUSTMENTS, initialAdjustmentsFor } from 
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';
-import { exclusiveRecipeOperation, reloadWrittenRecipes, useEditorActions } from './useEditorActions';
+import { afterRecipeSaves, exclusiveRecipeOperation, reloadWrittenRecipes, useEditorActions } from './useEditorActions';
 import { saveFailure, useLibraryActions } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { runAutoStraighten, runAutoStraightenPaths } from '../utils/autoStraighten';
@@ -522,7 +522,9 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
 
         // Its reload replaces the whole recipe: after and before the other
         // operations on these photographs (batch Auto straighten, Auto lens).
-        void exclusiveRecipeOperation(finalSelection, () => invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection })
+        // Its write follows their pending saves (a failed one is retried
+        // first and, failing again, keeps that recipe as it is).
+        void exclusiveRecipeOperation(finalSelection, () => afterRecipeSaves(finalSelection, () => invoke(Invokes.ApplyAutoAdjustmentsToPaths, { paths: finalSelection }))
           .then(
             () => [] as string[],
             (err) => {

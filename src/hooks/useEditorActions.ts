@@ -171,7 +171,7 @@ export function isCurrentEditorImage(path: string): boolean {
   return image?.path === path && image.isReady;
 }
 
-function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preserveUnsaved = true): Promise<T> {
+export function afterRecipeSaves<T>(paths: string[], mutation: () => Promise<T>, preserveUnsaved = true): Promise<T> {
   if (!paths.some((path) => pendingMetadataSaves.has(path) || unsavedRecipes.has(path))) return mutation();
   return Promise.all(paths.map(async (path) => {
     await pendingMetadataSaves.get(path);
@@ -209,7 +209,9 @@ export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: 
   // A batch edit is writing this photograph's recipe (heldRecipePaths); the
   // queued operations ahead of it still show their edits.
   if (image && isRecipeHeld(current) && !queued) return;
-  if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
+  // A queued operation's update commits at once (never a drag's draft that
+  // could commit later, over a newer result).
+  if (!queued && image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
     const prev = draftFor(image.path) ?? current.adjustments;
     const next = keepDrawnMasksOnPhoto(
       prev,

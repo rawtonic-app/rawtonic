@@ -136,3 +136,23 @@ it("does nothing on the editor's Reset while a batch holds the photograph", () =
   reset.submenu!.find((o) => o.label === 'contextMenus.editor.confirmReset')!.onClick!();
   expect(useEditorStore.getState().adjustments.exposure).toBe(0);
 });
+
+it("writes selection Auto Adjust after a photo's pending save", async () => {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const { debouncedSave } = await import('./useEditorActions');
+  let finishSave!: () => void;
+  vi.mocked(invoke).mockImplementation((command) => {
+    if (command === 'save_metadata_and_update_thumbnail') return new Promise<void>((resolve) => { finishSave = resolve; }) as never;
+    if (command === 'load_metadata') return Promise.resolve({ adjustments: { exposure: 2 } }) as never;
+    return Promise.resolve() as never;
+  });
+  // A whole-recipe save of the photo is still being written.
+  debouncedSave(raw, { ...useEditorStore.getState().adjustments, exposure: 1 });
+  debouncedSave.flush();
+  useUIStore.setState({ activeView: 'library' });
+  find(openMenu(raw), 'contextMenus.thumbnail.autoAdjust')!.onClick!();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(invoke).not.toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] });
+  finishSave();
+  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('apply_auto_adjustments_to_paths', { paths: [raw] }));
+});
