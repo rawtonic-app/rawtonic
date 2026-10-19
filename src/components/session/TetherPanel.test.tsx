@@ -207,3 +207,20 @@ it("stops the camera's live view when the panel goes away", async () => {
   unmount();
   expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: false });
 });
+
+it("stops a live view whose start was still on its way when the panel went away", async () => {
+  let answer: (value: null) => void = () => {};
+  const base = invoke.getMockImplementation()!;
+  invoke.mockImplementation((command: string, args?: unknown) =>
+    command === "tether_live_view" && (args as { on: boolean }).on
+      ? new Promise((resolve) => (answer = resolve))
+      : base(command, args),
+  );
+  const { unmount } = render(<Harness initial={STATUS} />);
+  await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
+  fireEvent.click(screen.getByRole("button", { name: "Live view" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: true }));
+  unmount();
+  expect(invoke).toHaveBeenCalledWith("tether_live_view", { on: false });
+  answer(null);
+});

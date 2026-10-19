@@ -134,6 +134,8 @@ impl Driver for MockDriver {
             body,
             repeat: None,
             queued: 0,
+            named: Default::default(),
+            shots: Default::default(),
             opened: now,
             settings: vec![
                 setting("iso", "ISO", "100", &["100", "200", "400", "800"]),
@@ -176,6 +178,11 @@ pub struct MockCamera {
     repeat: Option<CameraFile>,
     /// Shots in the transfer queue (`queue_limit`).
     queued: usize,
+    /// Shots fired under each file name, not yet reported (oldest first).
+    named: std::collections::HashMap<String, VecDeque<u64>>,
+    /// The shot each file name was last reported for: a repeated report of
+    /// one photo downloads the same bytes, a reused name a new photo's.
+    shots: std::collections::HashMap<String, u64>,
     opened: Instant,
 }
 
@@ -206,11 +213,16 @@ impl MockCamera {
         if self.spec.late_shots.contains(&self.fired) {
             delay += self.spec.late_ms;
         }
+        let name = format!("DSC{number:05}.{}", self.spec.extension);
+        self.named
+            .entry(name.clone())
+            .or_default()
+            .push_back(self.fired);
         Some((
             now + Duration::from_millis(delay),
             CameraFile {
                 folder: "/store_00010001/DCIM/100MOCK".into(),
-                name: format!("DSC{number:05}.{}", self.spec.extension),
+                name,
             },
         ))
     }
@@ -319,6 +331,9 @@ impl Camera for MockCamera {
                 TetherError::new(ErrorKind::Timeout, "The camera did not deliver the photo.")
             })?;
             std::thread::sleep(at.saturating_duration_since(Instant::now()));
+            if let Some(shot) = self.named.get_mut(&file.name).and_then(VecDeque::pop_front) {
+                self.shots.insert(file.name.clone(), shot);
+            }
             return Ok(Fired::File(file));
         }
         if let Some(due) = file {
@@ -382,6 +397,10 @@ impl Camera for MockCamera {
                 std::thread::sleep(at.saturating_duration_since(now));
                 if self.due.front().is_some_and(|(due, _)| *due <= at) {
                     let (_, file) = self.due.pop_front().unwrap();
+                    if let Some(shot) = self.named.get_mut(&file.name).and_then(VecDeque::pop_front)
+                    {
+                        self.shots.insert(file.name.clone(), shot);
+                    }
                     if self.spec.report_twice {
                         self.repeat = Some(file.clone());
                     }
@@ -401,7 +420,12 @@ impl Camera for MockCamera {
             return Err(Self::gone());
         }
         self.downloaded += 1;
-        let data = self.bytes(file, self.downloaded);
+        let shot = self
+            .shots
+            .get(&file.name)
+            .copied()
+            .unwrap_or(self.downloaded);
+        let data = self.bytes(file, shot);
         let size = data.len() as u64;
         Ok((data, Some(size)))
     }

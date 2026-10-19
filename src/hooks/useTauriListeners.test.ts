@@ -368,3 +368,24 @@ it("shows a tethered capture at once: selected in the Library, opened when Devel
   useLibraryStore.getState().setLibrary({ sessionDirectory: null });
   useUIStore.getState().setUI({ activeView: "library" });
 });
+
+it("says tether failures app-wide, with no tether panel shown", async () => {
+  const { toast } = await import("react-toastify");
+  const error = vi.spyOn(toast, "error").mockImplementation(() => 0 as never);
+  const warning = vi.spyOn(toast, "warning").mockImplementation(() => 0 as never);
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(async () => {}), markGenerated: vi.fn(), handleImageSelect: vi.fn(),
+  }));
+  await vi.waitFor(() => expect(callbacks.has("tether-capture-failed")).toBe(true));
+  act(() => callbacks.get("tether-capture-failed")!({ payload: { message: "The camera did not deliver the photo." } }));
+  act(() => callbacks.get("tether-captured")!({
+    payload: { destination: null, skipped: false, error: "Disk full", cameraName: "DSC00001.ARW", session: "/job" },
+  }));
+  act(() => callbacks.get("tether-incomplete")!({ payload: "/job/.tether/incomplete/00000001/DSC00002.ARW" }));
+  // One message each (the texts come from the locale files).
+  expect(error).toHaveBeenCalledTimes(2);
+  expect(warning).toHaveBeenCalledTimes(1);
+  error.mockRestore();
+  warning.mockRestore();
+});

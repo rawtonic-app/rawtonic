@@ -312,6 +312,30 @@ fn another_body_of_the_model_is_closed_before_anything_of_it_is_read() {
 }
 
 #[test]
+fn back_to_back_photos_under_one_reused_name_all_arrive() {
+    let dir = tempfile::tempdir().unwrap();
+    // Every photo is called DSC00001.ARW.
+    let spec = MockSpec {
+        restart_numbering_every: Some(1),
+        report_twice: true,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    for _ in 0..3 {
+        helper.capture();
+    }
+    let (photos, _) = helper.photos(3);
+    assert_eq!(photos.len(), 3, "new photos, not repeats");
+    assert!(photos.iter().all(|p| p.camera_name == "DSC00001.ARW"));
+    let contents: HashSet<Vec<u8>> = photos
+        .iter()
+        .map(|p| std::fs::read(&p.path).unwrap())
+        .collect();
+    assert_eq!(contents.len(), 3);
+}
+
+#[test]
 fn shots_fired_on_the_body_are_downloaded_too() {
     let dir = tempfile::tempdir().unwrap();
     let spec = MockSpec {

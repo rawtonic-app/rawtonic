@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { toast } from 'react-toastify';
+import i18n from 'i18next';
 import { CullingSuggestions, ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
 import { ExportJob, ExternalEditSession, useProcessStore } from '../store/useProcessStore';
@@ -396,12 +397,24 @@ export function useTauriListeners({
       }),
       // A tethered capture is shown at once, in Develop too (Capture One
       // follows the newest capture in its viewer).
-      listen<{ destination: string | null; skipped: boolean; error: string | null; session: string }>(
+      listen<{ destination: string | null; skipped: boolean; error: string | null; session: string; cameraName: string }>(
         'tether-captured',
         (event) => {
-          if (isEffectActive) showCapture(event.payload, true);
+          if (!isEffectActive) return;
+          const { error, cameraName } = event.payload;
+          // Said here, not in the tether panel: also with no panel shown
+          // (fullscreen).
+          if (error) toast.error(i18n.t('session.tether.importFailed', { file: cameraName, error }));
+          showCapture(event.payload, true);
         },
       ),
+      listen<{ message: string }>('tether-capture-failed', (event) => {
+        if (isEffectActive) toast.error(i18n.t('session.tether.captureFailed', { error: event.payload.message }));
+      }),
+      listen<string>('tether-incomplete', (event) => {
+        if (isEffectActive)
+          toast.warning(i18n.t('session.tether.incomplete', { path: event.payload }), { autoClose: false });
+      }),
       // The files moved but the session/catalog database could not follow
       // (e.g. locked); it is retried with the next file operation or start.
       listen<{ label: string; error: string }>('file-operation-sync-failed', (event) => {

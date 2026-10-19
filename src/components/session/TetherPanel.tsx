@@ -2,9 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Aperture, Camera, Focus, LoaderCircle, RefreshCcw, Unplug, Video, X } from "lucide-react";
-import { toast } from "react-toastify";
 import { Trans, useTranslation } from "react-i18next";
-import i18n from "i18next";
 import { Invokes } from "../ui/AppProperties";
 import NamingEditor from "../ui/NamingEditor";
 import NextCaptureFields from "./NextCaptureFields";
@@ -213,15 +211,14 @@ export default function TetherPanel({
   // What the camera and the helper report.
   useEffect(() => {
     const stops = [
+      // Failures are said app-wide (useTauriListeners), also with no
+      // panel mounted; here only the panel's own state follows.
       listen<TetherCaptured>("tether-captured", (event) => {
         setLast(event.payload);
         setCapturing((n) => Math.max(0, n - 1));
-        const { error: failed, cameraName } = event.payload;
-        if (failed) toast.error(i18n.t("session.tether.importFailed", { file: cameraName, error: failed }));
       }),
-      listen<TetherError>("tether-capture-failed", (event) => {
+      listen<TetherError>("tether-capture-failed", () => {
         setCapturing((n) => Math.max(0, n - 1));
-        toast.error(i18n.t("session.tether.captureFailed", { error: event.payload.message }));
       }),
       listen("tether-settings-changed", () => void readSettings()),
       listen<{ connected: boolean; error?: TetherError; status?: TetherStatus }>("tether-state", (event) => {
@@ -242,9 +239,6 @@ export default function TetherPanel({
         setLiveView(false);
         setError(event.payload.message);
       }),
-      listen<string>("tether-incomplete", (event) =>
-        toast.warning(i18n.t("session.tether.incomplete", { path: event.payload }), { autoClose: false }),
-      ),
     ];
     return () => stops.forEach((stop) => void stop.then((fn) => fn()));
   }, [onStatus, readSettings]);
@@ -346,14 +340,19 @@ export default function TetherPanel({
     }
   };
 
+  const liveViewStarting = useRef(false);
   const toggleLiveView = async () => {
     setError("");
+    // A start still on its way counts as on for the unmount below.
+    if (!liveView) liveViewStarting.current = true;
     try {
       await invoke(Invokes.TetherLiveView, { on: !liveView });
       setLiveView(!liveView);
       if (liveView) setFrame(null);
     } catch (e) {
       setError(String(e));
+    } finally {
+      liveViewStarting.current = false;
     }
   };
 
@@ -364,12 +363,17 @@ export default function TetherPanel({
     setFrame(null);
     void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
   }, [hidden, liveView]);
-  // Nor after the panel is gone (the view hidden in fullscreen).
+  // Nor after the panel is gone (the view hidden in fullscreen), also when
+  // its start is still on its way (the helper answers in order: off after
+  // on).
   const liveViewOn = useRef(false);
-  liveViewOn.current = liveView;
+  useEffect(() => {
+    liveViewOn.current = liveView;
+  }, [liveView]);
   useEffect(
     () => () => {
-      if (liveViewOn.current) void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
+      if (liveViewOn.current || liveViewStarting.current)
+        void invoke(Invokes.TetherLiveView, { on: false }).catch(() => undefined);
     },
     [],
   );

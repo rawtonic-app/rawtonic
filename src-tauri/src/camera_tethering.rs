@@ -827,10 +827,10 @@ fn open_session(
             e.message
         ));
     }
-    let recovered = staging::recover(&staging::root(&session)).unwrap_or_else(|e| {
-        log::warn!("Tether: the transfer folder cannot be read: {e}");
-        staging::Recovered::default()
-    });
+    // A transfer folder that cannot be used (e.g. a symbolic link) stops the
+    // connect: the camera's photos would have nowhere safe to go.
+    let recovered = staging::recover(&staging::root(&session))
+        .map_err(|e| format!("The tether transfer folder cannot be used: {e}"))?;
     let (tx, rx) = mpsc::channel();
     let worker = spawn_ingest(
         notify,
@@ -1529,6 +1529,40 @@ mod tests {
             "the partial download was not moved aside"
         );
         drop(writing);
+    }
+
+    #[test]
+    fn a_transfer_folder_that_cannot_be_used_stops_the_connect() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let elsewhere = tmp.path().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, staging::root(&session)).unwrap();
+        let (state, client) = mock_helper(&MockSpec::default());
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(0, "x"),
+            free_camera_copies: false,
+        }));
+        let (notify, _seen) = collector();
+        let opened = open_session(
+            &state,
+            &Mutex::new(()),
+            client.clone(),
+            notify,
+            Opening {
+                session,
+                port: None,
+                config,
+            },
+            || {},
+        );
+        assert!(opened.is_err());
+        assert_eq!(
+            client.request(Request::Settings, QUICK).unwrap_err().kind,
+            ErrorKind::NotConnected,
+            "no camera opened"
+        );
     }
 
     #[test]

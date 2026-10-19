@@ -16,12 +16,21 @@ use std::time::{Duration, Instant};
 
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
-/// A file reported again this soon after its download is the same photo
-/// reported twice (libgphoto2's Fujifilm event
-/// polling finds it in the object list and the camera's ObjectAdded event
-/// names it again). Cameras number their files, so a new shot never has the
-/// name of the one before it.
-const REPEAT_WINDOW: Duration = Duration::from_secs(2);
+/// Which app shot a downloaded file belongs to.
+enum Shot {
+    /// The oldest waiting one, if any — unless the file turns out to be a
+    /// repeated report of the last photo.
+    Waiting,
+    /// The blocking capture fired at this time returned it.
+    At(Instant),
+}
+
+fn content_hash(data: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    data.hash(&mut hasher);
+    hasher.finish()
+}
 /// How long a shot the camera refuses as busy is tried again.
 const BUSY_RETRY: Duration = Duration::from_secs(5);
 /// A shot whose file has not come after this long is reported as failed
@@ -36,8 +45,8 @@ struct Open {
     waiting: VecDeque<Instant>,
     /// Files downloaded from this camera.
     downloaded: u64,
-    /// The last file downloaded, and when.
-    last: Option<(CameraFile, Instant)>,
+    /// The last file downloaded, with its length and content hash.
+    last: Option<(CameraFile, usize, u64)>,
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
@@ -180,7 +189,7 @@ impl<W: Write> Server<W> {
             self.event(Event::Disconnected { error })?;
         }
         if let Some((file, at)) = fired {
-            self.download(file, Some(at))?;
+            self.download(file, Shot::At(at))?;
         }
         Ok(!shutdown)
     }
@@ -333,20 +342,7 @@ impl<W: Write> Server<W> {
             return Ok(());
         };
         match open.camera.wait_event(wait) {
-            Ok(CameraEvent::FileAdded(file)) => {
-                // Whether or not app shots are waiting: a repeat must not take
-                // the place of the next shot's file.
-                let repeated = open
-                    .last
-                    .as_ref()
-                    .is_some_and(|(last, at)| *last == file && at.elapsed() < REPEAT_WINDOW);
-                if repeated {
-                    log::debug!("{} reported again; already downloaded", file.name);
-                    return Ok(());
-                }
-                let started = open.waiting.pop_front();
-                self.download(file, started)
-            }
+            Ok(CameraEvent::FileAdded(file)) => self.download(file, Shot::Waiting),
             Ok(CameraEvent::SettingsChanged) => self.event(Event::SettingsChanged),
             Ok(_) => Ok(()),
             Err(error) if error.kind == ErrorKind::Disconnected => self.lost(error),
@@ -365,14 +361,31 @@ impl<W: Write> Server<W> {
     /// Downloads a file the camera reported into the transfer folder and
     /// tells the app. `requested`: when the app asked for the shot (else it
     /// was fired on the body).
-    fn download(&mut self, file: CameraFile, requested: Option<Instant>) -> io::Result<()> {
+    fn download(&mut self, file: CameraFile, shot_of: Shot) -> io::Result<()> {
         let Some(open) = self.open.as_mut() else {
             return Ok(());
         };
         let reported = Instant::now();
-        let started = requested.unwrap_or(reported);
         let shot = open.downloaded + 1;
-        let (data, size) = match open.camera.download(&file) {
+        let downloaded = open.camera.download(&file);
+        // The same photo reported twice (libgphoto2's Fujifilm event polling
+        // finds it in the object list and the camera's ObjectAdded names it
+        // again): same name and same bytes as the last one. A new photo
+        // under a reused name has other bytes and is kept.
+        if let Ok((data, _)) = &downloaded
+            && open.last.as_ref().is_some_and(|(last, len, hash)| {
+                *last == file && *len == data.len() && *hash == content_hash(data)
+            })
+        {
+            log::debug!("{} reported again; already downloaded", file.name);
+            return Ok(());
+        }
+        let requested = match shot_of {
+            Shot::Waiting => open.waiting.pop_front(),
+            Shot::At(at) => Some(at),
+        };
+        let started = requested.unwrap_or(reported);
+        let (data, size) = match downloaded {
             Ok(downloaded) => downloaded,
             Err(error) if error.kind == ErrorKind::Disconnected => return self.lost(error),
             Err(error) => {
@@ -385,7 +398,7 @@ impl<W: Write> Server<W> {
             }
         };
         open.downloaded = shot;
-        open.last = Some((file.clone(), Instant::now()));
+        open.last = Some((file.clone(), data.len(), content_hash(&data)));
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,
