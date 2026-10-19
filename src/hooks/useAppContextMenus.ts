@@ -47,7 +47,7 @@ import { toast } from 'react-toastify';
 import { loadPresetLibrary, usePresetStore, type UserPreset } from './usePresets';
 import { useTranslation } from 'react-i18next';
 import { useContextMenu } from '../context/ContextMenuContext';
-import { useEditorStore } from '../store/useEditorStore';
+import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { CLOSED_MERGE_MODAL, useUIStore } from '../store/useUIStore';
@@ -350,6 +350,8 @@ export function useAppContextMenus(props: UseAppContextMenusProps) {
               icon: Check,
               isDestructive: true,
               onClick: () => {
+                // A batch edit is writing this recipe: no edits until it is reloaded.
+                if (isRecipeHeld(useEditorStore.getState())) return;
                 const originalAspectRatio =
                   selectedImage.width && selectedImage.height ? selectedImage.width / selectedImage.height : null;
                 const resetData = {

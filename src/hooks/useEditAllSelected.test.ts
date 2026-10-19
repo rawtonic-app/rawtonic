@@ -3,12 +3,13 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { EDIT_ALL_LIVE_MS, EDIT_ALL_SETTLE_MS, livePatch, useEditAllSelected } from './useEditAllSelected';
 import { useEditorStore } from '../store/useEditorStore';
-import { useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
+import { updateAdjustments, useEditorActions, waitForPendingMetadataSave } from './useEditorActions';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { INITIAL_ADJUSTMENTS, type Adjustments } from '../utils/adjustments';
+import { registerSliderDraftRenderer } from '../utils/sliderDraft';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn(() => Promise.resolve()) }));
 vi.mock('react-toastify', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
@@ -109,6 +110,35 @@ describe('Edit all selected', () => {
     // Nothing is written after the batch.
     await act(async () => { vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10); });
     expect(pasted()).toHaveLength(1);
+  });
+
+  it('passes a slider draft pending when a batch starts on to the others first', async () => {
+    vi.mocked(invoke).mockImplementation(async (command) =>
+      command === Invokes.ApplyAutoStraightenToPaths
+        ? { straightened: [], noLines: [], changed: [], failed: [] }
+        : command === Invokes.LoadMetadata
+          ? { adjustments: useEditorStore.getState().adjustments }
+          : undefined,
+    );
+    renderHook(() => useEditAllSelected(true, selection));
+    const { result } = renderHook(useEditorActions);
+    // A slider is being dragged: its moves are a draft not yet committed.
+    act(() => useEditorStore.setState({ isSliderDragging: true }));
+    const unregister = registerSliderDraftRenderer(() => true);
+    act(() => updateAdjustments({ exposure: 4 }));
+    // Rendered as a draft, not committed yet.
+    expect(useEditorStore.getState().adjustments.exposure).not.toBe(4);
+    await act(async () => {
+      await result.current.handleAutoStraightenPaths(selection);
+    });
+    unregister();
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    const order = vi
+      .mocked(invoke)
+      .mock.calls.map(([command]) => command)
+      .filter((c) => c === Invokes.ApplyAdjustmentsToPaths || c === Invokes.ApplyAutoStraightenToPaths);
+    expect(order).toEqual([Invokes.ApplyAdjustmentsToPaths, Invokes.ApplyAutoStraightenToPaths]);
+    expect(pasted()[0]).toMatchObject({ paths: ['/s/a.CR3', '/s/c.CR3'], adjustments: { exposure: 4 } });
   });
 
   it('has the other cells developed again once their recipes are written', async () => {

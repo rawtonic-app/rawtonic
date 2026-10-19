@@ -121,3 +121,18 @@ it('leaves the next photograph alone when auto adjustments finish after a switch
   expect(useEditorStore.getState().adjustments).toBe(before);
   expect(useEditorStore.getState().history).toBe(history);
 });
+
+it("does nothing on the editor's Reset while a batch holds the photograph", () => {
+  const held = { path: raw, isReady: true, isRaw: true, width: 6000, height: 4000 } as never;
+  const shown = { ...useEditorStore.getState().adjustments, exposure: 4 };
+  useEditorStore.setState({ selectedImage: held, adjustments: shown, heldRecipePaths: [raw] });
+  const { result } = renderHook(() => useAppContextMenus(props));
+  result.current.handleEditorContextMenu(event);
+  const reset = showContextMenu.mock.lastCall![2].find((o) => o.label === 'contextMenus.editor.resetAdjustments')!;
+  reset.submenu!.find((o) => o.label === 'contextMenus.editor.confirmReset')!.onClick!();
+  expect(useEditorStore.getState().adjustments).toBe(shown);
+  // Released, the same Reset resets.
+  useEditorStore.setState({ heldRecipePaths: [] });
+  reset.submenu!.find((o) => o.label === 'contextMenus.editor.confirmReset')!.onClick!();
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+});

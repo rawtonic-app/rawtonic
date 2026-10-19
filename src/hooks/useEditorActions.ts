@@ -425,8 +425,11 @@ export function useEditorActions() {
    * one undoable step. Resolves with what was done, or null. */
   const handleAutoStraightenPaths = useCallback(
     async (paths?: string[]): Promise<StraightenReport | null> => {
-      // Edit all selected's pending write goes first: queued behind the
-      // batch it would overwrite the others' results.
+      // The open photograph's slider draft is committed first (Edit all
+      // selected passes it on), then Edit all selected's pending write goes:
+      // queued behind the batch it would overwrite the others' results.
+      flushSliderDraft();
+      debouncedSetHistory.flush();
       await editAllFlush?.()?.catch(() => {});
       const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
       const { selectedImage } = useEditorStore.getState();
