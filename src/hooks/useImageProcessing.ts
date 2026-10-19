@@ -13,7 +13,7 @@ import { Adjustments, AiPatch, COPYABLE_ADJUSTMENT_KEYS, MaskContainer, withShar
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
 import type { SubMask } from '../components/panel/right/Masks';
 import type { TransformWrapperHandle } from '../components/panel/Editor';
-import { debouncedSave, registerScheduledRecipe } from './useEditorActions';
+import { debouncedSave, exclusiveRecipeOperation, registerScheduledRecipe } from './useEditorActions';
 import { saveFailure } from './useLibraryActions';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performanceDiagnosticsEnabled, reportPerformance, notePointerSessionFrame, registerDiagnosticQueue, noteBrowserPreview } from './usePerformanceDiagnostics';
@@ -822,10 +822,14 @@ export function useImageProcessing(
             delta.masks = frameDrawnMasks(delta.masks, adjustments, selectedImage.width, selectedImage.height);
           if (Object.keys(delta).length > 0) {
             otherPaths.forEach((p) => globalImageCache.delete(p));
-            invoke(Invokes.ApplyAdjustmentsToPaths, {
-              paths: otherPaths,
-              adjustments: withSharpenVersion(delta, adjustments),
-            }).catch((err) => {
+            // In the other photographs' recipe queue, in the order made (a
+            // batch edit asked for after it runs after it).
+            exclusiveRecipeOperation(otherPaths, () =>
+              invoke(Invokes.ApplyAdjustmentsToPaths, {
+                paths: otherPaths,
+                adjustments: withSharpenVersion(delta, adjustments),
+              }),
+            ).catch((err) => {
               console.error('Failed to apply adjustments to multi-selection:', err);
               toast.error(`Failed to sync adjustments to the selection: ${saveFailure(err, otherPaths).message}`);
             });

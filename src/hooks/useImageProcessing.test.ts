@@ -12,7 +12,11 @@ import { debouncedSave } from "./useEditorActions";
 import { toast } from "react-toastify";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("./useEditorActions", () => ({ debouncedSave: vi.fn(), registerScheduledRecipe: vi.fn(() => () => {}) }));
+vi.mock("./useEditorActions", () => ({
+  debouncedSave: vi.fn(),
+  registerScheduledRecipe: vi.fn(() => () => {}),
+  exclusiveRecipeOperation: (_paths: string[], operation: () => Promise<unknown>) => operation(),
+}));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
 
 const photo = (path: string, isReady = true) => ({

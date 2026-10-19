@@ -764,6 +764,23 @@ describe('Auto straighten for a selection', () => {
     expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
   });
 
+  it('holds the queue until a paste has also updated the editor', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    act(() => result.current.handleAutoLensCorrection(['/first.dng']));
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await act(async () => {});
+    const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+    // The paste's own reload is still out: Auto lens correction waits.
+    expect(commands()).not.toContain('apply_auto_lens_correction_to_paths');
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await act(async () => {});
+    expect(commands()).toContain('apply_auto_lens_correction_to_paths');
+    await finish('apply_auto_lens_correction_to_paths', undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;

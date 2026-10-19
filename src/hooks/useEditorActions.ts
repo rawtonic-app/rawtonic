@@ -788,7 +788,8 @@ export function useEditorActions() {
             updated.forEach((path) => unsavedRecipes.delete(path));
             if (selectedImage && updated.includes(selectedImage.path)
               && isCurrentEditorImage(selectedImage.path)) {
-              invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
+              // Awaited: the editor update belongs to this queued operation.
+              return invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
                 if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
                   updateAdjustments((prev: Adjustments) => ({
                     ...prev,
