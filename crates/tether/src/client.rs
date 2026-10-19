@@ -114,11 +114,13 @@ impl Client {
         let end = Arc::new(end);
         let child = Arc::new(Mutex::new(child));
         {
-            let (child, end, ended) = (child.clone(), end.clone(), ended.clone());
+            // Runs until the helper is reaped, also when the end of its
+            // output was heard first (else it stays a zombie).
+            let (child, end) = (child.clone(), end.clone());
             std::thread::Builder::new()
                 .name("tether-wait".into())
                 .spawn(move || {
-                    while !ended.load(Ordering::Acquire) {
+                    loop {
                         if !matches!(child.lock().unwrap().try_wait(), Ok(None)) {
                             end();
                             return;
