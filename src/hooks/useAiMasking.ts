@@ -249,6 +249,10 @@ export function useAiModelLifecycle(develop: boolean) {
   }, []);
 }
 
+/** A depth range's limits: applied when it renders, so values changed while
+ * its depth map computes are kept over the ones the request echoes back. */
+const DEPTH_LIMITS = ['minDepth', 'maxDepth', 'minFade', 'maxFade', 'feather'] as const;
+
 /** Depth range of an AI depth sub-mask (`generate_ai_depth_mask` arguments); unset values use the defaults below. */
 interface AiDepthMaskSettings {
   minDepth?: number;
@@ -276,8 +280,46 @@ export function useAiMasking() {
     [setAdjustments],
   );
 
+  /** Puts a finished AI mask into its component, over the settings it holds
+   * now: Grow, Feather or depth limits changed while it ran stay (`keep`:
+   * result fields the component's own values win over). Nothing changes when
+   * another photo is open by then (components keep their ids when settings
+   * are copied) or the component is gone. False when the result was dropped
+   * because another photo is open or its photo is still loading. */
+  const applyAiResult = (
+    path: string,
+    subMaskId: string,
+    result: Record<string, unknown>,
+    keep: readonly string[] = [],
+  ): boolean => {
+    const { selectedImage, patchesSentToBackend } = useEditorStore.getState();
+    // A photo opened again but still loading takes no edits yet.
+    if (selectedImage?.path !== path || !selectedImage.isReady) return false;
+    patchesSentToBackend.delete(subMaskId);
+    // Merged inside the update: during a slider drag `prev` is the drag's
+    // newest draft, not the committed recipe.
+    setAdjustments((prev: Adjustments) => {
+      if (!prev.masks?.some((c: MaskContainer) => c.subMasks.some((sm: SubMask) => sm.id === subMaskId))) return prev;
+      return {
+        ...prev,
+        masks: prev.masks.map((c: MaskContainer) => ({
+          ...c,
+          subMasks: c.subMasks.map((sm: SubMask) => {
+            if (sm.id !== subMaskId) return sm;
+            const parameters = sm.parameters || {};
+            const own = Object.fromEntries(
+              keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
+            );
+            return { ...sm, parameters: { ...parameters, ...result, ...own } };
+          }),
+        })),
+      };
+    });
+    return true;
+  };
+
   const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'subject');
 
@@ -295,13 +337,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Mask Failed: ${error}`);
     } finally {
@@ -309,9 +345,11 @@ export function useAiMasking() {
     }
   };
 
-  const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+  // Depth, Foreground and Sky resolve to whether their result was dropped
+  // because the photo changed meanwhile (it may then be asked for again).
+  const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings): Promise<boolean> => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'depth');
 
     try {
@@ -331,23 +369,18 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
     } catch (error) {
       toastAiError(error, `AI Depth Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
   };
 
-  const handleGenerateAiForegroundMask = async (subMaskId: string) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+  const handleGenerateAiForegroundMask = async (subMaskId: string): Promise<boolean> => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'foreground');
     noteMaskingToolsUsed();
 
@@ -362,23 +395,18 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Foreground Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
   };
 
-  const handleGenerateAiSkyMask = async (subMaskId: string) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+  const handleGenerateAiSkyMask = async (subMaskId: string): Promise<boolean> => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'sky');
     noteMaskingToolsUsed();
 
@@ -393,15 +421,10 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Sky Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
@@ -413,7 +436,7 @@ export function useAiMasking() {
     parts: string[],
     person: number | null,
   ): Promise<boolean> => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'people');
 
@@ -439,8 +462,7 @@ export function useAiMasking() {
       if (now && (JSON.stringify(now.parts ?? []) !== JSON.stringify(parts) || (now.person ?? null) !== person)) {
         return true;
       }
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: { ...(current?.parameters || {}), ...newParameters } });
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
       return true;
     } catch (error) {
       toastAiError(error, `People mask failed: ${error}`);
@@ -495,7 +517,7 @@ export function useAiMasking() {
       if (sub.type === 'ai-people') {
         const p = (sub.parameters ?? {}) as { parts?: string[]; person?: number | null; maskDataBase64?: string | null };
         const parts = p.parts ?? [];
-        const key = `${sub.id}:${JSON.stringify(parts)}:${p.person ?? ''}`;
+        const key = `${selectedImage?.path}:${sub.id}:${JSON.stringify(parts)}:${p.person ?? ''}`;
         if (p.maskDataBase64 || parts.length === 0 || requestedAutoMasks.current.has(key)) continue;
         requestedAutoMasks.current.add(key);
         // Done or superseded: the same choice may be asked for again later
@@ -510,16 +532,24 @@ export function useAiMasking() {
       const pending =
         (sub.type === 'ai-sky' || sub.type === 'ai-foreground' || sub.type === 'ai-depth') &&
         !(sub.parameters as { maskDataBase64?: string | null } | undefined)?.maskDataBase64;
-      if (!pending || requestedAutoMasks.current.has(sub.id)) continue;
-      requestedAutoMasks.current.add(sub.id);
-      if (sub.type === 'ai-depth') {
-        void handleGenerateAiDepthMask(sub.id, sub.parameters as AiDepthMaskSettings);
-        continue;
-      }
-      if (!sub.parameters || Object.keys(sub.parameters).length === 0) {
+      // Per photo: copied settings keep component ids.
+      const key = `${selectedImage?.path}:${sub.id}`;
+      if (!pending || requestedAutoMasks.current.has(key)) continue;
+      requestedAutoMasks.current.add(key);
+      if (sub.type !== 'ai-depth' && (!sub.parameters || Object.keys(sub.parameters).length === 0)) {
         updateSubMask(sub.id, { parameters: { maskDataBase64: null, grow: 0, feather: 0 } });
       }
-      void (sub.type === 'ai-sky' ? handleGenerateAiSkyMask(sub.id) : handleGenerateAiForegroundMask(sub.id));
+      const run =
+        sub.type === 'ai-depth'
+          ? handleGenerateAiDepthMask(sub.id, sub.parameters as AiDepthMaskSettings)
+          : sub.type === 'ai-sky'
+            ? handleGenerateAiSkyMask(sub.id)
+            : handleGenerateAiForegroundMask(sub.id);
+      // A result dropped because the photo changed is asked for again when
+      // the photo opens again.
+      void run.then((dropped) => {
+        if (dropped) requestedAutoMasks.current.delete(key);
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedImageReady, masksKey]);

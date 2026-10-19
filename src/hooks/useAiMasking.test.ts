@@ -32,6 +32,8 @@ import { useProcessStore } from "../store/useProcessStore";
 import { useUIStore } from "../store/useUIStore";
 import { Panel } from "../components/ui/AppProperties";
 import { INITIAL_ADJUSTMENTS } from "../utils/adjustments";
+import { updateAdjustments } from "./useEditorActions";
+import { registerSliderDraftRenderer } from "../utils/sliderDraft";
 
 const layer = (type: string, parameters: Record<string, unknown>) => ({
   id: `layer-${type}`,
@@ -95,6 +97,217 @@ describe("automatic AI masks from imported presets", () => {
     });
     rerender();
     expect(generated()).toHaveLength(3);
+  });
+
+  /** Answers `generate_*` calls only when the test resolves them. */
+  function deferredMasks() {
+    const pending: ((value: unknown) => void)[] = [];
+    invoke.mockImplementation((command: string) =>
+      String(command).startsWith("generate_")
+        ? new Promise((resolve) => pending.push(resolve))
+        : Promise.resolve(null),
+    );
+    return pending;
+  }
+  const subOf = (id: string) =>
+    useEditorStore
+      .getState()
+      .adjustments.masks.flatMap((m) => m.subMasks)
+      .find((s) => s.id === id);
+
+  it("keeps settings changed while a mask computes", async () => {
+    const pending = deferredMasks();
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() =>
+      useEditorStore.setState((state) => ({
+        adjustments: {
+          ...state.adjustments,
+          masks: state.adjustments.masks.map((m) => ({
+            ...m,
+            subMasks: m.subMasks.map((s) => ({ ...s, parameters: { ...s.parameters, grow: 30, feather: 20 } })),
+          })),
+        },
+      })),
+    );
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA", rotation: 0 }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({
+      maskDataBase64: "data:image/png;base64,AAAA",
+      grow: 30,
+      feather: 20,
+    });
+  });
+
+  it("keeps a depth range's limits changed while its depth map computes", async () => {
+    const pending = deferredMasks();
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-depth", { maskDataBase64: null, minDepth: 20, maxDepth: 100 })] as never,
+      },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() =>
+      useEditorStore.setState((state) => ({
+        adjustments: {
+          ...state.adjustments,
+          masks: state.adjustments.masks.map((m) => ({
+            ...m,
+            subMasks: m.subMasks.map((s) => ({ ...s, parameters: { ...s.parameters, minDepth: 45 } })),
+          })),
+        },
+      })),
+    );
+    await act(async () =>
+      pending[0]({ maskDataBase64: "data:image/png;base64,AAAA", minDepth: 20, maxDepth: 100, feather: 10 }),
+    );
+    expect(subOf("sub-ai-depth")?.parameters).toMatchObject({
+      maskDataBase64: "data:image/png;base64,AAAA",
+      minDepth: 45,
+      maxDepth: 100,
+      feather: 10,
+    });
+  });
+
+  it("keeps a depth limit dragged on a slider while the depth map computes", async () => {
+    const pending = deferredMasks();
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 4000, height: 3000 } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-depth", { maskDataBase64: null, minDepth: 20, maxDepth: 100 })] as never,
+      },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    // The drag's moves stay a draft until it ends (sliderDraft.ts).
+    const unregister = registerSliderDraftRenderer(() => true);
+    act(() => {
+      useEditorStore.setState({ isSliderDragging: true });
+      updateAdjustments((prev) => ({
+        ...prev,
+        masks: prev.masks.map((m) => ({
+          ...m,
+          subMasks: m.subMasks.map((s) => ({ ...s, parameters: { ...s.parameters, minDepth: 45 } })),
+        })),
+      }));
+    });
+    expect(subOf("sub-ai-depth")?.parameters).toMatchObject({ minDepth: 20 });
+    await act(async () =>
+      pending[0]({ maskDataBase64: "data:image/png;base64,AAAA", minDepth: 20, maxDepth: 100 }),
+    );
+    act(() => useEditorStore.setState({ isSliderDragging: false }));
+    unregister();
+    expect(subOf("sub-ai-depth")?.parameters).toMatchObject({
+      maskDataBase64: "data:image/png;base64,AAAA",
+      minDepth: 45,
+    });
+  });
+
+  it("leaves another photo's component alone when a mask finishes after the photo changed", async () => {
+    const pending = deferredMasks();
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    // Settings pasted from the first photo keep its component ids.
+    act(() =>
+      useEditorStore.setState({
+        selectedImage: { path: "/s/b.NEF", isReady: true, isRaw: true } as never,
+        adjustments: {
+          ...structuredClone(INITIAL_ADJUSTMENTS),
+          masks: [layer("ai-sky", { maskDataBase64: "data:image/png;base64,BBBB", grow: 0, feather: 0 })] as never,
+        },
+      }),
+    );
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" });
+  });
+
+  it("computes a mask again on returning to its photo when the first result came after leaving it", async () => {
+    const pending = deferredMasks();
+    const photoA = {
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    };
+    useEditorStore.setState(photoA);
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() =>
+      useEditorStore.setState({
+        selectedImage: { path: "/s/b.NEF", isReady: true, isRaw: true } as never,
+        adjustments: structuredClone(INITIAL_ADJUSTMENTS),
+      }),
+    );
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    act(() => useEditorStore.setState(structuredClone(photoA)));
+    await waitFor(() => expect(pending).toHaveLength(2));
+    await act(async () => pending[1]({ maskDataBase64: "data:image/png;base64,CCCC" }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,CCCC" });
+  });
+
+  it("computes a mask again when its result came while its photo was opening again", async () => {
+    const pending = deferredMasks();
+    const photoA = (isReady: boolean) => ({
+      selectedImage: { path: "/s/a.NEF", isReady, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    useEditorStore.setState(photoA(true));
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() => useEditorStore.setState(photoA(false)));
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: null });
+    act(() => useEditorStore.setState({ selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+  });
+
+  it("stays busy until the last of two requests under one component id ends", () => {
+    const { registerAiTask, unregisterAiTask, isAiTaskRunning } = useProcessStore.getState();
+    useProcessStore.setState({ activeAiTasks: {} });
+    registerAiTask("sub-ai-sky", "sky");
+    registerAiTask("sub-ai-sky", "sky");
+    unregisterAiTask("sub-ai-sky");
+    expect(isAiTaskRunning("sub-ai-sky")).toBe(true);
+    unregisterAiTask("sub-ai-sky");
+    expect(isAiTaskRunning("sub-ai-sky")).toBe(false);
+  });
+
+  it("computes a copied component's mask on another photo too", async () => {
+    const pending = deferredMasks();
+    const on = (path: string) => ({
+      selectedImage: { path, isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    useEditorStore.setState(on("/s/a.NEF"));
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    act(() => useEditorStore.setState(on("/s/b.NEF")));
+    await waitFor(() => expect(pending).toHaveLength(2));
   });
 
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {

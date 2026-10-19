@@ -30,6 +30,9 @@ export interface ExportFailure {
 export interface AiTask {
   id: string;
   type: string;
+  /** Requests running under this id: the same component (copied settings
+   * keep its id) may compute on two photos at once. */
+  count: number;
 }
 
 interface ProcessState {
@@ -191,13 +194,16 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
 
   registerAiTask: (id, type) =>
     set((state) => ({
-      activeAiTasks: { ...state.activeAiTasks, [id]: { id, type } },
+      activeAiTasks: { ...state.activeAiTasks, [id]: { id, type, count: (state.activeAiTasks[id]?.count ?? 0) + 1 } },
     })),
 
+  // The task ends with the last request under its id.
   unregisterAiTask: (id) =>
     set((state) => {
       const next = { ...state.activeAiTasks };
-      delete next[id];
+      const task = next[id];
+      if (task && task.count > 1) next[id] = { ...task, count: task.count - 1 };
+      else delete next[id];
       return { activeAiTasks: next };
     }),
 

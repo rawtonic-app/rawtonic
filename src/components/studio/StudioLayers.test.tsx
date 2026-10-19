@@ -79,7 +79,7 @@ describe("layer list mask thumbnails", () => {
 
   it("shows the kind's icon until a thumbnail is made, and pulses while an AI mask computes", () => {
     useMaskThumbnailStore.setState({ layers: { l1: "data:image/png;base64,l1" } });
-    useProcessStore.setState({ activeAiTasks: { [subject.id]: { id: subject.id, type: "foreground" } } });
+    useProcessStore.setState({ activeAiTasks: { [subject.id]: { id: subject.id, type: "foreground", count: 1 } } });
     render(<StudioLayers />);
     const [person, vignette] = layerThumbs();
     expect(person.querySelector("img")).toBeNull();
