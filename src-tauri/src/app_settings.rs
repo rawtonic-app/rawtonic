@@ -916,30 +916,31 @@ fn may_replace_settings(path: &Path) -> Result<(), String> {
 
 /// The settings in `path` (defaults when there is none). A file that no longer
 /// parses (a hand edit, a value another version wrote) is kept beside it as
-/// `settings.unreadable-<seconds>.json` before the defaults are used and saved
+/// `settings.unreadable-<digest>.json` before the defaults are used and saved
 /// over it; when it cannot be kept, loading fails and no save replaces it.
 fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
-    if !path.exists() {
-        return Ok(AppSettings::default());
-    }
     let protect = || {
         *UNKEPT_SETTINGS
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(path.to_path_buf());
     };
-    let content = fs::read(path).map_err(|e| {
-        protect();
-        format!("Settings file could not be read: {e}")
-    })?;
+    let content = match fs::read(path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(AppSettings::default()),
+        Err(e) => {
+            protect();
+            return Err(format!("Settings file could not be read: {e}"));
+        }
+    };
     let error = match serde_json::from_slice(&content) {
         Ok(settings) => return Ok(settings),
         Err(error) => error,
     };
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_secs());
-    let kept = path.with_file_name(format!("settings.unreadable-{seconds}.json"));
-    if let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {
+    // Named by its content: loading the same file again finds it kept.
+    let digest = rawtonic_metadata::digest(&content);
+    let kept = path.with_file_name(format!("settings.unreadable-{}.json", &digest[..16]));
+    let already_kept = fs::read(&kept).is_ok_and(|existing| existing == content);
+    if !already_kept && let Err(e) = crate::session_bridge::write_new_output(&kept, &content) {
         protect();
         return Err(format!(
             "Settings file unreadable ({error}) and could not be kept: {e}"
@@ -1065,6 +1066,10 @@ mod tests {
                 .starts_with("settings.unreadable-")
         );
         assert_eq!(fs::read_to_string(&kept[0]).unwrap(), content);
+        // Loaded again before anything was saved (start-up loads twice).
+        assert!(read_settings_file(&path).is_ok());
+        assert!(may_replace_settings(&path).is_ok());
+        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 2);
 
         fs::write(&path, r#"{"lastRootPath":"/Photos"}"#).unwrap();
         assert_eq!(
@@ -1101,6 +1106,16 @@ mod tests {
         assert!(read.is_err());
         assert!(may_replace_settings(&path).is_err());
         assert!(may_replace_settings(&temp.path().join("other.json")).is_ok());
+
+        // Nor one in a folder that cannot be searched.
+        let closed = temp.path().join("closed");
+        fs::create_dir(&closed).unwrap();
+        fs::write(closed.join("settings.json"), "{}").unwrap();
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o000)).unwrap();
+        let read = read_settings_file(&closed.join("settings.json"));
+        fs::set_permissions(&closed, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(read.is_err());
+        assert!(may_replace_settings(&closed.join("settings.json")).is_err());
 
         // A file that cannot be read at all is not replaced either.
         let locked = temp.path().join("locked.json");
