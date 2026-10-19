@@ -272,6 +272,27 @@ function afterRecipeOperations(paths: string[]): Promise<void> | null {
   return waits.length > 0 ? Promise.all(waits).then(() => undefined) : null;
 }
 
+/** Resolves once none of `paths` is the editor's photograph still loading
+ * (a queued operation then runs on it as on any other; at most a minute). */
+function afterEditorLoads(paths: string[]): Promise<void> {
+  const loading = () => {
+    const image = useEditorStore.getState().selectedImage;
+    return !!image && !image.isReady && paths.includes(image.path);
+  };
+  if (!loading()) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(done, 60_000);
+    const unsubscribe = useEditorStore.subscribe(() => {
+      if (!loading()) done();
+    });
+    function done() {
+      clearTimeout(timer);
+      unsubscribe();
+      resolve();
+    }
+  });
+}
+
 /** Runs `operation` on the recipes of `paths` after the operations already
  * running on any of them, so one's write and reload never interleave with
  * another's; later ones wait for this one. */
@@ -446,6 +467,9 @@ export function useEditorActions() {
       // opened while it runs: no edits from here on.
       flushSliderDraft();
       debouncedSetHistory.flush();
+      // Its saves start now, before the hold makes the shown recipe the save
+      // baseline (useImageProcessing); the batch runs once they are written.
+      const saved = open ? flushRecipeSaves() : null;
       const held = [...new Set(pathsToUpdate)];
       useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
       // Edit all selected's pending write takes its place in the queue before
@@ -464,11 +488,7 @@ export function useEditorActions() {
       // After the operations already running on these photographs (another
       // batch, Auto lens correction, Auto Adjust).
       return exclusiveRecipeOperation(held, async () => {
-        if (open) {
-          flushSliderDraft();
-          debouncedSetHistory.flush();
-          await flushRecipeSaves();
-        }
+        if (saved) await saved;
         try {
           pathsToUpdate.forEach((p) => globalImageCache.delete(p));
           const report = await afterRecipeSaves(pathsToUpdate, () =>
@@ -595,9 +615,10 @@ export function useEditorActions() {
       // its write and editor update after those asked for before, before
       // those asked for after (exclusiveRecipeOperation).
       void exclusiveRecipeOperation(pathsToReset, async () => {
+        // Loading in the editor (opened meanwhile): reset once it is loaded.
+        await afterEditorLoads(pathsToReset);
         const { libraryActivePath, setLibrary } = useLibraryStore.getState();
         const { selectedImage, pushHistory } = useEditorStore.getState();
-        if (selectedImage && !selectedImage.isReady && pathsToReset.includes(selectedImage.path)) return;
 
         pathsToReset.forEach((p) => globalImageCache.delete(p));
         // The last edit stays a step of its own, before the reset.
@@ -755,11 +776,11 @@ export function useEditorActions() {
       // One operation in these photographs' queue, in the order asked for
       // (after a batch edit asked for before, before one asked for after);
       // with nothing ahead it runs at once.
-      return exclusiveRecipeOperation(pathsToUpdate, () => {
+      return exclusiveRecipeOperation(pathsToUpdate, async () => {
+        // Asked for while it is loading in the editor (opened meanwhile):
+        // applied once it is loaded, not dropped.
+        if (!openingNow) await afterEditorLoads(pathsToUpdate);
         const { selectedImage, adjustments } = useEditorStore.getState();
-        if (!openingNow && selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) {
-          return Promise.resolve();
-        }
 
         pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 

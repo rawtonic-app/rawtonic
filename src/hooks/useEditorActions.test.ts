@@ -781,6 +781,51 @@ describe('Auto straighten for a selection', () => {
     await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
   });
 
+  it("saves the open photograph's edit though the hold moves the save baseline to it", async () => {
+    const taken = useEditorStore.getState().adjustments;
+    let baseline = taken;
+    const unregister = registerScheduledRecipe(() => ({ path: '/first.dng', adjustments: baseline }));
+    // As useImageProcessing does: a held recipe becomes the save baseline.
+    const unsubscribe = useEditorStore.subscribe((state) => {
+      if (state.heldRecipePaths.includes('/first.dng')) baseline = state.adjustments;
+    });
+    try {
+      const edited = { ...taken, exposure: 0.8 };
+      useEditorStore.setState({ adjustments: edited });
+      const { result } = renderHook(useEditorActions);
+      act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+      await act(async () => {});
+      const save = vi.mocked(invoke).mock.calls.find(([command]) => command === Invokes.SaveMetadataAndUpdateThumbnail);
+      expect(save?.[1]).toEqual({ path: '/first.dng', adjustments: edited });
+      await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
+      await finish(Invokes.ApplyAutoStraightenToPaths, report);
+      await finish(Invokes.LoadMetadata, { adjustments: edited });
+      await finish(Invokes.LoadMetadata, { adjustments: edited });
+    } finally {
+      unsubscribe();
+      unregister();
+    }
+  });
+
+  it('applies a queued paste to a photograph opened while it waited, once it has loaded', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/second.dng']); });
+    await act(async () => {});
+    act(() => result.current.handlePasteAdjustments(['/second.dng']));
+    // The photographer opens it; it is still loading when the batch ends.
+    act(() => select('/second.dng', false));
+    await finish(Invokes.ApplyAutoStraightenToPaths, { ...report, straightened: [] });
+    await act(async () => {});
+    const commands = () => vi.mocked(invoke).mock.calls.map(([command]) => command);
+    expect(commands()).not.toContain(Invokes.ApplyAdjustmentsToPaths);
+    act(() => useEditorStore.setState({ selectedImage: { ...useEditorStore.getState().selectedImage!, isReady: true } }));
+    await act(async () => {});
+    expect(commands()).toContain(Invokes.ApplyAdjustmentsToPaths);
+    expect(useEditorStore.getState().adjustments.exposure).toBe(3);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
