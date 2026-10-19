@@ -355,7 +355,10 @@ fn decoded_key(path: &str, recipe: &serde_json::Value) -> String {
 /// 1:1 preview without them records the 1:1 preview's own, which its whole
 /// warp measured before.
 type MeasuresKey = (u64, u64, u64);
-static REGION_MEASURES: Mutex<Option<HashMap<MeasuresKey, RegionMeasures>>> = Mutex::new(None);
+/// With measures of a decode in memory, a weak reference to it: they count
+/// only while it lives (it also keeps its address from being reused).
+type MeasuresEntry = (RegionMeasures, Option<std::sync::Weak<DynamicImage>>);
+static REGION_MEASURES: Mutex<Option<HashMap<MeasuresKey, MeasuresEntry>>> = Mutex::new(None);
 
 /// Measures kept (a few bytes each; a session of many thousands of photos
 /// starts over rather than grow without bound).
@@ -420,12 +423,16 @@ fn known_measures(
     settings: &crate::app_settings::AppSettings,
 ) -> Option<RegionMeasures> {
     let key = measures_key(path, recipe, on, settings)?;
-    REGION_MEASURES
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()?
-        .get(&key)
-        .copied()
+    let all = REGION_MEASURES.lock().unwrap_or_else(|e| e.into_inner());
+    let (measures, decode) = all.as_ref()?.get(&key)?;
+    let current = match (on, decode) {
+        (MeasuredOn::Decode(image), Some(weak)) => {
+            weak.strong_count() > 0 && std::sync::Weak::ptr_eq(weak, &Arc::downgrade(image))
+        }
+        (MeasuredOn::Source, None) => true,
+        _ => false,
+    };
+    current.then_some(*measures)
 }
 
 /// Records the measures of `image`, the whole decode of `path` its 1:1
@@ -467,7 +474,11 @@ fn note_measures(
         if all.len() >= REGION_MEASURES_KEPT {
             all.clear();
         }
-        all.insert(key, measures);
+        let decode = match on {
+            MeasuredOn::Decode(image) => Some(Arc::downgrade(image)),
+            MeasuredOn::Source => None,
+        };
+        all.insert(key, (measures, decode));
     }
     Some(measures)
 }
@@ -2213,6 +2224,16 @@ mod tests {
         assert_eq!(known_measures(&path, &recipe, on, &settings), None);
         let first = note_measures(&path, &recipe, &decode, on, true, &settings);
         assert_eq!(known_measures(&path, &recipe, on, &settings), first);
+        // Evicted and decoded again (another allocation): measured anew.
+        let image = (*decode).clone();
+        drop(decode);
+        let again = Arc::new(image);
+        assert_eq!(
+            known_measures(&path, &recipe, MeasuredOn::Decode(&again), &settings),
+            None
+        );
+        let decode = again;
+        let on = MeasuredOn::Decode(&decode);
         // A recipe that needs none records none.
         assert_eq!(
             note_measures(&path, &serde_json::json!({}), &decode, on, true, &settings),
