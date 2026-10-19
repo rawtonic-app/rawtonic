@@ -896,7 +896,7 @@ describe("layer panel (Capture One's list, Lightroom's components)", () => {
       { ...structuredClone(INITIAL_MASK_CONTAINER), id: "b", name: "Layer 2", subMasks: [sky, subject] },
     ];
     useEditorStore.setState({ adjustments, activeMaskContainerId: "b", activeMaskId: sky.id });
-    useProcessStore.setState({ activeAiTasks: { [subject.id]: { id: subject.id, type: "subject" } as never } });
+    useProcessStore.setState({ activeAiTasks: { [subject.id]: { id: subject.id, type: "subject", count: 1 } as never } });
     withMenu();
     const list = screen.getByRole("list", { name: "Layers" });
     const components = within(list).getByRole("group", { name: "Mask components" });

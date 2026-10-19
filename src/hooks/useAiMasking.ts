@@ -285,7 +285,7 @@ export function useAiMasking() {
    * result fields the component's own values win over). Nothing changes when
    * another photo is open by then (components keep their ids when settings
    * are copied) or the component is gone. False when the result was dropped
-   * because another photo is open. */
+   * because another photo is open or its photo is still loading. */
   const applyAiResult = (
     path: string,
     subMaskId: string,
@@ -293,7 +293,8 @@ export function useAiMasking() {
     keep: readonly string[] = [],
   ): boolean => {
     const { selectedImage, patchesSentToBackend } = useEditorStore.getState();
-    if (selectedImage?.path !== path) return false;
+    // A photo opened again but still loading takes no edits yet.
+    if (selectedImage?.path !== path || !selectedImage.isReady) return false;
     patchesSentToBackend.delete(subMaskId);
     // Merged inside the update: during a slider drag `prev` is the drag's
     // newest draft, not the committed recipe.
@@ -345,7 +346,7 @@ export function useAiMasking() {
   };
 
   // Depth, Foreground and Sky resolve to whether their result was dropped
-  // because another photo opened meanwhile (it may then be asked for again).
+  // because the photo changed meanwhile (it may then be asked for again).
   const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;

@@ -263,6 +263,36 @@ describe("automatic AI masks from imported presets", () => {
     expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,CCCC" });
   });
 
+  it("computes a mask again when its result came while its photo was opening again", async () => {
+    const pending = deferredMasks();
+    const photoA = (isReady: boolean) => ({
+      selectedImage: { path: "/s/a.NEF", isReady, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    useEditorStore.setState(photoA(true));
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(pending).toHaveLength(1));
+    act(() => useEditorStore.setState(photoA(false)));
+    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: null });
+    act(() => useEditorStore.setState({ selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+  });
+
+  it("stays busy until the last of two requests under one component id ends", () => {
+    const { registerAiTask, unregisterAiTask, isAiTaskRunning } = useProcessStore.getState();
+    useProcessStore.setState({ activeAiTasks: {} });
+    registerAiTask("sub-ai-sky", "sky");
+    registerAiTask("sub-ai-sky", "sky");
+    unregisterAiTask("sub-ai-sky");
+    expect(isAiTaskRunning("sub-ai-sky")).toBe(true);
+    unregisterAiTask("sub-ai-sky");
+    expect(isAiTaskRunning("sub-ai-sky")).toBe(false);
+  });
+
   it("computes a copied component's mask on another photo too", async () => {
     const pending = deferredMasks();
     const on = (path: string) => ({
