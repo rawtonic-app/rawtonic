@@ -249,6 +249,10 @@ export function useAiModelLifecycle(develop: boolean) {
   }, []);
 }
 
+/** A depth range's limits: applied when it renders, so values changed while
+ * its depth map computes are kept over the ones the request echoes back. */
+const DEPTH_LIMITS = ['minDepth', 'maxDepth', 'minFade', 'maxFade', 'feather'] as const;
+
 /** Depth range of an AI depth sub-mask (`generate_ai_depth_mask` arguments); unset values use the defaults below. */
 interface AiDepthMaskSettings {
   minDepth?: number;
@@ -276,8 +280,31 @@ export function useAiMasking() {
     [setAdjustments],
   );
 
-  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
+  /** Puts a finished AI mask into its component, over the settings it holds
+   * now: Grow, Feather or depth limits changed while it ran stay (`keep`:
+   * result fields the component's own values win over). Nothing changes when
+   * another photo is open by then (components keep their ids when settings
+   * are copied) or the component is gone. */
+  const applyAiResult = (
+    path: string,
+    subMaskId: string,
+    result: Record<string, unknown>,
+    keep: readonly string[] = [],
+  ) => {
     const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    if (selectedImage?.path !== path) return;
+    const current = adjustments.masks
+      ?.flatMap((m: MaskContainer) => m.subMasks)
+      .find((sm: SubMask) => sm.id === subMaskId);
+    if (!current) return;
+    const parameters = current.parameters || {};
+    const own = Object.fromEntries(keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]));
+    patchesSentToBackend.delete(subMaskId);
+    updateSubMask(subMaskId, { parameters: { ...parameters, ...result, ...own } });
+  };
+
+  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'subject');
 
@@ -295,13 +322,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Mask Failed: ${error}`);
     } finally {
@@ -310,7 +331,7 @@ export function useAiMasking() {
   };
 
   const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'depth');
 
@@ -331,13 +352,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
     } catch (error) {
       toastAiError(error, `AI Depth Mask Failed: ${error}`);
     } finally {
@@ -346,7 +361,7 @@ export function useAiMasking() {
   };
 
   const handleGenerateAiForegroundMask = async (subMaskId: string) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'foreground');
     noteMaskingToolsUsed();
@@ -362,13 +377,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Foreground Mask Failed: ${error}`);
     } finally {
@@ -377,7 +386,7 @@ export function useAiMasking() {
   };
 
   const handleGenerateAiSkyMask = async (subMaskId: string) => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return;
     registerAiTask(subMaskId, 'sky');
     noteMaskingToolsUsed();
@@ -393,13 +402,7 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      const subMask = adjustments.masks
-        ?.flatMap((m: MaskContainer) => m.subMasks)
-        .find((sm: SubMask) => sm.id === subMaskId);
-
-      const mergedParameters = { ...(subMask?.parameters || {}), ...newParameters };
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: mergedParameters });
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
       toastAiError(error, `AI Sky Mask Failed: ${error}`);
     } finally {
@@ -413,7 +416,7 @@ export function useAiMasking() {
     parts: string[],
     person: number | null,
   ): Promise<boolean> => {
-    const { selectedImage, adjustments, patchesSentToBackend } = useEditorStore.getState();
+    const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'people');
 
@@ -439,8 +442,7 @@ export function useAiMasking() {
       if (now && (JSON.stringify(now.parts ?? []) !== JSON.stringify(parts) || (now.person ?? null) !== person)) {
         return true;
       }
-      patchesSentToBackend.delete(subMaskId);
-      updateSubMask(subMaskId, { parameters: { ...(current?.parameters || {}), ...newParameters } });
+      applyAiResult(selectedImage.path, subMaskId, newParameters);
       return true;
     } catch (error) {
       toastAiError(error, `People mask failed: ${error}`);
