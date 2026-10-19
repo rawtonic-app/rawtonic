@@ -1820,9 +1820,16 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
     const isDraggingRotation = liveRotation !== null && liveRotation !== undefined;
     const seenCrop = prevCrop.current;
     if (!isDraggingRotation) prevCrop.current = currentAdjCrop;
+    const oriented = getOrientedDimensions(selectedImage.width, selectedImage.height, orientationSteps);
     if (
       !isDraggingRotation &&
-      cropCameWithRotation(prevCropParams.current, seenCrop, { rotation, aspectRatio, orientationSteps, crop: currentAdjCrop })
+      cropCameWithRotation(
+        prevCropParams.current,
+        seenCrop,
+        { rotation, aspectRatio, orientationSteps, crop: currentAdjCrop },
+        oriented.width,
+        oriented.height,
+      )
     ) {
       prevCropParams.current = { rotation, aspectRatio, orientationSteps };
       return;

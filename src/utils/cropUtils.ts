@@ -403,8 +403,13 @@ export const cropCameWithRotation = (
   previous: CropGeometry | null,
   seen: Crop | null | undefined,
   next: CropGeometry & { crop: Crop | null },
+  orientedW: number,
+  orientedH: number,
 ): boolean => {
   if (!previous || seen === undefined || !next.crop) return false;
+  // Only a crop that fits the frame at its rotation (Auto's always does); a
+  // crop this tool made for an earlier angle and committed late does not.
+  if (!isCropWithinBounds(next.crop, orientedW, orientedH, next.rotation)) return false;
   if (previous.rotation === next.rotation) return false;
   if (previous.aspectRatio !== next.aspectRatio || previous.orientationSteps !== next.orientationSteps) return false;
   const a = seen;

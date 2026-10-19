@@ -10,23 +10,31 @@ describe('crop tool and a rotation that brings its crop', () => {
   const auto = { rotation: -5, aspectRatio: 1.5, orientationSteps: 0, crop: px(2287, 305, 1200, 800) };
 
   it('keeps the crop Auto straighten (or undo, paste) set with the rotation', () => {
-    expect(cropCameWithRotation(before, startCrop, auto)).toBe(true);
+    expect(cropCameWithRotation(before, startCrop, auto, 6000, 4000)).toBe(true);
     // Turning it again by the rotation's change would move it.
     const turnedAgain = calculateAutoCropForRotation(6000, 4000, 0, 1.5, -5, auto.crop, -5);
     expect(turnedAgain && Math.abs(turnedAgain.x - auto.crop.x)).toBeGreaterThan(1);
   });
 
   it('still follows a rotation that leaves the crop as it was', () => {
-    expect(cropCameWithRotation(before, startCrop, { ...auto, crop: startCrop })).toBe(false);
-    expect(cropCameWithRotation(before, startCrop, { ...auto, crop: px(2401, 300, 1200, 800) })).toBe(false);
+    expect(cropCameWithRotation(before, startCrop, { ...auto, crop: startCrop }, 6000, 4000)).toBe(false);
+    expect(cropCameWithRotation(before, startCrop, { ...auto, crop: px(2401, 300, 1200, 800) }, 6000, 4000)).toBe(false);
+  });
+
+  it("recalculates a crop the tool made for an earlier angle and committed late", () => {
+    // Straighten slider: 5°'s crop arrives together with 10° (deferred draft commit).
+    const at0 = { rotation: 0, aspectRatio: 1.5, orientationSteps: 0 };
+    const madeFor5 = px(338, 225, 5324, 3549);
+    const late = { rotation: 10, aspectRatio: 1.5, orientationSteps: 0, crop: madeFor5 };
+    expect(cropCameWithRotation(at0, px(0, 0, 6000, 4000), late, 6000, 4000)).toBe(false);
   });
 
   it('recalculates on entering the tool, a ratio or an orientation change', () => {
-    expect(cropCameWithRotation(null, startCrop, auto)).toBe(false);
-    expect(cropCameWithRotation(before, undefined, auto)).toBe(false);
-    expect(cropCameWithRotation(before, startCrop, { ...auto, aspectRatio: 1 })).toBe(false);
-    expect(cropCameWithRotation(before, startCrop, { ...auto, orientationSteps: 1 })).toBe(false);
-    expect(cropCameWithRotation(before, startCrop, { ...auto, rotation: 0 })).toBe(false);
+    expect(cropCameWithRotation(null, startCrop, auto, 6000, 4000)).toBe(false);
+    expect(cropCameWithRotation(before, undefined, auto, 6000, 4000)).toBe(false);
+    expect(cropCameWithRotation(before, startCrop, { ...auto, aspectRatio: 1 }, 6000, 4000)).toBe(false);
+    expect(cropCameWithRotation(before, startCrop, { ...auto, orientationSteps: 1 }, 6000, 4000)).toBe(false);
+    expect(cropCameWithRotation(before, startCrop, { ...auto, rotation: 0 }, 6000, 4000)).toBe(false);
   });
 });
 
