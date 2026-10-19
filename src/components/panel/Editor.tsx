@@ -14,6 +14,7 @@ import {
   calculateStraightenAngle,
   calculateAutoCropForRotation,
   keepsCropOnEntry,
+  pixelCropFromPercent,
   fitCropTowards,
   moveCropInsideBounds,
   zoomCrop,
@@ -2307,13 +2308,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       const baseW = isSwapped ? selectedImage.height : selectedImage.width;
       const baseH = isSwapped ? selectedImage.width : selectedImage.height;
 
-      const newPixelCrop: Crop = {
-        unit: 'px',
-        x: Math.ceil((pc.x / 100) * baseW),
-        y: Math.ceil((pc.y / 100) * baseH),
-        width: Math.floor((pc.width / 100) * baseW),
-        height: Math.floor((pc.height / 100) * baseH),
-      };
+      const newPixelCrop: Crop = pixelCropFromPercent(pc, baseW, baseH);
 
       setAdjustments((prev: Adjustments) => {
         if (JSON.stringify(newPixelCrop) !== JSON.stringify(prev.crop)) {

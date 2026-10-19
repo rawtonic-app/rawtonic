@@ -1,4 +1,4 @@
-import { Crop } from 'react-image-crop';
+import { Crop, PercentCrop } from 'react-image-crop';
 
 export function getOrientedDimensions(
   imageWidth: number,
@@ -403,3 +403,18 @@ export const keepsCropOnEntry = (
   orientedH: number,
   rotation: number,
 ): boolean => !!crop && crop.width > 0 && crop.height > 0 && isCropWithinBounds(crop, orientedW, orientedH, rotation);
+
+/** The pixel crop of a percentage crop of the oriented frame `baseW` ×
+ * `baseH`, inside it (edges rounded inwards). Stable: a pixel crop shown as
+ * a percentage and read back is the same (the float round trip of 102 px
+ * gives 102.00000000000001, which must not round up to 103). */
+export function pixelCropFromPercent(pc: PercentCrop, baseW: number, baseH: number): Crop {
+  const EPS = 1e-6;
+  return {
+    unit: 'px',
+    x: Math.ceil((pc.x / 100) * baseW - EPS),
+    y: Math.ceil((pc.y / 100) * baseH - EPS),
+    width: Math.floor((pc.width / 100) * baseW + EPS),
+    height: Math.floor((pc.height / 100) * baseH + EPS),
+  };
+}
