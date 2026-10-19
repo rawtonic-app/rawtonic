@@ -1233,30 +1233,30 @@ const CR_WHITES_RAISE_PEAK_DISPLAY: f32 = -1.0;
 // +0.39 with 0.2, +0.40 with 0.25, +0.37 before; Lightroom +0.27).
 const CR_ORDER_RISE_WHITES_RAISE: f32 = 0.2;
 
-// The floor's anchor (the peak when raising, the knee when lowering) and its
-// gain are the same for every channel and pixel, so they are evaluated once:
-// each evaluation of `camera_raw_level_slope` is inlined, and a cold NVIDIA
-// driver cache compiled the copies for seconds (G56).
-fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
-    var anchor: f32;
-    var rise: f32;
+// Per channel, anchors included: evaluating the anchor and its gain once for
+// all channels (PR #128) moved 0.2 % of the pixels of strong Whites exports by
+// 1-7/65535 on Metal (notes: benchmark-results/metal-export-identity-2026-10-19).
+// Display variants without Whites leave this code out (TONE_PREVIEW_FEATURE).
+fn cr_whites_gain(x: f32, amount: f32) -> f32 {
+    let gain = cr_whites_gain_unordered(x, amount);
     if (amount > 0.0) {
-        anchor = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
-        rise = CR_ORDER_RISE_WHITES_RAISE;
-    } else {
-        anchor = cr_knee_level();
-        rise = CR_ORDER_RISE_SHOULDER;
+        let peak = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
+        if (x <= peak) {
+            return gain;
+        }
+        return max(gain, cr_order_gain(x, peak, cr_whites_gain_unordered(peak, amount), CR_ORDER_RISE_WHITES_RAISE));
     }
-    let floored = amount > 0.0 || (amount < 0.0 && anchor > 0.0);
-    let anchor_gain = cr_whites_gain_unordered(anchor, amount);
+    let knee = cr_knee_level();
+    if (amount >= 0.0 || knee <= 0.0 || x <= knee) {
+        return gain;
+    }
+    return max(gain, cr_order_gain(x, knee, cr_whites_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
+}
+
+fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        let x = rgb[c];
-        var gain = cr_whites_gain_unordered(x, amount);
-        if (floored && x > anchor) {
-            gain = max(gain, cr_order_gain(x, anchor, anchor_gain, rise));
-        }
-        out[c] = x * gain;
+        out[c] = rgb[c] * cr_whites_gain(rgb[c], amount);
     }
     return out;
 }
