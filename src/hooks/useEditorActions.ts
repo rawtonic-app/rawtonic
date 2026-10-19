@@ -185,12 +185,15 @@ function commitDraft(path: string, adjustments: Adjustments) {
 }
 
 /** The editor's adjustment update outside React (history included). During a
- * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS. */
-export function updateAdjustments(value: AdjustmentsUpdate) {
+ * slider drag the moves render as a draft and commit every COMMIT_INTERVAL_MS.
+ * `queued`: the update of a queued recipe operation (exclusiveRecipeOperation)
+ * running before a batch that already holds the photograph. */
+export function updateAdjustments(value: AdjustmentsUpdate, { queued = false }: { queued?: boolean } = {}) {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
-  // A batch edit is writing this photograph's recipe (heldRecipePaths).
-  if (image && isRecipeHeld(current)) return;
+  // A batch edit is writing this photograph's recipe (heldRecipePaths); the
+  // queued operations ahead of it still show their edits.
+  if (image && isRecipeHeld(current) && !queued) return;
   if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
     const prev = draftFor(image.path) ?? current.adjustments;
     const next = keepDrawnMasksOnPhoto(
@@ -761,7 +764,7 @@ export function useEditorActions() {
         pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
         if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-          setAdjustments({ ...adjustments, ...adjustmentsToApply });
+          updateAdjustments({ ...adjustments, ...adjustmentsToApply }, { queued: true });
         }
 
         const written = afterRecipeSaves(pathsToUpdate, () =>
@@ -787,12 +790,12 @@ export function useEditorActions() {
               && isCurrentEditorImage(selectedImage.path)) {
               invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
                 if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
-                  setAdjustments((prev: Adjustments) => ({
+                  updateAdjustments((prev: Adjustments) => ({
                     ...prev,
                     lensMaker: meta.adjustments!.lensMaker,
                     lensModel: meta.adjustments!.lensModel,
                     lensDistortionParams: meta.adjustments!.lensDistortionParams,
-                  }));
+                  }), { queued: true });
                 }
               });
             }

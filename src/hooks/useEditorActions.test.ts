@@ -741,6 +741,29 @@ describe('Auto straighten for a selection', () => {
     expect(useEditorStore.getState().adjustments.rotation).toBe(-2);
   });
 
+  it('shows a paste queued between two batches, though the later batch already holds the photo', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    act(() => result.current.handlePasteAdjustments(['/first.dng']));
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng']); });
+    await act(async () => {});
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -1 } });
+    await act(async () => {});
+    // The paste runs now, under batch B's hold: the editor shows it.
+    expect(useEditorStore.getState().adjustments.exposure).toBe(3);
+    await finish(Invokes.ApplyAdjustmentsToPaths, undefined);
+    await finish(Invokes.LoadMetadata, { adjustments: useEditorStore.getState().adjustments });
+    await act(async () => {});
+    await finish(Invokes.ApplyAutoStraightenToPaths, report);
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -2 } });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -2 } });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -2, exposure: 3 });
+    expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
