@@ -56,6 +56,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let state = app_handle.state::<AppState>();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
 
+    let turn = sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
 
     let mut final_adjustments = adjustments;
@@ -77,6 +78,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
         .map_err(|e| e.to_string())?;
+    drop(turn);
 
     if let Ok(settings) = load_settings(app_handle.clone())
         && settings.enable_xmp_sync.unwrap_or(false)
@@ -218,6 +220,7 @@ fn edit_sidecars(
     paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = sidecar_field_edit();
             let (source_path, sidecar_path) = parse_virtual_path(path);
             let saved = edit(path, &source_path, &sidecar_path)
                 .and_then(|metadata| save_sidecar(path, &metadata).map(|()| metadata));
@@ -459,14 +462,12 @@ pub async fn apply_auto_adjustments_to_paths(
                     )
                     .map_err(|e| e.to_string())?;
 
-                    let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
-                    let tone_mapper = existing_metadata
-                        .adjustments
+                    let recipe = crate::exif_processing::load_sidecar(&sidecar_path).adjustments;
+                    let tone_mapper = recipe
                         .get("toneMapper")
                         .and_then(|value| value.as_str())
                         .map(str::to_string);
-                    let base_curve = existing_metadata
-                        .adjustments
+                    let base_curve = recipe
                         .get("baseCurve")
                         .and_then(|value| value.as_str())
                         .map(str::to_string);
@@ -478,6 +479,10 @@ pub async fn apply_auto_adjustments_to_paths(
                         base_curve.as_deref(),
                     );
 
+                    // Read again for the write: the photo may have been
+                    // edited or tagged while it was decoded and measured.
+                    let _turn = sidecar_field_edit();
+                    let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
                     let previous = existing_metadata.adjustments.clone();
                     crate::auto_adjust::merge_auto_adjustments(
                         &mut existing_metadata.adjustments,
@@ -593,10 +598,12 @@ fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
 
 static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Rating, colour label and keyword edits read a photo's sidecar, change
-/// one field and write it back. They run on blocking workers (no longer one
-/// after the other on the main thread), so they take turns through this
-/// guard: none overwrites another's change.
+/// Rating, colour label, keyword and recipe edits, batch Auto and background
+/// AI tagging read a photo's sidecar, change their part and write it back.
+/// They run on blocking workers and rayon tasks, so they take turns through
+/// this guard: none overwrites another's change. It covers one photo's read,
+/// change and write and is never held while waiting for other work (a
+/// batch's `par_iter`, a decode), so a rayon task may wait for it.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()
@@ -632,7 +639,6 @@ fn set_color_label_for_paths_blocking(
     color: Option<String>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
-    let _turn = sidecar_field_edit();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
     let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -640,6 +646,7 @@ fn set_color_label_for_paths_blocking(
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = sidecar_field_edit();
             let (_, sidecar_path) = parse_virtual_path(path);
 
             let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
@@ -692,7 +699,6 @@ fn set_rating_for_paths_blocking(
     rating: u8,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
-    let _turn = sidecar_field_edit();
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
     let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
@@ -700,6 +706,7 @@ fn set_rating_for_paths_blocking(
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = sidecar_field_edit();
             let (_, sidecar_path) = parse_virtual_path(path);
 
             let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
@@ -777,6 +784,50 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    /// Batch edits take the sidecar turn per photo inside their `par_iter`
+    /// and batch Auto inside rayon tasks: a worker of one batch that steals
+    /// a task of the other while it waits must not stall either.
+    #[test]
+    fn batches_taking_the_sidecar_turn_in_one_pool_finish() {
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+        let pool = std::sync::Arc::new(
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .unwrap(),
+        );
+        let (waited, waits) = channel();
+        for _ in 0..8 {
+            let waited = waited.clone();
+            pool.spawn(move || {
+                let _turn = sidecar_field_edit();
+                std::thread::sleep(Duration::from_millis(2));
+                waited.send(()).unwrap();
+            });
+        }
+        let (finished, done) = channel();
+        std::thread::spawn({
+            let pool = pool.clone();
+            move || {
+                let edited = pool.install(|| {
+                    (0..64u32)
+                        .into_par_iter()
+                        .map(|i| {
+                            let _turn = sidecar_field_edit();
+                            i
+                        })
+                        .sum::<u32>()
+                });
+                finished.send(edited).unwrap();
+            }
+        });
+        assert_eq!(done.recv_timeout(Duration::from_secs(10)), Ok(2016));
+        for _ in 0..8 {
+            waits.recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+    }
 
     #[test]
     fn an_offline_save_from_stale_facts_keeps_the_cameras_ca_correction() {

@@ -339,7 +339,7 @@ pub async fn start_background_indexing(
                     let path_str = path.to_string_lossy().to_string();
                     let (_, sidecar_path) = parse_virtual_path(&path_str);
 
-                    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
 
                     let should_generate_tags = match &metadata.tags {
                         None => true,
@@ -364,26 +364,8 @@ pub async fn start_background_indexing(
                                     ai_tag_count,
                                 ) {
                                     println!("Found AI tags for {}: {:?}", path_str, ai_tags);
-
-                                    let mut existing_tags: HashSet<String> =
-                                        metadata.tags.unwrap_or_default().into_iter().collect();
-
-                                    for tag in ai_tags {
-                                        existing_tags.insert(tag);
-                                    }
-
-                                    let mut final_tags: Vec<String> =
-                                        existing_tags.into_iter().collect();
-                                    final_tags.sort_unstable();
-
-                                    metadata.tags = Some(final_tags);
-
-                                    if let Ok(json_string) = serde_json::to_string_pretty(&metadata)
-                                    {
-                                        let _ = crate::session_bridge::write_editor_sidecar(
-                                            sidecar_path,
-                                            json_string,
-                                        );
+                                    if let Err(e) = store_ai_tags(&sidecar_path, ai_tags) {
+                                        eprintln!("Could not save AI tags for {}: {}", path_str, e);
                                     }
                                 }
                             }
@@ -422,6 +404,22 @@ pub async fn start_background_indexing(
     *state.indexing_task_handle.lock().unwrap() = Some(task);
 
     Ok(())
+}
+
+/// Adds `ai_tags` to the photo's saved tags. Inference takes seconds, and
+/// the user may edit, rate or label the photo meanwhile: the sidecar is read
+/// again here, under the same turn as those edits, and only its tags change.
+fn store_ai_tags(sidecar_path: &Path, ai_tags: Vec<String>) -> Result<(), String> {
+    let _turn = file_management::sidecar_field_edit();
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    let mut tags: HashSet<String> = metadata.tags.unwrap_or_default().into_iter().collect();
+    tags.extend(ai_tags);
+    let mut tags: Vec<String> = tags.into_iter().collect();
+    tags.sort_unstable();
+    metadata.tags = Some(tags);
+    let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
+    crate::session_bridge::write_editor_sidecar(sidecar_path, json_string)
+        .map_err(|e| e.to_string())
 }
 
 fn modify_tags_for_path(
@@ -474,10 +472,10 @@ fn add_tag_for_paths_blocking(
     tag: String,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let _turn = file_management::sidecar_field_edit();
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = file_management::sidecar_field_edit();
             modify_tags_for_path(path, &app_handle, |tags| {
                 if !tags.contains(&tag) {
                     tags.push(tag.clone());
@@ -505,10 +503,10 @@ fn remove_tag_for_paths_blocking(
     tag: String,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    let _turn = file_management::sidecar_field_edit();
     let failures: Vec<(String, String)> = paths
         .par_iter()
         .filter_map(|path| {
+            let _turn = file_management::sidecar_field_edit();
             modify_tags_for_path(path, &app_handle, |tags| {
                 tags.retain(|t| t != &tag);
             })
@@ -648,6 +646,51 @@ fn clear_all_tags_blocking(root_path: String, app_handle: AppHandle) -> Result<u
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Background tagging must never lose an edit saved while its model ran:
+    /// it re-reads the sidecar when it stores the tags, and waits while an
+    /// edit holds the sidecar turn.
+    #[test]
+    fn ai_tags_keep_edits_saved_during_inference() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sidecar = tmp.path().join("A.jpg.rrdata");
+        let write = |json: &str| {
+            crate::session_bridge::write_editor_sidecar(&sidecar, json).unwrap();
+        };
+        write(r#"{"version":1,"rating":0,"adjustments":{}}"#);
+
+        // An edit saved after tagging read the photo for inference.
+        write(r#"{"version":1,"rating":4,"tags":["user:trip"],"adjustments":{"exposure":1.5}}"#);
+        store_ai_tags(&sidecar, vec!["dog".into()]).unwrap();
+        let saved = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(saved.rating, 4);
+        assert_eq!(saved.adjustments["exposure"], 1.5);
+        assert_eq!(saved.tags.unwrap(), ["dog", "user:trip"]);
+
+        // An edit in progress (read, change, write) finishes first: the
+        // tagger, started while the edit holds the turn, waits for it.
+        let turn = file_management::sidecar_field_edit();
+        let started = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let tagger = std::thread::spawn({
+            let (sidecar, started) = (sidecar.clone(), started.clone());
+            move || {
+                started.wait();
+                store_ai_tags(&sidecar, vec!["beach".into()]).unwrap()
+            }
+        });
+        started.wait();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert!(!tagger.is_finished(), "stored its tags during the edit");
+        write(
+            r#"{"version":1,"rating":5,"tags":["dog","user:trip"],"adjustments":{"exposure":2.0}}"#,
+        );
+        drop(turn);
+        tagger.join().unwrap();
+        let saved = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(saved.rating, 5);
+        assert_eq!(saved.adjustments["exposure"], 2.0);
+        assert_eq!(saved.tags.unwrap(), ["beach", "dog", "user:trip"]);
+    }
 
     #[test]
     fn tags_near_the_best_score_are_kept_best_first() {
