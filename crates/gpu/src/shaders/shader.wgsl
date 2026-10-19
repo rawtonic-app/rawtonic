@@ -5,6 +5,11 @@ override ENABLE_NOISE_REDUCTION: bool = true;
 override ENABLE_SHARPEN: bool = true;
 override ENABLE_HIGHLIGHTS: bool = true;
 override ENABLE_CURVES: bool = true;
+// Contrast, Shadows, Whites, Blacks and the relight stage, idle at zero:
+// without them a display variant compiles in 3.3 instead of 5.8 s on a cold
+// NVIDIA driver cache (gpu_processing.rs `TONE_PREVIEW_FEATURE`).
+override ENABLE_TONE: bool = true;
+override ENABLE_RELIGHT: bool = true;
 // The luminance noise reduction's edge-preserving pass (LUMA_NR_EDGE_NOISE);
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
@@ -1228,26 +1233,30 @@ const CR_WHITES_RAISE_PEAK_DISPLAY: f32 = -1.0;
 // +0.39 with 0.2, +0.40 with 0.25, +0.37 before; Lightroom +0.27).
 const CR_ORDER_RISE_WHITES_RAISE: f32 = 0.2;
 
-fn cr_whites_gain(x: f32, amount: f32) -> f32 {
-    let gain = cr_whites_gain_unordered(x, amount);
-    if (amount > 0.0) {
-        let peak = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
-        if (x <= peak) {
-            return gain;
-        }
-        return max(gain, cr_order_gain(x, peak, cr_whites_gain_unordered(peak, amount), CR_ORDER_RISE_WHITES_RAISE));
-    }
-    let knee = cr_knee_level();
-    if (amount >= 0.0 || knee <= 0.0 || x <= knee) {
-        return gain;
-    }
-    return max(gain, cr_order_gain(x, knee, cr_whites_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
-}
-
+// The floor's anchor (the peak when raising, the knee when lowering) and its
+// gain are the same for every channel and pixel, so they are evaluated once:
+// each evaluation of `camera_raw_level_slope` is inlined, and a cold NVIDIA
+// driver cache compiled the copies for seconds (G56).
 fn cr_whites(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    var anchor: f32;
+    var rise: f32;
+    if (amount > 0.0) {
+        anchor = cr_curve_level(CR_WHITES_RAISE_PEAK_DISPLAY);
+        rise = CR_ORDER_RISE_WHITES_RAISE;
+    } else {
+        anchor = cr_knee_level();
+        rise = CR_ORDER_RISE_SHOULDER;
+    }
+    let floored = amount > 0.0 || (amount < 0.0 && anchor > 0.0);
+    let anchor_gain = cr_whites_gain_unordered(anchor, amount);
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        out[c] = rgb[c] * cr_whites_gain(rgb[c], amount);
+        let x = rgb[c];
+        var gain = cr_whites_gain_unordered(x, amount);
+        if (floored && x > anchor) {
+            gain = max(gain, cr_order_gain(x, anchor, anchor_gain, rise));
+        }
+        out[c] = x * gain;
     }
     return out;
 }
@@ -1264,28 +1273,35 @@ fn cr_contrast_gain_unordered(x: f32, amount: f32) -> f32 {
 }
 
 // Raising darkens the deep tones (toe), lowering the highlights (shoulder).
-fn cr_contrast_gain(x: f32, amount: f32) -> f32 {
-    var gain = cr_contrast_gain_unordered(x, amount);
-    if (amount > 0.0) {
-        let bottom = cr_toe_bottom_level();
-        if (bottom > 0.0 && x > bottom) {
-            gain = max(gain, cr_order_gain(x, bottom, cr_contrast_gain_unordered(bottom, amount), 0.0));
-            let top = cr_toe_top_level();
-            gain = max(gain, cr_order_gain(x, top, cr_contrast_gain_unordered(top, amount), CR_ORDER_RISE_TOE));
-        }
-    } else {
-        let knee = cr_knee_level();
-        if (knee > 0.0 && x > knee) {
-            gain = max(gain, cr_order_gain(x, knee, cr_contrast_gain_unordered(knee, amount), CR_ORDER_RISE_SHOULDER));
-        }
-    }
-    return gain;
-}
-
+// The anchors' gains are evaluated once for all channels (see `cr_whites`).
 fn cr_contrast(rgb: vec3<f32>, amount: f32) -> vec3<f32> {
+    // Raising: the toe's bottom (rise 0) and top; lowering: the knee only.
+    var first: f32;
+    var first_rise: f32;
+    if (amount > 0.0) {
+        first = cr_toe_bottom_level();
+        first_rise = 0.0;
+    } else {
+        first = cr_knee_level();
+        first_rise = CR_ORDER_RISE_SHOULDER;
+    }
+    let first_gain = cr_contrast_gain_unordered(first, amount);
+    let top = cr_toe_top_level();
+    var top_gain = 0.0;
+    if (amount > 0.0) {
+        top_gain = cr_contrast_gain_unordered(top, amount);
+    }
     var out = rgb;
     for (var c = 0u; c < 3u; c = c + 1u) {
-        out[c] = rgb[c] * cr_contrast_gain(rgb[c], amount);
+        let x = rgb[c];
+        var gain = cr_contrast_gain_unordered(x, amount);
+        if (first > 0.0 && x > first) {
+            gain = max(gain, cr_order_gain(x, first, first_gain, first_rise));
+            if (amount > 0.0) {
+                gain = max(gain, cr_order_gain(x, top, top_gain, CR_ORDER_RISE_TOE));
+            }
+        }
+        out[c] = x * gain;
     }
     return out;
 }
@@ -1460,10 +1476,11 @@ fn apply_tonal_adjustments(
     if (wh != 0.0 && base_look_is_camera_raw()) {
         // Renderer value is slider / 30.
         let amount = clamp(wh * 0.3, -1.0, 1.0);
-        var whitened = cr_whites(rgb, amount);
-        if (any(rgb < vec3<f32>(0.0))) {
-            let floored = max(rgb, vec3<f32>(0.0));
-            whitened = carry_scene(rgb, floored, cr_whites(floored, amount));
+        let negative = any(rgb < vec3<f32>(0.0));
+        let floored = max(rgb, vec3<f32>(0.0));
+        var whitened = cr_whites(select(rgb, floored, negative), amount);
+        if (negative) {
+            whitened = carry_scene(rgb, floored, whitened);
         }
         let luma_before = max(get_luma(max(rgb, vec3<f32>(0.0))), 1e-6);
         let ratio = max(get_luma(max(whitened, vec3<f32>(0.0))), 0.0) / luma_before;
@@ -6238,7 +6255,9 @@ fn main(
         locally_contrasted_rgb = apply_camera_profile(locally_contrasted_rgb);
     }
     var processed_rgb = apply_linear_exposure(locally_contrasted_rgb, t_exposure);
-    processed_rgb = apply_relight(processed_rgb, absolute_coord, full_dims, exposure_gain);
+    if (ENABLE_RELIGHT) {
+        processed_rgb = apply_relight(processed_rgb, absolute_coord, full_dims, exposure_gain);
+    }
 
     if (t_glow > 0.0) {
         processed_rgb = apply_glow_bloom(
@@ -6271,7 +6290,9 @@ fn main(
     var composite_rgb_linear = apply_dehaze(processed_rgb, structure_blurred, is_raw, t_dehaze);
     composite_rgb_linear = apply_white_balance(composite_rgb_linear, t_temperature, t_tint);
     composite_rgb_linear = apply_centre_tonal_and_color(composite_rgb_linear, adjustments.global.centre, absolute_coord_i);
-    composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+    if (ENABLE_TONE) {
+        composite_rgb_linear = apply_tonal_adjustments(composite_rgb_linear, tonal_blurred, is_raw, t_contrast, t_shadows, t_whites, t_blacks, exposure_gain);
+    }
     if (ENABLE_HIGHLIGHTS) {
         composite_rgb_linear = apply_highlights_adjustment(composite_rgb_linear, absolute_coord_i, scale, is_raw, t_highlights);
     }

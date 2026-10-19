@@ -489,11 +489,23 @@ pub fn run() {
 
             {
                 let app_state = app.state::<AppState>();
-                if let Err(error) = get_or_init_gpu_context(&app_state, app.handle()) {
-                    log::warn!(
+                match get_or_init_gpu_context(&app_state, app.handle()) {
+                    // The display variants compile while the library shows:
+                    // without a driver shader cache (first start, driver or
+                    // app update) they take seconds on NVIDIA/Linux.
+                    Ok(context) => {
+                        let app_handle = app.handle().clone();
+                        std::thread::spawn(move || {
+                            gpu_processing::prewarm_gpu_processor(
+                                &app_handle.state::<AppState>(),
+                                &context,
+                            );
+                        });
+                    }
+                    Err(error) => log::warn!(
                         "GPU pre-initialization failed (editing and thumbnails may be degraded): {}",
                         error
-                    );
+                    ),
                 }
 
                 if let Ok(config_dir) = app.path().app_config_dir() {
