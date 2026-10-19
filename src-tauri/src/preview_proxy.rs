@@ -844,6 +844,14 @@ pub fn stored_size(source: &Path, settings: &AppSettings) -> Option<u32> {
 
 /// Whether a current 1:1 proxy of `source` is stored (in the current
 /// encoding: building replaces a format 1 file).
+/// What the current 1:1 proxy of `source` was made from (its header's
+/// key), as reading it validates it; None without a current one.
+pub fn full_key(source: &Path, settings: &AppSettings) -> Option<ProxyKey> {
+    let header = read_header(&proxy_path_of(source, ProxyKind::Full)?)?;
+    (header.is_current_encoding() && header_is_current(&header, source, settings))
+        .then_some(header.key)
+}
+
 pub fn has_full(source: &Path, settings: &AppSettings) -> bool {
     proxy_path_of(source, ProxyKind::Full)
         .and_then(|path| read_header(&path))
