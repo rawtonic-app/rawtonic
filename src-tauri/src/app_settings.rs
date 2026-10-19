@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -895,16 +895,36 @@ fn migrate_viewer_background(settings: &mut AppSettings) -> bool {
     }
 }
 
+/// The settings in `path` (defaults when there is none). A file that no longer
+/// parses (a hand edit, a value another version wrote) is kept beside it as
+/// `settings.unreadable-<seconds>.json` before the defaults are used and saved
+/// over it; when it cannot be kept, loading fails instead.
+fn read_settings_file(path: &Path) -> Result<AppSettings, String> {
+    if !path.exists() {
+        return Ok(AppSettings::default());
+    }
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let error = match serde_json::from_str(&content) {
+        Ok(settings) => return Ok(settings),
+        Err(error) => error,
+    };
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs());
+    let kept = path.with_file_name(format!("settings.unreadable-{seconds}.json"));
+    crate::session_bridge::write_new_output(&kept, &content)
+        .map_err(|e| format!("Settings file unreadable ({error}) and could not be kept: {e}"))?;
+    log::warn!(
+        "Settings file unreadable ({error}); kept as {} and starting from defaults",
+        kept.display()
+    );
+    Ok(AppSettings::default())
+}
+
 #[tauri::command]
 pub fn load_settings(app_handle: AppHandle) -> Result<AppSettings, String> {
     let path = get_settings_path(&app_handle)?;
-
-    let mut settings: AppSettings = if path.exists() {
-        let content = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        serde_json::from_str(&content).unwrap_or_default()
-    } else {
-        AppSettings::default()
-    };
+    let mut settings = read_settings_file(&path)?;
 
     if settings.ai_provider.as_deref() == Some("cloud") {
         settings.ai_provider = Some("cpu".into());
@@ -987,6 +1007,40 @@ pub fn save_settings(mut settings: AppSettings, app_handle: AppHandle) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unreadable_settings_file_is_kept_before_defaults_replace_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        // A field of the wrong type fails the whole file; the app's first
+        // settings save (its workspace layout at start-up) then writes the
+        // defaults over it.
+        let content = r#"{"rootFolders":"/Photos","lastRootPath":"/Photos"}"#;
+        fs::write(&path, content).unwrap();
+        let settings = read_settings_file(&path).unwrap();
+        assert!(settings.root_folders.is_empty());
+        let kept: Vec<_> = fs::read_dir(temp.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|p| p != &path)
+            .collect();
+        assert_eq!(kept.len(), 1, "{kept:?}");
+        assert!(
+            kept[0]
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("settings.unreadable-")
+        );
+        assert_eq!(fs::read_to_string(&kept[0]).unwrap(), content);
+
+        fs::write(&path, r#"{"lastRootPath":"/Photos"}"#).unwrap();
+        assert_eq!(
+            read_settings_file(&path).unwrap().last_root_path.as_deref(),
+            Some("/Photos")
+        );
+        assert!(read_settings_file(&temp.path().join("none.json")).is_ok());
+    }
 
     #[test]
     fn neutral_grey_canvas_becomes_the_medium_viewer_background() {

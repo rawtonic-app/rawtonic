@@ -229,19 +229,24 @@ pub fn remove_lut(app_handle: AppHandle, path: String) -> Result<Vec<LutEntry>, 
         return Err("Cannot delete built-in film emulations".to_string());
     }
 
-    if !target_path.starts_with(&luts_dir) {
+    let target_path = user_lut_file(&luts_dir, &target_path)?;
+    std::fs::remove_file(&target_path).map_err(|e| e.to_string())?;
+
+    list_luts(app_handle)
+}
+
+/// `path` resolved (`..` and links included) when it is a file inside the
+/// user LUT folder `luts_dir`; any other path is refused, so a removal never
+/// reaches another file.
+fn user_lut_file(luts_dir: &Path, path: &Path) -> Result<PathBuf, String> {
+    let target = std::fs::canonicalize(path).map_err(|_| "LUT file not found".to_string())?;
+    let dir = std::fs::canonicalize(luts_dir).map_err(|e| e.to_string())?;
+    if !target.starts_with(&dir) || !target.is_file() {
         return Err(
             "Access denied: Cannot remove files outside the user LUT directory".to_string(),
         );
     }
-
-    if target_path.exists() {
-        std::fs::remove_file(&target_path).map_err(|e| e.to_string())?;
-    } else {
-        return Err("LUT file not found".to_string());
-    }
-
-    list_luts(app_handle)
+    Ok(target)
 }
 
 #[tauri::command]
@@ -253,4 +258,26 @@ pub fn load_and_parse_lut(path: String, state: State<AppState>) -> Result<LutPar
     cache.insert(path, Arc::new(lut));
 
     Ok(LutParseResult { size: lut_size })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_lut_file;
+
+    #[test]
+    fn only_files_inside_the_user_lut_folder_may_be_removed() {
+        let temp = tempfile::tempdir().unwrap();
+        let luts = temp.path().join("luts");
+        std::fs::create_dir(&luts).unwrap();
+        std::fs::write(luts.join("Warm.cube"), "x").unwrap();
+        std::fs::write(temp.path().join("photo.ARW"), "x").unwrap();
+
+        assert!(user_lut_file(&luts, &luts.join("Warm.cube")).is_ok());
+        // Lexically below the folder, really beside it.
+        let escape = luts.join("..").join("photo.ARW");
+        assert!(escape.starts_with(&luts));
+        assert!(user_lut_file(&luts, &escape).is_err());
+        assert!(user_lut_file(&luts, &luts).is_err());
+        assert!(user_lut_file(&luts, &luts.join("Gone.cube")).is_err());
+    }
 }
