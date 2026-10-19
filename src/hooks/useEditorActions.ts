@@ -303,6 +303,36 @@ function afterEditorLoads(paths: string[]): Promise<void> | null {
   });
 }
 
+/** After a queued operation rewrote the recipes of `written` in the backend:
+ * the editor's photograph, when it is one of them (once loaded, if it was
+ * opened while the operation waited), takes its recipe as written, with a
+ * fresh history; so does the Library's active photograph. */
+export async function reloadWrittenRecipes(written: string[]): Promise<void> {
+  const open = useEditorStore.getState().selectedImage?.path;
+  if (open && written.includes(open)) {
+    const load = afterEditorLoads([open]);
+    if (load) await load;
+    if (isCurrentEditorImage(open)) {
+      const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: open });
+      const image = useEditorStore.getState().selectedImage;
+      if (image && isCurrentEditorImage(open) && meta.adjustments && !meta.adjustments.is_null) {
+        const normalized = normalizeLoadedAdjustments(meta.adjustments, image.isRaw);
+        useEditorStore.getState().setEditor({ adjustments: normalized });
+        useEditorStore.getState().resetHistory(normalized);
+      }
+    }
+  }
+  const { libraryActivePath, setLibrary } = useLibraryStore.getState();
+  if (libraryActivePath && written.includes(libraryActivePath)) {
+    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
+    if (useLibraryStore.getState().libraryActivePath === libraryActivePath && meta.adjustments && !meta.adjustments.is_null) {
+      setLibrary({
+        libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
+      });
+    }
+  }
+}
+
 /** Runs `operation` on the recipes of `paths` after the operations already
  * running on any of them, so one's write and reload never interleave with
  * another's; later ones wait for this one. */
@@ -665,8 +695,8 @@ export function useEditorActions() {
 
   const handleAutoLensCorrection = useCallback(
     (paths?: string[]) => {
-      const { multiSelectedPaths, libraryActivePath, setLibrary } = useLibraryStore.getState();
-      const { selectedImage, resetHistory } = useEditorStore.getState();
+      const { multiSelectedPaths } = useLibraryStore.getState();
+      const { selectedImage } = useEditorStore.getState();
 
       const pathsToUpdate =
         paths && paths.length > 0
@@ -694,25 +724,8 @@ export function useEditorActions() {
         .then(async (failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
-          if (selectedImage && updated.includes(selectedImage.path)
-            && isCurrentEditorImage(selectedImage.path)) {
-            const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
-            if (isCurrentEditorImage(selectedImage.path) && meta.adjustments && !meta.adjustments.is_null) {
-              const normalized = normalizeLoadedAdjustments(meta.adjustments, selectedImage.isRaw);
-              setEditor({ adjustments: normalized });
-              resetHistory(normalized);
-            }
-          }
-          if (libraryActivePath && updated.includes(libraryActivePath)
-            && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
-            const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
-            if (useLibraryStore.getState().libraryActivePath === libraryActivePath
-              && meta.adjustments && !meta.adjustments.is_null) {
-              setLibrary({
-                libraryActiveAdjustments: normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(libraryActivePath)),
-              });
-            }
-          }
+          // Whichever of them is open now (maybe opened while this waited).
+          await reloadWrittenRecipes(updated);
         })
         .catch((err) => toast.error(`Failed to apply auto lens correction: ${err}`)));
     },

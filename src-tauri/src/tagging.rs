@@ -339,7 +339,7 @@ pub async fn start_background_indexing(
                     let path_str = path.to_string_lossy().to_string();
                     let (_, sidecar_path) = parse_virtual_path(&path_str);
 
-                    let mut metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
 
                     let should_generate_tags = match &metadata.tags {
                         None => true,
@@ -364,27 +364,7 @@ pub async fn start_background_indexing(
                                     ai_tag_count,
                                 ) {
                                     println!("Found AI tags for {}: {:?}", path_str, ai_tags);
-
-                                    let mut existing_tags: HashSet<String> =
-                                        metadata.tags.unwrap_or_default().into_iter().collect();
-
-                                    for tag in ai_tags {
-                                        existing_tags.insert(tag);
-                                    }
-
-                                    let mut final_tags: Vec<String> =
-                                        existing_tags.into_iter().collect();
-                                    final_tags.sort_unstable();
-
-                                    metadata.tags = Some(final_tags);
-
-                                    if let Ok(json_string) = serde_json::to_string_pretty(&metadata)
-                                    {
-                                        let _ = crate::session_bridge::write_editor_sidecar(
-                                            sidecar_path,
-                                            json_string,
-                                        );
-                                    }
+                                    merge_generated_tags(&sidecar_path, ai_tags);
                                 }
                             }
                             Err(e) => {
@@ -645,9 +625,58 @@ fn clear_all_tags_blocking(root_path: String, app_handle: AppHandle) -> Result<u
     Ok(updated_count)
 }
 
+/// Background tagging's write: the sidecar read again under the sidecar
+/// guard and the generated tags merged into it, so an edit committed while
+/// the tags were inferred (Auto straighten's rotation and crop, a rating)
+/// stays.
+fn merge_generated_tags(sidecar_path: &std::path::Path, generated: Vec<String>) {
+    let _turn = file_management::sidecar_field_edit();
+    let mut metadata = crate::exif_processing::load_sidecar(sidecar_path);
+    let mut tags: HashSet<String> = metadata
+        .tags
+        .take()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    tags.extend(generated);
+    let mut tags: Vec<String> = tags.into_iter().collect();
+    tags.sort_unstable();
+    metadata.tags = Some(tags);
+    if let Ok(json_string) = serde_json::to_string_pretty(&metadata) {
+        let _ = crate::session_bridge::write_editor_sidecar(sidecar_path, json_string);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Tags inferred from a recipe read earlier are merged into the sidecar
+    /// as it is when written: a straighten committed meanwhile stays.
+    #[test]
+    fn generated_tags_keep_an_edit_committed_while_they_were_inferred() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sidecar = tmp.path().join("IMG_1.jpg.rrdata");
+        let write = |value: serde_json::Value| {
+            crate::session_bridge::write_editor_sidecar(&sidecar, value.to_string()).unwrap();
+        };
+        write(
+            serde_json::json!({"version": 1, "rating": 2, "tags": ["user:trip"], "adjustments": {"exposure": 1.0}}),
+        );
+        // Indexing read it and infers tags; Auto straighten commits meanwhile.
+        write(serde_json::json!({
+            "version": 1, "rating": 2, "tags": ["user:trip"],
+            "adjustments": {"exposure": 1.0, "rotation": -2.5}
+        }));
+        merge_generated_tags(&sidecar, vec!["beach".into(), "sea".into()]);
+        let now = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(now.adjustments["rotation"], serde_json::json!(-2.5));
+        assert_eq!(now.rating, 2);
+        assert_eq!(
+            now.tags.unwrap(),
+            vec!["beach".to_string(), "sea".into(), "user:trip".into()]
+        );
+    }
 
     #[test]
     fn tags_near_the_best_score_are_kept_best_first() {

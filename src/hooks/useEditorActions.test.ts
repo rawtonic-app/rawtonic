@@ -848,6 +848,23 @@ describe('Auto straighten for a selection', () => {
     expect(flushed).toBe(true);
   });
 
+  it('reloads the photograph opened while a queued Auto lens correction waited', async () => {
+    const { result } = renderHook(useEditorActions);
+    act(() => { void result.current.handleAutoStraightenPaths(['/second.dng']); });
+    await act(async () => {});
+    act(() => result.current.handleAutoLensCorrection(['/second.dng']));
+    act(() => select('/second.dng'));
+    await finish(Invokes.ApplyAutoStraightenToPaths, { ...report, straightened: ['/second.dng'] });
+    await finish(Invokes.LoadMetadata, { adjustments: { ...useEditorStore.getState().adjustments, rotation: -1 } });
+    await act(async () => {});
+    await finish('apply_auto_lens_correction_to_paths', undefined);
+    await finish(Invokes.LoadMetadata, {
+      adjustments: { ...useEditorStore.getState().adjustments, rotation: -1, lensCorrectionMode: 'auto' },
+    });
+    await finish(Invokes.LoadMetadata, { adjustments: { rotation: -1, lensCorrectionMode: 'auto' } });
+    expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1, lensCorrectionMode: 'auto' });
+  });
+
   it('releases the hold when the batch fails', async () => {
     const { result } = renderHook(useEditorActions);
     let error: unknown;
