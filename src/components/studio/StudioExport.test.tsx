@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { invoke } from "@tauri-apps/api/core";
 import StudioExport, { describeExportJob } from "./StudioExport";
+import { useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useProcessStore, type ExportJob } from "../../store/useProcessStore";
 import { Status } from "../ui/ExportImportProperties";
@@ -164,6 +165,39 @@ it("exports a session into its Output folder without asking, like Capture One", 
   const { open, save } = await import("@tauri-apps/plugin-dialog");
   expect(open).not.toHaveBeenCalled();
   expect(save).not.toHaveBeenCalled();
+});
+
+it("sends the open photograph's recipe only once it is that photograph's", async () => {
+  // Switching from a to b: b is not ready yet and the store still holds a's adjustments.
+  const previous = useEditorStore.getState();
+  useEditorStore.setState({
+    selectedImage: { path: "/p/b.RAF", isReady: false } as never,
+    adjustments: { exposure: 1.5 } as never,
+  });
+  useLibraryStore.setState({ sessionDirectory: "/job" });
+  try {
+    render(<StudioExport />);
+    fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "export_images",
+        expect.objectContaining({ currentEditPath: null, currentEditAdjustments: null }),
+      ),
+    );
+    cleanup();
+    vi.mocked(invoke).mockClear();
+    useEditorStore.setState({ selectedImage: { path: "/p/b.RAF", isReady: true } as never });
+    render(<StudioExport />);
+    fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith(
+        "export_images",
+        expect.objectContaining({ currentEditPath: "/p/b.RAF", currentEditAdjustments: { exposure: 1.5 } }),
+      ),
+    );
+  } finally {
+    useEditorStore.setState({ selectedImage: previous.selectedImage, adjustments: previous.adjustments });
+  }
 });
 
 it("closes once the export is queued, the progress staying on the top bar", async () => {

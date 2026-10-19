@@ -224,6 +224,13 @@ pub(crate) async fn prepare_ai_denoise<V: std::borrow::Borrow<Value>>(
     }
 }
 
+/// Whether `path` (an exported photograph, `?vc=` included) is the one open in
+/// the editor, whose unsaved recipe the export then uses. A virtual copy and
+/// its master share a source file but not a recipe, so the whole path counts.
+fn is_open_edit(path: &str, open_path: Option<&str>) -> bool {
+    open_path == Some(path)
+}
+
 fn set_timestamps_from_exif(src: &Path, dst: &Path) {
     set_capture_file_times(dst, exif_processing::get_creation_date_from_path(src));
 }
@@ -592,7 +599,7 @@ pub(crate) async fn export_images_impl(
 
                 let is_current_edit = match &adjustments_mode {
                     ExportAdjustmentsMode::UseSidecars { active_path, .. } => {
-                        Some(&source_path_str) == active_path.as_ref()
+                        is_open_edit(&image_path_str, active_path.as_deref())
                     }
                     ExportAdjustmentsMode::GlobalOverride(_) => false,
                 };
@@ -1113,7 +1120,7 @@ pub async fn estimate_export_sizes(
     let source_path_str = source_path.to_string_lossy().to_string();
 
     let context = get_or_init_gpu_context(&state, &app_handle)?;
-    let is_current_edit = Some(&source_path_str) == current_edit_path.as_ref();
+    let is_current_edit = is_open_edit(first_path, current_edit_path.as_deref());
     let is_raw = is_raw_file(&source_path_str);
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
 
@@ -1421,4 +1428,21 @@ pub async fn estimate_export_sizes(
     };
 
     Ok(single_image_extrapolated_size * paths.len())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_open_edit;
+
+    #[test]
+    fn a_virtual_copy_is_not_its_open_master_nor_the_reverse() {
+        assert!(is_open_edit("/p/a.RAF", Some("/p/a.RAF")));
+        assert!(is_open_edit(
+            "/p/a.RAF?vc=1a2b3c",
+            Some("/p/a.RAF?vc=1a2b3c")
+        ));
+        assert!(!is_open_edit("/p/a.RAF?vc=1a2b3c", Some("/p/a.RAF")));
+        assert!(!is_open_edit("/p/a.RAF", Some("/p/a.RAF?vc=1a2b3c")));
+        assert!(!is_open_edit("/p/a.RAF", None));
+    }
 }

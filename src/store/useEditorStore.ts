@@ -185,6 +185,14 @@ interface EditorState {
 export const panelsShowReady = (state: Pick<EditorState, 'selectedImage' | 'panelsHeld'>) =>
   Boolean(state.selectedImage && (state.selectedImage.isReady || state.panelsHeld));
 
+/** The open photograph's unsaved recipe for an export or size estimate. While
+ * the next photograph loads, `adjustments` still hold the previous one's, so
+ * only a ready photograph names itself; the export then reads saved recipes. */
+export const currentEditForExport = (state: Pick<EditorState, 'selectedImage' | 'adjustments'>) =>
+  state.selectedImage?.isReady
+    ? { currentEditPath: state.selectedImage.path, currentEditAdjustments: state.adjustments }
+    : { currentEditPath: null, currentEditAdjustments: null };
+
 export const useEditorStore = create<EditorState>((set) => ({
   selectedImage: null,
   adjustments: INITIAL_ADJUSTMENTS,

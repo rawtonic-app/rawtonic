@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { exit } from '@tauri-apps/plugin-process';
 
 import { useProcessStore } from '../store/useProcessStore';
-import { useEditorStore } from '../store/useEditorStore';
+import { currentEditForExport, useEditorStore } from '../store/useEditorStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { ExportSettings, Status } from '../components/ui/ExportImportProperties';
 import { debouncedSave } from './useEditorActions';
@@ -48,7 +48,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
 
   const finishExternalEdit = useCallback(async () => {
     const session = useProcessStore.getState().externalEditSession;
-    const { selectedImage, adjustments } = useEditorStore.getState();
+    const { selectedImage } = useEditorStore.getState();
     if (!session || !selectedImage) return;
 
     debouncedSave.flush();
@@ -85,8 +85,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
         baseOriginFolders: [],
         exportSettings,
         outputFormat: session.format,
-        currentEditPath: selectedImage.path,
-        currentEditAdjustments: adjustments || null,
+        ...currentEditForExport(useEditorStore.getState()),
       });
     } catch (error) {
       setIsFinishing(false);
