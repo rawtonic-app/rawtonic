@@ -1076,6 +1076,7 @@
       "looking": "Buscando cámaras…",
       "nextCapture": "Próxima captura",
       "noCamera": "No se encontró ninguna cámara por USB",
+      "reconnecting": "Rawtonic vuelve a conectar la cámara cuando esté de vuelta.",
       "refresh": "Buscar cámaras de nuevo",
       "setOnBody": "Se ajusta en la cámara",
       "title": "Disparo conectado",

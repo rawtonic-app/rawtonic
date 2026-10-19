@@ -1008,6 +1008,7 @@
       "looking": "カメラを探しています…",
       "nextCapture": "次の撮影",
       "noCamera": "USB にカメラが見つかりません",
+      "reconnecting": "カメラが戻ると Rawtonic が自動で再接続します。",
       "refresh": "もう一度カメラを探す",
       "setOnBody": "カメラ本体で設定",
       "title": "テザー撮影",

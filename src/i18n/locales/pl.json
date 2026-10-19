@@ -1119,6 +1119,7 @@
       "looking": "Szukanie aparatów…",
       "nextCapture": "Następne zdjęcie",
       "noCamera": "Nie znaleziono aparatu na USB",
+      "reconnecting": "Rawtonic połączy aparat ponownie, gdy wróci.",
       "refresh": "Szukaj aparatów ponownie",
       "setOnBody": "Ustawione na korpusie aparatu",
       "title": "Fotografowanie z podłączeniem",

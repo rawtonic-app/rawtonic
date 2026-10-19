@@ -1008,6 +1008,7 @@
       "looking": "正在查找相机…",
       "nextCapture": "下一次拍摄",
       "noCamera": "未在 USB 上找到相机",
+      "reconnecting": "相机恢复连接后，Rawtonic 会自动重新连接。",
       "refresh": "重新查找相机",
       "setOnBody": "在机身上设置",
       "title": "联机拍摄",

@@ -1076,6 +1076,7 @@
       "looking": "Cercant càmeres…",
       "nextCapture": "Propera captura",
       "noCamera": "No s’ha trobat cap càmera per USB",
+      "reconnecting": "Rawtonic torna a connectar la càmera quan torni.",
       "refresh": "Torna a cercar càmeres",
       "setOnBody": "Es configura a la càmera",
       "title": "Captura connectada",

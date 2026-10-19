@@ -1008,6 +1008,7 @@
       "looking": "카메라를 찾는 중…",
       "nextCapture": "다음 촬영",
       "noCamera": "USB에서 카메라를 찾을 수 없습니다",
+      "reconnecting": "카메라가 다시 연결되면 Rawtonic이 자동으로 다시 연결합니다.",
       "refresh": "카메라 다시 찾기",
       "setOnBody": "카메라 본체에서 설정",
       "title": "테더 촬영",

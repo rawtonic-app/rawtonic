@@ -1033,6 +1033,7 @@
       "looking": "Suche Kameras …",
       "nextCapture": "Nächste Aufnahme",
       "noCamera": "Keine Kamera am USB gefunden",
+      "reconnecting": "Rawtonic verbindet die Kamera wieder, sobald sie zurück ist.",
       "refresh": "Erneut nach Kameras suchen",
       "setOnBody": "Am Kameragehäuse eingestellt",
       "title": "Tethered fotografieren",

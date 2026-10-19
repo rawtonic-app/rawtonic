@@ -1076,6 +1076,7 @@
       "looking": "Recherche d’appareils…",
       "nextCapture": "Prochaine prise",
       "noCamera": "Aucun appareil trouvé en USB",
+      "reconnecting": "Rawtonic reconnecte l’appareil dès qu’il est de retour.",
       "refresh": "Rechercher à nouveau",
       "setOnBody": "Réglé sur le boîtier",
       "title": "Prise de vue connectée",

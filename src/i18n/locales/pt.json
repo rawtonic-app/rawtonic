@@ -1076,6 +1076,7 @@
       "looking": "A procurar câmaras…",
       "nextCapture": "Próxima captura",
       "noCamera": "Nenhuma câmara encontrada por USB",
+      "reconnecting": "O Rawtonic volta a ligar a câmara quando ela voltar.",
       "refresh": "Procurar câmaras de novo",
       "setOnBody": "Definido no corpo da câmara",
       "title": "Captura conectada",

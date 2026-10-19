@@ -381,6 +381,24 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     };
   }, []);
 
+  // A camera that came back after a cable pull is connected again by the
+  // backend, also while the tether panel is closed.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<{ connected: boolean; status?: TetherStatus }>("tether-state", (event) => {
+      if (event.payload.connected && event.payload.status) setTether(event.payload.status);
+    }).then((fn) => {
+      if (disposed) fn();
+      else stop = fn;
+    });
+    return () => {
+      disposed = true;
+      stop?.();
+    };
+  }, []);
+
   // The photograph count follows an ingest as each photograph arrives.
   useEffect(() => {
     if (!isTauri()) return;

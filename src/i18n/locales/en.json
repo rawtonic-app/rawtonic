@@ -1033,6 +1033,7 @@
       "looking": "Looking for cameras…",
       "nextCapture": "Next capture",
       "noCamera": "No camera found on USB",
+      "reconnecting": "Rawtonic connects the camera again when it is back.",
       "refresh": "Look for cameras again",
       "setOnBody": "Set on the camera body",
       "title": "Tethered shooting",

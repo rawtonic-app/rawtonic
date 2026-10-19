@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 use tauri::ipc::Response;
@@ -78,6 +78,11 @@ struct Helper {
 static HELPER: Mutex<Option<Helper>> = Mutex::new(None);
 /// The newest live-view frame.
 static FRAME: Mutex<Option<Vec<u8>>> = Mutex::new(None);
+/// Counts the user's connects and disconnects; a reconnect started before
+/// one of them gives up.
+static CHOICE: AtomicU64 = AtomicU64::new(0);
+/// How often a camera that went away is looked for.
+const RECONNECT_EVERY: Duration = Duration::from_secs(1);
 
 fn text(e: TetherError) -> String {
     e.message
@@ -144,6 +149,10 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
                 "tether-state",
                 json!({ "connected": false, "error": error }),
             );
+            if error.kind == ErrorKind::Disconnected {
+                let app = app.clone();
+                std::thread::spawn(move || reconnect_when_back(app));
+            }
         }
         Incoming::Event(Event::LiveViewStopped { error }) => {
             let _ = app.emit("tether-live-view-stopped", error);
@@ -190,6 +199,80 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         connection: None,
     });
     Ok(client)
+}
+
+/// After the camera went away (cable, power): connects the same model again
+/// when it is back, into the same session with the same capture settings
+/// and the same ingest — unless the user connected or disconnected
+/// meanwhile or the helper ended (Capture One reconnects on its own too).
+fn reconnect_when_back(app: AppHandle) {
+    let choice = CHOICE.load(Ordering::SeqCst);
+    let (client, session, model, config) = {
+        let helper = HELPER.lock().unwrap();
+        let Some(h) = helper.as_ref() else { return };
+        let Some(c) = h.connection.as_ref() else {
+            return;
+        };
+        (
+            h.client.clone(),
+            c.session.clone(),
+            c.status.model.clone(),
+            c.config.clone(),
+        )
+    };
+    let wanted = || CHOICE.load(Ordering::SeqCst) == choice;
+    let Some(status) = reconnect(&client, &model, &session, RECONNECT_EVERY, wanted) else {
+        return;
+    };
+    let mut helper = HELPER.lock().unwrap();
+    let Some(h) = helper.as_mut() else { return };
+    if !wanted() || !Arc::ptr_eq(&h.client, &client) {
+        return;
+    }
+    h.connection = Some(Connection {
+        session: session.clone(),
+        status: status.clone(),
+        config,
+    });
+    log::info!("Tether: {model} is back, connected again");
+    let status = TetherStatus {
+        session,
+        camera: status,
+    };
+    let _ = app.emit(
+        "tether-state",
+        json!({ "connected": true, "status": status }),
+    );
+}
+
+/// Looks for `model` every `every` and connects it once it is listed again;
+/// `None` when the helper ended or `wanted` turned false first.
+fn reconnect(
+    client: &Client,
+    model: &str,
+    session: &Path,
+    every: Duration,
+    wanted: impl Fn() -> bool,
+) -> Option<CameraStatus> {
+    loop {
+        std::thread::sleep(every);
+        if !wanted() || !client.alive() {
+            return None;
+        }
+        let Ok(Reply::Cameras { cameras }) = client.request(Request::ListCameras, QUICK) else {
+            continue;
+        };
+        let Some(camera) = cameras.into_iter().find(|c| c.model == model) else {
+            continue;
+        };
+        let connect = Request::Connect {
+            port: Some(camera.port),
+            staging: staging::root(session),
+        };
+        if let Ok(Reply::Connected { status }) = client.request(connect, SLOW) {
+            return Some(status);
+        }
+    }
 }
 
 /// Sends a request to the helper; one that hangs is ended (its next use
@@ -448,6 +531,7 @@ pub async fn tether_connect(
     metadata: Option<NextCaptureMetadata>,
     app: AppHandle,
 ) -> Result<TetherStatus, String> {
+    CHOICE.fetch_add(1, Ordering::SeqCst);
     blocking(move || {
         check_template(&template)?;
         let settings = capture_settings(next_capture, metadata)?;
@@ -498,6 +582,7 @@ fn disconnect_locally() {
 
 #[tauri::command]
 pub async fn tether_disconnect(app: AppHandle) -> Result<(), String> {
+    CHOICE.fetch_add(1, Ordering::SeqCst);
     blocking(move || {
         let running = HELPER.lock().unwrap().is_some();
         if running {
@@ -591,6 +676,71 @@ mod tests {
 
     /// The helper binary cargo built for the workspace (`--workspace`
     /// builds it for the tether crate's own tests).
+    #[test]
+    fn an_unplugged_camera_is_connected_again_when_it_is_back() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        let spec = MockSpec {
+            file_size: 16 * 1024,
+            unplug_after: Some(2),
+            ..MockSpec::default()
+        };
+        let (events_tx, events_rx) = mpsc::channel::<Event>();
+        let events_tx = Mutex::new(events_tx);
+        let (client, _) = Client::spawn(
+            &helper_binary(),
+            &["--mock".into()],
+            &[(
+                "RAWTONIC_TETHER_MOCK".into(),
+                serde_json::to_string(&spec).unwrap().into(),
+            )],
+            move |incoming| {
+                if let Incoming::Event(event) = incoming {
+                    let _ = events_tx.lock().unwrap().send(event);
+                }
+            },
+        )
+        .unwrap();
+        let connect = Request::Connect {
+            port: None,
+            staging: staging::root(&session),
+        };
+        client.request(connect, SLOW).unwrap();
+        let mut files = 0;
+        let next = |files: &mut usize| loop {
+            match events_rx
+                .recv_timeout(Duration::from_secs(30))
+                .expect("an event")
+            {
+                Event::Captured { .. } => *files += 1,
+                Event::Disconnected { error } => return Some(error),
+                _ => {}
+            }
+            if *files == 3 {
+                return None;
+            }
+        };
+        client.request(Request::Capture, CAPTURE).unwrap();
+        client.request(Request::Capture, CAPTURE).unwrap();
+        let error = next(&mut files).expect("the camera went away");
+        assert_eq!(error.kind, ErrorKind::Disconnected);
+        assert_eq!(files, 2);
+        // A user's disconnect meanwhile stops the reconnect.
+        assert!(reconnect(&client, &spec.model, &session, Duration::ZERO, || false).is_none());
+        let status = reconnect(
+            &client,
+            &spec.model,
+            &session,
+            Duration::from_millis(50),
+            || true,
+        )
+        .expect("connected again");
+        assert_eq!(status.model, spec.model);
+        client.request(Request::Capture, CAPTURE).unwrap();
+        assert!(next(&mut files).is_none());
+        assert_eq!(files, 3, "the camera fires again after the reconnect");
+    }
+
     fn helper_binary() -> PathBuf {
         let deps = std::env::current_exe().unwrap();
         let path = deps

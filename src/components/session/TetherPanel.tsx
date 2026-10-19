@@ -101,6 +101,8 @@ export default function TetherPanel({
   const [port, setPort] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The camera went away; the backend connects it again when it is back.
+  const [waiting, setWaiting] = useState(false);
   const [template, setTemplate] = useState("{orig}");
   const [nextCapture, setNextCapture] = useState<NextCaptureForm>(DEFAULT_NEXT_CAPTURE);
   const [presets, setPresets] = useState<PresetChoice[]>([]);
@@ -161,9 +163,16 @@ export default function TetherPanel({
         toast.error(i18n.t("session.tether.captureFailed", { error: event.payload.message }));
       }),
       listen("tether-settings-changed", () => void readSettings()),
-      listen<{ connected: boolean; error?: TetherError }>("tether-state", (event) => {
-        if (event.payload.connected) return;
+      listen<{ connected: boolean; error?: TetherError; status?: TetherStatus }>("tether-state", (event) => {
+        if (event.payload.connected) {
+          // Connected again after the camera came back.
+          setError("");
+          setWaiting(false);
+          void readSettings();
+          return;
+        }
         onStatus(null);
+        setWaiting(event.payload.error?.kind === "disconnected");
         setLiveView(false);
         setCapturing(0);
         if (event.payload.error) setError(event.payload.error.message);
@@ -216,6 +225,7 @@ export default function TetherPanel({
   const connect = async () => {
     setBusy(true);
     setError("");
+    setWaiting(false);
     try {
       const status = await invoke<TetherStatus>(Invokes.TetherConnect, {
         directory,
@@ -363,6 +373,7 @@ export default function TetherPanel({
               {error}
             </p>
           )}
+          {waiting && <p className="tether-note">{t("session.tether.reconnecting")}</p>}
           <button
             type="button"
             className="session-action session-primary tether-wide"

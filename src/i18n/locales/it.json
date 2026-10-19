@@ -1076,6 +1076,7 @@
       "looking": "Ricerca fotocamere…",
       "nextCapture": "Prossimo scatto",
       "noCamera": "Nessuna fotocamera trovata via USB",
+      "reconnecting": "Rawtonic ricollega la fotocamera appena torna disponibile.",
       "refresh": "Cerca di nuovo le fotocamere",
       "setOnBody": "Impostato sul corpo macchina",
       "title": "Scatto collegato",
