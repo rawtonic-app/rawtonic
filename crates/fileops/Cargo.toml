@@ -11,6 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 rusqlite = { version = "0.40", features = ["bundled"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"

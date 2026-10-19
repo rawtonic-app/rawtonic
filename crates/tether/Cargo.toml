@@ -17,6 +17,7 @@ serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 log = "0.4"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(any(target_os = "macos", target_os = "linux"))'.dependencies]
 gphoto2 = { git = "https://github.com/CyberTimon/libgphoto2-rs", optional = true, features = ["log"] }

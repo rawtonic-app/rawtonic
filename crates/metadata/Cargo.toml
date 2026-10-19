@@ -11,6 +11,7 @@ serde_json.workspace = true
 tempfile.workspace = true
 sha2.workspace = true
 roxmltree = "0.21"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile.workspace = true

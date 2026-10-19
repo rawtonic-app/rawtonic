@@ -19,6 +19,7 @@ xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
 log = "0.4"
 sha2.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.189"

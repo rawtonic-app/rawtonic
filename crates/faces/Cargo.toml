@@ -14,3 +14,4 @@ ndarray = "0.17"
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }
 rayon = "1.12.0"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

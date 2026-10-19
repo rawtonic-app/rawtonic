@@ -17,6 +17,7 @@ tempfile.workspace = true
 sha2.workspace = true
 rawtonic-naming = { path = "../naming", version = "0.1.0" }
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile.workspace = true

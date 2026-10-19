@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/*", "third_party/rawler"]
+members = ["crates/workspace-hack","src-tauri", "crates/*", "third_party/rawler"]
 exclude = ["vendor/little_exif", "vendor/paste", "vendor/glib-macros", "vendor/gtk3-macros"]
 default-members = [
     "crates/catalog",

@@ -47,6 +47,7 @@ rusqlite = { version = "0.40", features = ["bundled"] }
 fontdb = { version = "0.24.0", default-features = false, features = ["std", "fs", "memmap"] }
 skrifa = "0.48.0"
 ab_glyph_rasterizer = "0.1.10"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 turbojpeg = { version = "1.5", default-features = false, features = ["cmake", "require-simd"] }

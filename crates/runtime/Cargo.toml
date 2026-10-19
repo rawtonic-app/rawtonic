@@ -15,3 +15,4 @@ serde_json = { workspace = true, optional = true }
 log = { version = "0.4", optional = true }
 libc = { version = "0.2.189", optional = true }
 libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

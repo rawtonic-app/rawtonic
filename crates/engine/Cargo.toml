@@ -48,6 +48,7 @@ jxl-oxide = { version = "0.12.6", features = ["image"] }
 # NASM or C toolchain), avif-parse reads the HEIF container.
 rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
 avif-parse = "2.1.0"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile = "3.27.0"
