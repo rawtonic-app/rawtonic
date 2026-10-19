@@ -240,7 +240,7 @@ static RTCamera *camera_of(GPPort *port) { return state(port).camera; }
 
 GPPortType gp_port_library_type(void) { return GP_PORT_USB; }
 
-int gp_port_library_list(GPPortInfoList *list) {
+static int list_ports(GPPortInfoList *list) {
     if ([NSThread isMainThread]) {
         gp_log(GP_LOG_ERROR, "icc", "called on the main thread, which must run ImageCaptureCore's run loop");
         return GP_ERROR;
@@ -521,20 +521,47 @@ static int icc_unsupported(GPPort *port, int request, int value, int index, char
     return GP_ERROR_NOT_SUPPORTED;
 }
 
+int gp_port_library_list(GPPortInfoList *list) {
+    @autoreleasepool { return list_ports(list); }
+}
+
+// libgphoto2 calls the port from the helper's worker thread, which has no
+// autorelease pool of its own: every operation drains its Foundation
+// temporaries (photo-sized buffers among them) when it returns.
+static int pooled_init(GPPort *port) { @autoreleasepool { return icc_init(port); } }
+static int pooled_exit(GPPort *port) { @autoreleasepool { return icc_exit(port); } }
+static int pooled_open(GPPort *port) { @autoreleasepool { return icc_open(port); } }
+static int pooled_close(GPPort *port) { @autoreleasepool { return icc_close(port); } }
+static int pooled_read(GPPort *port, char *bytes, int size) {
+    @autoreleasepool { return icc_read(port, bytes, size); }
+}
+static int pooled_write(GPPort *port, const char *bytes, int size) {
+    @autoreleasepool { return icc_write(port, bytes, size); }
+}
+static int pooled_check_int(GPPort *port, char *bytes, int size, int timeout) {
+    @autoreleasepool { return icc_check_int(port, bytes, size, timeout); }
+}
+static int pooled_find_device(GPPort *port, int vendor, int product) {
+    @autoreleasepool { return icc_find_device(port, vendor, product); }
+}
+static int pooled_find_device_by_class(GPPort *port, int class, int subclass, int protocol) {
+    @autoreleasepool { return icc_find_device_by_class(port, class, subclass, protocol); }
+}
+
 GPPortOperations *gp_port_library_operations(void) {
     GPPortOperations *ops = calloc(1, sizeof(GPPortOperations));
     if (!ops) return NULL;
-    ops->init = icc_init;
-    ops->exit = icc_exit;
-    ops->open = icc_open;
-    ops->close = icc_close;
-    ops->read = icc_read;
-    ops->write = icc_write;
-    ops->check_int = icc_check_int;
+    ops->init = pooled_init;
+    ops->exit = pooled_exit;
+    ops->open = pooled_open;
+    ops->close = pooled_close;
+    ops->read = pooled_read;
+    ops->write = pooled_write;
+    ops->check_int = pooled_check_int;
     ops->update = icc_ok;
     ops->reset = icc_ok;
-    ops->find_device = icc_find_device;
-    ops->find_device_by_class = icc_find_device_by_class;
+    ops->find_device = pooled_find_device;
+    ops->find_device_by_class = pooled_find_device_by_class;
     ops->clear_halt = icc_clear_halt;
     ops->msg_write = icc_unsupported;
     ops->msg_read = icc_unsupported;

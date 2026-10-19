@@ -81,6 +81,28 @@ struct Helper {
     /// The connection's ingest thread (joined before another one starts:
     /// one ingest per transfer folder).
     worker: Option<std::thread::JoinHandle<()>>,
+    /// A connect is waiting for the helper; `lost_while_connecting` notes a
+    /// camera lost before its connection was installed.
+    connecting: bool,
+    lost_while_connecting: bool,
+}
+
+/// The camera went away: its connection is kept for connecting it again.
+/// Whether a reconnect should start now (a connect still in flight starts
+/// it itself once it has installed the connection).
+fn camera_lost(state: &Mutex<Option<Helper>>) -> bool {
+    let mut state = state.lock().unwrap();
+    let Some(h) = state.as_mut() else {
+        return false;
+    };
+    if let Some(connection) = h.connection.take() {
+        h.lost = Some(connection);
+        return true;
+    }
+    if h.connecting {
+        h.lost_while_connecting = true;
+    }
+    false
 }
 
 /// The running helper. Never held while waiting for the helper: its reader
@@ -160,7 +182,7 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
                 "tether-state",
                 json!({ "connected": false, "error": error }),
             );
-            if error.kind == ErrorKind::Disconnected {
+            if error.kind == ErrorKind::Disconnected && camera_lost(&HELPER) {
                 let app = app.clone();
                 std::thread::spawn(move || reconnect_when_back(app));
             }
@@ -186,12 +208,30 @@ fn on_incoming(app: AppHandle, ingest: IngestSender) -> impl Fn(Incoming) + Send
 /// The running helper's client (started when there is none or the last one
 /// ended).
 fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
-    let mut helper = HELPER.lock().unwrap();
-    if let Some(h) = helper.as_ref() {
-        if h.client.alive() {
-            return Ok(h.client.clone());
+    // A helper that ended: its ingest finishes the photos it has before a
+    // new helper (and a new ingest) may touch the transfer folder.
+    let ended = {
+        let mut helper = HELPER.lock().unwrap();
+        match helper.as_ref() {
+            Some(h) if h.client.alive() => return Ok(h.client.clone()),
+            Some(_) => {
+                log::info!("Tether helper gone; starting a new one");
+                helper.take()
+            }
+            None => None,
         }
-        log::info!("Tether helper gone; starting a new one");
+    };
+    if let Some(ended) = ended {
+        ended.ingest.lock().unwrap().take();
+        if let Some(worker) = ended.worker {
+            let _ = worker.join();
+        }
+    }
+    let mut helper = HELPER.lock().unwrap();
+    if let Some(h) = helper.as_ref()
+        && h.client.alive()
+    {
+        return Ok(h.client.clone());
     }
     let (path, args, envs) = helper_command(app)?;
     let ingest = Arc::new(Mutex::new(None));
@@ -210,6 +250,8 @@ fn client(app: &AppHandle) -> Result<Arc<Client>, String> {
         connection: None,
         lost: None,
         worker: None,
+        connecting: false,
+        lost_while_connecting: false,
     });
     Ok(client)
 }
@@ -617,9 +659,15 @@ pub async fn tether_connect(
             &TRANSITION,
             client(&app)?,
             notify_app(app.clone()),
-            session.clone(),
-            port,
-            config,
+            Opening {
+                session: session.clone(),
+                port,
+                config,
+            },
+            || {
+                let app = app.clone();
+                std::thread::spawn(move || reconnect_when_back(app));
+            },
         )?;
         Ok(TetherStatus {
             session,
@@ -648,14 +696,25 @@ fn finish_ingest(state: &Mutex<Option<Helper>>) {
 /// connection's ingest finished, the transfer folder recovered while no
 /// camera is open, the new ingest listening before the camera is (a body
 /// shot right after the connect goes straight in).
+/// What a connect opens: the camera on `port` (the first one when `None`)
+/// for `session`, its photos ingested with `config`.
+struct Opening {
+    session: PathBuf,
+    port: Option<String>,
+    config: Arc<Mutex<CaptureConfig>>,
+}
+
 fn open_session(
     state: &Mutex<Option<Helper>>,
     transition: &Mutex<()>,
     client: Arc<Client>,
     notify: Notify,
-    session: PathBuf,
-    port: Option<String>,
-    config: Arc<Mutex<CaptureConfig>>,
+    Opening {
+        session,
+        port,
+        config,
+    }: Opening,
+    on_lost: impl FnOnce(),
 ) -> Result<CameraStatus, String> {
     let _turn = transition.lock().unwrap();
     finish_ingest(state);
@@ -678,6 +737,8 @@ fn open_session(
         let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
         *helper.ingest.lock().unwrap() = Some(tx);
         helper.worker = Some(worker);
+        helper.connecting = true;
+        helper.lost_while_connecting = false;
     }
     let connect = Request::Connect {
         port,
@@ -692,6 +753,9 @@ fn open_session(
             {
                 client.kill();
             }
+            if let Some(h) = state.lock().unwrap().as_mut() {
+                h.connecting = false;
+            }
             finish_ingest(state);
             return Err(match other {
                 Err(e) => text(e),
@@ -701,11 +765,22 @@ fn open_session(
     };
     let mut helper = state.lock().unwrap();
     let helper = helper.as_mut().ok_or("The tether helper stopped.")?;
-    helper.connection = Some(Connection {
+    helper.connecting = false;
+    let connection = Connection {
         session,
         status: status.clone(),
         config,
-    });
+    };
+    if std::mem::take(&mut helper.lost_while_connecting) {
+        // Gone again before it was installed: kept for the reconnect.
+        helper.lost = Some(connection);
+        on_lost();
+        return Err(format!(
+            "{} went away while connecting. It is connected again when it is back.",
+            status.model
+        ));
+    }
+    helper.connection = Some(connection);
     Ok(status)
 }
 
@@ -970,9 +1045,20 @@ mod tests {
 
     /// A helper on the mock camera as the app runs it: its photos go to
     /// whichever ingest is installed.
-    fn mock_helper(spec: &MockSpec) -> (Mutex<Option<Helper>>, Arc<Client>) {
+    fn mock_helper(spec: &MockSpec) -> (Arc<Mutex<Option<Helper>>>, Arc<Client>) {
+        mock_helper_on_lost(spec, || {})
+    }
+
+    /// `mock_helper` whose lost camera starts `on_lost` the way
+    /// `on_incoming` starts a reconnect.
+    fn mock_helper_on_lost(
+        spec: &MockSpec,
+        on_lost: impl Fn() + Send + Sync + 'static,
+    ) -> (Arc<Mutex<Option<Helper>>>, Arc<Client>) {
         let ingest: IngestSender = Arc::new(Mutex::new(None));
         let route = ingest.clone();
+        let state: Arc<Mutex<Option<Helper>>> = Arc::new(Mutex::new(None));
+        let events = state.clone();
         let (client, library) = Client::spawn(
             &helper_binary(),
             &["--mock".into()],
@@ -980,25 +1066,82 @@ mod tests {
                 "RAWTONIC_TETHER_MOCK".into(),
                 serde_json::to_string(spec).unwrap().into(),
             )],
-            move |incoming| {
-                if let Incoming::Event(Event::Captured { captured }) = incoming
-                    && let Some(tx) = route.lock().unwrap().as_ref()
-                {
-                    let _ = tx.send((captured, Instant::now()));
+            move |incoming| match incoming {
+                Incoming::Event(Event::Captured { captured }) => {
+                    if let Some(tx) = route.lock().unwrap().as_ref() {
+                        let _ = tx.send((captured, Instant::now()));
+                    }
                 }
+                Incoming::Event(Event::Disconnected { .. }) if camera_lost(&events) => on_lost(),
+                _ => {}
             },
         )
         .unwrap();
         let client = Arc::new(client);
-        let state = Mutex::new(Some(Helper {
+        *state.lock().unwrap() = Some(Helper {
             client: client.clone(),
             library,
             ingest,
             connection: None,
             lost: None,
             worker: None,
-        }));
+            connecting: false,
+            lost_while_connecting: false,
+        });
         (state, client)
+    }
+
+    #[test]
+    fn a_camera_lost_right_after_its_connect_is_connected_again_either_way() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = session(tmp.path());
+        // A body shot at the connect, then the cable comes out.
+        let spec = MockSpec {
+            body_shots_ms: vec![0],
+            unplug_after: Some(1),
+            ..MockSpec::default()
+        };
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let from_event = starts.clone();
+        let (state, client) = mock_helper_on_lost(&spec, move || {
+            from_event.fetch_add(1, Ordering::SeqCst);
+        });
+        let config = Arc::new(Mutex::new(CaptureConfig {
+            template: "{orig}".into(),
+            settings: settings(0, "lost"),
+            free_camera_copies: false,
+        }));
+        let (notify, seen) = collector();
+        let from_connect = starts.clone();
+        let _ = open_session(
+            &state,
+            &Mutex::new(()),
+            client,
+            notify,
+            Opening {
+                session: session.clone(),
+                port: None,
+                config,
+            },
+            move || {
+                from_connect.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        captured(&seen, 1);
+        let started = Instant::now();
+        while starts.load(Ordering::SeqCst) == 0 && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(
+            starts.load(Ordering::SeqCst),
+            1,
+            "one reconnect, whichever came first"
+        );
+        let helper = state.lock().unwrap();
+        let helper = helper.as_ref().unwrap();
+        assert!(helper.connection.is_none() && helper.lost.is_some());
+        assert!(!helper.connecting);
     }
 
     #[test]
@@ -1029,9 +1172,12 @@ mod tests {
             &transition,
             client.clone(),
             notify.clone(),
-            session.clone(),
-            None,
-            config.clone(),
+            Opening {
+                session: session.clone(),
+                port: None,
+                config: config.clone(),
+            },
+            || {},
         )
         .unwrap();
         let seen_now = captured(&seen, 2);
@@ -1046,9 +1192,12 @@ mod tests {
             &transition,
             client,
             notify,
-            session.clone(),
-            None,
-            config,
+            Opening {
+                session: session.clone(),
+                port: None,
+                config,
+            },
+            || {},
         )
         .unwrap();
         // Byte-identical to the first one (the mock's numbering and content
