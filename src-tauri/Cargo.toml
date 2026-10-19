@@ -1,6 +1,6 @@
 [package]
 name = "rawtonic-app"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 license = "AGPL-3.0-or-later"
 default-run = "rawtonic-app"
 description = "Non-destructive photo editor with native GPU rendering and portable sessions (development build)."

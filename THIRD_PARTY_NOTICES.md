@@ -595,7 +595,7 @@ Resolved npm and Cargo version/license inventories are below, including build/te
 | raw-window-metal | 1.1.0 | MIT OR Apache-2.0 |
 | rawler | 0.7.1 | LGPL-2.1 |
 | rawpointer | 0.2.1 | MIT/Apache-2.0 |
-| rawtonic-app | 0.1.0-alpha.2 | AGPL-3.0-or-later |
+| rawtonic-app | 0.1.0-alpha.3 | AGPL-3.0-or-later |
 | rawtonic-catalog | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-cli | 0.1.0 | AGPL-3.0-or-later |
 | rawtonic-denoise | 0.1.0 | AGPL-3.0-or-later |
