@@ -392,3 +392,28 @@ export const REFRAMING_KEYS = [
 export function reframingInputs(adjustments: Record<string, unknown>): string {
   return JSON.stringify(REFRAMING_KEYS.map((key) => adjustments[key] ?? null));
 }
+
+type CropGeometry = { rotation: number; aspectRatio: number | null; orientationSteps: number };
+
+/** Whether a rotation change arrived with a crop of its own (Auto
+ * straighten, undo, paste): the crop tool then keeps that crop instead of
+ * turning the previous one by the rotation's change. `seen` is the crop the
+ * tool last saw at `previous`; crops within 1 px count as the same. */
+export const cropCameWithRotation = (
+  previous: CropGeometry | null,
+  seen: Crop | null | undefined,
+  next: CropGeometry & { crop: Crop | null },
+): boolean => {
+  if (!previous || seen === undefined || !next.crop) return false;
+  if (previous.rotation === next.rotation) return false;
+  if (previous.aspectRatio !== next.aspectRatio || previous.orientationSteps !== next.orientationSteps) return false;
+  const a = seen;
+  const b = next.crop;
+  const same =
+    !!a &&
+    Math.abs(a.x - b.x) <= 1 &&
+    Math.abs(a.y - b.y) <= 1 &&
+    Math.abs(a.width - b.width) <= 1 &&
+    Math.abs(a.height - b.height) <= 1;
+  return !same;
+};

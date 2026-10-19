@@ -12,6 +12,7 @@ import {
   isCropWithinBounds,
   calculateStraightenAngle,
   calculateAutoCropForRotation,
+  cropCameWithRotation,
   fitCropTowards,
   moveCropInsideBounds,
   zoomCrop,
@@ -167,6 +168,9 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
 
   const [crop, setCrop] = useState<Crop | null>(null);
   const prevCropParams = useRef<{ rotation: number; aspectRatio: number | null; orientationSteps: number } | null>(null);
+  // The crop the recalculation last saw: a rotation that arrives with a crop
+  // of its own (Auto straighten, undo, paste) keeps that crop.
+  const prevCrop = useRef<Adjustments['crop'] | undefined>(undefined);
   const lastValidCropRef = useRef<PercentCrop | null>(null);
   const cropResizeStartRef = useRef<PercentCrop | null>(null);
 
@@ -1795,6 +1799,15 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
       prevCropParams.current?.orientationSteps !== orientationSteps;
 
     const isDraggingRotation = liveRotation !== null && liveRotation !== undefined;
+    const seenCrop = prevCrop.current;
+    if (!isDraggingRotation) prevCrop.current = currentAdjCrop;
+    if (
+      !isDraggingRotation &&
+      cropCameWithRotation(prevCropParams.current, seenCrop, { rotation, aspectRatio, orientationSteps, crop: currentAdjCrop })
+    ) {
+      prevCropParams.current = { rotation, aspectRatio, orientationSteps };
+      return;
+    }
     const needsRecalc = currentAdjCrop === null || geometryChanged || isDraggingRotation;
 
     if (needsRecalc) {

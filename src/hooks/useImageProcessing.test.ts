@@ -234,6 +234,34 @@ it("keeps original-preview overrides out of saved adjustments", async () => {
   await finish();
 });
 
+it("takes a batch's reloaded recipe as the sync baseline, so the next edit syncs only itself", async () => {
+  useSettingsStore.setState({
+    appSettings: { copyPasteSettings: { autoSync: true, includedAdjustments: ["exposure", "rotation", "crop"] } } as never,
+  });
+  useLibraryStore.setState({ multiSelectedPaths: ["/first.dng", "/second.dng"] });
+  mount();
+  await finish();
+  // A batch holds the open photo and reloads it with its own result.
+  act(() => useEditorStore.setState({ heldRecipePaths: ["/first.dng"] }));
+  act(() =>
+    useEditorStore.setState({
+      adjustments: { ...useEditorStore.getState().adjustments, rotation: -2.5, crop: { unit: "px", x: 10, y: 8, width: 380, height: 250 } },
+    }),
+  );
+  await finish();
+  act(() => useEditorStore.setState({ heldRecipePaths: [] }));
+  vi.mocked(invoke).mockClear();
+  act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, exposure: 0.5 } }));
+  const synced = vi.mocked(invoke).mock.calls.filter(([name]) => name === Invokes.ApplyAdjustmentsToPaths);
+  expect(synced).toHaveLength(1);
+  expect(synced[0][1]).toMatchObject({ paths: ["/second.dng"] });
+  const delta = (synced[0][1] as { adjustments: Record<string, unknown> }).adjustments;
+  expect(delta.exposure).toBe(0.5);
+  expect(delta).not.toHaveProperty("rotation");
+  expect(delta).not.toHaveProperty("crop");
+  await finish();
+});
+
 it("reports a native render failure but not a superseded preview", async () => {
   mount();
   await act(async () => {

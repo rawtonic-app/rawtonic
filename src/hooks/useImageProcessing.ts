@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import { toast } from 'react-toastify';
 import throttle from 'lodash.throttle';
-import { useEditorStore } from '../store/useEditorStore';
+import { isRecipeHeld, useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -794,8 +794,13 @@ export function useImageProcessing(
       const hasAdjustmentsChanged = prev.adjustments !== adjustments;
 
       if (hasAdjustmentsChanged) {
-        // A batch edit is writing this recipe; it reloads it afterwards.
-        if (useEditorStore.getState().heldRecipePath === selectedImage.path) return;
+        // A batch edit is writing this recipe and reloads it afterwards: no
+        // save or sync, but what is shown (the reloaded result) becomes the
+        // baseline, so the next edit syncs only its own change.
+        if (isRecipeHeld(useEditorStore.getState())) {
+          prevAdjustmentsRef.current = { path: selectedImage.path, adjustments };
+          return;
+        }
         debouncedSave(selectedImage.path, adjustments);
 
         const otherPaths = multiSelectedPaths.filter((p) => p !== selectedImage.path);

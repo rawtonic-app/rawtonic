@@ -2,8 +2,9 @@
 //! lines, architecture verticals), as the crop rotation that levels the photo.
 //! Angles here are the content's tilt in image coordinates (y down, positive
 //! = clockwise on screen); the recipe's `rotation` that levels it is the
-//! negative. Prototype candidates are measured against the reference editors
-//! before one is chosen (notes: plans/auto-straighten-g21.md).
+//! negative. Measured against Lightroom's crop Auto and Camera Raw's Upright
+//! Level on held-out photographs, thresholds set against a separate tuning
+//! half: docs/testing/auto-straighten.md (results and the remaining gaps).
 use std::f64::consts::PI;
 
 use crate::upright::{Segment, vanishing_point, wrap_half_turn};

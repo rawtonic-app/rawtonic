@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import debounce from 'lodash.debounce';
 import i18next from 'i18next';
 import { toast } from 'react-toastify';
-import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
+import { useEditorStore, debouncedSetHistory, isRecipeHeld } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
 import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
@@ -189,8 +189,8 @@ function commitDraft(path: string, adjustments: Adjustments) {
 export function updateAdjustments(value: AdjustmentsUpdate) {
   const current = useEditorStore.getState();
   const image = current.selectedImage;
-  // A batch edit is writing this photograph's recipe (heldRecipePath).
-  if (image && current.heldRecipePath === image.path) return;
+  // A batch edit is writing this photograph's recipe (heldRecipePaths).
+  if (image && isRecipeHeld(current)) return;
   if (image?.isReady && current.isSliderDragging && !current.showOriginal && !current.previewOverride) {
     const prev = draftFor(image.path) ?? current.adjustments;
     const next = keepDrawnMasksOnPhoto(
@@ -242,6 +242,37 @@ export function endBeforePeek() {
   useEditorStore.getState().setEditor((state) =>
     state.showOriginal ? { showOriginal: false, previewOverride: null } : state,
   );
+}
+
+/** The batch-written recipe of `path` into the editor as one undoable
+ * step, once it is open and loaded (a photograph opened during the batch may
+ * still be loading; at most a minute is waited). Nothing when another
+ * photograph was opened meanwhile. */
+async function reloadHeldRecipe(path: string): Promise<void> {
+  const status = () => {
+    const image = useEditorStore.getState().selectedImage;
+    return image?.path !== path ? 'gone' : image.isReady ? 'ready' : 'loading';
+  };
+  if (status() === 'loading') {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(done, 60_000);
+      const unsubscribe = useEditorStore.subscribe(() => {
+        if (status() !== 'loading') done();
+      });
+      function done() {
+        clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      }
+    });
+  }
+  if (status() !== 'ready') return;
+  const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path });
+  if (isCurrentEditorImage(path) && meta.adjustments && !meta.adjustments.is_null) {
+    const loaded = normalizeLoadedAdjustments(meta.adjustments, !!useEditorStore.getState().selectedImage?.isRaw);
+    useEditorStore.getState().pushHistory(loaded);
+    useEditorStore.getState().setEditor({ adjustments: loaded });
+  }
 }
 
 export function useEditorActions() {
@@ -344,12 +375,20 @@ export function useEditorActions() {
       if (pathsToUpdate.length === 0) return null;
       if (selectedImage && !selectedImage.isReady && pathsToUpdate.includes(selectedImage.path)) return null;
       const open = selectedImage && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
-      const release = () =>
-        useEditorStore
-          .getState()
-          .setEditor((state) => (state.heldRecipePath === open ? { heldRecipePath: null } : state));
+      // Every photograph of the batch is held, also one opened while it runs.
+      const held = [...new Set(pathsToUpdate)];
+      useEditorStore.getState().setEditor((state) => ({ heldRecipePaths: [...state.heldRecipePaths, ...held] }));
+      const release = (paths: string[]) =>
+        useEditorStore.getState().setEditor((state) => {
+          const remaining = [...state.heldRecipePaths];
+          for (const path of paths) {
+            const at = remaining.indexOf(path);
+            if (at >= 0) remaining.splice(at, 1);
+          }
+          return { heldRecipePaths: remaining };
+        });
+      let released = false;
       if (open) {
-        useEditorStore.getState().setEditor({ heldRecipePath: open });
         flushSliderDraft();
         debouncedSetHistory.flush();
         await flushRecipeSaves();
@@ -359,14 +398,15 @@ export function useEditorActions() {
         const report = await afterRecipeSaves(pathsToUpdate, () =>
           invoke<StraightenReport>(Invokes.ApplyAutoStraightenToPaths, { paths: pathsToUpdate }),
         );
-        if (open && report.straightened.includes(open) && isCurrentEditorImage(open)) {
-          const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: open });
-          if (isCurrentEditorImage(open) && meta.adjustments && !meta.adjustments.is_null) {
-            const loaded = normalizeLoadedAdjustments(meta.adjustments, !!selectedImage?.isRaw);
-            useEditorStore.getState().pushHistory(loaded);
-            useEditorStore.getState().setEditor({ adjustments: loaded });
-          }
+        // Whichever batch photograph is open now (the one open at the start
+        // or one opened meanwhile, maybe still loading) shows the result.
+        const now = useEditorStore.getState().selectedImage?.path;
+        release(held.filter((path) => path !== now));
+        if (now && held.includes(now)) {
+          if (report.straightened.includes(now)) await reloadHeldRecipe(now);
+          release([now]);
         }
+        released = true;
         if (libraryActivePath && report.straightened.includes(libraryActivePath)
           && useLibraryStore.getState().libraryActivePath === libraryActivePath) {
           const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: libraryActivePath });
@@ -379,7 +419,7 @@ export function useEditorActions() {
         }
         return report;
       } finally {
-        release();
+        if (!released) release(held);
       }
     },
     [],

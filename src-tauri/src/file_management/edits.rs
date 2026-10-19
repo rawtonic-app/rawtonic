@@ -562,7 +562,10 @@ pub async fn apply_auto_straighten_to_paths(
                 Err(e) => report.failed.push((path.clone(), e)),
             }
         }
-        regenerate_thumbnails(app_handle, report.straightened.clone());
+        // Counted in the thumbnail progress, as every batch edit's.
+        let state = app_handle.state::<AppState>();
+        add_to_thumbnail_queue(&state, report.straightened.len(), &app_handle);
+        regenerate_thumbnails(app_handle.clone(), report.straightened.clone());
         report
     })
     .await

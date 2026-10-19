@@ -543,11 +543,12 @@ describe('Auto straighten for a selection', () => {
       await act(async () => {});
       expect(pending.map(({ command }) => command)).toEqual([Invokes.SaveMetadataAndUpdateThumbnail]);
       expect(vi.mocked(invoke).mock.calls[0][1]).toEqual({ path: '/first.dng', adjustments: edited });
-      expect(useEditorStore.getState().heldRecipePath).toBe('/first.dng');
+      expect(useEditorStore.getState().heldRecipePaths).toEqual(['/first.dng', '/other.dng']);
       await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
       // Held: edits and undo do nothing while the batch writes.
       updateAdjustments({ exposure: 2 });
       act(() => useEditorStore.getState().undo());
+      act(() => useEditorStore.getState().goToHistoryIndex(0));
       expect(useEditorStore.getState().adjustments).toBe(edited);
       await finish(Invokes.ApplyAutoStraightenToPaths, report);
       const straightened = { ...edited, rotation: -1.5, crop: { unit: 'px', x: 4, y: 3, width: 3990, height: 2994 } };
@@ -556,13 +557,33 @@ describe('Auto straighten for a selection', () => {
       await finish(Invokes.LoadMetadata, { adjustments: straightened });
       expect(done).toEqual(report);
       expect(useEditorStore.getState().adjustments).toMatchObject({ rotation: -1.5, exposure: 0.8 });
-      expect(useEditorStore.getState().heldRecipePath).toBeNull();
+      expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
       // One undoable step back to the edit before it.
       act(() => useEditorStore.getState().undo());
       expect(useEditorStore.getState().adjustments.rotation ?? 0).toBe(0);
     } finally {
       unregister();
     }
+  });
+
+  it('holds a batch photograph opened while it runs and shows it the result', async () => {
+    const { result } = renderHook(useEditorActions);
+    let done: unknown;
+    const both = { ...report, straightened: ['/first.dng', '/second.dng'] };
+    act(() => { void result.current.handleAutoStraightenPaths(['/first.dng', '/second.dng']).then((r) => { done = r; }); });
+    await act(async () => {});
+    // The photographer opens the second photograph before its commit.
+    act(() => select('/second.dng'));
+    const before = useEditorStore.getState().adjustments;
+    updateAdjustments({ exposure: 2 });
+    expect(useEditorStore.getState().adjustments).toBe(before);
+    await finish(Invokes.ApplyAutoStraightenToPaths, both);
+    const straightened = { ...before, rotation: 3.1 };
+    await finish(Invokes.LoadMetadata, { adjustments: straightened });
+    await act(async () => {});
+    expect(done).toEqual(both);
+    expect(useEditorStore.getState().adjustments.rotation).toBe(3.1);
+    expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
   });
 
   it('releases the hold when the batch fails', async () => {
@@ -581,6 +602,6 @@ describe('Auto straighten for a selection', () => {
     await act(async () => (failing.resolve as (v: unknown) => void)(Promise.reject(new Error('disk full'))));
     await act(async () => {});
     expect(String(error)).toContain('disk full');
-    expect(useEditorStore.getState().heldRecipePath).toBeNull();
+    expect(useEditorStore.getState().heldRecipePaths).toEqual([]);
   });
 });
