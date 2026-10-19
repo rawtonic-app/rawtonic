@@ -56,6 +56,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let state = app_handle.state::<AppState>();
     let (source_path, sidecar_path) = parse_virtual_path(&path);
 
+    let turn = sidecar_field_edit();
     let mut metadata = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path);
 
     let mut final_adjustments = adjustments;
@@ -77,6 +78,7 @@ pub(crate) fn save_metadata_and_update_thumbnail_blocking(
     let json_string = serde_json::to_string_pretty(&metadata).map_err(|e| e.to_string())?;
     crate::session_bridge::write_editor_sidecar(&sidecar_path, json_string)
         .map_err(|e| e.to_string())?;
+    drop(turn);
 
     if let Ok(settings) = load_settings(app_handle.clone())
         && settings.enable_xmp_sync.unwrap_or(false)
@@ -215,6 +217,7 @@ fn edit_sidecars(
     xmp: Option<bool>,
     edit: impl Fn(&str, &Path, &Path) -> Result<ImageMetadata, String> + Sync,
 ) -> Vec<(String, String)> {
+    let _turn = sidecar_field_edit();
     paths
         .par_iter()
         .filter_map(|path| {
@@ -593,10 +596,12 @@ fn save_sidecar(path: &str, metadata: &ImageMetadata) -> Result<(), String> {
 
 static SIDECAR_FIELD_EDITS: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Rating, colour label and keyword edits read a photo's sidecar, change
-/// one field and write it back. They run on blocking workers (no longer one
-/// after the other on the main thread), so they take turns through this
-/// guard: none overwrites another's change.
+/// Rating, colour label, keyword and recipe edits, and background AI
+/// tagging, read a photo's sidecar, change their part and write it back.
+/// They run on blocking workers (no longer one after the other on the main
+/// thread), so they take turns through this guard: none overwrites another's
+/// change. Not re-entrant; never take it inside a rayon task while a holder
+/// waits on the pool.
 pub(crate) fn sidecar_field_edit() -> std::sync::MutexGuard<'static, ()> {
     SIDECAR_FIELD_EDITS
         .lock()
