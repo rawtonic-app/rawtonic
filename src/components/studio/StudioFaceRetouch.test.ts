@@ -12,12 +12,16 @@ const rustList = (source: string, start: RegExp) => {
 
 describe('face retouch frame', () => {
   it('watches the same keys as the engine, so stale faces are found again', () => {
+    const colourOnly = [
+      ...(faceRetouch.match(/COLOUR_ONLY_KEYS: \[&str; \d+\] = \[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g),
+    ].map((match) => match[1]);
+    expect(colourOnly).toContain('fringeVersion');
     const engine = [
       ...rustList(faceRetouch, /for key in \[/),
       ...[...(cacheUtils.match(/GEOMETRY_KEYS: &\[&str\] = &\[([\s\S]*?)\];/)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(
         (match) => match[1],
       ),
-    ];
+    ].filter((key) => !colourOnly.includes(key));
     expect([...FACE_FRAME_KEYS].sort()).toEqual(engine.sort());
   });
 
