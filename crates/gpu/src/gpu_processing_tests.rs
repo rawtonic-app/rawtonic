@@ -10356,3 +10356,132 @@ fn many_layer_frame_probe() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires a native GPU; a 16-bit export compiles no 8-bit pipeline"]
+fn sixteen_bit_export_compiles_no_eight_bit_pipeline() {
+    let context = context();
+    let (width, height) = (97, 65);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 5);
+    // A noisy photo with luminance noise reduction: its exports use the
+    // general pipelines with the edge-preserving pass.
+    let profile = json!({"sharpness": 40, "colorNoiseReduction": 25, "lumaNoiseReduction": 30});
+    let mut adjustments = get_all_adjustments_from_json(&profile, true, None);
+    adjustments.global.noise_level = 0.02;
+    processor
+        .run(
+            &view,
+            width,
+            height,
+            RenderRequest {
+                adjustments,
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            false,
+            RenderOutputPrecision::SixteenBit,
+        )
+        .unwrap();
+    assert!(processor.edge_pipelines[1].get().is_some());
+    assert!(
+        processor.edge_pipelines[0].get().is_none(),
+        "the 16-bit export compiled the 8-bit general pipeline"
+    );
+}
+
+/// Before its display variant is ready a frame may render with the general
+/// shader only when that has the noise passes the recipe needs: the plain
+/// one (no edge-preserving pass) drew a noisy photo's first frame visibly
+/// different from the next.
+#[test]
+#[ignore = "requires a native GPU; the first display frame of a noisy photo before its variant"]
+fn general_display_frame_has_the_noise_passes_of_the_variants() {
+    const SIZE: usize = 512;
+    let context = context();
+    let (width, height) = (SIZE as u32, SIZE as u32);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let noisy = speckle_scene(SIZE).noisy;
+    let level = rawtonic_rawdecode::noise_level::measure(&image::DynamicImage::ImageRgb32F(
+        image::Rgb32FImage::from_raw(width, height, noisy.as_flattened().to_vec()).unwrap(),
+    ))
+    .unwrap();
+    let view = linear_texture(&context, &noisy, width, height);
+    // The RAW detail defaults.
+    let profile = json!({"sharpness": 40, "lumaNoiseReduction": 15, "colorNoiseReduction": 25});
+    let mut adjustments = get_all_adjustments_from_json(&profile, true, None);
+    adjustments.global.noise_level = level;
+    assert!(edge_noise_reduction(&adjustments));
+    let quiet = get_all_adjustments_from_json(&json!({"exposure": 0.5}), true, None);
+    processor.main_pipeline.wait().unwrap();
+    // Nothing with the edge-preserving pass is compiled yet: no general
+    // pipeline may stand in; a quiet recipe takes the plain one.
+    assert!(processor.compiled_general_pipeline(&adjustments).is_none());
+    assert!(std::ptr::eq(
+        processor
+            .compiled_general_pipeline(&quiet)
+            .unwrap()
+            .unwrap(),
+        processor.main_pipeline.wait().unwrap()
+    ));
+    prepare_preview_pipeline(&processor, preview_features(&adjustments));
+    // Right after start the detail cache pass may not be compiled either:
+    // the frame computes the detail stage in the main pipeline.
+    processor.force_inline_detail.store(true, Ordering::Relaxed);
+    let render = |general: bool| {
+        processor
+            .force_general_display
+            .store(general, Ordering::Relaxed);
+        processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments: adjustments.clone(),
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                true,
+                RenderOutputPrecision::EightBit,
+            )
+            .unwrap();
+        processor
+            .force_general_display
+            .store(false, Ordering::Relaxed);
+        read_texture_data_roi(
+            &context.device,
+            &context.queue,
+            &processor.test_working_texture(),
+            wgpu::Origin3d::ZERO,
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            4,
+        )
+        .unwrap()
+    };
+    let variant = render(false);
+    // An export compiled the general pipeline with the pass.
+    let edge = processor.general_pipeline(&adjustments, false).unwrap();
+    assert!(std::ptr::eq(
+        processor
+            .compiled_general_pipeline(&adjustments)
+            .unwrap()
+            .unwrap(),
+        edge
+    ));
+    let general = render(true);
+    let max_delta = variant
+        .iter()
+        .zip(&general)
+        .map(|(a, b)| a.abs_diff(*b))
+        .max()
+        .unwrap();
+    // The same tolerance as between display variants and the general shader.
+    assert!(max_delta <= 1, "general first frame delta {max_delta}");
+}
