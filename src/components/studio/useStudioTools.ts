@@ -10,7 +10,7 @@ import { Mask, SubMaskMode, ToolType } from "../panel/right/Masks";
 import { createComponents, type MaskKind } from "../../utils/maskKinds";
 import { Panel } from "../ui/AppProperties";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
-import { warnIfLayerLimit } from "./layerLimitToast";
+import { warnIfComponentStartsLayer, warnIfLayerLimit } from "./layerLimitToast";
 
 /** Cursor tools of the viewer bar, after Capture One's cursor tools. */
 export type StudioTool =
@@ -172,6 +172,7 @@ export function useStudioTools() {
       (m) => m.type === Mask.Brush && m.mode === mode,
     );
     if (!brush) {
+      if (warnIfComponentStartsLayer(adjustments.masks, target)) return;
       const created = createSubMask(Mask.Brush, selectedImage, mode);
       brush = created;
       setAdjustments((prev) => ({
@@ -204,6 +205,7 @@ export function useStudioTools() {
       kind === "luminance"
         ? components.filter((c) => c.type === Mask.LumaRange && !target.subMasks.some((m) => m.type === Mask.LumaRange))
         : components;
+    if (added.length > 0 && warnIfComponentStartsLayer(adjustments.masks, target)) return;
     if (added.length === 0) {
       // The layer has its luma range already: sample tones for it.
       if (kind === "luminance") setEditor({ activeMaskContainerId: target.id, lumaPickerLayer: target.id });

@@ -185,5 +185,19 @@ describe("new layers", () => {
     tools!.addLayer(Mask.Radial);
     expect(toastError).toHaveBeenCalledTimes(1);
     expect(useEditorStore.getState().adjustments.masks).toHaveLength(34);
+    // A component added to the empty layer would make it the 33rd as well;
+    // the limit counts it whichever way it is added.
+    const empty = () => useEditorStore.getState().adjustments.masks.find((m) => m.id === "empty")!;
+    tools!.paintOnLayer(empty(), true);
+    tools!.addComponent(empty(), "radial", SubMaskMode.Additive);
+    useEditorStore.setState({ activeMaskContainerId: "empty" });
+    render(<StudioLayerControls />);
+    fireEvent.click(screen.getByText("Limit to a luma range…"));
+    expect(empty().subMasks).toHaveLength(0);
+    expect(toastError).toHaveBeenCalledTimes(4);
+    // A component on a layer that is rendered already is fine.
+    tools!.addComponent(layerOf(), "radial", SubMaskMode.Additive);
+    expect(layerOf().subMasks).toHaveLength(2);
+    expect(toastError).toHaveBeenCalledTimes(4);
   });
 });

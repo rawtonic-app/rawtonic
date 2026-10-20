@@ -9,6 +9,7 @@ import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 import { createSubMask, DEFAULT_LUMA_RANGE } from "../../utils/maskUtils";
 import { MASK_VERSION } from "../../utils/adjustments";
 import { Mask } from "../panel/right/Masks";
+import { warnIfComponentStartsLayer } from "./layerLimitToast";
 import {
   BRUSH_SIZE_MAX,
   BRUSH_SIZE_MIN,
@@ -335,7 +336,10 @@ export default function StudioLayerControls({
           <button
             className="studio-text-button"
             title={t("studio.layers.lumaRange.limitTitle")}
-            onClick={() => updateLayer((subs) => [...subs, createSubMask(Mask.LumaRange, { width: 0, height: 0 })])}
+            onClick={() => {
+              if (warnIfComponentStartsLayer(useEditorStore.getState().adjustments.masks, layer)) return;
+              updateLayer((subs) => [...subs, createSubMask(Mask.LumaRange, { width: 0, height: 0 })]);
+            }}
           >
             <Sun size={12} />
             {t("studio.layers.lumaRange.limit")}
