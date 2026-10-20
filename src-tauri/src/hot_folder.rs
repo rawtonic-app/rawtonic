@@ -589,13 +589,48 @@ pub async fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
-    changing(move || resume(directory, app)).await?
+    // Taken in the order the libraries were opened, before the queue.
+    let ticket = RESUMES.fetch_add(1, Ordering::SeqCst) + 1;
+    changing(move || resume(directory, app, ticket)).await?
 }
 
-fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
+/// The last `hot_folder_resume` asked for: a resume a newer one overtook
+/// (another library was opened meanwhile) starts nothing.
+static RESUMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn superseded(ticket: u64) -> bool {
+    RESUMES.load(Ordering::SeqCst) != ticket
+}
+
+/// Stops a watch that imports into another library than `session` (only
+/// one library is open): a library without a hot folder must not leave the
+/// last one's watch taking photos into a library the user has left.
+fn leave_other_libraries(session: &Path) {
+    let other = {
+        let Ok(mut watch) = WATCH.lock() else { return };
+        if watch.as_ref().is_some_and(|w| w.session != session) {
+            watch.take()
+        } else {
+            None
+        }
+    };
+    if let Some(other) = other {
+        other.stop();
+    }
+}
+
+fn resume(
+    directory: String,
+    app: AppHandle,
+    ticket: u64,
+) -> Result<Option<HotFolderStatus>, String> {
+    if superseded(ticket) {
+        return Ok(None);
+    }
     let session = Path::new(&directory)
         .canonicalize()
         .map_err(|e| e.to_string())?;
+    leave_other_libraries(&session);
     if let Ok(watch) = WATCH.lock()
         && let Some(watch) = watch.as_ref()
         && watch.session == session
@@ -673,6 +708,60 @@ mod tests {
 
     fn session(root: &Path) -> Library {
         Library::create(&root.join("Job"), "Job", Mode::Session).unwrap()
+    }
+
+    /// A watch of `session` whose thread runs until it is stopped; `done`
+    /// is set when it has ended.
+    fn fake_watch(session: &str) -> (Watch, Arc<AtomicBool>) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let (stop, done) = (stop.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                done.store(true, Ordering::Release);
+            })
+        };
+        let watch = Watch {
+            stop,
+            imported: Default::default(),
+            missing: Default::default(),
+            folder: PathBuf::from("/hot"),
+            session: PathBuf::from(session),
+            settings: CaptureSettings::default(),
+            include_subfolders: false,
+            worker: Some(worker),
+        };
+        (watch, done)
+    }
+
+    /// Library A's resume came late and started its watch; then library B,
+    /// which has no hot folder, is opened: A's watch stops, and a resume A
+    /// still had queued behind B's starts nothing.
+    #[test]
+    fn opening_another_library_stops_the_last_ones_watch() {
+        let (a, a_done) = fake_watch("/libraries/A");
+        *WATCH.lock().unwrap() = Some(a);
+        let late_a = RESUMES.fetch_add(1, Ordering::SeqCst) + 1;
+        let b = RESUMES.fetch_add(1, Ordering::SeqCst) + 1;
+        assert!(!superseded(b));
+        leave_other_libraries(Path::new("/libraries/B"));
+        assert!(WATCH.lock().unwrap().is_none());
+        assert!(
+            a_done.load(Ordering::Acquire),
+            "A's watch stopped and joined"
+        );
+        assert!(superseded(late_a), "A's queued resume starts nothing");
+        // The library's own watch is kept.
+        let (own, own_done) = fake_watch("/libraries/B");
+        *WATCH.lock().unwrap() = Some(own);
+        leave_other_libraries(Path::new("/libraries/B"));
+        assert!(WATCH.lock().unwrap().is_some());
+        assert!(!own_done.load(Ordering::Acquire));
+        suspend();
+        assert!(own_done.load(Ordering::Acquire));
     }
 
     #[test]
