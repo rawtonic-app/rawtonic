@@ -89,10 +89,18 @@ fn rename_if_free(temp: NamedTempFile, path: &Path) -> io::Result<Persisted> {
 /// from being retried as a copy.
 fn unsupported(error: &io::Error) -> bool {
     #[cfg(unix)]
-    return matches!(
-        error.raw_os_error(),
-        Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::EINVAL | libc::ENOSYS | libc::EPERM)
-    );
+    // A guard, not a pattern: ENOTSUP and EOPNOTSUPP are one value on Linux
+    // and two on macOS.
+    return error.raw_os_error().is_some_and(|code| {
+        [
+            libc::ENOTSUP,
+            libc::EOPNOTSUPP,
+            libc::EINVAL,
+            libc::ENOSYS,
+            libc::EPERM,
+        ]
+        .contains(&code)
+    });
     #[cfg(not(unix))]
     {
         let _ = error;
