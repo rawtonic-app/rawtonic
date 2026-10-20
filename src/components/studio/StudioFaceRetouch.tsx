@@ -32,14 +32,29 @@ export const FACE_FRAME_KEYS = [
   ...GEOMETRY_KEYS.filter((key) => !COLOUR_ONLY_KEYS.has(key)),
 ] as const;
 
+/** The keys of a frame without the engine's `2:` prefix (faces found
+ * before 2026-10-20): every geometry key, colour corrections included. */
+const FIRST_FACE_FRAME_KEYS = [...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
+
 /** The geometry the faces are found in (the mask frame, without the crop). */
-export function faceRetouchGeometry(adjustments: Adjustments) {
+export function faceRetouchGeometry(
+  adjustments: Adjustments,
+  keys: ReadonlyArray<(typeof FIRST_FACE_FRAME_KEYS)[number]> = FACE_FRAME_KEYS,
+) {
   return Object.fromEntries(
-    FACE_FRAME_KEYS.filter((key) => adjustments[key] !== undefined && adjustments[key] !== null).map((key) => [
+    keys.filter((key) => adjustments[key] !== undefined && adjustments[key] !== null).map((key) => [
       key,
       adjustments[key],
     ]),
   );
+}
+
+/** Whether `retouch`'s faces belong to the geometry of `adjustments`, by the
+ * rule of its frame (as the engine's `face_retouch::frame_matches`). */
+export function faceRetouchIsCurrent(retouch: FaceRetouch | null | undefined, adjustments: Adjustments) {
+  if (!retouch) return false;
+  const keys = retouch.frame?.startsWith("2:") ? FACE_FRAME_KEYS : FIRST_FACE_FRAME_KEYS;
+  return retouch.geometry === JSON.stringify(faceRetouchGeometry(adjustments, keys));
 }
 
 interface Analysis {
@@ -143,7 +158,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const { setAdjustments } = useEditorActions();
   const geometry = JSON.stringify(faceRetouchGeometry(adjustments));
   const stored = adjustments.faceRetouch ?? null;
-  const current = stored && stored.geometry === geometry ? stored : null;
+  const current = faceRetouchIsCurrent(stored, adjustments) ? stored : null;
   const [found, setFound] = useState<{ key: string; analysis?: Analysis; error?: string } | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const showBlemishes = useEditorStore((s) => s.showFaceBlemishes);
@@ -189,7 +204,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         // Retouch made in another geometry follows the faces.
         setAdjustments((prev: Adjustments) => {
           const old = prev.faceRetouch;
-          if (!old || old.geometry === geometry) return prev;
+          if (!old || faceRetouchIsCurrent(old, prev)) return prev;
           return {
             ...prev,
             faceRetouch: { ...old, frame: analysis.frame, geometry, faces: carryOver(old.faces, analysis.faces) },
@@ -211,7 +226,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
   const update = (change: (retouch: FaceRetouch) => FaceRetouch) =>
     setAdjustments((prev: Adjustments) => {
       const base: FaceRetouch | null =
-        prev.faceRetouch && prev.faceRetouch.geometry === geometry
+        prev.faceRetouch && faceRetouchIsCurrent(prev.faceRetouch, prev)
           ? prev.faceRetouch
           : analysis
             ? { settings: {}, faces: analysis.faces, frame: analysis.frame, geometry }
