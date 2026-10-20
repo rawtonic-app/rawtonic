@@ -245,16 +245,22 @@ pub fn run_job(
                 companion.skipped = false;
             }
         }
-        let mut done: Vec<ImportResult> = std::iter::once(photo).chain(companion).collect();
+        let done: Vec<ImportResult> = std::iter::once(photo).chain(companion).collect();
         // Into the album before the photograph counts as done: a run cut
         // off in between does it again (it is idempotent).
         if done[0].error.is_none()
             && let Some(album) = &options.album
         {
-            add_to_album(library, album, &mut done)?;
+            add_to_album(library, album, &done)?;
         }
         let photo = &done[0];
+        // A JPEG copied but not recorded (the library busy): the item stays
+        // open, and a later run records that copy.
+        let unrecorded = done[1..]
+            .iter()
+            .any(|r| r.error.is_some() && r.destination.is_some());
         match &photo.error {
+            None if unrecorded => left = true,
             None => library.set_ingest_item(
                 id,
                 item.position,
@@ -308,8 +314,9 @@ pub fn run_job(
 /// Puts the photographs of `results` (one photograph's: the RAW, and its
 /// JPEG when it came in as a photograph of its own; duplicates the library
 /// held already included) into `album`. An album deleted meanwhile takes
-/// none; another failure is said on the results.
-fn add_to_album(library: &Library, album: &str, results: &mut [ImportResult]) -> Result<()> {
+/// none; another failure stops the run, its photograph not done (a later
+/// run puts it in).
+fn add_to_album(library: &Library, album: &str, results: &[ImportResult]) -> Result<()> {
     let assets: Vec<String> = results
         .iter()
         .filter(|r| r.error.is_none() && r.companion_of.is_none())
@@ -319,19 +326,9 @@ fn add_to_album(library: &Library, album: &str, results: &mut [ImportResult]) ->
         return Ok(());
     }
     match library.add_to_collection(album, &assets) {
-        Ok(()) => {}
-        Err(error) if error.to_string() == "Unknown album" => {}
-        Err(error) => {
-            for result in results.iter_mut().filter(|r| r.asset_id.is_some()) {
-                let note = format!("Not added to the album: {error:#}");
-                result.warning = Some(match result.warning.take() {
-                    Some(warning) => format!("{warning}; {note}"),
-                    None => note,
-                });
-            }
-        }
+        Err(error) if error.to_string() == "Unknown album" => Ok(()),
+        other => other,
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -763,5 +760,57 @@ mod tests {
                 .is_some_and(|e| e.contains("Another file"))
         );
         assert_eq!(lib.summary().unwrap().assets, 0);
+    }
+
+    /// The RAW in the library already, its JPEG copied as a photograph of
+    /// its own but not recorded (the library busy): the job stays open and
+    /// a later run records that copy, no second one.
+    #[test]
+    fn an_unrecorded_jpeg_keeps_its_item_open() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        import_batch(
+            &lib,
+            &sources[..1],
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        let id = create_job(&lib, &sources[..2], &options("{orig}")).unwrap();
+        lib.inject_write_failure("assets").unwrap();
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(
+            results[1].error.is_some() && results[1].destination.is_some(),
+            "{results:?}"
+        );
+        lib.clear_write_failures().unwrap();
+        assert_eq!(lib.unfinished_ingest_jobs().unwrap().len(), 1);
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        let capture = lib.directory.join("Capture");
+        assert_eq!(names(&capture), ["C0.ARW", "C0.JPG"]);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+    }
+
+    /// The album could not be written (the library busy): the photograph
+    /// is not done, and the next run puts it in.
+    #[test]
+    fn an_album_write_failure_is_done_again_later() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let album = lib.create_collection("Client picks", None).unwrap();
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.album = Some(&album.id);
+        let id = create_job(&lib, &sources[2..3], &opts).unwrap();
+        lib.inject_write_failure("collection_assets").unwrap();
+        assert!(run_job(&lib, &id, &AtomicBool::new(false), |_| {}).is_err());
+        lib.clear_write_failures().unwrap();
+        assert_eq!(lib.unfinished_ingest_jobs().unwrap().len(), 1);
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 1);
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
     }
 }

@@ -321,7 +321,7 @@ mod tests {
             .execute_batch(
                 "DROP TABLE hot_folder; DROP TABLE hot_folder_files;
                  ALTER TABLE assets DROP COLUMN companion_size;
-                 ALTER TABLE assets DROP COLUMN companion_fingerprint; DROP TABLE ingest_items;
+                 ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256; DROP TABLE ingest_items;
                  PRAGMA user_version=7;",
             )
             .unwrap();

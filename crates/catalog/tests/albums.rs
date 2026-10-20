@@ -138,7 +138,7 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
     db.execute_batch(
         "ALTER TABLE assets DROP COLUMN sha256; DROP TABLE asset_imports; DROP TABLE import_batches;
-         ALTER TABLE assets DROP COLUMN companion_size; ALTER TABLE assets DROP COLUMN companion_fingerprint;
+         ALTER TABLE assets DROP COLUMN companion_size; ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256;
          DROP TABLE ingest_items;
          ALTER TABLE roots DROP COLUMN volume_name; ALTER TABLE roots DROP COLUMN volume_path;
          CREATE TABLE c1(id TEXT PRIMARY KEY, name TEXT NOT NULL, parent TEXT REFERENCES collections(id));

@@ -13,6 +13,7 @@ use std::{
     collections::HashMap,
     fs,
     path::{Path, PathBuf},
+    sync::atomic::AtomicBool,
 };
 
 /// `name` as a companion file name: one plain path component.
@@ -27,11 +28,20 @@ pub(crate) fn validate_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// A companion's identity: its size and content fingerprint.
+/// A companion's identity: its size, sampled content fingerprint (a quick
+/// check for listings) and SHA-256 (before it is moved, trashed or put
+/// back).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Identity {
     pub size: u64,
     pub fingerprint: String,
+    pub sha256: String,
+}
+
+fn sha256(path: &Path) -> Option<String> {
+    crate::checksum::sha256_file(path, &AtomicBool::new(false))
+        .ok()
+        .flatten()
 }
 
 impl Identity {
@@ -42,6 +52,7 @@ impl Identity {
         Ok(Self {
             size: meta.len(),
             fingerprint: fingerprint(path)?,
+            sha256: sha256(path).with_context(|| format!("Cannot read {}", path.display()))?,
         })
     }
 }
@@ -55,6 +66,7 @@ pub struct CompanionRecord {
     pub path: PathBuf,
     size: Option<u64>,
     fingerprint: Option<String>,
+    sha256: Option<String>,
 }
 
 impl CompanionRecord {
@@ -63,17 +75,25 @@ impl CompanionRecord {
         fs::symlink_metadata(&self.path).is_ok_and(|m| m.is_file() && Some(m.len()) == self.size)
     }
 
-    /// Whether `file` has the recorded companion's size and content
-    /// fingerprint (the same JPEG, wherever it is).
+    /// Whether `file` has the recorded companion's size and SHA-256 (the
+    /// same JPEG, wherever it is: one to put back).
     pub fn matches(&self, file: &Path) -> bool {
         fs::metadata(file).is_ok_and(|m| m.is_file() && Some(m.len()) == self.size)
-            && fingerprint(file).ok() == self.fingerprint
+            && self.sha256.is_some()
+            && sha256(file) == self.sha256
     }
 
-    /// Whether the file at `path` is the recorded companion (size and
-    /// content fingerprint).
+    /// Whether the file at `path` is the recorded companion by size and
+    /// sampled fingerprint: what listings and registration check, reading
+    /// two samples of the file.
     pub fn present(&self) -> bool {
         self.sized() && fingerprint(&self.path).ok() == self.fingerprint
+    }
+
+    /// `present`, and its SHA-256 is the recorded one: what moving or
+    /// trashing it with its photograph needs.
+    pub fn verified(&self) -> bool {
+        self.present() && self.sha256.is_some() && sha256(&self.path) == self.sha256
     }
 }
 
@@ -81,11 +101,27 @@ impl Library {
     /// Every recorded companion, also those whose file is gone or is no
     /// longer the one recorded (names a new copy must not take).
     pub fn companion_records(&self) -> Result<Vec<CompanionRecord>> {
-        let mut query = self.conn.prepare(
-            "SELECT a.id,a.rel_path,r.path,r.external,a.raw_jpeg_pair,a.companion_size,a.companion_fingerprint
-             FROM assets a JOIN roots r ON r.id=a.root_id WHERE a.raw_jpeg_pair IS NOT NULL",
-        )?;
-        let rows = query.query_map([], |r| {
+        self.records_where("1", [])
+    }
+
+    /// The recorded companions of `size` bytes (a source's candidates; no
+    /// file is read).
+    pub fn companion_records_of_size(&self, size: u64) -> Result<Vec<CompanionRecord>> {
+        self.records_where("a.companion_size=?", [size as i64])
+    }
+
+    fn records_where<P: rusqlite::Params>(
+        &self,
+        condition: &str,
+        params: P,
+    ) -> Result<Vec<CompanionRecord>> {
+        let mut query = self.conn.prepare(&format!(
+            "SELECT a.id,a.rel_path,r.path,r.external,a.raw_jpeg_pair,a.companion_size,
+                    a.companion_fingerprint,a.companion_sha256
+             FROM assets a JOIN roots r ON r.id=a.root_id
+             WHERE a.raw_jpeg_pair IS NOT NULL AND {condition}"
+        ))?;
+        let rows = query.query_map(params, |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
@@ -94,11 +130,12 @@ impl Library {
                 r.get::<_, String>(4)?,
                 r.get::<_, Option<i64>>(5)?,
                 r.get::<_, Option<String>>(6)?,
+                r.get::<_, Option<String>>(7)?,
             ))
         })?;
         let mut records = Vec::new();
         for row in rows {
-            let (owner, relative, root, external, name, size, fingerprint) = row?;
+            let (owner, relative, root, external, name, size, fingerprint, sha256) = row?;
             let photo = self.join_root(root, external, relative);
             if let Some(folder) = photo.parent() {
                 records.push(CompanionRecord {
@@ -106,6 +143,7 @@ impl Library {
                     path: folder.join(name),
                     size: size.map(|s| s as u64),
                     fingerprint,
+                    sha256,
                 });
             }
         }
@@ -121,18 +159,36 @@ impl Library {
             .map(|record| record.path))
     }
 
+    /// `companion`, its whole content checked (SHA-256): the file to move
+    /// or trash with the photograph.
+    pub fn companion_verified(&self, asset: &Asset) -> Result<Option<PathBuf>> {
+        Ok(self
+            .companion_record(asset)?
+            .filter(CompanionRecord::verified)
+            .map(|record| record.path))
+    }
+
     /// `asset`'s companion record, whether its file is there or not.
     pub fn companion_record(&self, asset: &Asset) -> Result<Option<CompanionRecord>> {
         Ok(self
-            .companion_records()?
+            .records_where("a.id=?", [&asset.id])?
             .into_iter()
-            .find(|record| record.owner == asset.id))
+            .next())
     }
 
     /// Every companion file that is there as recorded (size and content
     /// fingerprint), with the asset it belongs to.
     pub fn companions(&self) -> Result<HashMap<PathBuf, String>> {
         self.companions_in(None)
+    }
+
+    /// The recorded companions at or below `folder` (no file read).
+    pub fn companion_records_in(&self, folder: &Path) -> Result<Vec<CompanionRecord>> {
+        Ok(self
+            .companion_records()?
+            .into_iter()
+            .filter(|record| record.path.starts_with(folder))
+            .collect())
     }
 
     /// `companions` at or below `folder` (only their files are read).
@@ -170,11 +226,13 @@ impl Library {
             None => None,
         };
         let changed = self.conn.execute(
-            "UPDATE assets SET raw_jpeg_pair=?,companion_size=?,companion_fingerprint=? WHERE id=?",
+            "UPDATE assets SET raw_jpeg_pair=?,companion_size=?,companion_fingerprint=?,
+             companion_sha256=? WHERE id=?",
             params![
                 name,
                 identity.as_ref().map(|i| i.size as i64),
                 identity.as_ref().map(|i| i.fingerprint.as_str()),
+                identity.as_ref().map(|i| i.sha256.as_str()),
                 id
             ],
         )?;
@@ -289,5 +347,35 @@ mod tests {
             lib.companion(&lib.asset(&id).unwrap()).unwrap(),
             Some(x.join("A.JPG"))
         );
+    }
+
+    /// A JPEG of the companion's name and size that differs only between
+    /// the fingerprint's samples is not moved, trashed or put back as it.
+    #[test]
+    fn only_the_whole_content_makes_a_companion_safe_to_move() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let capture = lib.directory.join("Capture");
+        let original = vec![7u8; 400_000];
+        fs::write(capture.join("A.ARW"), b"raw").unwrap();
+        fs::write(capture.join("A.JPG"), &original).unwrap();
+        let planned = lib
+            .plan_add(&capture.join("A.ARW"), Default::default())
+            .unwrap()
+            .with_companion("A.JPG")
+            .unwrap();
+        let (id, _) = lib.insert_planned(vec![planned]).unwrap().pop().unwrap();
+        let asset = lib.asset(&id).unwrap();
+        assert!(lib.companion_verified(&asset).unwrap().is_some());
+        let mut middle = original.clone();
+        middle[200_000] = 8;
+        fs::write(capture.join("A.JPG"), &middle).unwrap();
+        assert_eq!(lib.companion_verified(&asset).unwrap(), None);
+        let record = lib.companion_record(&asset).unwrap().unwrap();
+        let elsewhere = d.path().join("A.JPG");
+        fs::write(&elsewhere, &middle).unwrap();
+        assert!(!record.matches(&elsewhere));
+        fs::write(&elsewhere, &original).unwrap();
+        assert!(record.matches(&elsewhere));
     }
 }

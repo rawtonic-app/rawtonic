@@ -735,7 +735,7 @@ pub(crate) fn library_copy(library: &Library, source: &Path) -> Result<Option<He
     if let Some((owner, path)) = held_companion_with(library, len, &mut same)? {
         return Ok(Some(Held::Companion(owner, path)));
     }
-    for record in library.companion_records()? {
+    for record in library.companion_records_of_size(len)? {
         if !record.path.exists() && record.matches(source) {
             return Ok(Some(Held::LostCompanion(
                 library.asset(&record.owner)?,
@@ -768,10 +768,11 @@ fn held_companion_with(
     len: u64,
     same: &mut dyn FnMut(&Path) -> Result<bool>,
 ) -> Result<Option<(rawtonic_catalog::Asset, PathBuf)>> {
-    for (path, owner) in library.companions()? {
-        if fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == len) && same(&path)?
-        {
-            return Ok(Some((library.asset(&owner)?, path)));
+    // Only companions of the source's size are candidates (from the
+    // database: no other file is read).
+    for record in library.companion_records_of_size(len)? {
+        if record.sized() && same(&record.path)? && record.present() {
+            return Ok(Some((library.asset(&record.owner)?, record.path)));
         }
     }
     Ok(None)
@@ -809,7 +810,13 @@ fn import_alone(
     options: &ImportOptions<'_>,
     cancel: &AtomicBool,
 ) -> ImportResult {
-    import_pair(library, source, None, options, None, cancel)
+    // A photograph of its own: not the job item's planned copy.
+    let options = ImportOptions {
+        earlier: None,
+        before_copy: None,
+        ..*options
+    };
+    import_pair(library, source, None, &options, None, cancel)
         .map(|pair| pair.photo)
         .unwrap_or_else(|error| ImportResult {
             source: source.into(),

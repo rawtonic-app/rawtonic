@@ -155,7 +155,7 @@ pub struct PlannedAsset {
 
 impl PlannedAsset {
     /// Registers the photograph with `name`, a file beside it, as its
-    /// companion (a RAW's JPEG; its size and content fingerprint read now),
+    /// companion (a RAW's JPEG; its size, fingerprint and SHA-256 read now),
     /// in the same transaction.
     pub fn with_companion(mut self, name: &str) -> Result<Self> {
         crate::companion::validate_name(name)?;
@@ -323,8 +323,8 @@ impl Library {
             let id = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text,
-                                    raw_jpeg_pair,companion_size,companion_fingerprint)
-                 VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                                    raw_jpeg_pair,companion_size,companion_fingerprint,companion_sha256)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 params![
                     id,
                     asset.root,
@@ -339,7 +339,8 @@ impl Library {
                     asset
                         .companion
                         .as_ref()
-                        .map(|(_, id)| id.fingerprint.as_str())
+                        .map(|(_, id)| id.fingerprint.as_str()),
+                    asset.companion.as_ref().map(|(_, id)| id.sha256.as_str())
                 ],
             )?;
             match &asset.metadata {
@@ -763,7 +764,7 @@ mod tests {
                  ALTER TABLE b5 RENAME TO import_batches; ALTER TABLE a5 RENAME TO asset_imports;
                  CREATE INDEX asset_imports_batch ON asset_imports(batch_id);
                  ALTER TABLE assets DROP COLUMN companion_size;
-                 ALTER TABLE assets DROP COLUMN companion_fingerprint; DROP TABLE ingest_items;
+                 ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256; DROP TABLE ingest_items;
                  PRAGMA user_version=5;",
             )
             .unwrap();

@@ -1370,26 +1370,52 @@ pub(crate) fn offline_in_folder(folder: &Path, recursive: bool) -> Vec<OfflineEn
 /// The companion files (a RAW's JPEG, `Library::companion`) a library
 /// records in `folder` or below it, under `folder` as it was given (not
 /// resolved), so a listing of it leaves them out: they are part of their
-/// RAW's photograph.
+/// RAW's photograph. A companion's samples are read once per file version
+/// (size and modification time), not on every listing (the grid lists the
+/// folder again up to four times a second during an import).
 pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
+    /// Per companion file and photograph: the size and modification time
+    /// it was checked at, and whether it was the recorded one.
+    type Checked = HashMap<(PathBuf, String), (u64, std::time::SystemTime, bool)>;
+    static CHECKED: std::sync::LazyLock<Mutex<Checked>> =
+        std::sync::LazyLock::new(Default::default);
     let Some(dir) = library_for(&folder.join("_")) else {
         return HashSet::new();
     };
     let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
         return HashSet::new();
     };
-    lib.companions_in(Some(&canonical))
-        .map(|companions| {
-            companions
-                .into_keys()
-                .filter_map(|path| {
-                    path.strip_prefix(&canonical)
-                        .ok()
-                        .map(|below| folder.join(below))
-                })
-                .collect()
+    let Ok(records) = lib.companion_records_in(&canonical) else {
+        return HashSet::new();
+    };
+    let mut checked = CHECKED.lock().unwrap_or_else(|e| e.into_inner());
+    records
+        .into_iter()
+        .filter(|record| {
+            let Some(stamp) = fs::metadata(&record.path)
+                .ok()
+                .and_then(|m| Some((m.len(), m.modified().ok()?)))
+            else {
+                return false;
+            };
+            let key = (record.path.clone(), record.owner.clone());
+            match checked.get(&key) {
+                Some(&(size, modified, present)) if (size, modified) == stamp => present,
+                _ => {
+                    let present = record.present();
+                    checked.insert(key, (stamp.0, stamp.1, present));
+                    present
+                }
+            }
         })
-        .unwrap_or_default()
+        .filter_map(|record| {
+            record
+                .path
+                .strip_prefix(&canonical)
+                .ok()
+                .map(|below| folder.join(below))
+        })
+        .collect()
 }
 
 /// The companion file of the photograph at `photo` (it moves and goes to
@@ -1397,7 +1423,8 @@ pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
 pub(crate) fn companion_of(photo: &Path) -> Option<PathBuf> {
     let lib = Library::open(&library_for(photo)?).ok()?;
     let asset = lib.asset_at(photo).ok()??;
-    let companion = lib.companion(&asset).ok()??;
+    // Its whole content checked: only the recorded JPEG moves with it.
+    let companion = lib.companion_verified(&asset).ok()??;
     // Under the photograph's path as given, as the caller's other files.
     let companion = photo.with_file_name(companion.file_name()?);
     companion.is_file().then_some(companion)

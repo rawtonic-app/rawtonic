@@ -1,8 +1,10 @@
--- A RAW's companion JPEG (ADR 0013) is identified by its size and content
--- fingerprint besides its name, so a file of that name that is not it (the
--- RAW moved or relinked next to another JPEG) is never taken for it.
+-- A RAW's companion JPEG (ADR 0013) is identified by its size, content
+-- fingerprint and SHA-256 besides its name, so a file of that name that is
+-- not it (the RAW moved or relinked next to another JPEG) is never taken
+-- for it.
 ALTER TABLE assets ADD COLUMN companion_size INTEGER;
 ALTER TABLE assets ADD COLUMN companion_fingerprint TEXT;
+ALTER TABLE assets ADD COLUMN companion_sha256 TEXT;
 -- Ingest jobs (G66): the photographs of an ingest (job: `tasks`, kind
 -- 'ingest', its options in `payload`) in import order: each source with
 -- its size, modification time and content fingerprint (a card with other

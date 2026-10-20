@@ -338,7 +338,7 @@ pub fn copy_library(
             if xmp.try_exists()? {
                 sidecars.push(xmp);
             }
-            if let Some(companion) = snapshot.companion(asset)? {
+            if let Some(companion) = snapshot.companion_verified(asset)? {
                 sidecars.push(companion);
             }
             for file in sidecars {

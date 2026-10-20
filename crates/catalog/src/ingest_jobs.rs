@@ -401,6 +401,14 @@ impl Library {
     /// `path` as a job stores it: relative to the library when inside it
     /// (a closed session moves as one folder), else absolute.
     pub fn stored(&self, path: &Path) -> Result<String> {
+        // Its folder resolved (the file may not be there yet): a folder
+        // given through a link into the library is inside it too.
+        let resolved = path
+            .parent()
+            .and_then(|folder| folder.canonicalize().ok())
+            .zip(path.file_name())
+            .map(|(folder, name)| folder.join(name));
+        let path = resolved.as_deref().unwrap_or(path);
         let path = match path.strip_prefix(&self.directory) {
             Ok(relative) => {
                 crate::validate_relative(relative)?;
