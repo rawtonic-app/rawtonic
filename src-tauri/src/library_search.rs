@@ -17,12 +17,31 @@ use std::{
 };
 use tauri::Emitter;
 
-/// Paths of the photographs `rule` matches, in path order.
+/// Paths of the photographs `rule` matches, in path order. The catalog
+/// holds real paths; `listed`, the folder the grid lists (perhaps through a
+/// symlink), gets them in its own form, so the grid finds them.
 #[tauri::command]
-pub async fn session_search(directory: String, rule: Rule) -> Result<Vec<PathBuf>, String> {
+pub async fn session_search(
+    directory: String,
+    rule: Rule,
+    listed: Option<String>,
+) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
         start_facts_pass_if_needed(lib);
-        lib.search(&rule).map_err(|e| e.to_string())
+        let paths = lib.search(&rule).map_err(|e| e.to_string())?;
+        Ok(match listed.map(PathBuf::from) {
+            Some(listed) => match listed.canonicalize() {
+                Ok(real) if real != listed => paths
+                    .into_iter()
+                    .map(|path| match path.strip_prefix(&real) {
+                        Ok(rest) => listed.join(rest),
+                        Err(_) => path,
+                    })
+                    .collect(),
+                _ => paths,
+            },
+            None => paths,
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -230,7 +249,7 @@ mod tests {
         let directory = lib.directory.to_string_lossy().into_owned();
         let rule: Rule =
             serde_json::from_value(json!({"field":"rating","op":"ge","value":2})).unwrap();
-        let found = block_on(session_search(directory.clone(), rule.clone())).unwrap();
+        let found = block_on(session_search(directory.clone(), rule.clone(), None)).unwrap();
         assert_eq!(found, [capture.join("A.ARW"), capture.join("B.ARW")]);
         let facets = block_on(session_facets(
             directory.clone(),
@@ -284,7 +303,7 @@ mod tests {
         let bad: Rule =
             serde_json::from_value(json!({"field":"rating","op":"ge","value":9})).unwrap();
         assert!(
-            block_on(session_search(directory, bad))
+            block_on(session_search(directory, bad, None))
                 .unwrap_err()
                 .contains("0–5")
         );
@@ -348,6 +367,32 @@ mod tests {
             .as_ref()
             .map(|(dir, _)| dir.clone());
         assert_eq!(running, Some(directory));
+    }
+
+    /// A folder browsed through a symlink: its rule finds the photographs
+    /// registered by their real place, and the answer comes back in the
+    /// listed form.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_folder_is_searched_and_answered_as_listed() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(&temp.path().join("Job"), "Alias", Mode::Session).unwrap();
+        let photo = lib.directory.join("Capture/A.ARW");
+        std::fs::write(&photo, b"a").unwrap();
+        lib.add_asset(&photo).unwrap();
+        let alias = temp.path().join("alias");
+        std::os::unix::fs::symlink(lib.directory.join("Capture"), &alias).unwrap();
+        let rule: Rule = serde_json::from_value(json!(
+            {"field":"folder","op":"is","value":alias.to_string_lossy()}
+        ))
+        .unwrap();
+        let found = block_on(session_search(
+            lib.directory.to_string_lossy().into_owned(),
+            rule,
+            Some(alias.to_string_lossy().into_owned()),
+        ))
+        .unwrap();
+        assert_eq!(found, [alias.join("A.ARW")]);
     }
 
     /// The catalog's file types say RAW exactly where the grid does.

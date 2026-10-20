@@ -61,6 +61,7 @@ it('asks the catalog after typing pauses and again after a catalog write', async
   expect(searches()).toBe(1);
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
+    listed: null,
     rule: { field: 'text', op: 'contains', value: 'wedding' },
   });
   expect([...(useLibraryStore.getState().catalogMatches ?? [])]).toEqual(['/job/Capture/a.arw']);
@@ -75,6 +76,7 @@ it('asks the catalog after typing pauses and again after a catalog write', async
   await settle();
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
+    listed: null,
     rule: {
       combine: 'all',
       rules: [
@@ -170,12 +172,14 @@ it('also asks what the photographs of shown virtual copies pass besides text and
   await settle();
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
+    listed: null,
     rule: { field: 'camera', op: 'is', value: 'X-T4' },
   });
   expect([...(useLibraryStore.getState().catalogCopies?.base ?? [])]).toEqual(['/job/Capture/a.arw']);
   // And per word, what the copies share with their photograph.
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
+    listed: null,
     rule: { field: 'details', op: 'contains', value: 'client' },
   });
   useLibraryStore.setState({ imageList: [] });
@@ -191,4 +195,20 @@ it('shows nothing, and says so, when a search fails after an earlier one worked'
   await settle();
   expect(useLibraryStore.getState().catalogMatches?.size).toBe(0);
   expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining('database is locked'));
+});
+
+it('asks for answers in the form of the folder the grid lists', async () => {
+  useLibraryStore.setState({
+    searchCriteria: { text: 'bride', tags: [], mode: 'OR' },
+    currentFolderPath: '/alias/Capture',
+    activeAlbumId: null,
+  });
+  renderHook(() => useCatalogSearch());
+  await settle();
+  expect(mockInvoke).toHaveBeenCalledWith('session_search', {
+    directory: '/job',
+    listed: '/alias/Capture',
+    rule: { field: 'text', op: 'contains', value: 'bride' },
+  });
+  useLibraryStore.setState({ currentFolderPath: null });
 });

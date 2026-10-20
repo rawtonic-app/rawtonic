@@ -12,6 +12,7 @@ import {
   scopeRule,
   searchLibrary,
   searchRule,
+  type Rule,
 } from '../utils/librarySearch';
 
 /** How long typing pauses before the catalog is asked. */
@@ -62,6 +63,9 @@ export function useCatalogSearch() {
     // it does not hold, e.g. a session's Output; those are matched here).
     const { currentFolderPath, activeAlbumId } = useLibraryStore.getState();
     const scope = scopeRule(currentFolderPath, activeAlbumId, useSettingsStore.getState().appSettings?.libraryViewMode);
+    // A folder the grid lists (not an album view): answers come in its form.
+    const listed = activeAlbumId ? null : currentFolderPath;
+    const search = (asked: Rule) => searchLibrary(directory, asked, listed);
     // Copies are matched on their own keywords (`copyMatches`).
     const copyRule = imageList.some((image) => image.is_virtual_copy) ? copyBaseRule(text, selection) : null;
     let cancelled = false;
@@ -77,10 +81,10 @@ export function useCatalogSearch() {
           !cancelled && mine === generation && useLibraryStore.getState().sessionDirectory === directory;
         const paths = (asked: Promise<string[]>) => asked.then((list) => new Set(list.map(photographPath)));
         Promise.all([
-          paths(searchLibrary(directory, rule)),
-          paths(searchLibrary(directory, scope ?? { combine: 'all', rules: [] })),
-          copyRule ? paths(searchLibrary(directory, copyRule)) : null,
-          copyRule ? Promise.all(detailRules(text).map((word) => paths(searchLibrary(directory, word)))) : null,
+          paths(search(rule)),
+          paths(search(scope ?? { combine: 'all', rules: [] })),
+          copyRule ? paths(search(copyRule)) : null,
+          copyRule ? Promise.all(detailRules(text).map((word) => paths(search(word)))) : null,
         ])
           .then(([matches, known, base, details]) => {
             if (!current()) return;

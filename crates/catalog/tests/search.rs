@@ -1113,7 +1113,7 @@ fn keywords_with_spaces_around_them_are_listed_as_they_select() {
     let d = tempfile::tempdir().unwrap();
     let (lib, ids) = library(d.path());
     let mut meta = lib.metadata(&ids[3]).unwrap();
-    meta.keywords = vec![" harbour ".into()];
+    meta.keywords = vec!["\t harbour\u{a0}".into()];
     lib.set_metadata(&ids[3], &meta).unwrap();
     let facets = lib.facets(&Rule::everything(), &[Field::Keyword]).unwrap();
     let listed = facets[&Field::Keyword]

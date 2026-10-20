@@ -995,6 +995,10 @@ impl<'a> Compiler<'a> {
     /// the library's own root by their path in it, those of external roots
     /// by the root's folder.
     fn folder(&mut self, folder: &Path, below: bool) -> Result<String> {
+        // Photographs are registered by their real place: a folder reached
+        // through a symlink is the folder it points to.
+        let real = folder.canonicalize();
+        let folder = real.as_deref().unwrap_or(folder);
         let sep = self.sep;
         let text = |p: &Path| p.to_string_lossy().trim_end_matches(sep).to_string();
         // Library root: the folder relative to the library directory.

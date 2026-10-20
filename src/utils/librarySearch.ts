@@ -240,8 +240,10 @@ export const photographPath = (path: string): string => {
   return at < 0 ? path : path.slice(0, at);
 };
 
-export const searchLibrary = (directory: string, rule: Rule) =>
-  invoke<string[]>(Invokes.SessionSearch, { directory, rule });
+/** `listed`: the folder the grid lists, perhaps through a symlink; the
+ * answer comes in its form (the catalog holds real paths). */
+export const searchLibrary = (directory: string, rule: Rule, listed: string | null = null) =>
+  invoke<string[]>(Invokes.SessionSearch, { directory, rule, listed });
 
 /** Each list's values with counts within `base` and the other lists' choices. */
 export function libraryFacets(directory: string, base: Rule[], selection: MetadataSelection | undefined) {

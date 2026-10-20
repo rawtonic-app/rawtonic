@@ -388,6 +388,22 @@ impl Library {
                 })
             },
         )?;
+        // Keywords are indexed trimmed as rules trim their values (Unicode
+        // whitespace, `str::trim`), by the keyword triggers.
+        conn.create_scalar_function(
+            "rawtonic_trim",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        Some(String::from_utf8_lossy(text).trim().to_string())
+                    }
+                    _ => None,
+                })
+            },
+        )?;
         Ok(())
     }
 
