@@ -169,3 +169,41 @@ it("finds a release before its photo's commit and skips the queue step on camera
   for (const _ of [1, 2, 3, 4, 5, 6, 7]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   await runStep(/\| Transfer queue freed after commit \| skipped \| the camera keeps no transfer queue \|/);
 });
+
+it("counts a RAW+JPEG exposure once, so missing exposures fail the burst", async () => {
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      if (n > 3) {
+        emit("tether-capture-failed", { kind: "timeout", message: "The camera did not deliver the shot." });
+        return;
+      }
+      for (const extension of ["RAF", "JPG"])
+        emit("tether-captured", {
+          cameraName: `DSCF${n}.${extension}`,
+          destination: null,
+          assetId: `a${n}${extension}`,
+          skipped: false,
+          error: null,
+          requested: true,
+        });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 3\/5 in the library; \d+ ms; The camera did not deliver the shot\. \|/);
+});
+
+it("asks the camera for nothing more once the test is closed", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  onCapture = () => undefined;
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await waitFor(() => expect(shot).toBe(1));
+  cleanup();
+  // Past every wait a step could still be in.
+  await vi.advanceTimersByTimeAsync(400_000);
+  vi.useRealTimers();
+  expect(shot).toBe(1);
+  expect(invoke.mock.calls.filter(([command]) => command === "tether_capture")).toHaveLength(1);
+});

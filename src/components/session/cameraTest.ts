@@ -88,13 +88,16 @@ export const percentile = (values: number[], p: number) => {
   return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
 };
 
-const PATH = /(?<![\w.~])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\/)[^\s"'`<>|]+/g;
+/** The start of an absolute path (POSIX, home, Windows drive or share),
+ * not the slash of a value such as 1/250 or f/8. Everything from there to
+ * the end of the message goes: a folder or user name may hold spaces. */
+const PATH = /(?<![\w.~])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\/(?=[^\s/]))[\s\S]*$/;
 const PHOTO_FILE =
   /\b[\w.-]+\.(?:3fr|arw|cr2|cr3|crw|dng|erf|fff|gpr|heic|heif|hif|iiq|jpe?g|kdc|mef|mos|mrw|nef|nrw|orf|pef|raf|raw|rw2|rwl|sr2|srf|srw|tiff?|x3f)\b/gi;
 
 /** A message from the camera or the app, safe for an anonymous report:
- * paths, photo file names and the given secrets (the body's serial
- * number) replaced, kept short. */
+ * the given secrets (the body's serial number) and photo file names
+ * replaced, everything from the first path on cut, kept short. */
 export const scrub = (text: string, secrets: (string | null | undefined)[] = []) => {
   let out = text;
   for (const secret of secrets) {

@@ -50,6 +50,8 @@ interface Heard {
   name: string;
   payload: unknown;
   at: number;
+  /** A photo of a new exposure (not the JPEG or RAW of one already in). */
+  exposure?: boolean;
 }
 
 const EVENTS = ["tether-captured", "tether-capture-failed", "tether-state", "tether-released", "wgpu-frame-ready"];
@@ -67,6 +69,12 @@ export const ISSUE_URL = "https://github.com/rawtonic-app/rawtonic/issues/new?te
 const now = () => performance.now();
 const sameFile = (a: string, b: string) => a === b || a.startsWith(`${b}?`);
 const captured = (h: Heard) => h.payload as Captured;
+/** A shot requested from the app: its first file in (RAW+JPEG come as two). */
+const appExposure = (h: Heard) => h.name === "tether-captured" && captured(h).requested && h.exposure === true;
+/** The other file of one exposure (RAW+JPEG) arrives within this. */
+const COMPANION_MS = 10_000;
+/** Thrown into a running step when the test is closed. */
+const CLOSED = "the camera test was closed";
 
 const systemName = () => {
   try {
@@ -106,7 +114,11 @@ export default function TetherCameraTest({
   // Everything heard during the test, so a wait never misses what came
   // before it was set up.
   const heard = useRef<Heard[]>([]);
-  const waiters = useRef(new Set<(h: Heard) => boolean>());
+  const waiters = useRef(new Set<(h: Heard | null) => boolean>());
+  // Closed: no step asks the camera for anything more.
+  const closed = useRef(false);
+  // Per file name stem: its extensions and when its exposure came in.
+  const stems = useRef(new Map<string, { extensions: Set<string>; at: number }>());
   // Committed photos waiting for their release, and what the releases said.
   // (`releasedEarly`: released before their commit was heard.)
   const releases = useRef({
@@ -123,7 +135,23 @@ export default function TetherCameraTest({
       .then(setAppVersion)
       .catch(() => undefined);
     const hear = (name: string, payload: unknown) => {
-      const h = { name, payload, at: now() };
+      const h: Heard = { name, payload, at: now() };
+      if (name === "tether-captured") {
+        // One exposure as RAW and JPEG counts once: a second file of a stem
+        // just in, with another extension, belongs to it.
+        const file = (payload as Captured).cameraName;
+        const dot = file.lastIndexOf(".");
+        const stem = dot > 0 ? file.slice(0, dot) : file;
+        const extension = dot > 0 ? file.slice(dot + 1).toLowerCase() : "";
+        const seen = stems.current.get(stem);
+        if (seen && !seen.extensions.has(extension) && h.at - seen.at < COMPANION_MS) {
+          seen.extensions.add(extension);
+          h.exposure = false;
+        } else {
+          stems.current.set(stem, { extensions: new Set([extension]), at: h.at });
+          h.exposure = true;
+        }
+      }
       heard.current.push(h);
       if (heard.current.length > 500) heard.current.splice(0, 250);
       if (name === "tether-captured") {
@@ -146,17 +174,25 @@ export default function TetherCameraTest({
       for (const waiter of [...waiters.current]) if (waiter(h)) waiters.current.delete(waiter);
     };
     const stops = EVENTS.map((name) => listen(name, (event) => hear(name, event.payload)));
-    return () => stops.forEach((stop) => void stop.then((fn) => fn()));
+    const pending = waiters.current;
+    return () => {
+      closed.current = true;
+      // Every wait ends now (null), so no step goes on to the camera.
+      for (const waiter of [...pending]) waiter(null);
+      pending.clear();
+      stops.forEach((stop) => void stop.then((fn) => fn()));
+    };
   }, []);
 
   /** The first event since `since` that `match`es, or null after `ms`. */
   const next = useCallback(
     (match: (h: Heard) => boolean, ms: number, since: number) =>
       new Promise<Heard | null>((resolve) => {
+        if (closed.current) return resolve(null);
         const early = heard.current.find((h) => h.at >= since && match(h));
         if (early) return resolve(early);
-        const waiter = (h: Heard) => {
-          if (!match(h)) return false;
+        const waiter = (h: Heard | null) => {
+          if (h !== null && !match(h)) return false;
           window.clearTimeout(timer);
           resolve(h);
           return true;
@@ -170,6 +206,12 @@ export default function TetherCameraTest({
     [],
   );
 
+  /** Asks the camera for something, unless the test was closed. */
+  const ask = useCallback(<T,>(command: string, args?: Record<string, unknown>) => {
+    if (closed.current) return Promise.reject(new Error(CLOSED));
+    return invoke<T>(command, args);
+  }, []);
+
   const secrets = useMemo(() => [camera.serial], [camera.serial]);
   const failed = useCallback(
     (e: unknown): StepResult => ({ state: "failed", reason: scrub(String(e), secrets) }),
@@ -181,12 +223,12 @@ export default function TetherCameraTest({
   const shoot = useCallback(async (screen: boolean) => {
     const since = now();
     try {
-      await invoke(Invokes.TetherCapture);
+      await ask(Invokes.TetherCapture);
     } catch (e) {
       return { error: String(e) };
     }
     const photo = await next(
-      (h) => (h.name === "tether-captured" && captured(h).requested) || h.name === "tether-capture-failed",
+      (h) => appExposure(h) || h.name === "tether-capture-failed",
       SHOT_WAIT_MS,
       since,
     );
@@ -205,13 +247,13 @@ export default function TetherCameraTest({
           )
         : null;
     return { inLibrary, onScreen: frame ? Math.round(frame.at - since) : undefined };
-  }, [next]);
+  }, [ask, next]);
 
   const runners: Record<StepId, () => Promise<StepResult>> = {
     connect: async () => ({ state: "passed" }),
     settings: async () => {
       const started = now();
-      const settings = await invoke<Setting[]>(Invokes.TetherSettings);
+      const settings = await ask<Setting[]>(Invokes.TetherSettings);
       const ms = Math.round(now() - started);
       const changeable = settings.filter((s) => !s.readOnly && s.choices.length > 1).length;
       return settings.length > 0
@@ -219,13 +261,13 @@ export default function TetherCameraTest({
         : { state: "failed", ms, settings: 0, changeable: 0, reason: "no settings read" };
     },
     setSetting: async () => {
-      const pick = settingToChange(await invoke<Setting[]>(Invokes.TetherSettings));
+      const pick = settingToChange(await ask<Setting[]>(Invokes.TetherSettings));
       if (!pick) return { state: "skipped", reason: "no changeable setting with two values" };
       const { setting, other } = pick;
       const valueOf = async () =>
-        (await invoke<Setting[]>(Invokes.TetherSettings)).find((s) => s.key === setting.key)?.value;
+        (await ask<Setting[]>(Invokes.TetherSettings)).find((s) => s.key === setting.key)?.value;
       const started = now();
-      await invoke(Invokes.TetherSetSetting, { key: setting.key, value: other });
+      await ask(Invokes.TetherSetSetting, { key: setting.key, value: other });
       const ms = Math.round(now() - started);
       const changed = await valueOf()
         .then((value) => value === other)
@@ -237,7 +279,7 @@ export default function TetherCameraTest({
     },
     autofocus: async () => {
       const started = now();
-      await invoke(Invokes.TetherAutofocus);
+      await ask(Invokes.TetherAutofocus);
       return { state: "passed", ms: Math.round(now() - started) };
     },
     shots: async () => {
@@ -246,7 +288,7 @@ export default function TetherCameraTest({
       const errors: string[] = [];
       // Develop not showing the first photo: the others are not waited for.
       let screen = true;
-      for (let i = 1; i <= shotCount; i += 1) {
+      for (let i = 1; i <= shotCount && !closed.current; i += 1) {
         setPrompt(t("session.tether.test.shotOf", { n: i, total: shotCount }));
         const shot = await shoot(screen);
         if (shot.onScreen === undefined) screen = false;
@@ -269,7 +311,7 @@ export default function TetherCameraTest({
       setPrompt(t("session.tether.test.bursting", { shots: BURST }));
       for (let i = 0; i < BURST; i += 1) {
         try {
-          await invoke(Invokes.TetherCapture);
+          await ask(Invokes.TetherCapture);
         } catch (e) {
           errors.push(String(e));
         }
@@ -281,7 +323,7 @@ export default function TetherCameraTest({
         const photo = await next(
           (h) =>
             h.at > last &&
-            ((h.name === "tether-captured" && captured(h).requested) || h.name === "tether-capture-failed"),
+            (appExposure(h) || h.name === "tether-capture-failed"),
           SHOT_WAIT_MS,
           last,
         );
@@ -307,7 +349,7 @@ export default function TetherCameraTest({
       const since = now();
       setPrompt(t("session.tether.test.pressShutter"));
       const photo = await next(
-        (h) => h.name === "tether-captured" && !captured(h).requested,
+        (h) => h.name === "tether-captured" && !captured(h).requested && h.exposure === true,
         BODY_SHOT_WAIT_MS,
         since,
       );

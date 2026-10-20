@@ -30,13 +30,18 @@ it("takes medians and nearest-rank percentiles", () => {
 });
 
 it("keeps paths, photo file names and the serial number out of a message", () => {
-  const message =
-    "Downloading DSC01234.ARW failed: /Users/someone/Jobs/Acme/.tether/incoming/00000001/DSC01234.ARW (body 5a33f1) at C:\\Users\\x\\a.raf";
-  const clean = scrub(message, ["5a33f1"]);
-  expect(clean).not.toMatch(/someone|Acme|DSC01234|5a33f1|Users/);
-  expect(clean).toContain("<path>");
-  expect(clean).toContain("<file>");
-  expect(clean).toContain("<serial>");
+  expect(scrub("Downloading DSC01234.ARW from 5a33f1 failed: /Users/someone/Jobs/Acme/DSC01234.ARW", ["5a33f1"])).toBe(
+    "Downloading <file> from <serial> failed: <path>",
+  );
+  // Names with spaces, Windows and quoted paths: nothing after the path's start stays.
+  for (const message of [
+    "Cannot copy /Users/Jane Doe/Jobs/Acme Secret/DSC00001.ARW",
+    "Cannot copy C:\\Users\\Jane Doe\\Acme Secret\\a.raf: disk full",
+    'Cannot copy "/home/jane doe/Acme Secret/x" (denied)',
+    "Cannot copy \\\\server\\Jane Doe\\Acme Secret",
+    "Cannot copy ~/Acme Secret/x",
+  ])
+    expect(scrub(message)).toMatch(/^Cannot copy "?<path>$/);
   // Camera values with a slash stay.
   expect(scrub("Shutter speed 1/250 at f/8")).toBe("Shutter speed 1/250 at f/8");
   expect(scrub("x".repeat(400)).length).toBe(160);
