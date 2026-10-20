@@ -218,6 +218,18 @@ describe("rendered layer limit", () => {
     expect(toastError).toHaveBeenCalledTimes(1);
   });
 
+  it("copies nothing when a kept menu's layer was deleted meanwhile", () => {
+    layers(32);
+    render(<StudioLayers />);
+    const duplicate = menuOf("l1").find((item) => item.label === "Duplicate Layer")!;
+    const { masks } = useEditorStore.getState().adjustments;
+    useEditorStore.setState({
+      adjustments: { ...useEditorStore.getState().adjustments, masks: [...masks.slice(1), { ...masks[1], id: "new" }] },
+    });
+    duplicate.onClick!();
+    expect(setAdjustments).not.toHaveBeenCalled();
+  });
+
   it("allows them below the limit", () => {
     layers(31);
     render(<StudioLayers />);

@@ -254,8 +254,10 @@ export default function StudioLayers({
   };
   // Lightroom's Duplicate and Duplicate and Invert: a copy above the layer,
   // with new ids for it and its components.
-  const duplicateLayer = (target: MaskContainer, invert: boolean) => {
-    if (warnIfCopyRenders(target.id)) return;
+  const duplicateLayer = (menuTarget: MaskContainer, invert: boolean) => {
+    // The layer as it is now: a menu kept open may outlive its layer.
+    const target = useEditorStore.getState().adjustments.masks.find((m) => m.id === menuTarget.id);
+    if (!target || warnIfCopyRenders(target.id)) return;
     const copy = {
       ...structuredClone(target),
       id: crypto.randomUUID(),
@@ -265,6 +267,7 @@ export default function StudioLayers({
     copy.subMasks = copy.subMasks.map((sub) => ({ ...sub, id: crypto.randomUUID() }));
     setAdjustments((prev) => {
       const at = prev.masks.findIndex((m) => m.id === target.id);
+      if (at < 0) return prev;
       return { ...prev, masks: [...prev.masks.slice(0, at + 1), copy, ...prev.masks.slice(at + 1)] };
     });
     setEditor({
