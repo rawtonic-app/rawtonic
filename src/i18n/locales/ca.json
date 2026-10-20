@@ -1359,6 +1359,7 @@
         "open_settings": "Obrir Configuració",
         "paste_adjustments": "Enganxar ajustaments copiats",
         "paste_files": "Enganxar fitxers a la carpeta actual",
+        "paste_from_previous": "Enganxa els ajustos de la foto anterior",
         "pin_reference": "Fixa la foto principal com a referència",
         "preview_next": "Imatge següent",
         "preview_prev": "Imatge anterior",
@@ -1374,6 +1375,7 @@
         "rotate_right": "Girar 90° en sentit horari",
         "select_all": "Seleccionar totes les imatges",
         "show_original": "Mantenir: tota la foto abans",
+        "sync_settings": "Sincronitza els ajustos amb les fotos seleccionades",
         "tether_capture": "Dispara la càmera connectada",
         "toggle_adjustments": "Alternar tauler d'Ajustaments",
         "toggle_all_panels": "Amaga o mostra tots els panells i barres",
@@ -1689,6 +1691,31 @@
         "title": "Arrossega per al to i la saturació · Maj: fi · Alt manté el to · doble clic restableix",
         "valueText": "To {{hue}}°, saturació {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "Tot",
+      "cancel": "Cancel·la",
+      "changed": "Canviat en aquesta foto",
+      "copy": "Copia",
+      "copyTitle": "Copia els ajustos",
+      "detectedHere": "Les seleccions d’IA es detecten a cada foto",
+      "layers": "Capes locals",
+      "modified": "Canviats",
+      "modifiedTitle": "Només les eines canviades en aquesta foto",
+      "noLayers": "Aquesta foto no té capes.",
+      "none": "Res",
+      "pending": "Detecció d’IA pendent: s’executa en obrir la foto",
+      "pendingShort": "Detecció d’IA pendent",
+      "rules": "Les capes enganxades s’afegeixen a les de cada foto (una capa ja enganxada es reemplaça). Les seleccions d’IA (cel, subjecte, objectes, profunditat, persones) es detecten a cada foto, mai es prenen d’aquesta. El retoc, els pedaços d’IA i el desenfocament d’objectiu es queden amb la seva foto.",
+      "sections": {
+        "basic": "Llum",
+        "color": "Color",
+        "details": "Detall",
+        "effects": "Efectes",
+        "geometry": "Retall, geometria i objectiu"
+      },
+      "sync": "Sincronitza ({{n}})",
+      "syncTitle": "Sincronitza els ajustos amb les altres fotos seleccionades ({{n}})"
     },
     "crop": {
       "add": "Afegeix",
@@ -3462,10 +3489,12 @@
         "noPhotograph": "Cap foto",
         "paste": "Enganxa",
         "pasteAdjustments": "Enganxa els ajustaments",
+        "pasteFromPrevious": "Enganxa els ajustos de la foto oberta abans (com l’última vegada)",
         "photographs_one": "{{n}} foto",
         "photographs_many": "{{n}} fotos",
         "photographs_other": "{{n}} fotos",
         "previous": "Foto anterior",
+        "previousSettings": "Anterior",
         "rate_one": "Valora amb {{count}} estrella",
         "rate_many": "Valora amb {{count}} estrelles",
         "rate_other": "Valora amb {{count}} estrelles",
@@ -3475,7 +3504,9 @@
         "showFilmstrip": "Mostra la tira d'imatges",
         "stars_one": "{{count}} estrella",
         "stars_many": "{{count}} estrelles",
-        "stars_other": "{{count}} estrelles"
+        "stars_other": "{{count}} estrelles",
+        "sync": "Sincronitza",
+        "syncSettings": "Sincronitza els ajustos amb les fotos seleccionades (Opció: com l’última vegada)"
       },
       "grid": {
         "anyRating": "Qualsevol valoració",

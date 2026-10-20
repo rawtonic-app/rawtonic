@@ -1301,6 +1301,7 @@
         "open_settings": "Einstellungen öffnen",
         "paste_adjustments": "Kopierte Anpassungen einfügen",
         "paste_files": "Datei(en) in aktuellen Ordner einfügen",
+        "paste_from_previous": "Einstellungen vom vorherigen Foto einfügen",
         "pin_reference": "Hauptfoto als Referenz anheften",
         "preview_next": "Nächstes Bild",
         "preview_prev": "Vorheriges Bild",
@@ -1316,6 +1317,7 @@
         "rotate_right": "90° im Uhrzeigersinn drehen",
         "select_all": "Alle Bilder auswählen",
         "show_original": "Halten: ganzes Foto vorher",
+        "sync_settings": "Einstellungen mit den ausgewählten Fotos synchronisieren",
         "tether_capture": "Tethered-Kamera auslösen",
         "toggle_adjustments": "Anpassungen-Panel ein-/ausblenden",
         "toggle_all_panels": "Alle Panels und Leisten aus-/einblenden",
@@ -1631,6 +1633,31 @@
         "title": "Ziehen für Farbton und Sättigung · Umschalt fein · Alt behält den Farbton · Doppelklick setzt zurück",
         "valueText": "Farbton {{hue}}°, Sättigung {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "Alle",
+      "cancel": "Abbrechen",
+      "changed": "Auf diesem Foto geändert",
+      "copy": "Kopieren",
+      "copyTitle": "Einstellungen kopieren",
+      "detectedHere": "KI-Auswahlen werden auf jedem Foto erkannt",
+      "layers": "Lokale Ebenen",
+      "modified": "Geänderte",
+      "modifiedTitle": "Nur die auf diesem Foto geänderten Werkzeuge",
+      "noLayers": "Dieses Foto hat keine Ebenen.",
+      "none": "Keine",
+      "pending": "KI-Erkennung ausstehend: läuft beim Öffnen des Fotos",
+      "pendingShort": "KI-Erkennung ausstehend",
+      "rules": "Eingefügte Ebenen kommen zu den eigenen jedes Fotos hinzu (eine schon einmal eingefügte wird ersetzt). KI-Auswahlen (Himmel, Motiv, Objekte, Tiefe, Personen) werden auf jedem Foto erkannt, nie von diesem übernommen. Retusche, KI-Flicken und Objektivunschärfe bleiben bei ihrem Foto.",
+      "sections": {
+        "basic": "Licht",
+        "color": "Farbe",
+        "details": "Details",
+        "effects": "Effekte",
+        "geometry": "Freistellen, Geometrie & Objektiv"
+      },
+      "sync": "Synchronisieren ({{n}})",
+      "syncTitle": "Einstellungen mit den anderen ausgewählten Fotos synchronisieren ({{n}})"
     },
     "crop": {
       "add": "Hinzufügen",
@@ -3366,16 +3393,20 @@
         "noPhotograph": "Kein Foto",
         "paste": "Einfügen",
         "pasteAdjustments": "Anpassungen einfügen",
+        "pasteFromPrevious": "Einstellungen des zuvor geöffneten Fotos einfügen (wie zuletzt gewählt)",
         "photographs_one": "{{n}} Foto",
         "photographs_other": "{{n}} Fotos",
         "previous": "Vorheriges Foto",
+        "previousSettings": "Vorheriges",
         "rate_one": "Mit {{count}} Stern bewerten",
         "rate_other": "Mit {{count}} Sternen bewerten",
         "selected_one": "{{n}} ausgewählt",
         "selected_other": "{{n}} ausgewählt",
         "showFilmstrip": "Filmstreifen einblenden",
         "stars_one": "{{count}} Stern",
-        "stars_other": "{{count}} Sterne"
+        "stars_other": "{{count}} Sterne",
+        "sync": "Sync.",
+        "syncSettings": "Einstellungen mit den ausgewählten Fotos synchronisieren (Wahltaste: wie zuletzt gewählt)"
       },
       "grid": {
         "anyRating": "Alle Sterne",

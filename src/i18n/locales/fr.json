@@ -1359,6 +1359,7 @@
         "open_settings": "Ouvrir les paramètres",
         "paste_adjustments": "Coller les ajustements copiés",
         "paste_files": "Coller le(s) fichier(s) dans le dossier actuel",
+        "paste_from_previous": "Coller les réglages de la photo précédente",
         "pin_reference": "Épingler la photo principale comme référence",
         "preview_next": "Image suivante",
         "preview_prev": "Image précédente",
@@ -1374,6 +1375,7 @@
         "rotate_right": "Pivoter de 90° à droite",
         "select_all": "Sélectionner toutes les images",
         "show_original": "Maintenir : toute la photo avant",
+        "sync_settings": "Synchroniser les réglages avec les photos sélectionnées",
         "tether_capture": "Déclencher l’appareil connecté",
         "toggle_adjustments": "Basculer le panneau des ajustements",
         "toggle_all_panels": "Masquer ou afficher tous les panneaux et barres",
@@ -1689,6 +1691,31 @@
         "title": "Faites glisser pour la teinte et la saturation · Maj : précis · Alt conserve la teinte · double-clic réinitialise",
         "valueText": "Teinte {{hue}}°, saturation {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "Tout",
+      "cancel": "Annuler",
+      "changed": "Modifié sur cette photo",
+      "copy": "Copier",
+      "copyTitle": "Copier les réglages",
+      "detectedHere": "Les sélections IA sont détectées sur chaque photo",
+      "layers": "Calques locaux",
+      "modified": "Modifiés",
+      "modifiedTitle": "Seulement les outils modifiés sur cette photo",
+      "noLayers": "Cette photo n’a pas de calques.",
+      "none": "Aucun",
+      "pending": "Détection IA en attente : elle s’exécute à l’ouverture de la photo",
+      "pendingShort": "Détection IA en attente",
+      "rules": "Les calques collés s’ajoutent à ceux de chaque photo (un calque déjà collé est remplacé). Les sélections IA (ciel, sujet, objets, profondeur, personnes) sont détectées sur chaque photo, jamais reprises de celle-ci. Les retouches, correctifs IA et flou d’objectif restent avec leur photo.",
+      "sections": {
+        "basic": "Lumière",
+        "color": "Couleur",
+        "details": "Détail",
+        "effects": "Effets",
+        "geometry": "Recadrage, géométrie et objectif"
+      },
+      "sync": "Synchroniser ({{n}})",
+      "syncTitle": "Synchroniser les réglages avec les autres photos sélectionnées ({{n}})"
     },
     "crop": {
       "add": "Ajouter",
@@ -3462,10 +3489,12 @@
         "noPhotograph": "Aucune photo",
         "paste": "Coller",
         "pasteAdjustments": "Coller les réglages",
+        "pasteFromPrevious": "Coller les réglages de la photo ouverte avant (comme la dernière fois)",
         "photographs_one": "{{n}} photo",
         "photographs_many": "{{n}} photos",
         "photographs_other": "{{n}} photos",
         "previous": "Photo précédente",
+        "previousSettings": "Précédent",
         "rate_one": "Attribuer {{count}} étoile",
         "rate_many": "Attribuer {{count}} étoiles",
         "rate_other": "Attribuer {{count}} étoiles",
@@ -3475,7 +3504,9 @@
         "showFilmstrip": "Afficher la bande de film",
         "stars_one": "{{count}} étoile",
         "stars_many": "{{count}} étoiles",
-        "stars_other": "{{count}} étoiles"
+        "stars_other": "{{count}} étoiles",
+        "sync": "Synchro",
+        "syncSettings": "Synchroniser les réglages avec les photos sélectionnées (Option : comme la dernière fois)"
       },
       "grid": {
         "anyRating": "Toutes les notes",

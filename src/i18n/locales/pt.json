@@ -1359,6 +1359,7 @@
         "open_settings": "Abrir configurações",
         "paste_adjustments": "Colar ajustes copiados",
         "paste_files": "Colar arquivo(s) na pasta atual",
+        "paste_from_previous": "Colar definições da foto anterior",
         "pin_reference": "Fixar a foto principal como referência",
         "preview_next": "Próxima imagem",
         "preview_prev": "Imagem anterior",
@@ -1374,6 +1375,7 @@
         "rotate_right": "Girar 90° no sentido horário",
         "select_all": "Selecionar todas as imagens",
         "show_original": "Manter: foto toda antes",
+        "sync_settings": "Sincronizar definições com as fotos selecionadas",
         "tether_capture": "Disparar a câmara conectada",
         "toggle_adjustments": "Alternar painel de Ajustes",
         "toggle_all_panels": "Ocultar ou mostrar todos os painéis e barras",
@@ -1689,6 +1691,31 @@
         "title": "Arraste para matiz e saturação · Shift: fino · Alt mantém o matiz · clique duplo redefine",
         "valueText": "Matiz {{hue}}°, saturação {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "Tudo",
+      "cancel": "Cancelar",
+      "changed": "Alterado nesta foto",
+      "copy": "Copiar",
+      "copyTitle": "Copiar definições",
+      "detectedHere": "As seleções de IA são detetadas em cada foto",
+      "layers": "Camadas locais",
+      "modified": "Alterados",
+      "modifiedTitle": "Apenas as ferramentas alteradas nesta foto",
+      "noLayers": "Esta foto não tem camadas.",
+      "none": "Nada",
+      "pending": "Deteção de IA pendente: corre quando a foto é aberta",
+      "pendingShort": "Deteção de IA pendente",
+      "rules": "As camadas coladas juntam-se às de cada foto (uma camada já colada é substituída). As seleções de IA (céu, motivo, objetos, profundidade, pessoas) são detetadas em cada foto, nunca tiradas desta. O retoque, os remendos de IA e o desfoque de lente ficam com a sua foto.",
+      "sections": {
+        "basic": "Luz",
+        "color": "Cor",
+        "details": "Detalhe",
+        "effects": "Efeitos",
+        "geometry": "Recorte, geometria e lente"
+      },
+      "sync": "Sincronizar ({{n}})",
+      "syncTitle": "Sincronizar definições com as outras fotos selecionadas ({{n}})"
     },
     "crop": {
       "add": "Adicionar",
@@ -3462,10 +3489,12 @@
         "noPhotograph": "Nenhuma foto",
         "paste": "Colar",
         "pasteAdjustments": "Colar ajustes",
+        "pasteFromPrevious": "Colar as definições da foto aberta antes (como da última vez)",
         "photographs_one": "{{n}} foto",
         "photographs_many": "{{n}} fotos",
         "photographs_other": "{{n}} fotos",
         "previous": "Foto anterior",
+        "previousSettings": "Anterior",
         "rate_one": "Classificar com {{count}} estrela",
         "rate_many": "Classificar com {{count}} estrelas",
         "rate_other": "Classificar com {{count}} estrelas",
@@ -3475,7 +3504,9 @@
         "showFilmstrip": "Mostrar a tira de filme",
         "stars_one": "{{count}} estrela",
         "stars_many": "{{count}} estrelas",
-        "stars_other": "{{count}} estrelas"
+        "stars_other": "{{count}} estrelas",
+        "sync": "Sincronizar",
+        "syncSettings": "Sincronizar definições com as fotos selecionadas (Opção: como da última vez)"
       },
       "grid": {
         "anyRating": "Qualquer classificação",

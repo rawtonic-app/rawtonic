@@ -1264,6 +1264,7 @@
         "open_settings": "打开设置",
         "paste_adjustments": "粘贴复制的调整",
         "paste_files": "将文件粘贴到当前文件夹",
+        "paste_from_previous": "从上一张照片粘贴设置",
         "pin_reference": "将主照片固定为参考",
         "preview_next": "下一张",
         "preview_prev": "上一张",
@@ -1279,6 +1280,7 @@
         "rotate_right": "顺时针旋转 90°",
         "select_all": "选择所有图像",
         "show_original": "按住：整张照片编辑前",
+        "sync_settings": "将设置同步到选定照片",
         "tether_capture": "触发联机相机",
         "toggle_adjustments": "切换调整面板",
         "toggle_all_panels": "隐藏/显示所有面板和栏",
@@ -1594,6 +1596,31 @@
         "title": "拖动调整色相和饱和度 · Shift 微调 · Alt 保持色相 · 双击重置",
         "valueText": "色相 {{hue}}°，饱和度 {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "全部",
+      "cancel": "取消",
+      "changed": "此照片中已更改",
+      "copy": "复制",
+      "copyTitle": "复制设置",
+      "detectedHere": "AI 选区会在每张照片上检测",
+      "layers": "局部图层",
+      "modified": "已更改",
+      "modifiedTitle": "仅此照片中更改过的工具",
+      "noLayers": "此照片没有图层。",
+      "none": "无",
+      "pending": "AI 检测待处理：打开照片时运行",
+      "pendingShort": "AI 检测待处理",
+      "rules": "粘贴的图层会加入每张照片自己的图层（之前粘贴的图层会被替换）。AI 选区（天空、主体、对象、深度、人物）在每张照片上检测，绝不从此照片获取。修饰、AI 修补和镜头模糊保留在各自的照片上。",
+      "sections": {
+        "basic": "光",
+        "color": "颜色",
+        "details": "细节",
+        "effects": "效果",
+        "geometry": "裁剪、几何与镜头"
+      },
+      "sync": "同步（{{n}}）",
+      "syncTitle": "将设置同步到其他选定照片（{{n}}）"
     },
     "crop": {
       "add": "添加",
@@ -3291,12 +3318,16 @@
         "noPhotograph": "无照片",
         "paste": "粘贴",
         "pasteAdjustments": "粘贴调整",
+        "pasteFromPrevious": "粘贴之前打开的照片的设置（按上次选择）",
         "photographs_other": "{{n}} 张照片",
         "previous": "上一张照片",
+        "previousSettings": "上一张",
         "rate_other": "评为 {{count}} 星",
         "selected_other": "已选 {{n}} 张",
         "showFilmstrip": "显示胶片条",
-        "stars_other": "{{count}} 星"
+        "stars_other": "{{count}} 星",
+        "sync": "同步",
+        "syncSettings": "将设置同步到选定照片（Option：按上次选择）"
       },
       "grid": {
         "anyRating": "任意星级",

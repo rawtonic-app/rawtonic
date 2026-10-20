@@ -18,7 +18,16 @@ const pasted = () =>
   vi
     .mocked(invoke)
     .mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)
-    .map(([, args]) => args as { paths: string[]; adjustments: Partial<Adjustments> });
+    .map(([, args]) => {
+      const { paths, adjustments } = args as { paths: string[]; adjustments: Partial<Adjustments> };
+      return { paths, adjustments };
+    });
+/** Where each write said its settings come from. */
+const pastedFrom = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter(([command]) => command === Invokes.ApplyAdjustmentsToPaths)
+    .map(([, args]) => (args as { paste: unknown }).paste);
 
 const live = () =>
   vi
@@ -70,6 +79,8 @@ describe('Edit all selected', () => {
     ]);
     // The primary keeps its own edit (and its own history).
     expect(useEditorStore.getState().adjustments.exposure).toBe(0.8);
+    // The others get its layers, their AI detections made on each of them.
+    expect(pastedFrom()).toEqual([{ source: '/s/b.CR3', replaceLayers: true }]);
   });
 
   it('has the other cells developed again once their recipes are written', async () => {

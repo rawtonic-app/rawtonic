@@ -102,7 +102,13 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const write = ++writes;
       // Written at the switch to another primary (see below): that one may
       // be one of the others, still opening.
-      const done = applyRef.current(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), others, { openingNow: true });
+      // The others get the primary's layers, with their AI detections made
+      // on each of them (never the primary's bitmaps).
+      const done = applyRef.current(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), others, {
+        openingNow: true,
+        pasteFrom: from.path,
+        replaceLayers: true,
+      });
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (write === writes) inflight = shownBefore;

@@ -1264,6 +1264,7 @@
         "open_settings": "設定を開く",
         "paste_adjustments": "コピーした補正設定を貼り付け",
         "paste_files": "現在のフォルダにファイルを貼り付け",
+        "paste_from_previous": "前の写真から設定を貼り付け",
         "pin_reference": "メイン写真を参照として固定",
         "preview_next": "次の画像",
         "preview_prev": "前の画像",
@@ -1279,6 +1280,7 @@
         "rotate_right": "時計回りに90°回転",
         "select_all": "すべての画像を選択",
         "show_original": "押し続ける: 写真全体を補正前で表示",
+        "sync_settings": "選択した写真に設定を同期",
         "tether_capture": "テザー接続カメラで撮影",
         "toggle_adjustments": "補正設定パネルの表示/非表示",
         "toggle_all_panels": "すべてのパネルとバーの表示/非表示",
@@ -1594,6 +1596,31 @@
         "title": "ドラッグで色相と彩度 · Shift で微調整 · Alt で色相を固定 · ダブルクリックでリセット",
         "valueText": "色相 {{hue}}°、彩度 {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "すべて",
+      "cancel": "キャンセル",
+      "changed": "この写真で変更済み",
+      "copy": "コピー",
+      "copyTitle": "設定をコピー",
+      "detectedHere": "AI選択は写真ごとに検出されます",
+      "layers": "ローカルレイヤー",
+      "modified": "変更済み",
+      "modifiedTitle": "この写真で変更したツールのみ",
+      "noLayers": "この写真にはレイヤーがありません。",
+      "none": "なし",
+      "pending": "AI検出待ち：写真を開くと実行されます",
+      "pendingShort": "AI検出待ち",
+      "rules": "貼り付けたレイヤーは各写真のレイヤーに追加されます（以前に貼り付けたレイヤーは置き換えられます）。AI選択（空、被写体、オブジェクト、深度、人物）は写真ごとに検出され、この写真から引き継がれることはありません。レタッチ、AIパッチ、レンズぼかしは元の写真に残ります。",
+      "sections": {
+        "basic": "ライト",
+        "color": "カラー",
+        "details": "ディテール",
+        "effects": "効果",
+        "geometry": "切り抜き・ジオメトリ・レンズ"
+      },
+      "sync": "同期（{{n}}）",
+      "syncTitle": "選択した他の写真に設定を同期（{{n}}）"
     },
     "crop": {
       "add": "追加",
@@ -3291,12 +3318,16 @@
         "noPhotograph": "写真なし",
         "paste": "ペースト",
         "pasteAdjustments": "補正をペースト",
+        "pasteFromPrevious": "前に開いた写真の設定を貼り付け（前回の選択で）",
         "photographs_other": "{{n}} 枚の写真",
         "previous": "前の写真",
+        "previousSettings": "前へ",
         "rate_other": "星 {{count}} つを付ける",
         "selected_other": "{{n}} 枚選択",
         "showFilmstrip": "フィルムストリップを表示",
-        "stars_other": "星 {{count}}"
+        "stars_other": "星 {{count}}",
+        "sync": "同期",
+        "syncSettings": "選択した写真に設定を同期（Option：前回の選択で）"
       },
       "grid": {
         "anyRating": "すべてのレーティング",

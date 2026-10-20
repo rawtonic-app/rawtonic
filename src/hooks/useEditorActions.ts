@@ -17,7 +17,6 @@ import {
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   PasteMode,
-  LensAdjustment,
   normalizeLoadedAdjustments,
   pastedAdjustments,
   withAiDenoiseVersion,
@@ -31,6 +30,8 @@ import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
+import { chosenSettings, pasteLayers, samePhotograph } from '../utils/settingsClipboard';
+import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
@@ -142,6 +143,75 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
       return failed;
     },
   );
+}
+
+/** The settings a copy, sync or Previous takes from: the open photograph's
+ * (its size known) or `path`'s saved recipe. */
+async function settingsSource(path?: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
+  const { selectedImage, adjustments } = useEditorStore.getState();
+  const { libraryActivePath, multiSelectedPaths } = useLibraryStore.getState();
+  const from = path || (selectedImage ? selectedImage.path : libraryActivePath || multiSelectedPaths[0]);
+  if (!from) return null;
+  if (selectedImage?.isReady && from === selectedImage.path) {
+    return { path: from, adjustments, isRaw: selectedImage.isRaw, width: selectedImage.width, height: selectedImage.height };
+  }
+  const isRaw = isRawInLibrary(from);
+  try {
+    const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: from });
+    const adjustments =
+      meta?.adjustments && !meta.adjustments.is_null
+        ? normalizeLoadedAdjustments(meta.adjustments, isRaw)
+        : initialAdjustmentsFor(isRaw);
+    return { path: from, adjustments, isRaw };
+  } catch (err) {
+    toast.error(`Failed to load metadata for copying: ${err}`);
+    return null;
+  }
+}
+
+/** Drawn masks leave their photo with its frame (its size when it is the
+ * open one), so the photos they are pasted on place them on the same part
+ * of themselves; an Object selection's box keeps the size of the photo it
+ * was pointed on (`sourceSize`), to be placed alike when detected again. */
+function withSourceFrames(
+  chosen: Partial<Adjustments>,
+  source: SettingsSource & { width?: number; height?: number },
+): Partial<Adjustments> {
+  if (!chosen.masks) return chosen;
+  const framed = frameDrawnMasks(chosen.masks, source.adjustments, source.width, source.height) ?? chosen.masks;
+  const size = source.width && source.height ? { width: source.width, height: source.height } : null;
+  return {
+    ...chosen,
+    masks: framed.map((layer) => ({
+      ...layer,
+      subMasks: layer.subMasks.map((sub) =>
+        sub.type === 'ai-subject' && size && !(sub.parameters as Record<string, unknown>)?.sourceSize
+          ? { ...sub, parameters: { ...sub.parameters, sourceSize: size } }
+          : sub,
+      ),
+    })),
+  };
+}
+
+/** The picker's remembered choice (the preferences' copied keys). */
+function rememberedKeys(): string[] {
+  return useSettingsStore.getState().appSettings?.copyPasteSettings?.includedAdjustments ?? COPYABLE_ADJUSTMENT_KEYS;
+}
+
+/** The remembered choice for `adjustments`: its keys, and all its layers
+ * when layers were chosen last time. */
+function rememberedChoice(adjustments: Adjustments): SettingsChoice {
+  const keys = rememberedKeys();
+  return { keys, layerIds: keys.includes('masks') ? (adjustments.masks ?? []).map((layer) => layer.id) : [] };
+}
+
+function rememberChoice(choice: SettingsChoice) {
+  const { appSettings, handleSettingsChange } = useSettingsStore.getState();
+  if (!appSettings?.copyPasteSettings) return;
+  void handleSettingsChange({
+    ...appSettings,
+    copyPasteSettings: { ...appSettings.copyPasteSettings, includedAdjustments: choice.keys },
+  });
 }
 
 /** Whether `path` is still the open, fully loaded photograph (an async
@@ -534,59 +604,24 @@ export function useEditorActions() {
     [setEditor],
   );
 
-  const handleCopyAdjustments = useCallback(async (pathOrEvent?: string | SyntheticEvent) => {
-    const pathOverride = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
-    const { selectedImage, adjustments } = useEditorStore.getState();
-    const { libraryActivePath, multiSelectedPaths } = useLibraryStore.getState();
-    let sourceAdjustments: Adjustments | null = null;
-
-    const pathToCopyFrom =
-      pathOverride || (selectedImage ? selectedImage.path : libraryActivePath || multiSelectedPaths[0]);
-
-    if (selectedImage?.isReady && pathToCopyFrom === selectedImage.path) {
-      sourceAdjustments = adjustments;
-    } else if (pathToCopyFrom) {
-      try {
-        const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: pathToCopyFrom });
-        if (meta?.adjustments && !meta.adjustments.is_null) {
-          sourceAdjustments = normalizeLoadedAdjustments(meta.adjustments, isRawInLibrary(pathToCopyFrom));
-        } else {
-          sourceAdjustments = initialAdjustmentsFor(isRawInLibrary(pathToCopyFrom));
-        }
-      } catch (err) {
-        toast.error(`Failed to load metadata for copying: ${err}`);
-        return;
-      }
-    }
-
-    if (!sourceAdjustments) return;
-
-    const adjustmentsToCopy: Partial<Adjustments> = {};
-
-    for (const key of COPYABLE_ADJUSTMENT_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(sourceAdjustments, key)) {
-        adjustmentsToCopy[key] = structuredClone(sourceAdjustments[key]);
-      }
-    }
-    // Drawn masks keep the frame of the photo they were drawn on (its size
-    // when it is the open one), so the photos they are pasted on place them
-    // on the same part of themselves, whatever their turns and size.
-    if (adjustmentsToCopy.masks) {
-      const open = selectedImage?.isReady && pathToCopyFrom === selectedImage.path ? selectedImage : null;
-      adjustmentsToCopy.masks = frameDrawnMasks(adjustmentsToCopy.masks, sourceAdjustments, open?.width, open?.height);
-    }
-    // The clipboard holds only the copyable keys; paste reads it key by key.
-    useEditorStore.getState().setEditor({ copiedAdjustments: adjustmentsToCopy as Adjustments });
-    useProcessStore.getState().setProcess({ isCopied: true });
-  }, []);
-
-  /** Apply some adjustments to `paths` (default: the selection, else the open
+  /** Applies some adjustments to `paths` (default: the selection, else the open
    * photo), saving each recipe after its pending save; resolves once saved.
    * `openingNow`: the open photograph has only just been selected (its
    * loader has not read its recipe yet), so it may be written too; it then
-   * reads its recipe after this write. */
+   * reads its recipe after this write. `pasteFrom`: copied or synced from
+   * that photograph, so the layers join each photograph's own and their AI
+   * detections wait for each photograph (`settingsClipboard.pasteLayers`);
+   * `replaceLayers`: they replace them (Edit all selected). */
   const applyAdjustmentsToPaths = useCallback(
-    (partial: Partial<Adjustments>, paths?: string[], { openingNow = false }: { openingNow?: boolean } = {}) => {
+    (
+      partial: Partial<Adjustments>,
+      paths?: string[],
+      {
+        openingNow = false,
+        pasteFrom,
+        replaceLayers = false,
+      }: { openingNow?: boolean; pasteFrom?: string | null; replaceLayers?: boolean } = {},
+    ) => {
       // Grain from before the structure choice (old presets, other photos)
       // keeps rendering Even on the photos it is applied to.
       const adjustmentsToApply = withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial)))));
@@ -600,12 +635,26 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+        const next = { ...adjustments, ...adjustmentsToApply };
+        if (pasteFrom && adjustmentsToApply.masks) {
+          next.masks = pasteLayers(
+            adjustments.masks,
+            adjustmentsToApply.masks,
+            samePhotograph(pasteFrom, selectedImage.path),
+            replaceLayers,
+          );
+        }
+        setAdjustments(next);
       }
 
+      const paste = pasteFrom ? { source: pasteFrom, replaceLayers } : null;
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
-          invoke(Invokes.ApplyAdjustmentsToPaths, { paths: pathsToUpdate, adjustments: adjustmentsToApply }),
+          invoke(Invokes.ApplyAdjustmentsToPaths, {
+            paths: pathsToUpdate,
+            adjustments: adjustmentsToApply,
+            ...(paste ? { paste } : {}),
+          }),
           pathsToUpdate,
           'paste adjustments',
         ),
@@ -641,32 +690,99 @@ export function useEditorActions() {
     [setAdjustments],
   );
 
+  /** What a copy, sync or Previous applies of `chosen` (settings taken by
+   * `chosenSettings`): their version keys along, lens data resolved again
+   * when the lens itself is not taken. */
+  const settingsToApply = (chosen: Partial<Adjustments>): Partial<Adjustments> => {
+    const applied = pastedAdjustments(chosen, Object.keys(chosen), PasteMode.Replace);
+    if ('lensMaker' in chosen && !applied.lensMaker) applied.lensDistortionParams = null;
+    return withDiffractionVersion(withAiDenoiseVersion(applied, chosen), chosen);
+  };
+
+  /** Lightroom's Copy Settings: the picker (which tools, which layers; the
+   * choice is remembered) puts the chosen settings of the open photo (or of
+   * `pathOrEvent`, else the Library's active one) on the clipboard. `quick`
+   * (Option-click): with the choice of last time, without the picker. */
+  const handleCopyAdjustments = useCallback(
+    async (pathOrEvent?: string | SyntheticEvent, { quick = false }: { quick?: boolean } = {}) => {
+      const pathOverride = typeof pathOrEvent === 'string' ? pathOrEvent : undefined;
+      const source = await settingsSource(pathOverride);
+      if (!source) return;
+      const copy = (choice: SettingsChoice) => {
+        rememberChoice(choice);
+        const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+        useEditorStore.getState().setEditor({ copiedAdjustments: chosen as Adjustments, copiedFrom: source.path });
+        useProcessStore.getState().setProcess({ isCopied: true });
+      };
+      if (quick) copy(rememberedChoice(source.adjustments));
+      else
+        useCopySettingsDialog.getState().open({
+          mode: 'copy',
+          source,
+          targets: [],
+          remembered: rememberedKeys(),
+          onChoose: copy,
+        });
+    },
+    [],
+  );
+
+  /** Pastes the clipboard (exactly the settings chosen when copying) onto
+   * `paths` (default: the selection, else the open photo). */
   const handlePasteAdjustments = useCallback(
     (paths?: string[]) => {
-      const { copiedAdjustments } = useEditorStore.getState();
-      const { appSettings } = useSettingsStore.getState();
+      const { copiedAdjustments, copiedFrom } = useEditorStore.getState();
       const { setProcess } = useProcessStore.getState();
-
-      if (!copiedAdjustments || !appSettings?.copyPasteSettings) return;
-
-      const { mode, includedAdjustments } = appSettings.copyPasteSettings;
-      const adjustmentsToApply = pastedAdjustments(copiedAdjustments, includedAdjustments, mode as PasteMode);
-
-      if (includedAdjustments.includes(LensAdjustment.LensMaker)) {
-        if (!adjustmentsToApply.lensMaker) {
-          adjustmentsToApply.lensDistortionParams = null;
-        }
-      }
-
-      if (Object.keys(adjustmentsToApply).length === 0) {
-        setProcess({ isPasted: true });
-        return;
-      }
-      applyAdjustmentsToPaths(
-        withDiffractionVersion(withAiDenoiseVersion(adjustmentsToApply, copiedAdjustments), copiedAdjustments),
-        paths,
-      );
+      if (!copiedAdjustments) return;
+      const applied = settingsToApply(copiedAdjustments);
+      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, paths, { pasteFrom: copiedFrom });
       setProcess({ isPasted: true });
+    },
+    [applyAdjustmentsToPaths],
+  );
+
+  /** Lightroom's Sync Settings: the open photo's chosen settings onto the
+   * other selected photographs now (the same picker; `quick`: the choice of
+   * last time). */
+  const handleSyncSettings = useCallback(
+    async ({ quick = false }: { quick?: boolean } = {}) => {
+      const open = useEditorStore.getState().selectedImage;
+      if (!open?.isReady) return;
+      const targets = useLibraryStore.getState().multiSelectedPaths.filter((path) => path !== open.path);
+      if (targets.length === 0) return;
+      const source = await settingsSource(open.path);
+      if (!source) return;
+      const sync = (choice: SettingsChoice) => {
+        rememberChoice(choice);
+        const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
+        const applied = settingsToApply(chosen);
+        if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path });
+      };
+      if (quick) sync(rememberedChoice(source.adjustments));
+      else
+        useCopySettingsDialog.getState().open({
+          mode: 'sync',
+          source,
+          targets,
+          remembered: rememberedKeys(),
+          onChoose: sync,
+        });
+    },
+    [applyAdjustmentsToPaths],
+  );
+
+  /** Lightroom's Previous: the settings of the photograph open before this
+   * one, as last chosen in the picker, onto `paths` (default: the
+   * selection, else the open photo). */
+  const handlePasteFromPrevious = useCallback(
+    async (paths?: string[]) => {
+      const { previousPhoto, selectedImage } = useEditorStore.getState();
+      if (!previousPhoto || previousPhoto === selectedImage?.path) return;
+      const source = await settingsSource(previousPhoto);
+      if (!source) return;
+      const choice = rememberedChoice(source.adjustments);
+      const applied = settingsToApply(withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source));
+      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, paths, { pasteFrom: source.path });
     },
     [applyAdjustmentsToPaths],
   );
@@ -737,6 +853,8 @@ export function useEditorActions() {
     handleAutoLensCorrection,
     handleCopyAdjustments,
     handlePasteAdjustments,
+    handleSyncSettings,
+    handlePasteFromPrevious,
     applyAdjustmentsToPaths,
     handleZoomChange,
     toggleSplitView,

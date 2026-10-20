@@ -74,7 +74,7 @@ it("sends the open photo to Paste and Reset instead of the click event or old Li
   fireEvent.click(screen.getByRole("button", { name: "Copy adjustments" }));
   expect(reset).toHaveBeenCalledExactlyOnceWith(["/qa/current.dng"]);
   expect(paste).toHaveBeenCalledExactlyOnceWith(["/qa/current.dng"]);
-  expect(copy).toHaveBeenCalledExactlyOnceWith();
+  expect(copy).toHaveBeenCalledExactlyOnceWith(undefined, { quick: false });
   act(() => useEditorStore.setState((state) => ({ selectedImage: { ...state.selectedImage!, isReady: false } })));
   fireEvent.click(screen.getByRole("button", { name: "Reset all adjustments" }));
   fireEvent.click(screen.getByRole("button", { name: "Paste adjustments" }));

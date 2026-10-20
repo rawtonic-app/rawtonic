@@ -418,6 +418,7 @@ pub async fn apply_face_retouch_to_paths(
                 match crate::file_management::apply_adjustments_to_paths(
                     vec![path.clone()],
                     serde_json::json!({ "faceRetouch": value }),
+                    None,
                     app_handle.clone(),
                 )
                 .await

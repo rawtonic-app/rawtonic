@@ -162,7 +162,12 @@ interface EditorState {
   patchesSentToBackend: Set<string>;
 
   // Clipboard
+  /** The settings copied (only those chosen: `settingsClipboard`). */
   copiedAdjustments: Adjustments | null;
+  /** The photograph they were copied from. */
+  copiedFrom: string | null;
+  /** The photograph open before this one (Lightroom's Previous). */
+  previousPhoto: string | null;
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
@@ -247,6 +252,8 @@ export const useEditorStore = create<EditorState>((set) => ({
 
   brushSettings: { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush },
   copiedAdjustments: null,
+  copiedFrom: null,
+  previousPhoto: null,
 
   isGeneratingAiMask: false,
   isMaskControlHovered: false,
@@ -367,8 +374,10 @@ export const debouncedSetHistory = Object.assign(
 // layer counts: sliders, typed values, presets, undo).
 useEditorStore.subscribe((state, previous) => {
   const patch: Partial<EditorState> = {};
-  if (state.selectedImage?.path !== previous.selectedImage?.path) debouncedSetHistory.cancel();
-  else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
+  if (state.selectedImage?.path !== previous.selectedImage?.path) {
+    debouncedSetHistory.cancel();
+    if (previous.selectedImage?.path && state.selectedImage) patch.previousPhoto = previous.selectedImage.path;
+  } else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
     // The drag ended: its last edit becomes one step (a final value sent
     // just after the release still joins it).
     const held = heldHistory;

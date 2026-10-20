@@ -262,10 +262,27 @@ async fn save_then_regenerate(
     SaveFailure::check(total, failures)
 }
 
+/// Where pasted or synced settings come from (`apply_adjustments_to_paths`).
+#[derive(serde::Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PasteFrom {
+    /// The photograph (or virtual copy) they were copied from.
+    pub source: String,
+    /// The layers replace each photograph's own (Edit all selected) instead
+    /// of joining them.
+    #[serde(default)]
+    pub replace_layers: bool,
+}
+
+/// Applies `adjustments` to `paths`. With `paste` (copied or synced
+/// settings), their layers join each photograph's own
+/// (`masks::paste_layers`: same layer replaced, others added, AI detections
+/// waiting for their own photograph); otherwise (presets) they replace them.
 #[tauri::command]
 pub async fn apply_adjustments_to_paths(
     paths: Vec<String>,
     adjustments: Value,
+    paste: Option<PasteFrom>,
     app_handle: AppHandle,
 ) -> Result<(), SaveFailure> {
     save_then_regenerate(app_handle, paths, move |app_handle, paths| {
@@ -323,46 +340,85 @@ pub async fn apply_adjustments_to_paths(
                 let (adjustments, size) = placed
                     .get(path)
                     .map_or((&adjustments, None), |(placed, size)| (placed, Some(*size)));
-                let mut existing_metadata =
-                    crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
-
-                let mut new_adjustments = existing_metadata.adjustments;
-                // A photo without an edit starts one: the current render
-                // version, as the editor's new edits.
-                crate::image_processing::apply_render_default(&mut new_adjustments);
-                let previous = new_adjustments.clone();
-
-                if let (Some(new_map), Some(pasted_map)) =
-                    (new_adjustments.as_object_mut(), adjustments.as_object())
-                {
-                    for (k, v) in pasted_map {
-                        new_map.insert(k.clone(), v.clone());
-                    }
-                }
-                // Pasted, synced or preset geometry: the photo's own drawn
-                // masks stay on its content.
-                crate::mask_generation::keep_drawn_masks_on_photo(
-                    &previous,
-                    &mut new_adjustments,
-                    size,
-                );
-
-                resolve_lens_params_in_adjustments(
-                    &mut new_adjustments,
-                    LensLookup::Keep {
-                        previous: Some(&previous),
-                    },
-                    &existing_metadata.exif,
-                    lens_db.as_deref(),
+                Ok(pasted_metadata(
+                    path,
                     source_path,
-                );
-
-                existing_metadata.adjustments = new_adjustments;
-                Ok(existing_metadata)
+                    sidecar_path,
+                    adjustments,
+                    paste.as_ref(),
+                    size,
+                    lens_db.as_deref(),
+                ))
             },
         )
     })
     .await
+}
+
+/// The editor sidecar of `path` with `adjustments` applied
+/// (`apply_adjustments_to_paths`): pasted keys replace the photo's, layers
+/// as `paste` says; its drawn masks stay on its content and its lens data is
+/// resolved again.
+fn pasted_metadata(
+    path: &str,
+    source_path: &Path,
+    sidecar_path: &Path,
+    adjustments: &Value,
+    paste: Option<&PasteFrom>,
+    size: Option<(f64, f64)>,
+    lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
+) -> ImageMetadata {
+    let mut existing_metadata =
+        crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
+
+    let mut new_adjustments = existing_metadata.adjustments;
+    // A photo without an edit starts one: the current render
+    // version, as the editor's new edits.
+    crate::image_processing::apply_render_default(&mut new_adjustments);
+    let previous = new_adjustments.clone();
+
+    if let (Some(new_map), Some(pasted_map)) =
+        (new_adjustments.as_object_mut(), adjustments.as_object())
+    {
+        for (k, v) in pasted_map {
+            let v = match paste {
+                Some(from) if k == "masks" => rawtonic_engine::masks::paste_layers(
+                    new_map.get("masks").unwrap_or(&Value::Null),
+                    v,
+                    same_photograph(&from.source, path),
+                    from.replace_layers,
+                ),
+                _ => v.clone(),
+            };
+            new_map.insert(k.clone(), v);
+        }
+    }
+    // Pasted, synced or preset geometry: the photo's own drawn
+    // masks stay on its content.
+    crate::mask_generation::keep_drawn_masks_on_photo(&previous, &mut new_adjustments, size);
+
+    resolve_lens_params_in_adjustments(
+        &mut new_adjustments,
+        LensLookup::Keep {
+            previous: Some(&previous),
+        },
+        &existing_metadata.exif,
+        lens_db,
+        source_path,
+    );
+
+    existing_metadata.adjustments = new_adjustments;
+    existing_metadata
+}
+
+/// Whether two photograph paths (virtual copies included) are of one file.
+fn same_photograph(a: &str, b: &str) -> bool {
+    let (a, _) = parse_virtual_path(a);
+    let (b, _) = parse_virtual_path(b);
+    a == b
+        || a.canonicalize()
+            .ok()
+            .is_some_and(|a| b.canonicalize().ok() == Some(a))
 }
 
 #[tauri::command]
@@ -785,6 +841,194 @@ pub(crate) fn load_metadata_blocking(
 mod tests {
     use super::*;
     use rawtonic_engine::lens_recipe::{LENS_PROFILE_FOR, LENS_UNRESOLVED, lens_profile_stamp};
+
+    fn sky_layer(id: &str, data: &str) -> Value {
+        serde_json::json!({"id": id, "name": "Sky", "visible": true, "invert": false, "opacity": 100,
+            "adjustments": {"exposure": -0.5},
+            "subMasks": [{"id": format!("{id}-c"), "type": "ai-sky", "visible": true, "invert": false,
+                "opacity": 100, "mode": "additive", "parameters": {"maskDataBase64": data}}]})
+    }
+
+    /// Writes `count` photographs of a session, each with its own edit, an
+    /// own layer and its own sky detection. With `fixture` (a RAW file),
+    /// they are hard links to it (never written: only sidecars are).
+    fn session_with_photos(count: usize) -> (tempfile::TempDir, Vec<String>) {
+        session_of(count, None)
+    }
+
+    fn session_of(count: usize, fixture: Option<&Path>) -> (tempfile::TempDir, Vec<String>) {
+        // Beside the fixture, so the links need no copies.
+        let temp = match fixture.and_then(Path::parent) {
+            Some(folder) => tempfile::tempdir_in(folder).unwrap(),
+            None => tempfile::tempdir().unwrap(),
+        };
+        let lib =
+            rawtonic_catalog::Library::create(temp.path(), "Sync", rawtonic_catalog::Mode::Session)
+                .unwrap();
+        let day = lib.directory.join("Capture");
+        let paths = (0..count)
+            .map(|i| {
+                let extension = fixture
+                    .and_then(|f| f.extension())
+                    .map_or("ARW".into(), |e| e.to_string_lossy().into_owned());
+                let photo = day.join(format!("A{i:03}.{extension}"));
+                match fixture {
+                    Some(fixture) => fs::hard_link(fixture, &photo)
+                        .or_else(|_| fs::copy(fixture, &photo).map(|_| ()))
+                        .unwrap(),
+                    None => fs::write(&photo, format!("sync fixture {i}")).unwrap(),
+                }
+                let state = serde_json::json!({"version": 1, "rating": 0, "tags": [], "adjustments": {
+                    "exposure": 0.1, "masks": [sky_layer("own", &format!("data:own-{i}"))]}});
+                crate::session_bridge::write_editor_sidecar(
+                    photo.with_file_name(format!("A{i:03}.{extension}.rrdata")),
+                    serde_json::to_vec(&state).unwrap(),
+                )
+                .unwrap();
+                photo.to_string_lossy().into_owned()
+            })
+            .collect();
+        (temp, paths)
+    }
+
+    #[test]
+    fn synced_layers_join_each_photographs_own_with_their_own_detection() {
+        let (_temp, paths) = session_with_photos(2);
+        let pasted =
+            serde_json::json!({"contrast": 20, "masks": [sky_layer("synced", "data:source")]});
+        let paste = PasteFrom {
+            source: paths[0].clone(),
+            replace_layers: false,
+        };
+        let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
+            Ok(pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &pasted,
+                Some(&paste),
+                None,
+                None,
+            ))
+        });
+        assert!(failed.is_empty(), "{failed:?}");
+        let (_, sidecar) = parse_virtual_path(&paths[1]);
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(saved["contrast"], 20);
+        assert_eq!(saved["exposure"], 0.1, "its own edit stays");
+        let layers = saved["masks"].as_array().unwrap();
+        assert_eq!(
+            layers[0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:own-1"
+        );
+        let synced = &layers[1]["subMasks"][0]["parameters"];
+        assert_eq!(synced["maskDataBase64"], Value::Null);
+        assert_eq!(synced["detectPending"], true);
+        // Its virtual copy shares its pixels: the bitmap is kept there.
+        let copy = format!("{}?vc=c0ffee", paths[0]);
+        let failed = edit_sidecars(
+            std::slice::from_ref(&copy),
+            None,
+            |path, source, sidecar| {
+                Ok(pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                ))
+            },
+        );
+        assert!(failed.is_empty(), "{failed:?}");
+        let (_, sidecar) = parse_virtual_path(&copy);
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(
+            saved["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
+            "data:source"
+        );
+    }
+
+    /// Timing of a sync of 100 library photographs (the recipe writes
+    /// `apply_adjustments_to_paths` waits for, without the thumbnails
+    /// regenerated afterwards in the background): 25 settings and a layer
+    /// with a 300 KB sky bitmap onto photographs with their own layer.
+    /// `RAWTONIC_SYNC_FIXTURE=<a RAW> cargo test --workspace --lib
+    /// sync_timing -- --ignored --nocapture`: the first run reads each
+    /// photograph's EXIF (then kept in its sidecar), the others do not.
+    /// Without a fixture the files are not photographs and every run reads
+    /// (fails to read) their EXIF again.
+    #[test]
+    #[ignore]
+    fn sync_timing() {
+        let fixture = std::env::var_os("RAWTONIC_SYNC_FIXTURE").map(std::path::PathBuf::from);
+        let (_temp, paths) = session_of(101, fixture.as_deref());
+        let mut pasted = serde_json::Map::new();
+        for i in 0..25 {
+            pasted.insert(format!("setting{i}"), serde_json::json!(i));
+        }
+        pasted.insert(
+            "masks".into(),
+            serde_json::json!([sky_layer("synced", &"s".repeat(300_000))]),
+        );
+        let pasted = Value::Object(pasted);
+        let paste = PasteFrom {
+            source: paths[0].clone(),
+            replace_layers: false,
+        };
+        let mut runs = Vec::new();
+        for _ in 0..5 {
+            let start = std::time::Instant::now();
+            let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
+                Ok(pasted_metadata(
+                    path,
+                    source,
+                    sidecar,
+                    &pasted,
+                    Some(&paste),
+                    None,
+                    None,
+                ))
+            });
+            assert!(failed.is_empty());
+            runs.push(start.elapsed().as_secs_f64() * 1000.0);
+        }
+        let first = runs[0];
+        let mut later = runs[1..].to_vec();
+        later.sort_by(f64::total_cmp);
+        // The same with settings only (no layer).
+        let settings_only = Value::Object(
+            pasted
+                .as_object()
+                .unwrap()
+                .iter()
+                .filter(|(k, _)| *k != "masks")
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+        );
+        let start = std::time::Instant::now();
+        edit_sidecars(&paths[1..], None, |path, source, sidecar| {
+            Ok(pasted_metadata(
+                path,
+                source,
+                sidecar,
+                &settings_only,
+                Some(&paste),
+                None,
+                None,
+            ))
+        });
+        let plain = start.elapsed().as_secs_f64() * 1000.0;
+        eprintln!(
+            "sync of 100 photographs ({}): first {:.0} ms, median of the next four {:.0} ms; settings only {plain:.0} ms",
+            fixture
+                .as_deref()
+                .map_or("not photographs".into(), |f| f.display().to_string()),
+            first,
+            later[later.len() / 2],
+        );
+    }
 
     /// Batch edits take the sidecar turn per photo inside their `par_iter`
     /// and batch Auto inside rayon tasks: a worker of one batch that steals

@@ -1359,6 +1359,7 @@
         "open_settings": "Abrir la configuración",
         "paste_adjustments": "Pegar ajustes copiados",
         "paste_files": "Pegar archivo(s) a la carpeta actual",
+        "paste_from_previous": "Pegar ajustes de la foto anterior",
         "pin_reference": "Fijar la foto principal como referencia",
         "preview_next": "Siguiente imagen",
         "preview_prev": "Imagen anterior",
@@ -1374,6 +1375,7 @@
         "rotate_right": "Rotar 90° en sentido horario",
         "select_all": "Seleccionar todas las imágenes",
         "show_original": "Mantener: toda la foto antes",
+        "sync_settings": "Sincronizar ajustes con las fotos seleccionadas",
         "tether_capture": "Disparar la cámara conectada",
         "toggle_adjustments": "Alternar panel de Ajustes",
         "toggle_all_panels": "Ocultar o mostrar todos los paneles y barras",
@@ -1689,6 +1691,31 @@
         "title": "Arrastra para tono y saturación · Mayús: fino · Alt mantiene el tono · doble clic restablece",
         "valueText": "Tono {{hue}}°, saturación {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "Todo",
+      "cancel": "Cancelar",
+      "changed": "Cambiado en esta foto",
+      "copy": "Copiar",
+      "copyTitle": "Copiar ajustes",
+      "detectedHere": "Las selecciones de IA se detectan en cada foto",
+      "layers": "Capas locales",
+      "modified": "Cambiados",
+      "modifiedTitle": "Solo las herramientas cambiadas en esta foto",
+      "noLayers": "Esta foto no tiene capas.",
+      "none": "Nada",
+      "pending": "Detección de IA pendiente: se ejecuta al abrir la foto",
+      "pendingShort": "Detección de IA pendiente",
+      "rules": "Las capas pegadas se suman a las de cada foto (una capa ya pegada se reemplaza). Las selecciones de IA (cielo, sujeto, objetos, profundidad, personas) se detectan en cada foto, nunca se toman de esta. El retoque, los parches de IA y el desenfoque de lente se quedan con su foto.",
+      "sections": {
+        "basic": "Luz",
+        "color": "Color",
+        "details": "Detalle",
+        "effects": "Efectos",
+        "geometry": "Recorte, geometría y lente"
+      },
+      "sync": "Sincronizar ({{n}})",
+      "syncTitle": "Sincronizar ajustes con las otras fotos seleccionadas ({{n}})"
     },
     "crop": {
       "add": "Añadir",
@@ -3462,10 +3489,12 @@
         "noPhotograph": "Ninguna foto",
         "paste": "Pegar",
         "pasteAdjustments": "Pegar ajustes",
+        "pasteFromPrevious": "Pegar los ajustes de la foto abierta antes (como la última vez)",
         "photographs_one": "{{n}} foto",
         "photographs_many": "{{n}} fotos",
         "photographs_other": "{{n}} fotos",
         "previous": "Foto anterior",
+        "previousSettings": "Anterior",
         "rate_one": "Valorar con {{count}} estrella",
         "rate_many": "Valorar con {{count}} estrellas",
         "rate_other": "Valorar con {{count}} estrellas",
@@ -3475,7 +3504,9 @@
         "showFilmstrip": "Mostrar la tira de imágenes",
         "stars_one": "{{count}} estrella",
         "stars_many": "{{count}} estrellas",
-        "stars_other": "{{count}} estrellas"
+        "stars_other": "{{count}} estrellas",
+        "sync": "Sincronizar",
+        "syncSettings": "Sincronizar ajustes con las fotos seleccionadas (Opción: como la última vez)"
       },
       "grid": {
         "anyRating": "Cualquier valoración",

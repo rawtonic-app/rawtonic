@@ -462,6 +462,20 @@ export const KEYBIND_DEFINITIONS: KeybindDefinition[] = [
     section: 'editing',
   },
   {
+    action: 'paste_from_previous',
+    description: 'settings.keybinds.actions.paste_from_previous',
+    // Lightroom's Previous.
+    defaultCombo: ['ctrl', 'alt', 'KeyV'],
+    section: 'editing',
+  },
+  {
+    action: 'sync_settings',
+    description: 'settings.keybinds.actions.sync_settings',
+    // Lightroom's Sync Settings.
+    defaultCombo: ['ctrl', 'shift', 'KeyS'],
+    section: 'editing',
+  },
+  {
     action: 'auto_adjust',
     description: 'settings.keybinds.actions.auto_adjust',
     // Capture One; Lightroom uses ⌘U.

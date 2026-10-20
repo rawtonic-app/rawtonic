@@ -1417,6 +1417,7 @@
         "open_settings": "Otwórz ustawienia",
         "paste_adjustments": "Wklej skopiowane ustawienia",
         "paste_files": "Wklej pliki do bieżącego folderu",
+        "paste_from_previous": "Wklej ustawienia z poprzedniego zdjęcia",
         "pin_reference": "Przypnij zdjęcie główne jako wzorzec",
         "preview_next": "Następny obraz",
         "preview_prev": "Poprzedni obraz",
@@ -1432,6 +1433,7 @@
         "rotate_right": "Obróć o 90° w prawo",
         "select_all": "Zaznacz wszystkie obrazy",
         "show_original": "Przytrzymaj: całe zdjęcie przed",
+        "sync_settings": "Synchronizuj ustawienia z zaznaczonymi zdjęciami",
         "tether_capture": "Wyzwól podłączony aparat",
         "toggle_adjustments": "Przełącz panel Ustawienia",
         "toggle_all_panels": "Ukryj lub pokaż wszystkie panele i paski",
@@ -1747,6 +1749,31 @@
         "title": "Przeciągnij, aby zmienić odcień i nasycenie · Shift precyzyjnie · Alt zachowuje odcień · dwuklik resetuje",
         "valueText": "Odcień {{hue}}°, nasycenie {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "Wszystko",
+      "cancel": "Anuluj",
+      "changed": "Zmienione na tym zdjęciu",
+      "copy": "Kopiuj",
+      "copyTitle": "Kopiuj ustawienia",
+      "detectedHere": "Zaznaczenia AI są wykrywane na każdym zdjęciu",
+      "layers": "Warstwy lokalne",
+      "modified": "Zmienione",
+      "modifiedTitle": "Tylko narzędzia zmienione na tym zdjęciu",
+      "noLayers": "To zdjęcie nie ma warstw.",
+      "none": "Nic",
+      "pending": "Wykrywanie AI oczekuje: uruchomi się po otwarciu zdjęcia",
+      "pendingShort": "Wykrywanie AI oczekuje",
+      "rules": "Wklejone warstwy dołączają do warstw każdego zdjęcia (warstwa wklejona wcześniej jest zastępowana). Zaznaczenia AI (niebo, obiekt główny, obiekty, głębia, osoby) są wykrywane na każdym zdjęciu, nigdy nie są brane z tego. Retusz, łatki AI i rozmycie obiektywu zostają przy swoim zdjęciu.",
+      "sections": {
+        "basic": "Światło",
+        "color": "Kolor",
+        "details": "Szczegóły",
+        "effects": "Efekty",
+        "geometry": "Kadrowanie, geometria i obiektyw"
+      },
+      "sync": "Synchronizuj ({{n}})",
+      "syncTitle": "Synchronizuj ustawienia z innymi zaznaczonymi zdjęciami ({{n}})"
     },
     "crop": {
       "add": "Dodaj",
@@ -3558,11 +3585,13 @@
         "noPhotograph": "Brak zdjęcia",
         "paste": "Wklej",
         "pasteAdjustments": "Wklej ustawienia",
+        "pasteFromPrevious": "Wklej ustawienia zdjęcia otwartego wcześniej (jak ostatnio)",
         "photographs_one": "{{n}} zdjęcie",
         "photographs_few": "{{n}} zdjęcia",
         "photographs_many": "{{n}} zdjęć",
         "photographs_other": "{{n}} zdjęcia",
         "previous": "Poprzednie zdjęcie",
+        "previousSettings": "Poprzednie",
         "rate_one": "Oceń na {{count}} gwiazdkę",
         "rate_few": "Oceń na {{count}} gwiazdki",
         "rate_many": "Oceń na {{count}} gwiazdek",
@@ -3575,7 +3604,9 @@
         "stars_one": "{{count}} gwiazdka",
         "stars_few": "{{count}} gwiazdki",
         "stars_many": "{{count}} gwiazdek",
-        "stars_other": "{{count}} gwiazdki"
+        "stars_other": "{{count}} gwiazdki",
+        "sync": "Synchr.",
+        "syncSettings": "Synchronizuj ustawienia z zaznaczonymi zdjęciami (Option: jak ostatnio)"
       },
       "grid": {
         "anyRating": "Dowolna ocena",
