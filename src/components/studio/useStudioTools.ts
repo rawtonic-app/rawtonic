@@ -117,7 +117,7 @@ export function useStudioTools() {
    * range), selected with its first component active. */
   const addLayer = (kind: Mask | MaskKind) => {
     if (!selectedImage?.isReady) return;
-    if (warnIfLayerLimit(adjustments.masks)) return;
+    if (warnIfLayerLimit()) return;
     const maskKind: MaskKind =
       kind === Mask.Brush ? "brush" : kind === Mask.Linear ? "linear" : kind === Mask.Radial ? "radial" : (kind as MaskKind);
     const components = createComponents(maskKind, selectedImage);
@@ -172,7 +172,7 @@ export function useStudioTools() {
       (m) => m.type === Mask.Brush && m.mode === mode,
     );
     if (!brush) {
-      if (warnIfComponentStartsLayer(adjustments.masks, target)) return;
+      if (warnIfComponentStartsLayer(target.id)) return;
       const created = createSubMask(Mask.Brush, selectedImage, mode);
       brush = created;
       setAdjustments((prev) => ({
@@ -205,7 +205,7 @@ export function useStudioTools() {
       kind === "luminance"
         ? components.filter((c) => c.type === Mask.LumaRange && !target.subMasks.some((m) => m.type === Mask.LumaRange))
         : components;
-    if (added.length > 0 && warnIfComponentStartsLayer(adjustments.masks, target)) return;
+    if (added.length > 0 && warnIfComponentStartsLayer(target.id)) return;
     if (added.length === 0) {
       // The layer has its luma range already: sample tones for it.
       if (kind === "luminance") setEditor({ activeMaskContainerId: target.id, lumaPickerLayer: target.id });

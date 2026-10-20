@@ -337,7 +337,7 @@ export default function StudioLayerControls({
             className="studio-text-button"
             title={t("studio.layers.lumaRange.limitTitle")}
             onClick={() => {
-              if (warnIfComponentStartsLayer(useEditorStore.getState().adjustments.masks, layer)) return;
+              if (warnIfComponentStartsLayer(layer.id)) return;
               updateLayer((subs) => [...subs, createSubMask(Mask.LumaRange, { width: 0, height: 0 })]);
             }}
           >

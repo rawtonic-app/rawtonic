@@ -23,6 +23,7 @@ const size = { width: 1000, height: 800 };
 const layerOf = () => useEditorStore.getState().adjustments.masks[0];
 
 beforeEach(() => {
+  toastError.mockClear();
   const linear = createSubMask(Mask.Linear, size);
   useEditorStore.setState({
     selectedImage: { path: "/a.arw", isReady: true, ...size } as never,
@@ -163,6 +164,30 @@ describe("refine edge", () => {
 });
 
 describe("new layers", () => {
+  it("are counted as the layers are now, also from a menu kept open", () => {
+    const masks = Array.from({ length: 30 }, (_, i) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: `m${i}`,
+      subMasks: [createSubMask(Mask.Radial, size)],
+    }));
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, masks: [...state.adjustments.masks, ...masks] },
+    }));
+    let tools: ReturnType<typeof useStudioTools> | undefined;
+    const Probe = () => {
+      tools = useStudioTools();
+      return null;
+    };
+    render(<Probe />);
+    // An open menu keeps the callback of the render it was opened in.
+    const retained = tools!.addLayer;
+    retained(Mask.Radial);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(32);
+    retained(Mask.Radial);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(32);
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
   it("are refused with a message once 32 visible layers are rendered", () => {
     const radial = () => createSubMask(Mask.Radial, size);
     const masks = Array.from({ length: 31 }, (_, i) => ({

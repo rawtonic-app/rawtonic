@@ -35,8 +35,8 @@ import MaskThumb from "./MaskThumb";
 import { useMaskThumbnailStore, useMaskThumbnailUpdates } from "../../hooks/useMaskThumbnails";
 import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
 import { AUTO_MASK_VERSION, canUpgradeAutoMask, layerAutoMaskVersions, upgradeLayerAutoMask } from "../../utils/autoMaskUpgrade";
-import { MAX_RENDERED_LAYERS, isRenderedLayer, unrenderedLayerIds } from "../../utils/layerLimit";
-import { warnIfLayerLimit } from "./layerLimitToast";
+import { MAX_RENDERED_LAYERS, unrenderedLayerIds } from "../../utils/layerLimit";
+import { warnIfCopyRenders, warnIfShowingRenders } from "./layerLimitToast";
 
 /** Drop target id of the Background row in the layer list. */
 const BACKGROUND_ROW = "background";
@@ -255,7 +255,7 @@ export default function StudioLayers({
   // Lightroom's Duplicate and Duplicate and Invert: a copy above the layer,
   // with new ids for it and its components.
   const duplicateLayer = (target: MaskContainer, invert: boolean) => {
-    if (isRenderedLayer(target) && warnIfLayerLimit(masks)) return;
+    if (warnIfCopyRenders(target.id)) return;
     const copy = {
       ...structuredClone(target),
       id: crypto.randomUUID(),
@@ -552,7 +552,7 @@ export default function StudioLayers({
                       return;
                     }
                     // Showing a layer again counts against the rendered limit.
-                    if (!mask.visible && isRenderedLayer({ ...mask, visible: true }) && warnIfLayerLimit(masks)) return;
+                    if (warnIfShowingRenders(mask.id)) return;
                     setAdjustments((prev) => ({
                       ...prev,
                       masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),

@@ -208,6 +208,16 @@ describe("rendered layer limit", () => {
     expect(setAdjustments).toHaveBeenCalledTimes(2);
   });
 
+  it("counts the layers as they are when a kept menu's Duplicate is chosen", () => {
+    layers(31);
+    render(<StudioLayers />);
+    const duplicate = menuOf("l1").find((item) => item.label === "Duplicate Layer")!;
+    layers(32);
+    duplicate.onClick!();
+    expect(setAdjustments).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
   it("allows them below the limit", () => {
     layers(31);
     render(<StudioLayers />);
