@@ -2493,12 +2493,12 @@ impl MeasuredCa {
 
 /// What a region warped from some of a photograph's rows needs that only
 /// the whole photograph tells (its whole decode, at full resolution): the
-/// automatic lateral CA estimate and the edge-fringe radius.
+/// automatic lateral CA estimate and the edge-fringe plan.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RegionMeasures {
     pub ca: Option<MeasuredCa>,
-    /// `edge_fringe::full_resolution_radius` of the warped photograph.
-    pub fringe_radius: Option<usize>,
+    /// `edge_fringe::full_resolution_plan` of the warped photograph.
+    pub fringe: Option<crate::edge_fringe::Plan>,
 }
 
 impl RegionMeasures {
@@ -2509,8 +2509,8 @@ impl RegionMeasures {
         let (width, height) = image.dimensions();
         let raw = image.as_raw();
         let row_len = width as usize * 3;
-        let fringe_radius = if is_geometry_identity(&params) {
-            crate::edge_fringe::full_resolution_radius(
+        let fringe = if is_geometry_identity(&params) {
+            crate::edge_fringe::full_resolution_plan(
                 adjustments,
                 width as usize,
                 height as usize,
@@ -2519,7 +2519,7 @@ impl RegionMeasures {
         } else {
             let kernel = WarpKernel::with_estimate(&params, width, height, ca);
             let source = SourceRows::whole(raw, width, height);
-            crate::edge_fringe::full_resolution_radius(
+            crate::edge_fringe::full_resolution_plan(
                 adjustments,
                 width as usize,
                 height as usize,
@@ -2530,7 +2530,7 @@ impl RegionMeasures {
                 },
             )
         };
-        Self { ca, fringe_radius }
+        Self { ca, fringe }
     }
 
     /// What the measures of `adjustments` depend on besides the photograph:
@@ -2553,7 +2553,7 @@ impl RegionMeasures {
                 }
             }
         }
-        // The fringe radius is measured on the warped photograph: callers
+        // The fringe plan is measured on the warped photograph: callers
         // key it with the geometry too.
         Some(hasher.finish())
     }
@@ -2577,8 +2577,8 @@ pub struct RegionPlan {
     warp: bool,
     /// The automatic lateral CA estimate the warp uses.
     estimate: Option<MeasuredCa>,
-    /// The edge-fringe radius, when the recipe suppresses fringes.
-    fringe: Option<usize>,
+    /// The edge-fringe plan, when the recipe suppresses fringes.
+    fringe: Option<crate::edge_fringe::Plan>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2670,7 +2670,7 @@ pub fn plan_transformed_region_with(
         return None;
     }
     let fringe = if crate::edge_fringe::version_of(adjustments) > 0 {
-        Some(measures?.fringe_radius?)
+        Some(measures?.fringe?)
     } else {
         None
     };
@@ -2863,8 +2863,8 @@ pub fn transformed_region(
             });
     }
 
-    if let Some(r) = plan.fringe {
-        crate::edge_fringe::suppress(&mut warped, ww as usize, wh as usize, 3, r);
+    if let Some(fringe) = plan.fringe {
+        crate::edge_fringe::apply(&mut warped, ww as usize, wh as usize, 3, fringe);
     }
 
     let spatial = &plan.spatial;
@@ -7343,7 +7343,7 @@ mod region_tests {
     }
 
     #[test]
-    fn a_region_with_fringe_suppression_is_the_same_pixels_given_the_radius() {
+    fn a_region_with_fringe_suppression_is_the_same_pixels_given_the_plan() {
         let (w, h) = (301u32, 211u32);
         let lens = json!({"k1": -0.12, "k2": 0.03, "k3": 0.0, "model": 0,
             "tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr2": 0.0004});
@@ -7357,9 +7357,12 @@ mod region_tests {
                 json!({"fringeVersion": 2, "lensDistortionParams": lens, "rotation": 2.0}),
                 json!({"fringeVersion": 2, "lensDistortionParams": {"k1": -0.1}, "autoCaVersion": 2,
                     "orientationSteps": 1, "flipHorizontal": true}),
+                json!({"fringeVersion": 3}),
+                json!({"fringeVersion": 3, "lensDistortionParams": lens, "rotation": 2.0,
+                    "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
             ] {
                 let measures = RegionMeasures::of(rgb, &adjustments);
-                radii.insert(measures.fringe_radius.expect("a fringe radius"));
+                radii.insert(measures.fringe.expect("a fringe plan"));
                 assert!(RegionMeasures::inputs_key(&adjustments).is_some());
                 let warped = apply_geometry_warp(&image, &adjustments);
                 let plain = apply_spatial_transformations(warped.clone(), &adjustments)
@@ -7375,7 +7378,7 @@ mod region_tests {
                     [fw / 3, fh / 2, 50, 41],
                     [fw - 20, fh - 9, 60, 60],
                 ] {
-                    // Without the radius the fringe pass cannot be planned.
+                    // Without the plan the fringe pass cannot be planned.
                     assert!(plan_transformed_region(w, h, &adjustments, rect).is_none());
                     let plan =
                         plan_transformed_region_with(w, h, &adjustments, rect, Some(measures))
@@ -7398,8 +7401,16 @@ mod region_tests {
                 }
             }
         }
-        // Both radii occur (noisy texture, smooth photograph).
-        assert_eq!(radii.into_iter().collect::<Vec<_>>(), vec![2, 3]);
+        // Both radii occur (noisy texture, smooth photograph), and the colour
+        // lines of version 3 on the smooth one.
+        let plan = |radius, colour_lines| crate::edge_fringe::Plan {
+            radius,
+            colour_lines,
+        };
+        assert_eq!(
+            radii.into_iter().collect::<Vec<_>>(),
+            vec![plan(2, false), plan(3, false), plan(3, true)]
+        );
     }
 
     #[test]

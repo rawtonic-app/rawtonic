@@ -1178,7 +1178,7 @@ export const MULTISCALE_COLOR_NOISE_VERSION = 2;
 export const TONE_VERSION = 2;
 
 /** The edge-fringe pass new RAW edits start with (notes: reference/edge-fringes.md). */
-export const FRINGE_VERSION = 2;
+export const FRINGE_VERSION = 3;
 
 /** The Defringe detector new edits start with (notes: reference/defringe.md). */
 export const DEFRINGE_VERSION = 2;

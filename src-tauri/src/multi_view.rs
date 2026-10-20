@@ -2259,7 +2259,7 @@ mod tests {
             .expect("a current preview");
         let first_key = crate::preview_proxy::full_key(&photo, &settings).unwrap();
         measure_preview(&path, &recipe, &settings);
-        assert!(current(&settings).is_some_and(|m| m.fringe_radius.is_some()));
+        assert!(current(&settings).is_some_and(|m| m.fringe.is_some()));
         // Rebuilt with other decoder settings: the current preview has none.
         crate::preview_proxy::write_full(&photo, &image, &other, multiscale).unwrap();
         assert_eq!(current(&other), None);

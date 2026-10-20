@@ -21,6 +21,19 @@
 //! pixels near strong luminance edges change, flat areas (colour noise,
 //! colour texture) are left to the noise reduction; a pixel's chroma is
 //! never raised, so no colour is added.
+//!
+//! Version 3 adds a second stage for edges between two saturated colours
+//! (a yellow coat against grey, cyan against magenta), where the demosaic
+//! interpolates red and blue across the edge a pixel or two away from
+//! green: the transition pixels get a colour or a brightness neither side
+//! has (a light seam between cyan and magenta of equal luminance, which
+//! the luminance model cannot see). Blur mixes the two sides in linear
+//! light, so in a window holding two colours every pixel lies on the line
+//! between them; the stage moves a pixel onto its window's principal colour
+//! line (in linear RGB) where the window holds two colours and a strong
+//! edge, and leaves windows of three or more colours alone, and pixels of a
+//! colour no mix of the two makes (a small patch of a third colour on the
+//! edge).
 
 use std::borrow::Cow;
 
@@ -30,9 +43,10 @@ use rayon::prelude::*;
 /// The recipe key naming the edge-fringe treatment a recipe was made with.
 pub const VERSION_KEY: &str = "fringeVersion";
 /// The newest treatment: 1 (2026-10-16) removes edge fringes as described
-/// above in 5 × 5 windows; 2 (2026-10-17) in 7 × 7 windows. Recipes without
-/// the key keep rendering without it, recipes with 1 as before.
-pub const VERSION: u64 = 2;
+/// above in 5 × 5 windows; 2 (2026-10-17) in 7 × 7 windows; 3 (2026-10-20)
+/// adds the colour-line stage. Recipes without the key keep rendering
+/// without it, recipes with 1 or 2 as before.
+pub const VERSION: u64 = 3;
 
 /// Window radius at full resolution: version 1's 5 × 5 spans a fringe on
 /// both sides of a thin line. A lateral-CA rest of 1–2 px beside an edge
@@ -49,10 +63,41 @@ pub const VERSION: u64 = 2;
 /// there and renders as version 1. `noise` is the full-resolution
 /// luminance noise (`luminance_noise`).
 fn radius_for(version: u64, noise: f32) -> f32 {
-    if version >= 2 && noise < 0.5 * EDGE_LOW {
-        3.0
-    } else {
-        2.0
+    if low_noise(version, noise) { 3.0 } else { 2.0 }
+}
+
+/// Whether version 2's wider windows and version 3's colour lines apply.
+fn low_noise(version: u64, noise: f32) -> bool {
+    version >= 2 && noise < 0.5 * EDGE_LOW
+}
+
+/// What the pass does to an image: the window radius (in the image's
+/// pixels) and whether the colour-line stage runs. Version 3 runs it on
+/// low-noise photos only: on noisy ones it found colour lines in the noise
+/// and raised isolated colour specks after the colour noise reduction (EOS
+/// R10 ISO 32000 651 → 1213 per Mpx, K-7 310 → 502; notes:
+/// reference/edge-fringes.md "Version 3"), so they render as version 1.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Plan {
+    pub radius: usize,
+    pub colour_lines: bool,
+}
+
+/// The plan for `version` on an image at `scale` of the full resolution
+/// whose full-resolution luminance noise is `noise`.
+fn plan_for(version: u64, noise: f32, scale: f32) -> Plan {
+    Plan {
+        radius: ((radius_for(version, noise) * scale.min(1.0)).round() as usize).max(1),
+        colour_lines: version >= 3 && low_noise(version, noise),
+    }
+}
+
+/// Runs the pass as `plan` says on `w × h` pixels of `stride` floats (RGB
+/// first): the luminance model, then the colour lines on its result.
+pub fn apply(data: &mut [f32], w: usize, h: usize, stride: usize, plan: Plan) {
+    suppress(data, w, h, stride, plan.radius);
+    if plan.colour_lines {
+        colour_lines(data, w, h, stride, plan.radius);
     }
 }
 
@@ -68,6 +113,23 @@ const EDGE_HIGH: f32 = 0.08;
 const MIN_SCALE: f32 = 0.35;
 /// Rows per parallel band.
 const BAND: usize = 24;
+/// Rows per parallel band of the colour-line stage (it reads 2r rows
+/// around each band for 18 moments: taller bands spend less on them).
+const LINE_BAND: usize = 40;
+/// Regularisation of the colour line (linear units²): a window of little
+/// colour variation keeps its mean less a small part of the variation.
+const LINE_EPS: f32 = 1e-6;
+/// Share of a window's colour variance off its principal line (in square-
+/// root RGB) up to which the window counts as holding two colours fully,
+/// and from which not at all: a misregistered transition adds a few
+/// percent, a third colour of a few pixels much more.
+const TWO_COLOUR_FULL: f32 = 0.05;
+/// How far beyond the channel ranges of its window's two colours (relative
+/// to the distance between them) a pixel still moves fully, and from which
+/// not at all (see `within_the_mixes`).
+const MIX_FULL: f32 = 0.1;
+const MIX_NONE: f32 = 0.25;
+const TWO_COLOUR_NONE: f32 = 0.15;
 
 /// The recipe's edge-fringe version: `fringeVersion`, 0 (none) when
 /// missing, never newer than this renderer knows.
@@ -114,22 +176,22 @@ pub fn apply_for_recipe<'a>(
     let mut image = image;
     let (w, h) = (image.width() as usize, image.height() as usize);
     // A reduced preview averages the noise down by about its scale.
-    let noise = |data: &[f32], stride| {
-        if version >= 2 {
+    let plan = |data: &[f32], stride| {
+        let noise = if version >= 2 {
             luminance_noise(data, w, h, stride) / scale.min(1.0)
         } else {
             0.0
-        }
+        };
+        plan_for(version, noise, scale)
     };
-    let radius = |noise| ((radius_for(version, noise) * scale.min(1.0)).round() as usize).max(1);
     match image.to_mut() {
         DynamicImage::ImageRgb32F(img) => {
-            let r = radius(noise(img.as_raw(), 3));
-            suppress(img.as_mut(), w, h, 3, r)
+            let plan = plan(img.as_raw(), 3);
+            apply(img.as_mut(), w, h, 3, plan)
         }
         DynamicImage::ImageRgba32F(img) => {
-            let r = radius(noise(img.as_raw(), 4));
-            suppress(img.as_mut(), w, h, 4, r)
+            let plan = plan(img.as_raw(), 4);
+            apply(img.as_mut(), w, h, 4, plan)
         }
         _ => {}
     }
@@ -203,16 +265,16 @@ fn median_noise(mut diffs: Vec<f32>) -> f32 {
     *median / (0.6745 * std::f32::consts::SQRT_2)
 }
 
-/// The radius [`apply_for_recipe`] uses at full resolution for
+/// The plan [`apply_for_recipe`] uses at full resolution for
 /// `adjustments` on a `w × h` RGB image whose row `y` `row` gives (only
 /// every fourth row is asked for): what a region cut from that image needs
 /// to suppress fringes as the whole image does. None without the pass.
-pub fn full_resolution_radius(
+pub fn full_resolution_plan(
     adjustments: &serde_json::Value,
     w: usize,
     h: usize,
     row: impl Fn(usize) -> Vec<f32> + Sync,
-) -> Option<usize> {
+) -> Option<Plan> {
     let version = version_of(adjustments);
     if version == 0 {
         return None;
@@ -227,13 +289,17 @@ pub fn full_resolution_radius(
     } else {
         0.0
     };
-    Some((radius_for(version, noise).round() as usize).max(1))
+    Some(plan_for(version, noise, 1.0))
 }
 
-/// How far [`suppress`] reads around a pixel at radius `r` (rows and
-/// columns).
-pub fn reach(r: usize) -> usize {
-    2 * r
+/// How far [`apply`] reads around a pixel (rows and columns): each stage
+/// reads twice its radius.
+pub fn reach(plan: Plan) -> usize {
+    if plan.colour_lines {
+        4 * plan.radius
+    } else {
+        2 * plan.radius
+    }
 }
 
 /// Removes edge fringes in place. `data` holds `w × h` pixels of `stride`
@@ -393,6 +459,417 @@ fn suppress_band(
     changes
 }
 
+/// The colour-line stage of version 3 in place (see the module notes):
+/// every pixel near a strong edge in a window of two colours moves onto
+/// the window's principal colour line in linear RGB, averaged over the
+/// windows that hold it (as a guided filter averages its models). Bands of
+/// rows read the unmodified image around them, as [`suppress`].
+fn colour_lines(data: &mut [f32], w: usize, h: usize, stride: usize, r: usize) {
+    if w == 0 || h == 0 {
+        return;
+    }
+    let source: &[f32] = data;
+    let changes: Vec<Vec<(usize, [f32; 3])>> = (0..h.div_ceil(LINE_BAND))
+        .into_par_iter()
+        .map(|band| {
+            colour_line_band(
+                source,
+                w,
+                h,
+                stride,
+                r,
+                band * LINE_BAND,
+                ((band + 1) * LINE_BAND).min(h),
+            )
+        })
+        .collect();
+    for band in changes {
+        for (i, px) in band {
+            data[i * stride..i * stride + 3].copy_from_slice(&px);
+        }
+    }
+}
+
+/// Index pairs of the six second moments of three channels.
+const PAIRS: [(usize, usize); 6] = [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)];
+
+/// A row of windows' means and covariances (the six [`PAIRS`] entries),
+/// principal axes and principal variances, one column per window. Row-wise
+/// loops over columns, so they vectorise.
+struct RowStats {
+    mean: [Vec<f32>; 3],
+    cov: [Vec<f32>; 6],
+    axis: [Vec<f32>; 3],
+    var: Vec<f32>,
+}
+
+impl RowStats {
+    fn new(w: usize) -> Self {
+        Self {
+            mean: std::array::from_fn(|_| vec![0.0; w]),
+            cov: std::array::from_fn(|_| vec![0.0; w]),
+            axis: std::array::from_fn(|_| vec![0.0; w]),
+            var: vec![0.0; w],
+        }
+    }
+
+    /// Means and covariances from the box sums of a row of windows (three
+    /// channels, then the six [`PAIRS`] products).
+    fn of(&mut self, sums: &[Vec<f32>], inv_area: f32) {
+        for (mean, sum) in self.mean.iter_mut().zip(sums) {
+            for (m, s) in mean.iter_mut().zip(sum) {
+                *m = s * inv_area;
+            }
+        }
+        for (k, &(a, b)) in PAIRS.iter().enumerate() {
+            let (ma, mb) = (&self.mean[a], &self.mean[b]);
+            for (x, c) in self.cov[k].iter_mut().enumerate() {
+                let v = sums[3 + k][x] * inv_area - ma[x] * mb[x];
+                *c = if a == b { v.max(0.0) } else { v };
+            }
+        }
+    }
+
+    /// The principal axes (unit vectors) and variances of the windows at
+    /// `columns` by power iteration from each covariance's largest column
+    /// (three steps: the error falls with (λ2/λ1)³, under 0.4 % where a
+    /// window passes the two-colour test); axis and variance 0 for a window
+    /// of one colour. Other columns are left as they are.
+    fn principal(&mut self, columns: &[usize]) {
+        let [c00, c01, c02, c11, c12, c22] = &self.cov;
+        let [e0, e1, e2] = &mut self.axis;
+        for &x in columns {
+            let (a, b, c, d, e, f) = (c00[x], c01[x], c02[x], c11[x], c12[x], c22[x]);
+            let n0 = a * a + b * b + c * c;
+            let n1 = b * b + d * d + e * e;
+            let n2 = c * c + e * e + f * f;
+            let mut v = if n0 >= n1 && n0 >= n2 {
+                [a, b, c]
+            } else if n1 >= n2 {
+                [b, d, e]
+            } else {
+                [c, e, f]
+            };
+            let mul = |v: [f32; 3]| {
+                [
+                    a * v[0] + b * v[1] + c * v[2],
+                    b * v[0] + d * v[1] + e * v[2],
+                    c * v[0] + e * v[1] + f * v[2],
+                ]
+            };
+            for _ in 0..3 {
+                let inv = 1.0 / (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                v = mul(v.map(|t| t * inv));
+            }
+            let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            let flat = !(n > 1e-12 && n.is_finite());
+            let v = if flat { [0.0; 3] } else { v.map(|t| t / n) };
+            let cv = mul(v);
+            e0[x] = v[0];
+            e1[x] = v[1];
+            e2[x] = v[2];
+            self.var[x] = if flat {
+                0.0
+            } else {
+                (v[0] * cv[0] + v[1] * cv[1] + v[2] * cv[2]).max(0.0)
+            };
+        }
+    }
+
+    /// The colour-line stage's weight for each window from these statistics
+    /// of its square-root RGB: near a strong edge (as the luminance pass's
+    /// test, a neutral edge's principal variance being three times its
+    /// luminance variance) and holding two colours (little variance off its
+    /// principal line). `columns` is scratch.
+    fn weights(&mut self, out: &mut [f32], columns: &mut Vec<usize>) {
+        // The principal variance is at most the total and at most the
+        // covariance's Frobenius norm: windows failing either test with
+        // those bounds need no principal axis.
+        let [c00, c01, c02, c11, c12, c22] = &self.cov;
+        columns.clear();
+        columns.extend((0..out.len()).filter(|&x| {
+            let total = c00[x] + c11[x] + c22[x];
+            let off = c01[x] * c01[x] + c02[x] * c02[x] + c12[x] * c12[x];
+            let frobenius =
+                (c00[x] * c00[x] + c11[x] * c11[x] + c22[x] * c22[x] + 2.0 * off).sqrt();
+            let bound = total.min(frobenius);
+            bound > 3.0 * EDGE_LOW * EDGE_LOW && total - bound < TWO_COLOUR_NONE * bound
+        }));
+        out.fill(0.0);
+        self.principal(columns);
+        let [c00, _, _, c11, _, c22] = &self.cov;
+        for &x in columns.iter() {
+            let out = &mut out[x];
+            let var = self.var[x];
+            let total = c00[x] + c11[x] + c22[x];
+            let off_line = ((total - var) / var.max(1e-20)).max(0.0);
+            let edge = (((var / 3.0).sqrt() - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW)).clamp(0.0, 1.0);
+            let two = ((TWO_COLOUR_NONE - off_line) / (TWO_COLOUR_NONE - TWO_COLOUR_FULL))
+                .clamp(0.0, 1.0);
+            *out = if var > 0.0 { edge * two } else { 0.0 };
+        }
+    }
+}
+
+/// Whether each of `w × rows` cells lies within `d` cells (rows and columns)
+/// of a cell of `weights` above 0.
+fn near_some(weights: &[f32], w: usize, rows: usize, d: usize) -> Vec<bool> {
+    let mut along = vec![false; w * rows];
+    for (row, out) in weights.chunks_exact(w).zip(along.chunks_exact_mut(w)) {
+        let mut last = None;
+        for x in 0..w {
+            if row[x] > 0.0 {
+                last = Some(x);
+            }
+            out[x] = last.is_some_and(|l| x - l <= d);
+        }
+        let mut next = None;
+        for x in (0..w).rev() {
+            if row[x] > 0.0 {
+                next = Some(x);
+            }
+            out[x] |= next.is_some_and(|n| n - x <= d);
+        }
+    }
+    let mut near = vec![false; w * rows];
+    for y in 0..rows {
+        let (first, last) = (y.saturating_sub(d), (y + d).min(rows - 1));
+        let out = &mut near[y * w..(y + 1) * w];
+        for k in first..=last {
+            for (o, a) in out.iter_mut().zip(&along[k * w..(k + 1) * w]) {
+                *o |= *a;
+            }
+        }
+    }
+    near
+}
+
+fn colour_line_band(
+    data: &[f32],
+    w: usize,
+    h: usize,
+    stride: usize,
+    r: usize,
+    y0: usize,
+    y1: usize,
+) -> Vec<(usize, [f32; 3])> {
+    let row_of = |y: isize| y.clamp(0, h as isize - 1) as usize;
+    let inv_area = 1.0 / ((2 * r + 1) * (2 * r + 1)) as f32;
+    let mut pad = vec![0.0f32; w + 2 * r];
+    // Rows y0 - 2r .. y1 + 2r: linear RGB (the colour lines) and square-
+    // root RGB (the edge and two-colour tests, on the scale of the
+    // luminance pass), and the horizontal sums of their means and second
+    // moments.
+    let ext0 = y0 as isize - 2 * r as isize;
+    let ext_rows = (y1 - y0) + 4 * r;
+    let mut linear: [Vec<f32>; 3] = std::array::from_fn(|_| vec![0.0f32; ext_rows * w]);
+    let mut root: [Vec<f32>; 3] = std::array::from_fn(|_| vec![0.0f32; ext_rows * w]);
+    for e in 0..ext_rows {
+        let y = row_of(ext0 + e as isize);
+        let src = &data[y * w * stride..(y + 1) * w * stride];
+        for (x, px) in src.chunks_exact(stride).enumerate() {
+            for c in 0..3 {
+                linear[c][e * w + x] = px[c].max(0.0);
+                root[c][e * w + x] = enc(px[c]);
+            }
+        }
+    }
+    let mut hsum: Vec<Vec<f32>> = (0..18).map(|_| vec![0.0f32; ext_rows * w]).collect();
+    let mut moment = vec![0.0f32; w];
+    for e in 0..ext_rows {
+        let span = e * w..(e + 1) * w;
+        for (set, channels) in [&linear, &root].into_iter().enumerate() {
+            for k in 0..9 {
+                if k < 3 {
+                    moment.copy_from_slice(&channels[k][span.clone()]);
+                } else {
+                    let (a, b) = PAIRS[k - 3];
+                    for ((m, p), q) in moment
+                        .iter_mut()
+                        .zip(&channels[a][span.clone()])
+                        .zip(&channels[b][span.clone()])
+                    {
+                        *m = p * q;
+                    }
+                }
+                box_row(&moment, r, &mut pad, &mut hsum[set * 9 + k][span.clone()]);
+            }
+        }
+    }
+    // Rows y0 - r .. y1 + r: each window's weight; then, for windows within
+    // 2r of a window of some weight (the only ones a changed pixel reads;
+    // box sums are exact window sums, so the others may stay 0), its
+    // projection onto its line as an affine map per output channel (offset
+    // and three slopes); both summed along rows. Mid row m is ext row
+    // m + r; its window spans ext rows m ..= m + 2r.
+    let mid_rows = (y1 - y0) + 2 * r;
+    let mut stats = RowStats::new(w);
+    let mut vs: Vec<Vec<f32>> = (0..9).map(|_| vec![0.0f32; w]).collect();
+    let mut weights = vec![0.0f32; mid_rows * w];
+    let mut columns = Vec::with_capacity(w);
+    for m in 0..mid_rows {
+        for (k, out) in vs.iter_mut().enumerate() {
+            box_column(&hsum[9 + k], w, m, r, out);
+        }
+        stats.of(&vs, inv_area);
+        stats.weights(&mut weights[m * w..(m + 1) * w], &mut columns);
+    }
+    let weighted: Vec<bool> = weights
+        .chunks_exact(w)
+        .map(|row| row.iter().any(|&v| v > 0.0))
+        .collect();
+    let needed = near_some(&weights, w, mid_rows, 2 * r);
+    // Per window: the offsets of the three channels, the six entries of the
+    // projection's symmetric slope matrix (shrink · axis · axisᵀ, the
+    // [`PAIRS`] entries) and the weight.
+    let mut csum: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; mid_rows * w]).collect();
+    let mut coef: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; w]).collect();
+    // The windows' means and axes, for the range test of the pixel each is
+    // centred on.
+    let mut centred: [Vec<f32>; 6] = std::array::from_fn(|_| vec![0.0f32; mid_rows * w]);
+    for m in 0..mid_rows {
+        if !weighted[m.saturating_sub(2 * r)..(m + 2 * r + 1).min(mid_rows)].contains(&true) {
+            continue;
+        }
+        for (k, out) in vs.iter_mut().enumerate() {
+            box_column(&hsum[k], w, m, r, out);
+        }
+        stats.of(&vs, inv_area);
+        let weights = &weights[m * w..(m + 1) * w];
+        columns.clear();
+        columns.extend((0..w).filter(|&x| needed[m * w + x]));
+        stats.principal(&columns);
+        for c in coef.iter_mut() {
+            c.fill(0.0);
+        }
+        for &x in &columns {
+            let e = [stats.axis[0][x], stats.axis[1][x], stats.axis[2][x]];
+            let mean = [stats.mean[0][x], stats.mean[1][x], stats.mean[2][x]];
+            let var = stats.var[x];
+            // A window of one colour (a clipped patch) maps to its mean.
+            let shrink = var / (var + LINE_EPS);
+            let t = shrink * (e[0] * mean[0] + e[1] * mean[1] + e[2] * mean[2]);
+            for c in 0..3 {
+                coef[c][x] = mean[c] - t * e[c];
+            }
+            for (k, &(a, b)) in PAIRS.iter().enumerate() {
+                coef[3 + k][x] = shrink * e[a] * e[b];
+            }
+            coef[9][x] = if var > 0.0 { weights[x] } else { 0.0 };
+            for c in 0..3 {
+                centred[c][m * w + x] = mean[c];
+                centred[3 + c][m * w + x] = e[c];
+            }
+        }
+        let span = m * w..(m + 1) * w;
+        for (k, sum) in csum.iter_mut().enumerate() {
+            box_row(&coef[k], r, &mut pad, &mut sum[span.clone()]);
+        }
+    }
+    let mut changes = Vec::new();
+    let mut model: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; w]).collect();
+    for y in y0..y1 {
+        // Output row y is mid row y - y0 + r (its windows: mid rows y - y0
+        // ..= y - y0 + 2r) and ext row y - y0 + 2r.
+        let m0 = y - y0;
+        if !weighted[m0..=m0 + 2 * r].contains(&true) {
+            continue;
+        }
+        for (k, out) in model.iter_mut().enumerate() {
+            box_column(&csum[k], w, m0, r, out);
+        }
+        let e = y - y0 + 2 * r;
+        for x in 0..w {
+            // Spread over the window, as in the luminance pass.
+            let weight = (2.0 * model[9][x] * inv_area).min(1.0);
+            if weight <= 0.0 {
+                continue;
+            }
+            let i = y * w + x;
+            let px = &data[i * stride..][..3];
+            if px.iter().any(|&c| c < 0.0 || !c.is_finite()) {
+                continue;
+            }
+            let p = [
+                linear[0][e * w + x],
+                linear[1][e * w + x],
+                linear[2][e * w + x],
+            ];
+            let weight = weight * within_the_mixes(&linear, &centred, w, r, e, m0 + r, x, p);
+            if weight <= 0.0 {
+                continue;
+            }
+            // The [`PAIRS`] index of each slope matrix entry.
+            const ENTRY: [[usize; 3]; 3] = [[0, 1, 2], [1, 3, 4], [2, 4, 5]];
+            let s = |a: usize, b: usize| model[3 + ENTRY[a][b]][x];
+            let out = std::array::from_fn(|c| {
+                let projected =
+                    (model[c][x] + s(c, 0) * p[0] + s(c, 1) * p[1] + s(c, 2) * p[2]) * inv_area;
+                (p[c] + weight * (projected - p[c])).max(0.0)
+            });
+            changes.push((i, out));
+        }
+    }
+    changes
+}
+
+/// Misregistration mixes each channel of the two colours by its own share,
+/// so it leaves every channel between the two colours' values: how far the
+/// pixel `p` (linear RGB, at ext row `e` and column `x`) may move onto its
+/// windows' lines, from 1 (inside the channel ranges of the two ends of the
+/// line of the window centred on it, mid row `m`, a little beyond) to 0
+/// (well outside: a small patch of a third colour on the edge, which can
+/// pass the window's two-colour test).
+#[allow(clippy::too_many_arguments)]
+fn within_the_mixes(
+    linear: &[Vec<f32>; 3],
+    centred: &[Vec<f32>; 6],
+    w: usize,
+    r: usize,
+    e: usize,
+    m: usize,
+    x: usize,
+    p: [f32; 3],
+) -> f32 {
+    let mean = [
+        centred[0][m * w + x],
+        centred[1][m * w + x],
+        centred[2][m * w + x],
+    ];
+    let axis = [
+        centred[3][m * w + x],
+        centred[4][m * w + x],
+        centred[5][m * w + x],
+    ];
+    if axis == [0.0; 3] {
+        return 1.0;
+    }
+    // The line's ends: the window's extreme pixels along it.
+    let (mut low, mut high) = (f32::MAX, f32::MIN);
+    for row in e - r..=e + r {
+        for dx in 0..=2 * r {
+            let xx = (x + dx).saturating_sub(r).min(w - 1);
+            let t = (0..3)
+                .map(|c| axis[c] * (linear[c][row * w + xx] - mean[c]))
+                .sum::<f32>();
+            low = low.min(t);
+            high = high.max(t);
+        }
+    }
+    let length = high - low;
+    if length.is_nan() || length <= 0.0 {
+        return 1.0;
+    }
+    let beyond = (0..3)
+        .map(|c| {
+            let (a, b) = (mean[c] + low * axis[c], mean[c] + high * axis[c]);
+            (a.min(b) - p[c]).max(p[c] - a.max(b)).max(0.0)
+        })
+        .fold(0.0f32, f32::max)
+        / length;
+    ((MIX_NONE - beyond) / (MIX_NONE - MIX_FULL)).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -543,13 +1020,134 @@ mod tests {
     }
 
     #[test]
-    fn version_2_renders_noisy_photos_as_version_1() {
+    fn versions_2_and_3_render_noisy_photos_as_version_1() {
         let noisy = noisy_grey(0.05);
         assert_eq!(run(&noisy, 2), run(&noisy, 1));
+        assert_eq!(run(&noisy, 3), run(&noisy, 1));
         let clean = noisy_grey(0.004);
         assert!(luminance_noise(clean.as_raw(), 96, 96, 3) < 0.5 * EDGE_LOW);
         assert_eq!(radius_for(2, 0.004), 3.0);
         assert_eq!(radius_for(1, 0.004), 2.0);
+    }
+
+    fn linear_mix(a: [f32; 3], b: [f32; 3], t: f32) -> image::Rgb<f32> {
+        image::Rgb(std::array::from_fn(|c| t * a[c] + (1.0 - t) * b[c]))
+    }
+
+    /// Linear-light cyan and magenta of about equal luminance.
+    const CYAN: [f32; 3] = [0.0, 0.37, 0.55];
+    const MAGENTA: [f32; 3] = [0.64, 0.10, 0.35];
+
+    /// The share of `a`'s colour (0 at `b`) along the line from `b` to `a`
+    /// and the distance from that line, in linear RGB.
+    fn off_line(p: [f32; 3], a: [f32; 3], b: [f32; 3]) -> f32 {
+        let d: [f32; 3] = std::array::from_fn(|c| a[c] - b[c]);
+        let q: [f32; 3] = std::array::from_fn(|c| p[c] - b[c]);
+        let dd = d.iter().map(|v| v * v).sum::<f32>();
+        let t = q.iter().zip(&d).map(|(x, y)| x * y).sum::<f32>() / dd;
+        q.iter()
+            .zip(&d)
+            .map(|(x, y)| (x - t * y).powi(2))
+            .sum::<f32>()
+            .sqrt()
+    }
+
+    #[test]
+    fn version_3_removes_a_misregistered_seam_between_two_colours() {
+        // Cyan meets magenta over a 2 px blur, but red rises a pixel before
+        // green falls (the demosaic's red interpolated across the edge): a
+        // light seam neither colour has, at about equal luminance, which the
+        // luminance model of versions 1 and 2 cannot see.
+        let edge = |x: f32| ((x - 19.5) / 2.0 + 0.5).clamp(0.0, 1.0);
+        let before = Rgb32FImage::from_fn(40, 40, |x, _| {
+            let (tg, tr) = (edge(x as f32), edge(x as f32 + 1.0));
+            image::Rgb([
+                tr * MAGENTA[0] + (1.0 - tr) * CYAN[0],
+                tg * MAGENTA[1] + (1.0 - tg) * CYAN[1],
+                tg * MAGENTA[2] + (1.0 - tg) * CYAN[2],
+            ])
+        });
+        let seam = |img: &Rgb32FImage| {
+            (12..28)
+                .map(|x| off_line(img.get_pixel(x, 20).0, MAGENTA, CYAN))
+                .fold(0.0f32, f32::max)
+        };
+        let s0 = seam(&before);
+        assert!(s0 > 0.1, "seam {s0}");
+        let (v2, v3) = (seam(&run(&before, 2)), seam(&run(&before, 3)));
+        assert!(v2 > 0.95 * s0, "version 2 leaves the seam: {s0} -> {v2}");
+        assert!(v3 < 0.65 * s0, "version 3: {s0} -> {v3}");
+    }
+
+    #[test]
+    fn version_3_keeps_blurred_two_colour_edges_and_a_third_colour() {
+        // A clean edge between two colours (blurred in linear light) is on
+        // its colour line already: version 3 moves it no more than the
+        // luminance model alone (which bends a saturated one a little).
+        for (a, b) in [
+            (CYAN, MAGENTA),
+            ([0.95, 0.42, 0.0], [0.28, 0.22, 0.10]),
+            ([0.8, 0.8, 0.85], [0.02, 0.02, 0.02]),
+        ] {
+            let before = Rgb32FImage::from_fn(40, 40, |x, _| {
+                linear_mix(a, b, ((x as f32 - 19.5) / 3.0 + 0.5).clamp(0.0, 1.0))
+            });
+            let moved = |after: Rgb32FImage| {
+                after
+                    .pixels()
+                    .zip(before.pixels())
+                    .flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs()))
+                    .fold(0.0f32, f32::max)
+            };
+            let (v2, v3) = (moved(run(&before, 2)), moved(run(&before, 3)));
+            assert!(
+                v3 <= v2 + 1e-4,
+                "{a:?}/{b:?}: moved {v2} by version 2, {v3} by 3"
+            );
+        }
+        // A green stripe of three pixels between magenta and grey: three
+        // colours in a window, the stripe keeps its colour.
+        let before = Rgb32FImage::from_fn(40, 40, |x, _| match x {
+            0..=17 => image::Rgb(MAGENTA),
+            18..=20 => image::Rgb([0.05, 0.45, 0.08]),
+            _ => image::Rgb([0.3, 0.3, 0.3]),
+        });
+        let after = run(&before, 3);
+        for x in 18..=20 {
+            let (c0, c1) = (
+                chroma(before.get_pixel(x, 20).0),
+                chroma(after.get_pixel(x, 20).0),
+            );
+            assert!(c1 > 0.9 * c0, "stripe x {x}: chroma {c0} -> {c1}");
+        }
+    }
+
+    #[test]
+    fn version_3_keeps_a_small_third_colour_on_a_two_colour_edge() {
+        // A 2 × 2 green patch on the edge between cyan and magenta, all of
+        // about the same luminance (version 2 leaves it alone): no mix of
+        // the two sides makes its colour, so it is no misregistration.
+        let green = [0.15, 0.48, 0.13];
+        let before = Rgb32FImage::from_fn(25, 25, |x, y| {
+            if (12..=13).contains(&x) && (12..=13).contains(&y) {
+                image::Rgb(green)
+            } else if x < 13 {
+                image::Rgb([0.0, 0.35, 0.54])
+            } else {
+                image::Rgb([0.64, 0.10, 0.40])
+            }
+        });
+        assert_eq!(run(&before, 2), before);
+        let after = run(&before, 3);
+        for (x, y) in [(12, 12), (13, 12), (12, 13), (13, 13)] {
+            let p = after.get_pixel(x, y).0;
+            for c in 0..3 {
+                assert!(
+                    (p[c] - green[c]).abs() < 0.03,
+                    "({x}, {y}): {green:?} -> {p:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -568,11 +1166,16 @@ mod tests {
         // one band.
         let mut whole = img.clone();
         let (w, h) = (img.width() as usize, img.height() as usize);
-        let radius = radius_for(VERSION, luminance_noise(img.as_raw(), w, h, 3)) as usize;
-        let changes = suppress_band(img.as_raw(), w, h, 3, radius, 0, h);
+        let plan = plan_for(VERSION, luminance_noise(img.as_raw(), w, h, 3), 1.0);
+        assert!(plan.colour_lines);
+        let changes = suppress_band(img.as_raw(), w, h, 3, plan.radius, 0, h);
         for (i, red, blue) in changes {
             whole.as_mut()[i * 3] = red;
             whole.as_mut()[i * 3 + 2] = blue;
+        }
+        let first = whole.clone();
+        for (i, px) in colour_line_band(first.as_raw(), w, h, 3, plan.radius, 0, h) {
+            whole.as_mut()[i * 3..i * 3 + 3].copy_from_slice(&px);
         }
         assert_eq!(banded, whole);
     }
