@@ -158,15 +158,18 @@ pub fn plan_export_items(paths: Vec<String>) -> Vec<(usize, String, usize, Optio
         let count = base_path_counts.entry(source_str.clone()).or_insert(0);
         *count += 1;
 
+        // The copy number is read from the file name only (a folder such as
+        // `Shoot_VC2024` is not one).
+        let name = &path_str[path_str.rfind(['/', '\\']).map_or(0, |i| i + 1)..];
         let mut explicit_vc = None;
-        if let Some(idx) = path_str.rfind("vc=") {
-            let id_str = path_str[idx + 3..].split('&').next().unwrap_or("");
+        if let Some(idx) = name.rfind("vc=") {
+            let id_str = name[idx + 3..].split('&').next().unwrap_or("");
             if let Ok(id) = id_str.parse::<u32>() {
                 explicit_vc = Some(id);
             }
         }
         if explicit_vc.is_none() {
-            let lower = path_str.to_lowercase();
+            let lower = name.to_lowercase();
             if let Some(idx) = lower.rfind("_vc") {
                 let id_str: String = lower[idx + 3..]
                     .chars()
@@ -252,6 +255,8 @@ mod tests {
             "/p/a.raf?vc=0f1e2d".into(),
             "/p/a.raf?vc=123456".into(),
             "/p/b.raf".into(),
+            "/p/Shoot_VC2024/c.raf".into(),
+            "/p/c_vc3.raf".into(),
         ]);
         let date = chrono::DateTime::<chrono::Utc>::from_timestamp(0, 0).unwrap();
         let stems: Vec<String> = items
@@ -262,7 +267,7 @@ mod tests {
                     "{original_filename}_edited",
                     &path,
                     i + 1,
-                    4,
+                    6,
                     &date,
                     *appearance,
                     *vc,
@@ -271,7 +276,14 @@ mod tests {
             .collect();
         assert_eq!(
             stems,
-            ["a_edited", "a_edited_VC01", "a_edited_VC123456", "b_edited"]
+            [
+                "a_edited",
+                "a_edited_VC01",
+                "a_edited_VC123456",
+                "b_edited",
+                "c_edited",
+                "c_vc3_edited_VC03"
+            ]
         );
     }
 

@@ -4416,8 +4416,6 @@ fn kelvin_white_balance(adjustments: &serde_json::Value) -> [f32; 4] {
     preset.map_or([0.0; 4], |(t, tint)| [1.0, t as f32, tint as f32, 0.0])
 }
 
-/// Lightroom's Detail and Contrast for luminance noise reduction and Detail
-/// and Smoothness for colour (0–100; defaults 50, 0, 50, 50) as 0–1.
 /// The display's soft proofing (view state, never in recipes): `softProof`
 /// names an output colour space, `softProofWarning` marks colours outside it.
 fn soft_proof_space(

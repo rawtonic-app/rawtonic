@@ -3,7 +3,7 @@ use crate::image_processing::{
     apply_orientation, apply_srgb_to_linear, remove_raw_artifacts_and_enhance,
 };
 use crate::mask_generation::{MaskDefinition, PhotoGeometry, SubMask, generate_mask_bitmap};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use base64::{Engine as _, engine::general_purpose};
 use exif::{Reader as ExifReader, Tag};
 use image::{DynamicImage, GenericImageView, ImageReader, imageops};
@@ -1115,6 +1115,15 @@ fn composite_ai_patches_at(
                 color_image_u8
             };
 
+            // The colour is read at the mask's pixel indices: a damaged
+            // recipe with a smaller colour image fails here, not by panic.
+            let (mask_w, mask_h) = mask_bitmap.dimensions();
+            let (color_w, color_h) = final_color.dimensions();
+            ensure!(
+                color_w as u64 * color_h as u64 >= mask_w as u64 * mask_h as u64,
+                "Patch colour {color_w}x{color_h} is smaller than its mask {mask_w}x{mask_h}"
+            );
+
             Ok(DecodedPatch {
                 offset_x,
                 offset_y,
@@ -1558,6 +1567,37 @@ mod private_preview_tests {
         assert!(raf_embedded_jpeg(&raf).is_none());
         assert_eq!(exif_orientation(&orientation_tiff(0)), None);
         assert_eq!(exif_orientation(&orientation_tiff(9)), None);
+    }
+
+    #[test]
+    fn a_patch_colour_smaller_than_its_mask_fails_instead_of_panicking() {
+        use image::{ImageBuffer, Luma, Rgb};
+        use serde_json::json;
+
+        let encode_png = |image: DynamicImage| {
+            let mut bytes = Cursor::new(Vec::new());
+            image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+            general_purpose::STANDARD.encode(bytes.into_inner())
+        };
+        // A damaged recipe: a 20x10 mask with a 4x2 colour.
+        let color = encode_png(DynamicImage::ImageRgb8(ImageBuffer::from_pixel(
+            4,
+            2,
+            Rgb([255, 0, 0]),
+        )));
+        let mask = encode_png(DynamicImage::ImageLuma8(ImageBuffer::from_pixel(
+            20,
+            10,
+            Luma([255]),
+        )));
+        let adjustments = json!({"aiPatches":[{"visible":true,"patchData":{
+            "color":color,"mask":mask,"offsetX":40,"offsetY":20,"width":20,"height":10}}]});
+        let black = DynamicImage::ImageRgb32F(ImageBuffer::new(100, 60));
+        let error = composite_patches_on_image(&black, &adjustments).unwrap_err();
+        assert!(
+            error.to_string().contains("smaller than its mask"),
+            "{error}"
+        );
     }
 
     #[test]
