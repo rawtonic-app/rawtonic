@@ -633,7 +633,8 @@ fn pixel_move(
             *v *= had / gets;
         }
     }
-    let target: [f32; 3] = std::array::from_fn(|c| (l_own + colour[c]).max(0.0));
+    // Signed, as the linear values beyond sRGB the engine keeps.
+    let target: [f32; 3] = std::array::from_fn(|c| l_own + colour[c]);
     // Which deviation: the hue families of axial aberration, or small.
     let (a, b) = (oklab(p), oklab(target));
     let (da, db) = (a[1] - b[1], a[2] - b[2]);
@@ -894,6 +895,39 @@ mod tests {
         for &(x, y) in &patch {
             let i = (y * w + x) * 3;
             assert_eq!(&data[i..i + 3], &before[i..i + 3], "patch pixel {x},{y}");
+        }
+    }
+
+    #[test]
+    fn a_wide_gamut_edge_of_one_colour_keeps_its_signed_channels() {
+        // A brightness step of one colour beyond sRGB (negative red), the
+        // same blur in every channel: nothing to correct, and in particular
+        // no channel clipped at zero (which would change luminance).
+        let (w, h) = (64, 40);
+        let mut data = vec![0.0f32; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let t = step(x as f32, 32.0, 1.5, 0.02, 1.0);
+                data[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&[-0.5 * t, t, t]);
+            }
+        }
+        let before = data.clone();
+        apply(&mut data, w, h, 3, 0.0, 1.0);
+        for (i, (a, b)) in before
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(data.as_chunks::<3>().0)
+            .enumerate()
+        {
+            let (la, lb) = (lum([a[0], a[1], a[2]]), lum([b[0], b[1], b[2]]));
+            assert!(
+                (la - lb).abs() <= 1e-5 * la.abs().max(1e-3),
+                "pixel {i}: luminance {la} -> {lb}"
+            );
+            for c in 0..3 {
+                assert!((a[c] - b[c]).abs() < 1e-3, "pixel {i}: {a:?} -> {b:?}");
+            }
         }
     }
 
