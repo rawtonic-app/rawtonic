@@ -128,6 +128,10 @@ pub struct GeometryParams {
     /// clearly better (`lateral_ca::competes`, `estimate_versus`).
     #[serde(default)]
     pub auto_ca_versus_own: bool,
+    /// Resampling keeps negative (wide-gamut) channels where the source has
+    /// them (`renderVersion` 2, `bicubic_floor`).
+    #[serde(default)]
+    pub keep_negative: bool,
 }
 
 impl Default for GeometryParams {
@@ -166,6 +170,7 @@ impl Default for GeometryParams {
             auto_ca: false,
             auto_ca_version: 0,
             auto_ca_versus_own: false,
+            keep_negative: false,
         }
     }
 }
@@ -259,6 +264,7 @@ pub fn get_geometry_params_from_json(adjustments: &serde_json::Value) -> Geometr
         auto_ca: false,
         auto_ca_version: crate::lateral_ca::version_of(adjustments),
         auto_ca_versus_own: false,
+        keep_negative: render_version(adjustments) >= 2,
     };
     let own = has_own_tca(&params);
     params.auto_ca = crate::lateral_ca::applies(adjustments, own);
@@ -509,6 +515,7 @@ fn bicubic_channel(
     x: f32,
     y: f32,
     channel: usize,
+    keep_negative: bool,
 ) -> Option<f32> {
     if !(x >= 1.0 && y >= 1.0 && x < src_width as f32 - 2.0 && y < src_height as f32 - 2.0) {
         return None;
@@ -531,7 +538,27 @@ fn bicubic_channel(
         };
         value += line * wyj;
     }
+    if value < 0.0 && keep_negative {
+        let first = (y0 - 1) * stride + (x0 - 1) * 3 + channel;
+        return Some(value.max(bicubic_floor(src_raw, stride, first)));
+    }
     Some(value.max(0.0))
+}
+
+/// The lowest value a Catmull-Rom sample may take when negative channels are
+/// kept (`GeometryParams::keep_negative`): its taps' lowest where one is
+/// negative (a colour beyond sRGB in the source), else 0. The weights'
+/// undershoot next to an edge stays cut off either way. `first` is the
+/// upper-left tap of one channel of an interleaved RGB image.
+#[inline]
+fn bicubic_floor(src_raw: &[f32], stride: usize, first: usize) -> f32 {
+    let mut floor = 0.0f32;
+    for j in 0..4 {
+        for i in 0..4 {
+            floor = floor.min(src_raw[first + j * stride + i * 3]);
+        }
+    }
+    floor
 }
 
 /// `bicubic_channel` for all three channels with the weights computed once;
@@ -543,6 +570,7 @@ fn bicubic_rgb(
     src_height: usize,
     x: f32,
     y: f32,
+    keep_negative: bool,
 ) -> Option<[f32; 3]> {
     if !(x >= 1.0 && y >= 1.0 && x < src_width as f32 - 2.0 && y < src_height as f32 - 2.0) {
         return None;
@@ -566,6 +594,15 @@ fn bicubic_rgb(
             *out += line * wyj;
         }
     }
+    if keep_negative {
+        let first = (y0 - 1) * stride + (x0 - 1) * 3;
+        for (channel, v) in value.iter_mut().enumerate() {
+            if *v < 0.0 {
+                *v = v.max(bicubic_floor(src_raw, stride, first + channel));
+            }
+        }
+        return Some(value);
+    }
     Some(value.map(|v| v.max(0.0)))
 }
 
@@ -576,6 +613,7 @@ fn interpolate_pixel(
     src_height: usize,
     x: f32,
     y: f32,
+    keep_negative: bool,
     pixel_out: &mut [f32],
 ) {
     // The last row and column are samples too (an unmoved pixel there maps
@@ -590,7 +628,7 @@ fn interpolate_pixel(
     {
         return;
     }
-    if let Some(rgb) = bicubic_rgb(src_raw, src_width, src_height, x, y) {
+    if let Some(rgb) = bicubic_rgb(src_raw, src_width, src_height, x, y, keep_negative) {
         pixel_out[..3].copy_from_slice(&rgb);
         return;
     }
@@ -746,6 +784,8 @@ struct TcaContext<'a> {
     /// frame's end, `src_width` the columns held (the row stride).
     row0: f32,
     col0: f32,
+    /// `GeometryParams::keep_negative`.
+    keep_negative: bool,
 }
 
 #[inline(always)]
@@ -791,6 +831,7 @@ fn interpolate_pixel_with_tca(
             target_x,
             target_y,
             channel_idx,
+            tca.keep_negative,
         ) {
             return value;
         }
@@ -1032,6 +1073,7 @@ struct WarpKernel {
     vk3: f64,
     lens_vig_amt: f64,
     has_vignetting: bool,
+    keep_negative: bool,
 }
 
 impl WarpKernel {
@@ -1145,6 +1187,7 @@ impl WarpKernel {
             vk3,
             lens_vig_amt,
             has_vignetting,
+            keep_negative: params.keep_negative,
         }
     }
 
@@ -1312,6 +1355,7 @@ impl WarpKernel {
             vb2: self.vb2,
             row0: row0 as f32,
             col0,
+            keep_negative: self.keep_negative,
         };
         for pixel in row.as_chunks_mut::<3>().0.iter_mut() {
             if let Some((src_x, src_y)) = self.source_point(&current_vec) {
@@ -1324,6 +1368,7 @@ impl WarpKernel {
                         height - row0,
                         src_x - col0,
                         src_y - row0 as f32,
+                        self.keep_negative,
                         pixel,
                     );
                 }
@@ -1515,7 +1560,15 @@ pub fn unwarp_image_geometry(warped_image: &DynamicImage, params: GeometryParams
                     let src_x = target_vec.x * inv_z;
                     let src_y = target_vec.y * inv_z;
 
-                    interpolate_pixel(src_raw, width_usize, height_usize, src_x, src_y, pixel);
+                    interpolate_pixel(
+                        src_raw,
+                        width_usize,
+                        height_usize,
+                        src_x,
+                        src_y,
+                        params.keep_negative,
+                        pixel,
+                    );
                 }
             }
         });
@@ -1711,7 +1764,7 @@ pub fn inverse_transform_mask(
     let mask_dyn = image::DynamicImage::ImageLuma8(mask);
 
     let unrotated_fine = if rotation_degrees.abs() > 1e-5 {
-        crate::image_processing::apply_rotation(mask_dyn, -rotation_degrees).into_owned()
+        crate::image_processing::apply_rotation(mask_dyn, -rotation_degrees, false).into_owned()
     } else {
         mask_dyn
     };
@@ -2016,9 +2069,12 @@ pub fn apply_coarse_rotation<'a>(
     }
 }
 
+/// Straightening by `rotation_degrees` (bicubic, `sample_bicubic_rgba`;
+/// `keep_negative` as `GeometryParams::keep_negative`).
 pub fn apply_rotation<'a>(
     image: impl IntoCowImage<'a>,
     rotation_degrees: f32,
+    keep_negative: bool,
 ) -> Cow<'a, DynamicImage> {
     let image = image.into_cow();
     if rotation_degrees % 360.0 == 0.0 {
@@ -2048,7 +2104,7 @@ pub fn apply_rotation<'a>(
         .for_each(|(row, destination)| {
             for (column, pixel) in destination.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let (px, py) = inverse * (column as f32, row as f32);
-                *pixel = sample_bicubic_rgba(&fetch, px, py);
+                *pixel = sample_bicubic_rgba(&fetch, px, py, keep_negative);
             }
         });
     let rotated = image::ImageBuffer::from_raw(width, height, output)
@@ -2070,14 +2126,21 @@ pub(crate) fn rotation_inverse(rotation_degrees: f32, width: u32, height: u32) -
 /// Catmull-Rom sample of an RGBA float source at (`x`, `y`); `fetch` returns
 /// transparent black outside the frame. Straightening resamples every pixel:
 /// bicubic keeps more fine detail than bilinear (as for lens warps). Colour
-/// is kept non-negative, alpha within 0..1; values above 1 stay.
+/// is kept non-negative (with `keep_negative`, down to its taps' lowest, as
+/// `bicubic_floor`), alpha within 0..1; values above 1 stay.
 #[inline(always)]
-fn sample_bicubic_rgba(fetch: &impl Fn(i64, i64) -> [f32; 4], x: f32, y: f32) -> [f32; 4] {
+fn sample_bicubic_rgba(
+    fetch: &impl Fn(i64, i64) -> [f32; 4],
+    x: f32,
+    y: f32,
+    keep_negative: bool,
+) -> [f32; 4] {
     let left = x.floor() as i64 - 1;
     let top = y.floor() as i64 - 1;
     let wx = catmull_rom_weights(x - (left + 1) as f32);
     let wy = catmull_rom_weights(y - (top + 1) as f32);
     let mut out = [0.0f32; 4];
+    let mut floor = [0.0f32; 3];
     for (j, wyj) in wy.iter().enumerate() {
         let row = top + j as i64;
         let (p0, p1, p2, p3) = (
@@ -2086,6 +2149,15 @@ fn sample_bicubic_rgba(fetch: &impl Fn(i64, i64) -> [f32; 4], x: f32, y: f32) ->
             fetch(left + 2, row),
             fetch(left + 3, row),
         );
+        if keep_negative {
+            for (channel, low) in floor.iter_mut().enumerate() {
+                *low = low
+                    .min(p0[channel])
+                    .min(p1[channel])
+                    .min(p2[channel])
+                    .min(p3[channel]);
+            }
+        }
         for channel in 0..4 {
             let line = p0[channel] * wx[0]
                 + p1[channel] * wx[1]
@@ -2095,9 +2167,9 @@ fn sample_bicubic_rgba(fetch: &impl Fn(i64, i64) -> [f32; 4], x: f32, y: f32) ->
         }
     }
     [
-        out[0].max(0.0),
-        out[1].max(0.0),
-        out[2].max(0.0),
+        out[0].max(floor[0]),
+        out[1].max(floor[1]),
+        out[2].max(floor[2]),
         out[3].clamp(0.0, 1.0),
     ]
 }
@@ -2237,6 +2309,7 @@ pub fn fused_spatial_transform(
     flip_vertical: bool,
     rotation_degrees: f32,
     crop_value: &Value,
+    keep_negative: bool,
 ) -> Option<DynamicImage> {
     let (channels, source): (usize, &[f32]) = match image {
         DynamicImage::ImageRgb32F(rgb) => (3, rgb.as_raw()),
@@ -2301,7 +2374,7 @@ pub fn fused_spatial_transform(
             for (column, pixel) in destination.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                 let x = (crop_x + column as u32) as f32;
                 let (px, py) = inverse * (x, y);
-                *pixel = sample_bicubic_rgba(&fetch, px, py);
+                *pixel = sample_bicubic_rgba(&fetch, px, py, keep_negative);
             }
         });
     Some(DynamicImage::ImageRgba32F(image::ImageBuffer::from_raw(
@@ -2469,6 +2542,8 @@ struct SpatialSteps {
     /// `fused_spatial_transform` (turned, flipped or straightened);
     /// otherwise a plain crop.
     fused: bool,
+    /// `GeometryParams::keep_negative`.
+    keep_negative: bool,
 }
 
 impl SpatialSteps {
@@ -2487,6 +2562,7 @@ impl SpatialSteps {
             rotation_degrees,
             crop,
             fused: reorients || rotation_degrees % 360.0 != 0.0,
+            keep_negative: render_version(adjustments) >= 2,
         }
     }
 
@@ -2785,7 +2861,7 @@ pub fn transformed_region(
                 for (column, pixel) in destination.as_chunks_mut::<4>().0.iter_mut().enumerate() {
                     let x = (crop_x + x0 + column as u32) as f32;
                     let (px, py) = inverse * (x, y);
-                    *pixel = sample_bicubic_rgba(&fetch, px, py);
+                    *pixel = sample_bicubic_rgba(&fetch, px, py, spatial.keep_negative);
                 }
             });
         DynamicImage::ImageRgba32F(image::ImageBuffer::from_raw(w, h, output)?)
@@ -3264,6 +3340,9 @@ pub struct PreparedAdjustments {
     pub relight_surface: Option<std::sync::Arc<crate::relight::DepthSurface>>,
     /// Imported Relight patterns (atlas key in `global.relight_depth[2..]`).
     pub relight_patterns: Option<std::sync::Arc<image::GrayImage>>,
+    /// The blurs read their whole radius at tile edges (`renderVersion` 2);
+    /// before, the large blur stopped at the tiles' 128-pixel overlap.
+    pub whole_blur_radius: bool,
 }
 impl std::ops::Deref for PreparedAdjustments {
     type Target = AllAdjustments;
@@ -3285,6 +3364,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             uniforms,
             relight_surface,
             relight_patterns,
+            whole_blur_radius: false,
         }
     }
 }
@@ -3871,7 +3951,12 @@ fn get_global_adjustments_from_json(
         .cloned()
         .unwrap_or_default();
 
-    let color_cal_settings = if is_visible("color") {
+    // The Classic and AgX looks' inherited grading and calibration follow
+    // their tool switches from `renderVersion` 2 (the other looks always did).
+    let switches = render_version(js_adjustments) >= 2;
+    let classic_grading = is_visible("color") && (!switches || tool_on("colorGrading"));
+    let classic_calibration = is_visible("color") && (!switches || tool_on("colorCalibration"));
+    let color_cal_settings = if classic_calibration {
         ColorCalibrationSettings {
             shadows_tint: cal_obj["shadowsTint"].as_f64().unwrap_or(0.0) as f32
                 / SCALES.color_calibration_hue,
@@ -4024,32 +4109,32 @@ fn get_global_adjustments_from_json(
         color_noise_aware_far: 0.0,
         color_noise_guide: 0.0,
         color_noise_guide_k2: 0.0,
-        color_grading_shadows: if is_visible("color") {
+        color_grading_shadows: if classic_grading {
             parse_color_grade_settings(&cg_obj["shadows"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_midtones: if is_visible("color") {
+        color_grading_midtones: if classic_grading {
             parse_color_grade_settings(&cg_obj["midtones"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_highlights: if is_visible("color") {
+        color_grading_highlights: if classic_grading {
             parse_color_grade_settings(&cg_obj["highlights"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_global: if is_visible("color") {
+        color_grading_global: if classic_grading {
             parse_color_grade_settings(&cg_obj["global"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_blending: if is_visible("color") {
+        color_grading_blending: if classic_grading {
             cg_obj["blending"].as_f64().unwrap_or(50.0) as f32 / SCALES.color_grading_blending
         } else {
             0.5
         },
-        color_grading_balance: if is_visible("color") {
+        color_grading_balance: if classic_grading {
             cg_obj["balance"].as_f64().unwrap_or(0.0) as f32 / SCALES.color_grading_balance
         } else {
             0.0
@@ -4551,6 +4636,57 @@ pub fn luma_noise_version(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, LUMA_NOISE_VERSION)
 }
 
+/// The recipe key naming the render pipeline's fixes a recipe was made
+/// with (2026-10-20), for corrections that change the pixels of saved edits
+/// without a tool of their own.
+pub const RENDER_VERSION_KEY: &str = "renderVersion";
+/// The newest: 2 keeps a geometry warp's or straightening's negative (wide
+/// gamut) channels where the source has them, gives the large blur of
+/// Clarity, Dehaze and Glow its whole radius at tile edges on photos with a
+/// short side above 3456 pixels (no seams), and turns the Classic and AgX
+/// looks' Color Grading and Calibration off with their tool switches.
+/// Recipes without the key keep version 1.
+pub const RENDER_VERSION: u64 = 2;
+
+/// The recipe's render pipeline version, 1 when missing, never newer than
+/// this renderer knows.
+pub fn render_version(adjustments: &serde_json::Value) -> u64 {
+    adjustments
+        .get(RENDER_VERSION_KEY)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1)
+        .clamp(1, RENDER_VERSION)
+}
+
+/// Whether a recipe is new: none, or empty (Library Reset saves `{}`; the
+/// editor's load adds only `lensProfileFor`). It renders as a new edit.
+pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
+    adjustments.is_null()
+        || adjustments.as_object().is_some_and(|map| {
+            map.keys()
+                .all(|key| key == crate::lens_recipe::LENS_PROFILE_FOR)
+        })
+}
+
+/// Sets the current render version on a new recipe (`is_new_recipe`), as
+/// the editor does for new edits (RAW or not): before a never-edited photo
+/// renders, and before a batch edit (paste, preset, Auto) fills one. Saved
+/// recipes, partial ones included, keep the version they were made with.
+pub fn apply_render_default(adjustments: &mut serde_json::Value) {
+    if !is_new_recipe(adjustments) {
+        return;
+    }
+    if adjustments.is_null() {
+        *adjustments = serde_json::json!({});
+    }
+    if let Some(map) = adjustments.as_object_mut() {
+        map.insert(
+            RENDER_VERSION_KEY.to_string(),
+            serde_json::json!(RENDER_VERSION),
+        );
+    }
+}
+
 /// The recipe key naming the Defringe fringe detector a recipe was made with.
 pub const DEFRINGE_VERSION_KEY: &str = "defringeVersion";
 /// The newest detector: 2 (2026-10-17) takes only colour that the edge
@@ -4590,6 +4726,7 @@ fn gray_mixer(mixer: &serde_json::Value) -> [[f32; 4]; 2] {
 fn get_mask_adjustments_from_json(
     adj: &serde_json::Value,
     tonemapper_mode: u32,
+    render_version: u64,
 ) -> MaskAdjustments {
     if adj.is_null() {
         return MaskAdjustments::default();
@@ -4604,6 +4741,8 @@ fn get_mask_adjustments_from_json(
     };
 
     let tool_on = |key: &str| tool_switch(key).is_none_or(&is_visible);
+    // As for the photo (`get_global_adjustments_from_json`).
+    let classic_grading = is_visible("color") && (render_version < 2 || tool_on("colorGrading"));
     let get_val = |section: &str, key: &str, scale: f32| -> f32 {
         if is_visible(section) && tool_on(key) {
             adj[key].as_f64().unwrap_or(0.0) as f32 / scale
@@ -4669,32 +4808,32 @@ fn get_mask_adjustments_from_json(
         hue: get_val("color", "hue", 1.0),
         defringe: (get_val("details", "defringe", 100.0)).clamp(-1.0, 1.0),
         _pad_cg2: 0.0,
-        color_grading_shadows: if is_visible("color") {
+        color_grading_shadows: if classic_grading {
             parse_color_grade_settings(&cg_obj["shadows"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_midtones: if is_visible("color") {
+        color_grading_midtones: if classic_grading {
             parse_color_grade_settings(&cg_obj["midtones"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_highlights: if is_visible("color") {
+        color_grading_highlights: if classic_grading {
             parse_color_grade_settings(&cg_obj["highlights"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_global: if is_visible("color") {
+        color_grading_global: if classic_grading {
             parse_color_grade_settings(&cg_obj["global"])
         } else {
             ColorGradeSettings::default()
         },
-        color_grading_blending: if is_visible("color") {
+        color_grading_blending: if classic_grading {
             cg_obj["blending"].as_f64().unwrap_or(50.0) as f32 / SCALES.color_grading_blending
         } else {
             0.5
         },
-        color_grading_balance: if is_visible("color") {
+        color_grading_balance: if classic_grading {
             cg_obj["balance"].as_f64().unwrap_or(0.0) as f32 / SCALES.color_grading_balance
         } else {
             0.0
@@ -4793,6 +4932,7 @@ pub fn get_all_adjustments_with_masks(
         1.0
     };
     global.exposure *= exposure_scale;
+    let version = render_version(js_adjustments);
     let mut mask_adjustments = [MaskAdjustments::default(); MAX_MASKS];
     let mut mask_count = 0;
 
@@ -4803,7 +4943,7 @@ pub fn get_all_adjustments_with_masks(
         .enumerate()
     {
         mask_adjustments[i] =
-            get_mask_adjustments_from_json(&mask_def.adjustments, global.tonemapper_mode);
+            get_mask_adjustments_from_json(&mask_def.adjustments, global.tonemapper_mode, version);
         mask_adjustments[i].exposure *= exposure_scale;
         mask_count += 1;
     }
@@ -4811,6 +4951,7 @@ pub fn get_all_adjustments_with_masks(
     PreparedAdjustments {
         relight_surface,
         relight_patterns,
+        whole_blur_radius: version >= 2,
         uniforms: AllAdjustments {
             global,
             mask_adjustments,
@@ -6270,7 +6411,7 @@ mod spatial_transform_tests {
     ) -> DynamicImage {
         let coarse = apply_coarse_rotation(image, steps);
         let flipped = apply_flip(coarse, h, v);
-        let rotated = apply_rotation(flipped, degrees);
+        let rotated = apply_rotation(flipped, degrees, false);
         apply_crop(rotated, crop).into_owned()
     }
 
@@ -6318,9 +6459,10 @@ mod spatial_transform_tests {
                         for degrees in angles {
                             for crop in &crops {
                                 let expected = chain(image, steps, h, v, degrees, crop);
-                                let fused =
-                                    fused_spatial_transform(image, steps, h, v, degrees, crop)
-                                        .expect("float images are supported");
+                                let fused = fused_spatial_transform(
+                                    image, steps, h, v, degrees, crop, false,
+                                )
+                                .expect("float images are supported");
                                 let case = format!(
                                     "{width}x{height} {:?} steps {steps} flips {h}/{v} {degrees}° crop {crop}",
                                     image.color()
@@ -6341,7 +6483,9 @@ mod spatial_transform_tests {
     #[test]
     fn fused_spatial_transform_leaves_integer_images_to_the_chain() {
         let image = DynamicImage::ImageRgb8(ImageBuffer::new(4, 4));
-        assert!(fused_spatial_transform(&image, 1, true, false, 3.0, &Value::Null).is_none());
+        assert!(
+            fused_spatial_transform(&image, 1, true, false, 3.0, &Value::Null, false).is_none()
+        );
     }
 }
 
@@ -7332,5 +7476,154 @@ mod thumbnail_tests {
             image::Rgb([10, 128, 230]),
         ));
         assert_eq!(thumbnail(&eight, 160, 160), eight.thumbnail(160, 160));
+    }
+}
+
+#[cfg(test)]
+mod render_version_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// A recipe started by a batch edit (paste, preset, Auto) or for a
+    /// never-edited render gets the current render version first; a saved
+    /// recipe, also a partial one without a lens mode, keeps its own.
+    #[test]
+    fn only_new_recipes_start_on_the_current_render_version() {
+        let lens_stamp = json!({crate::lens_recipe::LENS_PROFILE_FOR: "[\"manual\"]"});
+        for new in [serde_json::Value::Null, json!({}), lens_stamp] {
+            let mut recipe = new.clone();
+            apply_render_default(&mut recipe);
+            assert_eq!(recipe[RENDER_VERSION_KEY], RENDER_VERSION, "{new}");
+        }
+        for saved in [
+            json!({"clarity": 30}),
+            json!({"renderVersion": 1, "exposure": 1}),
+        ] {
+            let mut recipe = saved.clone();
+            apply_render_default(&mut recipe);
+            assert_eq!(recipe, saved);
+        }
+    }
+
+    /// The Classic look's inherited Color Grading and Calibration, on the
+    /// photo and a layer, with both tool switches off.
+    fn classic(version: u64, on: bool) -> PreparedAdjustments {
+        let grading = json!({"shadows": {"hue": 220, "saturation": 40, "luminance": 10},
+            "highlights": {"hue": 40, "saturation": 30, "luminance": 0}, "balance": 20});
+        let switches = json!({"colorGrading": on, "calibration": on});
+        let layer = json!({"id": "a", "name": "A", "visible": true, "invert": false, "opacity": 100,
+            "subMasks": [{"id": "s", "type": "all", "visible": true, "mode": "additive", "parameters": {}}],
+            "adjustments": {"colorGrading": grading, "sectionVisibility": switches}});
+        get_all_adjustments_from_json(
+            &json!({"toneMapper": "basic", "colorGrading": grading,
+                "colorCalibration": {"redHue": 30, "blueSaturation": -20, "shadowsTint": 15},
+                "sectionVisibility": switches, "masks": [layer], "renderVersion": version}),
+            true,
+            None,
+        )
+    }
+
+    /// From `renderVersion` 2 the Classic and AgX looks' grading and
+    /// calibration follow their tool switches, as the other looks' do;
+    /// switched on, nothing changes.
+    #[test]
+    fn classic_grading_and_calibration_follow_their_switches() {
+        let old = classic(1, false);
+        assert!(old.global.color_grading_shadows.saturation > 0.0);
+        assert!(old.global.color_calibration.red_hue != 0.0);
+        assert!(old.mask_adjustments[0].color_grading_shadows.saturation > 0.0);
+        let new = classic(2, false);
+        let none = get_all_adjustments_from_json(
+            &json!({"toneMapper": "basic", "renderVersion": 2,
+                "masks": [{"id": "a", "name": "A", "visible": true, "invert": false, "opacity": 100,
+                "subMasks": [{"id": "s", "type": "all", "visible": true, "mode": "additive", "parameters": {}}],
+                "adjustments": {}}]}),
+            true,
+            None,
+        );
+        assert_eq!(
+            bytemuck::bytes_of(&new.global.color_grading_shadows),
+            bytemuck::bytes_of(&none.global.color_grading_shadows)
+        );
+        assert_eq!(
+            new.global.color_grading_balance,
+            none.global.color_grading_balance
+        );
+        assert_eq!(
+            bytemuck::bytes_of(&new.global.color_calibration),
+            bytemuck::bytes_of(&none.global.color_calibration)
+        );
+        assert_eq!(
+            bytemuck::bytes_of(&new.mask_adjustments[0]),
+            bytemuck::bytes_of(&none.mask_adjustments[0])
+        );
+        assert_eq!(
+            bytemuck::bytes_of(&classic(1, true).uniforms),
+            bytemuck::bytes_of(&classic(2, true).uniforms)
+        );
+    }
+
+    /// A frame whose left half holds a colour beyond sRGB (negative red),
+    /// with an edge for the bicubic weights to ring at.
+    fn wide_gamut(width: u32, height: u32) -> DynamicImage {
+        DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(width, height, |x, y| {
+            if x < width / 2 {
+                image::Rgb([-0.2, 0.3 + 0.001 * y as f32, 0.6])
+            } else {
+                image::Rgb([0.9, 0.05, 0.05])
+            }
+        }))
+    }
+
+    /// The lowest red away from the frame's edge (the last pixels are
+    /// sampled bilinearly, which never clipped).
+    fn lowest_red(image: &DynamicImage) -> f32 {
+        let rgb = image.to_rgb32f();
+        let (w, h) = rgb.dimensions();
+        rgb.enumerate_pixels()
+            .filter(|(x, y, _)| (8..w - 8).contains(x) && (8..h - 8).contains(y))
+            .map(|(_, _, p)| p.0[0])
+            .fold(f32::MAX, f32::min)
+    }
+
+    /// From `renderVersion` 2 lens warps and straightening keep negative
+    /// channels the source has, instead of clipping them to 0; an image
+    /// without negative values renders exactly as before.
+    #[test]
+    fn warps_and_straightening_keep_wide_gamut_channels() {
+        let source = wide_gamut(160, 120);
+        let recipe = |version: u64| {
+            json!({"lensDistortionParams": {"k1": -0.05, "k2": 0.02, "k3": 0.0, "model": 1,
+                "tca_vr": 1.001, "tca_vb": 0.999, "vig_k1": 0.0, "vig_k2": 0.0, "vig_k3": 0.0},
+                "lensCorrectionMode": "manual", "rotation": 3.0, "renderVersion": version})
+        };
+        for version in [1, 2] {
+            let warped = apply_geometry_warp(&source, &recipe(version));
+            let (turned, _) =
+                crate::adjustment_utils::apply_spatial_transformations(&source, &recipe(version));
+            for (name, image) in [("warp", warped.as_ref()), ("straighten", turned.as_ref())] {
+                let low = lowest_red(image);
+                if version == 1 {
+                    assert!(low >= 0.0, "{name} v1: {low}");
+                } else {
+                    assert!((low + 0.2).abs() < 1e-4, "{name} v2: {low}");
+                }
+            }
+        }
+        // Without negative channels both versions are the same, ringing cut
+        // off at 0 included.
+        let plain = DynamicImage::ImageRgb32F(Rgb32FImage::from_fn(160, 120, |x, _| {
+            if x < 80 {
+                image::Rgb([0.0, 0.01, 0.0])
+            } else {
+                image::Rgb([1.0, 0.9, 0.8])
+            }
+        }));
+        let v1 = apply_geometry_warp(&plain, &recipe(1)).to_rgb32f();
+        let v2 = apply_geometry_warp(&plain, &recipe(2)).to_rgb32f();
+        assert_eq!(v1.as_raw(), v2.as_raw());
+        let (t1, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(1));
+        let (t2, _) = crate::adjustment_utils::apply_spatial_transformations(&plain, &recipe(2));
+        assert_eq!(t1.to_rgba32f().as_raw(), t2.to_rgba32f().as_raw());
     }
 }

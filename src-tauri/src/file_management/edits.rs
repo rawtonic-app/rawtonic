@@ -327,9 +327,9 @@ pub async fn apply_adjustments_to_paths(
                     crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
                 let mut new_adjustments = existing_metadata.adjustments;
-                if new_adjustments.is_null() {
-                    new_adjustments = serde_json::json!({});
-                }
+                // A photo without an edit starts one: the current render
+                // version, as the editor's new edits.
+                crate::image_processing::apply_render_default(&mut new_adjustments);
                 let previous = new_adjustments.clone();
 
                 if let (Some(new_map), Some(pasted_map)) =
@@ -394,9 +394,7 @@ pub async fn apply_auto_lens_correction_to_paths(
                 let mut existing_metadata =
                     crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
-                if existing_metadata.adjustments.is_null() {
-                    existing_metadata.adjustments = serde_json::json!({});
-                }
+                crate::image_processing::apply_render_default(&mut existing_metadata.adjustments);
 
                 if let Some(obj) = existing_metadata.adjustments.as_object_mut() {
                     obj.insert("lensCorrectionMode".to_string(), serde_json::json!("auto"));
@@ -483,6 +481,9 @@ pub async fn apply_auto_adjustments_to_paths(
                     // edited or tagged while it was decoded and measured.
                     let _turn = sidecar_field_edit();
                     let mut existing_metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+                    crate::image_processing::apply_render_default(
+                        &mut existing_metadata.adjustments,
+                    );
                     let previous = existing_metadata.adjustments.clone();
                     crate::auto_adjust::merge_auto_adjustments(
                         &mut existing_metadata.adjustments,

@@ -153,6 +153,7 @@ pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
     let rotation_degrees = adjustments["rotation"].as_f64().unwrap_or(0.0) as f32;
     let flip_horizontal = adjustments["flipHorizontal"].as_bool().unwrap_or(false);
     let flip_vertical = adjustments["flipVertical"].as_bool().unwrap_or(false);
+    let keep_negative = crate::image_processing::render_version(adjustments) >= 2;
 
     let crop_data: Option<Crop> = serde_json::from_value(adjustments["crop"].clone()).ok();
     let crop_json = serde_json::to_value(crop_data).unwrap_or(serde_json::Value::Null);
@@ -168,6 +169,7 @@ pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
             flip_vertical,
             rotation_degrees,
             &crop_json,
+            keep_negative,
         )
     {
         return (Cow::Owned(transformed), unscaled_crop_offset);
@@ -175,7 +177,7 @@ pub fn apply_spatial_transformations<'a, I: IntoCowImage<'a>>(
 
     let coarse_rotated_image = apply_coarse_rotation(image, orientation_steps);
     let flipped_image = apply_flip(coarse_rotated_image, flip_horizontal, flip_vertical);
-    let rotated_image = apply_rotation(flipped_image, rotation_degrees);
+    let rotated_image = apply_rotation(flipped_image, rotation_degrees, keep_negative);
     let cropped_image = apply_crop(rotated_image, &crop_json);
 
     (cropped_image, unscaled_crop_offset)

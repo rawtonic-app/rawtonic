@@ -8197,6 +8197,7 @@ mod geometry_follow_tests {
         let shown = crate::image_processing::apply_rotation(
             turned,
             g["rotation"].as_f64().unwrap_or(0.0) as f32,
+            false,
         )
         .to_rgba32f();
         let points = shown
@@ -8983,7 +8984,8 @@ mod drawn_mask_frame_tests {
                 g["flipHorizontal"] == true,
                 g["flipVertical"] == true,
             );
-            let straightened = apply_rotation(turned, g["rotation"].as_f64().unwrap_or(0.0) as f32);
+            let straightened =
+                apply_rotation(turned, g["rotation"].as_f64().unwrap_or(0.0) as f32, false);
             centroid_f32(&straightened.to_rgba32f())
         };
         let geometries = [

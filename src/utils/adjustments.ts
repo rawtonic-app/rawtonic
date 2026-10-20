@@ -602,6 +602,12 @@ export interface Adjustments {
    * reduced luminance noise before it = the earlier filter (both are the
    * same without luminance noise reduction). Photo-wide (layers follow it). */
   lumaNoiseVersion?: number;
+  /** Render pipeline fixes (crates/engine/src/image_processing.rs
+   * `RENDER_VERSION`): 2 = warps and straightening keep negative (wide-gamut)
+   * channels, Clarity/Dehaze/Glow's large blur has its whole radius at tile
+   * edges, and the Classic/AgX looks' Color Grading and Calibration follow
+   * their switches; 1 or missing = before. Per photo, never copied. */
+  renderVersion?: number;
   lutData?: string | null;
   lutIntensity?: number;
   lutName?: string | null;
@@ -1180,6 +1186,9 @@ export const SHARPEN_VERSION = 2;
 /** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
 export const LUMA_NOISE_VERSION = 2;
 
+/** The render pipeline fixes new edits start with (`renderVersion`). */
+export const RENDER_VERSION = 2;
+
 /** The AI Denoise version new edits start with (`aiDenoiseVersion`; notes:
  * benchmark-results/ai-denoise-mac-2026-10-18). */
 export const AI_DENOISE_VERSION = 3;
@@ -1228,6 +1237,7 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
         aiDenoiseVersion: AI_DENOISE_VERSION,
+        renderVersion: RENDER_VERSION,
       }
     : {
         ...INITIAL_ADJUSTMENTS,
@@ -1236,7 +1246,19 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         defringeVersion: DEFRINGE_VERSION,
         sharpenVersion: SHARPEN_VERSION,
         lumaNoiseVersion: LUMA_NOISE_VERSION,
+        renderVersion: RENDER_VERSION,
       };
+
+/** The render version of a saved recipe: its own; the current one for an
+ * empty recipe (Library Reset saves `{}`; loading adds only
+ * `lensProfileFor`), which renders as a new edit, as the backend does
+ * (`embedded_lens::apply_default`); else the first (missing key). */
+const loadedRenderVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.renderVersion !== undefined && loaded.renderVersion !== null) {
+    return loaded.renderVersion;
+  }
+  return Object.keys(loaded).every((key) => key === 'lensProfileFor') ? RENDER_VERSION : undefined;
+};
 
 /** The Defringe detector of a saved recipe: its own; else the current one
  * when the recipe does not use Defringe (no purple or green amount, no layer
@@ -1525,6 +1547,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     fringeVersion: loadedAdjustments.fringeVersion,
     cameraCaVersion: loadedAdjustments.cameraCaVersion,
     autoCaVersion: loadedAdjustments.autoCaVersion,
+    renderVersion: loadedRenderVersion(loadedAdjustments),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,
@@ -1773,8 +1796,8 @@ export const COPYABLE_ADJUSTMENT_KEYS: string[] = Object.values(ADJUSTMENT_GROUP
   .flatMap((group) => group.keys);
 
 /** Adjustments that belong to one photograph or to the view and are never
- * copied: retouching, the depth-based lens blur, derived lens data, tool
- * visibility and the clipping display. Every other key must be copyable. */
+ * copied: retouching, the depth-based lens blur, derived lens data, the
+ * render pipeline version, tool visibility and the clipping display. Every other key must be copyable. */
 export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'relightDepth',
   'aiPatches',
@@ -1791,6 +1814,7 @@ export const NON_COPYABLE_ADJUSTMENT_KEYS: string[] = [
   'lensBlurMinFade',
   'lensDistortionParams',
   'lensProfileFor',
+  'renderVersion',
   'sectionVisibility',
   'showClipping',
 ];

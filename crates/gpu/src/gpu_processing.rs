@@ -2237,8 +2237,11 @@ struct BlurParams {
     source_y: u32,
     full_width: u32,
     full_height: u32,
-    _pad1: u32,
-    _pad2: u32,
+    /// Rows the horizontal pass blurs above the input region, and all the
+    /// rows it blurs: the vertical pass reads them (its whole radius at the
+    /// region's edges).
+    rows_above: u32,
+    blurred_rows: u32,
     _pad3: u32,
 }
 
@@ -3159,7 +3162,9 @@ fn display_cache_bytes(width: u32, height: u32, tile: u32, overlap: u32, blurs: 
 }
 
 struct BlurTile {
-    geometry: [u32; 6],
+    /// Photo size, the input region, and whether the blurs read their whole
+    /// radius at its edges (`PreparedAdjustments::whole_blur_radius`).
+    geometry: [u32; 7],
     views: [Option<wgpu::TextureView>; 5],
     /// The detail stage of this tile and the settings it was computed with.
     detail: Option<(DetailKey, wgpu::TextureView)>,
@@ -6119,6 +6124,10 @@ impl GpuProcessor {
         let end_tile_y = (bounds.y + bounds.height).div_ceil(TILE_SIZE);
 
         let mut pending_readback: Option<(PendingReadback, TilePlacement)> = None;
+        // Blur rows beyond the ping-pong texture's (`BlurParams::blurred_rows`),
+        // for the largest radius (Clarity's base 40).
+        let mut tall_ping_pong: Option<wgpu::TextureView> = None;
+        let largest_beyond = ((40.0 * scale).ceil() as u32).saturating_sub(TILE_OVERLAP);
         for tile_y in start_tile_y..end_tile_y {
             for tile_x in start_tile_x..end_tile_x {
                 let x_start_unclamped = tile_x * TILE_SIZE;
@@ -6167,6 +6176,7 @@ impl GpuProcessor {
                     depth_or_array_layers: 1,
                 };
 
+                let whole_blur_radius = request.adjustments.whole_blur_radius;
                 let geometry = [
                     width,
                     height,
@@ -6174,6 +6184,7 @@ impl GpuProcessor {
                     input_y_start,
                     input_width,
                     input_height,
+                    u32::from(whole_blur_radius),
                 ];
                 let mut cache = blur_cache.lock().unwrap_or_else(|e| e.into_inner());
                 if cache.input.as_ref() != Some(input_texture_view) {
@@ -6219,6 +6230,38 @@ impl GpuProcessor {
                             .create_view(&Default::default())
                     });
                     let radius = (base_radius * scale).ceil().max(1.0) as u32;
+                    // The vertical pass reads the rows the horizontal one
+                    // blurred: beyond the overlap where the radius is larger.
+                    let beyond = if whole_blur_radius {
+                        radius.saturating_sub(TILE_OVERLAP)
+                    } else {
+                        0
+                    };
+                    let rows_above = beyond.min(input_y_start);
+                    let blurred_rows = input_height + rows_above + beyond.min(height - input_y_end);
+                    let ping_pong_view = if blurred_rows > self.tile_output_size.height {
+                        &*tall_ping_pong.get_or_insert_with(|| {
+                            device
+                                .create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Tall Ping Pong Texture"),
+                                    size: wgpu::Extent3d {
+                                        width: self.tile_output_size.width,
+                                        height: self.tile_output_size.height + 2 * largest_beyond,
+                                        depth_or_array_layers: 1,
+                                    },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba16Float,
+                                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                        | wgpu::TextureUsages::STORAGE_BINDING,
+                                    view_formats: &[],
+                                })
+                                .create_view(&Default::default())
+                        })
+                    } else {
+                        &self.ping_pong_view
+                    };
 
                     let params = BlurParams {
                         radius,
@@ -6230,8 +6273,8 @@ impl GpuProcessor {
                         source_y: window.y,
                         full_width: width,
                         full_height: height,
-                        _pad1: 0,
-                        _pad2: 0,
+                        rows_above,
+                        blurred_rows,
                         _pad3: 0,
                     };
                     queue.write_buffer(&self.blur_params_buffer, 0, bytemuck::bytes_of(&params));
@@ -6248,7 +6291,7 @@ impl GpuProcessor {
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
-                                resource: wgpu::BindingResource::TextureView(&self.ping_pong_view),
+                                resource: wgpu::BindingResource::TextureView(ping_pong_view),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
@@ -6263,7 +6306,7 @@ impl GpuProcessor {
                         cpass.set_bind_group(0, &h_blur_bg, &[]);
                         cpass.dispatch_workgroups(
                             input_width.div_ceil(16),
-                            input_height.div_ceil(16),
+                            blurred_rows.div_ceil(16),
                             1,
                         );
                     }
@@ -6274,7 +6317,7 @@ impl GpuProcessor {
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&self.ping_pong_view),
+                                resource: wgpu::BindingResource::TextureView(ping_pong_view),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,

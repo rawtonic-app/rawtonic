@@ -48,6 +48,13 @@ describe('before/after', () => {
     expect(edited.exposure).toBe(1.5);
   });
 
+  it("keeps the photo's render version, so before and after differ by the edit only", () => {
+    for (const renderVersion of [undefined, 2]) {
+      const edited = { ...INITIAL_ADJUSTMENTS, exposure: 1, rotation: 2.5, renderVersion };
+      expect(originalPreviewAdjustments(edited).renderVersion).toBe(renderVersion);
+    }
+  });
+
   it('keeps a framing key the edit leaves unset unset, so both sides match natively', () => {
     const edited = { ...INITIAL_ADJUSTMENTS } as Record<string, unknown>;
     delete edited.guidedPerspective;

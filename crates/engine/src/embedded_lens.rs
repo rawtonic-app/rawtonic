@@ -1028,8 +1028,9 @@ fn params_for_version(source: &Path, ca_version: u64) -> Option<LensDistortionPa
 /// EF 24-105: corners +0.47 EV, R50 V + RF 28: +0.76 EV), not to DSLRs.
 /// Saved recipes always carry a mode and are left as they are. Never-edited
 /// RAWs also get the current `fringeVersion` (`edge_fringe::apply_default`)
-/// and `autoCaVersion` (`lateral_ca::apply_default`), and with the camera's
-/// data its current `cameraCaVersion`.
+/// and `autoCaVersion` (`lateral_ca::apply_default`), a photo without any
+/// recipe the current `renderVersion`, and with the camera's data its
+/// current `cameraCaVersion`.
 pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     if !(adjustments.is_null() || adjustments.is_object())
         || adjustments.get("lensCorrectionMode").is_some()
@@ -1039,6 +1040,10 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     // A never-edited RAW also starts with the current edge-fringe pass, as
     // the editor's new edits do.
     let is_raw = crate::formats::is_raw_file(source);
+    // A new recipe renders as a new edit (`renderVersion`, as the editor's
+    // `loadedRenderVersion`); a saved partial recipe without a lens mode
+    // keeps the version it was made with.
+    crate::image_processing::apply_render_default(adjustments);
     crate::edge_fringe::apply_default(adjustments, true, is_raw);
     // And with the current automatic lateral CA, which decides itself
     // against the camera's CA data (`lateral_ca::applies`, `competes`).
@@ -2179,7 +2184,11 @@ mod tests {
         std::fs::write(&jpeg, b"not a raw").unwrap();
         let mut never = serde_json::Value::Null;
         apply_default(&mut never, &jpeg);
-        assert!(never.is_null(), "no camera data: unchanged");
+        // No camera data: only the current render version, as a new edit.
+        assert_eq!(
+            never,
+            serde_json::json!({"renderVersion": crate::image_processing::RENDER_VERSION})
+        );
         let mut saved = serde_json::json!({"lensCorrectionMode": "manual", "exposure": 1});
         let before = saved.clone();
         apply_default(&mut saved, &temp.path().join("missing.raf"));
@@ -2195,6 +2204,26 @@ mod tests {
         assert_eq!(
             never_raw[crate::lateral_ca::VERSION_KEY],
             crate::lateral_ca::VERSION
+        );
+        assert_eq!(
+            never_raw[crate::image_processing::RENDER_VERSION_KEY],
+            crate::image_processing::RENDER_VERSION
+        );
+        // A saved partial recipe without a lens mode (a batch preset) keeps
+        // its render version.
+        let mut partial = serde_json::json!({"clarity": 30});
+        apply_default(&mut partial, &temp.path().join("missing.raf"));
+        assert!(
+            partial
+                .get(crate::image_processing::RENDER_VERSION_KEY)
+                .is_none()
+        );
+        // A reset recipe (empty) renders as a new edit.
+        let mut reset = serde_json::json!({});
+        apply_default(&mut reset, &jpeg);
+        assert_eq!(
+            reset[crate::image_processing::RENDER_VERSION_KEY],
+            crate::image_processing::RENDER_VERSION
         );
         assert!(read(&temp.path().join("missing.raf")).is_none());
         let fake = temp.path().join("fake.raf");

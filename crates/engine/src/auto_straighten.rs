@@ -804,7 +804,7 @@ mod tests {
                     recipe["flipVertical"].as_bool().unwrap_or(false),
                 )
                 .into_owned();
-                let rendered = apply_rotation(flipped, rotation as f32)
+                let rendered = apply_rotation(flipped, rotation as f32, false)
                     .into_owned()
                     .to_rgba32f();
                 let frame = FrameValidity::new(&recipe, sw, sh, rotation);

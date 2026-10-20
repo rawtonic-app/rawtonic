@@ -1524,6 +1524,7 @@ pub fn build_single_mask_adjustments(
         uniforms: single,
         relight_surface: all.relight_surface.clone(),
         relight_patterns: all.relight_patterns.clone(),
+        whole_blur_radius: all.whole_blur_radius,
     }
 }
 
