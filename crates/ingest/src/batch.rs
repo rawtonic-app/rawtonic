@@ -220,6 +220,9 @@ pub struct BatchOptions<'a> {
     /// (`pair_sources`); `None`: JPEGs next to RAWs of the same name come
     /// in as photographs of their own.
     pub pair_raw: Option<fn(&Path) -> bool>,
+    /// The album (id) the photographs go into, also those a resumed run
+    /// brings in (`queue`).
+    pub album: Option<&'a str>,
 }
 
 /// One file of a batch finished: in the library (or skipped as a duplicate,
@@ -507,6 +510,7 @@ mod tests {
             folder: None,
             roots: &[],
             pair_raw: Some(raw),
+            album: None,
         }
     }
     /// The RAW formats of these tests (the app passes its own).

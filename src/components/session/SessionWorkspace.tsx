@@ -108,6 +108,64 @@ interface ImportResult {
    * backend's `ImportResult` keeps its snake_case field names). */
   companion_of?: string | null;
 }
+/** Says what an ingest did (`session_ingest`, `session_ingest_resume`):
+ * photographs copied or added (a RAW+JPEG pair counts once), duplicates
+ * skipped, sidecars and companions kept, the album; failures and warnings
+ * stay on screen. */
+function reportIngest(
+  results: ImportResult[],
+  {
+    adding = false,
+    resumed = false,
+    cancelled = false,
+    album = null,
+    albumError = null,
+  }: { adding?: boolean; resumed?: boolean; cancelled?: boolean; album?: string | null; albumError?: string | null },
+) {
+  const failures = results.filter((r) => r.error);
+  // A companion JPEG is part of its RAW's photograph, not one of its own.
+  const photos = results.filter((r) => !r.companion_of);
+  const skipped = photos.filter((r) => r.skipped).length;
+  const copied = photos.filter((r) => !r.error).length - skipped;
+  const companions = results.filter((r) => r.companion_of && !r.error && !r.skipped).length;
+  const sidecars = results.filter((r) => r.sidecar && !r.error).length;
+  const warnings = results.filter((r) => r.warning);
+  if (failures.length)
+    toast.error(
+      i18n.t("session.toasts.ingestFailed", {
+        copied,
+        count: failures.length,
+        error: failures[0].error,
+      }),
+      { autoClose: false },
+    );
+  else if (results.length || !resumed)
+    toast.success(
+      [
+        resumed
+          ? i18n.t("session.toasts.ingestResumed", { n: copied })
+          : adding
+            ? i18n.t("session.toasts.added", { count: copied })
+            : i18n.t("session.toasts.ingested", { count: copied }),
+        skipped ? i18n.t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
+        sidecars ? i18n.t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
+        companions ? i18n.t("session.toasts.companionsKept", { n: companions }) : null,
+        album && !albumError ? i18n.t("session.toasts.addedToAlbum", { name: album }) : null,
+        cancelled ? i18n.t("session.toasts.ingestCancelled") : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
+  if (warnings.length)
+    toast.warning(
+      i18n.t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
+      { autoClose: false },
+    );
+  if (albumError)
+    toast.error(i18n.t("session.toasts.albumAddFailed", { name: album, error: albumError }), {
+      autoClose: false,
+    });
+}
 /** Mirrors `ingest::queue::JobSummary` (`session_ingest_jobs`). */
 interface IngestJobSummary {
   id: string;
@@ -574,8 +632,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           setImportMode("copy");
           try {
             const results = await invoke<ImportResult[]>(Invokes.SessionIngestResume, { directory: sessionDirectory });
-            const photos = results.filter((r) => !r.companion_of && !r.error && !r.skipped).length;
-            if (photos) toast.success(i18n.t("session.toasts.ingestResumed", { n: photos }));
+            reportIngest(results, { resumed: true });
           } finally {
             setImporting(false);
             window.dispatchEvent(new Event(IMPORTS_CHANGED));
@@ -1071,15 +1128,9 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         backup,
         folder,
         separateJpeg,
+        // Kept with the ingest job, so a resumed import fills the album too.
+        album: album?.id ?? null,
       });
-      const failures = results.filter((r) => r.error);
-      // A companion JPEG is part of its RAW's photograph, not one of its own.
-      const photos = results.filter((r) => !r.companion_of);
-      const skipped = photos.filter((r) => r.skipped).length;
-      const copied = photos.filter((r) => !r.error).length - skipped;
-      const companions = results.filter((r) => r.companion_of && !r.error && !r.skipped).length;
-      const sidecars = results.filter((r) => r.sidecar && !r.error).length;
-      const warnings = results.filter((r) => r.warning);
       let albumError: string | null = null;
       if (album) {
         // Photographs only: a companion JPEG is no photograph of the library.
@@ -1094,39 +1145,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             albumError = String(e);
           }
       }
-      if (failures.length)
-        toast.error(
-          t("session.toasts.ingestFailed", {
-            copied,
-            count: failures.length,
-            error: failures[0].error,
-          }),
-          { autoClose: false },
-        );
-      else
-        toast.success(
-          [
-            adding
-              ? t("session.toasts.added", { count: copied })
-              : t("session.toasts.ingested", { count: copied }),
-            skipped ? t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
-            sidecars ? t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
-            companions ? t("session.toasts.companionsKept", { n: companions }) : null,
-            album && !albumError ? t("session.toasts.addedToAlbum", { name: album.name }) : null,
-            results.length < files.length ? t("session.toasts.ingestCancelled") : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        );
-      if (warnings.length)
-        toast.warning(
-          t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
-          { autoClose: false },
-        );
-      if (albumError)
-        toast.error(t("session.toasts.albumAddFailed", { name: album?.name, error: albumError }), {
-          autoClose: false,
-        });
+      reportIngest(results, {
+        adding,
+        cancelled: results.length < files.length,
+        album: album?.name ?? null,
+        albumError,
+      });
       await refresh();
     } catch (e) {
       toast.error(String(e), { autoClose: false });

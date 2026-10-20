@@ -710,6 +710,7 @@ pub async fn session_ingest(
     folder: Option<String>,
     mode: Option<IngestMode>,
     separate_jpeg: Option<bool>,
+    album: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
@@ -733,6 +734,7 @@ pub async fn session_ingest(
             folder: folder.as_deref().map(Path::new),
             roots: &roots,
             pair_raw: pair_raw(separate_jpeg),
+            album: album.as_deref(),
         };
         let report = ingest_reporter(&app);
         match mode.unwrap_or_default() {

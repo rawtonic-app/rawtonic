@@ -12,7 +12,7 @@ use crate::{
 use anyhow::Result;
 use rawtonic_catalog::{
     Library,
-    ingest_jobs::{IngestJob, ItemState, JobState},
+    ingest_jobs::{IngestJob, ItemState, JobState, SourceFile, SourceState},
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -29,19 +29,28 @@ pub struct JobOptions {
     pub template: String,
     pub sequence_start: u64,
     pub backup: Option<PathBuf>,
-    pub folder: Option<PathBuf>,
+    /// As `Library::stored` keeps it: relative to the library when inside
+    /// it (a closed session moves as one folder).
+    pub folder: Option<String>,
     pub roots: Vec<PathBuf>,
+    /// The album the photographs go into.
+    #[serde(default)]
+    pub album: Option<String>,
 }
 
 impl JobOptions {
-    pub fn new(options: &BatchOptions<'_>) -> Self {
-        Self {
+    pub fn new(library: &Library, options: &BatchOptions<'_>) -> Result<Self> {
+        Ok(Self {
             template: options.template.into(),
             sequence_start: options.sequence_start,
             backup: options.backup.map(Into::into),
-            folder: options.folder.map(Into::into),
+            folder: options
+                .folder
+                .map(|folder| library.stored(&folder.canonicalize()?))
+                .transpose()?,
             roots: options.roots.to_vec(),
-        }
+            album: options.album.map(Into::into),
+        })
     }
 }
 
@@ -52,11 +61,19 @@ pub fn create_job(
     sources: &[PathBuf],
     options: &BatchOptions<'_>,
 ) -> Result<String> {
-    let items: Vec<(PathBuf, Option<PathBuf>)> = pair_sources(sources, options.pair_raw)
+    let items: Vec<(SourceFile, Option<SourceFile>)> = pair_sources(sources, options.pair_raw)
         .into_iter()
-        .map(|g| (g.photo, g.companion))
+        .map(|g| {
+            (
+                SourceFile::read(&g.photo),
+                g.companion.as_deref().map(SourceFile::read),
+            )
+        })
         .collect();
-    library.create_ingest_job(&serde_json::to_value(JobOptions::new(options))?, &items)
+    library.create_ingest_job(
+        &serde_json::to_value(JobOptions::new(library, options)?)?,
+        &items,
+    )
 }
 
 /// What an unfinished job holds, for the app to say so.
@@ -68,7 +85,7 @@ pub struct JobSummary {
     pub total: usize,
     /// Photographs still to import.
     pub open: usize,
-    /// Of those, the ones whose source is there now.
+    /// Of those, the ones whose files are there now as they were.
     pub available: usize,
 }
 
@@ -79,7 +96,10 @@ impl JobSummary {
             id: job.id.clone(),
             total: job.items.len(),
             open: open.len(),
-            available: open.iter().filter(|item| item.source.is_file()).count(),
+            available: open
+                .iter()
+                .filter(|item| item.source.state() == SourceState::There)
+                .count(),
         }
     }
 }
@@ -87,10 +107,12 @@ impl JobSummary {
 /// Imports the photographs of job `id` not yet in the library, one after
 /// the other in the job's order, each reported through `on_file` as
 /// `import_batch` does (`total`: the files still to import when it
-/// starts). A photograph whose source is not there (a card taken out) is
-/// reported with an error and left for a later run; the job is then
-/// `Interrupted`, else `Done`; a cancel makes it `Cancelled`. Fails at once
-/// only when the job's destination is not one an import may copy into.
+/// starts), and puts the job's photographs into its album. A photograph
+/// whose files are not there as they were (a card taken out, another card
+/// with files of the same names) is reported with an error and left for a
+/// later run; the job is then `Interrupted`, else `Done`; a cancel makes
+/// it `Cancelled`. Fails at once only when the job's destination is not one
+/// an import may copy into.
 pub fn run_job(
     library: &Library,
     id: &str,
@@ -99,7 +121,11 @@ pub fn run_job(
 ) -> Result<Vec<ImportResult>> {
     let job = library.ingest_job(id)?;
     let options: JobOptions = serde_json::from_value(job.options.clone())?;
-    let destination = match destination_folder(library, options.folder.as_deref(), &options.roots) {
+    let folder = options
+        .folder
+        .as_deref()
+        .map(|folder| library.resolve_stored(folder));
+    let destination = match destination_folder(library, folder.as_deref(), &options.roots) {
         Ok(destination) => destination,
         Err(error) => {
             library.set_ingest_job_state(id, JobState::Interrupted)?;
@@ -125,15 +151,22 @@ pub fn run_job(
             error: Some(error),
             ..Default::default()
         };
-        if !item.source.is_file() {
+        let state = item.source.state();
+        if state != SourceState::There {
             left = true;
-            let error = format!(
-                "{} is not there (a card or drive not connected?); it is imported when it is",
-                item.source.display()
-            );
+            let error = match state {
+                SourceState::Other => format!(
+                    "Another file is at {} now (another card?); the photograph waits for its own",
+                    item.source.path.display()
+                ),
+                _ => format!(
+                    "{} is not there (a card or drive not connected?); it is imported when it is",
+                    item.source.path.display()
+                ),
+            };
             let report: Vec<ImportResult> = std::iter::once(&item.source)
                 .chain(&item.companion)
-                .map(|source| failed(source, error.clone()))
+                .map(|source| failed(&source.path, error.clone()))
                 .collect();
             for result in report {
                 on_file(FileDone {
@@ -165,20 +198,39 @@ pub fn run_job(
             earlier: item.destination.as_deref(),
             before_copy: Some(&record),
         };
+        // A JPEG gone or changed since (the RAW still there) does not hold
+        // its RAW back: the RAW comes in alone.
+        let (companion_source, lost_companion) = match &item.companion {
+            Some(companion) if companion.state() == SourceState::There => {
+                (Some(companion.path.as_path()), None)
+            }
+            Some(companion) => (
+                None,
+                Some(failed(
+                    &companion.path,
+                    format!(
+                        "{} is no longer the JPEG of {} (gone or changed); the RAW came in alone",
+                        companion.path.display(),
+                        item.source.path.display()
+                    ),
+                )),
+            ),
+            None => (None, None),
+        };
         let (mut photo, mut companion) = match import_pair(
             library,
-            &item.source,
-            item.companion.as_deref(),
+            &item.source.path,
+            companion_source,
             &import,
             None,
             cancel,
         ) {
-            Ok(pair) => (pair.photo, pair.companion),
+            Ok(pair) => (pair.photo, pair.companion.or(lost_companion)),
             Err(error) => {
                 let message = error.to_string();
                 (
-                    failed(&item.source, message.clone()),
-                    item.companion.as_deref().map(|c| failed(c, message)),
+                    failed(&item.source.path, message.clone()),
+                    item.companion.as_ref().map(|c| failed(&c.path, message)),
                 )
             }
         };
@@ -205,7 +257,9 @@ pub fn run_job(
             // The card was taken out meanwhile, or the copy is made but
             // could not be recorded (the library busy): left for a later
             // run, which records that copy.
-            Some(_) if !item.source.is_file() || photo.destination.is_some() => left = true,
+            Some(_) if item.source.state() != SourceState::There || photo.destination.is_some() => {
+                left = true
+            }
             Some(error) => library.set_ingest_item(
                 id,
                 item.position,
@@ -231,6 +285,9 @@ pub fn run_job(
             results.push(result);
         }
     }
+    if let Some(album) = &options.album {
+        add_to_album(library, id, album, &mut results)?;
+    }
     let state = if cancel.load(Ordering::Acquire) {
         JobState::Cancelled
     } else if left {
@@ -240,6 +297,45 @@ pub fn run_job(
     };
     library.set_ingest_job_state(id, state)?;
     Ok(results)
+}
+
+/// Puts the photographs job `id` brought in (this run's and earlier ones',
+/// a run cut off before it got here included) into `album`. An album
+/// deleted meanwhile takes none; another failure is said on this run's
+/// results.
+fn add_to_album(
+    library: &Library,
+    id: &str,
+    album: &str,
+    results: &mut [ImportResult],
+) -> Result<()> {
+    let mut assets: Vec<String> = Vec::new();
+    for item in library.ingest_job(id)?.items {
+        if item.state == ItemState::Done
+            && let Some(destination) = &item.destination
+            && let Some(asset) = library.asset_at(destination)?
+            && !assets.contains(&asset.id)
+        {
+            assets.push(asset.id);
+        }
+    }
+    if assets.is_empty() {
+        return Ok(());
+    }
+    match library.add_to_collection(album, &assets) {
+        Ok(()) => {}
+        Err(error) if error.to_string() == "Unknown album" => {}
+        Err(error) => {
+            for result in results.iter_mut().filter(|r| r.asset_id.is_some()) {
+                let note = format!("Not added to the album: {error:#}");
+                result.warning = Some(match result.warning.take() {
+                    Some(warning) => format!("{warning}; {note}"),
+                    None => note,
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -262,6 +358,7 @@ mod tests {
             folder: None,
             roots: &[],
             pair_raw: Some(raw),
+            album: None,
         }
     }
     fn write(path: &Path, bytes: &[u8]) -> PathBuf {
@@ -468,5 +565,97 @@ mod tests {
             assert_eq!(lib.companions().unwrap().len(), 2, "round {round}");
             assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
         }
+    }
+
+    /// Another card with files of the same names (the camera's numbering
+    /// started again) is never taken for the interrupted one: its files
+    /// wait, and come in when the right card is back.
+    #[test]
+    fn another_card_with_the_same_names_is_not_resumed() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        let id = create_job(&lib, &sources, &options("{orig}")).unwrap();
+        let card_dir = d.path().join("card");
+        fs::rename(&card_dir, d.path().join("first")).unwrap();
+        for source in &sources {
+            write(source, b"another card's photograph");
+        }
+        let job = lib.ingest_job(&id).unwrap();
+        assert_eq!(JobSummary::of(&job).available, 0);
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(results.iter().all(|r| {
+            r.error
+                .as_deref()
+                .is_some_and(|e| e.contains("Another file"))
+        }));
+        assert_eq!(lib.summary().unwrap().assets, 0);
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Interrupted);
+        fs::remove_dir_all(&card_dir).unwrap();
+        fs::rename(d.path().join("first"), &card_dir).unwrap();
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(lib.summary().unwrap().assets, 4);
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+    }
+
+    /// A session with an interrupted job moved while closed: its planned
+    /// copies are found at the new place (stored relative to it), left to
+    /// the job by the index, and the job finishes there, into the folder
+    /// it was given.
+    #[test]
+    fn an_interrupted_session_moved_while_closed_resumes_in_its_new_place() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let selects = lib.directory.join("Selects");
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.folder = Some(&selects);
+        let id = create_job(&lib, &sources, &opts).unwrap();
+        lib.set_ingest_item(
+            &id,
+            0,
+            ItemState::Copying,
+            Some(&selects.join("C0.ARW")),
+            Some(&selects.join("C0.JPG")),
+            None,
+        )
+        .unwrap();
+        fs::copy(&sources[0], selects.join("C0.ARW")).unwrap();
+        fs::copy(&sources[1], selects.join("C0.JPG")).unwrap();
+        drop(lib);
+        fs::rename(d.path().join("Job"), d.path().join("Moved")).unwrap();
+        let lib = Library::open(&d.path().join("Moved")).unwrap();
+        let selects = lib.directory.join("Selects");
+        let files: Vec<PathBuf> = names(&selects).iter().map(|n| selects.join(n)).collect();
+        assert_eq!(lib.add_files(&files).unwrap().importing.len(), 2);
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(names(&selects).len(), 6);
+        let c0 = lib.asset_at(&selects.join("C0.ARW")).unwrap().unwrap();
+        assert_eq!(lib.companion(&c0).unwrap(), Some(selects.join("C0.JPG")));
+        assert_eq!(lib.summary().unwrap().assets, 4);
+    }
+
+    /// The album a job imports into is kept with it: photographs a run cut
+    /// off brought in, and those the resumed run brings, all go into it.
+    #[test]
+    fn a_resumed_job_puts_all_its_photographs_into_its_album() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let album = lib.create_collection("Client picks", None).unwrap();
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.album = Some(&album.id);
+        let id = create_job(&lib, &sources, &opts).unwrap();
+        let killed = catch_unwind(AssertUnwindSafe(|| {
+            run_job(&lib, &id, &AtomicBool::new(false), |done| {
+                if done.index == 1 {
+                    panic!("killed");
+                }
+            })
+        }));
+        assert!(killed.is_err());
+        assert!(lib.collection_assets(&album.id).unwrap().is_empty());
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 4);
     }
 }

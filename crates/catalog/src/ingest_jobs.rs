@@ -93,6 +93,64 @@ impl ItemState {
     }
 }
 
+/// A source file of an ingest job as it was when the job was made: its
+/// size and modification time, so another card with files of the same
+/// names (camera numbering starts again) is never taken for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceFile {
+    pub path: PathBuf,
+    size: Option<u64>,
+    mtime_ns: Option<i64>,
+}
+
+/// Where a job's source file is now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceState {
+    /// There as it was.
+    There,
+    /// Not there (its card or drive not connected).
+    Missing,
+    /// Another file is at its place.
+    Other,
+}
+
+/// Size and modification time (nanoseconds since the epoch) of the file
+/// at `path`.
+fn file_identity(path: &Path) -> Option<(u64, Option<i64>)> {
+    let meta = std::fs::symlink_metadata(path)
+        .ok()
+        .filter(|m| m.is_file())?;
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .and_then(|d| i64::try_from(d.as_nanos()).ok());
+    Some((meta.len(), mtime))
+}
+
+impl SourceFile {
+    /// `path` as it is now.
+    pub fn read(path: &Path) -> Self {
+        let identity = file_identity(path);
+        Self {
+            path: path.to_path_buf(),
+            size: identity.map(|(size, _)| size),
+            mtime_ns: identity.and_then(|(_, mtime)| mtime),
+        }
+    }
+
+    pub fn state(&self) -> SourceState {
+        match file_identity(&self.path) {
+            None => SourceState::Missing,
+            Some((size, mtime)) if Some(size) == self.size && mtime == self.mtime_ns => {
+                SourceState::There
+            }
+            Some(_) => SourceState::Other,
+        }
+    }
+}
+
 /// One photograph of an ingest job.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -101,8 +159,8 @@ pub struct IngestItem {
     /// Its number among the job's photographs (`{seq}` counts from the
     /// first), a pair's one.
     pub number: u64,
-    pub source: PathBuf,
-    pub companion: Option<PathBuf>,
+    pub source: SourceFile,
+    pub companion: Option<SourceFile>,
     pub state: ItemState,
     /// The copy planned or made.
     pub destination: Option<PathBuf>,
@@ -134,14 +192,19 @@ fn text(path: &Path) -> Result<&str> {
     path.to_str().context("Paths must be valid UTF-8")
 }
 
+fn size(source: &SourceFile) -> Option<i64> {
+    source.size.map(|s| s as i64)
+}
+
 impl Library {
     /// Records a new ingest job (`Running`) of `items` (each photograph's
-    /// source and companion, in import order, numbered from 0) with
-    /// `options`, in one transaction. Returns its id.
+    /// source and companion as they are now, `SourceFile::read`, in import
+    /// order, numbered from 0) with `options`, in one transaction. Returns
+    /// its id.
     pub fn create_ingest_job(
         &self,
         options: &Value,
-        items: &[(PathBuf, Option<PathBuf>)],
+        items: &[(SourceFile, Option<SourceFile>)],
     ) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
@@ -157,14 +220,19 @@ impl Library {
         )?;
         for (position, (source, companion)) in items.iter().enumerate() {
             tx.execute(
-                "INSERT INTO ingest_items(job_id,position,number,source,companion,state)
-                 VALUES(?,?,?,?,?,'pending')",
+                "INSERT INTO ingest_items(job_id,position,number,source,source_size,source_mtime_ns,
+                                          companion,companion_size,companion_mtime_ns,state)
+                 VALUES(?,?,?,?,?,?,?,?,?,'pending')",
                 params![
                     id,
                     position as i64,
                     position as i64,
-                    text(source)?,
-                    companion.as_deref().map(text).transpose()?
+                    text(&source.path)?,
+                    size(source),
+                    source.mtime_ns,
+                    companion.as_ref().map(|c| text(&c.path)).transpose()?,
+                    companion.as_ref().and_then(size),
+                    companion.as_ref().and_then(|c| c.mtime_ns)
                 ],
             )?;
         }
@@ -183,20 +251,32 @@ impl Library {
             .optional()?
             .with_context(|| format!("No ingest job {id}"))?;
         let mut query = self.conn.prepare(
-            "SELECT position,number,source,companion,state,destination,companion_destination,error
+            "SELECT position,number,source,source_size,source_mtime_ns,companion,companion_size,
+                    companion_mtime_ns,state,destination,companion_destination,error
              FROM ingest_items WHERE job_id=? ORDER BY position",
         )?;
+        let file = |r: &rusqlite::Row<'_>, at: usize| -> rusqlite::Result<Option<SourceFile>> {
+            Ok(r.get::<_, Option<String>>(at)?.map(|path| SourceFile {
+                path: path.into(),
+                size: r
+                    .get::<_, Option<i64>>(at + 1)
+                    .ok()
+                    .flatten()
+                    .map(|s| s as u64),
+                mtime_ns: r.get(at + 2).ok().flatten(),
+            }))
+        };
         let items = query
             .query_map([id], |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
                     r.get::<_, i64>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                    r.get::<_, String>(4)?,
-                    r.get::<_, Option<String>>(5)?,
-                    r.get::<_, Option<String>>(6)?,
-                    r.get::<_, Option<String>>(7)?,
+                    file(r, 2)?,
+                    file(r, 5)?,
+                    r.get::<_, String>(8)?,
+                    r.get::<_, Option<String>>(9)?,
+                    r.get::<_, Option<String>>(10)?,
+                    r.get::<_, Option<String>>(11)?,
                 ))
             })?
             .map(|row| {
@@ -205,11 +285,11 @@ impl Library {
                 Ok(IngestItem {
                     position: position as usize,
                     number: number as u64,
-                    source: source.into(),
-                    companion: companion.map(Into::into),
+                    source: source.context("An ingest item without a source")?,
+                    companion,
                     state: ItemState::parse(&state)?,
-                    destination: destination.map(Into::into),
-                    companion_destination: planned.map(Into::into),
+                    destination: destination.map(|d| self.resolve_stored(&d)),
+                    companion_destination: planned.map(|d| self.resolve_stored(&d)),
                     error,
                 })
             })
@@ -256,8 +336,8 @@ impl Library {
              WHERE job_id=? AND position=?",
             params![
                 state.as_str(),
-                destination.map(text).transpose()?,
-                companion_destination.map(text).transpose()?,
+                destination.map(|d| self.stored(d)).transpose()?,
+                companion_destination.map(|d| self.stored(d)).transpose()?,
                 error,
                 id,
                 position as i64
@@ -284,9 +364,37 @@ impl Library {
         let mut planned = HashSet::new();
         for row in rows {
             let (photo, companion) = row?;
-            planned.extend(photo.into_iter().chain(companion).map(PathBuf::from));
+            planned.extend(
+                photo
+                    .into_iter()
+                    .chain(companion)
+                    .map(|path| self.resolve_stored(&path)),
+            );
         }
         Ok(planned)
+    }
+
+    /// `path` as a job stores it: relative to the library when inside it
+    /// (a closed session moves as one folder), else absolute.
+    pub fn stored(&self, path: &Path) -> Result<String> {
+        let path = match path.strip_prefix(&self.directory) {
+            Ok(relative) => {
+                crate::validate_relative(relative)?;
+                relative
+            }
+            Err(_) => path,
+        };
+        Ok(text(path)?.to_string())
+    }
+
+    /// A path a job stored (`stored`) as it is now.
+    pub fn resolve_stored(&self, stored: &str) -> PathBuf {
+        let path = Path::new(stored);
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.directory.join(path)
+        }
     }
 
     pub fn set_ingest_job_state(&self, id: &str, state: JobState) -> Result<()> {
