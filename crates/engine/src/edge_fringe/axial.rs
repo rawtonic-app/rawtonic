@@ -39,6 +39,10 @@
 
 use rayon::prelude::*;
 
+#[cfg(test)]
+#[path = "axial_reference.rs"]
+mod reference;
+
 /// Gaussian of the luminance whose gradient gives the edge's direction and
 /// along which the sides are searched (full-resolution pixels).
 const DIRECTION_SIGMA: f32 = 1.5;
@@ -60,6 +64,10 @@ const STEP_NOISE: f32 = 6.0;
 /// to full change.
 const STOPS_LOW: f32 = 1.5;
 const STOPS_HIGH: f32 = 2.5;
+/// Contrast ratios safely beyond those stops, where `log2` cannot round
+/// across them: full and no change without the logarithm.
+const CONTRAST_FULL: f32 = 5.657_42; // 2^2.5 · (1 + 1e-4)
+const CONTRAST_NONE: f32 = 2.828_144; // 2^1.5 · (1 − 1e-4)
 /// A channel may lie this many noise standard deviations beyond its side
 /// values before it counts as beyond them, then up to `BEYOND_FULL` of the
 /// sides' largest channel difference and no change from `BEYOND_NONE`.
@@ -174,35 +182,89 @@ fn oklab(c: [f32; 3]) -> [f32; 3] {
 /// Membership (1 inside, 0 beyond the shoulder) of `hue` in `range`.
 fn in_hue(hue: f32, (lo, hi): (f32, f32)) -> f32 {
     let half = 0.5 * (hi - lo);
-    let off = ((hue - 0.5 * (lo + hi)).rem_euclid(360.0) + 180.0).rem_euclid(360.0) - 180.0;
+    let off = wrap(wrap(hue - 0.5 * (lo + hi)) + 180.0) - 180.0;
     1.0 - smooth(off.abs(), half, half + HUE_SHOULDER)
 }
 
-/// A rectangle of the image, its Gaussian-filtered luminance (square-root
-/// units, two widths) and colours, valid wherever a pixel of the tile and
-/// its ring reads them; sampled in image coordinates.
-struct Planes {
+/// `v.rem_euclid(360.0)` without the library call where it is plain
+/// arithmetic: `fmod` returns `v` itself strictly inside ±360 (at -360 it
+/// returns -0) and, from 360 to 720, `v - 360`, which the subtraction gives
+/// exactly there (Sterbenz).
+fn wrap(v: f32) -> f32 {
+    if (0.0..360.0).contains(&v) {
+        v
+    } else if v > -360.0 && v < 0.0 {
+        v + 360.0
+    } else if (360.0..720.0).contains(&v) {
+        v - 360.0
+    } else {
+        v.rem_euclid(360.0)
+    }
+}
+
+/// The hue family of a deviation (`da`, `db` in Oklab) without its
+/// angle where that cannot matter: deviations well inside an arc where
+/// [`in_hue`] is constant (full membership of a family, or none of
+/// either). The arcs' edges sit [`ARC_MARGIN`] inside the true ones, far
+/// beyond the rounding of `atan2` and the degree arithmetic (about 1e-5°),
+/// so the shortcut gives what the angle would.
+struct HueArcs {
+    /// Arcs (unit vectors at their counter-clockwise start and end) where
+    /// a family holds fully, and where neither holds at all.
+    full: [[(f32, f32); 2]; 2],
+    none: [[(f32, f32); 2]; 2],
+}
+
+const ARC_MARGIN: f32 = 0.01;
+
+impl HueArcs {
+    fn new() -> Self {
+        let arc = |from: f32, to: f32| {
+            [from + ARC_MARGIN, to - ARC_MARGIN].map(|d: f32| {
+                let r = d.to_radians();
+                (r.cos(), r.sin())
+            })
+        };
+        let s = HUE_SHOULDER;
+        Self {
+            full: [arc(PURPLE.0, PURPLE.1), arc(GREEN.0, GREEN.1)],
+            none: [
+                arc(GREEN.1 + s, PURPLE.0 - s),
+                arc(PURPLE.1 + s - 360.0, GREEN.0 - s),
+            ],
+        }
+    }
+
+    /// Whether (`x`, `y`) lies strictly counter-clockwise of an arc's start
+    /// and clockwise of its end (each arc spans less than half a turn).
+    fn holds(arcs: &[[(f32, f32); 2]; 2], x: f32, y: f32) -> bool {
+        arcs.iter()
+            .any(|[(c0, s0), (c1, s1)]| c0 * y - s0 * x > 0.0 && x * s1 - y * c1 > 0.0)
+    }
+}
+
+static HUE_ARCS: std::sync::LazyLock<HueArcs> = std::sync::LazyLock::new(HueArcs::new);
+
+/// A Gaussian-filtered plane (square-root luminance or a colour) over a
+/// rectangle of the image, valid wherever the pixels that read it read;
+/// sampled in image coordinates.
+#[derive(Clone, Copy)]
+struct Plane<'a> {
+    values: &'a [f32],
     x0: usize,
     y0: usize,
     w: usize,
-    direction: Vec<f32>,
-    profile: Vec<f32>,
-    colour: [Vec<f32>; 3],
 }
 
-impl Planes {
-    /// Bilinear read of `plane` at the offset (`ox`, `oy`) from the pixel
-    /// (`x`, `y`), clamped to the image (`width × height`), which the
-    /// planes cover there. The interpolation weights come from the offset
-    /// alone, so a region of the image reads the same values as the whole
-    /// image (an absolute position would round differently at another
-    /// origin).
-    #[allow(clippy::too_many_arguments)]
+impl Plane<'_> {
+    /// Bilinear read at the offset (`ox`, `oy`) from the pixel (`x`, `y`),
+    /// clamped to the image (`width × height`), which the plane covers
+    /// there. The interpolation weights come from the offset alone, so a
+    /// region of the image reads the same values as the whole image (an
+    /// absolute position would round differently at another origin).
     fn read(
         &self,
-        plane: &[f32],
-        width: usize,
-        height: usize,
+        (width, height): (usize, usize),
         (x, y): (usize, usize),
         ox: f32,
         oy: f32,
@@ -220,42 +282,164 @@ impl Planes {
         };
         let (xa, xb, fx) = axis(x, ox, width);
         let (ya, yb, fy) = axis(y, oy, height);
-        let at = |px: usize, py: usize| plane[(py - self.y0) * self.w + px - self.x0];
+        let at = |px: usize, py: usize| self.values[(py - self.y0) * self.w + px - self.x0];
         let top = at(xa, ya) * (1.0 - fx) + at(xb, ya) * fx;
         let bottom = at(xa, yb) * (1.0 - fx) + at(xb, yb) * fx;
         top * (1.0 - fy) + bottom * fy
     }
 
-    /// [`Planes::read`] where the four pixels read lie inside the image:
+    /// [`Plane::read`] where the four pixels read lie inside the image:
     /// the same arithmetic without the clamps.
     #[inline(always)]
-    fn read_inside(&self, plane: &[f32], (x, y): (usize, usize), ox: f32, oy: f32) -> f32 {
+    fn read_inside(&self, (x, y): (usize, usize), ox: f32, oy: f32) -> f32 {
         let (wx, wy) = (ox.floor(), oy.floor());
         let (fx, fy) = (ox - wx, oy - wy);
         let xa = (x as isize + wx as isize) as usize;
         let ya = (y as isize + wy as isize) as usize;
         let i = (ya - self.y0) * self.w + xa - self.x0;
-        let top = plane[i] * (1.0 - fx) + plane[i + 1] * fx;
-        let bottom = plane[i + self.w] * (1.0 - fx) + plane[i + self.w + 1] * fx;
+        let v = self.values;
+        let top = v[i] * (1.0 - fx) + v[i + 1] * fx;
+        let bottom = v[i + self.w] * (1.0 - fx) + v[i + self.w + 1] * fx;
         top * (1.0 - fy) + bottom * fy
     }
+
+    /// [`Plane::read_inside`] at the offsets `k[i] · (dx, dy)`, eight at a
+    /// time (the same arithmetic per lane).
+    #[inline(always)]
+    fn read_inside_8(&self, (x, y): (usize, usize), k: &[f32; 8], dx: f32, dy: f32) -> [f32; 8] {
+        let (mut fx, mut fy, mut at) = ([0.0f32; 8], [0.0f32; 8], [0usize; 8]);
+        for i in 0..8 {
+            let (ox, oy) = (k[i] * dx, k[i] * dy);
+            let (wx, wy) = (ox.floor(), oy.floor());
+            fx[i] = ox - wx;
+            fy[i] = oy - wy;
+            let xa = (x as isize + wx as isize) as usize;
+            let ya = (y as isize + wy as isize) as usize;
+            at[i] = (ya - self.y0) * self.w + xa - self.x0;
+        }
+        let v = self.values;
+        let mut corners = [[0.0f32; 8]; 4];
+        for (i, &j) in at.iter().enumerate() {
+            corners[0][i] = v[j];
+            corners[1][i] = v[j + 1];
+            corners[2][i] = v[j + self.w];
+            corners[3][i] = v[j + self.w + 1];
+        }
+        let mut out = [0.0f32; 8];
+        for i in 0..8 {
+            let top = corners[0][i] * (1.0 - fx[i]) + corners[1][i] * fx[i];
+            let bottom = corners[2][i] * (1.0 - fx[i]) + corners[3][i] * fx[i];
+            out[i] = top * (1.0 - fy[i]) + bottom * fy[i];
+        }
+        out
+    }
+}
+
+/// The planes a pixel's judging reads: the luminance profile of the
+/// two-step test and the side colours.
+struct Planes<'a> {
+    profile: Plane<'a>,
+    colour: [Plane<'a>; 3],
+}
+
+/// Where a pixel's side search found the edge's sides.
+#[derive(Clone, Copy)]
+struct Sides {
+    x: usize,
+    y: usize,
+    /// Whether every read lies inside the image (no clamping).
+    inside: bool,
+    dx: f32,
+    dy: f32,
+    to_bright: f32,
+    to_dark: f32,
+    edge: f32,
+}
+
+/// One thread's buffers, reused from tile to tile.
+#[derive(Default)]
+struct Scratch {
+    padded: [Vec<f32>; 4],
+    direction: Vec<f32>,
+    profile: Vec<f32>,
+    colour: [Vec<f32>; 3],
+    across: Vec<f32>,
+    sides: Vec<Sides>,
+    moves: Vec<Option<Move>>,
 }
 
 /// The square-root luminance and the three channels of the rectangle
 /// `x0.., y0..` of `w × h` and `pad` pixels around it, read with the
 /// image's edges (`width × height`) repeated, as the whole image repeats
-/// them.
+/// them, into `out`.
 fn padded(
     data: &[f32],
     stride: usize,
-    width: usize,
-    height: usize,
+    (width, height): (usize, usize),
     (x0, y0, w, h): (usize, usize, usize, usize),
     pad: usize,
-) -> [Vec<f32>; 4] {
+    out: &mut [Vec<f32>; 4],
+) {
+    match stride {
+        3 => padded_with::<3>(data, (width, height), (x0, y0, w, h), pad, out),
+        4 => padded_with::<4>(data, (width, height), (x0, y0, w, h), pad, out),
+        _ => padded_with_stride(data, stride, (width, height), (x0, y0, w, h), pad, out),
+    }
+}
+
+/// [`padded`] for pixels of `S` floats: rows whose columns need no
+/// repeated edge are read as runs.
+fn padded_with<const S: usize>(
+    data: &[f32],
+    (width, height): (usize, usize),
+    (x0, y0, w, h): (usize, usize, usize, usize),
+    pad: usize,
+    out: &mut [Vec<f32>; 4],
+) {
+    if x0 < pad || x0 + w + pad > width {
+        return padded_with_stride(data, S, (width, height), (x0, y0, w, h), pad, out);
+    }
     let pw = w + 2 * pad;
     let len = pw * (h + 2 * pad);
-    let mut out: [Vec<f32>; 4] = std::array::from_fn(|_| vec![0.0f32; len]);
+    for plane in out.iter_mut() {
+        plane.clear();
+        plane.resize(len, 0.0);
+    }
+    let [roots, red, green, blue] = out;
+    for j in 0..h + 2 * pad {
+        let y = (y0 as isize + j as isize - pad as isize).clamp(0, height as isize - 1) as usize;
+        let row = &data[(y * width + x0 - pad) * S..(y * width + x0 - pad + pw) * S];
+        let (pixels, _) = row.as_chunks::<S>();
+        let span = j * pw..(j + 1) * pw;
+        for ((((p, l), r), g), b) in pixels
+            .iter()
+            .zip(&mut roots[span.clone()])
+            .zip(&mut red[span.clone()])
+            .zip(&mut green[span.clone()])
+            .zip(&mut blue[span])
+        {
+            *l = lum([p[0], p[1], p[2]]).max(0.0).sqrt();
+            *r = p[0];
+            *g = p[1];
+            *b = p[2];
+        }
+    }
+}
+
+fn padded_with_stride(
+    data: &[f32],
+    stride: usize,
+    (width, height): (usize, usize),
+    (x0, y0, w, h): (usize, usize, usize, usize),
+    pad: usize,
+    out: &mut [Vec<f32>; 4],
+) {
+    let pw = w + 2 * pad;
+    let len = pw * (h + 2 * pad);
+    for plane in out.iter_mut() {
+        plane.clear();
+        plane.resize(len, 0.0);
+    }
     let columns: Vec<usize> = (0..pw)
         .map(|i| (x0 as isize + i as isize - pad as isize).clamp(0, width as isize - 1) as usize)
         .collect();
@@ -271,127 +455,149 @@ fn padded(
             out[3][at] = p[2];
         }
     }
-    out
 }
 
-/// The Gaussian `kernel` of the `w × h` rectangle whose values with `pad`
-/// pixels around it are `source` (`kernel.radius <= pad`). Each output
-/// adds its taps in kernel order.
-fn gaussian(source: &[f32], w: usize, h: usize, pad: usize, kernel: Kernel) -> Vec<f32> {
+/// The Gaussian `kernel` of the `w × h` rectangle at (`ox`, `oy`) of a
+/// plane whose values with `pad` pixels around it are `source` (rows of
+/// `sw`, `kernel.radius <= pad`), into `out` (`across` is scratch). Each
+/// output adds its taps in kernel order, so any rectangle gets the values
+/// of the whole plane.
+fn gaussian(
+    source: &[f32],
+    (sw, pad): (usize, usize),
+    (ox, oy, w, h): (usize, usize, usize, usize),
+    kernel: Kernel,
+    out: &mut Vec<f32>,
+    across: &mut Vec<f32>,
+) {
     let weights = kernel.weights();
     let r = kernel.radius;
-    let pw = w + 2 * pad;
-    // Rows pad - r .. pad + h + r of the source, filtered along x.
+    // Rows oy + pad - r .. oy + pad + h + r of the source, filtered along x.
     let rows = h + 2 * r;
-    let mut across = vec![0.0f32; rows * w];
+    across.clear();
+    across.resize(rows * w, 0.0);
     for (e, out) in across.chunks_exact_mut(w).enumerate() {
-        let row = &source[(pad - r + e) * pw..(pad - r + e + 1) * pw];
-        for (k, weight) in weights.iter().enumerate() {
-            let taps = &row[pad - r + k..pad - r + k + w];
-            for (o, v) in out.iter_mut().zip(taps) {
-                *o += weight * v;
-            }
-        }
+        let row = &source[(oy + pad - r + e) * sw + ox + pad - r..][..w + 2 * r];
+        taps_into(out, |k| &row[k..k + w], &weights);
     }
-    let mut out = vec![0.0f32; w * h];
+    out.clear();
+    out.resize(w * h, 0.0);
     for (y, row) in out.chunks_exact_mut(w).enumerate() {
+        taps_into(row, |k| &across[(y + k) * w..(y + k + 1) * w], &weights);
+    }
+}
+
+/// `out[i] = 0 + weights[0] · tap(0)[i] + weights[1] · tap(1)[i] + …`,
+/// added in that order, eight outputs at a time in registers.
+#[inline(always)]
+fn taps_into<'a>(out: &mut [f32], tap: impl Fn(usize) -> &'a [f32], weights: &[f32]) {
+    let n = out.len();
+    let whole = n / 8 * 8;
+    for b in (0..whole).step_by(8) {
+        let mut acc = [0.0f32; 8];
         for (k, weight) in weights.iter().enumerate() {
-            let taps = &across[(y + k) * w..(y + k + 1) * w];
-            for (o, v) in row.iter_mut().zip(taps) {
-                *o += weight * v;
+            let v: &[f32; 8] = tap(k)[b..b + 8].try_into().unwrap();
+            for i in 0..8 {
+                acc[i] += weight * v[i];
             }
         }
+        out[b..b + 8].copy_from_slice(&acc);
     }
-    out
+    for i in whole..n {
+        let mut acc = 0.0f32;
+        for (k, weight) in weights.iter().enumerate() {
+            acc += weight * tap(k)[i];
+        }
+        out[i] = acc;
+    }
 }
 
-/// Running extreme of `values` over `x - r ..= x + r` (clipped) into `out`
-/// (van Herk / Gil–Werman): `pick` is `f32::min` or `f32::max` and
-/// `neutral` the value it never picks over another.
-fn running(
+/// Smallest and largest of `values` over every window of `len`
+/// consecutive values (`lo[i]`, `hi[i]` over `values[i..i + len]`,
+/// `values.len() = lo.len() + len - 1`), by doubling runs (`runs` is
+/// scratch), so whole rows vectorise. `min` and `max` give the same
+/// extreme in any order, and skip NaN.
+fn window_runs(
     values: &[f32],
-    r: usize,
-    pick: fn(f32, f32) -> f32,
-    neutral: f32,
-    out: &mut [f32],
-    scratch: &mut Vec<f32>,
+    len: usize,
+    (lo, hi): (&mut [f32], &mut [f32]),
+    runs: &mut [Vec<f32>; 4],
 ) {
-    let n = values.len();
-    let k = 2 * r + 1;
-    // Over the values padded with `neutral` by r on each side: extremes
-    // from each block's start (prefix) and to its end (suffix).
-    let blocks = (n + 2 * r).div_ceil(k) * k;
-    scratch.clear();
-    scratch.resize(2 * blocks, neutral);
-    let (prefix, suffix) = scratch.split_at_mut(blocks);
-    let at = |i: usize| {
-        if i >= r && i < r + n {
-            values[i - r]
-        } else {
-            neutral
-        }
-    };
-    for b in (0..blocks).step_by(k) {
-        let mut acc = neutral;
-        for (i, p) in prefix[b..b + k].iter_mut().enumerate() {
-            acc = pick(acc, at(b + i));
-            *p = acc;
-        }
-        let mut acc = neutral;
-        for (i, q) in suffix[b..b + k].iter_mut().enumerate().rev() {
-            acc = pick(acc, at(b + i));
-            *q = acc;
-        }
+    let [lo_a, hi_a, lo_b, hi_b] = runs;
+    lo_a.clear();
+    lo_a.extend_from_slice(values);
+    hi_a.clear();
+    hi_a.extend_from_slice(values);
+    let mut span = 1;
+    while 2 * span <= len {
+        let n = lo_a.len() - span;
+        lo_b.clear();
+        lo_b.extend(lo_a[..n].iter().zip(&lo_a[span..]).map(|(a, b)| a.min(*b)));
+        hi_b.clear();
+        hi_b.extend(hi_a[..n].iter().zip(&hi_a[span..]).map(|(a, b)| a.max(*b)));
+        std::mem::swap(lo_a, lo_b);
+        std::mem::swap(hi_a, hi_b);
+        span *= 2;
     }
-    // The window of padded positions x ..= x + 2r.
-    for (x, o) in out.iter_mut().enumerate() {
-        *o = pick(suffix[x], prefix[x + 2 * r]);
+    let n = lo.len();
+    let far = len - span;
+    for ((o, a), b) in lo.iter_mut().zip(&lo_a[..n]).zip(&lo_a[far..far + n]) {
+        *o = a.min(*b);
+    }
+    for ((o, a), b) in hi.iter_mut().zip(&hi_a[..n]).zip(&hi_a[far..far + n]) {
+        *o = a.max(*b);
     }
 }
 
-/// Smallest and largest value of `plane` (`w × h`) in the square of
-/// radius `r` around each pixel (clipped to the plane).
-fn window_extremes(plane: &[f32], w: usize, h: usize, r: usize) -> (Vec<f32>, Vec<f32>) {
-    let mut scratch = Vec::new();
-    let mut lo = vec![0.0f32; w * h];
-    let mut hi = vec![0.0f32; w * h];
-    for y in 0..h {
-        let row = &plane[y * w..(y + 1) * w];
-        let span = y * w..(y + 1) * w;
-        running(
-            row,
-            r,
-            f32::min,
-            f32::INFINITY,
-            &mut lo[span.clone()],
-            &mut scratch,
-        );
-        running(
-            row,
-            r,
-            f32::max,
-            f32::NEG_INFINITY,
-            &mut hi[span],
-            &mut scratch,
-        );
+/// Whether the luminance varies by at least `low` in the square of radius
+/// `r` around each pixel of the region (`rx`, `ry`, `rw`, `rh`) of `plane`
+/// (`w × h`), the square clipped to the plane.
+fn near_edges(
+    plane: &[f32],
+    (w, h): (usize, usize),
+    r: usize,
+    (rx, ry, rw, rh): (usize, usize, usize, usize),
+    low: f32,
+) -> Vec<bool> {
+    let len = 2 * r + 1;
+    // The columns and rows the region's squares read, and NaN for the
+    // plane's clipped edges (`min` and `max` return the other value).
+    let (x0, x1) = (rx.saturating_sub(r), (rx + rw + r).min(w));
+    let (y0, y1) = (ry.saturating_sub(r), (ry + rh + r).min(h));
+    let left = r - (rx - x0);
+    let top = r - (ry - y0);
+    let rows = rh + 2 * r;
+    let mut lo = vec![f32::NAN; rows * rw];
+    let mut hi = vec![f32::NAN; rows * rw];
+    let mut runs: [Vec<f32>; 4] = Default::default();
+    // Along each row, then along the columns (whole rows at a time).
+    let mut padded = vec![f32::NAN; rw + 2 * r];
+    for (j, y) in (y0..y1).enumerate() {
+        padded[left..left + x1 - x0].copy_from_slice(&plane[y * w + x0..y * w + x1]);
+        let at = (top + j) * rw..(top + j + 1) * rw;
+        let (lo_row, hi_row) = (&mut lo[at.clone()], &mut hi[at]);
+        window_runs(&padded, len, (lo_row, hi_row), &mut runs);
     }
-    let mut column = vec![0.0f32; h];
-    let mut extreme = vec![0.0f32; h];
-    for (plane, pick, neutral) in [
-        (&mut lo, f32::min as fn(f32, f32) -> f32, f32::INFINITY),
-        (&mut hi, f32::max, f32::NEG_INFINITY),
-    ] {
-        for x in 0..w {
-            for y in 0..h {
-                column[y] = plane[y * w + x];
+    let mut span = 1;
+    let mut count = rows;
+    while 2 * span <= len {
+        count -= span;
+        for i in 0..count {
+            let (a, b) = lo.split_at_mut((i + span) * rw);
+            for (a, &b) in a[i * rw..(i + 1) * rw].iter_mut().zip(&b[..rw]) {
+                *a = a.min(b);
             }
-            running(&column, r, pick, neutral, &mut extreme, &mut scratch);
-            for y in 0..h {
-                plane[y * w + x] = extreme[y];
+            let (a, b) = hi.split_at_mut((i + span) * rw);
+            for (a, &b) in a[i * rw..(i + 1) * rw].iter_mut().zip(&b[..rw]) {
+                *a = a.max(b);
             }
         }
+        span *= 2;
     }
-    (lo, hi)
+    let far = (len - span) * rw;
+    (0..rh * rw)
+        .map(|i| hi[i].max(hi[i + far]) - lo[i].min(lo[i + far]) >= low)
+        .collect()
 }
 
 /// The stage in place on `w × h` pixels of `stride` floats (RGB first),
@@ -417,16 +623,32 @@ fn apply_in_tiles(
     let across = w.div_ceil(tile_cols);
     let changes: Vec<Vec<(usize, [f32; 3])>> = (0..h.div_ceil(tile_rows) * across)
         .into_par_iter()
-        .map(|tile| {
+        .map_init(Scratch::default, |scratch, tile| {
             let (band, column) = (tile / across, tile % across);
             let rows = band * tile_rows..((band + 1) * tile_rows).min(h);
             let columns = column * tile_cols..((column + 1) * tile_cols).min(w);
-            tile_changes(source, w, h, stride, noise, &geometry, rows, columns)
+            tile_changes(
+                scratch,
+                source,
+                (w, h, stride),
+                noise,
+                &geometry,
+                rows,
+                columns,
+            )
         })
         .collect();
-    for (i, px) in changes.into_iter().flatten() {
-        data[i * stride..i * stride + 3].copy_from_slice(&px);
-    }
+    // Each band of tiles writes its own rows.
+    data.par_chunks_mut(tile_rows * w * stride)
+        .zip(changes.par_chunks(across))
+        .enumerate()
+        .for_each(|(band, (rows, tiles))| {
+            let first = band * tile_rows * w;
+            for &(i, px) in tiles.iter().flatten() {
+                let i = i - first;
+                rows[i * stride..i * stride + 3].copy_from_slice(&px);
+            }
+        });
 }
 
 /// A pixel's target colour and how far it moves there.
@@ -441,10 +663,9 @@ struct Move {
 
 #[allow(clippy::too_many_arguments)]
 fn tile_changes(
+    scratch: &mut Scratch,
     data: &[f32],
-    width: usize,
-    height: usize,
-    stride: usize,
+    (width, height, stride): (usize, usize, usize),
     noise: f32,
     geometry: &Geometry,
     rows: std::ops::Range<usize>,
@@ -455,50 +676,135 @@ fn tile_changes(
     let ring_y0 = rows.start.saturating_sub(1);
     let ring_x1 = (columns.end + 1).min(width);
     let ring_y1 = (rows.end + 1).min(height);
-    // Planes around the ring, as far as its pixels read.
-    let halo = geometry.reach();
-    let px0 = columns.start.saturating_sub(halo);
-    let py0 = rows.start.saturating_sub(halo);
-    let pw = (columns.end + halo).min(width) - px0;
-    let ph = (rows.end + halo).min(height) - py0;
-    let rect = (px0, py0, pw, ph);
+    // Planes around the tile as far as its ring's pixels read, and the
+    // image around them as far as their Gaussians read.
+    let far = geometry.search + geometry.push.ceil() as usize + 2;
+    let px0 = columns.start.saturating_sub(far);
+    let py0 = rows.start.saturating_sub(far);
+    let pw = (columns.end + far).min(width) - px0;
+    let ph = (rows.end + far).min(height) - py0;
     let pixel = |x: usize, y: usize| &data[(y * width + x) * stride..(y * width + x) * stride + 3];
     let pad = geometry
         .direction
         .radius
         .max(geometry.side.radius)
         .max(geometry.profile.radius);
-    let [roots, red, green, blue] = padded(data, stride, width, height, rect, pad);
-    let direction = gaussian(&roots, pw, ph, pad, geometry.direction);
+    let Scratch {
+        padded: sources,
+        direction,
+        profile,
+        colour,
+        across,
+        sides,
+        moves,
+    } = scratch;
+    padded(
+        data,
+        stride,
+        (width, height),
+        (px0, py0, pw, ph),
+        pad,
+        sources,
+    );
+    let [roots, red, green, blue] = &*sources;
+    let source = (pw + 2 * pad, pad);
+    gaussian(
+        roots,
+        source,
+        (0, 0, pw, ph),
+        geometry.direction,
+        direction,
+        across,
+    );
+    let direction = Plane {
+        values: direction,
+        x0: px0,
+        y0: py0,
+        w: pw,
+    };
     // Every luminance a pixel's side search reads lies within `search + 1`
     // of it; where those vary less than the edge test's start, the pixel
     // cannot change and is skipped (exactly: a necessary condition).
     let low = STEP_LOW.max(STEP_NOISE * noise);
-    let (darkest, brightest) = window_extremes(&direction, pw, ph, geometry.search + 1);
     let rw = ring_x1 - ring_x0;
     let rh = ring_y1 - ring_y0;
-    let at = |x: usize, y: usize| (y - py0) * pw + x - px0;
-    let edge_near = |x: usize, y: usize| brightest[at(x, y)] - darkest[at(x, y)] >= low;
-    let mut moves: Vec<Option<Move>> = vec![None; rw * rh];
-    if !(ring_y0..ring_y1).any(|y| (ring_x0..ring_x1).any(|x| edge_near(x, y))) {
-        return Vec::new();
-    }
-    let colour = |c: &[f32]| gaussian(c, pw, ph, pad, geometry.side);
-    let planes = Planes {
-        x0: px0,
-        y0: py0,
-        w: pw,
-        profile: gaussian(&roots, pw, ph, pad, geometry.profile),
-        direction,
-        colour: [colour(&red), colour(&green), colour(&blue)],
-    };
+    let near = near_edges(
+        direction.values,
+        (pw, ph),
+        geometry.search + 1,
+        (ring_x0 - px0, ring_y0 - py0, rw, rh),
+        low,
+    );
+    // The side search first, then the side colours and the profile only
+    // around the pixels it found (`reads` around each), judged eight at a
+    // time.
+    sides.clear();
+    let (mut bx0, mut by0, mut bx1, mut by1) = (usize::MAX, usize::MAX, 0, 0);
     for y in ring_y0..ring_y1 {
         for x in ring_x0..ring_x1 {
-            if !edge_near(x, y) {
+            if !near[(y - ring_y0) * rw + x - ring_x0] {
                 continue;
             }
-            moves[(y - ring_y0) * rw + x - ring_x0] =
-                pixel_move(&planes, pixel(x, y), x, y, width, height, noise, geometry);
+            if let Some(found) = search(
+                direction,
+                pixel(x, y),
+                (x, y),
+                (width, height),
+                low,
+                geometry,
+            ) {
+                sides.push(found);
+                (bx0, by0) = (bx0.min(x), by0.min(y));
+                (bx1, by1) = (bx1.max(x + 1), by1.max(y + 1));
+            }
+        }
+    }
+    if sides.is_empty() {
+        return Vec::new();
+    }
+    let reads = far - 1;
+    let bx0 = bx0.saturating_sub(reads).max(px0);
+    let by0 = by0.saturating_sub(reads).max(py0);
+    let bw = (bx1 + reads).min(px0 + pw) - bx0;
+    let bh = (by1 + reads).min(py0 + ph) - by0;
+    let rect = (bx0 - px0, by0 - py0, bw, bh);
+    gaussian(roots, source, rect, geometry.profile, profile, across);
+    for (out, plane) in colour.iter_mut().zip([red, green, blue]) {
+        gaussian(plane, source, rect, geometry.side, out, across);
+    }
+    let around = |values| Plane {
+        values,
+        x0: bx0,
+        y0: by0,
+        w: bw,
+    };
+    let planes = Planes {
+        profile: around(profile),
+        colour: colour.each_ref().map(|c| around(c)),
+    };
+    moves.clear();
+    moves.resize(rw * rh, None);
+    for chunk in sides.chunks(8) {
+        // Lanes past the last pixel repeat it (their moves are dropped).
+        let found: [Sides; 8] = std::array::from_fn(|i| chunk[i.min(chunk.len() - 1)]);
+        let pixels = found.map(|f| {
+            let p = pixel(f.x, f.y);
+            [p[0], p[1], p[2]]
+        });
+        let mut out = [None; 8];
+        let size = (width, height);
+        judge_8(
+            &planes,
+            &pixels,
+            &found,
+            chunk.len(),
+            size,
+            noise,
+            geometry,
+            &mut out,
+        );
+        for (f, m) in chunk.iter().zip(out) {
+            moves[(f.y - ring_y0) * rw + f.x - ring_x0] = m;
         }
     }
     let mut changes = Vec::new();
@@ -510,17 +816,23 @@ fn tile_changes(
             // A fringe pixel left out amid moved neighbours because a
             // channel overshoots both sides (at the fringe's peak) moves
             // with them; the hue, contrast and two-step tests still hold.
-            let mut near = [0.0f32; 9];
-            let mut n = 0;
-            for ny in y.saturating_sub(1)..(y + 2).min(height) {
-                for nx in x.saturating_sub(1)..(x + 2).min(width) {
-                    near[n] = moves[(ny - ring_y0) * rw + nx - ring_x0].map_or(0.0, |m| m.weight);
-                    n += 1;
+            // (Where the cap is the weight, the median cannot raise it.)
+            let weight = if own.cap == own.weight {
+                own.weight
+            } else {
+                let mut near = [0.0f32; 9];
+                let mut n = 0;
+                for ny in y.saturating_sub(1)..(y + 2).min(height) {
+                    for nx in x.saturating_sub(1)..(x + 2).min(width) {
+                        near[n] =
+                            moves[(ny - ring_y0) * rw + nx - ring_x0].map_or(0.0, |m| m.weight);
+                        n += 1;
+                    }
                 }
-            }
-            let near = &mut near[..n];
-            near.sort_by(f32::total_cmp);
-            let weight = own.weight.max(near[n / 2].min(own.cap));
+                let near = &mut near[..n];
+                near.sort_by(f32::total_cmp);
+                own.weight.max(near[n / 2].min(own.cap))
+            };
             if weight <= 0.0 {
                 continue;
             }
@@ -534,37 +846,35 @@ fn tile_changes(
     changes
 }
 
-/// Where the pixel `p` at (`x`, `y`) moves and how far; None away from
-/// strong edges.
-#[allow(clippy::too_many_arguments)]
-fn pixel_move(
-    planes: &Planes,
+/// The edge's sides along the luminance gradient at the pixel `p` at
+/// (`x`, `y`); None away from strong edges (a luminance step below
+/// `low`).
+#[inline(always)]
+fn search(
+    direction: Plane,
     p: &[f32],
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    noise: f32,
+    (x, y): (usize, usize),
+    size: (usize, usize),
+    low: f32,
     geometry: &Geometry,
-) -> Option<Move> {
-    let p = [p[0], p[1], p[2]];
-    if p.iter().any(|c| !c.is_finite()) {
+) -> Option<Sides> {
+    if p[..3].iter().any(|c| !c.is_finite()) {
         return None;
     }
+    let (width, height) = size;
     // Every read lies within `search + push + 2` of the pixel: away from
     // the image's edges the reads need no clamping.
     let margin = geometry.search + geometry.push.ceil() as usize + 2;
     let inside = x >= margin && y >= margin && x + margin < width && y + margin < height;
-    let lum_at = |plane: &[f32], dx: f32, dy: f32| {
+    let lum_at = |dx: f32, dy: f32| {
         if inside {
-            planes.read_inside(plane, (x, y), dx, dy)
+            direction.read_inside((x, y), dx, dy)
         } else {
-            planes.read(plane, width, height, (x, y), dx, dy)
+            direction.read(size, (x, y), dx, dy)
         }
     };
-    let dir = &planes.direction;
-    let gx = 0.5 * (lum_at(dir, 1.0, 0.0) - lum_at(dir, -1.0, 0.0));
-    let gy = 0.5 * (lum_at(dir, 0.0, 1.0) - lum_at(dir, 0.0, -1.0));
+    let gx = 0.5 * (lum_at(1.0, 0.0) - lum_at(-1.0, 0.0));
+    let gy = 0.5 * (lum_at(0.0, 1.0) - lum_at(0.0, -1.0));
     let g = gx.hypot(gy);
     // (NaN included.)
     if g.is_nan() || g <= 1e-5 {
@@ -572,132 +882,275 @@ fn pixel_move(
     }
     let (dx, dy) = (gx / g, gy / g);
     // The brightest point along the gradient and the darkest against it.
-    let own = lum_at(dir, 0.0, 0.0);
+    let own = lum_at(0.0, 0.0);
     let (mut bright, mut to_bright) = (own, 0.0f32);
     let (mut dark, mut to_dark) = (own, 0.0f32);
-    for k in 1..=geometry.search {
-        let k = k as f32;
-        let ahead = lum_at(dir, k * dx, k * dy);
-        if ahead > bright {
-            bright = ahead;
-            to_bright = k;
+    if inside {
+        // Steps 1 ..= search (at most 8) in lanes; the rest read the pixel
+        // itself and are not looked at.
+        let ks: [f32; 8] = std::array::from_fn(|i| {
+            if i < geometry.search {
+                (i + 1) as f32
+            } else {
+                0.0
+            }
+        });
+        let ahead = direction.read_inside_8((x, y), &ks, dx, dy);
+        let behind = direction.read_inside_8((x, y), &ks.map(|k| -k), dx, dy);
+        // (Selects rather than branches: which step wins is a coin toss.)
+        for i in 0..geometry.search {
+            let ahead_wins = ahead[i] > bright;
+            bright = if ahead_wins { ahead[i] } else { bright };
+            to_bright = if ahead_wins { ks[i] } else { to_bright };
+            let behind_wins = behind[i] < dark;
+            dark = if behind_wins { behind[i] } else { dark };
+            to_dark = if behind_wins { ks[i] } else { to_dark };
         }
-        let behind = lum_at(dir, -k * dx, -k * dy);
-        if behind < dark {
-            dark = behind;
-            to_dark = k;
+    } else {
+        for k in 1..=geometry.search {
+            let k = k as f32;
+            let ahead = lum_at(k * dx, k * dy);
+            if ahead > bright {
+                bright = ahead;
+                to_bright = k;
+            }
+            let behind = lum_at(-k * dx, -k * dy);
+            if behind < dark {
+                dark = behind;
+                to_dark = k;
+            }
         }
     }
-    let low = STEP_LOW.max(STEP_NOISE * noise);
     let edge = smooth(bright - dark, low, low + STEP_SPAN);
-    if edge <= 0.0 {
-        return None;
-    }
-    let side =
-        |k: f32| -> [f32; 3] { std::array::from_fn(|c| lum_at(&planes.colour[c], k * dx, k * dy)) };
-    let lit = side(to_bright + geometry.push);
-    let shade = side(-(to_dark + geometry.push));
-    let (l_lit, l_shade, l_own) = (lum(lit), lum(shade), lum(p));
-    if (l_lit - l_shade).is_nan() || l_lit - l_shade <= 1e-6 {
-        return None;
-    }
-    // The side mix at the pixel's luminance.
-    let t = ((l_own - l_shade) / (l_lit - l_shade)).clamp(0.0, 1.0);
-    let mix: [f32; 3] = std::array::from_fn(|c| shade[c] + t * (lit[c] - shade[c]));
-    let span = (0..3)
-        .map(|c| (lit[c] - shade[c]).abs())
-        .fold(0.0f32, f32::max)
-        .max(1e-6);
-    let mut beyond = 0.0f32;
-    for c in 0..3 {
-        let tolerance = NOISE_TOLERANCE * 2.0 * p[c].max(0.0).sqrt() * noise;
-        let lo = lit[c].min(shade[c]) - tolerance;
-        let hi = lit[c].max(shade[c]) + tolerance;
-        beyond = beyond.max((p[c] - hi).max(lo - p[c]).max(0.0) / span);
-    }
-    let between = 1.0 - smooth(beyond, BEYOND_FULL, BEYOND_NONE);
-    let contrast = smooth(
-        (l_lit.max(1e-6) / l_shade.max(1e-6)).log2(),
-        STOPS_LOW,
-        STOPS_HIGH,
-    );
-    // The mix's colour at the pixel's own luminance, never more colour
-    // than the pixel had.
-    let l_mix = lum(mix);
-    let mut colour: [f32; 3] = std::array::from_fn(|c| mix[c] - l_mix);
-    let norm = |v: &[f32; 3]| (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    let had = norm(&std::array::from_fn(|c| p[c] - l_own));
-    let gets = norm(&colour);
-    if gets > had && gets > 0.0 {
-        for v in &mut colour {
-            *v *= had / gets;
-        }
-    }
-    // Signed, as the linear values beyond sRGB the engine keeps.
-    let target: [f32; 3] = std::array::from_fn(|c| l_own + colour[c]);
-    // Which deviation: the hue families of axial aberration, or small.
-    let (a, b) = (oklab(p), oklab(target));
-    let (da, db) = (a[1] - b[1], a[2] - b[2]);
-    let hue = db.atan2(da).to_degrees().rem_euclid(360.0);
-    let small = if noise > 0.0 {
-        1.0 - smooth(da.hypot(db), SMALL_FULL * noise, SMALL_NONE * noise)
-    } else {
-        0.0
-    };
-    let family = in_hue(hue, PURPLE).max(in_hue(hue, GREEN)).max(small);
-    let weight = edge * between * contrast * family;
-    let cap = edge * contrast * family;
-    // The two-step test only where it can matter.
-    let single = if cap > 0.0 {
-        let dip = two_steps(
-            planes,
-            (x, y, inside),
-            dx,
-            dy,
-            to_dark,
-            to_bright,
-            width,
-            height,
-        );
-        1.0 - smooth(dip, STEPS_FULL, STEPS_NONE)
-    } else {
-        1.0
-    };
-    Some(Move {
-        weight: weight * single,
-        cap: cap * single,
-        target,
+    (edge > 0.0).then_some(Sides {
+        x,
+        y,
+        inside,
+        dx,
+        dy,
+        to_bright,
+        to_dark,
+        edge,
     })
 }
 
-/// The dip between two luminance steps on the path from the dark side
-/// (`to_dark` against the gradient) to the bright side (`to_bright` along
-/// it), relative to the steeper step: 0 for a single blurred step.
+/// Eight lanes of `f32`.
+type Lanes = [f32; 8];
+
+/// `f` on each lane (written out per lane, so the loop vectorises).
+#[inline(always)]
+fn lanes(f: impl Fn(usize) -> f32) -> Lanes {
+    let mut out = [0.0f32; 8];
+    for (i, o) in out.iter_mut().enumerate() {
+        *o = f(i);
+    }
+    out
+}
+
+/// Where the first `count` of eight pixels (colours `pixels`) whose side
+/// search found the sides `found` move and how far (None where a pixel
+/// keeps its colour), into `out`: lane by lane the arithmetic of one
+/// pixel, so whole lanes vectorise.
 #[allow(clippy::too_many_arguments)]
-fn two_steps(
+#[inline(always)]
+fn judge_8(
     planes: &Planes,
-    (x, y, inside): (usize, usize, bool),
-    dx: f32,
-    dy: f32,
-    to_dark: f32,
-    to_bright: f32,
-    width: usize,
-    height: usize,
-) -> f32 {
+    pixels: &[[f32; 3]; 8],
+    found: &[Sides; 8],
+    count: usize,
+    size: (usize, usize),
+    noise: f32,
+    geometry: &Geometry,
+    out: &mut [Option<Move>; 8],
+) {
+    let push = geometry.push;
+    // The side colours (gathers, lane by lane).
+    let mut lit = [[0.0f32; 8]; 3];
+    let mut shade = [[0.0f32; 8]; 3];
+    for i in 0..8 {
+        let f = &found[i];
+        let (x, y) = (f.x, f.y);
+        let (kl, ks) = (f.to_bright + push, -(f.to_dark + push));
+        for c in 0..3 {
+            let plane = planes.colour[c];
+            if f.inside {
+                lit[c][i] = plane.read_inside((x, y), kl * f.dx, kl * f.dy);
+                shade[c][i] = plane.read_inside((x, y), ks * f.dx, ks * f.dy);
+            } else {
+                lit[c][i] = plane.read(size, (x, y), kl * f.dx, kl * f.dy);
+                shade[c][i] = plane.read(size, (x, y), ks * f.dx, ks * f.dy);
+            }
+        }
+    }
+    let p: [Lanes; 3] = std::array::from_fn(|c| lanes(|i| pixels[i][c]));
+    let lum8 = |v: &[Lanes; 3]| lanes(|i| 0.25 * (v[0][i] + 2.0 * v[1][i] + v[2][i]));
+    let (l_lit, l_shade, l_own) = (lum8(&lit), lum8(&shade), lum8(&p));
+    // The side mix at the pixel's luminance.
+    let t = lanes(|i| ((l_own[i] - l_shade[i]) / (l_lit[i] - l_shade[i])).clamp(0.0, 1.0));
+    let mix: [Lanes; 3] =
+        std::array::from_fn(|c| lanes(|i| shade[c][i] + t[i] * (lit[c][i] - shade[c][i])));
+    let span = lanes(|i| {
+        let mut span = 0.0f32;
+        for c in 0..3 {
+            span = span.max((lit[c][i] - shade[c][i]).abs());
+        }
+        span.max(1e-6)
+    });
+    let beyond = lanes(|i| {
+        let mut beyond = 0.0f32;
+        for c in 0..3 {
+            let tolerance = NOISE_TOLERANCE * 2.0 * p[c][i].max(0.0).sqrt() * noise;
+            let lo = lit[c][i].min(shade[c][i]) - tolerance;
+            let hi = lit[c][i].max(shade[c][i]) + tolerance;
+            beyond = beyond.max((p[c][i] - hi).max(lo - p[c][i]).max(0.0) / span[i]);
+        }
+        beyond
+    });
+    let between = lanes(|i| 1.0 - smooth(beyond[i], BEYOND_FULL, BEYOND_NONE));
+    let ratio = lanes(|i| l_lit[i].max(1e-6) / l_shade[i].max(1e-6));
+    let mut contrast = lanes(|i| {
+        if ratio[i] >= CONTRAST_FULL {
+            1.0
+        } else if ratio[i] <= CONTRAST_NONE {
+            0.0
+        } else {
+            f32::NAN
+        }
+    });
+    for i in 0..count {
+        if contrast[i].is_nan() {
+            contrast[i] = smooth(ratio[i].log2(), STOPS_LOW, STOPS_HIGH);
+        }
+    }
+    // The mix's colour at the pixel's own luminance, never more colour
+    // than the pixel had.
+    let l_mix = lum8(&mix);
+    let mut colour: [Lanes; 3] = std::array::from_fn(|c| lanes(|i| mix[c][i] - l_mix[i]));
+    let norm8 = |v: &[Lanes; 3]| {
+        lanes(|i| (v[0][i] * v[0][i] + v[1][i] * v[1][i] + v[2][i] * v[2][i]).sqrt())
+    };
+    let had = norm8(&std::array::from_fn(|c| lanes(|i| p[c][i] - l_own[i])));
+    let gets = norm8(&colour);
+    for v in &mut colour {
+        *v = lanes(|i| {
+            if gets[i] > had[i] && gets[i] > 0.0 {
+                v[i] * (had[i] / gets[i])
+            } else {
+                v[i]
+            }
+        });
+    }
+    // Signed, as the linear values beyond sRGB the engine keeps.
+    let target: [Lanes; 3] = std::array::from_fn(|c| lanes(|i| l_own[i] + colour[c][i]));
+    // Which deviation: the hue families of axial aberration, or small.
+    let (a, b) = (oklab_8(&p, count), oklab_8(&target, count));
+    let (da, db) = (lanes(|i| a[1][i] - b[1][i]), lanes(|i| a[2][i] - b[2][i]));
+    let arcs = &*HUE_ARCS;
+    let held = |arcs, i: usize| {
+        if HueArcs::holds(arcs, da[i], db[i]) {
+            1.0
+        } else {
+            0.0
+        }
+    };
+    let full = lanes(|i| held(&arcs.full, i));
+    let none = lanes(|i| held(&arcs.none, i));
+    let edge = lanes(|i| found[i].edge);
+    for i in 0..count {
+        let lane = |v: &[Lanes; 3]| [v[0][i], v[1][i], v[2][i]];
+        let (pi, li, si) = (lane(&p), lane(&lit), lane(&shade));
+        if (l_lit[i] - l_shade[i]).is_nan() || l_lit[i] - l_shade[i] <= 1e-6 {
+            out[i] = None;
+            continue;
+        }
+        // No contrast moves nothing (every other factor is finite with
+        // values of this size, so the weights are exactly zero).
+        if contrast[i] == 0.0 && pi.iter().chain(&li).chain(&si).all(|v| v.abs() < 1e15) {
+            out[i] = None;
+            continue;
+        }
+        let (da, db) = (da[i], db[i]);
+        let small = || {
+            if noise > 0.0 {
+                1.0 - smooth(da.hypot(db), SMALL_FULL * noise, SMALL_NONE * noise)
+            } else {
+                0.0
+            }
+        };
+        let family = if full[i] == 1.0 {
+            1.0
+        } else if none[i] == 1.0 {
+            0.0f32.max(small())
+        } else {
+            let hue = wrap(db.atan2(da).to_degrees());
+            in_hue(hue, PURPLE).max(in_hue(hue, GREEN)).max(small())
+        };
+        let weight = edge[i] * between[i] * contrast[i] * family;
+        let cap = edge[i] * contrast[i] * family;
+        // The two-step test only where it can matter.
+        let single = if cap > 0.0 {
+            let dip = two_steps(planes.profile, &found[i], size);
+            1.0 - smooth(dip, STEPS_FULL, STEPS_NONE)
+        } else {
+            1.0
+        };
+        out[i] = Some(Move {
+            weight: weight * single,
+            cap: cap * single,
+            target: lane(&target),
+        });
+    }
+}
+
+/// [`oklab`] in eight lanes (the cube roots lane by lane).
+#[inline(always)]
+fn oklab_8(c: &[Lanes; 3], count: usize) -> [Lanes; 3] {
+    let l = lanes(|i| 0.412_221_47 * c[0][i] + 0.536_332_55 * c[1][i] + 0.051_445_995 * c[2][i]);
+    let m = lanes(|i| 0.211_903_5 * c[0][i] + 0.680_699_5 * c[1][i] + 0.107_396_96 * c[2][i]);
+    let s = lanes(|i| 0.088_302_46 * c[0][i] + 0.281_718_85 * c[1][i] + 0.629_978_7 * c[2][i]);
+    let (mut l, mut m, mut s) = (
+        lanes(|i| l[i].max(0.0)),
+        lanes(|i| m[i].max(0.0)),
+        lanes(|i| s[i].max(0.0)),
+    );
+    for i in 0..count {
+        (l[i], m[i], s[i]) = (l[i].cbrt(), m[i].cbrt(), s[i].cbrt());
+    }
+    [
+        lanes(|i| 0.210_454_26 * l[i] + 0.793_617_8 * m[i] - 0.004_072_047 * s[i]),
+        lanes(|i| 1.977_998_5 * l[i] - 2.428_592_2 * m[i] + 0.450_593_7 * s[i]),
+        lanes(|i| 0.025_904_037 * l[i] + 0.782_771_77 * m[i] - 0.808_675_77 * s[i]),
+    ]
+}
+
+/// The dip between two luminance steps of `profile` on the path from the
+/// dark side to the bright side `found`, relative to the steeper step: 0
+/// for a single blurred step.
+fn two_steps(profile: Plane, found: &Sides, size: (usize, usize)) -> f32 {
+    let &Sides {
+        x,
+        y,
+        inside,
+        dx,
+        dy,
+        to_bright,
+        to_dark,
+        ..
+    } = found;
     let first = -(to_dark as i32) - 1;
     let last = to_bright as i32 + 1;
-    let mut profile = [0.0f32; 64];
+    let mut values = [0.0f32; 64];
     let mut n = 0;
     for k in first..=last {
         let k = k as f32;
-        profile[n] = if inside {
-            planes.read_inside(&planes.profile, (x, y), k * dx, k * dy)
+        values[n] = if inside {
+            profile.read_inside((x, y), k * dx, k * dy)
         } else {
-            planes.read(&planes.profile, width, height, (x, y), k * dx, k * dy)
+            profile.read(size, (x, y), k * dx, k * dy)
         };
         n += 1;
     }
-    let steps = &profile[..n];
+    let steps = &values[..n];
     let rise = |j: usize| steps[j + 1] - steps[j];
     let steepest = (0..n - 1).map(rise).fold(0.0f32, f32::max);
     if steepest <= 0.0 {
@@ -963,31 +1416,159 @@ mod tests {
     }
 
     #[test]
-    fn running_extremes_match_a_plain_scan() {
-        let values: Vec<f32> = (0..53)
-            .map(|i| ((i * 37) % 23) as f32 - (i % 5) as f32)
+    fn edge_gate_matches_a_plain_scan() {
+        let (w, h) = (23, 17);
+        let mut plane: Vec<f32> = (0..w * h)
+            .map(|i| ((i * 37) % 23) as f32 * 0.05 - (i % 5) as f32 * 0.03)
             .collect();
-        let mut scratch = Vec::new();
-        for r in [0usize, 1, 3, 9, 60] {
-            let mut lo = vec![0.0f32; values.len()];
-            let mut hi = vec![0.0f32; values.len()];
-            running(&values, r, f32::min, f32::INFINITY, &mut lo, &mut scratch);
-            running(
-                &values,
-                r,
-                f32::max,
-                f32::NEG_INFINITY,
-                &mut hi,
-                &mut scratch,
-            );
-            for x in 0..values.len() {
-                let window = &values[x.saturating_sub(r)..(x + r + 1).min(values.len())];
-                assert_eq!(lo[x], window.iter().copied().fold(f32::INFINITY, f32::min));
-                assert_eq!(
-                    hi[x],
-                    window.iter().copied().fold(f32::NEG_INFINITY, f32::max)
-                );
+        plane[40] = f32::NAN;
+        plane[100..105].fill(f32::NAN);
+        plane[41] = f32::INFINITY;
+        for r in [1usize, 3, 4, 9, 30] {
+            for region in [(0, 0, w, h), (3, 2, 9, 11), (20, 15, 3, 2), (5, 0, 1, 1)] {
+                let low = 0.4;
+                let near = near_edges(&plane, (w, h), r, region, low);
+                let (rx, ry, rw, rh) = region;
+                for y in ry..ry + rh {
+                    for x in rx..rx + rw {
+                        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+                        for yy in y.saturating_sub(r)..(y + r + 1).min(h) {
+                            for xx in x.saturating_sub(r)..(x + r + 1).min(w) {
+                                lo = lo.min(plane[yy * w + xx]);
+                                hi = hi.max(plane[yy * w + xx]);
+                            }
+                        }
+                        assert_eq!(
+                            near[(y - ry) * rw + x - rx],
+                            hi - lo >= low,
+                            "r {r} region {region:?} at {x},{y}"
+                        );
+                    }
+                }
             }
+        }
+    }
+
+    #[test]
+    fn the_stage_matches_the_reference_bit_for_bit() {
+        // Dense diagonal edges on the left, a flat noisy right half with a
+        // few spots (tiles of both kinds), and pixels at the extremes.
+        let (w, h) = (181, 133);
+        let mut data = edge_image(w, h, [1.0, 1.4, 3.0], 0.01);
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) * 3;
+                if x < w / 2 && (x + 2 * y) % 23 < 5 {
+                    data[i..i + 3].copy_from_slice(&[0.9, 0.5, 0.95]);
+                } else if x >= w / 2 {
+                    let v = data[i + 1];
+                    data[i..i + 3].copy_from_slice(&[v, v, v]);
+                    if (x * 7 + y * 3) % 211 == 0 {
+                        data[i..i + 3].copy_from_slice(&[0.02, 0.9, 0.7]);
+                    }
+                }
+            }
+        }
+        let specials = [
+            [f32::NAN, 0.5, 0.5],
+            [f32::INFINITY, 0.2, 0.1],
+            [0.3, f32::NEG_INFINITY, 0.3],
+            [1e30, 1e30, 1e30],
+            [3e38, 0.0, 3e38],
+            [0.0, 0.0, 0.0],
+            [-0.0, -0.0, -0.0],
+            [-0.4, 0.6, 0.6],
+            [40.0, 35.0, 60.0],
+        ];
+        for (n, special) in specials.iter().enumerate() {
+            for (x, y) in [
+                (20 + 9 * n, 30),
+                (3 * n, 2),
+                (w - 1 - n, h - 1),
+                (w / 2 + 11 * n, 70),
+            ] {
+                data[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(special);
+            }
+        }
+        let rgba: Vec<f32> = data
+            .chunks_exact(3)
+            .flat_map(|p| [p[0], p[1], p[2], 0.25])
+            .collect();
+        let bits = |v: &[f32]| v.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        for (image, stride) in [(&data, 3), (&rgba, 4)] {
+            for (noise, scale) in [(0.01, 1.0), (0.0, 1.0), (0.004, 0.5), (0.02, 0.37)] {
+                let mut want = image.clone();
+                reference::apply(&mut want, w, h, stride, noise, scale);
+                assert_ne!(bits(&want), bits(image), "the stage changes the test image");
+                for tiles in [(TILE_ROWS, TILE_COLS), (16, 24), (h, w), (7, 200)] {
+                    let mut got = image.clone();
+                    apply_in_tiles(&mut got, (w, h, stride), noise, scale, tiles);
+                    assert!(
+                        bits(&got) == bits(&want),
+                        "stride {stride} noise {noise} scale {scale} tiles {tiles:?}: {} values differ",
+                        got.iter()
+                            .zip(&want)
+                            .filter(|(a, b)| a.to_bits() != b.to_bits())
+                            .count()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn contrast_shortcuts_lie_beyond_the_stops() {
+        assert!(CONTRAST_FULL.log2() > STOPS_HIGH + 1e-5);
+        assert!(CONTRAST_NONE.log2() < STOPS_LOW - 1e-5);
+    }
+
+    #[test]
+    fn hue_arcs_agree_with_the_angle() {
+        // Directions all around, at several lengths: wherever an arc
+        // claims a deviation, membership from its angle is what it says.
+        let arcs = HueArcs::new();
+        for step in 0..360_000 {
+            let angle = (step as f32 * 0.001).to_radians();
+            for length in [1e-6f32, 0.01, 0.3] {
+                let (x, y) = (length * angle.cos(), length * angle.sin());
+                let hue = wrap(y.atan2(x).to_degrees());
+                let member = in_hue(hue, PURPLE).max(in_hue(hue, GREEN));
+                if HueArcs::holds(&arcs.full, x, y) {
+                    assert_eq!(member, 1.0, "angle {}", step as f32 * 0.001);
+                }
+                if HueArcs::holds(&arcs.none, x, y) {
+                    assert_eq!(member, 0.0, "angle {}", step as f32 * 0.001);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn wrap_is_rem_euclid() {
+        for v in [
+            -720.5f32,
+            -360.0,
+            -359.99,
+            -1e-30,
+            -0.0,
+            0.0,
+            1e-30,
+            180.0,
+            359.999_97,
+            360.0,
+            540.0,
+            719.99,
+            720.0,
+            1e9,
+            f32::NAN,
+            f32::INFINITY,
+        ] {
+            assert_eq!(wrap(v).to_bits(), v.rem_euclid(360.0).to_bits(), "{v}");
+        }
+        let mut v = -800.0f32;
+        while v < 800.0 {
+            assert_eq!(wrap(v).to_bits(), v.rem_euclid(360.0).to_bits(), "{v}");
+            v += 0.013;
         }
     }
 }
