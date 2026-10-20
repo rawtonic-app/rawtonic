@@ -23,9 +23,6 @@ const READBACK_EVERY: Duration = Duration::from_millis(250);
 /// How long a shot waits for the last one's photo on a camera that takes
 /// one at a time (`Server::wait_for_the_last_shot`).
 pub const ONE_AT_A_TIME_WAIT: Duration = Duration::from_secs(10);
-/// After a shot's last file, how long its other files may still come when
-/// the camera reports no CaptureComplete (`Open::transferring`).
-const TRANSFER_SETTLE: Duration = Duration::from_secs(2);
 /// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
     /// The file kinds (extensions) it gave so far.
@@ -96,12 +93,12 @@ struct Open {
     /// `Request::Hold`: the camera's events are not read (nothing more is
     /// downloaded) until the connection ends.
     held: bool,
-    /// On a camera that takes one shot at a time: the camera may still be
-    /// handing over files of the last shot (a RAW+JPEG's second file) — since
-    /// when, as of its last file. Ends with the camera's CaptureComplete
-    /// (libgphoto2 reports it on the Sony path after the shot's last file),
-    /// or `TRANSFER_SETTLE` after the last file.
-    transferring: Option<Instant>,
+    /// On a camera that takes one shot at a time: a shot was fired, or a
+    /// photo came (also one shot on the body), and the camera has not said
+    /// its capture is complete — libgphoto2's Sony path reports that after a
+    /// shot's last file, so a RAW+JPEG's JPEG may still be on its way. A
+    /// shot reported as not delivered ends it too.
+    transferring: bool,
 }
 
 pub struct Server<W: Write> {
@@ -333,7 +330,7 @@ impl<W: Write> Server<W> {
                     memory_only: false,
                     connection: self.connections,
                     held: false,
-                    transferring: None,
+                    transferring: false,
                 });
                 Ok(Reply::Connected { status })
             }
@@ -393,7 +390,7 @@ impl<W: Write> Server<W> {
                 if let Some(open) = self.open.as_mut() {
                     open.waiting.push_back(asked);
                     if open.camera.one_shot_at_a_time() {
-                        open.transferring = Some(Instant::now());
+                        open.transferring = true;
                     }
                     log::info!(
                         "request {}: fired in {} ms; {} shot(s) waiting for their photo",
@@ -459,10 +456,11 @@ impl<W: Write> Server<W> {
 
     /// On a camera that takes one shot at a time
     /// (`Camera::one_shot_at_a_time`): waits, reading its events, until the
-    /// shots fired before have their photo, for `one_at_a_time_wait` at
-    /// most. Whether the next may be fired: not while one is still waiting
-    /// (the camera would take no shot and say nothing; a shot that never
-    /// comes is reported by its timeout, and then the camera can be fired).
+    /// shots before have their photo and the camera said their capture is
+    /// complete (`Open::transferring`), for `one_at_a_time_wait` at most.
+    /// Whether the next may be fired: not while the camera is still busy
+    /// (it would take no shot and say nothing); a shot that never comes is
+    /// reported by its timeout, and then the camera can be fired.
     fn wait_for_the_last_shot(&mut self) -> io::Result<bool> {
         let started = Instant::now();
         let mut said = false;
@@ -470,26 +468,22 @@ impl<W: Write> Server<W> {
             && open.camera.one_shot_at_a_time()
             && !open.held
         {
-            let Some(last) = open.waiting.back().map(|asked| asked.id) else {
-                // Its photo came: its other files may still be on their way
-                // (the camera takes no shot meanwhile either).
-                match open.transferring {
-                    Some(since) if since.elapsed() < TRANSFER_SETTLE => {
-                        self.read_events(EVENT_POLL)?;
-                        continue;
-                    }
-                    _ => break,
-                }
-            };
+            let last = open.waiting.back().map(|asked| asked.id);
+            if last.is_none() && !open.transferring {
+                break;
+            }
+            let what = last.map_or("the last photo's transfer".to_string(), |last| {
+                format!("the photo of request {last}")
+            });
             if started.elapsed() >= self.one_at_a_time_wait {
                 log::warn!(
-                    "request {last} still has no photo after {} ms; the next shot is not fired",
+                    "still waiting for {what} after {} ms; the next shot is not fired",
                     ms(started)
                 );
                 return Ok(false);
             }
             if !said {
-                log::info!("the next shot waits for the photo of request {last}");
+                log::info!("the next shot waits for {what}");
                 said = true;
             }
             self.read_events(EVENT_POLL)?;
@@ -579,7 +573,7 @@ impl<W: Write> Server<W> {
         {
             let asked = open.waiting.pop_front();
             if open.waiting.is_empty() {
-                open.transferring = None;
+                open.transferring = false;
             }
             if let Some(asked) = asked {
                 log::warn!(
@@ -650,14 +644,14 @@ impl<W: Write> Server<W> {
         }
         match open.camera.wait_event(wait) {
             Ok(CameraEvent::FileAdded(file)) => {
-                if open.transferring.is_some() {
-                    open.transferring = Some(Instant::now());
+                if open.camera.one_shot_at_a_time() {
+                    open.transferring = true;
                 }
                 self.download(file, Shot::Waiting).map(|()| true)
             }
             Ok(CameraEvent::CaptureComplete) => {
                 if open.waiting.is_empty() {
-                    open.transferring = None;
+                    open.transferring = false;
                 }
                 Ok(true)
             }

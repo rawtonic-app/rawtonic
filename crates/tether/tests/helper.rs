@@ -1384,7 +1384,7 @@ fn a_one_at_a_time_camera_is_fired_again_only_after_the_last_shot_s_jpeg() {
     let spec = MockSpec {
         ignores_triggers_while_busy: true,
         raw_and_jpeg: true,
-        jpeg_late_ms: 400,
+        jpeg_late_ms: 1000,
         ..MockSpec::default()
     };
     let helper = start(&spec, dir.path());
@@ -1394,4 +1394,48 @@ fn a_one_at_a_time_camera_is_fired_again_only_after_the_last_shot_s_jpeg() {
     let mut answered: Vec<u64> = photos.iter().filter_map(|p| p.request).collect();
     answered.dedup();
     assert_eq!(answered, requests);
+}
+
+#[test]
+fn a_one_at_a_time_camera_is_not_fired_between_a_body_shot_s_raw_and_jpeg() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        raw_and_jpeg: true,
+        jpeg_late_ms: 800,
+        body_shots_ms: vec![100],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    // The body shot's RAW, then a shot from the app before its JPEG.
+    let (photos, _) = helper.photos(1);
+    assert!(!photos[0].requested);
+    let request = helper.capture();
+    let (photos, _) = helper.photos(3);
+    assert_eq!(
+        photos.iter().filter(|p| p.request == Some(request)).count(),
+        2,
+        "{photos:?}"
+    );
+}
+
+#[test]
+fn a_one_at_a_time_camera_still_transferring_is_not_fired() {
+    // The last shot's JPEG later than the wait: refused as busy, never
+    // fired into a camera that takes no shot.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        raw_and_jpeg: true,
+        jpeg_late_ms: 2500,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].camera_name, "DSC00001.ARW");
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Busy);
 }
