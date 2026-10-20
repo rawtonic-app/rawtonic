@@ -201,6 +201,14 @@ pub(crate) fn compute_thumbnail_cache_hash(
     Some(hasher.finalize().to_hex().to_string())
 }
 
+/// Whether the preview proxy of the RAW `source` (made for its master
+/// recipe's colour noise filter, `preview_proxy::read`; a virtual copy uses
+/// its photograph's) was made for the colour noise filter of `adjustments`.
+fn proxy_fits_recipe(source: &Path, adjustments: &serde_json::Value) -> bool {
+    rawtonic_engine::color_noise::multiscale(adjustments, true)
+        == image_loader::stored_multiscale(&source.to_string_lossy())
+}
+
 pub(crate) fn try_load_embedded_raw_preview(source_path: &Path) -> Option<DynamicImage> {
     let mmap = read_file_mapped(source_path).ok()?;
     image_loader::safe_embedded_preview_fallback(&mmap, &source_path.to_string_lossy())
@@ -213,9 +221,6 @@ pub fn generate_thumbnail_data(
     app_handle: &AppHandle,
 ) -> anyhow::Result<DynamicImage> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
-    let source_path_str = source_path.to_string_lossy().to_string();
-    let is_raw = is_raw_file(&source_path_str);
-
     let metadata: Option<ImageMetadata> = if is_cloud_placeholder(&sidecar_path) {
         enqueue_metadata(
             app_handle,
@@ -227,6 +232,35 @@ pub fn generate_thumbnail_data(
     } else {
         thumbnail_metadata(&source_path, &sidecar_path)
     };
+    develop_thumbnail(
+        path_str,
+        path_str,
+        metadata,
+        false,
+        gpu_context,
+        preloaded_image,
+        app_handle,
+    )
+}
+
+/// The thumbnail of `path_str` developed with `metadata`'s adjustments
+/// (none: as a photograph never edited), as the Library shows it. Its
+/// decoded base is cached under `cache_key` (a photograph's own thumbnails
+/// use its path). `for_recipe`: adjustments other than the photograph's
+/// stored ones (a snapshot's), so a RAW is decoded for their colour noise
+/// filter, and its preview proxy only used when made for the same.
+pub(crate) fn develop_thumbnail(
+    path_str: &str,
+    cache_key: &str,
+    metadata: Option<ImageMetadata>,
+    for_recipe: bool,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    app_handle: &AppHandle,
+) -> anyhow::Result<DynamicImage> {
+    let (source_path, _) = parse_virtual_path(path_str);
+    let source_path_str = source_path.to_string_lossy().to_string();
+    let is_raw = is_raw_file(&source_path_str);
 
     let adjustments = metadata
         .as_ref()
@@ -238,9 +272,12 @@ pub fn generate_thumbnail_data(
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
     // editor does, also for never-edited RAWs (RAW defaults and the camera's
     // lens data), so the Library and the placeholder show the edited look.
-    let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some())
-        .then(|| crate::preview_proxy::read(&source_path, &settings))
-        .flatten();
+    let proxy = (is_raw
+        && preloaded_image.is_none()
+        && gpu_context.is_some()
+        && (!for_recipe || proxy_fits_recipe(&source_path, &adjustments)))
+    .then(|| crate::preview_proxy::read(&source_path, &settings))
+    .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
         (Some(_), metadata) if adjustments.is_null() => {
             let mut recipe = serde_json::json!({});
@@ -281,7 +318,7 @@ pub fn generate_thumbnail_data(
 
         let cached_base: Option<(Arc<DynamicImage>, f32, Option<ParametricMaskSource>)> = {
             let cache = state.thumbnail_geometry_cache.lock().unwrap();
-            if let Some((cached_hash, img, scale, mask_source)) = cache.get(path_str) {
+            if let Some((cached_hash, img, scale, mask_source)) = cache.get(cache_key) {
                 let mut sufficient_resolution = true;
                 if let Some(c) = &crop_data
                     && c.width > 0.0
@@ -342,13 +379,25 @@ pub fn generate_thumbnail_data(
                     }
                 };
 
-                let img = image_loader::load_base_image_from_bytes(
-                    file_slice,
-                    &source_path_str,
-                    true,
-                    &settings,
-                    None,
-                )?;
+                let img = if for_recipe {
+                    image_loader::load_base_image_for_recipe(
+                        file_slice,
+                        &source_path_str,
+                        true,
+                        &settings,
+                        None,
+                        None,
+                        &adjustments,
+                    )?
+                } else {
+                    image_loader::load_base_image_from_bytes(
+                        file_slice,
+                        &source_path_str,
+                        true,
+                        &settings,
+                        None,
+                    )?
+                };
 
                 if is_raw {
                     raw_scale_factor = crate::raw_processing::get_fast_demosaic_scale_factor(
@@ -438,7 +487,7 @@ pub fn generate_thumbnail_data(
 
             let base_arc = Arc::new(base);
             cache.insert(
-                path_str.to_string(),
+                cache_key.to_string(),
                 (
                     base_cache_hash,
                     Arc::clone(&base_arc),
@@ -527,7 +576,7 @@ pub fn generate_thumbnail_data(
         let lut = lut_path.and_then(|p| state.lut_cache.lock().unwrap().get_or_load(p).ok());
 
         let mut hasher = DefaultHasher::new();
-        path_str.hash(&mut hasher);
+        cache_key.hash(&mut hasher);
         meta.adjustments.to_string().hash(&mut hasher);
         let unique_hash = hasher.finish();
 
@@ -1566,6 +1615,37 @@ mod source_preview_tests {
 #[cfg(test)]
 mod thumbnail_queue_tests {
     use super::*;
+
+    #[test]
+    fn a_recipe_uses_the_preview_proxy_only_when_made_for_its_colour_noise_filter() {
+        let directory = tempfile::tempdir().unwrap();
+        let photo = directory.path().join("A.RAF");
+        fs::write(&photo, b"proxy fixture").unwrap();
+        // The photograph (master) on the cross-bilateral filter, its
+        // virtual copy on the multi-scale one.
+        fs::write(
+            directory.path().join("A.RAF.rrdata"),
+            br#"{"version":1,"rating":0,"adjustments":{"colorNoiseVersion":1}}"#,
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("A.RAF.c0ffee.rrdata"),
+            br#"{"version":1,"rating":0,"adjustments":{"colorNoiseVersion":9}}"#,
+        )
+        .unwrap();
+        let copy = format!("{}?vc=c0ffee", photo.to_string_lossy());
+        let (source, _) = parse_virtual_path(&copy);
+        // The proxy (the master's) fits a snapshot of the master's filter,
+        // never one of the copy's.
+        assert!(proxy_fits_recipe(
+            &source,
+            &serde_json::json!({"colorNoiseVersion": 1})
+        ));
+        assert!(!proxy_fits_recipe(
+            &source,
+            &serde_json::json!({"colorNoiseVersion": 9})
+        ));
+    }
 
     #[test]
     fn raw_thumbnail_cache_invalidates_pre_orientation_pixels_for_originals_and_virtual_copies() {

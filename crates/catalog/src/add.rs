@@ -132,6 +132,24 @@ impl Contents {
     fn is_empty(&self) -> bool {
         self.editor_state.is_none() && self.metadata.is_none()
     }
+
+    /// The snapshots the editor state carries (`snapshots::in_state`).
+    fn snapshots(&self) -> Vec<crate::Snapshot> {
+        self.editor_state
+            .as_ref()
+            .map(crate::snapshots::in_state)
+            .unwrap_or_default()
+    }
+}
+
+pub(crate) fn untouched(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT m.data='{}' AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
+         FROM metadata m JOIN versions v ON v.asset_id=m.asset_id AND v.is_primary=1
+         LEFT JOIN recipes p ON p.id=v.head WHERE m.asset_id=?",
+        [id],
+        |r| r.get(0),
+    )?)
 }
 
 /// A new photograph read and validated, ready for `insert_planned`.
@@ -149,6 +167,8 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    /// The snapshots its editor sidecar carries.
+    snapshots: Vec<crate::Snapshot>,
     /// The companion file beside it (`Library::companion`).
     companion: Option<(String, crate::companion::Identity)>,
     /// What its EXIF says (`PlannedAsset::with_facts`); none: the
@@ -284,6 +304,7 @@ impl Library {
             fingerprint,
             recipe,
             metadata,
+            snapshots: contents.snapshots(),
             xmp_digest: contents.xmp_digest,
             companion: None,
             facts: None,
@@ -381,6 +402,7 @@ impl Library {
             if let Some(recipe) = &asset.recipe {
                 write_recipe(&tx, &version, recipe)?;
             }
+            crate::snapshots::insert(&tx, &self.directory, &version, &asset.snapshots)?;
             if let Some(facts) = &asset.facts {
                 crate::facts::write_facts(&tx, &id, facts)?;
             }
@@ -481,6 +503,12 @@ impl Library {
         self.write_contents(id, contents, true)
     }
 
+    /// Whether a registered photograph was never edited nor had metadata
+    /// adopted: what its sidecars hold is not the library's yet.
+    pub fn is_untouched(&self, id: &str) -> Result<bool> {
+        untouched(&self.conn, id)
+    }
+
     /// Stores `contents` for a registered photograph (an import from another
     /// program's catalog), recipe and metadata in one transaction.
     pub fn apply_contents(&self, id: &str, contents: &Contents) -> Result<()> {
@@ -491,20 +519,16 @@ impl Library {
         let (recipe, metadata) = self.resolve_contents(contents, self.metadata(id)?)?;
         let version = self.primary_version(id)?;
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        if only_new {
-            let untouched: bool = tx.query_row(
-                "SELECT m.data='{}' AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
-                 FROM metadata m JOIN versions v ON v.asset_id=m.asset_id AND v.is_primary=1
-                 LEFT JOIN recipes p ON p.id=v.head WHERE m.asset_id=?",
-                [id],
-                |r| r.get(0),
-            )?;
-            if !untouched {
-                return Ok(false);
-            }
+        if only_new && !untouched(&tx, id)? {
+            return Ok(false);
         }
         if let Some(recipe) = &recipe {
             write_recipe(&tx, &version, recipe)?;
+        }
+        // Snapshots the library has already are its own; a sidecar's are
+        // taken over only by a version without any.
+        if !crate::snapshots::any(&tx, &version)? {
+            crate::snapshots::insert(&tx, &self.directory, &version, &contents.snapshots())?;
         }
         if let Some(metadata) = &metadata {
             write_metadata(&tx, id, metadata)?;
@@ -765,7 +789,10 @@ mod tests {
         let before = lib.previous_import().unwrap().unwrap();
         // Back to schema 5: batches limited to ingest, add and sync.
         lib.conn
-            .execute_batch(include_str!("../tests/undo_0011.sql"))
+            .execute_batch(concat!(
+                include_str!("../tests/undo_0012.sql"),
+                include_str!("../tests/undo_0011.sql")
+            ))
             .unwrap();
         lib.conn
             .execute_batch(

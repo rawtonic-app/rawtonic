@@ -318,7 +318,10 @@ mod tests {
         std::fs::write(&photo, b"a").unwrap();
         let asset = lib.add_asset(&photo).unwrap();
         lib.conn
-            .execute_batch(include_str!("../tests/undo_0011.sql"))
+            .execute_batch(concat!(
+                include_str!("../tests/undo_0012.sql"),
+                include_str!("../tests/undo_0011.sql")
+            ))
             .unwrap();
         lib.conn
             .execute_batch(

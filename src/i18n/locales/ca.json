@@ -2002,6 +2002,19 @@
         "vertical": "Vertical",
         "whites": "Blancs"
       },
+      "snapshots": {
+        "create": "Nova instantània de l’edició actual",
+        "delete": "Suprimeix la instantània {{name}}",
+        "empty": "Encara no hi ha instantànies: + desa l’edició actual amb un nom, la càmera de l’historial desa qualsevol pas.",
+        "failed": "Ha fallat la instantània: {{error}}",
+        "fromStep": "Instantània d’aquest pas: {{step}}",
+        "name": "Nom de la instantània",
+        "rename": "Canvia el nom de {{name}}",
+        "restore": "Restaura {{name}} (un pas de l’historial: Desfés hi torna)",
+        "restored": "Instantània {{name}}",
+        "title": "Instantànies",
+        "update": "Actualitza {{name}} amb l’edició actual"
+      },
       "tabs": {
         "adjust": "Ajusta",
         "adjustTitle": "Ajustaments",

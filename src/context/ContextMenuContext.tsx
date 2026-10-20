@@ -199,6 +199,14 @@ function MenuItem({ option, path, hideContextMenu }: MenuItemProps) {
   const itemRef = useRef<HTMLButtonElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasInteractiveSubmenu = Boolean(option.submenu?.length === 1 && option.submenu[0].customComponent);
+  // A hover's pending submenu change dies with the item (a menu closed
+  // within 150 ms of a hover; after a test's teardown it threw).
+  useEffect(
+    () => () => {
+      if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+    },
+    [],
+  );
 
   const isSubmenuOpen =
     option.submenu &&
@@ -366,6 +374,7 @@ export function ContextMenuProvider({ children }: ContextMenuProviderProps) {
   const [menuId, setMenuId] = useState<number>(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const submenuTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(submenuTimeoutRef.current), []);
 
   const showContextMenu = useCallback((x: number, y: number, options: Array<Option>) => {
     const menuWidth = 256;

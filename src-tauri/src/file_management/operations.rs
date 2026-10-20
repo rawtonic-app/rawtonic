@@ -743,7 +743,7 @@ fn create_virtual_copy_blocking(
             .and_then(|state| serde_json::to_vec_pretty(&state).ok())
     });
     let bytes = match source_state {
-        Some(bytes) => bytes,
+        Some(bytes) => without_snapshots(bytes)?,
         None => serde_json::to_vec_pretty(&ImageMetadata::default()).map_err(|e| e.to_string())?,
     };
     let new_virtual_path = create_copy(
@@ -761,6 +761,23 @@ fn create_virtual_copy_blocking(
     }
 
     Ok(new_virtual_path)
+}
+
+/// A photograph's editor state for a new virtual copy of it: its snapshots
+/// stay the photograph's (the copy takes its own). Bytes without any are
+/// kept as they are.
+pub(crate) fn without_snapshots(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
+    use rawtonic_catalog::snapshots::{SIDECAR_KEY, STRINGS_KEY};
+    match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(mut state) if state.get(SIDECAR_KEY).is_some() || state.get(STRINGS_KEY).is_some() => {
+            if let Some(map) = state.as_object_mut() {
+                map.remove(SIDECAR_KEY);
+                map.remove(STRINGS_KEY);
+            }
+            serde_json::to_vec_pretty(&state).map_err(|e| e.to_string())
+        }
+        _ => Ok(bytes),
+    }
 }
 
 #[cfg(test)]

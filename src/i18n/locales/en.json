@@ -1944,6 +1944,19 @@
         "vertical": "Vertical",
         "whites": "Whites"
       },
+      "snapshots": {
+        "create": "New snapshot of the current edit",
+        "delete": "Delete snapshot {{name}}",
+        "empty": "No snapshots yet: + keeps the current edit under a name, the camera in History keeps any step.",
+        "failed": "Snapshot failed: {{error}}",
+        "fromStep": "Snapshot of this step: {{step}}",
+        "name": "Snapshot name",
+        "rename": "Rename {{name}}",
+        "restore": "Restore {{name}} (a history step: Undo returns)",
+        "restored": "Snapshot {{name}}",
+        "title": "Snapshots",
+        "update": "Update {{name}} with the current edit"
+      },
       "tabs": {
         "adjust": "Adjust",
         "adjustTitle": "Adjustments",

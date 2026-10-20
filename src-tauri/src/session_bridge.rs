@@ -196,6 +196,9 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
             if !online {
                 return Ok(());
             }
+            let version = lib.version_for(&asset.id, Some(&copy)).map_err(io_error)?;
+            let bytes = with_library_snapshots(&lib, version.as_deref(), bytes, &state)?;
+            return rawtonic_metadata::atomic_write(path, &*bytes).map_err(io_error);
         }
         return rawtonic_metadata::atomic_write(path, bytes).map_err(io_error);
     }
@@ -219,9 +222,13 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
         let lib = Library::open(&dir).map_err(io_error)?;
         let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
         let asset = lib.add_asset(&source).map_err(io_error)?;
+        // The first save of a photograph whose sidecar the library has not
+        // adopted takes over that sidecar's snapshots (`save_editor_state`).
         lib.save_editor_state(&asset.id, &state).map_err(io_error)?;
+        let version = lib.primary_version(&asset.id).map_err(io_error)?;
+        let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
-        rawtonic_metadata::atomic_write(path, bytes).map_err(io_error)?;
+        rawtonic_metadata::atomic_write(path, &*bytes).map_err(io_error)?;
         if let Err(e) = lib.sync_xmp(&asset.id) {
             log::warn!(
                 "Edit saved in database; XMP pending for {}: {e}",
@@ -232,6 +239,38 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
     } else {
         rawtonic_metadata::atomic_write(path, bytes).map_err(io_error)
     }
+}
+
+/// The editor sidecar `bytes` (`state`) of a library version as it is
+/// written beside the photograph: with the library's snapshots of
+/// `version`, which are authoritative, in place of those it carries; the
+/// same bytes when they agree.
+fn with_library_snapshots<'a>(
+    lib: &Library,
+    version: Option<&str>,
+    bytes: &'a [u8],
+    state: &Value,
+) -> io::Result<std::borrow::Cow<'a, [u8]>> {
+    use rawtonic_catalog::snapshots;
+    let kept = match version {
+        Some(version) => lib.snapshots(version).map_err(io_error)?,
+        None => Vec::new(),
+    };
+    if kept.is_empty()
+        && state.get(snapshots::SIDECAR_KEY).is_none()
+        && state.get(snapshots::STRINGS_KEY).is_none()
+    {
+        return Ok(std::borrow::Cow::Borrowed(bytes));
+    }
+    let mut derived = state.clone();
+    snapshots::set_in_state(&mut derived, &kept).map_err(io_error)?;
+    let same = |key| state.get(key) == derived.get(key);
+    if same(snapshots::SIDECAR_KEY) && same(snapshots::STRINGS_KEY) {
+        return Ok(std::borrow::Cow::Borrowed(bytes));
+    }
+    Ok(std::borrow::Cow::Owned(
+        serde_json::to_vec_pretty(&derived).map_err(io_error)?,
+    ))
 }
 
 /// The folder an output is written into; "." for a bare file name (a relative

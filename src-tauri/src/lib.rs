@@ -69,6 +69,7 @@ mod proxy_worker;
 #[cfg(feature = "qa-control")]
 mod qa_control;
 mod session_bridge;
+mod snapshots;
 mod spot_removal;
 mod startup;
 mod tagging;
@@ -675,6 +676,12 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             session_bridge::session_create,
+            snapshots::snapshots_list,
+            snapshots::snapshot_create,
+            snapshots::snapshot_rename,
+            snapshots::snapshot_update,
+            snapshots::snapshot_delete,
+            snapshots::snapshot_thumbnail,
             session_bridge::library_copy,
             session_bridge::session_open,
             session_bridge::session_last,

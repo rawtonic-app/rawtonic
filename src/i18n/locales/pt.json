@@ -2002,6 +2002,19 @@
         "vertical": "Vertical",
         "whites": "Brancos"
       },
+      "snapshots": {
+        "create": "Novo instantâneo da edição atual",
+        "delete": "Eliminar o instantâneo {{name}}",
+        "empty": "Ainda não há instantâneos: + guarda a edição atual com um nome, a câmara no histórico guarda qualquer passo.",
+        "failed": "Falha do instantâneo: {{error}}",
+        "fromStep": "Instantâneo deste passo: {{step}}",
+        "name": "Nome do instantâneo",
+        "rename": "Mudar o nome de {{name}}",
+        "restore": "Restaurar {{name}} (um passo do histórico: Desfazer regressa)",
+        "restored": "Instantâneo {{name}}",
+        "title": "Instantâneos",
+        "update": "Atualizar {{name}} com a edição atual"
+      },
       "tabs": {
         "adjust": "Ajustar",
         "adjustTitle": "Ajustes",

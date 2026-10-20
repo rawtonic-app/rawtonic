@@ -162,6 +162,20 @@ function describeLayers(
 }
 
 /** The name of the history step that led from `before` to `after`. */
+/** Steps named by what made them rather than by what changed (a restored
+ * snapshot): the history shows this name for that step's recipe object. */
+const namedSteps = new WeakMap<object, (t: TFunction) => string>();
+
+/** Names the history step whose recipe is `entry`. */
+export function nameHistoryStep(entry: object, name: (t: TFunction) => string) {
+  namedSteps.set(entry, name);
+}
+
+/** The name given to the step `entry` (`nameHistoryStep`), if any. */
+export function historyStepName(entry: object, t: TFunction): string | null {
+  return namedSteps.get(entry)?.(t) ?? null;
+}
+
 export function describeHistoryStep(
   before: Adjustments,
   after: Adjustments,

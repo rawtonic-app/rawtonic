@@ -2002,6 +2002,19 @@
         "vertical": "Vertical",
         "whites": "Blancs"
       },
+      "snapshots": {
+        "create": "Nouvel instantané de la retouche actuelle",
+        "delete": "Supprimer l’instantané {{name}}",
+        "empty": "Aucun instantané : + conserve la retouche actuelle sous un nom, l’appareil photo de l’historique conserve n’importe quelle étape.",
+        "failed": "Échec de l’instantané : {{error}}",
+        "fromStep": "Instantané de cette étape : {{step}}",
+        "name": "Nom de l’instantané",
+        "rename": "Renommer {{name}}",
+        "restore": "Restaurer {{name}} (une étape de l’historique : Annuler y revient)",
+        "restored": "Instantané {{name}}",
+        "title": "Instantanés",
+        "update": "Mettre à jour {{name}} avec la retouche actuelle"
+      },
       "tabs": {
         "adjust": "Régler",
         "adjustTitle": "Réglages",

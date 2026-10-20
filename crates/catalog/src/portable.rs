@@ -88,6 +88,7 @@ impl Library {
             ("styles", "id", "recipe_json", "0"),
             ("export_recipes", "id", "recipe_json", "0"),
             ("masks", "id", "vector_json", "1"),
+            ("snapshots", "key", "adjustments", "0"),
         ] {
             let values: Vec<(String, String, bool)> = tx
                 .prepare(&format!(
@@ -102,6 +103,9 @@ impl Library {
                         "SELECT v.asset_id FROM recipes r JOIN versions v ON r.version_id=v.id WHERE r.id=?",
                     ),
                     "versions" => Some("SELECT asset_id FROM versions WHERE id=?"),
+                    "snapshots" => Some(
+                        "SELECT v.asset_id FROM snapshots s JOIN versions v ON s.version_id=v.id WHERE s.key=?",
+                    ),
                     "masks" => Some(
                         "SELECT v.asset_id FROM masks m JOIN versions v ON m.version_id=v.id WHERE m.id=?",
                     ),
