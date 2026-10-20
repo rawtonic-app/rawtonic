@@ -1249,6 +1249,17 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         renderVersion: RENDER_VERSION,
       };
 
+/** The render version of a saved recipe: its own; the current one for an
+ * empty recipe (Library Reset saves `{}`; loading adds only
+ * `lensProfileFor`), which renders as a new edit, as the backend does
+ * (`embedded_lens::apply_default`); else the first (missing key). */
+const loadedRenderVersion = (loaded: Partial<Adjustments>): number | undefined => {
+  if (loaded.renderVersion !== undefined && loaded.renderVersion !== null) {
+    return loaded.renderVersion;
+  }
+  return Object.keys(loaded).every((key) => key === 'lensProfileFor') ? RENDER_VERSION : undefined;
+};
+
 /** The Defringe detector of a saved recipe: its own; else the current one
  * when the recipe does not use Defringe (no purple or green amount, no layer
  * with a Defringe above 0), the earlier one otherwise (missing key). */
@@ -1536,7 +1547,7 @@ export const normalizeLoadedAdjustments = (loadedAdjustments: Adjustments, isRaw
     fringeVersion: loadedAdjustments.fringeVersion,
     cameraCaVersion: loadedAdjustments.cameraCaVersion,
     autoCaVersion: loadedAdjustments.autoCaVersion,
-    renderVersion: loadedAdjustments.renderVersion,
+    renderVersion: loadedRenderVersion(loadedAdjustments),
     ...normalizeRelight(loadedAdjustments.relightLights, loadedAdjustments.relightDepth),
     relightDepthAmount: loadedAdjustments.relightDepthAmount,
     relightSkinReflections: loadedAdjustments.relightSkinReflections,

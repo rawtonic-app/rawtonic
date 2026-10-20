@@ -1040,10 +1040,17 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     // A never-edited RAW also starts with the current edge-fringe pass, as
     // the editor's new edits do.
     let is_raw = crate::formats::is_raw_file(source);
-    // A photo without any recipe renders as a new edit (`renderVersion`);
-    // a saved partial recipe without a lens mode (batch presets, batch Auto)
-    // keeps the version it was made with.
-    if adjustments.is_null() || adjustments.as_object().is_some_and(|map| map.is_empty()) {
+    // A photo without any recipe, or with an empty one (Library Reset; the
+    // editor's load adds only `lensProfileFor`), renders as a new edit
+    // (`renderVersion`, as the editor's `loadedRenderVersion`); a saved
+    // partial recipe without a lens mode (batch presets, batch Auto) keeps
+    // the version it was made with.
+    if adjustments.is_null()
+        || adjustments.as_object().is_some_and(|map| {
+            map.keys()
+                .all(|key| key == crate::lens_recipe::LENS_PROFILE_FOR)
+        })
+    {
         crate::image_processing::apply_render_default(adjustments);
     }
     crate::edge_fringe::apply_default(adjustments, true, is_raw);
@@ -2219,6 +2226,13 @@ mod tests {
             partial
                 .get(crate::image_processing::RENDER_VERSION_KEY)
                 .is_none()
+        );
+        // A reset recipe (empty) renders as a new edit.
+        let mut reset = serde_json::json!({});
+        apply_default(&mut reset, &jpeg);
+        assert_eq!(
+            reset[crate::image_processing::RENDER_VERSION_KEY],
+            crate::image_processing::RENDER_VERSION
         );
         assert!(read(&temp.path().join("missing.raf")).is_none());
         let fake = temp.path().join("fake.raf");

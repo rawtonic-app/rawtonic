@@ -99,8 +99,15 @@ describe('RAW detail defaults', () => {
     expect(initialAdjustmentsFor(false).renderVersion).toBe(RENDER_VERSION);
     const saved = { ...INITIAL_ADJUSTMENTS, exposure: 0.5 } as Adjustments;
     expect('renderVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
+    expect('renderVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ exposure: 0.5 } as Adjustments, true)))).toBe(false);
     expect(normalizeLoadedAdjustments({ ...saved, renderVersion: 2 }, false).renderVersion).toBe(2);
     expect(COPYABLE_ADJUSTMENT_KEYS).not.toContain('renderVersion');
+    // Library Reset saves an empty recipe (loading stamps only its lens
+    // lookup): it renders as a new edit, here as in the backend.
+    expect(normalizeLoadedAdjustments({} as Adjustments, true).renderVersion).toBe(RENDER_VERSION);
+    expect(normalizeLoadedAdjustments({ lensProfileFor: '["manual",null,null,null]' } as Adjustments, true).renderVersion).toBe(
+      RENDER_VERSION,
+    );
   });
 
   it('start new RAW edits with the edge-fringe pass and keep saved recipes without it', () => {
