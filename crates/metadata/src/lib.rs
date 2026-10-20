@@ -169,9 +169,11 @@ pub fn digest(bytes: &[u8]) -> String {
 }
 
 /// Same-directory temporary file, fsync, atomic replace. Reject symlink targets.
+/// A replaced file keeps its permissions (the temporary file's are private).
 pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     let parent = path.parent().context("File needs a parent directory")?;
-    if let Ok(meta) = fs::symlink_metadata(path) {
+    let replaced = fs::symlink_metadata(path).ok();
+    if let Some(meta) = &replaced {
         ensure!(
             meta.is_file() && !meta.file_type().is_symlink(),
             "Refusing to replace a symlink or non-file"
@@ -180,6 +182,9 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<()> {
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(bytes.as_ref())?;
     file.as_file().sync_all()?;
+    if let Some(meta) = &replaced {
+        file.as_file().set_permissions(meta.permissions())?;
+    }
     file.persist(path).map_err(|e| e.error)?;
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
@@ -601,6 +606,20 @@ pub fn write_xmp(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn a_replaced_file_keeps_its_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.xmp");
+        std::fs::write(&path, "old").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        super::atomic_write(&path, "new").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644);
+    }
+
     use super::*;
     #[test]
     fn export_packet_can_mark_generated_areas() {
