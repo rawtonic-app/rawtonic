@@ -1914,6 +1914,7 @@
         "failed": "快照失败：{{error}}",
         "fromStep": "此步骤的快照：{{step}}",
         "name": "快照名称",
+        "rename": "重命名 {{name}}",
         "restore": "恢复 {{name}}（一个历史步骤：撤销可返回）",
         "restored": "快照 {{name}}",
         "title": "快照",

@@ -3,7 +3,6 @@
 //! snapshots are its library's, and its editor sidecar is derived again
 //! after each change; a photograph in no library keeps them in its editor
 //! sidecar. Restoring one is the editor's (an ordinary, undoable edit).
-use crate::exif_processing::load_sidecar;
 use crate::file_management::sidecar_field_edit;
 use crate::image_processing::ImageMetadata;
 use crate::session_bridge::{copy_for_sidecar, library_dir_for, write_editor_sidecar};
@@ -90,15 +89,36 @@ fn in_library(
     }
     // The sidecar beside the file is derived from the library's state again,
     // which carries the snapshots (offline: the library keeps them only).
-    if source.is_file() {
-        let state = load_sidecar(sidecar);
+    let state = match &copy {
+        None => lib.editor_state(&asset.id)?,
+        Some(copy) => lib.copy_state(&asset.id, copy)?,
+    };
+    if source.is_file()
+        && let Some(state) = state
+    {
         write_editor_sidecar(sidecar, serde_json::to_vec_pretty(&state)?)?;
     }
     lib.snapshots(&version)
 }
 
+/// The editor sidecar of a photograph in no library; none there: a new one.
+/// One that cannot be read is an error, so nothing writes over it.
+fn read_standalone(sidecar: &Path) -> Result<ImageMetadata> {
+    match std::fs::read(sidecar) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .with_context(|| format!("{} is not a valid editor sidecar", sidecar.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(ImageMetadata::default()),
+        Err(e) => Err(e).with_context(|| format!("Cannot read {}", sidecar.display())),
+    }
+}
+
 fn in_sidecar(sidecar: &Path, change: Option<Change>) -> Result<Vec<Snapshot>> {
-    let mut state: ImageMetadata = load_sidecar(sidecar);
+    let mut state = match read_standalone(sidecar) {
+        Ok(state) => state,
+        // Listed as none; a change says why it cannot be made.
+        Err(_) if change.is_none() => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
     let mut list = snapshots::in_state(&serde_json::json!({
         snapshots::SIDECAR_KEY: state.snapshots,
         snapshots::STRINGS_KEY: state.snapshot_strings,
@@ -168,9 +188,12 @@ pub async fn snapshot_delete(path: String, id: String) -> Result<Vec<Snapshot>, 
     run(path, Some(Change::Delete { id })).await
 }
 
-/// A small JPEG of `path` developed with `adjustments` (a snapshot's), as
-/// the Library's thumbnails are: from the open photograph's decoded image
-/// when it is this one, else from the file.
+/// A small JPEG of `path` developed with `adjustments` (a snapshot's) as the
+/// Library develops its thumbnails, from the file: never from the open
+/// photograph's decoded image, which holds the current edit's decode-time
+/// development (AI Denoise, colour noise filter), nor from a base cached
+/// for it. Like the Library's thumbnails it leaves AI Denoise out (at
+/// 56 × 40 points it cannot be seen).
 #[tauri::command]
 pub async fn snapshot_thumbnail(
     path: String,
@@ -179,13 +202,6 @@ pub async fn snapshot_thumbnail(
 ) -> Result<tauri::ipc::Response, String> {
     tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>> {
         let state = app_handle.state::<crate::app_state::AppState>();
-        let preloaded = state
-            .original_image
-            .lock()
-            .unwrap()
-            .as_ref()
-            .filter(|loaded| loaded.path == path)
-            .map(|loaded| loaded.image.clone());
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
         let (source, _) = parse_virtual_path(&path);
         let mut adjustments = adjustments;
@@ -197,9 +213,10 @@ pub async fn snapshot_thumbnail(
         };
         let image = crate::file_management::develop_thumbnail(
             &path,
+            &format!("{path}\0snapshot"),
             Some(metadata),
             gpu.as_ref(),
-            preloaded.as_deref(),
+            None,
             &app_handle,
         )
         .context("Developing the snapshot failed")?;
@@ -214,6 +231,7 @@ pub async fn snapshot_thumbnail(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::exif_processing::load_sidecar;
     use rawtonic_catalog::Mode;
     use serde_json::json;
     use std::fs;
@@ -308,6 +326,28 @@ mod tests {
             .is_err()
         );
         assert_eq!(fs::read(&photo).unwrap(), b"plain fixture");
+    }
+
+    #[test]
+    fn an_unreadable_sidecar_is_never_written_over() {
+        let temp = tempfile::tempdir().unwrap();
+        let photo = temp.path().join("A.jpg");
+        fs::write(&photo, b"plain fixture").unwrap();
+        let sidecar = temp.path().join("A.jpg.rrdata");
+        fs::write(&sidecar, b"{\"adjustments\": {\"exposure\": 1.0").unwrap();
+        let path = photo.to_string_lossy().into_owned();
+        let change = || {
+            Some(Change::Add {
+                name: "Look".into(),
+                adjustments: json!({}),
+            })
+        };
+        assert!(snapshots_after(&path, change()).is_err());
+        assert!(snapshots_after(&path, None).unwrap().is_empty());
+        assert_eq!(
+            fs::read(&sidecar).unwrap(),
+            b"{\"adjustments\": {\"exposure\": 1.0"
+        );
     }
 
     #[test]

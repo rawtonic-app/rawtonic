@@ -2009,6 +2009,7 @@
         "failed": "Ha fallat la instantània: {{error}}",
         "fromStep": "Instantània d’aquest pas: {{step}}",
         "name": "Nom de la instantània",
+        "rename": "Canvia el nom de {{name}}",
         "restore": "Restaura {{name}} (un pas de l’historial: Desfés hi torna)",
         "restored": "Instantània {{name}}",
         "title": "Instantànies",

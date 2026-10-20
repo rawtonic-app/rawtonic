@@ -189,3 +189,19 @@ it("drops a thumbnail developed from adjustments the snapshot no longer holds", 
   await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBe("blob:2"));
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
 });
+
+it("renames from its own button without restoring the snapshot", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Look", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(3) }];
+  render(<StudioSnapshots />);
+  await screen.findByText("Look");
+  fireEvent.click(screen.getByRole("button", { name: "Rename Look" }));
+  const input = await screen.findByRole("textbox", { name: "Snapshot name" });
+  // Clicks into the field neither restore nor end the rename.
+  fireEvent.click(input);
+  fireEvent.doubleClick(input);
+  fireEvent.change(input, { target: { value: "Night" } });
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(kept[PHOTO][0].name).toBe("Look");
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+  expect(useEditorStore.getState().history).toHaveLength(1);
+});

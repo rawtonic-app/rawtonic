@@ -2009,6 +2009,7 @@
         "failed": "Error de la instantánea: {{error}}",
         "fromStep": "Instantánea de este paso: {{step}}",
         "name": "Nombre de la instantánea",
+        "rename": "Cambiar el nombre de {{name}}",
         "restore": "Restaurar {{name}} (un paso del historial: Deshacer vuelve)",
         "restored": "Instantánea {{name}}",
         "title": "Instantáneas",

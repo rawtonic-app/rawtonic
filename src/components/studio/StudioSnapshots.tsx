@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Camera, ImageOff, Plus, RefreshCw, X } from "lucide-react";
+import { Camera, ImageOff, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useSnapshotStore, type Snapshot } from "../../store/useSnapshotStore";
@@ -10,7 +10,7 @@ import { ToolGroup } from "./StudioDevelop";
 /** Lightroom's snapshots, with Capture One's variant thumbnails: named
  * states of the open photograph's development. A click restores one as a
  * history step (undoable); + takes one of the current edit (the history
- * takes one of any step); double-click renames, the arrows update one with
+ * takes one of any step); the pencil renames, the arrows update one with
  * the current edit. Kept by the library (the
  * editor sidecar for a photograph in none). */
 export default function StudioSnapshots() {
@@ -122,39 +122,33 @@ function SnapshotRow({
     if (name !== null && name.trim() && name.trim() !== snapshot.name)
       useSnapshotStore.getState().rename(path, snapshot.id, name).catch(fail);
   };
+  const thumb = (
+    <span className="studio-snapshot-thumb">
+      {thumbnail ? (
+        <img src={thumbnail} alt="" />
+      ) : thumbnail === "" ? (
+        <ImageOff size={14} aria-hidden />
+      ) : (
+        <Camera size={14} aria-hidden />
+      )}
+    </span>
+  );
   const taken = new Date(snapshot.createdAt).toLocaleString(i18n.language, {
     dateStyle: "medium",
     timeStyle: "short",
   });
   return (
     <li className="studio-snapshot">
-      <button
-        type="button"
-        className="studio-snapshot-restore"
-        disabled={disabled}
-        title={t("studio.develop.snapshots.restore", { name: snapshot.name })}
-        onClick={() => {
-          if (!editing) restoreSnapshot(snapshot);
-        }}
-        onDoubleClick={() => onEdit(true)}
-      >
-        <span className="studio-snapshot-thumb">
-          {thumbnail ? (
-            <img src={thumbnail} alt="" />
-          ) : thumbnail === "" ? (
-            <ImageOff size={14} aria-hidden />
-          ) : (
-            <Camera size={14} aria-hidden />
-          )}
-        </span>
-        <span className="studio-snapshot-text">
-          {editing ? (
+      {editing ? (
+        // Renaming: a field in place of the row, which restores on a click.
+        <div className="studio-snapshot-restore">
+          {thumb}
+          <span className="studio-snapshot-text">
             <input
               ref={input}
               defaultValue={snapshot.name}
               aria-label={t("studio.develop.snapshots.name")}
               maxLength={200}
-              onClick={(e) => e.stopPropagation()}
               onBlur={(e) => rename(e.currentTarget.value)}
               onKeyDown={(e) => {
                 e.stopPropagation();
@@ -162,11 +156,33 @@ function SnapshotRow({
                 if (e.key === "Escape") rename(null);
               }}
             />
-          ) : (
+            <span className="studio-snapshot-time">{taken}</span>
+          </span>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="studio-snapshot-restore"
+          disabled={disabled}
+          title={t("studio.develop.snapshots.restore", { name: snapshot.name })}
+          onClick={() => restoreSnapshot(snapshot)}
+        >
+          {thumb}
+          <span className="studio-snapshot-text">
             <span className="studio-snapshot-name">{snapshot.name}</span>
-          )}
-          <span className="studio-snapshot-time">{taken}</span>
-        </span>
+            <span className="studio-snapshot-time">{taken}</span>
+          </span>
+        </button>
+      )}
+      <button
+        type="button"
+        className="studio-snapshot-rename"
+        disabled={disabled}
+        title={t("studio.develop.snapshots.rename", { name: snapshot.name })}
+        aria-label={t("studio.develop.snapshots.rename", { name: snapshot.name })}
+        onClick={() => onEdit(true)}
+      >
+        <Pencil size={12} />
       </button>
       <button
         type="button"

@@ -2009,6 +2009,7 @@
         "failed": "Échec de l’instantané : {{error}}",
         "fromStep": "Instantané de cette étape : {{step}}",
         "name": "Nom de l’instantané",
+        "rename": "Renommer {{name}}",
         "restore": "Restaurer {{name}} (une étape de l’historique : Annuler y revient)",
         "restored": "Instantané {{name}}",
         "title": "Instantanés",

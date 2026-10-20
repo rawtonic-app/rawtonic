@@ -2067,6 +2067,7 @@
         "failed": "Migawka nie powiodła się: {{error}}",
         "fromStep": "Migawka tego kroku: {{step}}",
         "name": "Nazwa migawki",
+        "rename": "Zmień nazwę {{name}}",
         "restore": "Przywróć {{name}} (krok historii: Cofnij wraca)",
         "restored": "Migawka {{name}}",
         "title": "Migawki",

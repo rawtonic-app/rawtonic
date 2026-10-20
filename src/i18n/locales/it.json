@@ -2009,6 +2009,7 @@
         "failed": "Istantanea non riuscita: {{error}}",
         "fromStep": "Istantanea di questo passaggio: {{step}}",
         "name": "Nome dell’istantanea",
+        "rename": "Rinomina {{name}}",
         "restore": "Ripristina {{name}} (un passaggio della cronologia: Annulla torna indietro)",
         "restored": "Istantanea {{name}}",
         "title": "Istantanee",

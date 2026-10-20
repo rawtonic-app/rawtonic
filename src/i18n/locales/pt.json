@@ -2009,6 +2009,7 @@
         "failed": "Falha do instantâneo: {{error}}",
         "fromStep": "Instantâneo deste passo: {{step}}",
         "name": "Nome do instantâneo",
+        "rename": "Mudar o nome de {{name}}",
         "restore": "Restaurar {{name}} (um passo do histórico: Desfazer regressa)",
         "restored": "Instantâneo {{name}}",
         "title": "Instantâneos",

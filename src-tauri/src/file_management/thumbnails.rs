@@ -224,13 +224,23 @@ pub fn generate_thumbnail_data(
     } else {
         thumbnail_metadata(&source_path, &sidecar_path)
     };
-    develop_thumbnail(path_str, metadata, gpu_context, preloaded_image, app_handle)
+    develop_thumbnail(
+        path_str,
+        path_str,
+        metadata,
+        gpu_context,
+        preloaded_image,
+        app_handle,
+    )
 }
 
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
-/// (none: as a photograph never edited), as the Library shows it.
+/// (none: as a photograph never edited), as the Library shows it. Its
+/// decoded base is cached under `cache_key` (a photograph's own thumbnails
+/// use its path).
 pub(crate) fn develop_thumbnail(
     path_str: &str,
+    cache_key: &str,
     metadata: Option<ImageMetadata>,
     gpu_context: Option<&GpuContext>,
     preloaded_image: Option<&DynamicImage>,
@@ -293,7 +303,7 @@ pub(crate) fn develop_thumbnail(
 
         let cached_base: Option<(Arc<DynamicImage>, f32, Option<ParametricMaskSource>)> = {
             let cache = state.thumbnail_geometry_cache.lock().unwrap();
-            if let Some((cached_hash, img, scale, mask_source)) = cache.get(path_str) {
+            if let Some((cached_hash, img, scale, mask_source)) = cache.get(cache_key) {
                 let mut sufficient_resolution = true;
                 if let Some(c) = &crop_data
                     && c.width > 0.0
@@ -450,7 +460,7 @@ pub(crate) fn develop_thumbnail(
 
             let base_arc = Arc::new(base);
             cache.insert(
-                path_str.to_string(),
+                cache_key.to_string(),
                 (
                     base_cache_hash,
                     Arc::clone(&base_arc),
@@ -539,7 +549,7 @@ pub(crate) fn develop_thumbnail(
         let lut = lut_path.and_then(|p| state.lut_cache.lock().unwrap().get_or_load(p).ok());
 
         let mut hasher = DefaultHasher::new();
-        path_str.hash(&mut hasher);
+        cache_key.hash(&mut hasher);
         meta.adjustments.to_string().hash(&mut hasher);
         let unique_hash = hasher.finish();
 
