@@ -142,7 +142,7 @@ impl Contents {
     }
 }
 
-fn untouched(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
+pub(crate) fn untouched(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
     Ok(conn.query_row(
         "SELECT m.data='{}' AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
          FROM metadata m JOIN versions v ON v.asset_id=m.asset_id AND v.is_primary=1

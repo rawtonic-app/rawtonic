@@ -327,21 +327,6 @@ impl Library {
         Ok(snapshot)
     }
 
-    /// Takes over the `snapshots` a sidecar carries when `version` has none
-    /// (as adopting a sidecar does); returns whether it did.
-    pub fn adopt_snapshots(&self, version: &str, snapshots: &[Snapshot]) -> Result<bool> {
-        if snapshots.is_empty() {
-            return Ok(false);
-        }
-        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        if any(&tx, version)? {
-            return Ok(false);
-        }
-        insert(&tx, &self.directory, version, snapshots)?;
-        tx.commit()?;
-        Ok(true)
-    }
-
     /// Renames the snapshot `id` of `version`.
     pub fn rename_snapshot(&self, version: &str, id: &str, name: &str) -> Result<()> {
         let name = clean_name(name)?;
@@ -405,5 +390,42 @@ impl Library {
         prune_blobs(&tx)?;
         tx.commit()?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Library, Mode};
+    use serde_json::json;
+
+    #[test]
+    fn the_first_save_takes_over_carried_snapshots_with_the_edit_or_not_at_all() {
+        let tmp = tempfile::tempdir().unwrap();
+        let lib = Library::create(tmp.path(), "Snaps", Mode::Session).unwrap();
+        let photo = tmp.path().join("Capture/DSC001.ARW");
+        std::fs::write(&photo, b"synthetic original fixture").unwrap();
+        let asset = lib.add_asset(&photo).unwrap().id;
+        let version = lib.primary_version(&asset).unwrap();
+        let carried = json!({"adjustments":{"exposure":1},"snapshots":[
+            {"id":"s1","name":"Warm","createdAt":"2026-10-20T10:00:00.000Z","adjustments":{"temperature":20}}]});
+        // A failure leaves the photograph as it was: still to be adopted.
+        lib.inject_write_failure("snapshots").unwrap();
+        assert!(lib.save_editor_state(&asset, &carried).is_err());
+        assert!(lib.is_untouched(&asset).unwrap());
+        assert!(lib.editor_state(&asset).unwrap().is_none());
+        lib.clear_write_failures().unwrap();
+        lib.save_editor_state(&asset, &carried).unwrap();
+        let names = |lib: &Library| -> Vec<String> {
+            lib.snapshots(&version)
+                .unwrap()
+                .into_iter()
+                .map(|s| s.name)
+                .collect()
+        };
+        assert_eq!(names(&lib), ["Warm"]);
+        // Later saves carrying them (or others) take nothing over.
+        lib.delete_snapshot(&version, "s1").unwrap();
+        lib.save_editor_state(&asset, &carried).unwrap();
+        assert!(names(&lib).is_empty());
     }
 }

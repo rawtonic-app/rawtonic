@@ -971,12 +971,21 @@ impl Library {
     }
 
     /// Editor adapter: the DB owns the serialized state; sidecars are derived.
+    /// The snapshots `legacy` carries are the library's own (they are not
+    /// stored from it), except at the first save of a photograph whose
+    /// sidecar the library never adopted (`is_untouched`; one the editor
+    /// loaded from that sidecar): then they are taken over, in the same
+    /// transaction.
     pub fn save_editor_state(&self, asset: &str, legacy: &Value) -> Result<()> {
         let version = self.primary_version(asset)?;
         let (bytes, meta) = self.editor_recipe(legacy, self.metadata(asset)?)?;
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        let adopting = add::untouched(&tx, asset)? && !snapshots::any(&tx, &version)?;
         write_recipe(&tx, &version, &bytes)?;
         write_metadata(&tx, asset, &meta)?;
+        if adopting {
+            snapshots::insert(&tx, &self.directory, &version, &snapshots::in_state(legacy))?;
+        }
         tx.commit()?;
         Ok(())
     }

@@ -55,7 +55,8 @@ fn in_library(
             lib.asset_at(source)?
                 .context("The photograph could not be added to the library")?
         }
-        None => return Ok(Vec::new()),
+        // Not the library's yet: what its sidecar holds.
+        None => return Ok(in_file(sidecar)),
     };
     if change.is_some() && source.is_file() && lib.is_untouched(&asset.id)? {
         // A registered photograph whose sidecar was never adopted (it is
@@ -83,10 +84,16 @@ fn in_library(
     }
     let Some(version) = version else {
         anyhow::ensure!(change.is_none(), "This virtual copy is not in the library");
-        return Ok(Vec::new());
+        return Ok(in_file(sidecar));
     };
     let Some(change) = change else {
-        return lib.snapshots(&version);
+        let kept = lib.snapshots(&version)?;
+        // A photograph whose sidecar the library has not adopted yet shows
+        // that sidecar's (its first save or snapshot change adopts them).
+        if kept.is_empty() && copy.is_none() && source.is_file() && lib.is_untouched(&asset.id)? {
+            return Ok(in_file(sidecar));
+        }
+        return Ok(kept);
     };
     match change {
         Change::Add { name, adjustments } => {
@@ -112,6 +119,15 @@ fn in_library(
         write_editor_sidecar(sidecar, serde_json::to_vec_pretty(&state)?)?;
     }
     lib.snapshots(&version)
+}
+
+/// The snapshots an editor sidecar file holds (none when it cannot be read).
+fn in_file(sidecar: &Path) -> Vec<Snapshot> {
+    std::fs::read(sidecar)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        .map(|state| snapshots::in_state(&state))
+        .unwrap_or_default()
 }
 
 /// The editor sidecar of a photograph in no library; none there: a new one.
@@ -595,6 +611,9 @@ mod tests {
                 "{}.rrdata",
                 photo.file_name().unwrap().to_string_lossy()
             ));
+            // Listed from the sidecar before the library has them.
+            let listed = snapshots_after(&photo.to_string_lossy(), None).unwrap();
+            assert_eq!(listed[0].name, "Warm");
             save_recipe(&sidecar, json!({"exposure": 1.5}));
             assert_eq!(sidecar_snapshots(&sidecar), ["Warm"], "{}", photo.display());
             let asset = lib.asset_at(photo).unwrap().unwrap();

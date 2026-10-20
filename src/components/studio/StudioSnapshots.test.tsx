@@ -243,3 +243,24 @@ it("answers each of two quick snapshots with the one it took", async () => {
   );
   expect([first?.name, second?.name]).toEqual(["One", "Two"]);
 });
+
+it("develops each thumbnail once when a photograph is shown again before they are done", async () => {
+  kept[PHOTO] = [{ id: "a", name: "First", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(1) }];
+  kept["/qa/other.dng"] = [];
+  let release = () => {};
+  thumbnailGate = new Promise<void>((resolve) => (release = resolve));
+  const store = useSnapshotStore.getState();
+  await act(() => store.load(PHOTO));
+  await act(() => store.load("/qa/other.dng"));
+  await act(() => store.load(PHOTO));
+  thumbnailGate = null;
+  release();
+  await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBeTruthy());
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  });
+  // The first showing's result was dropped and released, the second kept.
+  const created = vi.mocked(URL.createObjectURL).mock.results.map((r) => r.value as string);
+  const shown = useSnapshotStore.getState().thumbnails.a;
+  for (const url of created) if (url !== shown) expect(URL.revokeObjectURL).toHaveBeenCalledWith(url);
+});

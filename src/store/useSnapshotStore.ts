@@ -27,8 +27,11 @@ interface SnapshotState {
   remove: (path: string, id: string) => Promise<void>;
 }
 
-/** The photograph whose thumbnails are being developed. */
-let developing: string | null = null;
+/** One showing of a photograph's list (a new one each time a photograph
+ * is shown): its thumbnails are developed by one worker at a time, and a
+ * worker of an earlier showing stops. */
+let showing: object = {};
+let developing: object | null = null;
 /** How often each snapshot was updated: a thumbnail developed from
  * adjustments it no longer holds is dropped. */
 const revisions = new Map<string, number>();
@@ -38,13 +41,14 @@ const revisions = new Map<string, number>();
  * meanwhile join the same run. */
 async function developThumbnails() {
   const path = useSnapshotStore.getState().path;
-  if (!path || developing === path) return;
-  developing = path;
+  const mine = showing;
+  if (!path || developing === mine) return;
+  developing = mine;
   try {
     for (;;) {
       const state = useSnapshotStore.getState();
       const next = state.snapshots.find((snapshot) => !(snapshot.id in state.thumbnails));
-      if (state.path !== path || !next) return;
+      if (showing !== mine || !next) return;
       const revision = revisions.get(next.id) ?? 0;
       let url = '';
       try {
@@ -53,7 +57,7 @@ async function developThumbnails() {
       } catch (error) {
         console.error('Snapshot thumbnail failed:', error);
       }
-      if (useSnapshotStore.getState().path !== path) {
+      if (showing !== mine) {
         if (url) URL.revokeObjectURL(url);
         return;
       }
@@ -71,7 +75,7 @@ async function developThumbnails() {
       useSnapshotStore.setState((current) => ({ thumbnails: { ...current.thumbnails, [next.id]: url } }));
     }
   } finally {
-    if (developing === path) developing = null;
+    if (developing === mine) developing = null;
   }
 }
 
@@ -108,6 +112,7 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
   load: async (path) => {
     if (get().path !== path) {
       Object.values(get().thumbnails).forEach((url) => url && URL.revokeObjectURL(url));
+      showing = {};
       set({ path, snapshots: [], thumbnails: {} });
     }
     if (!path) return;

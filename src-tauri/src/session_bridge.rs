@@ -221,21 +221,11 @@ pub fn write_editor_sidecar(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> 
     {
         let lib = Library::open(&dir).map_err(io_error)?;
         let state: Value = serde_json::from_slice(bytes).map_err(io_error)?;
-        let registered = lib.asset_at(&source).map_err(io_error)?;
-        let asset = match registered {
-            Some(asset) => asset,
-            None => lib.add_asset(&source).map_err(io_error)?,
-        };
+        let asset = lib.add_asset(&source).map_err(io_error)?;
         // The first save of a photograph whose sidecar the library has not
-        // adopted (one registered by this save, or not adopted yet) carries
-        // that sidecar's snapshots: they become the library's.
-        let adopting = lib.is_untouched(&asset.id).map_err(io_error)?;
+        // adopted takes over that sidecar's snapshots (`save_editor_state`).
         lib.save_editor_state(&asset.id, &state).map_err(io_error)?;
         let version = lib.primary_version(&asset.id).map_err(io_error)?;
-        if adopting {
-            lib.adopt_snapshots(&version, &rawtonic_catalog::snapshots::in_state(&state))
-                .map_err(io_error)?;
-        }
         let bytes = with_library_snapshots(&lib, Some(&version), bytes, &state)?;
         // SQLite committed first. A failed derived write can be retried without losing edits.
         rawtonic_metadata::atomic_write(path, &*bytes).map_err(io_error)?;
