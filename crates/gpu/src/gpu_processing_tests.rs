@@ -9251,6 +9251,12 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 7})),
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 6}))
     );
+    // Version 8 changes only the speck swap's luminance gate: at Color 0
+    // it renders as version 7.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 8})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 7}))
+    );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 3})),
@@ -9264,6 +9270,151 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 2})),
         render(json!({"colorNoiseReduction": 25}))
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_8_judges_specks_after_luminance_noise_reduction() {
+    // A flat grey under colour and luminance noise with single off-colour
+    // pixels a few noise levels darker than the grey (noise the luminance
+    // noise reduction takes back: version 7's gate, reading the input's
+    // luminance, let them keep their colour) and single coloured points far
+    // brighter (features the luminance noise reduction keeps: they keep
+    // their colour in both versions).
+    let context = context();
+    let (w, h) = (256u32, 192u32);
+    let mut state = 5u32;
+    let mut noise = move || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+    };
+    let grey = 0.18f32.sqrt();
+    let mut image = ImageBuffer::from_fn(w, h, |_, _| {
+        image::Rgb(std::array::from_fn(|_| {
+            (grey + 0.03 * noise()).max(0.0).powi(2)
+        }))
+    });
+    let spots = |row: u32| -> Vec<(u32, u32)> {
+        (0..48)
+            .map(|k| (8 + (k % 12) * 20, row + (k / 12) * 20))
+            .collect()
+    };
+    let (specks, points) = (spots(10), spots(100));
+    // Square-root RGB: chroma pushed, luminance lowered by `dark`.
+    let put = |image: &mut image::Rgb32FImage, (x, y): (u32, u32), dark: f32| {
+        let (r, b) = (grey - dark + 0.12, grey - dark - 0.10);
+        let g = grey - dark;
+        image.put_pixel(x, y, image::Rgb([r, g, b].map(|v: f32| v.max(0.0).powi(2))));
+    };
+    // The specks' square-root luminance ends up 0.027 below the grey's
+    // (about 3 noise levels; the chroma push itself adds 0.018).
+    for &p in &specks {
+        put(&mut image, p, 0.045);
+    }
+    for &p in &points {
+        put(&mut image, p, -0.25);
+    }
+    let image = DynamicImage::ImageRgb32F(image);
+    let chroma_at = |version: u64, spots: &[(u32, u32)]| -> f32 {
+        let out = render_source(
+            &context,
+            &image,
+            json!({"colorNoiseReduction": 25, "colorNoiseVersion": version,
+                   "lumaNoiseReduction": 15, "lumaNoiseVersion": 2, "sharpness": 0}),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgb32f();
+        spots
+            .iter()
+            .map(|&(x, y)| {
+                let [r, g, b] = out.get_pixel(x, y).0.map(|v| v.max(0.0).sqrt());
+                (r - g).hypot(b - g)
+            })
+            .sum::<f32>()
+            / spots.len() as f32
+    };
+    let (s6, s7, s8) = (
+        chroma_at(6, &specks),
+        chroma_at(7, &specks),
+        chroma_at(8, &specks),
+    );
+    let (p7, p8) = (chroma_at(7, &points), chroma_at(8, &points));
+    println!(
+        "speck chroma v6 {s6:.4}, v7 {s7:.4}, v8 {s8:.4}; bright points v7 {p7:.4}, v8 {p8:.4}"
+    );
+    assert!(s7 > 0.8 * s6, "version 7 changed: {s6} -> {s7}");
+    assert!(s8 < 0.7 * s7, "version 8 left the specks: {s7} -> {s8}");
+    assert!(p8 > 0.95 * p7, "bright points lost colour: {p7} -> {p8}");
+    // Without luminance noise reduction the gate reads the input's
+    // luminance: version 8 renders as version 7 (the CPU reference).
+    let render = |version: u64| {
+        render_source(
+            &context,
+            &image,
+            json!({"colorNoiseReduction": 25, "colorNoiseVersion": version,
+                   "lumaNoiseReduction": 0}),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .into_bytes()
+    };
+    assert_eq!(render(8), render(7));
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_8_keeps_wide_gamut_points() {
+    // Single points of a valid wide-gamut colour (a negative linear sRGB
+    // channel inside ProPhoto) brighter than a noisy grey, under a luminance
+    // noise reduction that leaves them as they are (Luminance 1): version 8
+    // compares their luminance after it with the same working-gamut
+    // luminance it starts from, so they stand out as in version 7 and keep
+    // their colour (clipping the negative channel there took them for
+    // pixels the luminance noise reduction had darkened, and swapped them).
+    let context = context();
+    let (w, h) = (192u32, 128u32);
+    let mut state = 7u32;
+    let mut noise = move || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+    };
+    let grey = 0.08185f32.sqrt();
+    let mut image = ImageBuffer::from_fn(w, h, |_, _| {
+        image::Rgb(std::array::from_fn(|_| {
+            (grey + 0.03 * noise()).max(0.0).powi(2)
+        }))
+    });
+    let points: Vec<(u32, u32)> = (0..40)
+        .map(|k| (8 + (k % 10) * 18, 10 + (k / 10) * 28))
+        .collect();
+    for &(x, y) in &points {
+        image.put_pixel(x, y, image::Rgb([-0.25, 0.3, 0.3]));
+    }
+    let image = DynamicImage::ImageRgb32F(image);
+    let chroma_at = |version: u64| -> f32 {
+        let out = render_source(
+            &context,
+            &image,
+            json!({"colorNoiseReduction": 25, "colorNoiseVersion": version,
+                   "lumaNoiseReduction": 1, "lumaNoiseVersion": 2, "sharpness": 0}),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgb32f();
+        points
+            .iter()
+            .map(|&(x, y)| {
+                let [r, g, b] = out.get_pixel(x, y).0.map(|v| v.max(0.0).sqrt());
+                (r - g).hypot(b - g)
+            })
+            .sum::<f32>()
+            / points.len() as f32
+    };
+    let (v6, v7, v8) = (chroma_at(6), chroma_at(7), chroma_at(8));
+    println!("wide-gamut point chroma v6 {v6:.4}, v7 {v7:.4}, v8 {v8:.4}");
+    assert!(v7 > 0.95 * v6, "version 7 changed: {v6} -> {v7}");
+    assert!(
+        v8 > 0.95 * v7,
+        "wide-gamut points lost colour: {v7} -> {v8}"
     );
 }
 
@@ -9367,7 +9518,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=7 {
+        for version in 1..=8 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {

@@ -3707,7 +3707,22 @@ fn apply_color_noise_multiscale(
     let speck = adjustments.global.color_noise_speck;
     if ((guide_code & 64u) != 0u && aware2 > 0.0 && speck > 0.0) {
         let sigma = sqrt(aware2);
-        cd = ms_speck_chroma(coords_i, c0, lp, f32((guide_code >> 7u) & 15u) * 0.25 * sigma, sigma, speck, is_raw);
+        // Version 8 (code bit 2048): the luminance gate reads the pixel's
+        // luminance after the luminance noise reduction, in the same
+        // encoding (color_noise.rs `Tuning::speck_luma_after_nr`): a pixel
+        // off only by noise the luminance noise reduction removes is a
+        // speck, a point it keeps standing out keeps its colour.
+        // `new_luma` starts from the input's luminance in the working gamut
+        // (`gamut_floor`, as in the caller), so a pixel the luminance noise
+        // reduction leaves alone keeps exactly its own gate.
+        var lp_gate = lp;
+        if ((guide_code & 2048u) != 0u && luma_a > 0.001) {
+            let l_in = get_luma(gamut_floor(center_linear));
+            if (l_in > 1e-10) {
+                lp_gate = lp * sqrt(max(new_luma, 0.0) / l_in);
+            }
+        }
+        cd = ms_speck_chroma(coords_i, c0, lp_gate, f32((guide_code >> 7u) & 15u) * 0.25 * sigma, sigma, speck, is_raw);
     }
     var guide = c0;
     var center_e: vec4<f32>;
