@@ -641,7 +641,7 @@ pub fn run() {
             export_task_token: Arc::new(Mutex::new(None)),
             merge_result: Arc::new(Mutex::new(None)),
             indexing_task_handle: Mutex::new(None),
-            lut_cache: Mutex::new(HashMap::new()),
+            lut_cache: Mutex::new(Default::default()),
             initial_file_path: Mutex::new(None),
             pending_edit_session: Mutex::new(None),
             thumbnail_cancellation_token: Arc::new(AtomicBool::new(false)),

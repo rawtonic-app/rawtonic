@@ -16,7 +16,7 @@ pub use crate::gpu_processing::{AnalyticsConfig, AnalyticsJob, GpuImageCache, Gp
 use crate::gpu_processing::{GpuContext, LatestJobSender};
 use crate::launch_request::ExternalEditSession;
 use crate::lens_correction::LensDatabase;
-use crate::lut_processing::Lut;
+use crate::lut_processing::LutCache;
 use crate::mask_generation::{FullWarpedMaskCache, MaskBitmapCache};
 
 pub struct AiTaskToken {
@@ -282,7 +282,7 @@ pub struct AppState {
     /// A finished merge waiting for `save_merge` (merges.rs).
     pub merge_result: Arc<Mutex<Option<crate::merges::MergeOutcome>>>,
     pub indexing_task_handle: Mutex<Option<JoinHandle<()>>>,
-    pub lut_cache: Mutex<HashMap<String, Arc<Lut>>>,
+    pub lut_cache: Mutex<LutCache>,
     pub initial_file_path: Mutex<Option<String>>,
     pub pending_edit_session: Mutex<Option<ExternalEditSession>>,
     pub thumbnail_cancellation_token: Arc<AtomicBool>,
