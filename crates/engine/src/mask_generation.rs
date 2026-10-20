@@ -1544,7 +1544,11 @@ impl AutoMaskModel {
 fn stroke_models_v3(
     clusters: &[Option<AutoMaskClusters>],
     dabs: &[(f32, f32)],
+    votes: &[f32],
 ) -> Vec<AutoMaskModel> {
+    // How much a dab counts in its neighbours' votes: what it paints under
+    // pen pressure (0 for a dab that paints nothing), exactly 1 otherwise.
+    let vote = |j: usize| votes.get(j).copied().unwrap_or(1.0);
     let Some(outer) = clusters.iter().flatten().map(|c| c.outer).next() else {
         return vec![AutoMaskModel::EMPTY; clusters.len()];
     };
@@ -1571,11 +1575,17 @@ fn stroke_models_v3(
             let Some(c) = clusters[i] else {
                 return AutoMaskModel::EMPTY;
             };
-            let near: Vec<[f32; 3]> = within(i, AUTO_MASK_SUBJECT_REACH)
-                .filter_map(|j| own[j])
+            let near: Vec<([f32; 3], f32)> = within(i, AUTO_MASK_SUBJECT_REACH)
+                .filter(|&j| vote(j) > 0.0)
+                .filter_map(|j| own[j].map(|lab| (lab, vote(j))))
                 .collect();
-            let cost = |x: &[f32; 3]| near.iter().map(|y| distance(*x, *y)).sum::<f32>();
-            let Some(medoid) = near.iter().min_by(|a, b| cost(a).total_cmp(&cost(b))) else {
+            let cost = |x: &[f32; 3]| {
+                near.iter()
+                    .map(|(y, weight)| weight * distance(*x, *y))
+                    .sum::<f32>()
+            };
+            let Some((medoid, _)) = near.iter().min_by(|a, b| cost(&a.0).total_cmp(&cost(&b.0)))
+            else {
                 return c.model(c.nearest_centre());
             };
             let subject = (0..AUTO_MASK_CLUSTERS)
@@ -1616,7 +1626,7 @@ fn stroke_models_v3(
         .collect();
     for (i, model) in models.iter_mut().enumerate() {
         let (side, total) = within(i, AUTO_MASK_SIDE_REACH).fold((0.0f32, 0.0f32), |(s, t), j| {
-            (s + leftwards[j], t + one_sided[j])
+            (s + leftwards[j] * vote(j), t + one_sided[j] * vote(j))
         });
         if total <= 0.0 {
             continue;
@@ -2314,15 +2324,21 @@ impl PenPressure {
             let (x2, y2) = local(&pair[1]);
             let length = (x2 - x1).hypot(y2 - y1);
             if length <= 0.0 {
-                // Pressing harder before the pen moves on from a dab: that
-                // dab takes the pressure reached (no dabs pile up in place).
+                // Pressing harder where the pen stopped: the dab there takes
+                // the pressure reached. One already there is raised (no dabs
+                // pile up in place); elsewhere between dabs one is added.
+                let (from, to) = (self.factors(pair[0].p), self.factors(pair[1].p));
                 if remaining == last_step {
-                    let (size, flow) = self.factors(pair[1].p);
                     let last = scales.len() - 1;
-                    scales[last] = (scales[last].0.max(size), scales[last].1.max(flow));
-                    remaining = spacing(scales[last].0);
-                    last_step = remaining;
+                    scales[last] = (scales[last].0.max(to.0), scales[last].1.max(to.1));
+                } else if to.0 > from.0 || to.1 > from.1 {
+                    dabs.push((x2, y2));
+                    scales.push(to);
+                } else {
+                    continue;
                 }
+                remaining = spacing(scales[scales.len() - 1].0);
+                last_step = remaining;
                 continue;
             }
             let (p1, p2) = (pair[0].p.unwrap_or(1.0), pair[1].p.unwrap_or(1.0));
@@ -2638,7 +2654,13 @@ fn blend_stroke_auto_mask_v2(
                 AutoMaskClusters::of(colours, bb_w, bb_h, centre, outer * scale_of(dab).0)
             })
             .collect();
-        stroke_models_v3(&clusters, dabs)
+        let votes: Vec<f32> = (0..scales.len())
+            .map(|dab| match scale_of(dab) {
+                (size, _) if size <= 0.0 => 0.0,
+                (_, flow) => flow,
+            })
+            .collect();
+        stroke_models_v3(&clusters, dabs, &votes)
     } else {
         dabs.par_iter()
             .enumerate()
@@ -9840,6 +9862,59 @@ mod pen_pressure_tests {
             None,
         );
         assert_eq!(width_at(&pressed, 200), width_at(&full, 200));
+    }
+
+    #[test]
+    fn a_pressure_peak_where_the_pen_stopped_stays() {
+        // The pen moves 2 px (no dab yet), presses to 1 and eases off again:
+        // the painted width at the peak stays.
+        let size = serde_json::json!({"pressureSize": true});
+        let paint = |points: &[(f64, f64)]| {
+            let mut mask = GrayImage::new(400, 120);
+            apply_brush_line(
+                &mut mask,
+                &through(points, size.clone()),
+                1.0,
+                (0.0, 0.0),
+                None,
+            );
+            mask
+        };
+        let eased = paint(&[(200.0, 0.3), (202.0, 0.3), (202.0, 1.0), (202.0, 0.3)]);
+        let full = paint(&[(202.0, 1.0)]);
+        assert!(width_at(&eased, 202).abs_diff(width_at(&full, 202)) <= 1);
+        // Easing off alone paints no wider (the end dab takes the release
+        // pressure).
+        let moved = paint(&[(200.0, 0.3), (202.0, 0.3)]);
+        let eased_only = paint(&[(200.0, 0.3), (202.0, 0.3), (202.0, 0.2)]);
+        assert!(width_at(&eased_only, 202) <= width_at(&moved, 202));
+    }
+
+    #[test]
+    fn auto_mask_v3_votes_leave_out_dabs_that_paint_nothing() {
+        // As above: red left of x = 200. A short stroke on the red whose
+        // zero-pressure tail runs over the blue would outvote the red
+        // subjects near its start.
+        let image = DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(400, 120, |x, _| {
+            if x < 200 {
+                Rgba([200, 40, 30, 255])
+            } else {
+                Rgba([30, 60, 190, 255])
+            }
+        }));
+        let source = ParametricMaskSource::new(Arc::new(image), (400.0, 120.0)).unwrap();
+        let sampler = SourceSampler::new(&source, 1.0, (0.0, 0.0));
+        let extra = serde_json::json!({"pressureFlow": true, "autoMask": true,
+            "autoMaskVersion": 3});
+        let paint = |points: &[(f64, f64)]| {
+            let mut mask = GrayImage::new(400, 120);
+            let line = through(points, extra.clone());
+            apply_brush_line(&mut mask, &line, 1.0, (0.0, 0.0), Some(&sampler));
+            mask
+        };
+        let short = paint(&[(180.0, 1.0), (181.0, 0.0)]);
+        let tail = paint(&[(180.0, 1.0), (181.0, 0.0), (270.0, 0.0)]);
+        assert!(short == tail);
     }
 
     #[test]
