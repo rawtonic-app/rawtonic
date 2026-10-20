@@ -22,12 +22,16 @@ it('swallows only the click immediately following a drag', () => {
   target.remove();
 });
 
-it('expires without a click and preserves the album default-action policy', () => {
+it('can preserve the default click action', () => {
   vi.useFakeTimers();
   swallowDragClick(false);
   const click = new MouseEvent('click', { bubbles: true, cancelable: true });
   window.dispatchEvent(click);
   expect(click.defaultPrevented).toBe(false);
+});
+
+it('expires at the next task when no click arrives', () => {
+  vi.useFakeTimers();
   swallowDragClick();
   vi.runOnlyPendingTimers();
   const later = new MouseEvent('click', { cancelable: true });

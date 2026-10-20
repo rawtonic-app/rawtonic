@@ -1,3 +1,4 @@
+import { Invokes } from '../ui/AppProperties';
 import { useEffect, useRef, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { join } from "@tauri-apps/api/path";
@@ -67,7 +68,7 @@ export default function LibraryTransferDialog({ purpose, directory = "", name = 
       if (failures.length) throw new Error(t("session.transfer.unsaved", { files: failures.join(", ") }));
       const destination = await join(parent, folder.trim());
       if (cancelRequested.current) return;
-      const copy = invoke<Receipt>("library_copy", { source, destination, purpose });
+      const copy = invoke<Receipt>(Invokes.LibraryCopy, { source, destination, purpose });
       pending.current = copy.then(() => {}, () => {});
       const unregister = registerQuitFlush(async () => { await pending.current; return []; });
       try {
@@ -86,7 +87,7 @@ export default function LibraryTransferDialog({ purpose, directory = "", name = 
     cancelRequested.current = true;
     setCancelling(true);
     if (!pending.current) return;
-    try { await invoke("session_cancel_ingest"); }
+    try { await invoke(Invokes.SessionCancelIngest); }
     catch (e) { setError(String(e)); setCancelling(false); }
   }
 

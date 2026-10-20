@@ -1,3 +1,4 @@
+import { Invokes } from '../components/ui/AppProperties';
 import { invoke } from '@tauri-apps/api/core';
 import type { ImageFile } from '../components/ui/AppProperties';
 import { performanceDiagnosticsEnabled, reportPerformance } from '../hooks/usePerformanceDiagnostics';
@@ -42,7 +43,7 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
   let listingId: string | null = null;
   let pages = 0;
   try {
-    let page = await invoke<ListingPage>('begin_image_listing', { path, recursive });
+    let page = await invoke<ListingPage>(Invokes.BeginImageListing, { path, recursive });
     listingId = page.listing_id;
     const firstPageMs = performanceDiagnosticsEnabled ? performance.now() - started : 0;
     const files: ImageFile[] = [];
@@ -60,7 +61,7 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
         listingId = null;
         break;
       }
-      page = await invoke<ListingPage>('next_image_listing_page', { listingId, offset: files.length });
+      page = await invoke<ListingPage>(Invokes.NextImageListingPage, { listingId, offset: files.length });
     }
     if (performanceDiagnosticsEnabled) reportPerformance('library_listing', {
       ms: performance.now() - started, first_page_ms: firstPageMs, assets: total, pages,
@@ -69,6 +70,6 @@ export async function loadLibraryImages(path: string, recursive: boolean, signal
     return files;
   } finally {
     // This also handles cancellation while the initial scan was still running.
-    if (listingId) await invoke('cancel_image_listing', { listingId }).catch(() => {});
+    if (listingId) await invoke(Invokes.CancelImageListing, { listingId }).catch(() => {});
   }
 }

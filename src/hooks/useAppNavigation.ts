@@ -8,7 +8,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useSettingsStore } from '../store/useSettingsStore';
-import { Invokes, LibraryViewMode, ImageFile, Album, AlbumItem } from '../components/ui/AppProperties';
+import { Invokes, LibraryViewMode, ImageFile } from '../components/ui/AppProperties';
 import type { FolderTree } from '../utils/folderTree';
 import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -71,7 +71,6 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
   useEffect(() => () => libraryLoad.current?.abort(), []);
   const {
     transformWrapperRef,
-    preloadedDataRef,
     cachedEditStateRef,
     selectedImagePathRef,
     isBackendReadyRef,
@@ -331,7 +330,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
 
       if (!preserveEditor) {
-        await invoke('cancel_thumbnail_generation');
+        await invoke(Invokes.CancelThumbnailGeneration);
         if (load.signal.aborted) return;
         clearThumbnailQueue();
         setLibrary({ isViewLoading: true, activeAlbumId: null, libraryScrollTop: 0 });
@@ -433,7 +432,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
       }
 
       if (!preserveEditor) {
-        await invoke('cancel_thumbnail_generation');
+        await invoke(Invokes.CancelThumbnailGeneration);
         if (load.signal.aborted) return;
         clearThumbnailQueue();
         setLibrary({ libraryScrollTop: 0 });
@@ -553,109 +552,6 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     }
   }, [handleSelectSubfolder]);
 
-  const handleContinueSession = () => {
-    const restore = async () => {
-      const { appSettings } = useSettingsStore.getState();
-      const { setLibrary } = useLibraryStore.getState();
-
-      const rootFolders = appSettings?.rootFolders?.length
-        ? appSettings.rootFolders
-        : appSettings?.lastRootPath
-          ? [appSettings.lastRootPath]
-          : [];
-
-      if (rootFolders.length === 0) return;
-
-      const folderState = appSettings?.lastFolderState;
-      const pathToSelect = folderState?.currentFolderPath || rootFolders[0];
-
-      setLibrary({ rootPaths: rootFolders });
-
-      if (folderState?.expandedFolders) {
-        const newExpandedFolders = new Set<string>(folderState.expandedFolders);
-        setLibrary({ expandedFolders: newExpandedFolders });
-      } else {
-        setLibrary({ expandedFolders: new Set(rootFolders) });
-      }
-
-      setLibrary({ isTreeLoading: true });
-      try {
-        let treesData;
-        if (preloadedDataRef.current?.rootPaths?.join() === rootFolders.join() && preloadedDataRef.current.trees) {
-          treesData = await preloadedDataRef.current.trees;
-          preloadedDataRef.current.trees = undefined;
-        } else {
-          const expandedArr = folderState?.expandedFolders
-            ? Array.from(new Set(folderState.expandedFolders))
-            : rootFolders;
-          treesData = await invoke<FolderTree[]>(Invokes.GetPinnedFolderTrees, {
-            paths: rootFolders,
-            expandedFolders: expandedArr,
-            showImageCounts: appSettings?.enableFolderImageCounts || appSettings?.folderTreeSort?.key === 'imageCount',
-          });
-        }
-        setLibrary({ folderTrees: treesData });
-      } catch (err) {
-        console.error('Failed to restore folder trees:', err);
-      } finally {
-        setLibrary({ isTreeLoading: false });
-      }
-
-      let preloadedImages: ImageFile[] | undefined = undefined;
-      if (preloadedDataRef.current?.currentPath === pathToSelect && preloadedDataRef.current.images) {
-        try {
-          preloadedImages = await preloadedDataRef.current.images;
-          preloadedDataRef.current.images = undefined;
-        } catch (e) {
-          console.error('Failed to retrieve preloaded images', e);
-        }
-      }
-
-      if (pathToSelect && pathToSelect.startsWith('Album: ')) {
-        const activeAlbumId = folderState?.activeAlbumId;
-        if (activeAlbumId) {
-          try {
-            const albumTree = await invoke<AlbumItem[]>(Invokes.GetAlbums);
-            setLibrary({ albumTree });
-
-            const findObj = (nodes: AlbumItem[]): AlbumItem | null => {
-              for (const n of nodes) {
-                if (n.id === activeAlbumId) return n;
-                if (n.type === 'group') {
-                  const f = findObj(n.children);
-                  if (f) return f;
-                }
-              }
-              return null;
-            };
-
-            // lastFolderState.activeAlbumId only ever names an album, never a group.
-            const album = findObj(albumTree) as Album | null;
-            if (album) {
-              await handleSelectAlbum(album.id, album.name, album.images);
-            } else {
-              await handleSelectSubfolder(rootFolders[0], false, undefined, false);
-            }
-          } catch (e) {
-            console.error('Failed to restore album session:', e);
-            await handleSelectSubfolder(rootFolders[0], false, undefined, false);
-          }
-        } else {
-          await handleSelectSubfolder(rootFolders[0], false, undefined, false);
-        }
-      } else {
-        await handleSelectSubfolder(pathToSelect, false, preloadedImages, false);
-      }
-    };
-
-    restore().catch((err) => {
-      console.error('Failed to restore session:', err);
-      toast.error('Failed to restore session. A folder may have been moved or deleted.');
-      handleGoHome();
-      useLibraryStore.getState().setLibrary({ isTreeLoading: false });
-    });
-  };
-
   return {
     handleGoHome,
     handleBackToLibrary,
@@ -665,6 +561,5 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
     handleOpenFolder,
     handleNavBack,
     handleNavForward,
-    handleContinueSession,
   };
 }

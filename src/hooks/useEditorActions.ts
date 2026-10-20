@@ -399,7 +399,7 @@ export function useEditorActions() {
       const image = useEditorStore.getState().selectedImage;
       if (!image?.isReady) return;
       try {
-        const result: { size: number } = await invoke('load_and_parse_lut', { path });
+        const result: { size: number } = await invoke(Invokes.LoadAndParseLut, { path });
         const name = path.split(/[\\/]/).pop() || 'LUT';
         if (!isCurrentEditorImage(image.path)) return;
         setAdjustments((prev: Adjustments) => ({
@@ -501,7 +501,7 @@ export function useEditorActions() {
 
       afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
-          invoke('apply_auto_lens_correction_to_paths', { paths: pathsToUpdate }),
+          invoke(Invokes.ApplyAutoLensCorrectionToPaths, { paths: pathsToUpdate }),
           pathsToUpdate,
           'apply auto lens correction',
         ),
@@ -624,7 +624,7 @@ export function useEditorActions() {
           updated.forEach((path) => unsavedRecipes.delete(path));
           if (selectedImage && updated.includes(selectedImage.path)
             && isCurrentEditorImage(selectedImage.path)) {
-            invoke<ImageMetadata>('load_metadata', { path: selectedImage.path }).then((meta) => {
+            invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path }).then((meta) => {
               if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {
                 setAdjustments((prev: Adjustments) => ({
                   ...prev,

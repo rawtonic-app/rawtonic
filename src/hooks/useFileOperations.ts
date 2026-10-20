@@ -219,7 +219,7 @@ export function useFileOperations(
 
       try {
         if (!(await saveEditsFirst(pathsToDelete, options.includeAssociated))) return;
-        const command = options.includeAssociated ? 'delete_files_with_associated' : 'delete_files_from_disk';
+        const command = options.includeAssociated ? Invokes.DeleteFilesWithAssociated : Invokes.DeleteFilesFromDisk;
         const summary = await invoke<FileOperationSummary>(command, { paths: pathsToDelete });
         if (summary) toast.success(describeFileOperation(summary));
         await refreshImageList();

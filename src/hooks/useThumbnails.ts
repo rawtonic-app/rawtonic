@@ -1,3 +1,4 @@
+import { Invokes } from '../components/ui/AppProperties';
 import { useCallback, useMemo, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -42,7 +43,7 @@ export function createThumbnailQueue(send: (paths: string[]) => Promise<unknown>
 }
 
 export function useThumbnails() {
-  const queue = useMemo(() => createThumbnailQueue((paths) => invoke("update_thumbnail_queue", { paths })), []);
+  const queue = useMemo(() => createThumbnailQueue((paths) => invoke(Invokes.UpdateThumbnailQueue, { paths })), []);
   const requestThumbnails = useCallback((paths: string[]) => queue.request(paths), [queue]);
   const markGenerated = useCallback((path: string) => queue.markGenerated(path), [queue]);
   const clearThumbnailQueue = useCallback(() => queue.clear(), [queue]);

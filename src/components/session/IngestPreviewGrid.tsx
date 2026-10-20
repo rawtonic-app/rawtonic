@@ -1,3 +1,4 @@
+import { Invokes } from '../ui/AppProperties';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check } from "lucide-react";
@@ -19,7 +20,7 @@ export interface IngestCandidate {
 /** A source photograph's small preview (its embedded camera JPEG) as an
  * object URL, or null when there is none. */
 export async function loadIngestThumbnail(path: string): Promise<string | null> {
-  const bytes = await invoke<ArrayBuffer | number[]>("session_ingest_thumbnail", { path });
+  const bytes = await invoke<ArrayBuffer | number[]>(Invokes.SessionIngestThumbnail, { path });
   const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes ?? []).buffer;
   if (!data.byteLength) return null;
   return URL.createObjectURL(new Blob([data], { type: "image/jpeg" }));

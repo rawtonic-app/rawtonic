@@ -1,3 +1,4 @@
+import { Invokes } from '../components/ui/AppProperties';
 import { createElement, Fragment, Profiler, type ProfilerOnRenderCallback, type ReactNode, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useEditorStore } from "../store/useEditorStore";
@@ -221,7 +222,7 @@ export function reportPerformance(
   values: Record<string, number | string | number[][]>,
 ) {
   if (!performanceDiagnosticsEnabled) return;
-  void invoke("frontend_log", {
+  void invoke(Invokes.FrontendLog, {
     level: "info",
     // at_epoch_ms: when the record was made, to order it against native
     // records and long frames.
