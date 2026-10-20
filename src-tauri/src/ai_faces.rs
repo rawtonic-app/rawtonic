@@ -135,7 +135,7 @@ async fn analysis(
     // Keyed by the photo actually loaded, taken before the models load: a
     // photo switch meanwhile cannot file one photo's faces under another.
     let loaded = crate::image_loader::original_image(state).await?;
-    let key = crate::ai_commands::geometry_key(&loaded.path, js_adjustments);
+    let key = crate::ai_commands::geometry_key(&loaded, js_adjustments);
     if let Some(c) = state.faces.lock().unwrap().cached.as_ref()
         && c.key == key
     {

@@ -119,6 +119,40 @@ pub struct LoadedImage {
     pub multiscale: Option<bool>,
 }
 
+impl LoadedImage {
+    /// Which development of the photo `image` is: the same while it is
+    /// these pixels (also back from the decoded-image cache), another after
+    /// the photo is developed again (AI Denoise, decode options, a 1:1
+    /// preview). Caches of results computed from the pixels (AI masks,
+    /// depth, faces) include it in their keys.
+    pub fn source_generation(&self) -> u64 {
+        source_generation(&self.image)
+    }
+}
+
+/// Generations of the developments alive. An entry's `Weak` keeps the
+/// allocation, so its address is not reused while it is listed; entries
+/// whose image is gone are dropped, and generations never repeat.
+static SOURCE_GENERATIONS: Mutex<(u64, Vec<LiveSource>)> = Mutex::new((0, Vec::new()));
+
+/// A development alive and its generation.
+type LiveSource = (std::sync::Weak<DynamicImage>, u64);
+
+fn source_generation(image: &Arc<DynamicImage>) -> u64 {
+    let mut generations = SOURCE_GENERATIONS.lock().unwrap_or_else(|e| e.into_inner());
+    let (last, live) = &mut *generations;
+    live.retain(|(source, _)| source.strong_count() > 0);
+    if let Some((_, generation)) = live
+        .iter()
+        .find(|(source, _)| std::ptr::eq(source.as_ptr(), Arc::as_ptr(image)))
+    {
+        return *generation;
+    }
+    *last += 1;
+    live.push((Arc::downgrade(image), *last));
+    *last
+}
+
 /// The open photograph's preview proxy (preview_proxy.rs) while its full
 /// decode runs: `image` at `scale` proxy pixels per full-resolution pixel.
 #[derive(Clone)]
