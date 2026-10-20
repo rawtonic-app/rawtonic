@@ -373,6 +373,18 @@ impl Library {
         Ok(planned)
     }
 
+    /// Marks jobs a run left `Running` or `Interrupted` with nothing left
+    /// to import (cut off after its last photograph) as `Done`. For a
+    /// caller that knows no job runs. Returns how many.
+    pub fn settle_ingest_jobs(&self) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE tasks SET state='done' WHERE kind='ingest' AND state IN ('running','interrupted')
+             AND NOT EXISTS(SELECT 1 FROM ingest_items i WHERE i.job_id=tasks.id
+                            AND i.state IN ('pending','copying'))",
+            [],
+        )?)
+    }
+
     /// `path` as a job stores it: relative to the library when inside it
     /// (a closed session moves as one folder), else absolute.
     pub fn stored(&self, path: &Path) -> Result<String> {

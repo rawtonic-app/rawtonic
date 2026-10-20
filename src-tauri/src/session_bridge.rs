@@ -824,6 +824,8 @@ pub async fn session_ingest_resume(
     }
     let result = tauri::async_runtime::spawn_blocking(move || {
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        // No ingest runs: jobs cut off after their last photograph are done.
+        lib.settle_ingest_jobs().map_err(|e| e.to_string())?;
         let mut results = Vec::new();
         for job in lib.unfinished_ingest_jobs().map_err(|e| e.to_string())? {
             if CANCEL_IMPORT.load(Ordering::Acquire) {

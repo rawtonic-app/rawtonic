@@ -689,6 +689,10 @@ mod tests {
         // C0 (held already), C0.JPG (its own photograph now), C1, C2, C3.
         assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 5);
         assert_eq!(lib.summary().unwrap().assets, 5);
+        // Left running with nothing to do: settled as done.
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Running);
+        assert_eq!(lib.settle_ingest_jobs().unwrap(), 1);
+        assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
     }
 
     /// A source reached through a symlink is read through it, as the copy
