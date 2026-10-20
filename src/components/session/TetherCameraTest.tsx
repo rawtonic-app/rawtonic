@@ -50,8 +50,11 @@ interface Captured {
 interface Heard {
   name: string;
   payload: unknown;
+  /** Its place in what was heard (waits go on from there), and when. */
+  seq: number;
   at: number;
-  /** A photo of a new exposure (not the JPEG or RAW of one already in). */
+  /** The first file (or failed file) of an exposure: not the JPEG or RAW
+   * of one already heard. */
   exposure?: boolean;
   /** A failure of an exposure another step took. */
   foreign?: boolean;
@@ -146,6 +149,7 @@ export default function TetherCameraTest({
   // Everything heard during the test, so a wait never misses what came
   // before it was set up.
   const heard = useRef<Heard[]>([]);
+  const seq = useRef(0);
   const waiters = useRef(new Set<(h: Heard | null) => boolean>());
   // Closed: no step asks the camera for anything more.
   const closed = useRef(false);
@@ -170,15 +174,16 @@ export default function TetherCameraTest({
       .then(setAppVersion)
       .catch(() => undefined);
     const hear = (name: string, payload: unknown) => {
-      const h: Heard = { name, payload, at: now() };
+      seq.current += 1;
+      const h: Heard = { name, payload, seq: seq.current, at: now() };
       const running = runningStep.current && PHOTO_STEPS.includes(runningStep.current) ? runningStep.current : null;
       // The photo step a file or a failed file belongs to: its exposure's.
       let owner: StepId | null = running;
       const { connection, exposure } = payload as { connection?: number | null; exposure?: number | null };
       const key = connection == null || exposure == null ? null : `${connection}/${exposure}`;
-      if (name === "tether-captured") {
-        // One exposure as RAW and JPEG counts once: the helper gives both
-        // its number.
+      if (name === "tether-captured" || name === "tether-capture-failed") {
+        // One exposure as RAW and JPEG counts once, whichever of its files
+        // comes or fails first: the helper gives both its number.
         h.exposure = key === null || !exposures.current.has(key);
         if (key !== null && !exposures.current.has(key)) exposures.current.set(key, running);
       }
@@ -231,12 +236,13 @@ export default function TetherCameraTest({
     };
   }, []);
 
-  /** The first event since `since` that `match`es, or null after `ms`. */
+  /** The first event after the `after`-th that `match`es, or null after
+   * `ms`. */
   const next = useCallback(
-    (match: (h: Heard) => boolean, ms: number, since: number) =>
+    (match: (h: Heard) => boolean, ms: number, after: number) =>
       new Promise<Heard | null>((resolve) => {
         if (closed.current) return resolve(null);
-        const early = heard.current.find((h) => h.at >= since && match(h));
+        const early = heard.current.find((h) => h.seq > after && match(h));
         if (early) return resolve(early);
         const waiter = (h: Heard | null) => {
           if (h !== null && !match(h)) return false;
@@ -264,6 +270,7 @@ export default function TetherCameraTest({
    * Develop frame (when `screen`: Develop shows the captures). */
   const shoot = useCallback(async (screen: boolean) => {
     const since = now();
+    const after = seq.current;
     try {
       await ask(Invokes.TetherCapture);
     } catch (e) {
@@ -272,7 +279,7 @@ export default function TetherCameraTest({
     const photo = await next(
       (h) => appExposure(h) || ownFailure(h),
       SHOT_WAIT_MS,
-      since,
+      after,
     );
     if (!photo) return { error: NO_PHOTO };
     if (photo.name === "tether-capture-failed") return { error: notDelivered(photo.payload) };
@@ -285,7 +292,7 @@ export default function TetherCameraTest({
         ? await next(
             (h) => h.name === "wgpu-frame-ready" && sameFile((h.payload as { path: string }).path, destination),
             SCREEN_WAIT_MS,
-            photo.at,
+            photo.seq,
           )
         : null;
     return { inLibrary, onScreen: frame ? Math.round(frame.at - since) : undefined };
@@ -349,6 +356,7 @@ export default function TetherCameraTest({
     },
     burst: async () => {
       const since = now();
+      let after = seq.current;
       const errors: Failure[] = [];
       setPrompt(t("session.tether.test.bursting", { shots: BURST }));
       for (let i = 0; i < BURST; i += 1) {
@@ -365,21 +373,17 @@ export default function TetherCameraTest({
       let ended = 0;
       let last = since;
       while (ended < fired) {
-        const photo = await next(
-          (h) =>
-            h.at > last &&
-            (appExposure(h) || ownFailure(h)),
-          SHOT_WAIT_MS,
-          last,
-        );
+        const photo = await next((h) => appExposure(h) || ownFailure(h), SHOT_WAIT_MS, after);
         if (!photo) {
           errors.push(NO_PHOTO);
           break;
         }
+        after = photo.seq;
         last = photo.at;
         if (photo.name === "tether-capture-failed") {
           errors.push(notDelivered(photo.payload));
-          if ((photo.payload as { kind?: string }).kind === "timeout") ended += 1;
+          // A shot that never came, or an exposure whose first file failed.
+          if ((photo.payload as { kind?: string }).kind === "timeout" || photo.exposure) ended += 1;
         } else {
           ended += 1;
           if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ""));
@@ -395,12 +399,12 @@ export default function TetherCameraTest({
       };
     },
     bodyShot: async () => {
-      const since = now();
+      const after = seq.current;
       setPrompt(t("session.tether.test.pressShutter"));
       const photo = await next(
         (h) => h.name === "tether-captured" && !captured(h).requested && h.exposure === true,
         BODY_SHOT_WAIT_MS,
-        since,
+        after,
       );
       if (!photo) return { state: "failed", asked: 1, arrived: 0, reason: "no photo within 30 s" };
       const c = captured(photo);
@@ -413,14 +417,14 @@ export default function TetherCameraTest({
       const gone = await next(
         (h) => h.name === "tether-state" && !(h.payload as { connected: boolean }).connected,
         UNPLUG_WAIT_MS,
-        now(),
+        seq.current,
       );
       if (!gone) return { state: "failed", reason: "the cable pull was not noticed within 60 s" };
       setPrompt(t("session.tether.test.plugBack"));
       const back = await next(
         (h) => h.name === "tether-state" && (h.payload as { connected: boolean }).connected,
         REPLUG_WAIT_MS,
-        gone.at,
+        gone.seq,
       );
       if (!back) return { state: "failed", reason: "not connected again within 3 minutes" };
       const ms = Math.round(back.at - gone.at);

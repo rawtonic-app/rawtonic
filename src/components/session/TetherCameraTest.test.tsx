@@ -263,7 +263,7 @@ it("a companion that fails to download, or fails after its step ended, fails tha
         error: null,
         requested: true,
       });
-      emit("tether-capture-failed", { kind: "storage", message: "Writing DSCF.RAF failed" });
+      emit("tether-capture-failed", { kind: "storage", message: "Writing DSCF.RAF failed", connection: 1, exposure: n });
     }, 5);
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
@@ -336,4 +336,35 @@ it("a failure goes to the step whose exposure it belongs to, not the step runnin
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   emit("tether-capture-failed", { kind: "timeout", message: "late", connection: null, exposure: null });
   await waitFor(() => expect(report()).toContain("| Burst from Rawtonic | FAIL |"), { timeout: 4000 });
+}, 20_000);
+
+it("a RAW that fails first keeps its exposure: its JPEG in the next step is no new shot", async () => {
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      const jpeg = (k: number) => ({
+        cameraName: `DSCF${k}.JPG`,
+        connection: 1,
+        exposure: k,
+        destination: null,
+        assetId: `a${k}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+      // Shot 1's RAW cannot be saved; its JPEG comes only during the burst.
+      if (n === 1)
+        emit("tether-capture-failed", { kind: "storage", message: "DSCF1.RAF could not be saved", connection: 1, exposure: 1 });
+      else if (n === 6) {
+        emit("tether-captured", jpeg(1));
+        emit("tether-captured", jpeg(6));
+      }
+      // The burst's last shot never comes.
+      else if (n === 10) emit("tether-capture-failed", { kind: "timeout", message: "never came", connection: null, exposure: null });
+      else emit("tether-captured", jpeg(n));
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 4\/5 in the library;/);
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 4\/5 in the library; \d+ ms; shot not delivered \(timeout\) \|/);
 }, 20_000);
