@@ -728,7 +728,11 @@ fn a_schema_10_library_gets_its_keywords_search_and_albums_migrated() {
     lib.add_to_collection(&album.id, &ids[..2]).unwrap();
     drop(lib);
     let db = rusqlite::Connection::open(d.path().join("Job/session.sqlite")).unwrap();
-    db.execute_batch(include_str!("undo_0011.sql")).unwrap();
+    db.execute_batch(concat!(
+        include_str!("undo_0012.sql"),
+        include_str!("undo_0011.sql")
+    ))
+    .unwrap();
     drop(db);
     let lib = Library::open(&d.path().join("Job")).unwrap();
     // Keywords and search text come along; capture facts are read again.

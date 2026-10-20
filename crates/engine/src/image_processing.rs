@@ -51,6 +51,19 @@ pub struct ImageMetadata {
     pub tags: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exif: Option<std::collections::HashMap<String, String>>,
+    /// Named snapshots of the development as a sidecar holds them
+    /// (`rawtonic_catalog::snapshots::for_sidecar`), kept as they are by
+    /// every sidecar edit; for a library photograph the library's are
+    /// authoritative.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub snapshots: Vec<Value>,
+    /// The snapshots' long strings, each once, by SHA-256.
+    #[serde(
+        default,
+        rename = "snapshotStrings",
+        skip_serializing_if = "serde_json::Map::is_empty"
+    )]
+    pub snapshot_strings: serde_json::Map<String, Value>,
 }
 
 impl Default for ImageMetadata {
@@ -61,6 +74,8 @@ impl Default for ImageMetadata {
             adjustments: Value::Null,
             tags: None,
             exif: None,
+            snapshots: Vec::new(),
+            snapshot_strings: serde_json::Map::new(),
         }
     }
 }

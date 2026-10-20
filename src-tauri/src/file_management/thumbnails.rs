@@ -213,9 +213,6 @@ pub fn generate_thumbnail_data(
     app_handle: &AppHandle,
 ) -> anyhow::Result<DynamicImage> {
     let (source_path, sidecar_path) = parse_virtual_path(path_str);
-    let source_path_str = source_path.to_string_lossy().to_string();
-    let is_raw = is_raw_file(&source_path_str);
-
     let metadata: Option<ImageMetadata> = if is_cloud_placeholder(&sidecar_path) {
         enqueue_metadata(
             app_handle,
@@ -227,6 +224,21 @@ pub fn generate_thumbnail_data(
     } else {
         thumbnail_metadata(&source_path, &sidecar_path)
     };
+    develop_thumbnail(path_str, metadata, gpu_context, preloaded_image, app_handle)
+}
+
+/// The thumbnail of `path_str` developed with `metadata`'s adjustments
+/// (none: as a photograph never edited), as the Library shows it.
+pub(crate) fn develop_thumbnail(
+    path_str: &str,
+    metadata: Option<ImageMetadata>,
+    gpu_context: Option<&GpuContext>,
+    preloaded_image: Option<&DynamicImage>,
+    app_handle: &AppHandle,
+) -> anyhow::Result<DynamicImage> {
+    let (source_path, _) = parse_virtual_path(path_str);
+    let source_path_str = source_path.to_string_lossy().to_string();
+    let is_raw = is_raw_file(&source_path_str);
 
     let adjustments = metadata
         .as_ref()

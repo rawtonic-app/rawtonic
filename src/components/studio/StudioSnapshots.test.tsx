@@ -1,0 +1,158 @@
+import "../../i18n";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
+import StudioSnapshots from "./StudioSnapshots";
+import StudioHistory from "./StudioHistory";
+import { debouncedSetHistory, useEditorStore } from "../../store/useEditorStore";
+import { useSnapshotStore, type Snapshot } from "../../store/useSnapshotStore";
+import { INITIAL_ADJUSTMENTS, type Adjustments } from "../../utils/adjustments";
+import type { SelectedImage } from "../ui/AppProperties";
+
+/** The backend's snapshots, by photograph. */
+let kept: Record<string, Snapshot[]> = {};
+let thumbnailCalls: string[] = [];
+let nextId = 0;
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+
+const recipe = (exposure: number): Adjustments => ({ ...structuredClone(INITIAL_ADJUSTMENTS), exposure });
+const PHOTO = "/qa/photo.dng";
+
+beforeEach(() => {
+  kept = {};
+  thumbnailCalls = [];
+  nextId = 0;
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => `blob:${++nextId}`), revokeObjectURL: vi.fn() }));
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { path: string; id?: string; name?: string; adjustments?: Adjustments };
+    const list = (kept[a.path] ??= []);
+    switch (name) {
+      case "snapshots_list":
+        return structuredClone(list);
+      case "snapshot_create":
+        list.push({ id: `s${list.length + 1}`, name: a.name!.trim(), createdAt: "2026-10-20T10:00:00.000Z", adjustments: a.adjustments! });
+        return structuredClone(list);
+      case "snapshot_rename":
+        list.find((s) => s.id === a.id)!.name = a.name!;
+        return structuredClone(list);
+      case "snapshot_update":
+        list.find((s) => s.id === a.id)!.adjustments = a.adjustments!;
+        return structuredClone(list);
+      case "snapshot_delete":
+        kept[a.path] = list.filter((s) => s.id !== a.id);
+        return structuredClone(kept[a.path]);
+      case "snapshot_thumbnail":
+        thumbnailCalls.push(String(a.adjustments?.exposure));
+        return new ArrayBuffer(4);
+      default:
+        return undefined;
+    }
+  });
+  useSnapshotStore.setState(useSnapshotStore.getInitialState());
+  useEditorStore.setState({
+    ...useEditorStore.getInitialState(),
+    adjustments: recipe(0),
+    selectedImage: { path: PHOTO, width: 6000, height: 4000, isRaw: true, isReady: true } as SelectedImage,
+  });
+  useEditorStore.getState().resetHistory(recipe(0));
+});
+afterEach(() => {
+  cleanup();
+  debouncedSetHistory.cancel();
+  vi.unstubAllGlobals();
+});
+
+const openTool = (title: string) => {
+  const details = document.querySelector<HTMLDetailsElement>(`[data-tool-title="${title}"]`)!;
+  details.open = true;
+};
+
+it("takes a snapshot of the current edit, lists it with its thumbnail and renames it", async () => {
+  useEditorStore.setState({ adjustments: recipe(1) });
+  render(<StudioSnapshots />);
+  await waitFor(() => expect(useSnapshotStore.getState().path).toBe(PHOTO));
+  openTool("Snapshots");
+  fireEvent.click(screen.getByRole("button", { name: "New snapshot of the current edit" }));
+  await waitFor(() => expect(kept[PHOTO]).toHaveLength(1));
+  expect(kept[PHOTO][0].adjustments.exposure).toBe(1);
+  // Named as taken now; the name is selected for typing over at once.
+  const input = await screen.findByRole("textbox", { name: "Snapshot name" });
+  fireEvent.change(input, { target: { value: "One stop" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  await waitFor(() => expect(kept[PHOTO][0].name).toBe("One stop"));
+  await waitFor(() => expect(document.querySelector(".studio-snapshot-thumb img")?.getAttribute("src")).toBe("blob:1"));
+  expect(thumbnailCalls).toEqual(["1"]);
+});
+
+it("restores a snapshot as one named, undoable history step", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Bright", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(2) }];
+  render(
+    <>
+      <StudioSnapshots />
+      <StudioHistory />
+    </>,
+  );
+  await screen.findByText("Bright");
+  fireEvent.click(screen.getByTitle("Restore Bright (a history step: Undo returns)"));
+  const editor = useEditorStore.getState();
+  expect(editor.adjustments.exposure).toBe(2);
+  expect(editor.history).toHaveLength(2);
+  expect(editor.historyPending).toBe(false);
+  openTool("History");
+  expect(await screen.findByTitle("Snapshot Bright")).toBeTruthy();
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+});
+
+it("takes a snapshot of any history step, named after it, and deletes one", async () => {
+  useEditorStore.getState().pushHistory(recipe(0.5));
+  useEditorStore.getState().pushHistory(recipe(1.5));
+  render(
+    <>
+      <StudioSnapshots />
+      <StudioHistory />
+    </>,
+  );
+  await waitFor(() => expect(useSnapshotStore.getState().path).toBe(PHOTO));
+  openTool("History");
+  fireEvent.click(screen.getByRole("button", { name: "Snapshot of this step: Exposure +0.50" }));
+  await waitFor(() => expect(kept[PHOTO]).toHaveLength(1));
+  expect(kept[PHOTO][0]).toMatchObject({ name: "Exposure +0.50", adjustments: { exposure: 0.5 } });
+  // The edit is untouched by taking one.
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+  fireEvent.click(await screen.findByRole("button", { name: "Delete snapshot Exposure +0.50" }));
+  await waitFor(() => expect(kept[PHOTO]).toHaveLength(0));
+  expect(await screen.findByText(/No snapshots yet/)).toBeTruthy();
+});
+
+it("shows the next photograph's snapshots and releases the previous thumbnails", async () => {
+  kept[PHOTO] = [{ id: "a", name: "First", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(1) }];
+  kept["/qa/other.dng"] = [{ id: "b", name: "Second", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(3) }];
+  render(<StudioSnapshots />);
+  await screen.findByText("First");
+  await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBe("blob:1"));
+  act(() =>
+    useEditorStore.setState({
+      selectedImage: { path: "/qa/other.dng", width: 10, height: 10, isRaw: true, isReady: true } as SelectedImage,
+    }),
+  );
+  await screen.findByText("Second");
+  expect(screen.queryByText("First")).toBeNull();
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
+  // A restore never reaches a photograph the list does not belong to.
+  useSnapshotStore.setState({ path: PHOTO });
+  expect(useEditorStore.getState().adjustments.exposure).toBe(0);
+});
+
+it("updates a snapshot with the current edit and develops its thumbnail again", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Look", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(1) }];
+  render(<StudioSnapshots />);
+  await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBe("blob:1"));
+  useEditorStore.setState({ adjustments: recipe(-1) });
+  fireEvent.click(screen.getByRole("button", { name: "Update Look with the current edit" }));
+  await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBe("blob:2"));
+  expect(kept[PHOTO][0].adjustments.exposure).toBe(-1);
+  expect(thumbnailCalls).toEqual(["1", "-1"]);
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
+});

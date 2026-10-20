@@ -2060,6 +2060,18 @@
         "vertical": "Pionowo",
         "whites": "Biele"
       },
+      "snapshots": {
+        "create": "Nowa migawka bieżącej edycji",
+        "delete": "Usuń migawkę {{name}}",
+        "empty": "Brak migawek: + zachowuje bieżącą edycję pod nazwą, aparat w historii zachowuje dowolny krok.",
+        "failed": "Migawka nie powiodła się: {{error}}",
+        "fromStep": "Migawka tego kroku: {{step}}",
+        "name": "Nazwa migawki",
+        "restore": "Przywróć {{name}} (krok historii: Cofnij wraca)",
+        "restored": "Migawka {{name}}",
+        "title": "Migawki",
+        "update": "Zaktualizuj {{name}} bieżącą edycją"
+      },
       "tabs": {
         "adjust": "Korekty",
         "adjustTitle": "Ustawienia",

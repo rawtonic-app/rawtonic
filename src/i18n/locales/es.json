@@ -2002,6 +2002,18 @@
         "vertical": "Vertical",
         "whites": "Blancos"
       },
+      "snapshots": {
+        "create": "Nueva instantánea de la edición actual",
+        "delete": "Eliminar la instantánea {{name}}",
+        "empty": "Aún no hay instantáneas: + guarda la edición actual con un nombre, la cámara del historial guarda cualquier paso.",
+        "failed": "Error de la instantánea: {{error}}",
+        "fromStep": "Instantánea de este paso: {{step}}",
+        "name": "Nombre de la instantánea",
+        "restore": "Restaurar {{name}} (un paso del historial: Deshacer vuelve)",
+        "restored": "Instantánea {{name}}",
+        "title": "Instantáneas",
+        "update": "Actualizar {{name}} con la edición actual"
+      },
       "tabs": {
         "adjust": "Ajustar",
         "adjustTitle": "Ajustes",

@@ -1064,7 +1064,7 @@ describe("what the tools act on (tool tabs vs. the selected layer)", () => {
 });
 
 describe("tool tabs", () => {
-  it("shows every tool in one tab only (History in all of them)", () => {
+  it("shows every tool in one tab only (Snapshots and History in all of them)", () => {
     mount();
     const seen = new Map<string, string>();
     const twice: string[] = [];
@@ -1072,7 +1072,7 @@ describe("tool tabs", () => {
       fireEvent.click(within(screen.getByRole("navigation")).getByRole("button", { name }));
       for (const group of document.querySelectorAll<HTMLElement>("[data-tool-title]")) {
         const tool = group.dataset.toolTitle!;
-        if (tool === "History") continue;
+        if (tool === "History" || tool === "Snapshots") continue;
         if (seen.has(tool)) twice.push(`${tool}: ${seen.get(tool)} + ${name}`);
         else seen.set(tool, name);
       }

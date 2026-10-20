@@ -1944,6 +1944,18 @@
         "vertical": "Vertikal",
         "whites": "Weiß"
       },
+      "snapshots": {
+        "create": "Neuer Schnappschuss der aktuellen Bearbeitung",
+        "delete": "Schnappschuss {{name}} löschen",
+        "empty": "Noch keine Schnappschüsse: + hält die aktuelle Bearbeitung unter einem Namen fest, die Kamera im Protokoll jeden Schritt.",
+        "failed": "Schnappschuss fehlgeschlagen: {{error}}",
+        "fromStep": "Schnappschuss dieses Schritts: {{step}}",
+        "name": "Name des Schnappschusses",
+        "restore": "{{name}} wiederherstellen (ein Protokollschritt: Rückgängig kehrt zurück)",
+        "restored": "Schnappschuss {{name}}",
+        "title": "Schnappschüsse",
+        "update": "{{name}} mit der aktuellen Bearbeitung aktualisieren"
+      },
       "tabs": {
         "adjust": "Anpassen",
         "adjustTitle": "Anpassungen",

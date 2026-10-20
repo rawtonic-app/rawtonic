@@ -66,6 +66,7 @@ import StudioFaceRetouch from "./StudioFaceRetouch";
 import StudioToolCopy, { type ToolParams } from "./StudioToolCopy";
 import { ToolColumn, useToolMenu, useToolOpen } from "./toolLayout";
 import StudioHistory from "./StudioHistory";
+import StudioSnapshots from "./StudioSnapshots";
 import {
   StudioBlackAndWhite,
   StudioCalibration,
@@ -1764,6 +1765,7 @@ export default function StudioDevelop() {
               />
             </ToolGroup>
           )}
+          <StudioSnapshots key="snapshots" />
           <StudioHistory key="history" />
         </ToolColumn>
       </div>

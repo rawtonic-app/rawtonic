@@ -1907,6 +1907,18 @@
         "vertical": "세로",
         "whites": "흰색 계열"
       },
+      "snapshots": {
+        "create": "현재 편집의 새 스냅샷",
+        "delete": "스냅샷 {{name}} 삭제",
+        "empty": "아직 스냅샷이 없습니다. +는 현재 편집을 이름으로 보관하고, 기록의 카메라는 모든 단계를 보관합니다.",
+        "failed": "스냅샷 실패: {{error}}",
+        "fromStep": "이 단계의 스냅샷: {{step}}",
+        "name": "스냅샷 이름",
+        "restore": "{{name}} 복원 (기록 단계: 실행 취소로 되돌림)",
+        "restored": "스냅샷 {{name}}",
+        "title": "스냅샷",
+        "update": "{{name}}을(를) 현재 편집으로 업데이트"
+      },
       "tabs": {
         "adjust": "조정",
         "adjustTitle": "조정",

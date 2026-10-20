@@ -132,6 +132,14 @@ impl Contents {
     fn is_empty(&self) -> bool {
         self.editor_state.is_none() && self.metadata.is_none()
     }
+
+    /// The snapshots the editor state carries (`snapshots::in_state`).
+    fn snapshots(&self) -> Vec<crate::Snapshot> {
+        self.editor_state
+            .as_ref()
+            .map(crate::snapshots::in_state)
+            .unwrap_or_default()
+    }
 }
 
 /// A new photograph read and validated, ready for `insert_planned`.
@@ -149,6 +157,8 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    /// The snapshots its editor sidecar carries.
+    snapshots: Vec<crate::Snapshot>,
     /// The companion file beside it (`Library::companion`).
     companion: Option<(String, crate::companion::Identity)>,
     /// What its EXIF says (`PlannedAsset::with_facts`); none: the
@@ -284,6 +294,7 @@ impl Library {
             fingerprint,
             recipe,
             metadata,
+            snapshots: contents.snapshots(),
             xmp_digest: contents.xmp_digest,
             companion: None,
             facts: None,
@@ -381,6 +392,7 @@ impl Library {
             if let Some(recipe) = &asset.recipe {
                 write_recipe(&tx, &version, recipe)?;
             }
+            crate::snapshots::insert(&tx, &self.directory, &version, &asset.snapshots)?;
             if let Some(facts) = &asset.facts {
                 crate::facts::write_facts(&tx, &id, facts)?;
             }
@@ -505,6 +517,11 @@ impl Library {
         }
         if let Some(recipe) = &recipe {
             write_recipe(&tx, &version, recipe)?;
+        }
+        // Snapshots the library has already are its own; a sidecar's are
+        // taken over only by a version without any.
+        if !crate::snapshots::any(&tx, &version)? {
+            crate::snapshots::insert(&tx, &self.directory, &version, &contents.snapshots())?;
         }
         if let Some(metadata) = &metadata {
             write_metadata(&tx, id, metadata)?;
@@ -765,7 +782,10 @@ mod tests {
         let before = lib.previous_import().unwrap().unwrap();
         // Back to schema 5: batches limited to ingest, add and sync.
         lib.conn
-            .execute_batch(include_str!("../tests/undo_0011.sql"))
+            .execute_batch(concat!(
+                include_str!("../tests/undo_0012.sql"),
+                include_str!("../tests/undo_0011.sql")
+            ))
             .unwrap();
         lib.conn
             .execute_batch(

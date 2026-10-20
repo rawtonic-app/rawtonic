@@ -23,17 +23,19 @@ pub mod folders;
 pub mod hot_folder;
 pub mod ingest_jobs;
 pub mod query;
+pub mod snapshots;
 pub mod volume;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
 pub use facts::CaptureFacts;
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
 pub use query::{Combine, Field, Op, Rule};
+pub use snapshots::Snapshot;
 pub use volume::Volume;
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 11;
+pub const DB_SCHEMA_VERSION: u32 = 12;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -248,6 +250,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0009.sql"))?;
         conn.execute_batch(include_str!("../migrations/0010.sql"))?;
         conn.execute_batch(include_str!("../migrations/0011.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0012.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -359,6 +362,9 @@ impl Library {
         }
         if version < 11 {
             tx.execute_batch(include_str!("../migrations/0011.sql"))?;
+        }
+        if version < 12 {
+            tx.execute_batch(include_str!("../migrations/0012.sql"))?;
         }
         tx.commit()?;
         Ok(())
@@ -980,6 +986,8 @@ impl Library {
     /// Reads nothing but `legacy`; validated before anything is written.
     fn editor_recipe(&self, legacy: &Value, mut meta: Metadata) -> Result<(String, Metadata)> {
         let mut stored = legacy.clone();
+        // Snapshots are kept in their own table, not in every history step.
+        snapshots::strip(&mut stored);
         rawtonic_metadata::resources::localize(&mut stored, &self.directory);
         let legacy = &stored;
         let payload = json!({"schema_version":1,"process_version":"rapidraw-1.6.4","adjustments":legacy.get("adjustments").cloned().unwrap_or(Value::Null),"editor_state":legacy,"layers":[]});
@@ -1027,13 +1035,24 @@ impl Library {
         Ok((bytes, meta))
     }
 
+    /// The editor state of `asset`'s primary version, with its snapshots.
     pub fn editor_state(&self, asset: &str) -> Result<Option<Value>> {
+        let version = self.primary_version(asset)?;
+        let snapshots = self.snapshots(&version)?;
         let state = self
-            .recipe(&self.primary_version(asset)?)?
-            .and_then(|r| r.get("editor_state").cloned());
+            .recipe(&version)?
+            .and_then(|r| r.get("editor_state").cloned())
+            // Snapshots of a photograph never edited: a state to carry them.
+            .or_else(|| {
+                (!snapshots.is_empty())
+                    .then(|| json!({"version": 1, "rating": 0, "tags": [], "adjustments": null}))
+            });
         let mut state = with_library_metadata(state, self.metadata(asset)?);
         if let Some(ref mut state) = state {
             rawtonic_metadata::resources::resolve(state, &self.directory);
+            if !snapshots.is_empty() {
+                snapshots::set_in_state(state, &snapshots)?;
+            }
         }
         Ok(state)
     }
@@ -1805,9 +1824,14 @@ impl Library {
     /// version beside the primary one), so the copy stays listed and
     /// editable while the photograph is offline. The copy's own sidecar
     /// (`<photo>.<copy>.rrdata`) is derived from it while the file is there.
+    /// Its snapshots are the library's (`Library::add_snapshot`); those the
+    /// state carries are taken over only when the copy is first recorded
+    /// (a copy's sidecar adopted).
     pub fn save_copy_state(&self, asset: &str, copy: &str, state: &Value) -> Result<()> {
         ensure!(valid_copy_id(copy), "Not a virtual copy id: {copy}");
+        let carried = snapshots::in_state(state);
         let mut state = state.clone();
+        snapshots::strip(&mut state);
         rawtonic_metadata::resources::localize(&mut state, &self.directory);
         let text = serde_json::to_string(&state)?;
         ensure!(text.len() <= 64 * 1024 * 1024, "Recipe too large");
@@ -1817,32 +1841,37 @@ impl Library {
             params![text, asset, copy],
         )?;
         if updated == 0 {
+            let version = Uuid::new_v4().to_string();
             tx.execute(
                 "INSERT INTO versions(id,asset_id,name,is_primary,legacy_state) VALUES(?,?,?,0,?)",
-                params![Uuid::new_v4().to_string(), asset, copy, text],
+                params![version, asset, copy, text],
             )?;
+            snapshots::insert(&tx, &self.directory, &version, &carried)?;
         }
         tx.commit()?;
         Ok(())
     }
 
-    /// The recorded editor state of a virtual copy.
+    /// The recorded editor state of a virtual copy, with its snapshots.
     pub fn copy_state(&self, asset: &str, copy: &str) -> Result<Option<Value>> {
-        let text: Option<Option<String>> = self
+        let row: Option<(String, Option<String>)> = self
             .conn
             .query_row(
-                "SELECT legacy_state FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
+                "SELECT id,legacy_state FROM versions WHERE asset_id=? AND name=? AND is_primary=0",
                 params![asset, copy],
-                |r| r.get(0),
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()?;
-        text.flatten()
-            .map(|text| {
-                let mut value = serde_json::from_str(&text)?;
-                rawtonic_metadata::resources::resolve(&mut value, &self.directory);
-                Ok(value)
-            })
-            .transpose()
+        let Some((version, Some(text))) = row else {
+            return Ok(None);
+        };
+        let mut value = serde_json::from_str(&text)?;
+        rawtonic_metadata::resources::resolve(&mut value, &self.directory);
+        let snapshots = self.snapshots(&version)?;
+        if !snapshots.is_empty() {
+            snapshots::set_in_state(&mut value, &snapshots)?;
+        }
+        Ok(Some(value))
     }
 
     /// The ids of the virtual copies recorded for `asset`, in id order.
@@ -1944,7 +1973,7 @@ fn write_recipe(tx: &Connection, version: &str, payload: &str) -> Result<()> {
 }
 
 /// Recipe strings from this length on are stored once (`recipe_blobs`).
-const BLOB_MIN_LEN: usize = 16 * 1024;
+pub(crate) const BLOB_MIN_LEN: usize = 16 * 1024;
 const BLOB_PREFIX: &str = "rawtonic-blob:sha256:";
 
 /// Moves the long strings of `value` (data URLs of masks and analyses) into
@@ -2024,7 +2053,8 @@ fn visit_strings(value: &mut Value, visit: &mut impl FnMut(&mut String)) {
 /// Drops stored strings no recipe refers to any more (after removals).
 pub(crate) fn prune_blobs(tx: &Connection) -> Result<()> {
     tx.execute(
-        "DELETE FROM recipe_blobs WHERE hash NOT IN (SELECT hash FROM recipe_blob_refs)",
+        "DELETE FROM recipe_blobs WHERE hash NOT IN (SELECT hash FROM recipe_blob_refs)
+         AND hash NOT IN (SELECT hash FROM snapshot_blob_refs)",
         [],
     )?;
     Ok(())

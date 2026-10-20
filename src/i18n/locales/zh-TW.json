@@ -1907,6 +1907,18 @@
         "vertical": "垂直",
         "whites": "白色色階"
       },
+      "snapshots": {
+        "create": "目前編輯的新快照",
+        "delete": "刪除快照 {{name}}",
+        "empty": "尚無快照：+ 以名稱保存目前編輯，記錄中的相機可保存任一步驟。",
+        "failed": "快照失敗：{{error}}",
+        "fromStep": "此步驟的快照：{{step}}",
+        "name": "快照名稱",
+        "restore": "還原 {{name}}（一個記錄步驟：復原可返回）",
+        "restored": "快照 {{name}}",
+        "title": "快照",
+        "update": "以目前編輯更新 {{name}}"
+      },
       "tabs": {
         "adjust": "調整",
         "adjustTitle": "調整",
