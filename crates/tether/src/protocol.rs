@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 4;
+pub const PROTOCOL: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -39,6 +39,7 @@ pub enum Request {
     Hold,
     /// The camera's settings as they are now.
     Settings,
+    /// Sets a setting and reads it back (`Reply::SettingSet`).
     SetSetting {
         key: String,
         value: String,
@@ -149,6 +150,10 @@ pub struct Captured {
     pub requested: bool,
     /// The app request it answers (`Reply::Fired`), if any.
     pub request: Option<u64>,
+    /// No app shot was waiting, but this request had been reported as not
+    /// delivered (`ErrorKind::Timeout`): the photo may be its, come late,
+    /// or a shot on the body; that cannot be told (`requested` is false).
+    pub late_request: Option<u64>,
     /// Milliseconds on the helper's clock since the capture request (app
     /// shots) or the camera's event (body shots): the camera reported the
     /// file, and the download was complete.
@@ -235,6 +240,12 @@ pub enum Reply {
     /// (`Captured::request`, `Event::CaptureFailed::request`).
     Fired {
         request: u64,
+    },
+    /// The answer to `SetSetting`: the setting's value as the camera reports
+    /// it afterwards (`None`: it could not be read). It is the value asked
+    /// for unless the camera kept or chose another one.
+    SettingSet {
+        value: Option<String>,
     },
     /// The answer to `Release`: whether the photo was freed from the
     /// camera's transfer queue (false: the camera keeps none, or the photo

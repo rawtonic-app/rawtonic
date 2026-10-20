@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import TetherCameraTest, { type TestedCamera } from "./TetherCameraTest";
+import { useUIStore } from "../../store/useUIStore";
 
 type Callback = (event: { payload: unknown }) => void;
 const listeners = vi.hoisted(() => new Map<string, Set<Callback>>());
@@ -34,6 +35,10 @@ const CAMERA: TestedCamera = {
 const SETTINGS = [{ key: "iso", label: "ISO", value: "160", choices: ["160", "200"], readOnly: false }];
 
 let iso = "160";
+let isoChoices = ["160", "200"];
+/** What the mock camera reports after a set: the value asked for, unless
+ * it keeps or chooses another. */
+let isoAfterSet = (asked: string) => asked;
 let shot = 0;
 let numbered = false;
 /** What the mock camera does when fired: a photo in the library, its
@@ -42,6 +47,10 @@ let onCapture: (n: number) => void;
 
 beforeEach(() => {
   iso = "160";
+  isoChoices = ["160", "200"];
+  isoAfterSet = (asked) => asked;
+  // New photos show in Develop, where the photo on screen is timed.
+  useUIStore.setState({ activeView: "editor" });
   shot = 0;
   numbered = false;
   onCapture = (n) => {
@@ -64,10 +73,11 @@ beforeEach(() => {
   invoke.mockImplementation((command: string, args?: { value?: string }) => {
     switch (command) {
       case "tether_settings":
-        return Promise.resolve(SETTINGS.map((s) => ({ ...s, value: iso })));
+        return Promise.resolve(SETTINGS.map((s) => ({ ...s, value: iso, choices: isoChoices })));
       case "tether_set_setting":
-        iso = args?.value ?? iso;
-        return Promise.resolve(null);
+        // The helper answers with the value it read back.
+        iso = isoAfterSet(args?.value ?? iso);
+        return Promise.resolve(iso);
       case "tether_capture":
         shot += 1;
         onCapture(shot);
@@ -99,7 +109,7 @@ it("runs the steps with the camera and reports them without serial number, paths
   await waitFor(() => expect(report()).toContain("- Rawtonic: 9.9.9"));
   expect(report()).toContain("| Connect | pass | 2310 ms |");
   await runStep(/\| Read settings \| pass \| 1 read, 1 changeable; \d+ ms \|/);
-  await runStep(/\| Change a setting \| pass \| ISO changed, read back and set back/);
+  await runStep(/\| Change a setting \| pass \| ISO 160 → 200 changed, read back and set back/);
   expect(iso).toBe("160");
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   expect(report()).toContain("| Autofocus | skipped | skipped by the user |");
@@ -630,3 +640,82 @@ it("a release of a photo committed before the test is none of the test's", async
   emit("tether-released", { cameraName: "DSCF51.RAF", connection: 1, exposure: 51, freed: false, error: "gone" });
   expect(report()).toContain("| Transfer queue freed after commit | pass | 5 freed |");
 }, 20_000);
+
+it("changes ISO from Auto to a plain number and sets Auto back", async () => {
+  // A Sony list: Auto ISO first, extended ISO 50, Multi Frame NR values.
+  iso = "Auto ISO";
+  isoChoices = ["Auto ISO", "50", "100", "400", "800", "Auto ISO Multi Frame Noise Reduction", "100 Multi Frame Noise Reduction"];
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Change a setting \| pass \| ISO Auto ISO → 400 changed, read back and set back/);
+  expect(iso).toBe("Auto ISO");
+  const sets = invoke.mock.calls.filter(([command]) => command === "tether_set_setting").map(([, args]) => args.value);
+  expect(sets).toEqual(["400", "Auto ISO"]);
+});
+
+it("says when the camera kept its value or chose another, and sets it back", async () => {
+  iso = "Auto ISO";
+  isoChoices = ["Auto ISO", "100", "400"];
+  isoAfterSet = (asked) => (asked === "Auto ISO" ? asked : iso);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Change a setting \| FAIL \| \d+ ms; ISO: the camera kept Auto ISO when set to 400 \|/);
+  cleanup();
+  iso = "100";
+  isoAfterSet = (asked) => (asked === "400" ? "320" : asked);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Change a setting \| FAIL \| \d+ ms; ISO: set to 400 \(from 100\), the camera chose 320 \|/);
+  expect(iso).toBe("100");
+});
+
+it("says why the photo on screen was not timed", async () => {
+  useUIStore.setState({ activeView: "library" });
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| pass \| 5\/5 in the library; photo on screen not timed: Develop was not showing; in library median/);
+});
+
+it("names a photo that came after its shot was reported as not delivered", async () => {
+  numbered = true;
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      if (n === 2) {
+        // The helper gave up on shot 2; its photo comes when shot 3 is fired.
+        emit("tether-capture-failed", { kind: "timeout", message: "not delivered", request: 2 });
+        return;
+      }
+      if (n === 3)
+        emit("tether-captured", {
+          cameraName: "DSCF2.RAF",
+          connection: 1,
+          exposure: 2,
+          destination: null,
+          assetId: "late",
+          skipped: false,
+          error: null,
+          requested: false,
+          request: null,
+          lateRequest: 2,
+        });
+      emit("tether-captured", {
+        cameraName: `DSCF${n}.RAF`,
+        connection: 1,
+        exposure: n === 1 ? 1 : n + 1,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+        request: n,
+      });
+    }, 5);
+  useUIStore.setState({ activeView: "library" });
+  render(<TetherCameraTest camera={{ ...CAMERA, transferQueue: false }} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(
+    /\| Shots from Rawtonic \| FAIL \| 4\/5 in the library; .*shot not delivered \(timeout\); 1 photo came after its shot was reported as not delivered \|/,
+  );
+});

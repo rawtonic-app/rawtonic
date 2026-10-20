@@ -16,12 +16,18 @@ use std::time::{Duration, Instant};
 
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
+/// How long a set setting is read back for (`Server::set_setting`), and
+/// how often.
+const READBACK: Duration = Duration::from_secs(3);
+const READBACK_EVERY: Duration = Duration::from_millis(250);
 /// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
     /// The file kinds (extensions) it gave so far.
     kinds: Vec<String>,
     /// Its app request, if any.
     request: Option<Asked>,
+    /// `Captured::late_request`.
+    late: Option<u64>,
     /// `Captured::exposure`.
     number: u64,
 }
@@ -55,6 +61,9 @@ const MEMORY_ONLY: &str = "The camera keeps photos only in its memory now (no ca
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
+/// How many shots reported as not delivered are remembered for a photo
+/// that still comes (`Open::timed_out`).
+const TIMED_OUT_KEPT: usize = 16;
 
 struct Open {
     camera: Box<dyn Camera>,
@@ -62,6 +71,9 @@ struct Open {
     live_view: bool,
     /// App shots still waiting for their file, oldest first.
     waiting: VecDeque<Asked>,
+    /// App shots reported as not delivered (`SHOT_TIMEOUT`) whose file
+    /// has not come, oldest first (`Captured::late_request`).
+    timed_out: VecDeque<u64>,
     /// Files downloaded from this camera.
     downloaded: u64,
     /// Each camera file's last published download: length and content hash.
@@ -214,7 +226,10 @@ impl<W: Write> Server<W> {
                 }
             }
         }
-        let result = self.answer(request, &mut fired);
+        let result = match request {
+            Request::SetSetting { key, value } => self.set_setting(&key, &value)?,
+            request => self.answer(request, &mut fired),
+        };
         // A camera lost during a request is lost like one lost between
         // requests: the app hears it (and connects it again when it is back).
         let lost = match &result {
@@ -279,11 +294,18 @@ impl<W: Write> Server<W> {
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
                 self.connections += 1;
+                log::info!(
+                    "connection {}: {} (firmware {})",
+                    self.connections,
+                    status.model,
+                    status.firmware.as_deref().unwrap_or("not reported")
+                );
                 self.open = Some(Open {
                     camera,
                     staging,
                     live_view: false,
                     waiting: VecDeque::new(),
+                    timed_out: VecDeque::new(),
                     downloaded: 0,
                     published: Default::default(),
                     downloads: Default::default(),
@@ -296,10 +318,13 @@ impl<W: Write> Server<W> {
                 Ok(Reply::Connected { status })
             }
             Request::Disconnect => {
-                self.open = None;
+                if self.open.take().is_some() {
+                    log::info!("disconnected");
+                }
                 Ok(Reply::Ok)
             }
             Request::Hold => {
+                log::info!("hold: no more downloads on this connection");
                 let open = self.camera()?;
                 open.held = true;
                 open.live_view = false;
@@ -308,17 +333,12 @@ impl<W: Write> Server<W> {
             Request::Settings => Ok(Reply::Settings {
                 settings: self.camera()?.camera.settings()?,
             }),
-            Request::SetSetting { key, value } => {
-                let open = self.camera()?;
-                if key == "capturetarget" && crate::camera::memory_only(Some(&value)) {
-                    return Err(TetherError::new(
-                        ErrorKind::Unsupported,
-                        "Rawtonic keeps a card copy of every tethered photo: Save to stays with the card.",
-                    ));
-                }
-                open.camera.set_setting(&key, &value)?;
-                Ok(Reply::Ok)
-            }
+            // Answered by `set_setting` (it reads the camera's events while
+            // it reads the value back).
+            Request::SetSetting { .. } => Err(TetherError::new(
+                ErrorKind::Protocol,
+                "SetSetting is answered by set_setting.",
+            )),
             Request::Capture => {
                 let open = self.camera()?;
                 if open.held {
@@ -332,19 +352,32 @@ impl<W: Write> Server<W> {
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
                 }
                 let at = Instant::now();
-                match open.camera.fire()? {
+                let shot = open.camera.fire().inspect_err(|e| {
+                    log::info!("capture refused after {} ms ({:?}: {e})", ms(at), e.kind)
+                })?;
+                self.asked += 1;
+                let asked = Asked { at, id: self.asked };
+                match shot {
                     Fired::Pending => {}
                     Fired::File(file) => {
-                        self.asked += 1;
-                        let asked = Asked { at, id: self.asked };
+                        log::info!(
+                            "request {}: fired, {} came with the shot after {} ms",
+                            asked.id,
+                            file.name,
+                            ms(at)
+                        );
                         *fired = Some((file, asked));
                         return Ok(Reply::Fired { request: asked.id });
                     }
                 }
-                self.asked += 1;
-                let asked = Asked { at, id: self.asked };
                 if let Some(open) = self.open.as_mut() {
                     open.waiting.push_back(asked);
+                    log::info!(
+                        "request {}: fired in {} ms; {} shot(s) waiting for their photo",
+                        asked.id,
+                        ms(at),
+                        open.waiting.len()
+                    );
                 }
                 Ok(Reply::Fired { request: asked.id })
             }
@@ -382,6 +415,15 @@ impl<W: Write> Server<W> {
                     return Ok(Reply::Released { freed: false });
                 }
                 let freed = open.camera.release(&file)?;
+                log::info!(
+                    "{}: {}",
+                    file.name,
+                    if freed {
+                        "freed from the transfer queue"
+                    } else {
+                        "no transfer queue to free"
+                    }
+                );
                 open.downloads.remove(&file);
                 Ok(Reply::Released { freed })
             }
@@ -389,6 +431,60 @@ impl<W: Write> Server<W> {
                 self.open = None;
                 Ok(Reply::Ok)
             }
+        }
+    }
+
+    /// Sets a setting, then reads it back until the camera reports the
+    /// value asked for or `READBACK` passed: libgphoto2 answers a property
+    /// from its last reading for up to 2 s (ptp2's `cachetime`), so a read
+    /// right after the set can still show the old value, and a Sony body
+    /// steps to a value over ~0.7 s. Photos keep coming meanwhile.
+    fn set_setting(&mut self, key: &str, value: &str) -> io::Result<Result<Reply, TetherError>> {
+        let started = Instant::now();
+        let open = match self.camera() {
+            Ok(open) => open,
+            Err(e) => return Ok(Err(e)),
+        };
+        if key == "capturetarget" && crate::camera::memory_only(Some(value)) {
+            return Ok(Err(TetherError::new(
+                ErrorKind::Unsupported,
+                "Rawtonic keeps a card copy of every tethered photo: Save to stays with the card.",
+            )));
+        }
+        let value_of = |camera: &mut Box<dyn Camera>| {
+            camera
+                .settings()
+                .map(|settings| settings.into_iter().find(|s| s.key == key).map(|s| s.value))
+        };
+        let before = value_of(&mut open.camera).ok().flatten();
+        if let Err(e) = open.camera.set_setting(key, value) {
+            log::info!(
+                "set {key} {} -> {value}: refused after {} ms ({:?}: {e})",
+                before.as_deref().unwrap_or("?"),
+                ms(started),
+                e.kind
+            );
+            return Ok(Err(e));
+        }
+        let set_ms = ms(started);
+        loop {
+            let Some(open) = self.open.as_mut() else {
+                return Ok(Err(not_connected()));
+            };
+            let now = match value_of(&mut open.camera) {
+                Ok(now) => now,
+                Err(e) => return Ok(Err(e)),
+            };
+            if now.as_deref() == Some(value) || started.elapsed() >= READBACK {
+                log::info!(
+                    "set {key} {} -> {value}: set in {set_ms} ms, camera reports {} after {} ms",
+                    before.as_deref().unwrap_or("?"),
+                    now.as_deref().unwrap_or("nothing"),
+                    ms(started)
+                );
+                return Ok(Ok(Reply::SettingSet { value: now }));
+            }
+            self.read_events(READBACK_EVERY)?;
         }
     }
 
@@ -419,6 +515,17 @@ impl<W: Write> Server<W> {
                 .is_some_and(|asked| asked.at.elapsed() > self.shot_timeout)
         {
             let asked = open.waiting.pop_front();
+            if let Some(asked) = asked {
+                open.timed_out.push_back(asked.id);
+                if open.timed_out.len() > TIMED_OUT_KEPT {
+                    open.timed_out.pop_front();
+                }
+                log::warn!(
+                    "request {}: no photo {} s after the shot; reported as not delivered, not fired again",
+                    asked.id,
+                    self.shot_timeout.as_secs()
+                );
+            }
             self.event(Event::CaptureFailed {
                 error: TetherError::new(
                     ErrorKind::Timeout,
@@ -491,6 +598,7 @@ impl<W: Write> Server<W> {
     }
 
     fn lost(&mut self, error: TetherError) -> io::Result<()> {
+        log::warn!("camera lost: {error}");
         self.open = None;
         self.event(Event::Disconnected { error })
     }
@@ -503,6 +611,11 @@ impl<W: Write> Server<W> {
             return Ok(());
         };
         let reported = Instant::now();
+        log::info!(
+            "camera reported {} ({} shot(s) waiting)",
+            file.name,
+            open.waiting.len()
+        );
         let shot = open.downloaded + 1;
         let downloaded = open.camera.download(&file);
         // The same photo reported twice (libgphoto2's Fujifilm event polling
@@ -516,7 +629,7 @@ impl<W: Write> Server<W> {
                 .get(&file)
                 .is_some_and(|(len, hash)| *len == data.len() && *hash == content_hash(data))
         {
-            log::debug!("{} reported again; already downloaded", file.name);
+            log::info!("{} reported again; already downloaded", file.name);
             return Ok(());
         }
         let (stem, extension) = match file.name.rsplit_once('.') {
@@ -562,10 +675,10 @@ impl<W: Write> Server<W> {
             }),
             Shot::At(_) => None,
         };
-        let (requested, exposure) = match companion {
+        let (requested, late, exposure) = match companion {
             Some(e) => {
                 e.kinds.push(extension);
-                (e.request, e.number)
+                (e.request, e.late, e.number)
             }
             // A new exposure.
             None => {
@@ -573,17 +686,31 @@ impl<W: Write> Server<W> {
                     Shot::Waiting => open.waiting.pop_front(),
                     Shot::At(at) => Some(at),
                 };
+                // No shot waiting, but one reported as not delivered: this
+                // may be its photo, come after all, or a shot on the body
+                // (which cannot be told).
+                let late = match request {
+                    None => open.timed_out.pop_front(),
+                    Some(_) => None,
+                };
+                if let Some(late) = late {
+                    log::warn!(
+                        "{}: no shot waiting; may be the late photo of request {late} (reported as not delivered) or a shot on the body",
+                        file.name
+                    );
+                }
                 open.exposures += 1;
                 let exposure = Exposure {
                     kinds: vec![extension],
                     request,
+                    late,
                     number: open.exposures,
                 };
                 open.exposures_by_stem
                     .entry(stem)
                     .or_default()
                     .push_back(exposure);
-                (request, open.exposures)
+                (request, late, open.exposures)
             }
         };
         let started = requested.map_or(reported, |asked| asked.at);
@@ -592,6 +719,14 @@ impl<W: Write> Server<W> {
             Ok(downloaded) => downloaded,
             Err(error) if error.kind == ErrorKind::Disconnected => return self.lost(error),
             Err(error) => {
+                log::warn!(
+                    "{} not downloaded after {} ms ({:?}: {}); request {:?}, exposure {exposure}",
+                    file.name,
+                    ms(reported),
+                    error.kind,
+                    error.message,
+                    requested.map(|asked| asked.id)
+                );
                 return self.event(Event::CaptureFailed {
                     error: TetherError::new(
                         error.kind,
@@ -645,6 +780,27 @@ impl<W: Write> Server<W> {
         if open.camera.abort_at(AbortPoint::BeforeEvent, shot) {
             std::process::exit(70);
         }
+        log::info!(
+            "{}: {} bytes in {} ms; {}, exposure {exposure}{}, {} ms after the {}",
+            file.name,
+            expected,
+            ms(reported),
+            requested.map_or("fired on the body".to_string(), |asked| format!(
+                "request {}",
+                asked.id
+            )),
+            if ambiguous.is_empty() {
+                String::new()
+            } else {
+                format!(" (ambiguous: {ambiguous:?})")
+            },
+            ms(started),
+            if requested.is_some() {
+                "request"
+            } else {
+                "camera's report"
+            }
+        );
         let captured = Captured {
             path,
             connection: open.connection,
@@ -656,6 +812,7 @@ impl<W: Write> Server<W> {
             size: expected,
             requested: requested.is_some(),
             request: requested.map(|asked| asked.id),
+            late_request: late,
             ms_to_event: requested.map(|_| reported.duration_since(started).as_millis() as u64),
             ms_to_downloaded: ms(started),
         };
@@ -670,6 +827,7 @@ impl<W: Write> Server<W> {
         exposure: (u64, u64),
         ambiguous: Vec<u64>,
     ) -> io::Result<()> {
+        log::warn!("{} not saved to the transfer folder: {e}", file.name);
         self.event(Event::CaptureFailed {
             error: TetherError::new(
                 ErrorKind::Storage,

@@ -256,7 +256,7 @@ fn on_incoming(
                 // Kept in the transfer folder; ingested on the next connect.
                 log::warn!(
                     "Tether: {} arrived without a session; kept for the next connect",
-                    captured.path.display()
+                    captured.camera_name
                 );
             }
         }
@@ -266,6 +266,11 @@ fn on_incoming(
             exposure,
             ambiguous,
         }) => {
+            log::warn!(
+                "Tether: shot not delivered (request {request:?}, exposure {exposure:?}): {:?}: {}",
+                error.kind,
+                error.message
+            );
             let _ = app.emit(
                 "tether-capture-failed",
                 json!({
@@ -734,7 +739,7 @@ fn spawn_ingest(
                 previous: None,
             };
             for path in recovered.incomplete {
-                log::warn!("Tether: incomplete download kept at {}", path.display());
+                log::warn!("Tether: incomplete download {} kept", file_name(&path));
                 notify("tether-incomplete", json!(path));
             }
             for path in recovered.complete {
@@ -753,6 +758,14 @@ fn spawn_ingest(
         }
         Err(_) => Err("The tether ingest did not start.".into()),
     }
+}
+
+/// A path's file name, for the log (never the whole path: it names the
+/// user's folders).
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// One photo the tether brought in, for the interface.
@@ -777,6 +790,9 @@ pub struct TetherCaptured {
     pub ambiguous: Vec<u64>,
     /// The app request it answers (`tether_capture`'s number), if any.
     pub request: Option<u64>,
+    /// A request reported as not delivered that this photo may belong to
+    /// (`Captured::late_request`).
+    pub late_request: Option<u64>,
     /// From the app's request (or the camera's report) to: the camera's
     /// report, the complete download, the photo in the library.
     pub ms_to_event: Option<u64>,
@@ -876,12 +892,11 @@ impl Ingest<'_> {
         if asset.is_some() || result.skipped {
             // In the library (or a verified duplicate of a photo there).
             if let Err(e) = staging::finish(self.root, path) {
-                log::warn!("Tether: transfer copy {} not removed: {e}", path.display());
+                log::warn!("Tether: transfer copy {camera_name} not removed: {e}");
             }
         } else if let Some(error) = &result.error {
             log::warn!(
-                "Tether: {} kept in the transfer folder, ingested on the next connect: {error}",
-                path.display()
+                "Tether: {camera_name} kept in the transfer folder, ingested on the next connect: {error}"
             );
         }
         if let Some(asset) = &asset {
@@ -908,11 +923,35 @@ impl Ingest<'_> {
             exposure: timing.map(|(c, _)| c.exposure),
             ambiguous: timing.map(|(c, _)| c.ambiguous.clone()).unwrap_or_default(),
             request: timing.and_then(|(c, _)| c.request),
+            late_request: timing.and_then(|(c, _)| c.late_request),
             ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
             ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
             ms_to_ingested: timing
                 .map(|(c, received)| c.ms_to_downloaded + received.elapsed().as_millis() as u64),
         };
+        log::info!(
+            "Tether: {} {} ({}, exposure {:?}/{:?}): camera report {:?} ms, downloaded {:?} ms, in library {:?} ms",
+            event.camera_name,
+            if committed {
+                if event.skipped {
+                    "already in the library"
+                } else {
+                    "in the library"
+                }
+            } else {
+                "not added"
+            },
+            event
+                .request
+                .map_or("not requested".to_string(), |request| format!(
+                    "request {request}"
+                )),
+            event.connection,
+            event.exposure,
+            event.ms_to_event,
+            event.ms_to_downloaded,
+            event.ms_to_ingested
+        );
         (self.notify)("tether-captured", json!(event));
         // Only now that the photo is in the library (or a verified duplicate
         // of one there) may the camera let go of it.
@@ -1202,10 +1241,21 @@ pub async fn tether_settings(app: AppHandle) -> Result<Vec<Setting>, String> {
     .await
 }
 
+/// Sets a camera setting; the value the camera reports afterwards (it may
+/// keep its value or choose another), if it could be read.
 #[tauri::command]
-pub async fn tether_set_setting(key: String, value: String, app: AppHandle) -> Result<(), String> {
-    blocking(move || camera_request(&app, Request::SetSetting { key, value }, QUICK).map(|_| ()))
-        .await
+pub async fn tether_set_setting(
+    key: String,
+    value: String,
+    app: AppHandle,
+) -> Result<Option<String>, String> {
+    blocking(
+        move || match camera_request(&app, Request::SetSetting { key, value }, QUICK)? {
+            Reply::SettingSet { value } => Ok(value),
+            _ => Err("Unexpected answer from the tether helper.".into()),
+        },
+    )
+    .await
 }
 
 /// Fires the shutter; the photo arrives as `tether-captured`.
@@ -1322,6 +1372,7 @@ mod tests {
                 exposure: n,
                 ambiguous: Vec::new(),
                 request: Some(n),
+                late_request: None,
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1374,6 +1425,7 @@ mod tests {
                 exposure: n,
                 ambiguous: Vec::new(),
                 request: Some(n),
+                late_request: None,
                 camera_folder: "/store_00010001".into(),
                 camera_name: format!("DSC{n:05}.ARW"),
                 size: 7,
@@ -2170,6 +2222,7 @@ mod tests {
                     exposure: 1,
                     ambiguous: Vec::new(),
                     request: Some(1),
+                    late_request: None,
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,

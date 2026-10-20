@@ -7,6 +7,7 @@ import { open } from "@tauri-apps/plugin-shell";
 import { Check, CircleHelp, ClipboardCopy, ExternalLink, LoaderCircle, Minus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Invokes } from "../ui/AppProperties";
+import { useUIStore } from "../../store/useUIStore";
 import {
   STEPS,
   buildReport,
@@ -44,6 +45,8 @@ interface Captured {
   ambiguous?: number[];
   /** The app request it answers (`tether_capture`'s number). */
   request?: number | null;
+  /** A request reported as not delivered this photo may belong to. */
+  lateRequest?: number | null;
   destination: string | null;
   assetId: string | null;
   skipped: boolean;
@@ -180,6 +183,9 @@ export default function TetherCameraTest({
   const exposures = useRef(new Map<string, StepId | null>());
   // Each photo step's failures, wherever they were heard.
   const failuresOf = useRef(new Map<StepId, Heard[]>());
+  // Photos per step that came after their shot was reported as not
+  // delivered (`Captured.lateRequest`).
+  const lateOf = useRef(new Map<StepId, number>());
   // Photo steps with a photo whose exposure cannot be told (reused names).
   const ambiguousSteps = useRef(new Set<StepId>());
   // The highest exposure number heard per helper connection.
@@ -282,6 +288,20 @@ export default function TetherCameraTest({
             if (!result || result.state !== "passed") return current;
             return { ...current, [late]: { ...result, state: "failed", reason: LATE_FAILURE } };
           });
+      }
+      // A photo that may be one the helper had reported as not delivered:
+      // its step says so (the failure stands: it came after the timeout).
+      const late = (payload as { lateRequest?: number | null }).lateRequest;
+      if (name === "tether-captured" && h.exposure && late != null && requestSteps.current.has(late)) {
+        const step = requestSteps.current.get(late) ?? null;
+        if (step) {
+          lateOf.current.set(step, (lateOf.current.get(step) ?? 0) + 1);
+          if (step !== runningStep.current)
+            setResults((current) => {
+              const result = current[step];
+              return result ? { ...current, [step]: { ...result, late: (result.late ?? 0) + 1 } } : current;
+            });
+        }
       }
       if (heard.current.length > 500) heard.current.splice(0, 250);
       // One file of one exposure: its release names it the same way.
@@ -423,18 +443,48 @@ export default function TetherCameraTest({
       const pick = settingToChange(await ask<Setting[]>(Invokes.TetherSettings));
       if (!pick) return { state: "skipped", reason: "no changeable setting with two values" };
       const { setting, other } = pick;
-      const valueOf = async () =>
-        (await ask<Setting[]>(Invokes.TetherSettings)).find((s) => s.key === setting.key)?.value;
+      const from = setting.value;
+      // The value the camera reports after a set (the helper reads it back
+      // until it shows the value asked for, ~3 s at most).
+      const set = async (value: string, always = false) => {
+        const args = { key: setting.key, value };
+        // Setting back goes to the camera also once the test is closed.
+        const command = always ? invoke : ask;
+        const read = await command<string | null>(Invokes.TetherSetSetting, args);
+        if (read !== null && read !== undefined) return read;
+        const settings = await command<Setting[]>(Invokes.TetherSettings);
+        return settings.find((s) => s.key === setting.key)?.value ?? null;
+      };
       const started = now();
-      await ask(Invokes.TetherSetSetting, { key: setting.key, value: other });
+      let there: string | null = null;
+      let refusal: unknown = undefined;
+      try {
+        there = await set(other);
+      } catch (e) {
+        refusal = e;
+      }
+      // To the camera reporting the value (or refusing it).
       const ms = Math.round(now() - started);
-      const changed = await valueOf()
-        .then((value) => value === other)
-        .finally(() => invoke(Invokes.TetherSetSetting, { key: setting.key, value: setting.value }));
-      const back = (await valueOf()) === setting.value;
-      return changed && back
-        ? { state: "passed", ms, setting: setting.label }
-        : { state: "failed", ms, reason: `${setting.label}: ${changed ? "not set back" : "the camera kept its value"}` };
+      // Set back whatever happened, and only then judged.
+      const back = await set(from, true).catch(() => null);
+      if (refusal !== undefined) throw refusal;
+      const label = setting.label;
+      if (there !== other) {
+        const reason =
+          there === null
+            ? `${label}: set to ${other} (from ${from}), but it could not be read back`
+            : there === from
+              ? `${label}: the camera kept ${from} when set to ${other}`
+              : `${label}: set to ${other} (from ${from}), the camera chose ${there}`;
+        return { state: "failed", ms, reason };
+      }
+      if (back !== from)
+        return {
+          state: "failed",
+          ms,
+          reason: `${label}: changed to ${other}, not set back to ${from} (the camera has ${back ?? "nothing readable"})`,
+        };
+      return { state: "passed", ms, setting: label, change: { from, to: other } };
     },
     autofocus: async () => {
       const started = now();
@@ -445,12 +495,17 @@ export default function TetherCameraTest({
       const inLibrary: number[] = [];
       const onScreen: number[] = [];
       const errors: Failure[] = [];
-      // Develop not showing the first photo: the others are not waited for.
-      let screen = true;
+      // Photos on screen are timed in Develop only (new photos show there);
+      // with no frame of a photo that came, the others are not waited for.
+      let screen = useUIStore.getState().activeView === "editor";
+      let screenNote = screen ? undefined : "photo on screen not timed: Develop was not showing";
       for (let i = 1; i <= shotCount && !closed.current; i += 1) {
         setPrompt(t("session.tether.test.shotOf", { n: i, total: shotCount }));
         const shot = await shoot(screen);
-        if (shot.onScreen === undefined) screen = false;
+        if (screen && !shot.error && shot.onScreen === undefined) {
+          screen = false;
+          screenNote = `photo on screen not timed: no Develop frame of the new photo within ${SCREEN_WAIT_MS / 1000} s`;
+        }
         if (shot.error) errors.push(shot.error);
         if (shot.inLibrary !== undefined) inLibrary.push(shot.inLibrary);
         if (shot.onScreen !== undefined) onScreen.push(shot.onScreen);
@@ -461,6 +516,7 @@ export default function TetherCameraTest({
         arrived: inLibrary.length,
         inLibrary,
         onScreen,
+        screenNote,
         ...errors[0],
       };
     },
@@ -526,6 +582,8 @@ export default function TetherCameraTest({
           h.name === "tether-captured" &&
           !captured(h).requested &&
           h.exposure === true &&
+          // Not the late photo of a test shot.
+          !requestSteps.current.has(captured(h).lateRequest ?? -1) &&
           captured(h).exposure != null &&
           captured(h).connection != null &&
           (captured(h).exposure ?? 0) > (before.get(captured(h).connection ?? -1) ?? 0),
@@ -589,6 +647,7 @@ export default function TetherCameraTest({
   const run = async (id: StepId) => {
     runningStep.current = id;
     failuresOf.current.set(id, []);
+    lateOf.current.set(id, 0);
     setRunning(id);
     setPrompt("");
     let result: StepResult;
@@ -613,6 +672,8 @@ export default function TetherCameraTest({
         };
       }
     }
+    const late = lateOf.current.get(id);
+    if (late) result = { ...result, late };
     if (ambiguousSteps.current.has(id)) result = inconclusive(result);
     if (PHOTO_STEPS.includes(id)) lastPhotoStep.current = id;
     runningStep.current = null;
@@ -746,7 +807,7 @@ export default function TetherCameraTest({
         <textarea readOnly rows={10} value={report} aria-label={t("session.tether.test.report")} />
         <small>{t("session.tether.test.reportHint")}</small>
       </label>
-      <div className="tether-actions">
+      <div className="tether-actions tether-test-report-actions">
         <button type="button" className="session-action session-primary" onClick={() => void copy()}>
           <ClipboardCopy size={14} />
           <span>{copied ? t("session.tether.test.copied") : t("session.tether.test.copy")}</span>

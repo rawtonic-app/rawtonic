@@ -717,7 +717,7 @@ fn a_late_photo_is_not_fired_again_and_a_lost_one_is_reported() {
     };
     let helper = start_with(&spec, dir.path(), 300);
     helper.connect().unwrap();
-    helper.capture();
+    let first = helper.capture();
     helper.capture();
     // Shot 1 comes after the shot timeout: both requests are reported as
     // failed, the late file still arrives (as a body shot then), and
@@ -742,6 +742,10 @@ fn a_late_photo_is_not_fired_again_and_a_lost_one_is_reported() {
     assert_eq!(failed, 2);
     assert_eq!(photos.len(), 1);
     assert_eq!(photos[0].camera_name, "DSC00001.ARW");
+    // It names the oldest request reported as not delivered: it may be
+    // that shot's photo (or one fired on the body).
+    assert!(!photos[0].requested);
+    assert_eq!(photos[0].late_request, Some(first));
 }
 
 #[test]
@@ -791,7 +795,114 @@ fn settings_fixed_on_the_body_are_shown_and_refused() {
         ErrorKind::ReadOnly
     );
     assert_eq!(set("iso", "12").unwrap_err().kind, ErrorKind::BadValue);
-    assert_eq!(set("iso", "400").unwrap(), Reply::Ok);
+    assert_eq!(
+        set("iso", "400").unwrap(),
+        Reply::SettingSet {
+            value: Some("400".into())
+        }
+    );
+}
+
+fn set_iso(helper: &Helper, value: &str) -> Reply {
+    helper
+        .client
+        .request(
+            Request::SetSetting {
+                key: "iso".into(),
+                value: value.into(),
+            },
+            WAIT,
+        )
+        .unwrap()
+}
+
+fn iso_now(helper: &Helper) -> String {
+    let Reply::Settings { settings } = helper.client.request(Request::Settings, WAIT).unwrap()
+    else {
+        panic!()
+    };
+    settings.into_iter().find(|s| s.key == "iso").unwrap().value
+}
+
+#[test]
+fn a_set_setting_is_read_back_past_the_camera_library_s_stale_reading() {
+    // libgphoto2 answers a property from its last reading for 2 s: read
+    // right after the set, the camera seemed to keep its value (a7 III,
+    // 2026-10-20).
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        stale_readback_ms: 1000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        set_iso(&helper, "400"),
+        Reply::SettingSet {
+            value: Some("400".into())
+        }
+    );
+    assert!(started.elapsed() >= Duration::from_millis(900));
+    assert_eq!(iso_now(&helper), "400");
+}
+
+#[test]
+fn a_value_the_camera_kept_is_reported_with_the_value_it_has() {
+    // From Auto ISO a Sony body shooting RAW ignores a Multi Frame NR ISO.
+    let dir = tempfile::tempdir().unwrap();
+    let auto = "Auto ISO".to_string();
+    let mfnr = "100 Multi Frame Noise Reduction".to_string();
+    let spec = MockSpec {
+        iso: Some((
+            auto.clone(),
+            vec![auto.clone(), "100".into(), "200".into(), mfnr.clone()],
+        )),
+        kept_values: vec![mfnr.clone()],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    assert_eq!(
+        set_iso(&helper, &mfnr),
+        Reply::SettingSet {
+            value: Some(auto.clone())
+        }
+    );
+    assert_eq!(
+        set_iso(&helper, "200"),
+        Reply::SettingSet {
+            value: Some("200".into())
+        }
+    );
+}
+
+#[test]
+fn photos_keep_coming_while_a_setting_is_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        stale_readback_ms: 2000,
+        event_delay_ms: 300,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let request = helper.capture();
+    let (photo_at, set_at) = std::thread::scope(|scope| {
+        let client = &helper.client;
+        let set = scope.spawn(move || {
+            let set = Request::SetSetting {
+                key: "iso".into(),
+                value: "400".into(),
+            };
+            client.request(set, WAIT).unwrap();
+            Instant::now()
+        });
+        let (photos, _) = helper.photos(1);
+        assert_eq!(photos[0].request, Some(request));
+        (Instant::now(), set.join().unwrap())
+    });
+    assert!(photo_at < set_at, "the photo waited for the read-back");
 }
 
 #[test]
