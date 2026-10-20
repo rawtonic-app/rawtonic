@@ -2261,7 +2261,7 @@ struct FlareParams {
     _pad: [u32; 2],
 }
 
-const PREVIEW_PIPELINE_COUNT: usize = 128;
+const PREVIEW_PIPELINE_COUNT: usize = 256;
 /// The measured noise level above which the luminance noise reduction's
 /// edge-preserving pass fades in (shader.wgsl `LUMA_NR_EDGE_NOISE.x`).
 /// Exports of quieter photos, and of recipes without luminance noise
@@ -2271,7 +2271,7 @@ const PREVIEW_PIPELINE_COUNT: usize = 128;
 const LUMA_NR_EDGE_NOISE_START: f32 = 0.005;
 /// Display variant bits (see `create_preview_pipeline`): sharpen 1,
 /// highlights 2, curves 4, masks 8, noise reduction 16, tone sliders 32,
-/// relight 64.
+/// relight 64, refined noise reduction 128.
 const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 /// Contrast, Shadows, Whites or Blacks on the photo or a layer. With the
 /// relight bit, the costliest code for a cold NVIDIA driver cache to compile:
@@ -2279,6 +2279,12 @@ const ALL_PREVIEW_FEATURES: usize = PREVIEW_PIPELINE_COUNT - 1;
 const TONE_PREVIEW_FEATURE: usize = 32;
 /// A relight light or depth surface.
 const RELIGHT_PREVIEW_FEATURE: usize = 64;
+/// Noise reduction with other than the default refinements (Detail,
+/// Contrast, Color Detail, Smoothness): the shader's refined copy of the
+/// noise reduction. Without it a display variant compiles only the default
+/// copy: the RAW default variant 17 took 3.5 instead of 4.3 s on a cold
+/// NVIDIA driver cache (RTX 3080, G56).
+const REFINED_NR_PREVIEW_FEATURE: usize = 128;
 /// A RAW with the default detail settings (Sharpening 40, Color 25).
 const RAW_DEFAULT_PREVIEW_FEATURES: usize = 1 | 16;
 
@@ -3346,12 +3352,28 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
         | (usize::from(noise_reduction) << 4)
         | if tone { TONE_PREVIEW_FEATURE } else { 0 }
         | if relight { RELIGHT_PREVIEW_FEATURE } else { 0 }
+        // The refinements are photo-wide; layers' noise reduction reads them
+        // too (shader `apply_noise_reduction`).
+        | if noise_reduction && g.noise_detail != DEFAULT_NOISE_DETAIL {
+            REFINED_NR_PREVIEW_FEATURE
+        } else {
+            0
+        }
 }
 
-/// The variant an export compiles: the curves, tone and relight code stay in
-/// even where idle (see `LUMA_NR_EDGE_NOISE_START` for why idle code matters).
+/// The noise refinements with which the shader takes its default noise
+/// reduction (`apply_noise_reduction`).
+const DEFAULT_NOISE_DETAIL: [f32; 4] = [0.5, 0.0, 0.5, 0.5];
+
+/// The variant an export compiles: the curves, tone, relight and refined
+/// noise reduction code stay in even where idle (see
+/// `LUMA_NR_EDGE_NOISE_START` for why idle code matters).
 fn export_features(adjustments: &AllAdjustments) -> usize {
-    preview_features(adjustments) | (1 << 2) | TONE_PREVIEW_FEATURE | RELIGHT_PREVIEW_FEATURE
+    preview_features(adjustments)
+        | (1 << 2)
+        | TONE_PREVIEW_FEATURE
+        | RELIGHT_PREVIEW_FEATURE
+        | REFINED_NR_PREVIEW_FEATURE
 }
 
 /// Per mask layer: the curve data its table was built from, and whether the
@@ -3524,6 +3546,7 @@ fn create_preview_pipeline(
                     ("ENABLE_CURVES", ((features >> 2) & 1) as f64),
                     ("ENABLE_TONE", ((features >> 5) & 1) as f64),
                     ("ENABLE_RELIGHT", ((features >> 6) & 1) as f64),
+                    ("NR_REFINED", ((features >> 7) & 1) as f64),
                 ],
                 ..Default::default()
             },
