@@ -199,19 +199,20 @@ fn cache_key(tag: &str, mosaic: &[f32], width: usize, height: usize, pattern: [u
     hash
 }
 
+/// A cached result, `None` when missing or unusable: of another length, or
+/// with non-finite values (written before NaN tiles were refused).
 fn read_cache(path: &Path, len: usize) -> Option<Vec<f32>> {
     let bytes = fs::read(path).ok()?;
     if bytes.len() != len * 2 {
         return None;
     }
-    Some(
-        bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&b| half::f16::from_le_bytes(b).to_f32())
-            .collect(),
-    )
+    let values: Vec<f32> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| half::f16::from_le_bytes(b).to_f32())
+        .collect();
+    values.iter().all(|v| v.is_finite()).then_some(values)
 }
 
 /// Deletes the oldest `.f16` files until the folder holds at most `limit` bytes.
@@ -337,6 +338,28 @@ mod tests {
         // Now on the CPU from the start: cached.
         filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_cached_result_with_nan_is_computed_again() {
+        let (w, h) = (300, 200);
+        let mosaic = noisy_mosaic(w, h);
+        let dir = tempfile::tempdir().unwrap();
+        let filter = MatchFilter::new(Box::new(Identity), Some(dir.path().to_path_buf()));
+        let first = filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        let cached = fs::read_dir(dir.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        // As an earlier build cached a faulty GPU's tile.
+        let mut bytes = fs::read(&cached).unwrap();
+        bytes[..2].copy_from_slice(&half::f16::NAN.to_le_bytes());
+        fs::write(&cached, &bytes).unwrap();
+        let again = filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        assert_eq!(again, first);
+        assert_eq!(read_cache(&cached, mosaic.len()).unwrap(), first);
     }
 
     #[test]
