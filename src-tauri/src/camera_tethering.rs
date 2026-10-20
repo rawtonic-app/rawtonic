@@ -260,7 +260,11 @@ fn on_incoming(
                 );
             }
         }
-        Incoming::Event(Event::CaptureFailed { error, exposure }) => {
+        Incoming::Event(Event::CaptureFailed {
+            error,
+            exposure,
+            ambiguous,
+        }) => {
             let _ = app.emit(
                 "tether-capture-failed",
                 json!({
@@ -268,6 +272,7 @@ fn on_incoming(
                     "message": error.message,
                     "connection": exposure.map(|(connection, _)| connection),
                     "exposure": exposure.map(|(_, exposure)| exposure),
+                    "ambiguous": ambiguous,
                 }),
             );
         }

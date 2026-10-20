@@ -724,7 +724,9 @@ fn a_late_photo_is_not_fired_again_and_a_lost_one_is_reported() {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
         match helper.incoming.recv_timeout(Duration::from_millis(100)) {
-            Ok(Incoming::Event(Event::CaptureFailed { error, exposure })) => {
+            Ok(Incoming::Event(Event::CaptureFailed {
+                error, exposure, ..
+            })) => {
                 assert_eq!(error.kind, ErrorKind::Timeout);
                 assert_eq!(exposure, None, "a shot that never came has no exposure");
                 failed += 1;
@@ -1121,9 +1123,14 @@ fn a_file_that_cannot_be_saved_names_its_exposure() {
     std::fs::write(&incoming, b"not a folder").unwrap();
     helper.capture();
     match helper.next_event(WAIT) {
-        Some(Event::CaptureFailed { error, exposure }) => {
+        Some(Event::CaptureFailed {
+            error,
+            exposure,
+            ambiguous,
+        }) => {
             assert_eq!(error.kind, ErrorKind::Storage, "{error:?}");
             assert_eq!(exposure.map(|(_, exposure)| exposure), Some(1));
+            assert!(!ambiguous);
         }
         other => panic!("{other:?}"),
     }

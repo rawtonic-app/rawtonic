@@ -251,6 +251,8 @@ pub enum Event {
         /// The connection and exposure (`Captured`) of a file that could
         /// not be downloaded or saved; none for a shot that never came.
         exposure: Option<(u64, u64)>,
+        /// That exposure cannot be told for sure (`Captured::ambiguous`).
+        ambiguous: bool,
     },
     /// The camera reported changed settings (a dial turned): read them again.
     SettingsChanged,

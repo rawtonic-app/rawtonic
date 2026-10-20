@@ -205,7 +205,8 @@ export default function TetherCameraTest({
       else if (name === "tether-capture-failed" && owner === null) owner = lastPhotoStep.current;
       h.foreign = owner !== running;
       heard.current.push(h);
-      if (name === "tether-captured" && (payload as Captured).ambiguous && owner) {
+      const ambiguous = (payload as { ambiguous?: boolean }).ambiguous === true;
+      if ((name === "tether-captured" || name === "tether-capture-failed") && ambiguous && owner) {
         ambiguousSteps.current.add(owner);
         // A step that has ended cannot be told any more.
         if (owner !== runningStep.current) {
@@ -216,8 +217,10 @@ export default function TetherCameraTest({
           });
         }
       }
-      if (isFailure(h)) {
-        setFailures((n) => n + 1);
+      // A failure of an ambiguous file is counted, but it cannot be told
+      // whose it is: its step is inconclusive (above), not failed.
+      if (isFailure(h)) setFailures((n) => n + 1);
+      if (isFailure(h) && !ambiguous) {
         if (owner) failuresOf.current.set(owner, [...(failuresOf.current.get(owner) ?? []), h]);
         // A step that has ended fails now.
         const late = owner !== null && owner !== runningStep.current ? owner : null;
@@ -234,7 +237,8 @@ export default function TetherCameraTest({
         const r = releases.current;
         const early = r.releasedEarly.indexOf(c.cameraName);
         if (early >= 0) r.releasedEarly.splice(early, 1);
-        else if (!c.error && (c.assetId || c.skipped)) r.pending.push(c.cameraName);
+        // Photos left from an earlier run (no connection) are not freed.
+        else if (!c.error && (c.assetId || c.skipped) && c.connection != null) r.pending.push(c.cameraName);
       } else if (name === "tether-released") {
         const r = payload as { cameraName: string; freed: boolean; error: string | null };
         const at = releases.current.pending.indexOf(r.cameraName);

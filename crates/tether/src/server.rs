@@ -405,6 +405,7 @@ impl<W: Write> Server<W> {
                     "The camera did not deliver the photo. It was not fired again.",
                 ),
                 exposure: None,
+                ambiguous: false,
             })?;
         }
         self.read_events(wait).map(|_| ())
@@ -430,6 +431,7 @@ impl<W: Write> Server<W> {
                     self.event(Event::CaptureFailed {
                         error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
                         exposure: None,
+                        ambiguous: false,
                     })?;
                     return Ok(false);
                 }
@@ -568,6 +570,7 @@ impl<W: Write> Server<W> {
                         format!("{} could not be downloaded: {}", file.name, error.message),
                     ),
                     exposure: Some((connection, exposure)),
+                    ambiguous,
                 });
             }
         };
@@ -576,7 +579,7 @@ impl<W: Write> Server<W> {
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,
-            Err(e) => return self.storage_failed(&file, e, (connection, exposure)),
+            Err(e) => return self.storage_failed(&file, e, (connection, exposure), ambiguous),
         };
         if open.camera.abort_at(AbortPoint::MidDownload, shot) {
             let _ = partial.write(&data[..data.len() / 2]);
@@ -588,7 +591,7 @@ impl<W: Write> Server<W> {
             .and_then(|()| partial.publish(expected));
         let path = match published {
             Ok(path) => path,
-            Err(e) => return self.storage_failed(&file, e, (connection, exposure)),
+            Err(e) => return self.storage_failed(&file, e, (connection, exposure), ambiguous),
         };
         // Only a photo that is safely in the transfer folder counts as
         // downloaded (a repeat of a failed one is taken again).
@@ -618,6 +621,7 @@ impl<W: Write> Server<W> {
         file: &CameraFile,
         e: io::Error,
         exposure: (u64, u64),
+        ambiguous: bool,
     ) -> io::Result<()> {
         self.event(Event::CaptureFailed {
             error: TetherError::new(
@@ -628,6 +632,7 @@ impl<W: Write> Server<W> {
                 ),
             ),
             exposure: Some(exposure),
+            ambiguous,
         })
     }
 }
