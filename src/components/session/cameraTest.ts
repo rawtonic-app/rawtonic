@@ -54,12 +54,15 @@ export const STEPS: StepId[] = [
 export type StepState = "passed" | "failed" | "skipped";
 
 /** A finished step: what it measured (numbers in ms unless named
- * otherwise). Only values the test made itself, never a path, file name
- * or serial number. */
+ * otherwise). The report takes only values the test made itself, never a
+ * path, file name or serial number. */
 export interface StepResult {
   state: StepState;
-  /** Why it failed or was skipped (scrubbed). */
+  /** Why it failed or was skipped, in the test's own words (reported). */
   reason?: string;
+  /** The camera's or the app's message: shown in the test only, never in
+   * the report (it may name folders, files or the user). */
+  detail?: string;
   ms?: number;
   /** Photos asked for / arrived in the library. */
   asked?: number;
@@ -86,25 +89,6 @@ export const percentile = (values: number[], p: number) => {
   const sorted = [...values].sort((a, b) => a - b);
   const rank = Math.ceil((p / 100) * sorted.length);
   return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
-};
-
-/** The start of an absolute path (POSIX, home, Windows drive or share),
- * not the slash of a value such as 1/250 or f/8. Everything from there to
- * the end of the message goes: a folder or user name may hold spaces. */
-const PATH = /(?<![\w.~])(?:[A-Za-z]:[\\/]|\\\\|~[\\/]|\/(?=[^\s/]))[\s\S]*$/;
-const PHOTO_FILE =
-  /\b[\w.-]+\.(?:3fr|arw|cr2|cr3|crw|dng|erf|fff|gpr|heic|heif|hif|iiq|jpe?g|kdc|mef|mos|mrw|nef|nrw|orf|pef|raf|raw|rw2|rwl|sr2|srf|srw|tiff?|x3f)\b/gi;
-
-/** A message from the camera or the app, safe for an anonymous report:
- * the given secrets (the body's serial number) and photo file names
- * replaced, everything from the first path on cut, kept short. */
-export const scrub = (text: string, secrets: (string | null | undefined)[] = []) => {
-  let out = text;
-  for (const secret of secrets) {
-    if (secret && secret.trim().length >= 3) out = out.split(secret).join("<serial>");
-  }
-  out = out.replace(PATH, "<path>").replace(PHOTO_FILE, "<file>").replace(/\s+/g, " ").trim();
-  return out.length > 160 ? `${out.slice(0, 159)}…` : out;
 };
 
 export interface ReportInfo {

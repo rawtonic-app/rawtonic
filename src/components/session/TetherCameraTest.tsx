@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
@@ -11,7 +11,6 @@ import {
   STEPS,
   buildReport,
   describe,
-  scrub,
   settingToChange,
   type ReportInfo,
   type StepId,
@@ -38,6 +37,8 @@ interface Setting {
 
 interface Captured {
   cameraName: string;
+  connection?: number | null;
+  exposure?: number | null;
   destination: string | null;
   assetId: string | null;
   skipped: boolean;
@@ -71,10 +72,23 @@ const sameFile = (a: string, b: string) => a === b || a.startsWith(`${b}?`);
 const captured = (h: Heard) => h.payload as Captured;
 /** A shot requested from the app: its first file in (RAW+JPEG come as two). */
 const appExposure = (h: Heard) => h.name === "tether-captured" && captured(h).requested && h.exposure === true;
-/** The other file of one exposure (RAW+JPEG) arrives within this. */
-const COMPANION_MS = 10_000;
 /** Thrown into a running step when the test is closed. */
 const CLOSED = "the camera test was closed";
+
+/** Why something failed: `reason` is the test's own words (it goes into
+ * the report), `detail` the camera's or the app's message (shown here
+ * only: it may name folders or files). */
+interface Failure {
+  reason: string;
+  detail?: string;
+}
+const refused = (e: unknown): Failure => ({ reason: "refused by the camera or the helper", detail: String(e) });
+const notDelivered = (payload: unknown): Failure => {
+  const { kind, message } = payload as { kind?: string; message?: string };
+  return { reason: `shot not delivered (${/^[a-zA-Z]+$/.test(kind ?? "") ? kind : "other"})`, detail: message };
+};
+const notAdded = (error: string): Failure => ({ reason: "photo not added to the library", detail: error });
+const NO_PHOTO: Failure = { reason: "no photo arrived" };
 
 const systemName = () => {
   try {
@@ -117,8 +131,8 @@ export default function TetherCameraTest({
   const waiters = useRef(new Set<(h: Heard | null) => boolean>());
   // Closed: no step asks the camera for anything more.
   const closed = useRef(false);
-  // Per file name stem: its extensions and when its exposure came in.
-  const stems = useRef(new Map<string, { extensions: Set<string>; at: number }>());
+  // The exposures heard (helper connection and exposure numbers).
+  const exposures = useRef(new Set<string>());
   // Committed photos waiting for their release, and what the releases said.
   // (`releasedEarly`: released before their commit was heard.)
   const releases = useRef({
@@ -137,19 +151,14 @@ export default function TetherCameraTest({
     const hear = (name: string, payload: unknown) => {
       const h: Heard = { name, payload, at: now() };
       if (name === "tether-captured") {
-        // One exposure as RAW and JPEG counts once: a second file of a stem
-        // just in, with another extension, belongs to it.
-        const file = (payload as Captured).cameraName;
-        const dot = file.lastIndexOf(".");
-        const stem = dot > 0 ? file.slice(0, dot) : file;
-        const extension = dot > 0 ? file.slice(dot + 1).toLowerCase() : "";
-        const seen = stems.current.get(stem);
-        if (seen && !seen.extensions.has(extension) && h.at - seen.at < COMPANION_MS) {
-          seen.extensions.add(extension);
-          h.exposure = false;
-        } else {
-          stems.current.set(stem, { extensions: new Set([extension]), at: h.at });
-          h.exposure = true;
+        // One exposure as RAW and JPEG counts once: the helper gives both
+        // its number.
+        const { connection, exposure } = payload as Captured;
+        if (connection == null || exposure == null) h.exposure = true;
+        else {
+          const key = `${connection}/${exposure}`;
+          h.exposure = !exposures.current.has(key);
+          exposures.current.add(key);
         }
       }
       heard.current.push(h);
@@ -173,6 +182,8 @@ export default function TetherCameraTest({
       }
       for (const waiter of [...waiters.current]) if (waiter(h)) waiters.current.delete(waiter);
     };
+    // Set up again after a cleanup (React's StrictMode runs both once more).
+    closed.current = false;
     const stops = EVENTS.map((name) => listen(name, (event) => hear(name, event.payload)));
     const pending = waiters.current;
     return () => {
@@ -212,11 +223,6 @@ export default function TetherCameraTest({
     return invoke<T>(command, args);
   }, []);
 
-  const secrets = useMemo(() => [camera.serial], [camera.serial]);
-  const failed = useCallback(
-    (e: unknown): StepResult => ({ state: "failed", reason: scrub(String(e), secrets) }),
-    [secrets],
-  );
 
   /** One shot from the app: request → photo in the library → its first
    * Develop frame (when `screen`: Develop shows the captures). */
@@ -225,17 +231,17 @@ export default function TetherCameraTest({
     try {
       await ask(Invokes.TetherCapture);
     } catch (e) {
-      return { error: String(e) };
+      return { error: refused(e) };
     }
     const photo = await next(
       (h) => appExposure(h) || h.name === "tether-capture-failed",
       SHOT_WAIT_MS,
       since,
     );
-    if (!photo) return { error: "no photo arrived" };
-    if (photo.name === "tether-capture-failed") return { error: (photo.payload as { message: string }).message };
+    if (!photo) return { error: NO_PHOTO };
+    if (photo.name === "tether-capture-failed") return { error: notDelivered(photo.payload) };
     const c = captured(photo);
-    if (c.error) return { error: c.error };
+    if (c.error) return { error: notAdded(c.error) };
     const inLibrary = Math.round(photo.at - since);
     const destination = c.destination;
     const frame =
@@ -285,7 +291,7 @@ export default function TetherCameraTest({
     shots: async () => {
       const inLibrary: number[] = [];
       const onScreen: number[] = [];
-      const errors: string[] = [];
+      const errors: Failure[] = [];
       // Develop not showing the first photo: the others are not waited for.
       let screen = true;
       for (let i = 1; i <= shotCount && !closed.current; i += 1) {
@@ -302,18 +308,18 @@ export default function TetherCameraTest({
         arrived: inLibrary.length,
         inLibrary,
         onScreen,
-        reason: errors.length ? scrub(errors[0], secrets) : undefined,
+        ...errors[0],
       };
     },
     burst: async () => {
       const since = now();
-      const errors: string[] = [];
+      const errors: Failure[] = [];
       setPrompt(t("session.tether.test.bursting", { shots: BURST }));
       for (let i = 0; i < BURST; i += 1) {
         try {
           await ask(Invokes.TetherCapture);
         } catch (e) {
-          errors.push(String(e));
+          errors.push(refused(e));
         }
       }
       const fired = BURST - errors.length;
@@ -328,12 +334,12 @@ export default function TetherCameraTest({
           last,
         );
         if (!photo) {
-          errors.push("no photo arrived");
+          errors.push(NO_PHOTO);
           break;
         }
         last = photo.at;
-        if (photo.name === "tether-capture-failed") errors.push((photo.payload as { message: string }).message);
-        else if (captured(photo).error) errors.push(captured(photo).error ?? "");
+        if (photo.name === "tether-capture-failed") errors.push(notDelivered(photo.payload));
+        else if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ""));
         else arrived += 1;
         if (arrived + errors.length >= BURST) break;
       }
@@ -342,7 +348,7 @@ export default function TetherCameraTest({
         asked: BURST,
         arrived,
         ms: Math.round(last - since),
-        reason: errors.length ? scrub(errors[0], secrets) : undefined,
+        ...errors[0],
       };
     },
     bodyShot: async () => {
@@ -356,7 +362,7 @@ export default function TetherCameraTest({
       if (!photo) return { state: "failed", asked: 1, arrived: 0, reason: "no photo within 30 s" };
       const c = captured(photo);
       return c.error
-        ? { state: "failed", asked: 1, arrived: 0, reason: scrub(c.error, secrets) }
+        ? { state: "failed", asked: 1, arrived: 0, ...notAdded(c.error) }
         : { state: "passed", asked: 1, arrived: 1 };
     },
     replug: async () => {
@@ -378,7 +384,7 @@ export default function TetherCameraTest({
       setPrompt(t("session.tether.test.shotAfterReplug"));
       const shot = await shoot(false);
       return shot.error
-        ? { state: "failed", ms, asked: 1, arrived: 0, reason: scrub(shot.error, secrets) }
+        ? { state: "failed", ms, asked: 1, arrived: 0, ...shot.error }
         : {
             state: "passed",
             ms,
@@ -399,10 +405,10 @@ export default function TetherCameraTest({
         r.pending.length ? `${r.pending.length} not freed` : "",
         r.notFreed ? `${r.notFreed} kept by the camera` : "",
         r.early ? `${r.early} freed before their commit` : "",
-        r.errors[0] ? scrub(r.errors[0], secrets) : "",
+        r.errors.length ? `${r.errors.length} releases failed` : "",
       ].filter(Boolean);
       return problems.length
-        ? { state: "failed", freed: r.freed, reason: problems.join(", ") }
+        ? { state: "failed", freed: r.freed, reason: problems.join(", "), detail: r.errors[0] }
         : { state: "passed", freed: r.freed };
     },
   };
@@ -414,7 +420,7 @@ export default function TetherCameraTest({
     try {
       result = await runners[id]();
     } catch (e) {
-      result = failed(e);
+      result = { state: "failed", ...refused(e) };
     }
     setResults((current) => ({ ...current, [id]: result }));
     setPrompt("");
@@ -504,6 +510,7 @@ export default function TetherCameraTest({
                 {result && <span>{states[result.state]}</span>}
               </div>
               {result && <small>{describe(result)}</small>}
+              {result?.detail && <small className="tether-test-detail">{result.detail}</small>}
               {!result && (active || (current === id && running === null)) && (
                 <div className="tether-test-run">
                   <small>{active && prompt ? prompt : stepHows[id]}</small>

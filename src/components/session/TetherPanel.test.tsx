@@ -268,6 +268,15 @@ it("opens the camera test for the connected camera and keeps it through a cable 
   expect(screen.queryByRole("region", { name: "Camera test" })).toBeNull();
 });
 
+it("a closed (hidden) panel ends its camera test", async () => {
+  const { rerender } = render(<Harness initial={STATUS} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Camera test…" }));
+  expect(screen.getByRole("region", { name: "Camera test" })).toBeTruthy();
+  rerender(<Harness initial={STATUS} hidden />);
+  rerender(<Harness initial={STATUS} />);
+  expect(screen.queryByRole("region", { name: "Camera test" })).toBeNull();
+});
+
 it("says a failed shot from the shortcut while the panel is closed", async () => {
   const { toast } = await import("react-toastify");
   const base = invoke.getMockImplementation()!;

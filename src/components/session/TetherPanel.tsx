@@ -181,6 +181,10 @@ export default function TetherPanel({
   const [testing, setTesting] = useState<TestedCamera | null>(null);
   const [connectMs, setConnectMs] = useState<number | null>(null);
   const connected = status !== null;
+  // A closed (hidden) panel ends its camera test: it asks nothing more.
+  useEffect(() => {
+    if (hidden) setTesting(null);
+  }, [hidden]);
 
   const findCameras = useCallback(async () => {
     setError("");

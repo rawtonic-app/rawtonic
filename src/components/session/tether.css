@@ -192,3 +192,7 @@
   line-height: 1.4;
   resize: vertical;
 }
+.tether-test-steps small.tether-test-detail {
+  overflow-wrap: anywhere;
+  opacity: 0.8;
+}

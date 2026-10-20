@@ -753,6 +753,10 @@ pub struct TetherCaptured {
     pub error: Option<String>,
     /// Fired by the app (else on the body, or left from an earlier run).
     pub requested: bool,
+    /// The helper's connection and exposure numbers (the RAW and JPEG of
+    /// one exposure share them); none for a photo left from an earlier run.
+    pub connection: Option<u64>,
+    pub exposure: Option<u64>,
     /// From the app's request (or the camera's report) to: the camera's
     /// report, the complete download, the photo in the library.
     pub ms_to_event: Option<u64>,
@@ -876,6 +880,8 @@ impl Ingest<'_> {
             skipped: result.skipped,
             error: result.error,
             requested: timing.is_some_and(|(c, _)| c.requested),
+            connection: timing.map(|(c, _)| c.connection),
+            exposure: timing.map(|(c, _)| c.exposure),
             ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
             ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
             ms_to_ingested: timing
@@ -1278,6 +1284,7 @@ mod tests {
                 path,
                 connection: 1,
                 download: n,
+                exposure: n,
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1326,6 +1333,7 @@ mod tests {
                 path,
                 connection: 1,
                 download: n,
+                exposure: n,
                 camera_folder: "/store_00010001".into(),
                 camera_name: format!("DSC{n:05}.ARW"),
                 size: 7,
@@ -2119,6 +2127,7 @@ mod tests {
                     path: staging.join("x"),
                     connection: 1,
                     download: 1,
+                    exposure: 1,
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,

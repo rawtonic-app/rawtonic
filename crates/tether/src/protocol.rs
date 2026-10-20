@@ -133,6 +133,9 @@ pub struct Captured {
     /// Its number among that connection's downloads (named again in
     /// `Release`: a camera file name may stand for a newer photo by then).
     pub download: u64,
+    /// Its exposure's number in that connection: the RAW and JPEG of one
+    /// exposure share it.
+    pub exposure: u64,
     /// Where it was on the camera.
     pub camera_folder: String,
     pub camera_name: String,

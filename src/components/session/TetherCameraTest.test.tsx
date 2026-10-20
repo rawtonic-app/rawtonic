@@ -1,5 +1,6 @@
 import "../../i18n";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import TetherCameraTest, { type TestedCamera } from "./TetherCameraTest";
 
@@ -130,7 +131,7 @@ it("runs the steps with the camera and reports them without serial number, paths
   expect(openUrl).toHaveBeenCalledWith("https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml");
 });
 
-it("fails a shot whose photo did not come in, with the reason scrubbed", async () => {
+it("fails a shot whose photo did not come in, its message kept out of the report", async () => {
   onCapture = () =>
     window.setTimeout(
       () => emit("tether-capture-failed", { kind: "timeout", message: "DSCF7.RAF from 93X1234567 not at /Users/someone/x" }),
@@ -140,7 +141,10 @@ it("fails a shot whose photo did not come in, with the reason scrubbed", async (
   expect(report()).toContain("| Connect | pass |  |");
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
-  await runStep(/\| Shots from Rawtonic \| FAIL \| 0\/5 in the library; <file> from <serial> not at <path> \|/);
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 0\/5 in the library; shot not delivered \(timeout\) \|/);
+  // The message is shown in the test, never copied.
+  expect(screen.getByText("DSCF7.RAF from 93X1234567 not at /Users/someone/x")).toBeTruthy();
+  expect(report()).not.toMatch(/DSCF7|93X1234567|someone/);
 });
 
 it("finds a release before its photo's commit and skips the queue step on cameras without one", async () => {
@@ -180,6 +184,8 @@ it("counts a RAW+JPEG exposure once, so missing exposures fail the burst", async
       for (const extension of ["RAF", "JPG"])
         emit("tether-captured", {
           cameraName: `DSCF${n}.${extension}`,
+          connection: 1,
+          exposure: n,
           destination: null,
           assetId: `a${n}${extension}`,
           skipped: false,
@@ -189,7 +195,7 @@ it("counts a RAW+JPEG exposure once, so missing exposures fail the burst", async
     }, 5);
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  await runStep(/\| Burst from Rawtonic \| FAIL \| 3\/5 in the library; \d+ ms; The camera did not deliver the shot\. \|/);
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 3\/5 in the library; \d+ ms; shot not delivered \(timeout\) \|/);
 });
 
 it("asks the camera for nothing more once the test is closed", async () => {
@@ -206,4 +212,13 @@ it("asks the camera for nothing more once the test is closed", async () => {
   vi.useRealTimers();
   expect(shot).toBe(1);
   expect(invoke.mock.calls.filter(([command]) => command === "tether_capture")).toHaveLength(1);
+});
+
+it("runs under React's StrictMode (its effects set up twice)", async () => {
+  render(
+    <StrictMode>
+      <TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />
+    </StrictMode>,
+  );
+  await runStep(/\| Read settings \| pass \|/);
 });

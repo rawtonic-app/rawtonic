@@ -6,7 +6,6 @@ import {
   compatibilityOf,
   median,
   percentile,
-  scrub,
   settingToChange,
   type ReportInfo,
 } from "./cameraTest";
@@ -29,22 +28,18 @@ it("takes medians and nearest-rank percentiles", () => {
   expect(percentile([1140, 1214, 1100], 95)).toBe(1214);
 });
 
-it("keeps paths, photo file names and the serial number out of a message", () => {
-  expect(scrub("Downloading DSC01234.ARW from 5a33f1 failed: /Users/someone/Jobs/Acme/DSC01234.ARW", ["5a33f1"])).toBe(
-    "Downloading <file> from <serial> failed: <path>",
-  );
-  // Names with spaces, Windows and quoted paths: nothing after the path's start stays.
-  for (const message of [
-    "Cannot copy /Users/Jane Doe/Jobs/Acme Secret/DSC00001.ARW",
-    "Cannot copy C:\\Users\\Jane Doe\\Acme Secret\\a.raf: disk full",
-    'Cannot copy "/home/jane doe/Acme Secret/x" (denied)',
-    "Cannot copy \\\\server\\Jane Doe\\Acme Secret",
-    "Cannot copy ~/Acme Secret/x",
-  ])
-    expect(scrub(message)).toMatch(/^Cannot copy "?<path>$/);
-  // Camera values with a slash stay.
-  expect(scrub("Shutter speed 1/250 at f/8")).toBe("Shutter speed 1/250 at f/8");
-  expect(scrub("x".repeat(400)).length).toBe(160);
+it("never puts a step's message into the report, only the test's own words", () => {
+  const report = buildReport(INFO, {
+    shots: {
+      state: "failed",
+      asked: 1,
+      arrived: 0,
+      reason: "photo not added to the library",
+      detail: "Cannot copy /Users/Jane Doe/Acme Secret/客户机密.RAF",
+    },
+  });
+  expect(report).toContain("| Shots from Rawtonic | FAIL | 0/1 in the library; photo not added to the library |");
+  expect(report).not.toMatch(/Jane|Acme|客户|Cannot copy/);
 });
 
 it("writes an anonymous report with the camera, its firmware, the driver and every step", () => {
@@ -52,7 +47,7 @@ it("writes an anonymous report with the camera, its firmware, the driver and eve
     connect: { state: "passed", ms: 2310 },
     shots: { state: "passed", asked: 3, arrived: 3, inLibrary: [900, 950, 1000], onScreen: [1100, 1140, 1214] },
     autofocus: { state: "skipped", reason: "skipped by the user" },
-    burst: { state: "failed", asked: 5, arrived: 4, ms: 4200, reason: scrub("lost /Users/someone/DSC00001.ARW") },
+    burst: { state: "failed", asked: 5, arrived: 4, ms: 4200, reason: "no photo arrived", detail: "lost /Users/someone/DSC00001.ARW" },
   });
   expect(report).toContain("- Camera: Sony Alpha-A7 IV (PC Control)");
   expect(report).toContain("- Firmware: 2.00");

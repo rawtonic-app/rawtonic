@@ -429,6 +429,8 @@ fn raw_and_jpeg_of_one_exposure_answer_one_request() {
     let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
     assert_eq!(names, ["DSC00001.ARW", "DSC00001.JPG"], "{other:?}");
     assert!(photos.iter().all(|p| p.requested));
+    // One exposure: the camera test counts it once.
+    assert_eq!(photos[0].exposure, photos[1].exposure);
     // The second request is still open and times out as not delivered.
     assert!(
         other
@@ -560,6 +562,8 @@ fn raw_and_jpeg_under_reused_names_answer_their_own_requests() {
     let (photos, other) = helper.photos(4);
     assert_eq!(photos.len(), 4, "{other:?}");
     assert!(photos.iter().all(|p| p.requested));
+    let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
+    assert_eq!(exposures, [1, 1, 2, 2]);
     // Both requests answered: none times out.
     std::thread::sleep(Duration::from_millis(1700));
     assert!(

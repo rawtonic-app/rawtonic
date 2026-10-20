@@ -55,6 +55,8 @@ struct Open {
     /// extension and its app request, if any (RAW and JPEG of one exposure
     /// share the name and answer one request).
     exposure: Option<(String, Vec<String>, Option<Instant>)>,
+    /// Exposures so far (`Captured::exposure`).
+    exposures: u64,
     /// The camera came to keep photos only in its memory ("Save to" without
     /// the card, or no card): not polled or fired for the rest of this
     /// connection (photos it took meanwhile have no card copy).
@@ -264,6 +266,7 @@ impl<W: Write> Server<W> {
                     published: Default::default(),
                     downloads: Default::default(),
                     exposure: None,
+                    exposures: 0,
                     memory_only: false,
                     connection: self.connections,
                     held: false,
@@ -496,11 +499,13 @@ impl<W: Write> Server<W> {
                 _ => {
                     let at = open.waiting.pop_front();
                     open.exposure = Some((stem, vec![extension], at));
+                    open.exposures += 1;
                     at
                 }
             },
             Shot::At(at) => {
                 open.exposure = Some((stem, vec![extension], Some(at)));
+                open.exposures += 1;
                 Some(at)
             }
         };
@@ -547,6 +552,7 @@ impl<W: Write> Server<W> {
             path,
             connection: open.connection,
             download: shot,
+            exposure: open.exposures,
             camera_folder: file.folder,
             camera_name: file.name,
             size: expected,
