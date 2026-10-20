@@ -672,7 +672,7 @@ pub(crate) struct PairResult {
 }
 
 /// A file of the library with the content of `source`.
-enum Held {
+pub(crate) enum Held {
     /// A photograph.
     Photo(rawtonic_catalog::Asset),
     /// A photograph's companion (the file at the path).
@@ -682,7 +682,7 @@ enum Held {
 /// The library's file with the content of `source` (same size and sampled
 /// fingerprint, then the same SHA-256; companions by size, then SHA-256),
 /// if any.
-fn library_copy(library: &Library, source: &Path) -> Result<Option<Held>> {
+pub(crate) fn library_copy(library: &Library, source: &Path) -> Result<Option<Held>> {
     let fp = rawtonic_catalog::fingerprint(source)?;
     let len = fs::metadata(source)?.len();
     let mut source_hash = None;
@@ -702,13 +702,56 @@ fn library_copy(library: &Library, source: &Path) -> Result<Option<Held>> {
             return Ok(Some(Held::Photo(asset)));
         }
     }
+    Ok(held_companion_with(library, len, &mut same)?
+        .map(|(owner, path)| Held::Companion(owner, path)))
+}
+
+/// The library's companion file (with its photograph) with the content of
+/// `source` (same size, then the same SHA-256), if any.
+pub(crate) fn held_companion(
+    library: &Library,
+    source: &Path,
+) -> Result<Option<(rawtonic_catalog::Asset, PathBuf)>> {
+    let len = fs::metadata(source)?.len();
+    let mut source_hash = None;
+    held_companion_with(library, len, &mut |path| {
+        let hash = match &source_hash {
+            Some(hash) => hash,
+            None => source_hash.insert(sha256(source)?),
+        };
+        Ok(sha256(path)? == *hash)
+    })
+}
+
+fn held_companion_with(
+    library: &Library,
+    len: u64,
+    same: &mut dyn FnMut(&Path) -> Result<bool>,
+) -> Result<Option<(rawtonic_catalog::Asset, PathBuf)>> {
     for (path, owner) in library.companions()? {
         if fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == len) && same(&path)?
         {
-            return Ok(Some(Held::Companion(library.asset(&owner)?, path)));
+            return Ok(Some((library.asset(&owner)?, path)));
         }
     }
     Ok(None)
+}
+
+/// `import_pair` of `source` without a companion, a failure reported in
+/// its result (a pair's JPEG brought in on its own must not fail its RAW).
+fn import_alone(
+    library: &Library,
+    source: &Path,
+    options: &ImportOptions<'_>,
+    cancel: &AtomicBool,
+) -> ImportResult {
+    import_pair(library, source, None, options, None, cancel)
+        .map(|pair| pair.photo)
+        .unwrap_or_else(|error| ImportResult {
+            source: source.into(),
+            error: Some(format!("{error:#}")),
+            ..Default::default()
+        })
 }
 
 /// Imports `source` (named from it) and, for a RAW+JPEG pair, its
@@ -781,9 +824,7 @@ pub(crate) fn import_pair(
                     ..Default::default()
                 },
                 companion: match companion {
-                    Some(companion) => {
-                        Some(import_pair(library, companion, None, options, None, cancel)?.photo)
-                    }
+                    Some(companion) => Some(import_alone(library, companion, options, cancel)),
                     None => None,
                 },
             });
@@ -797,9 +838,7 @@ pub(crate) fn import_pair(
         // (the RAW came in alone before, or with another JPEG) rather than
         // being left out.
         let companion = match companion {
-            Some(companion) => {
-                Some(import_pair(library, companion, None, options, None, cancel)?.photo)
-            }
+            Some(companion) => Some(import_alone(library, companion, options, cancel)),
             None => None,
         };
         return Ok(PairResult {
@@ -816,8 +855,17 @@ pub(crate) fn import_pair(
     }
     // A companion the library holds as a photograph of its own stays one.
     let (companion, known_companion) = match companion {
-        Some(path) => match library_copy(library, path)? {
-            Some(Held::Photo(asset)) => (
+        Some(path) => match library_copy(library, path) {
+            // Unreadable (gone meanwhile): the RAW comes in alone.
+            Err(error) => (
+                None,
+                Some(ImportResult {
+                    source: path.into(),
+                    error: Some(format!("{error:#}")),
+                    ..Default::default()
+                }),
+            ),
+            Ok(Some(Held::Photo(asset))) => (
                 None,
                 Some(ImportResult {
                     source: path.into(),
@@ -827,7 +875,7 @@ pub(crate) fn import_pair(
                     ..Default::default()
                 }),
             ),
-            Some(Held::Companion(owner, copy)) => (
+            Ok(Some(Held::Companion(owner, copy))) => (
                 None,
                 Some(ImportResult {
                     source: path.into(),
@@ -838,7 +886,7 @@ pub(crate) fn import_pair(
                     ..Default::default()
                 }),
             ),
-            None => (Some(path), None),
+            Ok(None) => (Some(path), None),
         },
         None => (None, None),
     };

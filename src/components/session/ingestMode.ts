@@ -39,16 +39,16 @@ export function preselectIngestMode({
   return { mode: "copy", showSwitch: true, canAdd: true };
 }
 
-/** Developed images (`ingest::capture::IMAGE_EXTENSIONS`): not RAWs. */
-const DEVELOPED = new Set(["jpg", "jpeg", "heic", "heif", "hif", "png", "webp", "avif", "jxl", "tif", "tiff"]);
 /** What a camera writes beside a RAW (`ingest::batch::COMPANION_EXTENSIONS`). */
 const COMPANIONS = new Set(["jpg", "jpeg", "heic", "heif", "hif"]);
 
 /** Whether `paths` hold a RAW+JPEG pair the ingest would import as one
- * photograph (`ingest::batch::pair_sources`: exactly one RAW and one JPEG
- * or HEIF of one name, letter case aside, in one folder), so the dialog
- * offers to import such JPEGs as photographs of their own. */
-export function hasRawJpegPairs(paths: string[]): boolean {
+ * photograph (`ingest::batch::pair_sources`: exactly one RAW, by the app's
+ * `raw` extensions, and one JPEG or HEIF of one name, letter case aside,
+ * in one folder), so the dialog offers to import such JPEGs as
+ * photographs of their own. */
+export function hasRawJpegPairs(paths: string[], raw: string[]): boolean {
+  const raws = new Set(raw.map((e) => e.toLowerCase()));
   const byName = new Map<string, string[]>();
   for (const path of paths) {
     const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
@@ -63,7 +63,7 @@ export function hasRawJpegPairs(paths: string[]): boolean {
   return [...byName.values()].some(
     (extensions) =>
       extensions.length === 2 &&
-      extensions.some((e) => e !== "xmp" && !DEVELOPED.has(e)) &&
+      extensions.some((e) => raws.has(e)) &&
       extensions.some((e) => COMPANIONS.has(e)),
   );
 }

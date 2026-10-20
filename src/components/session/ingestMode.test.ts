@@ -49,15 +49,20 @@ describe("ingest mode preselection", () => {
   });
 });
 
+const RAW = ["arw", "cr3", "dng", "nef", "raf"];
+
 describe("hasRawJpegPairs", () => {
   it("finds a RAW and a JPEG or HEIF of one name in one folder, letter case aside", () => {
-    expect(hasRawJpegPairs(["/c/100/A.ARW", "/c/100/a.jpg"])).toBe(true);
-    expect(hasRawJpegPairs(["C:\\DCIM\\B.CR3", "C:\\DCIM\\B.HIF"])).toBe(true);
+    expect(hasRawJpegPairs(["/c/100/A.ARW", "/c/100/a.jpg"], RAW)).toBe(true);
+    expect(hasRawJpegPairs(["C:\\DCIM\\B.CR3", "C:\\DCIM\\B.HIF"], RAW)).toBe(true);
   });
   it("leaves out other folders, three files of a name and developed pairs", () => {
-    expect(hasRawJpegPairs(["/c/100/A.ARW", "/c/101/A.JPG"])).toBe(false);
-    expect(hasRawJpegPairs(["/c/A.CR3", "/c/A.DNG", "/c/A.JPG"])).toBe(false);
-    expect(hasRawJpegPairs(["/c/A.TIF", "/c/A.JPG"])).toBe(false);
-    expect(hasRawJpegPairs(["/c/A.ARW", "/c/A.PNG"])).toBe(false);
+    expect(hasRawJpegPairs(["/c/100/A.ARW", "/c/101/A.JPG"], RAW)).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.CR3", "/c/A.DNG", "/c/A.JPG"], RAW)).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.TIF", "/c/A.JPG"], RAW)).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.ARW", "/c/A.PNG"], RAW)).toBe(false);
+    // Only the app's RAW formats are RAWs (not GIF, EXR, …).
+    expect(hasRawJpegPairs(["/c/A.GIF", "/c/A.JPG"], RAW)).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.EXR", "/c/A.JPG"], RAW)).toBe(false);
   });
 });

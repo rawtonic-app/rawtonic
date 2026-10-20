@@ -104,8 +104,9 @@ interface ImportResult {
   warning?: string | null;
   /** On a RAW's result: its companion JPEG copied beside it. */
   companion?: string | null;
-  /** On a companion JPEG's result: the RAW's copy it belongs to. */
-  companionOf?: string | null;
+  /** On a companion JPEG's result: the RAW's copy it belongs to (the
+   * backend's `ImportResult` keeps its snake_case field names). */
+  companion_of?: string | null;
 }
 /** Mirrors `session_bridge::IngestScan`. */
 interface IngestScan {
@@ -131,6 +132,7 @@ interface IngestTarget {
 const NO_TARGET: IngestTarget = { folder: null, album: null };
 /** The ingest dialog's file dialog filter when the app's list of formats
  * has not loaded (it normally comes from `get_supported_file_types`). */
+const FALLBACK_RAW = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf"];
 const FALLBACK_EXTENSIONS = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "avif", "jxl"];
 export interface HotFolderStatus {
   folder: string;
@@ -970,9 +972,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   useEffect(() => setMode(preselected), [sources, target.folder, preselected]);
   const ingestMode: IngestMode = mode === "add" && modeChoice.canAdd ? "add" : "copy";
   // The choice of separate JPEGs is offered only when there are pairs.
+  const supportedTypes = useSettingsStore((state) => state.supportedTypes);
   const pairsChosen = useMemo(
-    () => hasRawJpegPairs(sources.filter((file) => chosen.has(file.path)).map((file) => file.path)),
-    [sources, chosen],
+    () =>
+      hasRawJpegPairs(
+        sources.filter((file) => chosen.has(file.path)).map((file) => file.path),
+        supportedTypes?.raw ?? FALLBACK_RAW,
+      ),
+    [sources, chosen, supportedTypes],
   );
 
   const ingest = async (event: React.FormEvent) => {
@@ -1011,15 +1018,18 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       });
       const failures = results.filter((r) => r.error);
       // A companion JPEG is part of its RAW's photograph, not one of its own.
-      const photos = results.filter((r) => !r.companionOf);
+      const photos = results.filter((r) => !r.companion_of);
       const skipped = photos.filter((r) => r.skipped).length;
       const copied = photos.filter((r) => !r.error).length - skipped;
-      const companions = results.filter((r) => r.companionOf && !r.error && !r.skipped).length;
+      const companions = results.filter((r) => r.companion_of && !r.error && !r.skipped).length;
       const sidecars = results.filter((r) => r.sidecar && !r.error).length;
       const warnings = results.filter((r) => r.warning);
       let albumError: string | null = null;
       if (album) {
-        const paths = results.filter((r) => r.destination && !r.error).map((r) => r.destination as string);
+        // Photographs only: a companion JPEG is no photograph of the library.
+        const paths = results
+          .filter((r) => r.destination && !r.error && !r.companion_of)
+          .map((r) => r.destination as string);
         if (paths.length)
           try {
             await invoke(Invokes.SessionAlbumAdd, { directory: session.directory, id: album.id, paths });

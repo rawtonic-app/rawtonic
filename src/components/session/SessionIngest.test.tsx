@@ -205,6 +205,52 @@ describe("Dropping photographs onto the window", () => {
     );
   });
 
+  it("a RAW+JPEG pair is one photograph: the JPEG is not counted, not added to the album, and can be imported separately", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_scan")
+        return {
+          files: [
+            { path: "/Volumes/CARD/DCIM/A.ARW", size: 20_000_000, duplicate: false },
+            { path: "/Volumes/CARD/DCIM/A.JPG", size: 5_000_000, duplicate: false },
+            { path: "/Volumes/CARD/DCIM/C.ARW", size: 22_000_000, duplicate: false },
+          ],
+          truncated: false,
+        };
+      if (command === "session_ingest")
+        return [
+          { source: "/Volumes/CARD/DCIM/A.ARW", destination: "/jobs/Acme/Capture/A.ARW", skipped: false, error: null,
+            companion: "/jobs/Acme/Capture/A.JPG", companion_of: null },
+          { source: "/Volumes/CARD/DCIM/A.JPG", destination: "/jobs/Acme/Capture/A.JPG", skipped: false, error: null,
+            companion: null, companion_of: "/jobs/Acme/Capture/A.ARW" },
+          { source: "/Volumes/CARD/DCIM/C.ARW", destination: "/jobs/Acme/Capture/C.ARW", skipped: false, error: null },
+        ];
+      return base(command, args);
+    });
+    await open();
+    const row = document.createElement("button");
+    row.dataset.albumDrop = "album-7";
+    row.dataset.albumName = "Client picks";
+    document.body.append(row);
+    drop(["/Volumes/CARD/DCIM"], row);
+    const separate = await screen.findByLabelText("Import JPEGs next to RAW files as separate photos");
+    expect((separate as HTMLInputElement).checked).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Copy 3 photographs" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("session_album_add", {
+        directory: "/jobs/Acme",
+        id: "album-7",
+        paths: ["/jobs/Acme/Capture/A.ARW", "/jobs/Acme/Capture/C.ARW"],
+      }),
+    );
+    expect(ingestCall()![1]).toMatchObject({ separateJpeg: false });
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const message = vi.mocked(toast.success).mock.calls[0][0] as string;
+    expect(message).toContain("2 photos copied");
+    expect(message).toContain("1 JPEGs kept with their RAWs");
+  });
+
   it("dropped onto a folder of the library: copies into that folder", async () => {
     const user = userEvent.setup();
     const navigate = await open();

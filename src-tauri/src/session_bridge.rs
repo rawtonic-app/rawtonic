@@ -673,6 +673,13 @@ impl IngestedFile {
     }
 }
 
+/// The RAW test an ingest pairs RAW+JPEG with (`batch::pair_sources`);
+/// none when the user imports such JPEGs as photographs of their own.
+fn pair_raw(separate_jpeg: Option<bool>) -> Option<fn(&Path) -> bool> {
+    (!separate_jpeg.unwrap_or(false))
+        .then_some(crate::formats::is_raw_file::<&Path> as fn(&Path) -> bool)
+}
+
 /// How an ingest brings photographs in.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -723,7 +730,7 @@ pub async fn session_ingest(
             backup: backup.as_deref().map(Path::new),
             folder: folder.as_deref().map(Path::new),
             roots: &roots,
-            separate_jpeg: separate_jpeg.unwrap_or(false),
+            pair_raw: pair_raw(separate_jpeg),
         };
         let started = std::time::Instant::now();
         let report = |done: rawtonic_ingest::batch::FileDone<'_>| {
@@ -751,7 +758,7 @@ pub async fn session_ingest(
             IngestMode::Add => rawtonic_ingest::batch::add_batch(
                 &lib,
                 &sources,
-                separate_jpeg.unwrap_or(false),
+                pair_raw(separate_jpeg),
                 rawtonic_ingest::batch::source_medium,
                 &CANCEL_IMPORT,
                 report,
