@@ -167,7 +167,7 @@ pub async fn generate_ai_depth_mask(
     // photo switch meanwhile cannot file one photo's depth under another.
     let loaded = crate::image_loader::original_image(&state).await?;
     ensure_photo(&loaded.path, &path)?;
-    let path_hash = geometry_key(&loaded.path, &js_adjustments);
+    let path_hash = geometry_key(&loaded, &js_adjustments);
     let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
         .map_err(|e| e.to_string())?;
@@ -415,11 +415,16 @@ pub async fn generate_ai_subject_mask(
     })
 }
 
-/// Key of a photo with its geometry (the adjustments that move pixels):
-/// what is computed for one is not used for another.
-pub(crate) fn geometry_key(path: &str, js_adjustments: &serde_json::Value) -> String {
+/// Key of a photo's development with its geometry (the adjustments that
+/// move pixels): what is computed for one is not used for another, nor for
+/// the photo developed again (`LoadedImage::source_generation`).
+pub(crate) fn geometry_key(
+    loaded: &crate::app_state::LoadedImage,
+    js_adjustments: &serde_json::Value,
+) -> String {
     let mut hasher = blake3::Hasher::new();
-    hasher.update(path.as_bytes());
+    hasher.update(loaded.path.as_bytes());
+    hasher.update(&loaded.source_generation().to_le_bytes());
     let mut geo_hasher = DefaultHasher::new();
     for key in GEOMETRY_KEYS {
         if let Some(val) = js_adjustments.get(key) {
@@ -467,8 +472,8 @@ async fn sam_embeddings(
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one.
     let loaded = crate::image_loader::original_image(state).await?;
+    let path_hash = geometry_key(&loaded, js_adjustments);
     let (mask_source, source_is_raw) = (loaded.image, loaded.is_raw);
-    let path_hash = geometry_key(&loaded.path, js_adjustments);
     let cached = || {
         state
             .ai_state
@@ -740,7 +745,7 @@ async fn auto_mask(
     if let Some(asked) = asked {
         ensure_photo(&loaded.path, asked)?;
     }
-    let key = geometry_key(&loaded.path, js_adjustments);
+    let key = geometry_key(&loaded, js_adjustments);
     if let Some(mask) = cached_mask(state, kind, &key) {
         return Ok(Some(mask));
     }
@@ -1246,13 +1251,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn geometry_key_follows_path_and_geometry_only() {
+    fn geometry_key_follows_the_development_and_geometry_only() {
+        let loaded = |path: &str, image: &Arc<image::DynamicImage>| crate::app_state::LoadedImage {
+            path: path.into(),
+            image: image.clone(),
+            is_raw: true,
+            multiscale: None,
+        };
+        let pixels = || Arc::new(image::DynamicImage::new_rgb8(2, 1));
+        let decode = pixels();
+        let x = loaded("x.raf", &decode);
         let a = serde_json::json!({"exposure": 1.0, "transformRotate": 0.0});
         let b = serde_json::json!({"exposure": 2.0, "transformRotate": 0.0});
         let c = serde_json::json!({"exposure": 1.0, "transformRotate": 5.0});
-        assert_eq!(geometry_key("x.raf", &a), geometry_key("x.raf", &b));
-        assert_ne!(geometry_key("x.raf", &a), geometry_key("x.raf", &c));
-        assert_ne!(geometry_key("x.raf", &a), geometry_key("y.raf", &a));
+        assert_eq!(geometry_key(&x, &a), geometry_key(&x, &b));
+        assert_ne!(geometry_key(&x, &a), geometry_key(&x, &c));
+        assert_ne!(
+            geometry_key(&x, &a),
+            geometry_key(&loaded("y.raf", &decode), &a)
+        );
+        // The same development (back from the decoded-image cache): its masks.
+        assert_eq!(
+            geometry_key(&x, &a),
+            geometry_key(&loaded("x.raf", &decode), &a)
+        );
+        // Developed again (AI Denoise, decode options): computed again.
+        let denoised = pixels();
+        assert_ne!(
+            geometry_key(&x, &a),
+            geometry_key(&loaded("x.raf", &denoised), &a)
+        );
+        // A generation is never handed to a later development.
+        let first = x.source_generation();
+        drop((x, decode));
+        assert_ne!(loaded("x.raf", &pixels()).source_generation(), first);
     }
 
     #[test]
