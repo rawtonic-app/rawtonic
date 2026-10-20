@@ -56,22 +56,29 @@ fn color_noise(c: &mut Criterion, id: &str, photo: &Rgb32FImage, version: u64) {
     group.finish();
 }
 
-/// The edge-fringe pass (`fringeVersion` 2, full resolution) and the
+/// The edge-fringe pass (`fringeVersion` 2 and 3, full resolution) and the
 /// automatic lateral CA estimate (version 2, as without lens CA data).
 fn fringe_and_ca(c: &mut Criterion, id: &str, photo: &Rgb32FImage) {
     let image = DynamicImage::ImageRgb32F(photo.clone());
-    let recipe = json!({ (edge_fringe::VERSION_KEY): 2 });
     let mut group = c.benchmark_group("lens");
     group
         .sample_size(10)
         .measurement_time(Duration::from_secs(10));
-    group.bench_function(BenchmarkId::new("edge_fringe_v2", id), |b| {
-        b.iter_batched(
-            || image.clone(),
-            |image| edge_fringe::apply_for_recipe(Cow::Owned(image), &recipe, 1.0).into_owned(),
-            BatchSize::LargeInput,
-        )
-    });
+    for version in [2, 3] {
+        let recipe = json!({ (edge_fringe::VERSION_KEY): version });
+        group.bench_function(
+            BenchmarkId::new(format!("edge_fringe_v{version}"), id),
+            |b| {
+                b.iter_batched(
+                    || image.clone(),
+                    |image| {
+                        edge_fringe::apply_for_recipe(Cow::Owned(image), &recipe, 1.0).into_owned()
+                    },
+                    BatchSize::LargeInput,
+                )
+            },
+        );
+    }
     group.bench_function(BenchmarkId::new("lateral_ca_estimate_v2", id), |b| {
         b.iter(|| lateral_ca::estimate_v2(black_box(photo)))
     });
