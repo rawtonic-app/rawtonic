@@ -231,6 +231,18 @@ impl Library {
         Ok(ImportBatch { library: self })
     }
 
+    /// The import batch photograph `id` came in with, if any.
+    pub fn asset_import_batch(&self, id: &str) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT batch_id FROM asset_imports WHERE asset_id=?",
+                [id],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     /// The import batch the photographs added now join, once one was added
     /// (`import_batch`).
     pub fn current_import_batch(&self) -> Option<i64> {

@@ -138,9 +138,21 @@ pub fn run_job(
         }
     };
     library.set_ingest_job_state(id, JobState::Running)?;
-    let _batch =
-        library.continue_import_batch(rawtonic_catalog::ImportKind::Ingest, options.batch)?;
+    // The batch its first run started: kept with the job, or (cut off
+    // before it was kept) the one its photographs recorded so far are in.
     let mut batch = options.batch;
+    if batch.is_none() {
+        for item in &job.items {
+            if let Some(destination) = &item.destination
+                && let Some(asset) = library.asset_at(destination)?
+                && let Some(found) = library.asset_import_batch(&asset.id)?
+            {
+                batch = Some(found);
+                break;
+            }
+        }
+    }
+    let _batch = library.continue_import_batch(rawtonic_catalog::ImportKind::Ingest, batch)?;
     let items: Vec<_> = job.open_items().cloned().collect();
     let total = items
         .iter()
@@ -851,5 +863,26 @@ mod tests {
         let after = lib.previous_import().unwrap().unwrap();
         assert_eq!(after.id, first.id);
         assert_eq!(after.count, 4);
+    }
+
+    /// Cut off after the first photograph was recorded but before the job
+    /// kept its batch: the resumed run finds the batch from that photograph.
+    #[test]
+    fn a_batch_not_yet_kept_is_found_from_the_recorded_photographs() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        let id = create_job(&lib, &sources, &options("{orig}")).unwrap();
+        let killed = catch_unwind(AssertUnwindSafe(|| {
+            run_job(&lib, &id, &AtomicBool::new(false), |_| panic!("killed"))
+        }));
+        assert!(killed.is_err());
+        // As if the run died before it kept the batch with the job.
+        lib.set_ingest_job_option(&id, "batch", &serde_json::Value::Null)
+            .unwrap();
+        let first = lib.previous_import().unwrap().unwrap();
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        let after = lib.previous_import().unwrap().unwrap();
+        assert_eq!((after.id, after.count), (first.id, 4));
     }
 }
