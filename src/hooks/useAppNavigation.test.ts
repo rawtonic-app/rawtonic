@@ -15,7 +15,7 @@ vi.mock('./useEditorActions', () => ({
 const scans = new Map<string, (page: unknown) => void>();
 // Every ref starts empty (null), including the boolean and number ones, so the fixture bridges via unknown.
 const refs = () => Object.fromEntries([
-  'transformWrapperRef', 'preloadedDataRef', 'cachedEditStateRef', 'selectedImagePathRef',
+  'transformWrapperRef', 'cachedEditStateRef', 'selectedImagePathRef',
   'isBackendReadyRef', 'latestRenderedJobIdRef', 'previewJobIdRef', 'currentResRef', 'prevAdjustmentsRef',
 ].map((key) => [key, { current: null }])) as unknown as AppNavigationProps['refs'];
 const file = (path: string) => ({ path, rating: 0, is_raw: true, tags: null, exif: null, modified: 0 });

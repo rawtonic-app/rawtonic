@@ -17,7 +17,6 @@ import { loadLibraryImages, markLibraryPublication } from '../utils/libraryListi
 import { noteListedOffline } from '../utils/offline';
 import { noteBackgroundAiError } from '../utils/aiErrors';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
-import type { PreloadedLibraryData } from './useAppInitialization';
 import { isBelow } from '../utils/catalogFolders';
 
 /** The folder of `roots` that `path` is in (or is), the innermost one: a
@@ -40,7 +39,6 @@ export interface AppNavigationProps {
   clearThumbnailQueue: () => void;
   refs: {
     transformWrapperRef: React.RefObject<{ resetTransform(time?: number): void } | null>;
-    preloadedDataRef: React.RefObject<PreloadedLibraryData>;
     cachedEditStateRef: React.RefObject<ImageCacheEntry | null>;
     selectedImagePathRef: React.RefObject<string | null>;
     isBackendReadyRef: React.RefObject<boolean>;
