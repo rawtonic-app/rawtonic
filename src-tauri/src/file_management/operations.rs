@@ -719,11 +719,10 @@ fn create_virtual_copy_blocking(
 ) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&source_virtual_path);
 
-    let (new_virtual_path, new_sidecar_path) = new_copy_path(
-        &source_path,
-        crate::session_bridge::copy_exists,
-        || Uuid::new_v4().to_string()[..6].to_string(),
-    )?;
+    let (new_virtual_path, new_sidecar_path) =
+        new_copy_path(&source_path, crate::session_bridge::copy_exists, || {
+            Uuid::new_v4().to_string()[..6].to_string()
+        })?;
 
     // The new copy starts from the photograph's state: its sidecar, or for an
     // offline photograph the library's. Written through the library, which
@@ -802,7 +801,13 @@ mod tests {
     fn clearing_sidecars_moves_them_to_the_trash_and_names_any_it_could_not() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().canonicalize().unwrap();
-        for name in ["a.jpg", "a.jpg.rrdata", "b.jpg", "b.jpg.rrexif", "c.jpg.rrdata"] {
+        for name in [
+            "a.jpg",
+            "a.jpg.rrdata",
+            "b.jpg",
+            "b.jpg.rrexif",
+            "c.jpg.rrdata",
+        ] {
             write(&root.join(name), name);
         }
         let trash = FakeTrash::new(tmp.path().join("Trash"), Some(root.join("c.jpg.rrdata")));

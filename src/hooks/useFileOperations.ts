@@ -63,8 +63,39 @@ async function saveEditsFirst(moving: string[] = [], sameName = false): Promise<
 export const undoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⌘Z' : 'Ctrl+Z');
 export const redoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⇧⌘Z' : 'Ctrl+Y');
 
-const ops = (key: string, options?: Record<string, unknown>) =>
-  i18next.t(`studio.library.fileOperations.${key}`, options ?? {});
+type FileOperationText =
+  | 'alreadyInSelects'
+  | 'copyFilesFailed'
+  | 'createFolderFailed'
+  | 'deleteFailed'
+  | 'moveFailed'
+  | 'moveFilesFailed'
+  | 'nothingToUndo'
+  | 'renameFilesFailed'
+  | 'renameFolderFailed'
+  | 'renamed'
+  | 'selectForSelects'
+  | 'selectsNeedSession'
+  | 'trashConfirm'
+  | 'trashCopiesConfirm'
+  | 'trashCopiesMessage'
+  | 'trashCopiesTitle'
+  | 'trashFolderFailed'
+  | 'trashFolderMessage'
+  | 'trashFolderTitle'
+  | 'trashOneMessage'
+  | 'trashSelectedOnly'
+  | 'trashTitle'
+  | 'undoFailed'
+  | 'undoHint'
+  | 'undoHintFromDevelop';
+
+const ops = (key: FileOperationText, options: Record<string, unknown> = {}) =>
+  i18next.t(`studio.library.fileOperations.${key}`, options);
+/** The texts with a number (plural forms). */
+type FileOperationCount = 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
+const opsCount = (key: FileOperationCount, count: number, options: Record<string, unknown> = {}) =>
+  i18next.t(`studio.library.fileOperations.${key}`, { ...options, count });
 
 /** How to undo a file operation from where the user is: in Develop ⌘Z
  * undoes edits (the edit history), so the hint names the Library. */
@@ -104,11 +135,11 @@ export function describeFileOperation(summary: FileOperationSummary, hint = undo
   if (summary.kind === 'trash') {
     const where =
       summary.systemTrash === 0 ? 'trashedSession' : summary.sessionTrash === 0 ? 'trashedSystem' : 'trashedBoth';
-    return `${ops(where, { count: summary.items })} ${hint}`;
+    return `${opsCount(where, summary.items)} ${hint}`;
   }
   if (summary.kind === 'move' && summary.newPaths.length) {
     const folder = summary.newPaths[0].split(/[\\/]/).slice(-2, -1)[0];
-    return `${ops('movedTo', { count: summary.newPaths.length, folder })} ${hint}`;
+    return `${opsCount('movedTo', summary.newPaths.length, { folder })} ${hint}`;
   }
   return `${summary.label}. ${hint}`;
 }
@@ -462,7 +493,7 @@ export function useFileOperations(
       modalMessage = ops('trashOneMessage', { hint });
       confirmText = ops('trashSelectedOnly');
     } else {
-      modalMessage = ops('trashManyMessage', { count: pathsToDelete.length, hint });
+      modalMessage = opsCount('trashManyMessage', pathsToDelete.length, { hint });
       confirmText = ops('trashSelectedOnly');
     }
 

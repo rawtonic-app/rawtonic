@@ -316,7 +316,10 @@ mod tests {
         let mut cache = LutCache::default();
         let first = cache.get_or_load(path).unwrap();
         assert_eq!(first.data[0], 0.25);
-        assert!(std::sync::Arc::ptr_eq(&first, &cache.get_or_load(path).unwrap()));
+        assert!(std::sync::Arc::ptr_eq(
+            &first,
+            &cache.get_or_load(path).unwrap()
+        ));
         // Removed and imported again (another file, other values).
         std::fs::remove_file(path).unwrap();
         std::fs::write(path, cube(0.5) + "\n").unwrap();
