@@ -790,6 +790,10 @@ pub struct TetherCaptured {
 #[serde(rename_all = "camelCase")]
 pub struct TetherReleased {
     pub camera_name: String,
+    /// Its photo's helper connection and exposure (as in `TetherCaptured`),
+    /// so the release can be told apart from another file of that name.
+    pub connection: u64,
+    pub exposure: u64,
     /// Freed from the camera's transfer queue (false: it keeps none).
     pub freed: bool,
     pub error: Option<String>,
@@ -922,6 +926,8 @@ impl Ingest<'_> {
                 "tether-released",
                 json!(TetherReleased {
                     camera_name: captured.camera_name.clone(),
+                    connection: captured.connection,
+                    exposure: captured.exposure,
                     freed: released.as_ref().is_ok_and(|freed| *freed),
                     error: released.err(),
                 }),
@@ -1340,6 +1346,7 @@ mod tests {
         assert_eq!(name, "tether-released");
         let released: TetherReleased = serde_json::from_value(value).unwrap();
         assert_eq!(released.camera_name, "DSCF0002.RAF");
+        assert_eq!((released.connection, released.exposure), (1, 2));
         assert!(released.freed && released.error.is_none());
         drop(tx);
         assert!(freed.recv_timeout(Duration::from_secs(30)).is_err());

@@ -57,7 +57,7 @@ beforeEach(() => {
         error: null,
         requested: true,
       });
-      emit("tether-released", { cameraName: `DSCF${n}.RAF`, freed: true, error: null });
+      emit("tether-released", { cameraName: `DSCF${n}.RAF`, connection: 1, exposure: n, freed: true, error: null });
       emit("wgpu-frame-ready", { path: destination });
     }, 5);
   };
@@ -133,7 +133,7 @@ it("runs the steps with the camera and reports them without serial number, paths
     error: null,
     requested: false,
   });
-  emit("tether-released", { cameraName: "DSCF99.RAF", freed: true, error: null });
+  emit("tether-released", { cameraName: "DSCF99.RAF", connection: 1, exposure: 99, freed: true, error: null });
   await waitFor(() => expect(report()).toContain("| Shot on the camera | pass | 1/1 in the library |"), { timeout: 4000 });
   // The cable out and back in, then a shot.
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
@@ -147,7 +147,7 @@ it("runs the steps with the camera and reports them without serial number, paths
   await runStep(/\| Transfer queue freed after commit \| pass \| 12 freed \|/);
   // A late companion's release goes wrong: the step fails.
   emit("tether-captured", { cameraName: "DSCF99.JPG", connection: 1, exposure: 99, destination: null, assetId: "j", skipped: false, error: null, requested: false });
-  emit("tether-released", { cameraName: "DSCF99.JPG", freed: false, error: "the camera refused" });
+  emit("tether-released", { cameraName: "DSCF99.JPG", connection: 1, exposure: 99, freed: false, error: "the camera refused" });
   expect(report()).toContain("| Transfer queue freed after commit | FAIL | 12 freed; a later release failed |");
   const text = report();
   expect(text).toContain("- Firmware: 4.10");
@@ -177,9 +177,11 @@ it("fails a shot whose photo did not come in, its message kept out of the report
 it("finds a release before its photo's commit and skips the queue step on cameras without one", async () => {
   onCapture = (n) =>
     window.setTimeout(() => {
-      emit("tether-released", { cameraName: `DSCF${n}.RAF`, freed: true, error: null });
+      emit("tether-released", { cameraName: `DSCF${n}.RAF`, connection: 1, exposure: n, freed: true, error: null });
       emit("tether-captured", {
         cameraName: `DSCF${n}.RAF`,
+        connection: 1,
+        exposure: n,
         destination: null,
         assetId: `a${n}`,
         skipped: false,
@@ -483,7 +485,7 @@ it("an ambiguous file that fails makes its step inconclusive, and earlier-run ph
         error: null,
         requested: true,
       });
-      emit("tether-released", { cameraName: `DSCF${n}.RAF`, freed: true, error: null });
+      emit("tether-released", { cameraName: `DSCF${n}.RAF`, connection: 1, exposure: n, freed: true, error: null });
       if (n === 3)
         emit("tether-capture-failed", {
           kind: "storage",
@@ -581,4 +583,50 @@ it("an ambiguous file makes every step it may belong to inconclusive", async () 
   await runStep(/\| Shots from Rawtonic \| pass \|/);
   await runStep(/\| Burst from Rawtonic \| inconclusive \|/);
   expect(report()).toMatch(/\| Shots from Rawtonic \| inconclusive \|/);
+}, 20_000);
+
+it("a failure of a request the test did not send fails no step", async () => {
+  numbered = true;
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      emit("tether-captured", {
+        cameraName: `DSCF${n}.RAF`,
+        connection: 1,
+        exposure: n,
+        ambiguous: [],
+        request: n,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+      // A shot fired from the panel before the test opened (request 77)
+      // times out without an exposure while the test's shots run.
+      if (n === 2)
+        emit("tether-capture-failed", { kind: "timeout", message: "never came", request: 77, connection: null, exposure: null, ambiguous: [] });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| pass \| 5\/5 in the library;/);
+  // Counted in the header only; also once no step runs.
+  expect(report()).toContain("- Files not added or shots not delivered during the test: 1");
+  emit("tether-capture-failed", { kind: "timeout", message: "never came", request: 78, connection: null, exposure: null, ambiguous: [] });
+  expect(report()).toContain("- Files not added or shots not delivered during the test: 2");
+  expect(report()).toMatch(/\| Shots from Rawtonic \| pass \|/);
+}, 20_000);
+
+it("a release of a photo committed before the test is none of the test's", async () => {
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  // Committed before the test opened: its release comes now.
+  emit("tether-released", { cameraName: "DSCF50.RAF", connection: 1, exposure: 50, freed: true, error: null });
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| pass \| 5\/5/);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Transfer queue freed after commit \| pass \| 5 freed \|/);
+  // Another such release after the step leaves it passed.
+  emit("tether-released", { cameraName: "DSCF51.RAF", connection: 1, exposure: 51, freed: false, error: "gone" });
+  expect(report()).toContain("| Transfer queue freed after commit | pass | 5 freed |");
 }, 20_000);

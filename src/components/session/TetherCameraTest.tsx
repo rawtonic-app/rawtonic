@@ -184,11 +184,19 @@ export default function TetherCameraTest({
   const ambiguousSteps = useRef(new Set<StepId>());
   // The highest exposure number heard per helper connection.
   const newest = useRef(new Map<number, number>());
-  // Committed photos waiting for their release, and what the releases said.
-  // (`releasedEarly`: released before their commit was heard.)
+  // The test's own shot requests (helper request numbers), each with the
+  // step that fired it, and how many it is firing right now (a file may
+  // come before its request's number does).
+  const requestSteps = useRef(new Map<number, StepId | null>());
+  const firing = useRef(0);
+  // The test's committed photos (connection/exposure/camera name) waiting
+  // for their release, and what the releases said. A release of a photo
+  // whose commit the test has not heard waits in `releasedEarly`: it is
+  // early only if that commit comes later, else it is none of the test's
+  // (a photo committed before the test opened).
   const releases = useRef({
     pending: [] as string[],
-    releasedEarly: [] as string[],
+    releasedEarly: new Map<string, { freed: boolean; error: string | null }>(),
     freed: 0,
     notFreed: 0,
     early: 0,
@@ -207,18 +215,35 @@ export default function TetherCameraTest({
         newest.current.set(heardConnection, Math.max(newest.current.get(heardConnection) ?? 0, heardExposure));
       const h: Heard = { name, payload, seq: seq.current, at: now() };
       const running = runningStep.current && PHOTO_STEPS.includes(runningStep.current) ? runningStep.current : null;
-      // The photo step a file or a failed file belongs to: its exposure's.
-      let owner: StepId | null = running;
-      const { connection, exposure } = payload as { connection?: number | null; exposure?: number | null };
+      const { connection, exposure, request } = payload as {
+        connection?: number | null;
+        exposure?: number | null;
+        request?: number | null;
+      };
+      // The step whose request a file or failure answers: none for a request
+      // the test did not send (one fired before it opened, or from the
+      // panel), unknown while the test is firing one (its number may still
+      // be on its way).
+      const asked =
+        request == null
+          ? undefined
+          : requestSteps.current.has(request)
+            ? (requestSteps.current.get(request) ?? null)
+            : firing.current > 0
+              ? undefined
+              : null;
+      // The photo step a file or a failed file belongs to: its exposure's,
+      // else its request's.
+      let owner: StepId | null = asked === undefined ? running : asked;
       const key = connection == null || exposure == null ? null : `${connection}/${exposure}`;
       if (name === "tether-captured" || name === "tether-capture-failed") {
         // One exposure as RAW and JPEG counts once, whichever of its files
         // comes or fails first: the helper gives both its number.
         h.exposure = key === null || !exposures.current.has(key);
-        if (key !== null && !exposures.current.has(key)) exposures.current.set(key, running);
+        if (key !== null && !exposures.current.has(key)) exposures.current.set(key, owner);
       }
       if (key !== null && exposures.current.has(key)) owner = exposures.current.get(key) ?? null;
-      else if (name === "tether-capture-failed" && owner === null) owner = lastPhotoStep.current;
+      else if (name === "tether-capture-failed" && owner === null && asked === undefined) owner = lastPhotoStep.current;
       h.foreign = owner !== running;
       heard.current.push(h);
       const candidates = (payload as { ambiguous?: number[] }).ambiguous ?? [];
@@ -259,31 +284,39 @@ export default function TetherCameraTest({
           });
       }
       if (heard.current.length > 500) heard.current.splice(0, 250);
-      if (name === "tether-captured") {
-        const c = payload as Captured;
-        const r = releases.current;
-        const early = r.releasedEarly.indexOf(c.cameraName);
-        if (early >= 0) r.releasedEarly.splice(early, 1);
-        // Photos left from an earlier run (no connection) are not freed.
-        else if (!c.error && (c.assetId || c.skipped) && c.connection != null) r.pending.push(c.cameraName);
-      } else if (name === "tether-released") {
-        const r = payload as { cameraName: string; freed: boolean; error: string | null };
-        const at = releases.current.pending.indexOf(r.cameraName);
-        if (at < 0) {
-          releases.current.early += 1;
-          releases.current.releasedEarly.push(r.cameraName);
-        } else releases.current.pending.splice(at, 1);
-        if (r.error) releases.current.errors.push(r.error);
-        else if (r.freed) releases.current.freed += 1;
-        else releases.current.notFreed += 1;
+      // One file of one exposure: its release names it the same way.
+      const file = key === null ? null : `${key}/${(payload as { cameraName: string }).cameraName}`;
+      const r = releases.current;
+      const released = (release: { freed: boolean; error: string | null }, early: boolean) => {
+        if (early) r.early += 1;
+        if (release.error) r.errors.push(release.error);
+        else if (release.freed) r.freed += 1;
+        else r.notFreed += 1;
         // A release after the step (a late RAW or JPEG) that went wrong
         // fails it.
-        if (at < 0 || r.error || !r.freed)
+        if (early || release.error || !release.freed)
           setResults((current) =>
             current.release?.state === "passed"
               ? { ...current, release: { ...current.release, state: "failed", reason: "a later release failed" } }
               : current,
           );
+      };
+      // Photos left from an earlier run (no connection) are not freed.
+      if (name === "tether-captured" && file !== null) {
+        const c = payload as Captured;
+        const early = r.releasedEarly.get(file);
+        if (early) {
+          r.releasedEarly.delete(file);
+          released(early, true);
+        } else if (!c.error && (c.assetId || c.skipped)) r.pending.push(file);
+      } else if (name === "tether-released" && file !== null) {
+        const release = payload as { freed: boolean; error: string | null };
+        const at = r.pending.indexOf(file);
+        if (at < 0) r.releasedEarly.set(file, release);
+        else {
+          r.pending.splice(at, 1);
+          released(release, false);
+        }
       }
       for (const waiter of [...waiters.current]) if (waiter(h)) waiters.current.delete(waiter);
     };
@@ -330,6 +363,20 @@ export default function TetherCameraTest({
   }, []);
 
 
+  /** Fires the shutter for the step running; its request number, when the
+   * helper gives one, is the test's. */
+  const fire = useCallback(async () => {
+    const step = runningStep.current;
+    firing.current += 1;
+    try {
+      const request = (await ask<number | null>(Invokes.TetherCapture)) ?? null;
+      if (request !== null) requestSteps.current.set(request, step);
+      return request;
+    } finally {
+      firing.current -= 1;
+    }
+  }, [ask]);
+
   /** One shot from the app: request → photo in the library → its first
    * Develop frame (when `screen`: Develop shows the captures). */
   const shoot = useCallback(async (screen: boolean) => {
@@ -337,7 +384,7 @@ export default function TetherCameraTest({
     const after = seq.current;
     let request: number | null;
     try {
-      request = (await ask<number | null>(Invokes.TetherCapture)) ?? null;
+      request = await fire();
     } catch (e) {
       return { error: refused(e) };
     }
@@ -359,7 +406,7 @@ export default function TetherCameraTest({
           )
         : null;
     return { inLibrary, onScreen: frame ? Math.round(frame.at - since) : undefined };
-  }, [ask, next]);
+  }, [fire, next]);
 
   const runners: Record<StepId, () => Promise<StepResult>> = {
     connect: async () => ({ state: "passed" }),
@@ -426,7 +473,7 @@ export default function TetherCameraTest({
       const requests = new Set<number | null>();
       for (let i = 0; i < BURST; i += 1) {
         try {
-          requests.add((await ask<number | null>(Invokes.TetherCapture)) ?? null);
+          requests.add(await fire());
         } catch (e) {
           errors.push(refused(e));
         }
