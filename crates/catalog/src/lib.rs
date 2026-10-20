@@ -838,6 +838,15 @@ impl Library {
 
     pub fn remove_from_collection(&self, id: &str, assets: &[String]) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
+        let kind: Option<String> = tx
+            .query_row("SELECT kind FROM collections WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        ensure!(
+            kind.as_deref() != Some(SMART),
+            "A smart album shows the photographs its rules match; change its rules to leave them out"
+        );
         for asset in assets {
             tx.execute(
                 "DELETE FROM collection_assets WHERE collection_id=? AND asset_id=?",

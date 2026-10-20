@@ -22,7 +22,7 @@ import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
 import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
-import { onCatalogChange } from "../../utils/catalogWrites";
+import { CATALOG_EVENTS, SESSION_ALBUMS_CHANGED, catalogChanged, onCatalogChange } from "../../utils/catalogWrites";
 import type { Group, Rule } from "../../utils/librarySearch";
 import { asGroup, useSmartAlbumEditor } from "./SmartAlbumEditor";
 import {
@@ -53,9 +53,7 @@ export interface SessionAlbum {
 
 /** `activeAlbumId` of a session album shown in the grid. */
 export const SESSION_ALBUM_PREFIX = "session-album:";
-/** Fired after the photographs' context menu changed a session album, so
- * the Albums tool shows the new counts and content. */
-export const SESSION_ALBUMS_CHANGED = "rawtonic:session-albums-changed";
+export { SESSION_ALBUMS_CHANGED } from "../../utils/catalogWrites";
 
 export type SelectAlbum = (id: string, name: string, paths: string[], preserveEditor?: boolean) => void;
 
@@ -254,7 +252,11 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       clearTimeout(timer);
       timer = setTimeout(() => void refresh(), SMART_REFRESH_MS);
     };
-    const stop = onCatalogChange(changed);
+    // Album membership has its own refresh here (SESSION_ALBUMS_CHANGED).
+    const stop = onCatalogChange(
+      changed,
+      CATALOG_EVENTS.filter((event) => event !== SESSION_ALBUMS_CHANGED),
+    );
     return () => {
       alive = false;
       clearTimeout(timer);
@@ -342,8 +344,12 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   const run = async (work: () => Promise<unknown>, failure: Failure, album?: SessionAlbum) => {
     try {
       await work();
-      // The app-wide albums are reloaded by the change itself.
-      if (session) await reload();
+      // The app-wide albums are reloaded by the change itself; in a session,
+      // searches, lists and smart albums (album rules) follow it too.
+      if (session) {
+        catalogChanged();
+        await reload();
+      }
       // The grid shows this album: show its new content.
       if (album && activeAlbumId === shownId(album)) await show(album, true);
     } catch (e) {

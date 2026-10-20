@@ -192,6 +192,12 @@ impl Rule {
                 value: Value::String(folder),
             } => {
                 let value = match Path::new(folder).strip_prefix(directory) {
+                    // The library's own folder is ".".
+                    Ok(relative)
+                        if Path::new(folder).is_absolute() && relative.as_os_str().is_empty() =>
+                    {
+                        ".".to_string()
+                    }
                     Ok(relative) if Path::new(folder).is_absolute() => {
                         relative.to_string_lossy().into_owned()
                     }
@@ -841,8 +847,15 @@ impl<'a> Compiler<'a> {
                 let folder = PathBuf::from(text_value(value)?);
                 let folder = if folder.is_absolute() {
                     folder
+                } else if folder == Path::new(".") {
+                    self.directory.to_path_buf()
                 } else {
-                    crate::validate_relative(&folder)?;
+                    ensure!(
+                        folder
+                            .components()
+                            .all(|c| matches!(c, std::path::Component::Normal(_))),
+                        "A folder of the library cannot leave it"
+                    );
                     self.directory.join(folder)
                 };
                 let test = self.folder(&folder, op != Op::Is && op != Op::IsNot)?;
@@ -1240,7 +1253,7 @@ impl Library {
             // otherwise walk every keyword and look its photograph up
             // (10× slower for a narrow search, measured on 50,000).
             let mut query = self.conn.prepare(&format!(
-                "SELECT min(k.keyword), count(*) AS n FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
+                "SELECT min(k.keyword), count(DISTINCT a.id) AS n FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
                  WHERE {} GROUP BY rawtonic_fold(k.keyword) ORDER BY n DESC, rawtonic_fold(k.keyword)",
                 compiled.from(false, false),
                 compiled.condition

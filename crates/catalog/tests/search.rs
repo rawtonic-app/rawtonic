@@ -934,3 +934,41 @@ fn a_folder_above_the_library_holds_its_photographs_with_subfolders() {
     // Directly in it: none (they are in the library's folders).
     assert!(found(&lib, json!({"field":"folder","op":"is","value":above})).is_empty());
 }
+
+#[test]
+fn the_library_folder_itself_is_a_folder_rule_that_moves_with_it() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    let root = lib.directory.to_string_lossy().into_owned();
+    let rules = rule(json!({"field":"folder","op":"contains","value":root}));
+    let smart = lib
+        .create_smart_collection("Everything", None, &rules)
+        .unwrap();
+    assert_eq!(smart.count, 4);
+    assert_eq!(
+        smart.rules,
+        Some(rule(json!({"field":"folder","op":"contains","value":"."})))
+    );
+    // Photographs are not taken out of a smart album by hand.
+    assert!(lib.remove_from_collection(&smart.id, &ids[..1]).is_err());
+    drop(lib);
+    fs::rename(d.path().join("Job"), d.path().join("Moved")).unwrap();
+    let lib = Library::open(&d.path().join("Moved")).unwrap();
+    assert_eq!(lib.collection_paths(&smart.id).unwrap().len(), 4);
+}
+
+#[test]
+fn a_keyword_in_two_spellings_counts_its_photograph_once() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    let mut meta = lib.metadata(&ids[2]).unwrap();
+    meta.keywords = vec!["Ärger".into(), "ärger".into()];
+    lib.set_metadata(&ids[2], &meta).unwrap();
+    let facets = lib.facets(&Rule::everything(), &[Field::Keyword]).unwrap();
+    let arger: Vec<_> = facets[&Field::Keyword]
+        .iter()
+        .filter(|v| v.value.to_lowercase() == "ärger")
+        .map(|v| v.count)
+        .collect();
+    assert_eq!(arger, [1]);
+}

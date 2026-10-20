@@ -26,12 +26,20 @@ export function catalogChanged() {
   window.dispatchEvent(new Event(CATALOG_CHANGED));
 }
 
-/** Calls `handler` after anything changed what the catalog finds: a write
- * (`CATALOG_CHANGED`), an import, tethered capture or synchronization
- * (`IMPORTS_CHANGED`), a relink or a check that found files gone
- * (`OFFLINE_CHANGED`). Returns the unsubscribe. */
-export function onCatalogChange(handler: () => void): () => void {
-  const events = [CATALOG_CHANGED, IMPORTS_CHANGED, OFFLINE_CHANGED];
+/** Fired after the photographs' context menu changed a session album, so
+ * the Albums tool shows the new counts and content (re-exported by
+ * StudioAlbums, where it began). */
+export const SESSION_ALBUMS_CHANGED = 'rawtonic:session-albums-changed';
+
+/** What changes what the catalog finds: a write (`CATALOG_CHANGED`), an
+ * import, tethered capture or synchronization (`IMPORTS_CHANGED`), a relink
+ * or a check that found files gone (`OFFLINE_CHANGED`), album membership
+ * (`SESSION_ALBUMS_CHANGED`, album rules). */
+export const CATALOG_EVENTS = [CATALOG_CHANGED, IMPORTS_CHANGED, OFFLINE_CHANGED, SESSION_ALBUMS_CHANGED];
+
+/** Calls `handler` after any of `events` (default: everything that changes
+ * what the catalog finds). Returns the unsubscribe. */
+export function onCatalogChange(handler: () => void, events = CATALOG_EVENTS): () => void {
   for (const event of events) window.addEventListener(event, handler);
   return () => {
     for (const event of events) window.removeEventListener(event, handler);

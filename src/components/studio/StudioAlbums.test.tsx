@@ -8,7 +8,7 @@ import { useLibraryStore } from "../../store/useLibraryStore";
 import type { AlbumItem } from "../ui/AppProperties";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
 import { useSmartAlbumEditor } from "./SmartAlbumEditor";
-import { catalogChanged } from "../../utils/catalogWrites";
+import { CATALOG_CHANGED, catalogChanged } from "../../utils/catalogWrites";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
@@ -449,6 +449,18 @@ describe("Smart albums in the Albums tool", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("tells searches and smart albums when album membership changes", async () => {
+    const changed = vi.fn();
+    window.addEventListener(CATALOG_CHANGED, changed);
+    await renderTool();
+    fireEvent.contextMenu(screen.getByText("Picks"));
+    await act(async () => {
+      fireEvent.click(await screen.findByText("Add 1 selected photograph"));
+    });
+    expect(changed).toHaveBeenCalled();
+    window.removeEventListener(CATALOG_CHANGED, changed);
   });
 
   it("offers a new smart album in a session, in a group too", async () => {
