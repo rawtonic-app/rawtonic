@@ -2145,4 +2145,55 @@ mod draft_tests {
         }
         assert!(count > 0);
     }
+
+    /// The full development starts once the draft is handed over: a load
+    /// cancelled from the sink (another photograph asked for while the
+    /// draft shows) skips its demosaicing instead of finishing it.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory; times itself, run with --test-threads=1"]
+    fn the_full_development_starts_after_its_draft() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut count = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let started = std::time::Instant::now();
+            if develop_raw_image(&bytes, false, 2.5, "auto".into(), None).is_err() {
+                continue;
+            }
+            let plain_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let generation = Arc::new(AtomicUsize::new(1));
+            let cancel = Arc::clone(&generation);
+            let sink = DraftSink(Box::new(move |_, _| {
+                cancel.store(2, Ordering::SeqCst);
+            }));
+            let started = std::time::Instant::now();
+            let result = develop_raw_image_with_draft(
+                &bytes,
+                false,
+                2.5,
+                "auto".into(),
+                Some((Arc::clone(&generation), 1)),
+                None,
+                Some(&sink),
+            );
+            let cancelled_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if generation.load(Ordering::SeqCst) == 1 {
+                // Linear (demosaiced) DNGs have nothing to draft.
+                continue;
+            }
+            assert!(result.is_err(), "{name}: developed after a cancel");
+            // Drafts take a half of the full development or less.
+            assert!(
+                cancelled_ms < plain_ms * 0.75,
+                "{name}: cancelled after {cancelled_ms:.0} ms, alone {plain_ms:.0} ms"
+            );
+            println!("{name}: cancelled after {cancelled_ms:.0} ms (alone {plain_ms:.0} ms)");
+            count += 1;
+        }
+        assert!(count > 0);
+    }
 }
