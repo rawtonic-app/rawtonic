@@ -495,19 +495,33 @@ fn spawn(
 }
 
 /// Orders the hot folder commands that start a watch or end one (start,
-/// resume, stop): they run one at a time, and a resume asked for before a
-/// later one of them does nothing, so a library left while its hot folder
-/// was resuming cannot take the watch from the one opened after it.
+/// resume, stop): they run one at a time in the order they were asked for,
+/// and a resume asked for before a later one of them does nothing, so a
+/// library left while its hot folder was resuming cannot take the watch
+/// from the one opened after it. Every ticket asked for must be run.
 struct Lifecycle {
     asked: std::sync::atomic::AtomicU64,
-    running: Mutex<()>,
+    /// The last ticket that has run.
+    done: Mutex<u64>,
+    turn: std::sync::Condvar,
+}
+
+/// Hands the turn to the next ticket, also if the transition panicked.
+struct Turn<'a>(&'a Lifecycle, u64);
+
+impl Drop for Turn<'_> {
+    fn drop(&mut self) {
+        *self.0.done.lock().unwrap_or_else(|e| e.into_inner()) = self.1;
+        self.0.turn.notify_all();
+    }
 }
 
 impl Lifecycle {
     const fn new() -> Self {
         Self {
             asked: std::sync::atomic::AtomicU64::new(0),
-            running: Mutex::new(()),
+            done: Mutex::new(0),
+            turn: std::sync::Condvar::new(),
         }
     }
 
@@ -516,10 +530,15 @@ impl Lifecycle {
         self.asked.fetch_add(1, Ordering::SeqCst) + 1
     }
 
-    /// Runs `transition` alone, told whether no command was asked for
-    /// after `ticket`.
+    /// Runs `transition` once every earlier ticket has run, told whether no
+    /// command was asked for after `ticket`.
     fn run<R>(&self, ticket: u64, transition: impl FnOnce(bool) -> R) -> R {
-        let _alone = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        let mut done = self.done.lock().unwrap_or_else(|e| e.into_inner());
+        while *done + 1 != ticket {
+            done = self.turn.wait(done).unwrap_or_else(|e| e.into_inner());
+        }
+        drop(done);
+        let _turn = Turn(self, ticket);
         transition(self.asked.load(Ordering::SeqCst) == ticket)
     }
 }
@@ -688,13 +707,26 @@ mod tests {
     use std::fs;
 
     #[test]
-    fn lifecycle_commands_run_alone_and_a_superseded_resume_does_nothing() {
+    fn lifecycle_commands_run_alone_in_order_and_a_superseded_resume_does_nothing() {
         let lifecycle = Arc::new(Lifecycle::new());
-        // Resume for A asked for, then for B; B runs first.
+        // Resume for A asked for, then for B: A is superseded.
         let a = lifecycle.ask();
         let b = lifecycle.ask();
-        assert!(lifecycle.run(b, |latest| latest));
         assert!(!lifecycle.run(a, |latest| latest));
+        assert!(lifecycle.run(b, |latest| latest));
+        // Workers that start in reverse still run in the order asked for.
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let (first, second) = (lifecycle.ask(), lifecycle.ask());
+        let late = {
+            let (lifecycle, order) = (lifecycle.clone(), order.clone());
+            std::thread::spawn(move || {
+                lifecycle.run(second, |_| order.lock().unwrap().push(second))
+            })
+        };
+        std::thread::sleep(Duration::from_millis(30));
+        lifecycle.run(first, |_| order.lock().unwrap().push(first));
+        late.join().unwrap();
+        assert_eq!(*order.lock().unwrap(), [first, second]);
         // Overlapping commands never run at once.
         let inside = Arc::new(AtomicBool::new(false));
         let threads: Vec<_> = (0..8)
