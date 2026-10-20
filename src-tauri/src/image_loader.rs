@@ -485,6 +485,28 @@ pub async fn load_image_proxy(
     Ok(Some(info))
 }
 
+/// How long the preview proxy written after a decode waits for the decode's
+/// first frame (none comes when Develop is left meanwhile).
+const DECODED_FRAME_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The decode to write a preview proxy from, once a frame of it was
+/// rendered: written beside that frame, the proxy and its new thumbnail
+/// (developed again, with their own lateral CA estimate) took the cores the
+/// frame needed, 0.8 s later for a 26 MP RAF on a Ryzen 5 3600X. None when
+/// the photograph was left before its frame (`still_open`) or the decode is
+/// gone from memory: the proxy is then written by a later decode of it.
+fn decode_for_proxy(
+    rendered: &crate::app_state::RenderedSource,
+    decode: &std::sync::Weak<DynamicImage>,
+    still_open: impl Fn() -> bool,
+    timeout: std::time::Duration,
+) -> Option<Arc<DynamicImage>> {
+    if !rendered.wait(decode, timeout) && !still_open() {
+        return None;
+    }
+    decode.upgrade()
+}
+
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
 
 /// The decoded-image cache key of a full decode of the source at `path`:
@@ -953,7 +975,9 @@ pub async fn load_image(
 
     let (orig_width, orig_height) = pristine_arc.dimensions();
 
-    let proxy_source = Arc::clone(&pristine_arc);
+    // Weak: a decode left for another photograph stays only as long as the
+    // decoded-image cache keeps it.
+    let proxy_source = Arc::downgrade(&pristine_arc);
     publish_loaded_image(
         &state.original_image,
         &state.source_signal,
@@ -988,11 +1012,27 @@ pub async fn load_image(
             {
                 return;
             }
+            use tauri::Manager;
+            let state = app.state::<AppState>();
+            let still_open = || {
+                *state
+                    .current_source
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    == thumbnail_path
+            };
+            let Some(proxy_source) = decode_for_proxy(
+                &state.rendered_source,
+                &proxy_source,
+                still_open,
+                DECODED_FRAME_WAIT,
+            ) else {
+                return;
+            };
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_proxy_write");
             match crate::preview_proxy::write(&source, &proxy_source, size, &settings, multiscale) {
                 Ok(proxy) => {
-                    use tauri::Manager;
                     app.state::<AppState>()
                         .proxy_memory
                         .lock()
@@ -1274,5 +1314,32 @@ mod activation_tests {
         let message = offline_without_preview(&dir.path().join("Gone/B.NEF")).unwrap();
         assert!(message.starts_with("B.NEF is offline"), "{message}");
         assert!(message.contains("Locate Photo"), "{message}");
+    }
+}
+
+#[cfg(test)]
+mod decode_for_proxy_tests {
+    use super::decode_for_proxy;
+    use crate::app_state::RenderedSource;
+    use image::DynamicImage;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn a_proxy_waits_for_its_frame_and_never_keeps_a_left_decode() {
+        let rendered = RenderedSource::default();
+        let wait = Duration::from_millis(20);
+        let decode = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let weak = Arc::downgrade(&decode);
+        // Left before a frame of it: nothing is written.
+        assert!(decode_for_proxy(&rendered, &weak, || false, wait).is_none());
+        // Still open (Develop rendered nothing): written after the wait.
+        assert!(decode_for_proxy(&rendered, &weak, || true, wait).is_some());
+        // Rendered: written, also when the photograph was left since.
+        rendered.mark(&decode);
+        assert!(decode_for_proxy(&rendered, &weak, || false, Duration::ZERO).is_some());
+        // Evicted from memory meanwhile: the waiting writer held no copy.
+        drop(decode);
+        assert!(decode_for_proxy(&rendered, &weak, || true, Duration::ZERO).is_none());
     }
 }

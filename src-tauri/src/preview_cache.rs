@@ -14,6 +14,17 @@ pub(crate) fn preparation_key(adjustments: &serde_json::Value) -> u64 {
     hash.finish()
 }
 
+/// The key of a base built from a reduced source shown only until the
+/// decode is in (no lateral CA measured on it, `editor_preview::
+/// build_reduced_preview_base`): never the key of the same source's
+/// measured base.
+pub(crate) fn interim_key(preparation_key: u64) -> u64 {
+    let mut hash = DefaultHasher::new();
+    preparation_key.hash(&mut hash);
+    "interim".hash(&mut hash);
+    hash.finish()
+}
+
 #[derive(Clone)]
 pub(crate) struct PreviewBase {
     pub image: Arc<DynamicImage>,
@@ -219,6 +230,19 @@ mod tests {
                 .get(&original, preparation_key(&tone_change), 2)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn an_interim_base_never_stands_in_for_a_measured_one() {
+        // A Standard proxy rendered before the photograph was known to be
+        // offline, then rendered as its lasting source.
+        let proxy = source();
+        let key = preparation_key(&serde_json::json!({"autoCaVersion": 3}));
+        let mut cache = PreviewBaseCache::default();
+        cache.insert(&proxy, interim_key(key), 2, preview());
+        assert_ne!(interim_key(key), key);
+        assert!(cache.get(&proxy, key, 2).is_none());
+        assert!(cache.get(&proxy, interim_key(key), 2).is_some());
     }
 
     #[test]

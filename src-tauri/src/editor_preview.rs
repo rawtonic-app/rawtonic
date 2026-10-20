@@ -112,6 +112,27 @@ const SPLIT_FRAMING_KEYS: &[&str] = &[
 
 /// The photograph and framing of a frame: a split before is drawn only
 /// beside frames with its key, never beside another crop or photograph.
+/// What a rendered split before shows: its frame key, source, load,
+/// size, recipe and whether the source was interim (its base then has no
+/// measured lateral CA, `interim_source`).
+fn split_render_key(
+    frame_key: u64,
+    source: &Arc<DynamicImage>,
+    load_generation: usize,
+    preview_dim: u32,
+    adjustments: &serde_json::Value,
+    interim: bool,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    frame_key.hash(&mut hasher);
+    (Arc::as_ptr(source) as usize).hash(&mut hasher);
+    load_generation.hash(&mut hasher);
+    preview_dim.hash(&mut hasher);
+    adjustments.to_string().hash(&mut hasher);
+    interim.hash(&mut hasher);
+    hasher.finish()
+}
+
 pub(crate) fn split_frame_key(path: &str, adjustments: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
@@ -251,6 +272,29 @@ pub(crate) fn reduced_preview_base(
     preview_dim: u32,
     scale: f32,
 ) -> Result<preview_cache::PreviewBase, String> {
+    build_reduced_preview_base(
+        source,
+        source_scale,
+        (full_width, full_height),
+        adjustments,
+        preview_dim,
+        scale,
+        false,
+    )
+}
+
+/// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
+/// in only until the photograph's decode is in, so its warp does not
+/// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+fn build_reduced_preview_base(
+    source: &DynamicImage,
+    source_scale: f32,
+    (full_width, full_height): (u32, u32),
+    adjustments: &serde_json::Value,
+    preview_dim: u32,
+    scale: f32,
+    interim: bool,
+) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
     let width = ((full_width as f32 * scale).round() as u32).max(1);
     let height = ((full_height as f32 * scale).round() as u32).max(1);
@@ -278,10 +322,24 @@ pub(crate) fn reduced_preview_base(
         reduced
     };
     if source_scale >= 1.0 {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
         share_lateral_ca(source, &retouched, adjustments);
     }
-    let warped = apply_geometry_warp(retouched, &scaled);
-    let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale);
+    let warped = {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
+        if interim {
+            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled)
+        } else {
+            apply_geometry_warp(retouched, &scaled)
+        }
+    };
+    let warped = {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
+        rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale)
+    };
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
     let (transformed, _) = crate::adjustment_utils::apply_spatial_transformations(blurred, &scaled);
     let transformed = transformed.into_owned();
@@ -911,6 +969,27 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
     })
 }
 
+fn is_offline(state: &AppState, loaded_image: &LoadedImage) -> bool {
+    state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_deref()
+        == Some(loaded_image.path.as_str())
+}
+
+/// Whether `loaded_image` at `source_scale` is shown only until the decode
+/// is in: online, a reduced source (the decode's draft or a stored proxy).
+/// Its base does not measure the automatic lateral CA
+/// (`build_reduced_preview_base`) and is cached apart.
+pub(crate) fn interim_source(
+    state: &AppState,
+    loaded_image: &LoadedImage,
+    source_scale: f32,
+) -> bool {
+    source_scale < 1.0 && !is_offline(state, loaded_image)
+}
+
 /// The preview base (warped, cropped, retouched source at `build_dim`) for
 /// `adjustments`, from the reusable previews or built and kept there.
 /// `base_adjustments` may differ by a draft flag only.
@@ -925,11 +1004,20 @@ fn preview_base(
     build_dim: u32,
     preparation_key: u64,
 ) -> Result<preview_cache::PreviewBase, String> {
+    let offline = is_offline(state, loaded_image);
+    // Its base is kept apart: the same proxy may turn out to be an offline
+    // photograph's lasting source.
+    let interim = source_scale < 1.0 && !offline;
+    let cache_key = if interim {
+        preview_cache::interim_key(preparation_key)
+    } else {
+        preparation_key
+    };
     let reusable = state
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&loaded_image.image, preparation_key, build_dim);
+        .get(&loaded_image.image, cache_key, build_dim);
     if let Some(preview) = reusable {
         return Ok(preview);
     }
@@ -941,12 +1029,6 @@ fn preview_base(
         let (full_width, full_height) = full_dims;
         let needs_full = crate::image_loader::has_base_retouch(adjustments)
             || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false);
-        let offline = state
-            .offline_source
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_deref()
-            == Some(loaded_image.path.as_str());
         if needs_full && !offline {
             return Err("The photograph is still loading".to_string());
         }
@@ -954,14 +1036,14 @@ fn preview_base(
         let _stage = crate::performance::PerformanceStage::new("preview_proxy_base");
         let scale = reduced_preview_scale(full_width, full_height, adjustments, build_dim)
             .unwrap_or(source_scale);
-        reduced_preview_base(
+        build_reduced_preview_base(
             &loaded_image.image,
             source_scale,
-            full_width,
-            full_height,
+            full_dims,
             base_adjustments,
             build_dim,
             scale,
+            interim,
         )?
     } else {
         generate_shared_transformed_preview(
@@ -976,12 +1058,7 @@ fn preview_base(
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(
-            &loaded_image.image,
-            preparation_key,
-            build_dim,
-            preview.clone(),
-        );
+        .insert(&loaded_image.image, cache_key, build_dim, preview.clone());
     Ok(preview)
 }
 
@@ -1056,9 +1133,9 @@ pub(crate) fn process_preview_job(
         && rawtonic_engine::face_retouch::is_active(&adjustments_clone))
     .then(|| (preview_dim / 2).max(256));
     let build_dim = draft_dim.unwrap_or(preview_dim);
+    let interim = interim_source(&state, &loaded_image, source_scale);
     let base_valid = cached_preview_lock.as_ref().is_some_and(|c| {
-        c.source.ptr_eq(&Arc::downgrade(&loaded_image.image))
-            && c.transform_hash == new_transform_hash
+        c.serves(&loaded_image.image, new_transform_hash, interim)
             && (c.preview_dim == preview_dim || Some(c.preview_dim) == draft_dim)
     });
     let small_valid = base_valid
@@ -1129,6 +1206,7 @@ pub(crate) fn process_preview_job(
         unscaled_crop_offset,
         preview_dim: base_dim,
         interactive_divisor,
+        interim,
     });
 
     drop(cached_preview_lock);
@@ -1310,6 +1388,9 @@ pub(crate) fn process_preview_job(
             return Err(format!("{PREVIEW_RENDER_FAILED}: {error}"));
         }
     };
+    if source_scale >= 1.0 {
+        state.rendered_source.mark(&loaded_image.image);
+    }
     if !is_interactive {
         rewarm_mask_source(app_handle, &state, &loaded_image, adjustments_clone);
     }
@@ -1832,15 +1913,15 @@ fn render_split_before_blocking(
         context.limits.max_texture_dimension_2d,
     );
     let frame_key = split_frame_key(path, &adjustments);
-    let render_key = {
-        let mut hasher = DefaultHasher::new();
-        frame_key.hash(&mut hasher);
-        (Arc::as_ptr(&loaded_image.image) as usize).hash(&mut hasher);
-        load_generation.hash(&mut hasher);
-        preview_dim.hash(&mut hasher);
-        adjustments.to_string().hash(&mut hasher);
-        hasher.finish()
-    };
+    let interim = interim_source(&state, &loaded_image, source_scale);
+    let render_key = split_render_key(
+        frame_key,
+        &loaded_image.image,
+        load_generation,
+        preview_dim,
+        &adjustments,
+        interim,
+    );
     if current_key == Some(render_key) {
         return Ok(true);
     }
@@ -1854,9 +1935,7 @@ fn render_split_before_blocking(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|c| {
-            c.source.ptr_eq(&Arc::downgrade(&loaded_image.image))
-                && c.transform_hash == transform_hash
-                && c.preview_dim == preview_dim
+            c.serves(&loaded_image.image, transform_hash, interim) && c.preview_dim == preview_dim
         })
         .map(|c| (Arc::clone(&c.image), c.scale));
     let (base, scale) = match cached {
@@ -2345,8 +2424,19 @@ pub(crate) async fn generate_preview_for_path(
 
 #[cfg(test)]
 mod split_view_tests {
-    use super::split_frame_key;
+    use super::{split_frame_key, split_render_key};
     use serde_json::json;
+
+    #[test]
+    fn a_split_before_of_an_interim_source_is_rendered_again_once_it_lasts() {
+        // The same proxy, load and recipe: only the photograph turned out
+        // offline (its before then needs the measured lateral CA).
+        let proxy = std::sync::Arc::new(image::DynamicImage::new_rgb32f(4, 4));
+        let recipe = json!({"autoCaVersion": 3});
+        let key = |interim| split_render_key(1, &proxy, 2, 3, &recipe, interim);
+        assert_ne!(key(true), key(false));
+        assert_eq!(key(false), key(false));
+    }
 
     #[test]
     fn the_split_before_matches_frames_of_the_same_photograph_and_framing() {
@@ -2740,6 +2830,34 @@ mod lateral_ca_sharing_tests {
         assert!(!lateral_ca_is_shared(&reduced, full_dims, &lens(1.0005)));
         // Not reduced: the warp measures the image the export measures.
         assert!(lateral_ca_is_shared(&reduced, reduced.dimensions(), &on));
+    }
+
+    #[test]
+    fn an_interim_preview_base_does_not_measure_its_reduced_copy() {
+        // A decode's draft, shown until the decode is in.
+        let full = DynamicImage::ImageRgb32F(photo(3000, 2000));
+        // (A size no other test's reduced copy has: the estimates are cached
+        // per pixels for the whole process.)
+        let draft = downscale_f32_image(&full, 1400, 1400);
+        let scale = draft.width() as f32 / 3000.0;
+        let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
+        let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
+        let base = |recipe: &serde_json::Value, interim: bool| {
+            build_reduced_preview_base(&draft, scale, (3000, 2000), recipe, 1400, scale, interim)
+                .unwrap()
+                .image
+                .to_rgb32f()
+        };
+        // Without the whole decode's estimate the draft warps as with an
+        // estimate that found nothing (here: no correction) ...
+        let interim = base(&on, true);
+        assert_eq!(interim, base(&off, true));
+        assert!(!lateral_ca_is_shared(&draft, (3000, 2000), &on));
+        // ... where measuring the draft itself would correct it.
+        assert_ne!(interim, base(&on, false));
+        // Once the decode shared its estimate, the draft warps with that.
+        share_lateral_ca(&full, &draft, &on);
+        assert_eq!(base(&on, true), base(&on, false));
     }
 }
 
