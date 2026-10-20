@@ -11,6 +11,7 @@ serde.workspace = true
 clap = { version = "4", features = ["derive"] }
 walkdir = "2.5.0"
 tempfile.workspace = true
+chrono.workspace = true
 rawtonic-catalog = { path = "../catalog", version = "0.1.0" }
 rawtonic-ingest = { path = "../ingest", version = "0.1.0" }
 rawtonic-engine = { path = "../engine", version = "0.1.0" }

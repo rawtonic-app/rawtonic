@@ -4,6 +4,7 @@ import { ExportPreset } from './ExportImportProperties';
 import { Adjustments, CopyPasteSettings } from '../../utils/adjustments';
 import { ToolType } from '../panel/right/Masks';
 import type { ModuleLayout, WorkspaceModule } from '../../utils/panelLayout';
+import type { MetadataSelection } from '../../utils/librarySearch';
 
 export const GLOBAL_KEYS = [
   ' ',
@@ -198,6 +199,10 @@ export enum Invokes {
   FolderSyncApply = 'folder_sync_apply',
   CatalogFolders = 'catalog_folders',
   SessionRenameAlbum = 'session_rename_album',
+  SessionSearch = 'session_search',
+  SessionFacets = 'session_facets',
+  SessionCreateSmartAlbum = 'session_create_smart_album',
+  SessionSetSmartAlbumRules = 'session_set_smart_album_rules',
   SessionSetTextMetadata = 'session_set_text_metadata',
   SavePresets = 'save_presets',
   SaveSettings = 'save_settings',
@@ -458,6 +463,9 @@ export interface FilterCriteria {
   rawStatus: RawStatus;
   editedStatus?: EditedStatus;
   flag?: 'all' | 'picked' | 'unflagged' | 'rejected';
+  /** Values chosen in the Library's metadata lists (camera, lens, …); the
+   * library's catalog finds the photographs that have them. */
+  metadata?: MetadataSelection;
 }
 
 export interface Folder {

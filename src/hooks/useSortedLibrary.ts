@@ -7,6 +7,7 @@ import {
 } from '../components/ui/AppProperties';
 import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGrouping';
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
+import { photographPath } from '../utils/librarySearch';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
 // Extract each basename once per immutable file record, not twice per comparison.
@@ -62,6 +63,7 @@ export interface GroupedLibrary {
 export type LibraryQueryState = Pick<ReturnType<typeof useLibraryStore.getState>,
   'imageList' | 'imageRatings' | 'filterCriteria' | 'searchCriteria' | 'sortCriteria'> & {
     imageFlags?: Record<string, number>;
+    catalogMatches?: Set<string> | null;
   };
 interface QuerySettings {
   appSettings?: { grouping?: GroupingMode; groupEditedFiles?: boolean } | null;
@@ -141,7 +143,9 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
 }
 
 export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsState: QuerySettings): GroupedLibrary {
-  const { imageList, imageRatings, imageFlags = {}, filterCriteria, searchCriteria, sortCriteria } = libraryState;
+  const {
+    imageList, imageRatings, imageFlags = {}, filterCriteria, searchCriteria, sortCriteria, catalogMatches = null,
+  } = libraryState;
   const { appSettings } = settingsState;
 
   const groupingMode: GroupingMode = appSettings?.grouping ?? 'off';
@@ -236,10 +240,17 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     }
   };
 
-  const isSearchActive = parsedTags.length > 0 || lowerCaseSearchText !== '';
+  const isSearchActive = parsedTags.length > 0 || lowerCaseSearchText !== '' || catalogMatches !== null;
 
   const matchesSearch = (image: ImageFile): boolean => {
     if (!isSearchActive) return true;
+    // In a library its catalog answered the search box and the metadata
+    // lists (keywords, IPTC, camera, lens, … in one query); until its first
+    // answer arrives, names and keywords are matched here.
+    if (catalogMatches !== null) {
+      if (!catalogMatches.has(photographPath(image.path))) return false;
+      if (parsedTags.length === 0) return true;
+    }
 
     const lowerCaseImageTags = (image.tags || []).map((t) => t.toLowerCase().replace('user:', ''));
     const lowerFilename = filename(image).toLowerCase();
@@ -261,7 +272,7 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     }
 
     let textMatch = true;
-    if (lowerCaseSearchText !== '') {
+    if (lowerCaseSearchText !== '' && catalogMatches === null) {
       textMatch =
         lowerFilename.includes(lowerCaseSearchText) || lowerCaseImageTags.some((t) => t.includes(lowerCaseSearchText));
     }
@@ -328,6 +339,7 @@ export function useSortedLibrary() {
   const filterCriteria = useLibraryStore((state) => state.filterCriteria);
   const searchCriteria = useLibraryStore((state) => state.searchCriteria);
   const sortCriteria = useLibraryStore((state) => state.sortCriteria);
+  const catalogMatches = useLibraryStore((state) => state.catalogMatches);
 
   const appSettings = useSettingsStore((state) => state.appSettings);
   const grouping = appSettings?.grouping;
@@ -340,7 +352,7 @@ export function useSortedLibrary() {
   const result = useMemo(() => {
     const started = performanceDiagnosticsEnabled ? performance.now() : 0;
     const result = computeGroupedLibrary(
-      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria },
+      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches },
       { appSettings: { grouping, groupEditedFiles } },
     );
     if (performanceDiagnosticsEnabled) {
@@ -351,7 +363,10 @@ export function useSortedLibrary() {
       });
     }
     return result;
-  }, [imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, grouping, groupEditedFiles]);
+  }, [
+    imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, catalogMatches, grouping,
+    groupEditedFiles,
+  ]);
 
   return result;
 }

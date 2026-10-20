@@ -72,6 +72,33 @@ pub fn read_capture(path: &Path) -> Capture {
     capture
 }
 
+/// What `path`'s EXIF says for the library's search (`rawtonic_catalog::
+/// CaptureFacts`); `None` when the file cannot be read now. A capture time
+/// only from the file's own metadata, never its modification time.
+pub fn capture_facts(path: &Path) -> Option<rawtonic_catalog::CaptureFacts> {
+    fs::File::open(path)
+        .ok()
+        .filter(|f| f.metadata().is_ok_and(|m| m.is_file()))?;
+    let capture = read_capture(path);
+    let dated = matches!(
+        capture.date_source,
+        DateSource::Original | DateSource::Digitized | DateSource::FileDate
+    );
+    Some(rawtonic_catalog::CaptureFacts {
+        captured: capture
+            .captured
+            .filter(|_| dated)
+            .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string()),
+        make: capture.make,
+        model: capture.model,
+        lens: capture.lens,
+        focal_length: capture.focal_length,
+        aperture: capture.aperture,
+        iso: capture.iso,
+        exposure: capture.exposure.map(|(n, d)| f64::from(n) / f64::from(d)),
+    })
+}
+
 fn local(time: std::time::SystemTime) -> chrono::NaiveDateTime {
     chrono::DateTime::<chrono::Local>::from(time).naive_local()
 }

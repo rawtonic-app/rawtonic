@@ -2297,6 +2297,7 @@
           "delete": "删除",
           "deleteAlbum": "删除“{{name}}”？照片会保留。",
           "deleteGroup": "删除“{{name}}”及其中的相册？照片会保留。",
+          "deleteSmartAlbum": "删除智能相册“{{name}}”？照片会保留。",
           "label": "删除相册"
         },
         "empty": "选择照片并按 + 将它们放入一个相册。",
@@ -2306,11 +2307,15 @@
           "addSelectedCount_other": "添加 {{count}} 张所选照片",
           "deleteAlbum": "删除相册…",
           "deleteGroup": "删除组…",
+          "deleteSmartAlbum": "删除智能相册…",
+          "editSmartAlbum": "编辑智能相册…",
           "newAlbum": "新建相册",
           "newAlbumFromSelected_other": "用 {{count}} 张所选照片新建相册",
           "newAlbumInGroup": "在此组中新建相册",
           "newGroup": "新建组",
           "newGroupInGroup": "在此组中新建组",
+          "newSmartAlbum": "新建智能相册…",
+          "newSmartAlbumInGroup": "在此组中新建智能相册…",
           "removeSelected": "移除所选照片",
           "rename": "重命名"
         },
@@ -2321,6 +2326,8 @@
         "previousImportNoDrop": "“上次导入”显示最近一次导入，不能向其中添加照片。请将照片拖放到相册上。",
         "previousImportTitle": "最近一次导入、添加、同步文件夹或监视文件夹所添加的照片",
         "renameLabel": "重命名 {{name}}",
+        "smartHint": "显示符合其规则的照片，始终保持最新",
+        "smartNoDrop": "智能相册显示符合其规则的照片，不能向其中添加照片。请更改其规则，或将照片拖放到相册上。",
         "title": "相册",
         "toasts": {
           "addFailed": "无法添加照片：{{error}}",
@@ -2460,9 +2467,191 @@
           "showFailed": "无法显示文件夹：{{error}}"
         }
       },
+      "metadataFilter": {
+        "all_other": "全部（{{count}} 个值）",
+        "apertureValue": "f/{{value}}",
+        "button": "元数据",
+        "fields": {
+          "aperture": "光圈",
+          "camera": "相机",
+          "captureDate": "拍摄日期",
+          "fileType": "文件类型",
+          "focalLength": "焦距",
+          "iso": "ISO",
+          "keyword": "关键字",
+          "lens": "镜头"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "其他",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "元数据筛选",
+        "none": {
+          "aperture": "未知光圈",
+          "camera": "未知相机",
+          "captureDate": "无日期",
+          "fileType": "其他",
+          "focalLength": "未知焦距",
+          "iso": "未知 ISO",
+          "keyword": "无关键字",
+          "lens": "未知镜头"
+        },
+        "toggle": "显示或隐藏元数据列表（拍摄日期、相机、镜头、关键字、文件类型、ISO、焦距、光圈）"
+      },
       "navigator": {
         "empty": "请选择一张照片",
         "title": "导航器"
+      },
+      "smartAlbums": {
+        "addGroup": "规则组",
+        "addRule": "规则",
+        "amountLabel": "数量",
+        "and": "和",
+        "cancel": "取消",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "其他",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "留用",
+            "rejected": "排除",
+            "unflagged": "无旗标"
+          },
+          "label": {
+            "blue": "蓝色",
+            "green": "绿色",
+            "none": "无标签",
+            "purple": "紫色",
+            "red": "红色",
+            "yellow": "黄色"
+          }
+        },
+        "combine": {
+          "all": "符合全部",
+          "any": "符合任一",
+          "none": "不符合任何"
+        },
+        "combineLabel": "规则的组合方式",
+        "create": "创建",
+        "defaultName": "智能相册",
+        "editTitle": "编辑智能相册",
+        "fieldLabel": "字段",
+        "fields": {
+          "album": "相册",
+          "aperture": "光圈（f 值）",
+          "camera": "相机",
+          "captureDate": "拍摄日期",
+          "exposure": "快门速度（秒）",
+          "filename": "文件名",
+          "fileType": "文件类型",
+          "flag": "旗标",
+          "focalLength": "焦距（mm）",
+          "folder": "文件夹",
+          "importDate": "导入日期",
+          "iso": "ISO",
+          "keyword": "关键字",
+          "label": "颜色标签",
+          "lens": "镜头",
+          "make": "相机品牌",
+          "offline": "缺失的照片",
+          "previousImport": "在上次导入中",
+          "rating": "星级",
+          "text": "任何可搜索的文本"
+        },
+        "folderPlaceholder": "文件夹路径",
+        "fromFilter": "存储为智能相册…",
+        "fromFilterTitle": "用图库当前的筛选条件（显示的文件夹或相册、搜索、元数据、星级、标签、旗标）创建智能相册",
+        "incomplete": "完成规则后即可查看匹配的照片",
+        "match": "照片须",
+        "matches_other": "当前匹配 {{n}} 张照片",
+        "name": "名称",
+        "newTitle": "新建智能相册",
+        "no": "否",
+        "ofTheseRules": "以下规则",
+        "opLabel": "比较",
+        "ops": {
+          "album": {
+            "is": "属于",
+            "isNot": "不属于"
+          },
+          "bool": {
+            "is": "为"
+          },
+          "choice": {
+            "is": "为",
+            "isNot": "不为"
+          },
+          "date": {
+            "between": "介于",
+            "empty": "未知",
+            "gt": "晚于",
+            "inLast": "在最近",
+            "is": "为",
+            "isNot": "不为",
+            "lt": "早于",
+            "notEmpty": "已知",
+            "notInLast": "不在最近"
+          },
+          "folder": {
+            "contains": "位于其中或其下",
+            "is": "直接位于",
+            "isNot": "不直接位于",
+            "notContains": "不位于其中或其下"
+          },
+          "number": {
+            "between": "介于",
+            "empty": "无值",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "有值"
+          },
+          "search": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "notContains": "不包含以下任何"
+          },
+          "text": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "empty": "为空",
+            "endsWith": "结尾为",
+            "is": "为",
+            "isNot": "不为",
+            "notContains": "不包含以下任何",
+            "notEmpty": "不为空",
+            "startsWith": "开头为"
+          }
+        },
+        "removeGroup": "移除此组",
+        "removeRule": "移除“{{field}}”规则",
+        "save": "保存",
+        "saveFailed": "无法存储智能相册：{{error}}",
+        "unitLabel": "单位",
+        "units": {
+          "days": "天",
+          "months": "个月",
+          "weeks": "周",
+          "years": "年"
+        },
+        "valueLabel": "值",
+        "yes": "是"
       },
       "trash": {
         "alreadyEmpty": "会话回收站文件夹是空的。",

@@ -456,6 +456,7 @@ pub async fn session_open(directory: String, app: tauri::AppHandle) -> Result<Su
             remember(&app, &lib.directory)?;
         }
         crate::folder_sync::start_checksum_pass(lib.directory.clone());
+        crate::library_search::start_facts_pass(lib.directory.clone());
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("session_summary");
         lib.summary().map_err(|e| e.to_string())
@@ -762,6 +763,7 @@ pub async fn session_ingest(
     IMPORT_RUNNING.store(false, Ordering::Release);
     // Photographs added where they are get their content hashes later.
     if matches!(mode, Some(IngestMode::Add)) {
+        crate::library_search::start_facts_pass(library.clone());
         crate::folder_sync::start_checksum_pass(library);
     }
     result?
@@ -1217,16 +1219,12 @@ pub async fn session_album_remove(
     .map_err(|e| e.to_string())?
 }
 
-/// Absolute paths of the album's photographs, in path order.
+/// Absolute paths of the album's photographs, in path order (a smart
+/// album's: those its rules match now).
 #[tauri::command]
 pub async fn session_album_paths(directory: String, id: String) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
-        Ok(lib
-            .collection_assets(&id)
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .map(|asset| asset.path)
-            .collect())
+        lib.collection_paths(&id).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| e.to_string())?

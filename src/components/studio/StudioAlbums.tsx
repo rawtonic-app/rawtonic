@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { BookImage, ChevronRight, Folder, History, Plus, Unlink } from "lucide-react";
+import { BookImage, ChevronRight, Folder, History, ListFilter, Plus, Unlink } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "react-toastify";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -22,6 +22,9 @@ import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
 import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
+import { CATALOG_CHANGED } from "../../utils/catalogWrites";
+import type { Group, Rule } from "../../utils/librarySearch";
+import { asGroup, useSmartAlbumEditor } from "./SmartAlbumEditor";
 import {
   changeLibraryAlbums,
   findAlbumItem,
@@ -40,9 +43,12 @@ export interface SessionAlbum {
   name: string;
   parent: string | null;
   count: number;
-  /** "album" holds photographs, "group" holds albums and groups. */
-  kind?: "album" | "group";
+  /** "album" holds photographs, "group" holds albums and groups, "smart"
+   * shows the photographs its rules match now. */
+  kind?: "album" | "group" | "smart";
   position?: number;
+  /** A smart album's rules. */
+  rules?: Rule;
 }
 
 /** `activeAlbumId` of a session album shown in the grid. */
@@ -65,6 +71,11 @@ export async function openSessionAlbum(
 }
 
 const isGroup = (album: SessionAlbum) => album.kind === "group";
+const isSmart = (album: SessionAlbum) => album.kind === "smart";
+/** A new smart album's first rule. */
+const NEW_SMART_RULES: Group = { combine: "all", rules: [{ field: "rating", op: "ge", value: 3 }] };
+/** How long catalog writes pause before smart albums are counted again. */
+const SMART_REFRESH_MS = 250;
 
 /** Albums of a parent in their order (the session returns them ordered). */
 export function childrenOf(albums: SessionAlbum[], parent: string | null) {
@@ -213,6 +224,32 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     window.addEventListener(SESSION_ALBUMS_CHANGED, onChanged);
     return () => window.removeEventListener(SESSION_ALBUMS_CHANGED, onChanged);
   }, [session, onSelectAlbum]);
+  // A rating, label, flag or keyword written to the catalog: smart albums
+  // count again, and the one shown shows what its rules match now
+  // (Lightroom's smart collections update live).
+  useEffect(() => {
+    if (!session) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = async () => {
+      const list = (await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session }).catch(() => null)) ?? [];
+      if (!stillShown(session)) return;
+      setSessionAlbums(list);
+      const active = activeAlbumRef.current;
+      const album = active?.startsWith(SESSION_ALBUM_PREFIX)
+        ? list.find((a) => a.id === active.slice(SESSION_ALBUM_PREFIX.length))
+        : undefined;
+      if (album && isSmart(album)) await openSessionAlbum(session, album, onSelectAlbum, true).catch(() => {});
+    };
+    const changed = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void refresh(), SMART_REFRESH_MS);
+    };
+    window.addEventListener(CATALOG_CHANGED, changed);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener(CATALOG_CHANGED, changed);
+    };
+  }, [session, onSelectAlbum]);
 
   /** Offline photographs of the session (Missing Photographs, shown when any). */
   const [missing, setMissing] = useState(0);
@@ -307,6 +344,9 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     if (parent) setCollapsed((previous) => new Set([...previous].filter((id) => id !== parent)));
     setNaming({ kind, parent });
   };
+  const openEditor = useSmartAlbumEditor((s) => s.open);
+  const newSmart = (parent: string | null) =>
+    openEditor({ name: t("studio.library.smartAlbums.defaultName"), parent, rules: NEW_SMART_RULES });
   const newMenu = (x: number, y: number, parent: string | null) =>
     showContextMenu(x, y, [
       {
@@ -315,6 +355,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
           : t("studio.library.albums.menu.newAlbum"),
         onClick: () => startNew("album", parent),
       },
+      ...(session ? [{ label: t("studio.library.albums.menu.newSmartAlbum"), onClick: () => newSmart(parent) }] : []),
       { label: t("studio.library.albums.menu.newGroup"), onClick: () => startNew("group", parent) },
     ]);
   const menu = (e: MouseEvent, album: SessionAlbum) => {
@@ -322,9 +363,29 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     if (isGroup(album)) {
       showContextMenu(e.clientX, e.clientY, [
         { label: t("studio.library.albums.menu.newAlbumInGroup"), onClick: () => startNew("album", album.id) },
+        ...(session
+          ? [{ label: t("studio.library.albums.menu.newSmartAlbumInGroup"), onClick: () => newSmart(album.id) }]
+          : []),
         { label: t("studio.library.albums.menu.newGroupInGroup"), onClick: () => startNew("group", album.id) },
         { label: t("studio.library.albums.menu.rename"), onClick: () => setNaming({ rename: album.id }) },
         { label: t("studio.library.albums.menu.deleteGroup"), onClick: () => setDeleting(album) },
+      ]);
+      return;
+    }
+    if (isSmart(album)) {
+      showContextMenu(e.clientX, e.clientY, [
+        {
+          label: t("studio.library.albums.menu.editSmartAlbum"),
+          onClick: () =>
+            openEditor({
+              id: album.id,
+              name: album.name,
+              parent: album.parent,
+              rules: asGroup(album.rules ?? NEW_SMART_RULES),
+            }),
+        },
+        { label: t("studio.library.albums.menu.rename"), onClick: () => setNaming({ rename: album.id }) },
+        { label: t("studio.library.albums.menu.deleteSmartAlbum"), onClick: () => setDeleting(album) },
       ]);
       return;
     }
@@ -371,7 +432,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   const dropRef = useRef<(detail: TileDropDetail) => void>(() => {});
   dropRef.current = ({ target, paths }) => {
     const album = albums.find((a) => a.id === target);
-    if (!album || isGroup(album) || !paths.length) return;
+    if (!album || isGroup(album) || isSmart(album) || !paths.length) return;
     void run(() => store.add(album.id, paths), "addFailed", album);
   };
   useEffect(() => {
@@ -463,8 +524,17 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             role="listitem"
             data-album-row={album.id}
             data-kind={group ? "group" : "album"}
-            {...(group ? {} : { "data-album-drop": album.id, "data-album-name": album.name })}
-            title={group ? t("studio.library.albums.groupHint") : t("studio.library.albums.albumHint")}
+            {...(group || isSmart(album)
+              ? {}
+              : { "data-album-drop": album.id, "data-album-name": album.name })}
+            {...(isSmart(album) ? { "data-drop-refused": t("studio.library.albums.smartNoDrop") } : {})}
+            title={
+              group
+                ? t("studio.library.albums.groupHint")
+                : isSmart(album)
+                  ? t("studio.library.albums.smartHint")
+                  : t("studio.library.albums.albumHint")
+            }
             aria-expanded={group ? expanded : undefined}
             className={`studio-preset studio-album ${group ? "is-group" : ""} ${
               activeAlbumId === shownId(album) ? "is-applied" : ""
@@ -489,6 +559,8 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
                 <ChevronRight size={11} className={expanded ? "is-open" : ""} />
                 <Folder size={12} />
               </>
+            ) : isSmart(album) ? (
+              <ListFilter size={12} />
             ) : (
               <BookImage size={12} />
             )}
@@ -541,7 +613,9 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
           <span>
             {isGroup(deleting)
               ? t("studio.library.albums.confirm.deleteGroup", { name: deleting.name })
-              : t("studio.library.albums.confirm.deleteAlbum", { name: deleting.name })}
+              : isSmart(deleting)
+                ? t("studio.library.albums.confirm.deleteSmartAlbum", { name: deleting.name })
+                : t("studio.library.albums.confirm.deleteAlbum", { name: deleting.name })}
           </span>
           <span>
             <button onClick={() => setDeleting(null)}>{t("studio.library.albums.confirm.cancel")}</button>

@@ -2297,6 +2297,7 @@
           "delete": "刪除",
           "deleteAlbum": "刪除「{{name}}」？照片會保留。",
           "deleteGroup": "刪除「{{name}}」及其中的相簿？照片會保留。",
+          "deleteSmartAlbum": "刪除智慧型相簿「{{name}}」？照片會保留。",
           "label": "刪除相簿"
         },
         "empty": "選擇照片並按 + 將它們放入一個相簿。",
@@ -2306,11 +2307,15 @@
           "addSelectedCount_other": "加入 {{count}} 張所選照片",
           "deleteAlbum": "刪除相簿…",
           "deleteGroup": "刪除群組…",
+          "deleteSmartAlbum": "刪除智慧型相簿…",
+          "editSmartAlbum": "編輯智慧型相簿…",
           "newAlbum": "新增相簿",
           "newAlbumFromSelected_other": "以 {{count}} 張所選照片新增相簿",
           "newAlbumInGroup": "在此群組中新增相簿",
           "newGroup": "新增群組",
           "newGroupInGroup": "在此群組中新增群組",
+          "newSmartAlbum": "新增智慧型相簿…",
+          "newSmartAlbumInGroup": "在此群組中新增智慧型相簿…",
           "removeSelected": "移除所選照片",
           "rename": "重新命名"
         },
@@ -2321,6 +2326,8 @@
         "previousImportNoDrop": "「上次匯入」顯示最近一次匯入，無法在其中加入照片。請將照片拖放到相簿上。",
         "previousImportTitle": "最近一次匯入、加入、同步資料夾或監看資料夾所加入的照片",
         "renameLabel": "重新命名 {{name}}",
+        "smartHint": "顯示符合其規則的照片，始終保持最新",
+        "smartNoDrop": "智慧型相簿顯示符合其規則的照片，無法在其中加入照片。請變更其規則，或將照片拖放到相簿上。",
         "title": "相簿",
         "toasts": {
           "addFailed": "無法加入照片：{{error}}",
@@ -2460,9 +2467,191 @@
           "showFailed": "無法顯示資料夾：{{error}}"
         }
       },
+      "metadataFilter": {
+        "all_other": "全部（{{count}} 個值）",
+        "apertureValue": "f/{{value}}",
+        "button": "後設資料",
+        "fields": {
+          "aperture": "光圈",
+          "camera": "相機",
+          "captureDate": "拍攝日期",
+          "fileType": "檔案類型",
+          "focalLength": "焦距",
+          "iso": "ISO",
+          "keyword": "關鍵字",
+          "lens": "鏡頭"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "其他",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "後設資料篩選",
+        "none": {
+          "aperture": "未知光圈",
+          "camera": "未知相機",
+          "captureDate": "無日期",
+          "fileType": "其他",
+          "focalLength": "未知焦距",
+          "iso": "未知 ISO",
+          "keyword": "無關鍵字",
+          "lens": "未知鏡頭"
+        },
+        "toggle": "顯示或隱藏後設資料清單（拍攝日期、相機、鏡頭、關鍵字、檔案類型、ISO、焦距、光圈）"
+      },
       "navigator": {
         "empty": "請選擇一張照片",
         "title": "導覽器"
+      },
+      "smartAlbums": {
+        "addGroup": "規則群組",
+        "addRule": "規則",
+        "amountLabel": "數量",
+        "and": "和",
+        "cancel": "取消",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "其他",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "留用",
+            "rejected": "排除",
+            "unflagged": "無旗標"
+          },
+          "label": {
+            "blue": "藍色",
+            "green": "綠色",
+            "none": "無標籤",
+            "purple": "紫色",
+            "red": "紅色",
+            "yellow": "黃色"
+          }
+        },
+        "combine": {
+          "all": "符合全部",
+          "any": "符合任一",
+          "none": "不符合任何"
+        },
+        "combineLabel": "規則的組合方式",
+        "create": "建立",
+        "defaultName": "智慧型相簿",
+        "editTitle": "編輯智慧型相簿",
+        "fieldLabel": "欄位",
+        "fields": {
+          "album": "相簿",
+          "aperture": "光圈（f 值）",
+          "camera": "相機",
+          "captureDate": "拍攝日期",
+          "exposure": "快門速度（秒）",
+          "filename": "檔案名稱",
+          "fileType": "檔案類型",
+          "flag": "旗標",
+          "focalLength": "焦距（mm）",
+          "folder": "資料夾",
+          "importDate": "匯入日期",
+          "iso": "ISO",
+          "keyword": "關鍵字",
+          "label": "顏色標籤",
+          "lens": "鏡頭",
+          "make": "相機品牌",
+          "offline": "遺失的照片",
+          "previousImport": "在上次匯入中",
+          "rating": "星級",
+          "text": "任何可搜尋的文字"
+        },
+        "folderPlaceholder": "資料夾路徑",
+        "fromFilter": "儲存為智慧型相簿…",
+        "fromFilterTitle": "以圖庫目前的篩選條件（顯示的資料夾或相簿、搜尋、後設資料、星級、標籤、旗標）建立智慧型相簿",
+        "incomplete": "完成規則後即可查看符合的照片",
+        "match": "照片須",
+        "matches_other": "目前符合 {{n}} 張照片",
+        "name": "名稱",
+        "newTitle": "新增智慧型相簿",
+        "no": "否",
+        "ofTheseRules": "以下規則",
+        "opLabel": "比較",
+        "ops": {
+          "album": {
+            "is": "屬於",
+            "isNot": "不屬於"
+          },
+          "bool": {
+            "is": "為"
+          },
+          "choice": {
+            "is": "為",
+            "isNot": "不為"
+          },
+          "date": {
+            "between": "介於",
+            "empty": "未知",
+            "gt": "晚於",
+            "inLast": "在最近",
+            "is": "為",
+            "isNot": "不為",
+            "lt": "早於",
+            "notEmpty": "已知",
+            "notInLast": "不在最近"
+          },
+          "folder": {
+            "contains": "位於其中或其下",
+            "is": "直接位於",
+            "isNot": "不直接位於",
+            "notContains": "不位於其中或其下"
+          },
+          "number": {
+            "between": "介於",
+            "empty": "無值",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "有值"
+          },
+          "search": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "notContains": "不包含以下任何"
+          },
+          "text": {
+            "contains": "包含以下全部",
+            "containsAny": "包含以下任一",
+            "empty": "為空",
+            "endsWith": "結尾為",
+            "is": "為",
+            "isNot": "不為",
+            "notContains": "不包含以下任何",
+            "notEmpty": "不為空",
+            "startsWith": "開頭為"
+          }
+        },
+        "removeGroup": "移除此群組",
+        "removeRule": "移除「{{field}}」規則",
+        "save": "儲存",
+        "saveFailed": "無法儲存智慧型相簿：{{error}}",
+        "unitLabel": "單位",
+        "units": {
+          "days": "天",
+          "months": "個月",
+          "weeks": "週",
+          "years": "年"
+        },
+        "valueLabel": "值",
+        "yes": "是"
       },
       "trash": {
         "alreadyEmpty": "工作階段垃圾桶資料夾是空的。",

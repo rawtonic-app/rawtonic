@@ -12,5 +12,14 @@ let last: Promise<unknown> = Promise.resolve();
 export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> {
   const run = last.then(() => invoke<T>(command, args));
   last = run.catch(() => undefined);
+  void run.finally(catalogChanged).catch(() => undefined);
   return run;
+}
+
+/** Fired (on `window`) after a write to the library's catalog settled, so
+ * searches, value lists and smart albums show what it holds now. */
+export const CATALOG_CHANGED = 'rawtonic:catalog-changed';
+
+export function catalogChanged() {
+  window.dispatchEvent(new Event(CATALOG_CHANGED));
 }

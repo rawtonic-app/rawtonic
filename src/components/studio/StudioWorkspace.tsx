@@ -84,6 +84,8 @@ import type { FlagCounts } from "../../utils/culling";
 import { useSessionBar } from "../session/sessionBar";
 import { openMaskingTools, useAiModelLifecycle } from "../../hooks/useAiMasking";
 import "./studio.css";
+import StudioMetadataFilter from "./StudioMetadataFilter";
+import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 
@@ -202,6 +204,7 @@ export default function StudioWorkspace(props: Props) {
     return t("studio.workspace.viewer.beforeAfterTitle", { split, peek });
   });
   const tools = useStudioTools();
+  const [metadataOpen, setMetadataOpen] = useState(false);
   const [toolPopover, setToolPopover] = useState<{
     x: number;
     y: number;
@@ -1045,7 +1048,11 @@ export default function StudioWorkspace(props: Props) {
                     }
                   />
                 </label>
-                <StudioFilters counts={props.flagCounts}>
+                <StudioFilters
+                  counts={props.flagCounts}
+                  metadataOpen={metadataOpen}
+                  onToggleMetadata={() => setMetadataOpen((open) => !open)}
+                >
                   <label className="studio-filter" title={t("studio.workspace.grid.filterByRating")}>
                     <Star size={12} />
                     <select
@@ -1097,6 +1104,8 @@ export default function StudioWorkspace(props: Props) {
                   </button>
                 </label>
               </div>
+              {metadataOpen && <StudioMetadataFilter />}
+              <SmartAlbumEditorHost />
               <StudioBrowser
                 {...browserProps}
                 size={size}

@@ -12,7 +12,7 @@ import { Invokes } from "../ui/AppProperties";
 import { useLibraryActions } from "../../hooks/useLibraryActions";
 import { COLOR_LABELS } from "../../utils/adjustments";
 import { ToolGroup } from "./StudioDevelop";
-import { invokeInOrder } from "../../utils/catalogWrites";
+import { catalogChanged, invokeInOrder } from "../../utils/catalogWrites";
 
 /** The editor's marker for keywords the user typed; other tags are automatic. */
 const USER_TAG_PREFIX = "user:";
@@ -541,6 +541,7 @@ export function StudioMetadataTool() {
         paths,
         update: { [field]: value },
       });
+      catalogChanged();
       cache.merge(written);
     } catch (e) {
       toast.error(t("studio.metadata.toasts.saveFailed", { error: String(e) }));

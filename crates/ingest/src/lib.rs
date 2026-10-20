@@ -1267,8 +1267,15 @@ fn register(
     contents: Option<&Contents>,
     companion: Option<&str>,
 ) -> ImportResult {
+    // The copy's EXIF (its first megabyte; the copy was just verified) for
+    // the library's search.
+    let facts = capture::capture_facts(&destination);
     let registered = library
         .plan_add(&destination, contents.cloned().unwrap_or_default())
+        .map(|planned| match facts {
+            Some(facts) => planned.with_facts(facts),
+            None => planned,
+        })
         .and_then(|planned| match companion {
             Some(name) => planned.with_companion(name),
             None => Ok(planned),
@@ -1574,6 +1581,56 @@ mod exif_and_sidecar_tests {
         assert_eq!(preview.name, "2025-12-24_Test Lens 35mm F2.8.JPG");
         assert_eq!(preview.date_source, rawtonic_naming::DateSource::Original);
         assert!(!preview.sidecar);
+    }
+
+    /// The copy is recorded with its capture facts (camera, lens,
+    /// exposure, capture time) for the library's search, in the same
+    /// transaction: the background pass has nothing left to read.
+    #[test]
+    fn ingested_photographs_are_searchable_by_their_capture_facts() {
+        let d = tempfile::tempdir().unwrap();
+        let source = card(d.path()).join("DSC_0042.JPG");
+        fs::write(&source, jpeg_with_exif(&tiff_exif("2025:12:24 18:30:15"))).unwrap();
+        let lib = session(d.path(), rawtonic_catalog::Mode::Session);
+        let r = import_one(
+            &lib,
+            &source,
+            "{job}_{seq:3}.{ext}",
+            1,
+            None,
+            &AtomicBool::new(false),
+        )
+        .unwrap();
+        let id = r.asset_id.unwrap();
+        let (facts, read) = lib.facts(&id).unwrap().unwrap();
+        assert!(read);
+        assert_eq!(
+            facts,
+            rawtonic_catalog::CaptureFacts {
+                captured: Some("2025-12-24 18:30:15".into()),
+                make: Some("Testmaker".into()),
+                model: Some("Model One".into()),
+                lens: Some("Test Lens 35mm F2.8".into()),
+                focal_length: Some(35.0),
+                aperture: Some(2.8),
+                iso: Some(800),
+                exposure: Some(0.004),
+            }
+        );
+        assert_eq!(lib.facts_backlog().unwrap(), 0);
+        let rule: rawtonic_catalog::Rule = serde_json::from_value(serde_json::json!(
+            {"combine":"all","rules":[{"field":"lens","op":"contains","value":"35mm"},{"field":"iso","op":"ge","value":800}]}
+        ))
+        .unwrap();
+        assert_eq!(lib.search_ids(&rule).unwrap(), [id]);
+        // A file without EXIF has no facts and no invented capture time.
+        let plain = d.path().join("card/plain.ARW");
+        fs::write(&plain, b"raw bytes").unwrap();
+        assert_eq!(
+            capture::capture_facts(&plain),
+            Some(rawtonic_catalog::CaptureFacts::default())
+        );
+        assert_eq!(capture::capture_facts(&d.path().join("gone.ARW")), None);
     }
 
     /// A card sidecar is copied beside the renamed copy (and its backup)

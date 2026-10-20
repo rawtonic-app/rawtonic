@@ -97,6 +97,7 @@ pub async fn folder_sync_apply(
         after_relink(lib, &applied.relinked());
         if !applied.added.is_empty() {
             start_checksum_pass(lib.directory.clone());
+            crate::library_search::start_facts_pass(lib.directory.clone());
         }
         Ok(applied)
     })

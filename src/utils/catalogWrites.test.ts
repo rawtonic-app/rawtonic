@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { invoke } from '@tauri-apps/api/core';
-import { invokeInOrder } from './catalogWrites';
+import { CATALOG_CHANGED, invokeInOrder } from './catalogWrites';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 
@@ -29,4 +29,16 @@ it('writes ratings in the order they were given, also after a failure', async ()
   await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(3));
   answers[2]('done');
   await expect(third).resolves.toBe('done');
+});
+
+it('tells searches and smart albums after each write settled, also a failed one', async () => {
+  const changed = vi.fn();
+  window.addEventListener(CATALOG_CHANGED, changed);
+  vi.mocked(invoke).mockReset();
+  vi.mocked(invoke).mockResolvedValueOnce(undefined).mockRejectedValueOnce('locked');
+  await invokeInOrder('add_tag_for_paths', { paths: ['/a'], tag: 'user:x' });
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+  await expect(invokeInOrder('set_rating_for_paths', { paths: ['/a'], rating: 2 })).rejects.toBe('locked');
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(2));
+  window.removeEventListener(CATALOG_CHANGED, changed);
 });

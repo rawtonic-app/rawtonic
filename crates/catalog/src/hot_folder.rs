@@ -318,6 +318,9 @@ mod tests {
         std::fs::write(&photo, b"a").unwrap();
         let asset = lib.add_asset(&photo).unwrap();
         lib.conn
+            .execute_batch(include_str!("../tests/undo_0011.sql"))
+            .unwrap();
+        lib.conn
             .execute_batch(
                 "DROP TABLE hot_folder; DROP TABLE hot_folder_files;
                  ALTER TABLE assets DROP COLUMN companion_size;
