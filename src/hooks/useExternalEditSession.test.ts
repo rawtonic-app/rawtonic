@@ -50,3 +50,15 @@ it('stays open when its export fails', async () => {
   expect(exit).not.toHaveBeenCalled();
   expect(result.current.isFinishing).toBe(false);
 });
+
+it('can be pressed again when its waiting export was removed from the queue', async () => {
+  const { result } = renderHook(() => useExternalEditSession(vi.fn()));
+  await act(() => result.current.finishExternalEdit());
+  // Not listed yet: still waiting.
+  expect(result.current.isFinishing).toBe(true);
+  act(() => useProcessStore.setState({ exportQueue: [job('batch', 'running'), job('mine', 'queued')] }));
+  expect(result.current.isFinishing).toBe(true);
+  act(() => useProcessStore.setState({ exportQueue: [job('batch', 'running')] }));
+  expect(result.current.isFinishing).toBe(false);
+  expect(exit).not.toHaveBeenCalled();
+});

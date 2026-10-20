@@ -41,12 +41,17 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     handleImageSelectRef.current(externalEditSession.source);
   }, [externalEditSession]);
 
+  // Whether the queue has listed the finish's job yet: one gone from it
+  // after that was removed (from the Export queue), so Done may be pressed
+  // again.
+  const listedJob = useRef(false);
   useEffect(() => {
     if (!isFinishing || !finishJob) return;
     const job = exportQueue.find((j) => j.id === finishJob);
+    if (job) listedJob.current = true;
     if (job?.state === 'done') {
       exit(0);
-    } else if (job && job.state !== 'queued' && job.state !== 'running') {
+    } else if (job ? job.state !== 'queued' && job.state !== 'running' : listedJob.current) {
       setIsFinishing(false);
       setFinishJob(null);
     }
@@ -78,6 +83,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
 
     setIsFinishing(true);
     setFinishJob(null);
+    listedJob.current = false;
     useProcessStore.getState().setExportState({
       status: Status.Exporting,
       progress: { current: 0, total: 1 },
