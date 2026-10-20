@@ -737,7 +737,8 @@ fn draft_sink(
             #[cfg(feature = "performance-profiling")]
             log::info!(
                 "[PERF] {}",
-                serde_json::json!({"stage": "develop_draft", "width": full_width, "height": full_height})
+                serde_json::json!({"stage": "develop_draft", "width": full_width, "height": full_height,
+                    "epoch_ms": crate::performance::epoch_ms()})
             );
             let _ = app.emit(
                 DRAFT_EVENT,
@@ -760,6 +761,11 @@ pub async fn load_image(
 ) -> Result<LoadImageResult, String> {
     #[cfg(feature = "performance-profiling")]
     let performance_start = Instant::now();
+    #[cfg(feature = "performance-profiling")]
+    log::info!(
+        "[PERF] {}",
+        serde_json::json!({"stage": "load_image_received", "epoch_ms": crate::performance::epoch_ms()})
+    );
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let generation_tracker = state.load_image_generation.clone();
     let cancel_token = Some((generation_tracker.clone(), my_generation));
@@ -884,6 +890,11 @@ pub async fn load_image(
             if generation_tracker.load(Ordering::SeqCst) != my_generation {
                 return Err("Load cancelled".to_string());
             }
+            #[cfg(feature = "performance-profiling")]
+            log::info!(
+                "[PERF] {}",
+                serde_json::json!({"stage": "load_image_decode_start", "epoch_ms": crate::performance::epoch_ms()})
+            );
 
             let result: Result<(DynamicImage, HashMap<String, String>), String> =
                 (|| match read_file_mapped(Path::new(&path_clone)) {
