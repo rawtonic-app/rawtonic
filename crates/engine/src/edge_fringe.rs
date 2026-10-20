@@ -31,7 +31,9 @@
 //! light, so in a window holding two colours every pixel lies on the line
 //! between them; the stage moves a pixel onto its window's principal colour
 //! line (in linear RGB) where the window holds two colours and a strong
-//! edge, and leaves windows of three or more colours alone.
+//! edge, and leaves windows of three or more colours alone, and pixels of a
+//! colour no mix of the two makes (a small patch of a third colour on the
+//! edge).
 
 use std::borrow::Cow;
 
@@ -122,6 +124,11 @@ const LINE_EPS: f32 = 1e-6;
 /// and from which not at all: a misregistered transition adds a few
 /// percent, a third colour of a few pixels much more.
 const TWO_COLOUR_FULL: f32 = 0.05;
+/// How far beyond the channel ranges of its window's two colours (relative
+/// to the distance between them) a pixel still moves fully, and from which
+/// not at all (see `within_the_mixes`).
+const MIX_FULL: f32 = 0.1;
+const MIX_NONE: f32 = 0.25;
 const TWO_COLOUR_NONE: f32 = 0.15;
 
 /// The recipe's edge-fringe version: `fringeVersion`, 0 (none) when
@@ -717,6 +724,9 @@ fn colour_line_band(
     // [`PAIRS`] entries) and the weight.
     let mut csum: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; mid_rows * w]).collect();
     let mut coef: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; w]).collect();
+    // The windows' means and axes, for the range test of the pixel each is
+    // centred on.
+    let mut centred: [Vec<f32>; 6] = std::array::from_fn(|_| vec![0.0f32; mid_rows * w]);
     for m in 0..mid_rows {
         if !weighted[m.saturating_sub(2 * r)..(m + 2 * r + 1).min(mid_rows)].contains(&true) {
             continue;
@@ -746,6 +756,10 @@ fn colour_line_band(
                 coef[3 + k][x] = shrink * e[a] * e[b];
             }
             coef[9][x] = if var > 0.0 { weights[x] } else { 0.0 };
+            for c in 0..3 {
+                centred[c][m * w + x] = mean[c];
+                centred[3 + c][m * w + x] = e[c];
+            }
         }
         let span = m * w..(m + 1) * w;
         for (k, sum) in csum.iter_mut().enumerate() {
@@ -781,6 +795,10 @@ fn colour_line_band(
                 linear[1][e * w + x],
                 linear[2][e * w + x],
             ];
+            let weight = weight * within_the_mixes(&linear, &centred, w, r, e, m0 + r, x, p);
+            if weight <= 0.0 {
+                continue;
+            }
             // The [`PAIRS`] index of each slope matrix entry.
             const ENTRY: [[usize; 3]; 3] = [[0, 1, 2], [1, 3, 4], [2, 4, 5]];
             let s = |a: usize, b: usize| model[3 + ENTRY[a][b]][x];
@@ -793,6 +811,63 @@ fn colour_line_band(
         }
     }
     changes
+}
+
+/// Misregistration mixes each channel of the two colours by its own share,
+/// so it leaves every channel between the two colours' values: how far the
+/// pixel `p` (linear RGB, at ext row `e` and column `x`) may move onto its
+/// windows' lines, from 1 (inside the channel ranges of the two ends of the
+/// line of the window centred on it, mid row `m`, a little beyond) to 0
+/// (well outside: a small patch of a third colour on the edge, which can
+/// pass the window's two-colour test).
+#[allow(clippy::too_many_arguments)]
+fn within_the_mixes(
+    linear: &[Vec<f32>; 3],
+    centred: &[Vec<f32>; 6],
+    w: usize,
+    r: usize,
+    e: usize,
+    m: usize,
+    x: usize,
+    p: [f32; 3],
+) -> f32 {
+    let mean = [
+        centred[0][m * w + x],
+        centred[1][m * w + x],
+        centred[2][m * w + x],
+    ];
+    let axis = [
+        centred[3][m * w + x],
+        centred[4][m * w + x],
+        centred[5][m * w + x],
+    ];
+    if axis == [0.0; 3] {
+        return 1.0;
+    }
+    // The line's ends: the window's extreme pixels along it.
+    let (mut low, mut high) = (f32::MAX, f32::MIN);
+    for row in e - r..=e + r {
+        for dx in 0..=2 * r {
+            let xx = (x + dx).saturating_sub(r).min(w - 1);
+            let t = (0..3)
+                .map(|c| axis[c] * (linear[c][row * w + xx] - mean[c]))
+                .sum::<f32>();
+            low = low.min(t);
+            high = high.max(t);
+        }
+    }
+    let length = high - low;
+    if length.is_nan() || length <= 0.0 {
+        return 1.0;
+    }
+    let beyond = (0..3)
+        .map(|c| {
+            let (a, b) = (mean[c] + low * axis[c], mean[c] + high * axis[c]);
+            (a.min(b) - p[c]).max(p[c] - a.max(b)).max(0.0)
+        })
+        .fold(0.0f32, f32::max)
+        / length;
+    ((MIX_NONE - beyond) / (MIX_NONE - MIX_FULL)).clamp(0.0, 1.0)
 }
 
 #[cfg(test)]
@@ -1044,6 +1119,34 @@ mod tests {
                 chroma(after.get_pixel(x, 20).0),
             );
             assert!(c1 > 0.9 * c0, "stripe x {x}: chroma {c0} -> {c1}");
+        }
+    }
+
+    #[test]
+    fn version_3_keeps_a_small_third_colour_on_a_two_colour_edge() {
+        // A 2 × 2 green patch on the edge between cyan and magenta, all of
+        // about the same luminance (version 2 leaves it alone): no mix of
+        // the two sides makes its colour, so it is no misregistration.
+        let green = [0.15, 0.48, 0.13];
+        let before = Rgb32FImage::from_fn(25, 25, |x, y| {
+            if (12..=13).contains(&x) && (12..=13).contains(&y) {
+                image::Rgb(green)
+            } else if x < 13 {
+                image::Rgb([0.0, 0.35, 0.54])
+            } else {
+                image::Rgb([0.64, 0.10, 0.40])
+            }
+        });
+        assert_eq!(run(&before, 2), before);
+        let after = run(&before, 3);
+        for (x, y) in [(12, 12), (13, 12), (12, 13), (13, 13)] {
+            let p = after.get_pixel(x, y).0;
+            for c in 0..3 {
+                assert!(
+                    (p[c] - green[c]).abs() < 0.03,
+                    "({x}, {y}): {green:?} -> {p:?}"
+                );
+            }
         }
     }
 
