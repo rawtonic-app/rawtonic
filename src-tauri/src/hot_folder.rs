@@ -487,97 +487,15 @@ fn spawn(
         include_subfolders: config.include_subfolders,
     };
     let status = watch.status();
-    // A watch installed meanwhile stops too (never left running untracked).
-    if let Some(displaced) = WATCH.lock().map_err(|e| e.to_string())?.replace(watch) {
-        displaced.stop.store(true, Ordering::Release);
-    }
+    *WATCH.lock().map_err(|e| e.to_string())? = Some(watch);
     Ok(status)
 }
 
-/// Orders the hot folder commands that start a watch or end one (start,
-/// resume, stop): they run one at a time in the order they were asked for,
-/// and a resume asked for before a later one of them does nothing, so a
-/// library left while its hot folder was resuming cannot take the watch
-/// from the one opened after it. Every ticket asked for must be run.
-struct Lifecycle {
-    asked: std::sync::atomic::AtomicU64,
-    /// The last ticket that has run.
-    done: Mutex<u64>,
-    turn: std::sync::Condvar,
-}
-
-/// Hands the turn to the next ticket, also if the transition panicked.
-struct Turn<'a>(&'a Lifecycle, u64);
-
-impl Drop for Turn<'_> {
-    fn drop(&mut self) {
-        *self.0.done.lock().unwrap_or_else(|e| e.into_inner()) = self.1;
-        self.0.turn.notify_all();
-    }
-}
-
-impl Lifecycle {
-    const fn new() -> Self {
-        Self {
-            asked: std::sync::atomic::AtomicU64::new(0),
-            done: Mutex::new(0),
-            turn: std::sync::Condvar::new(),
-        }
-    }
-
-    /// The ticket of a command, taken when it is asked for.
-    fn ask(&self) -> u64 {
-        self.asked.fetch_add(1, Ordering::SeqCst) + 1
-    }
-
-    /// Runs `transition` once every earlier ticket has run, told whether no
-    /// command was asked for after `ticket`.
-    fn run<R>(&self, ticket: u64, transition: impl FnOnce(bool) -> R) -> R {
-        let mut done = self.done.lock().unwrap_or_else(|e| e.into_inner());
-        while *done + 1 != ticket {
-            done = self.turn.wait(done).unwrap_or_else(|e| e.into_inner());
-        }
-        drop(done);
-        let _turn = Turn(self, ticket);
-        transition(self.asked.load(Ordering::SeqCst) == ticket)
-    }
-}
-
-static LIFECYCLE: Lifecycle = Lifecycle::new();
-
 /// Starts watching `folder` for the library in `directory` and keeps it
-/// there, so watching resumes when the library is opened again. The hot
-/// folder commands open the catalog on a blocking worker, not the main
-/// thread (a locked database would freeze the window).
+/// there, so watching resumes when the library is opened again.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub async fn hot_folder_start(
-    directory: String,
-    folder: String,
-    template: String,
-    next_capture: NextCapture,
-    metadata: Option<NextCaptureMetadata>,
-    include_subfolders: Option<bool>,
-    app: AppHandle,
-) -> Result<HotFolderStatus, String> {
-    let ticket = LIFECYCLE.ask();
-    crate::file_management::blocking(move || {
-        LIFECYCLE.run(ticket, |_| {
-            start(
-                directory,
-                folder,
-                template,
-                next_capture,
-                metadata,
-                include_subfolders,
-                app,
-            )
-        })
-    })
-    .await?
-}
-
-fn start(
+pub fn hot_folder_start(
     directory: String,
     folder: String,
     template: String,
@@ -614,25 +532,10 @@ fn start(
 /// already running for it: its status). A watched folder that is gone is
 /// watched all the same and shown as missing.
 #[tauri::command]
-pub async fn hot_folder_resume(
+pub fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
-    let ticket = LIFECYCLE.ask();
-    crate::file_management::blocking(move || {
-        LIFECYCLE.run(ticket, |latest| {
-            // Superseded: the library asked for later decides.
-            if latest {
-                resume(directory, app)
-            } else {
-                Ok(None)
-            }
-        })
-    })
-    .await?
-}
-
-fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
     let session = Path::new(&directory)
         .canonicalize()
         .map_err(|e| e.to_string())?;
@@ -679,12 +582,7 @@ pub fn hot_folder_suspend(directory: Option<String>) {
 /// Stops watching, and the library forgets its hot folder (the running
 /// watch's library, else the one in `directory`).
 #[tauri::command]
-pub async fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
-    let ticket = LIFECYCLE.ask();
-    crate::file_management::blocking(move || LIFECYCLE.run(ticket, |_| stop(directory))).await?
-}
-
-fn stop(directory: Option<String>) -> Result<(), String> {
+pub fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
     let session = match (suspend(), directory) {
         (Some(watch), _) => watch.session,
         (None, Some(directory)) => PathBuf::from(directory),
@@ -705,47 +603,6 @@ mod tests {
     use super::*;
     use rawtonic_catalog::Mode;
     use std::fs;
-
-    #[test]
-    fn lifecycle_commands_run_alone_in_order_and_a_superseded_resume_does_nothing() {
-        let lifecycle = Arc::new(Lifecycle::new());
-        // Resume for A asked for, then for B: A is superseded.
-        let a = lifecycle.ask();
-        let b = lifecycle.ask();
-        assert!(!lifecycle.run(a, |latest| latest));
-        assert!(lifecycle.run(b, |latest| latest));
-        // Workers that start in reverse still run in the order asked for.
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let (first, second) = (lifecycle.ask(), lifecycle.ask());
-        let late = {
-            let (lifecycle, order) = (lifecycle.clone(), order.clone());
-            std::thread::spawn(move || {
-                lifecycle.run(second, |_| order.lock().unwrap().push(second))
-            })
-        };
-        std::thread::sleep(Duration::from_millis(30));
-        lifecycle.run(first, |_| order.lock().unwrap().push(first));
-        late.join().unwrap();
-        assert_eq!(*order.lock().unwrap(), [first, second]);
-        // Overlapping commands never run at once.
-        let inside = Arc::new(AtomicBool::new(false));
-        let threads: Vec<_> = (0..8)
-            .map(|_| {
-                let (lifecycle, inside) = (lifecycle.clone(), inside.clone());
-                std::thread::spawn(move || {
-                    let ticket = lifecycle.ask();
-                    lifecycle.run(ticket, |_| {
-                        assert!(!inside.swap(true, Ordering::SeqCst));
-                        std::thread::sleep(Duration::from_millis(5));
-                        inside.store(false, Ordering::SeqCst);
-                    })
-                })
-            })
-            .collect();
-        for thread in threads {
-            thread.join().unwrap();
-        }
-    }
 
     fn session(root: &Path) -> Library {
         Library::create(&root.join("Job"), "Job", Mode::Session).unwrap()

@@ -280,7 +280,7 @@ pub fn wait_for_original_image(state: &AppState) -> Result<LoadedImage, String> 
     state
         .source_signal
         .wait_for(DECODE_WAIT, || original_image_settled(state))
-        .unwrap_or_else(|| Err(NO_PHOTOGRAPH.to_string()))
+        .unwrap_or_else(|| Err(no_original(state)))
 }
 
 /// `wait_for_original_image` for async commands: waits without holding
@@ -290,7 +290,7 @@ pub async fn original_image(state: &AppState) -> Result<LoadedImage, String> {
         .source_signal
         .wait_for_async(DECODE_WAIT, || original_image_settled(state))
         .await
-        .unwrap_or_else(|| Err(NO_PHOTOGRAPH.to_string()))
+        .unwrap_or_else(|| Err(no_original(state)))
 }
 
 const DECODE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -299,28 +299,56 @@ const NO_PHOTOGRAPH: &str = "No photograph is loaded";
 /// The answer for `wait_for_original_image` once there is one: the full
 /// decode, or why there will be none; `None` while it is still decoding.
 fn original_image_settled(state: &AppState) -> Option<Result<LoadedImage, String>> {
-    if let Some(loaded) = state
+    let original = state
         .original_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .clone()
-    {
-        return Some(Ok(loaded));
-    }
-    if state
+        .clone();
+    let offline = state
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .is_some()
-    {
-        return Some(Err(OFFLINE_NEEDS_ORIGINAL.to_string()));
-    }
-    let decoding = state
+        .is_some();
+    let proxy = state
         .proxy_image
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .is_some();
-    (!decoding).then(|| Err(NO_PHOTOGRAPH.to_string()))
+    settled(original, offline, proxy)
+}
+
+/// `original_image_settled` from the open photo's source slots: its full
+/// decode (`original`), whether it is offline, and whether a preview proxy
+/// stands in while something decodes.
+fn settled(
+    original: Option<LoadedImage>,
+    offline: bool,
+    proxy: bool,
+) -> Option<Result<LoadedImage, String>> {
+    match (original, offline, proxy) {
+        (Some(loaded), _, _) => Some(Ok(loaded)),
+        // On its Standard preview: no decode will come.
+        (None, true, true) => Some(Err(OFFLINE_NEEDS_ORIGINAL.to_string())),
+        // Its 1:1 preview is being made the source (`open_offline`).
+        (None, true, false) => None,
+        (None, false, true) => None,
+        (None, false, false) => Some(Err(NO_PHOTOGRAPH.to_string())),
+    }
+}
+
+/// Why a wait for the full decode ended without one.
+fn no_original(state: &AppState) -> String {
+    let offline = state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
+    if offline {
+        OFFLINE_NEEDS_ORIGINAL
+    } else {
+        NO_PHOTOGRAPH
+    }
+    .to_string()
 }
 
 fn publish_loaded_image(
@@ -1052,7 +1080,7 @@ async fn open_offline(
             .offline_source
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
-        state.source_signal.changed();
+        // Waiters wake when the 1:1 preview is published (or this fails).
         publish_loaded_image(
             &state.original_image,
             &state.source_signal,
@@ -1064,7 +1092,8 @@ async fn open_offline(
                 is_raw: true,
                 multiscale: None,
             },
-        )?;
+        )
+        .inspect_err(|_| state.source_signal.changed())?;
         return Ok(Some(LoadImageResult {
             width,
             height,
@@ -1132,6 +1161,29 @@ async fn open_offline(
 #[cfg(test)]
 mod activation_tests {
     use super::*;
+
+    #[test]
+    fn a_wait_during_the_offline_preview_activation_keeps_waiting() {
+        let loaded = LoadedImage {
+            path: "a.raf".into(),
+            image: Arc::new(DynamicImage::new_rgb8(2, 1)),
+            is_raw: true,
+            multiscale: None,
+        };
+        // Marked offline, its 1:1 preview not published yet.
+        assert!(settled(None, true, false).is_none());
+        assert!(matches!(settled(Some(loaded), true, false), Some(Ok(_))));
+        assert_eq!(
+            settled(None, true, true).unwrap().err().as_deref(),
+            Some(OFFLINE_NEEDS_ORIGINAL)
+        );
+        // Decoding behind its proxy; nothing open.
+        assert!(settled(None, false, true).is_none());
+        assert_eq!(
+            settled(None, false, false).unwrap().err().as_deref(),
+            Some(NO_PHOTOGRAPH)
+        );
+    }
 
     #[test]
     fn obsolete_load_cannot_replace_a_newer_activated_source() {
