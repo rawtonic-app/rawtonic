@@ -102,6 +102,16 @@ fn on_canon_path(summary: &str) -> bool {
     summary.contains(": 0xb (")
 }
 
+/// Whether libgphoto2 drives the camera on its Sony path (vendor extension
+/// 0x11). It hands each photo over through the camera's one in-memory
+/// object (0xffffc001), and a body fired again before it has that photo
+/// ready takes no shot and reports nothing: an a7 III in MF took one photo
+/// for five shots fired within 0.2 s (2026-10-20), so shots are fired one
+/// at a time there. notes: reference/tether.md
+fn on_sony_path(summary: &str) -> bool {
+    summary.contains(": 0x11 (")
+}
+
 /// The serial number in libgphoto2's summary ("Serial Number: …").
 fn serial_number(summary: &str) -> Option<String> {
     summary
@@ -229,6 +239,7 @@ impl Driver for GphotoDriver {
             transfer_queue,
             serial,
             firmware,
+            one_at_a_time: on_sony_path(&summary),
             trigger: true,
             capture: true,
             preview: true,
@@ -251,6 +262,8 @@ pub struct GphotoCamera {
     transfer_queue: bool,
     serial: Option<String>,
     firmware: Option<String>,
+    /// `Camera::one_shot_at_a_time` (`on_sony_path`).
+    one_at_a_time: bool,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
 }
@@ -581,6 +594,10 @@ impl Camera for GphotoCamera {
         Ok(crate::camera::memory_only(target.as_deref()))
     }
 
+    fn one_shot_at_a_time(&self) -> bool {
+        self.one_at_a_time
+    }
+
     fn release(&mut self, file: &CameraFile) -> Result<bool, TetherError> {
         if !self.transfer_queue {
             return Ok(false);
@@ -657,6 +674,7 @@ mod tests {
         assert!(has_transfer_queue(fuji) && !on_canon_path(fuji));
         let sony = "Vendor Extension ID: 0x11 (1.0)\n  Version: 1.0\n";
         assert!(!on_canon_path(sony) && !has_transfer_queue(sony) && serial_number(sony).is_none());
+        assert!(on_sony_path(sony) && !on_sony_path(fuji) && !on_sony_path(canon));
         assert!(firmware_version(sony).is_none());
     }
 }

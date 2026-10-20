@@ -295,7 +295,14 @@ export default function TetherCameraTest({
       // A photo that may be one the helper had reported as not delivered:
       // its step says so (the failure stands: it came after the timeout).
       const late = (payload as { lateRequest?: number | null }).lateRequest;
-      if (name === "tether-captured" && h.exposure && late != null && requestSteps.current.has(late)) {
+      // While the test asks for a shot on the body, it is that one.
+      if (
+        name === "tether-captured" &&
+        h.exposure &&
+        late != null &&
+        requestSteps.current.has(late) &&
+        runningStep.current !== "bodyShot"
+      ) {
         const step = requestSteps.current.get(late) ?? null;
         if (step) {
           lateOf.current.set(step, (lateOf.current.get(step) ?? 0) + 1);
@@ -585,8 +592,6 @@ export default function TetherCameraTest({
           h.name === "tether-captured" &&
           !captured(h).requested &&
           h.exposure === true &&
-          // Not the late photo of a test shot.
-          !requestSteps.current.has(captured(h).lateRequest ?? -1) &&
           captured(h).exposure != null &&
           captured(h).connection != null &&
           (captured(h).exposure ?? 0) > (before.get(captured(h).connection ?? -1) ?? 0),

@@ -83,6 +83,10 @@ pub struct MockSpec {
     /// Values a set takes without an error while the camera keeps its value
     /// (a Sony body ignores Multi Frame NR ISOs when it shoots RAW).
     pub kept_values: Vec<String>,
+    /// A shot fired while the last one has not been reported yet is not
+    /// taken, without an error (a Sony a7 III in MF: five triggers within
+    /// 0.2 s gave one photo); the helper then fires one shot at a time.
+    pub ignores_triggers_while_busy: bool,
     /// After a set, the settings still report the value before it for this
     /// long (libgphoto2 answers a property from its last reading for 2 s).
     pub stale_readback_ms: u64,
@@ -129,6 +133,7 @@ impl Default for MockSpec {
             photo: None,
             iso: None,
             kept_values: vec![],
+            ignores_triggers_while_busy: false,
             stale_readback_ms: 0,
         }
     }
@@ -441,6 +446,9 @@ impl Camera for MockCamera {
             ));
         }
         let now = Instant::now();
+        if self.spec.ignores_triggers_while_busy && !self.due.is_empty() {
+            return Ok(Fired::Pending);
+        }
         if self.spec.fire_drops_reports {
             self.due.retain(|(at, _)| *at > now);
         }
@@ -591,6 +599,10 @@ impl Camera for MockCamera {
         let data = self.bytes(file, shot);
         let size = data.len() as u64;
         Ok((data, Some(size)))
+    }
+
+    fn one_shot_at_a_time(&self) -> bool {
+        self.spec.ignores_triggers_while_busy
     }
 
     fn abort_at(&self, point: AbortPoint, shot: u64) -> bool {

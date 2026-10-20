@@ -162,7 +162,9 @@ export const describe = (result: StepResult) => {
   if (result.ms !== undefined) parts.push(`${result.ms} ms`);
   if (result.reason) parts.push(result.reason);
   if (result.late)
-    parts.push(`${result.late} photo${result.late === 1 ? "" : "s"} came after ${result.late === 1 ? "its shot was" : "their shots were"} reported as not delivered`);
+    parts.push(
+      `${result.late} photo${result.late === 1 ? "" : "s"} came after shots were reported as not delivered (late, or shot on the body)`,
+    );
   return parts.join("; ");
 };
 
@@ -233,14 +235,16 @@ export const settingToChange = <S extends { key: string; value: string; choices:
 const plainIso = (choice: string) => /^\d+$/.test(choice.trim());
 
 /** The ISO the test sets: a plain number, the next one up from the current
- * value (or down at the top); from Auto ISO or another non-number the one
- * nearest ISO 400, which every body takes. None without two plain values. */
+ * value (or down at the top); from Auto ISO or another non-number the
+ * lowest one from ISO 100 up (a body's base, not an extended ISO below it;
+ * a Sony body steps through its list, ~0.85 s a value on an a7 III). None
+ * without two plain values. */
 const otherIso = (value: string, choices: string[]) => {
   const numbers = choices.filter(plainIso);
   if (!plainIso(value)) {
     if (numbers.length === 0) return undefined;
-    const distance = (choice: string) => Math.abs(Math.log2(Number(choice) / 400));
-    return numbers.reduce((best, choice) => (distance(choice) < distance(best) ? choice : best));
+    const sorted = [...numbers].sort((a, b) => Number(a) - Number(b));
+    return sorted.find((choice) => Number(choice) >= 100) ?? sorted[sorted.length - 1];
   }
   const others = numbers.filter((choice) => choice !== value).sort((a, b) => Number(a) - Number(b));
   if (others.length === 0) return undefined;

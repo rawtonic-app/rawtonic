@@ -647,10 +647,10 @@ it("changes ISO from Auto to a plain number and sets Auto back", async () => {
   isoChoices = ["Auto ISO", "50", "100", "400", "800", "Auto ISO Multi Frame Noise Reduction", "100 Multi Frame Noise Reduction"];
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  await runStep(/\| Change a setting \| pass \| ISO Auto ISO → 400 changed, read back and set back/);
+  await runStep(/\| Change a setting \| pass \| ISO Auto ISO → 100 changed, read back and set back/);
   expect(iso).toBe("Auto ISO");
   const sets = invoke.mock.calls.filter(([command]) => command === "tether_set_setting").map(([, args]) => args.value);
-  expect(sets).toEqual(["400", "Auto ISO"]);
+  expect(sets).toEqual(["100", "Auto ISO"]);
 });
 
 it("says when the camera kept its value or chose another, and sets it back", async () => {
@@ -659,7 +659,7 @@ it("says when the camera kept its value or chose another, and sets it back", asy
   isoAfterSet = (asked) => (asked === "Auto ISO" ? asked : iso);
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  await runStep(/\| Change a setting \| FAIL \| \d+ ms; ISO: the camera kept Auto ISO when set to 400 \|/);
+  await runStep(/\| Change a setting \| FAIL \| \d+ ms; ISO: the camera kept Auto ISO when set to 100 \|/);
   cleanup();
   iso = "100";
   isoAfterSet = (asked) => (asked === "400" ? "320" : asked);
@@ -716,6 +716,25 @@ it("names a photo that came after its shot was reported as not delivered", async
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
   await runStep(
-    /\| Shots from Rawtonic \| FAIL \| 4\/5 in the library; .*no photo within 60 s of the shot \(not taken, or not handed over\); 1 photo came after its shot was reported as not delivered \|/,
+    /\| Shots from Rawtonic \| FAIL \| 4\/5 in the library; .*no photo within 60 s of the shot \(not taken, or not handed over\); 1 photo came after shots were reported as not delivered \(late, or shot on the body\) \|/,
   );
+  // A photo while the test asks for one on the body is that shot, also when
+  // it could be a late one.
+  fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await screen.findByText("Press the shutter button on the camera now.");
+  emit("tether-captured", {
+    cameraName: "DSCF50.RAF",
+    connection: 1,
+    exposure: 50,
+    destination: null,
+    assetId: "body",
+    skipped: false,
+    error: null,
+    requested: false,
+    request: null,
+    lateRequest: 1,
+  });
+  await waitFor(() => expect(report()).toContain("| Shot on the camera | pass | 1/1 in the library |"), { timeout: 4000 });
+  expect(report()).toMatch(/\| Shots from Rawtonic \| FAIL \| .*1 photo came after/);
 });

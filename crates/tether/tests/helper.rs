@@ -1336,3 +1336,23 @@ fn a_change_from_raw_to_raw_and_jpeg_under_a_reused_name_keeps_the_jpeg_with_its
     let ambiguous: Vec<Vec<u64>> = photos.iter().map(|p| p.ambiguous.clone()).collect();
     assert_eq!(ambiguous, [vec![], vec![], vec![1, 2]]);
 }
+
+#[test]
+fn a_camera_that_takes_one_shot_at_a_time_gets_every_shot_of_a_burst() {
+    // A Sony a7 III in MF took one photo for five shots fired within 0.2 s:
+    // fired while busy with the last, it takes no shot and says nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        event_delay_ms: 200,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let requests: Vec<u64> = (0..5).map(|_| helper.capture()).collect();
+    let (photos, _) = helper.photos(5);
+    assert_eq!(
+        photos.iter().map(|p| p.request).collect::<Vec<_>>(),
+        requests.into_iter().map(Some).collect::<Vec<_>>()
+    );
+}

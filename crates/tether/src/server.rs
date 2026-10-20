@@ -20,6 +20,9 @@ const EVENT_POLL: Duration = Duration::from_millis(20);
 /// how often.
 const READBACK: Duration = Duration::from_secs(3);
 const READBACK_EVERY: Duration = Duration::from_millis(250);
+/// How long a shot waits for the last one's photo on a camera that takes
+/// one at a time (`Server::wait_for_the_last_shot`).
+const ONE_AT_A_TIME_WAIT: Duration = Duration::from_secs(10);
 /// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
     /// The file kinds (extensions) it gave so far.
@@ -225,6 +228,7 @@ impl<W: Write> Server<W> {
                     break;
                 }
             }
+            self.wait_for_the_last_shot()?;
         }
         let result = match request {
             Request::SetSetting { key, value } => self.set_setting(&key, &value)?,
@@ -432,6 +436,34 @@ impl<W: Write> Server<W> {
                 Ok(Reply::Ok)
             }
         }
+    }
+
+    /// On a camera that takes one shot at a time
+    /// (`Camera::one_shot_at_a_time`): waits, reading its events, until the
+    /// shots fired before have their photo, for `ONE_AT_A_TIME_WAIT` at
+    /// most (a shot that never comes is still reported by its timeout).
+    fn wait_for_the_last_shot(&mut self) -> io::Result<()> {
+        let started = Instant::now();
+        let mut said = false;
+        while let Some(open) = self.open.as_ref()
+            && open.camera.one_shot_at_a_time()
+            && !open.held
+            && let Some(last) = open.waiting.back().map(|asked| asked.id)
+        {
+            if started.elapsed() >= ONE_AT_A_TIME_WAIT {
+                log::warn!(
+                    "request {last} still has no photo after {} ms; firing the next shot anyway",
+                    ms(started)
+                );
+                break;
+            }
+            if !said {
+                log::info!("the next shot waits for the photo of request {last}");
+                said = true;
+            }
+            self.read_events(EVENT_POLL)?;
+        }
+        Ok(())
     }
 
     /// Sets a setting, then reads it back until the camera reports the

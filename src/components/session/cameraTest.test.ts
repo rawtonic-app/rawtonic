@@ -96,12 +96,12 @@ it("changes a setting the camera lets change to another of its values, never Sav
   expect(settingToChange([settings[0]])).toBeNull();
 });
 
-it("sets ISO to a plain number: the next one up, or from Auto the one nearest 400", () => {
+it("sets ISO to a plain number: the next one up, or from Auto the lowest from 100 up", () => {
   const iso = (value: string, choices: string[]) =>
     settingToChange([{ key: "iso", value, choices, readOnly: false }])?.other;
   const sony = ["Auto ISO", "50", "100", "200", "400", "800", "Auto ISO Multi Frame Noise Reduction", "100 Multi Frame Noise Reduction"];
-  expect(iso("Auto ISO", sony)).toBe("400");
-  expect(iso("Auto ISO Multi Frame Noise Reduction", sony)).toBe("400");
+  expect(iso("Auto ISO", sony)).toBe("100");
+  expect(iso("Auto ISO Multi Frame Noise Reduction", sony)).toBe("100");
   expect(iso("100", sony)).toBe("200");
   expect(iso("800", sony)).toBe("400");
   expect(iso("Auto ISO", ["Auto ISO", "6400", "12800"])).toBe("6400");
