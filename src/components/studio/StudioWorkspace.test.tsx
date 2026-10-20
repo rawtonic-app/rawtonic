@@ -122,3 +122,53 @@ describe("grid scroll position", () => {
     expect(grid.scrollTop).toBe(0);
   });
 });
+
+describe("grid keyboard reveal", () => {
+  it("scrolls a photograph picked elsewhere into view, once per pick, and tells the keys its row length", async () => {
+    const { useUIStore } = await import("../../store/useUIStore");
+    const files = Array.from({ length: 400 }, (_, n) => ({
+      path: `/qa/photo-${n}.jpg`,
+      rating: 0,
+      is_raw: false,
+      is_edited: false,
+      tags: null,
+      exif: null,
+      modified: 0,
+      is_virtual_copy: false,
+      is_cloud_placeholder: false,
+      group_id: null,
+    })) satisfies ImageFile[];
+    const props = {
+      onSelect: vi.fn(),
+      onOpen: vi.fn(),
+      onRate: vi.fn(),
+      onContextMenu: vi.fn(),
+      requestThumbnails: vi.fn(),
+      listing: "a",
+    };
+    Object.defineProperty(HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 500 });
+    try {
+      const { rerender, unmount } = render(<StudioBrowser {...props} files={files} currentPath={files[0].path} />);
+      const grid = screen.getByRole("listbox");
+      // 800 px wide at 190 px: 4 per row, rows of round(200 * 0.72) + 57 = 201 px.
+      expect(useUIStore.getState().gridColumns).toBe(4);
+      expect(grid.scrollTop).toBe(0);
+      // Photo 40 is on row 10 (top 2010): scrolled so its row ends the view.
+      rerender(<StudioBrowser {...props} files={files} currentPath={files[40].path} />);
+      expect(grid.scrollTop).toBe(2010 + 201 - 500);
+      // Its tile is mounted now.
+      expect(grid.textContent).toContain("photo-40.jpg");
+      // Back up to photo 4 (row 1): scrolled so its row starts the view.
+      rerender(<StudioBrowser {...props} files={files} currentPath={files[4].path} />);
+      expect(grid.scrollTop).toBe(201);
+      // Scrolled away by hand: photos arriving do not pull it back.
+      grid.scrollTop = 6000;
+      rerender(<StudioBrowser {...props} files={[...files, { ...files[0], path: "/qa/new.jpg" }]} currentPath={files[4].path} />);
+      expect(grid.scrollTop).toBe(6000);
+      unmount();
+      expect(useUIStore.getState().gridColumns).toBe(0);
+    } finally {
+      delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight;
+    }
+  });
+});

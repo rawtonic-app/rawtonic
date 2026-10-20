@@ -21,6 +21,22 @@ import { useMultiViewStore, type CellZoomKey } from '../store/useMultiViewStore'
 import { orderedSelection, stepPrimary } from '../utils/multiView';
 import { isTetherConnected, TETHER_CAPTURE_EVENT } from '../components/session/tether';
 
+/** The photograph an arrow key moves to in the Library, from `index` of
+ * `count`. Left/Right step one and wrap around; in the grid (`columns` per
+ * row, 0 = no grid shown) Up/Down move a row as in Lightroom and Capture One:
+ * from the row above a shorter last row Down goes to the last photograph,
+ * and at the first or last row they stay. Without a grid Up/Down step one. */
+export function gridStep(index: number, count: number, code: string, columns: number): number {
+  if (code === 'ArrowLeft' || code === 'ArrowRight' || columns < 1) {
+    const step = code === 'ArrowRight' || code === 'ArrowDown' ? 1 : -1;
+    return (index + step + count) % count;
+  }
+  if (code === 'ArrowUp') return index >= columns ? index - columns : index;
+  const lastRow = Math.floor((count - 1) / columns);
+  if (Math.floor(index / columns) >= lastRow) return index;
+  return Math.min(index + columns, count - 1);
+}
+
 interface KeyboardShortcutsProps {
   sortedImageList: Array<ImageFile>;
   handleBackToLibrary(): void;
@@ -893,14 +909,12 @@ export const useKeyboardShortcuts = ({
           s.ui.activeView === 'library' && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code),
         execute: (e: KeyboardEvent, s: ShortcutState) => {
           e.preventDefault();
-          const isNext = e.code === 'ArrowRight' || e.code === 'ArrowDown';
           const activePath = s.library.libraryActivePath;
           if (!activePath || sortedListRef.current.length === 0) return;
           const currentIndex = sortedListRef.current.findIndex((img) => img.path === activePath);
           if (currentIndex === -1) return;
-          let nextIndex = isNext ? currentIndex + 1 : currentIndex - 1;
-          if (nextIndex >= sortedListRef.current.length) nextIndex = 0;
-          if (nextIndex < 0) nextIndex = sortedListRef.current.length - 1;
+          const nextIndex = gridStep(currentIndex, sortedListRef.current.length, e.code, s.ui.gridColumns);
+          if (nextIndex === currentIndex) return;
           const nextImage = sortedListRef.current[nextIndex];
           if (nextImage) {
             s.library.setLibrary({ libraryActivePath: nextImage.path, multiSelectedPaths: [nextImage.path] });

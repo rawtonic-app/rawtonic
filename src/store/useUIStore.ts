@@ -201,6 +201,9 @@ export function reconcileWorkspace(savedWorkspace: WorkspaceState | undefined): 
 
 export interface UIState {
   activeView: string;
+  /** Photographs per row of the Library grid while it is shown, else 0
+   * (Up/Down move a row there). */
+  gridColumns: number;
   isFullScreen: boolean;
   isWindowFullScreen: boolean;
   isInstantTransition: boolean;
@@ -288,6 +291,7 @@ export function isAnyModalOpen(state: UIState): boolean {
 
 export const useUIStore = create<UIState>((set, get) => ({
   activeView: 'library',
+  gridColumns: 0,
   isFullScreen: false,
   isWindowFullScreen: false,
   isInstantTransition: false,

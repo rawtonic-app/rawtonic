@@ -12,6 +12,7 @@ import { Image as ImageIcon, Star, SlidersHorizontal, Flag, X, Unlink } from "lu
 import { useTranslation } from "react-i18next";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
+import { useUIStore } from "../../store/useUIStore";
 import { type ImageFile } from "../ui/AppProperties";
 import { imageFlag } from "../../utils/culling";
 import { PerfProfiler, performanceDiagnosticsEnabled, reportForcedLayout, reportPerformance } from '../../hooks/usePerformanceDiagnostics';
@@ -286,6 +287,35 @@ export default function StudioBrowser({
     ref.current.scrollLeft = 0;
     setOffset(0);
   }, [film, listing]);
+  // Up/Down in the Library move a row of this grid (useKeyboardShortcuts).
+  useEffect(() => {
+    if (film) return;
+    useUIStore.setState({ gridColumns: columns });
+  }, [film, columns]);
+  useEffect(
+    () => () => {
+      if (!film) useUIStore.setState({ gridColumns: 0 });
+    },
+    [film],
+  );
+  // A photograph picked by key (or a capture arriving) is scrolled into view:
+  // the grid mounts only the tiles in view. Only when the photograph changes,
+  // so scrolling away from it is not undone by photos arriving.
+  const reveal = useRef({ files, extent, columns });
+  reveal.current = { files, extent, columns };
+  useEffect(() => {
+    const el = ref.current;
+    if (film || !currentPath || !el) return;
+    const { files, extent, columns } = reveal.current;
+    const index = files.findIndex((f) => f.path === currentPath);
+    if (index < 0) return;
+    const top = Math.floor(index / columns) * extent;
+    if (top < el.scrollTop) el.scrollTop = top;
+    else if (top + extent > el.scrollTop + el.clientHeight)
+      el.scrollTop = Math.max(0, top + extent - el.clientHeight);
+    else return;
+    setOffset(el.scrollTop);
+  }, [currentPath, film]);
   return (
     <PerfProfiler id={film ? "filmstrip" : "grid"}>
     <div
