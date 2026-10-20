@@ -429,6 +429,7 @@ async fn sam_embeddings(
     }
     let models = models.clone();
     let image = warped_image.clone();
+    let generation = LIFECYCLE.generation();
     let mut embeddings = tokio::task::spawn_blocking(move || {
         generate_image_embeddings(image.as_ref(), &models.encoder, source_is_raw)
     })
@@ -436,12 +437,12 @@ async fn sam_embeddings(
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
     embeddings.path_hash = path_hash;
-    state
-        .ai_state
-        .lock()
-        .unwrap()
-        .get_or_insert_with(Default::default)
-        .embeddings = Some(embeddings.clone());
+    // An encoding that outlived an unload is used once, not kept.
+    let mut ai = state.ai_state.lock().unwrap();
+    if LIFECYCLE.keep(generation) {
+        ai.get_or_insert_with(Default::default).embeddings = Some(embeddings.clone());
+    }
+    drop(ai);
     Ok((embeddings, warped_image, source_is_raw))
 }
 
@@ -450,13 +451,27 @@ pub async fn precompute_ai_subject_mask(
     js_adjustments: serde_json::Value,
     path: String,
     background: Option<bool>,
+    task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let _running = LIFECYCLE.run();
+    // `task_id` cancels it (a photo switch, the Library, memory pressure).
+    let _guard = task_id
+        .as_ref()
+        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+    let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
     // `background`: asked for by opening a photo, not by the user: only
-    // with a model that is already installed (no download).
+    // with a model that is already installed (no download), and while the
+    // system is not short of memory (as `precompute`).
     if background == Some(true) {
+        if crate::memory_pressure::under_pressure() {
+            log::info!("AI object mask: not encoded ahead, the system is short of memory");
+            return Ok(());
+        }
+        if cancelled() {
+            return Ok(());
+        }
         crate::ai_processing::preload_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
             .await
             .map_err(|e| e.to_string())?;
@@ -477,7 +492,7 @@ pub async fn precompute_ai_subject_mask(
     let current = crate::image_loader::wait_for_original_image(&state)
         .ok()
         .map(|l| l.path);
-    if current.as_deref() != Some(path.as_str()) {
+    if current.as_deref() != Some(path.as_str()) || cancelled() {
         return Ok(());
     }
     let start = std::time::Instant::now();

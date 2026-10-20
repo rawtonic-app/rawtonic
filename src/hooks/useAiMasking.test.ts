@@ -505,6 +505,21 @@ describe("Subject computed ahead when the masking tools open", () => {
     expect((calls("precompute_ai_foreground_mask")[1][1] as { path: string }).path).toBe("/s/b.NEF");
   });
 
+  it("cancels the object-mask encoding ahead when the photo changes", async () => {
+    invoke.mockImplementation((command: string) =>
+      command === "precompute_ai_subject_mask" ? new Promise(() => {}) : Promise.resolve(null),
+    );
+    photo("/s/a.NEF");
+    renderHook(() => useAiMasking());
+    act(() => useUIStore.setState({ activePanel: Panel.Masks }));
+    await waitFor(() => expect(calls("precompute_ai_subject_mask")).toHaveLength(1));
+    const encoding = calls("precompute_ai_subject_mask")[0][1] as { taskId: string; background: boolean };
+    expect(encoding.background).toBe(true);
+    expect(encoding.taskId).toMatch(/^sam-precompute-/);
+    act(() => photo("/s/b.NEF"));
+    await waitFor(() => expect(calls("cancel_ai_task")).toEqual([["cancel_ai_task", { taskId: encoding.taskId }]]));
+  });
+
   it("computes Sky after Subject, for the same photo", async () => {
     invoke.mockResolvedValue(null);
     photo("/s/a.NEF");

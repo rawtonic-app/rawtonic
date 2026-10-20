@@ -265,7 +265,9 @@ fn cancel_background_runs(state: &AppState) {
 }
 
 fn is_background_task(id: &str) -> bool {
-    id.starts_with("subject-precompute-") || id.starts_with("sky-precompute-")
+    ["subject-precompute-", "sky-precompute-", "sam-precompute-"]
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
 }
 
 /// Unloads for `reason`, logs and tells the webview.
@@ -507,6 +509,7 @@ mod tests {
     fn only_runs_started_ahead_are_cancelled() {
         assert!(is_background_task("subject-precompute-1234"));
         assert!(is_background_task("sky-precompute-1234"));
+        assert!(is_background_task("sam-precompute-1234"));
         assert!(!is_background_task("4f1c2a7e-sub-mask"));
     }
 
