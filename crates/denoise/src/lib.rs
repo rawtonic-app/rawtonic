@@ -16,6 +16,8 @@ mod tiles;
 #[cfg(target_os = "macos")]
 pub mod coreml;
 mod onnx;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod publish;
 
 use std::fs;
 use std::io::Write;
