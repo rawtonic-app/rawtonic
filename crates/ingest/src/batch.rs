@@ -1635,4 +1635,29 @@ mod tests {
         assert_eq!(lib.companion_record(&asset).unwrap(), before);
         assert_eq!(lib.companion(&asset).unwrap(), None);
     }
+
+    /// The import dialog's duplicate hint knows a pair's JPEG too.
+    #[test]
+    fn duplicate_hints_know_companions() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card");
+        let sources = vec![
+            write(&card.join("A.ARW"), b"raw"),
+            write(&card.join("A.JPG"), b"jpeg"),
+            write(&card.join("B.JPG"), b"new jpeg"),
+        ];
+        import_batch(
+            &lib,
+            &sources[..2],
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(
+            known_in_library(&lib, &sources).unwrap(),
+            [true, true, false]
+        );
+    }
 }
