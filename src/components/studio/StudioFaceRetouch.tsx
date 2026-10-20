@@ -52,9 +52,13 @@ export function faceRetouchGeometry(
 /** Whether `retouch`'s faces belong to the geometry of `adjustments`, by the
  * rule of its frame (as the engine's `face_retouch::frame_matches`). */
 export function faceRetouchIsCurrent(retouch: FaceRetouch | null | undefined, adjustments: Adjustments) {
-  if (!retouch) return false;
-  const keys = retouch.frame?.startsWith("2:") ? FACE_FRAME_KEYS : FIRST_FACE_FRAME_KEYS;
-  return retouch.geometry === JSON.stringify(faceRetouchGeometry(adjustments, keys));
+  return Boolean(retouch) && retouch!.geometry === frameGeometry(adjustments, retouch!.frame);
+}
+
+/** The panel's `geometry` for faces of `frame`, by that frame's rule. */
+function frameGeometry(adjustments: Adjustments, frame: string | undefined) {
+  const keys = frame?.startsWith("2:") ? FACE_FRAME_KEYS : FIRST_FACE_FRAME_KEYS;
+  return JSON.stringify(faceRetouchGeometry(adjustments, keys));
 }
 
 interface Analysis {
@@ -207,7 +211,12 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
           if (!old || faceRetouchIsCurrent(old, prev)) return prev;
           return {
             ...prev,
-            faceRetouch: { ...old, frame: analysis.frame, geometry, faces: carryOver(old.faces, analysis.faces) },
+            faceRetouch: {
+              ...old,
+              frame: analysis.frame,
+              geometry: frameGeometry(prev, analysis.frame),
+              faces: carryOver(old.faces, analysis.faces),
+            },
           };
         });
       })
@@ -229,7 +238,7 @@ export default function StudioFaceRetouch({ onInteraction }: { onInteraction(dra
         prev.faceRetouch && faceRetouchIsCurrent(prev.faceRetouch, prev)
           ? prev.faceRetouch
           : analysis
-            ? { settings: {}, faces: analysis.faces, frame: analysis.frame, geometry }
+            ? { settings: {}, faces: analysis.faces, frame: analysis.frame, geometry: frameGeometry(prev, analysis.frame) }
             : null;
       return base ? { ...prev, faceRetouch: change(base) } : prev;
     });
