@@ -40,6 +40,9 @@ use std::borrow::Cow;
 use image::DynamicImage;
 use rayon::prelude::*;
 
+#[cfg(test)]
+mod reference;
+
 /// The recipe key naming the edge-fringe treatment a recipe was made with.
 pub const VERSION_KEY: &str = "fringeVersion";
 /// The newest treatment: 1 (2026-10-16) removes edge fringes as described
@@ -111,11 +114,14 @@ const EDGE_HIGH: f32 = 0.08;
 /// Below this resolution (reduced previews, thumbnails) a full-resolution
 /// fringe of one or two pixels is averaged away; the pass is skipped.
 const MIN_SCALE: f32 = 0.35;
-/// Rows per parallel band.
+/// Rows and columns per parallel tile: each tile reads 2r rows and columns
+/// around it, and its buffers stay in the core's cache.
 const BAND: usize = 24;
-/// Rows per parallel band of the colour-line stage (it reads 2r rows
-/// around each band for 18 moments: taller bands spend less on them).
+const TILE: usize = 256;
+/// Rows and columns per parallel tile of the colour-line stage (as above;
+/// 18 moments are summed around each tile, so its bands are taller).
 const LINE_BAND: usize = 40;
+const LINE_TILE: usize = 256;
 /// Regularisation of the colour line (linear units²): a window of little
 /// colour variation keeps its mean less a small part of the variation.
 const LINE_EPS: f32 = 1e-6;
@@ -211,9 +217,47 @@ fn box_row(row: &[f32], r: usize, pad: &mut [f32], out: &mut [f32]) {
     pad[..r].fill(row[0]);
     pad[r..r + w].copy_from_slice(row);
     pad[r + w..].fill(row[w - 1]);
-    out.copy_from_slice(&pad[..w]);
-    for dx in 1..=2 * r {
-        for (o, v) in out.iter_mut().zip(&pad[dx..dx + w]) {
+    match r {
+        1 => sum_window::<3>(pad, out),
+        2 => sum_window::<5>(pad, out),
+        3 => sum_window::<7>(pad, out),
+        _ => {
+            out.copy_from_slice(&pad[..w]);
+            for dx in 1..=2 * r {
+                for (o, v) in out.iter_mut().zip(&pad[dx..dx + w]) {
+                    *o += v;
+                }
+            }
+        }
+    }
+}
+
+/// Columns per block of the vectorised loops. Each column's arithmetic is
+/// the same, in the same order, as for a column alone, so results do not
+/// depend on it.
+const LANES: usize = 8;
+
+/// `out[x]` = `values[x] + values[x + 1] + … + values[x + N - 1]`, added
+/// in that order, a block of [`LANES`] columns at a time with the partial
+/// sums in registers (the window sizes the pass uses are known at compile
+/// time, so the reads need no bounds checks).
+fn sum_window<const N: usize>(values: &[f32], out: &mut [f32]) {
+    let (blocks, rest) = out.as_chunks_mut::<LANES>();
+    let done = blocks.len() * LANES;
+    for (x, o) in (0..done).step_by(LANES).zip(blocks) {
+        let window = &values[x..x + LANES + N - 1];
+        let mut acc: [f32; LANES] = window[..LANES].try_into().unwrap();
+        for k in 1..N {
+            for i in 0..LANES {
+                acc[i] += window[k + i];
+            }
+        }
+        *o = acc;
+    }
+    for (x, o) in (done..).zip(rest) {
+        let window = &values[x..x + N];
+        *o = window[0];
+        for v in &window[1..] {
             *o += v;
         }
     }
@@ -222,10 +266,42 @@ fn box_row(row: &[f32], r: usize, pad: &mut [f32], out: &mut [f32]) {
 /// `out` = sum of the `2r + 1` rows of `rows` (each `w` long) starting at
 /// row `first`.
 fn box_column(rows: &[f32], w: usize, first: usize, r: usize, out: &mut [f32]) {
-    out.copy_from_slice(&rows[first * w..(first + 1) * w]);
-    for k in first + 1..=first + 2 * r {
-        for (o, v) in out.iter_mut().zip(&rows[k * w..(k + 1) * w]) {
-            *o += v;
+    match r {
+        1 => sum_rows::<3>(&rows[first * w..(first + 3) * w], out),
+        2 => sum_rows::<5>(&rows[first * w..(first + 5) * w], out),
+        3 => sum_rows::<7>(&rows[first * w..(first + 7) * w], out),
+        _ => {
+            out.copy_from_slice(&rows[first * w..(first + 1) * w]);
+            for k in first + 1..=first + 2 * r {
+                for (o, v) in out.iter_mut().zip(&rows[k * w..(k + 1) * w]) {
+                    *o += v;
+                }
+            }
+        }
+    }
+}
+
+/// `out` = the sum of the `N` rows of `rows` (each `out.len()` long),
+/// added in order, as [`sum_window`].
+fn sum_rows<const N: usize>(rows: &[f32], out: &mut [f32]) {
+    let w = out.len();
+    let rows: [&[f32]; N] = std::array::from_fn(|k| &rows[k * w..(k + 1) * w]);
+    let (blocks, rest) = out.as_chunks_mut::<LANES>();
+    let done = blocks.len() * LANES;
+    for (x, o) in (0..done).step_by(LANES).zip(blocks) {
+        let mut acc: [f32; LANES] = rows[0][x..x + LANES].try_into().unwrap();
+        for row in &rows[1..] {
+            let v: &[f32; LANES] = row[x..x + LANES].try_into().unwrap();
+            for i in 0..LANES {
+                acc[i] += v[i];
+            }
+        }
+        *o = acc;
+    }
+    for (x, o) in (done..).zip(rest) {
+        *o = rows[0][x];
+        for row in &rows[1..] {
+            *o += row[x];
         }
     }
 }
@@ -238,8 +314,9 @@ fn luminance_noise(data: &[f32], w: usize, h: usize, stride: usize) -> f32 {
         return 0.0;
     }
     let diffs = (0..h)
+        .into_par_iter()
         .step_by(4)
-        .flat_map(|y| row_differences(&data[y * w * stride..(y + 1) * w * stride], w, stride))
+        .flat_map_iter(|y| row_differences(&data[y * w * stride..(y + 1) * w * stride], w, stride))
         .collect();
     median_noise(diffs)
 }
@@ -310,37 +387,44 @@ pub fn suppress(data: &mut [f32], w: usize, h: usize, stride: usize, r: usize) {
         return;
     }
     let source: &[f32] = data;
-    let changes: Vec<Vec<(usize, f32, f32)>> = (0..h.div_ceil(BAND))
+    let across = w.div_ceil(TILE);
+    let changes: Vec<Vec<(usize, f32, f32)>> = (0..h.div_ceil(BAND) * across)
         .into_par_iter()
-        .map(|band| {
-            suppress_band(
-                source,
-                w,
-                h,
-                stride,
-                r,
-                band * BAND,
-                ((band + 1) * BAND).min(h),
-            )
+        .map(|tile| {
+            let (band, column) = (tile / across, tile % across);
+            let rows = band * BAND..((band + 1) * BAND).min(h);
+            let columns = column * TILE..((column + 1) * TILE).min(w);
+            suppress_tile(source, w, h, stride, r, rows, columns)
         })
         .collect();
-    for band in changes {
-        for (i, red, blue) in band {
-            data[i * stride] = red;
-            data[i * stride + 2] = blue;
-        }
-    }
+    data.par_chunks_mut(BAND * w * stride)
+        .zip(changes.par_chunks(across))
+        .enumerate()
+        .for_each(|(band, (rows, tiles))| {
+            let first = band * BAND * w;
+            for &(i, red, blue) in tiles.iter().flatten() {
+                rows[(i - first) * stride] = red;
+                rows[(i - first) * stride + 2] = blue;
+            }
+        });
 }
 
-fn suppress_band(
+/// The changes to the pixels of `rows` × `columns` of the `width × h`
+/// image `data`; a tile reads 2r rows and columns around it (see
+/// [`colour_line_tile`]).
+fn suppress_tile(
     data: &[f32],
-    w: usize,
+    width: usize,
     h: usize,
     stride: usize,
     r: usize,
-    y0: usize,
-    y1: usize,
+    rows: std::ops::Range<usize>,
+    columns: std::ops::Range<usize>,
 ) -> Vec<(usize, f32, f32)> {
+    let (y0, y1) = (rows.start, rows.end);
+    let x_first = columns.start.saturating_sub(2 * r);
+    let w = (columns.end + 2 * r).min(width) - x_first;
+    let inner = columns.start - x_first..columns.end - x_first;
     let row_of = |y: isize| y.clamp(0, h as isize - 1) as usize;
     let inv_area = 1.0 / ((2 * r + 1) * (2 * r + 1)) as f32;
     let mut pad = vec![0.0f32; w + 2 * r];
@@ -355,7 +439,7 @@ fn suppress_band(
     );
     for e in 0..ext_rows {
         let y = row_of(ext0 + e as isize);
-        let src = &data[y * w * stride..(y + 1) * w * stride];
+        let src = &data[(y * width + x_first) * stride..(y * width + x_first + w) * stride];
         let span = e * w..(e + 1) * w;
         for (((px, l), u), v) in src
             .chunks_exact(stride)
@@ -428,14 +512,14 @@ fn suppress_band(
             box_column(&csum[k], w, m0, r, out);
         }
         let e = y - y0 + 2 * r;
-        for x in 0..w {
+        for x in inner.clone() {
             // Spread over the window, so a fringe a pixel or two beside the
             // edge's centre is covered fully.
             let weight = (2.0 * model[4][x] * inv_area).min(1.0);
             if weight <= 0.0 {
                 continue;
             }
-            let i = y * w + x;
+            let i = y * width + x_first + x;
             let px = &data[i * stride..][..3];
             if px.iter().any(|&c| c < 0.0 || !c.is_finite()) {
                 continue;
@@ -469,146 +553,220 @@ fn colour_lines(data: &mut [f32], w: usize, h: usize, stride: usize, r: usize) {
         return;
     }
     let source: &[f32] = data;
-    let changes: Vec<Vec<(usize, [f32; 3])>> = (0..h.div_ceil(LINE_BAND))
+    let across = w.div_ceil(LINE_TILE);
+    let changes: Vec<Vec<(usize, [f32; 3])>> = (0..h.div_ceil(LINE_BAND) * across)
         .into_par_iter()
-        .map(|band| {
-            colour_line_band(
-                source,
-                w,
-                h,
-                stride,
-                r,
-                band * LINE_BAND,
-                ((band + 1) * LINE_BAND).min(h),
-            )
+        .map_init(LineScratch::default, |scratch, tile| {
+            let (band, column) = (tile / across, tile % across);
+            let rows = band * LINE_BAND..((band + 1) * LINE_BAND).min(h);
+            let columns = column * LINE_TILE..((column + 1) * LINE_TILE).min(w);
+            colour_line_tile(source, w, h, stride, r, rows, columns, scratch)
         })
         .collect();
-    for band in changes {
-        for (i, px) in band {
-            data[i * stride..i * stride + 3].copy_from_slice(&px);
-        }
-    }
+    data.par_chunks_mut(LINE_BAND * w * stride)
+        .zip(changes.par_chunks(across))
+        .enumerate()
+        .for_each(|(band, (rows, tiles))| {
+            let first = band * LINE_BAND * w;
+            for (i, px) in tiles.iter().flatten() {
+                rows[(i - first) * stride..(i - first) * stride + 3].copy_from_slice(px);
+            }
+        });
 }
 
 /// Index pairs of the six second moments of three channels.
 const PAIRS: [(usize, usize); 6] = [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)];
 
-/// A row of windows' means and covariances (the six [`PAIRS`] entries),
-/// principal axes and principal variances, one column per window. Row-wise
-/// loops over columns, so they vectorise.
-struct RowStats {
-    mean: [Vec<f32>; 3],
-    cov: [Vec<f32>; 6],
-    axis: [Vec<f32>; 3],
-    var: Vec<f32>,
+/// Means and covariances (the six [`PAIRS`] entries) of `L` windows from
+/// their box sums (three channels, then the six [`PAIRS`] products).
+#[inline(always)]
+fn moments<const L: usize>(sums: &[[f32; L]; 9], inv_area: f32) -> ([[f32; L]; 3], [[f32; L]; 6]) {
+    let mut mean = [[0.0f32; L]; 3];
+    for (m, s) in mean.iter_mut().zip(sums) {
+        for i in 0..L {
+            m[i] = s[i] * inv_area;
+        }
+    }
+    let mut cov = [[0.0f32; L]; 6];
+    for (k, &(a, b)) in PAIRS.iter().enumerate() {
+        for i in 0..L {
+            let v = sums[3 + k][i] * inv_area - mean[a][i] * mean[b][i];
+            cov[k][i] = if a == b { v.max(0.0) } else { v };
+        }
+    }
+    (mean, cov)
 }
 
-impl RowStats {
-    fn new(w: usize) -> Self {
-        Self {
-            mean: std::array::from_fn(|_| vec![0.0; w]),
-            cov: std::array::from_fn(|_| vec![0.0; w]),
-            axis: std::array::from_fn(|_| vec![0.0; w]),
-            var: vec![0.0; w],
-        }
+/// The principal axes and variances of `L` windows (see [`principal_of`]).
+#[inline(always)]
+fn principal<const L: usize>(cov: &[[f32; L]; 6]) -> ([[f32; L]; 3], [f32; L]) {
+    let mut axis = [[0.0f32; L]; 3];
+    let mut var = [0.0f32; L];
+    for i in 0..L {
+        let (e, v) = principal_of([
+            cov[0][i], cov[1][i], cov[2][i], cov[3][i], cov[4][i], cov[5][i],
+        ]);
+        axis[0][i] = e[0];
+        axis[1][i] = e[1];
+        axis[2][i] = e[2];
+        var[i] = v;
     }
+    (axis, var)
+}
 
-    /// Means and covariances from the box sums of a row of windows (three
-    /// channels, then the six [`PAIRS`] products).
-    fn of(&mut self, sums: &[Vec<f32>], inv_area: f32) {
-        for (mean, sum) in self.mean.iter_mut().zip(sums) {
-            for (m, s) in mean.iter_mut().zip(sum) {
-                *m = s * inv_area;
-            }
+/// The colour-line stage's weight for `L` windows from the covariances of
+/// their square-root RGB: near a strong edge (as the luminance pass's
+/// test, a neutral edge's principal variance being three times its
+/// luminance variance) and holding two colours (little variance off its
+/// principal line).
+#[inline(always)]
+fn line_weights<const L: usize>(cov: &[[f32; L]; 6]) -> [f32; L] {
+    // The principal variance is at most the total and at most the
+    // covariance's Frobenius norm: windows failing either test with those
+    // bounds need no principal axis.
+    let [c00, c01, c02, c11, c12, c22] = cov;
+    let mut pass = [false; L];
+    let mut total = [0.0f32; L];
+    for i in 0..L {
+        total[i] = c00[i] + c11[i] + c22[i];
+        let off = c01[i] * c01[i] + c02[i] * c02[i] + c12[i] * c12[i];
+        let frobenius = (c00[i] * c00[i] + c11[i] * c11[i] + c22[i] * c22[i] + 2.0 * off).sqrt();
+        let bound = total[i].min(frobenius);
+        pass[i] = bound > 3.0 * EDGE_LOW * EDGE_LOW && total[i] - bound < TWO_COLOUR_NONE * bound;
+    }
+    let mut out = [0.0f32; L];
+    if !pass.contains(&true) {
+        return out;
+    }
+    let (_, var) = principal(cov);
+    for i in 0..L {
+        let var = var[i];
+        let off_line = ((total[i] - var) / var.max(1e-20)).max(0.0);
+        let edge = (((var / 3.0).sqrt() - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW)).clamp(0.0, 1.0);
+        let two =
+            ((TWO_COLOUR_NONE - off_line) / (TWO_COLOUR_NONE - TWO_COLOUR_FULL)).clamp(0.0, 1.0);
+        out[i] = if pass[i] && var > 0.0 {
+            edge * two
+        } else {
+            0.0
+        };
+    }
+    out
+}
+
+/// The values of the `N` rows `rows[k]` at the `L` columns from `x0`.
+#[inline(always)]
+fn lanes_of<const N: usize, const L: usize>(rows: &[Vec<f32>], x0: usize) -> [[f32; L]; N] {
+    let mut out = [[0.0f32; L]; N];
+    for (o, row) in out.iter_mut().zip(rows) {
+        o.copy_from_slice(&row[x0..x0 + L]);
+    }
+    out
+}
+
+/// The colour-line weights of the `L` windows of a row from column `x0`
+/// into `out` (that row of weights), from the window sums of the square-
+/// root moments.
+fn weights_of_block<const L: usize>(root_sums: &[Vec<f32>], r: usize, x0: usize, out: &mut [f32]) {
+    let inv_area = 1.0 / ((2 * r + 1) * (2 * r + 1)) as f32;
+    let (_, cov) = moments(&lanes_of::<9, L>(root_sums, x0), inv_area);
+    out[x0..x0 + L].copy_from_slice(&line_weights(&cov));
+}
+
+/// The projections of the `L` windows of mid row `m` from column `x0` onto
+/// their colour lines, from the window sums of the linear moments,
+/// into `coef` (that row of the ten map entries, see [`colour_line_tile`];
+/// 0 where `needed` is false) and `centred` (the means and axes, row `m`).
+#[allow(clippy::too_many_arguments)]
+fn maps_of_block<const L: usize>(
+    linear_sums: &[Vec<f32>],
+    w: usize,
+    m: usize,
+    r: usize,
+    x0: usize,
+    needed: &[bool],
+    weights: &[f32],
+    coef: &mut [Vec<f32>],
+    centred: &mut [Vec<f32>; 6],
+) {
+    let needed = &needed[x0..x0 + L];
+    if !needed.contains(&true) {
+        for c in coef.iter_mut() {
+            c[x0..x0 + L].fill(0.0);
+        }
+        return;
+    }
+    let inv_area = 1.0 / ((2 * r + 1) * (2 * r + 1)) as f32;
+    let (mean, cov) = moments(&lanes_of::<9, L>(linear_sums, x0), inv_area);
+    let (axis, var) = principal(&cov);
+    let mut maps = [[0.0f32; L]; 10];
+    for i in 0..L {
+        let e = [axis[0][i], axis[1][i], axis[2][i]];
+        let mean = [mean[0][i], mean[1][i], mean[2][i]];
+        let var = var[i];
+        // A window of one colour (a clipped patch) maps to its mean.
+        let shrink = var / (var + LINE_EPS);
+        let t = shrink * (e[0] * mean[0] + e[1] * mean[1] + e[2] * mean[2]);
+        let keep = needed[i];
+        for c in 0..3 {
+            maps[c][i] = if keep { mean[c] - t * e[c] } else { 0.0 };
         }
         for (k, &(a, b)) in PAIRS.iter().enumerate() {
-            let (ma, mb) = (&self.mean[a], &self.mean[b]);
-            for (x, c) in self.cov[k].iter_mut().enumerate() {
-                let v = sums[3 + k][x] * inv_area - ma[x] * mb[x];
-                *c = if a == b { v.max(0.0) } else { v };
-            }
+            maps[3 + k][i] = if keep { shrink * e[a] * e[b] } else { 0.0 };
         }
+        maps[9][i] = if keep && var > 0.0 {
+            weights[x0 + i]
+        } else {
+            0.0
+        };
     }
+    for (c, map) in coef.iter_mut().zip(&maps) {
+        c[x0..x0 + L].copy_from_slice(map);
+    }
+    for c in 0..3 {
+        centred[c][m * w + x0..m * w + x0 + L].copy_from_slice(&mean[c]);
+        centred[3 + c][m * w + x0..m * w + x0 + L].copy_from_slice(&axis[c]);
+    }
+}
 
-    /// The principal axes (unit vectors) and variances of the windows at
-    /// `columns` by power iteration from each covariance's largest column
-    /// (three steps: the error falls with (λ2/λ1)³, under 0.4 % where a
-    /// window passes the two-colour test); axis and variance 0 for a window
-    /// of one colour. Other columns are left as they are.
-    fn principal(&mut self, columns: &[usize]) {
-        let [c00, c01, c02, c11, c12, c22] = &self.cov;
-        let [e0, e1, e2] = &mut self.axis;
-        for &x in columns {
-            let (a, b, c, d, e, f) = (c00[x], c01[x], c02[x], c11[x], c12[x], c22[x]);
-            let n0 = a * a + b * b + c * c;
-            let n1 = b * b + d * d + e * e;
-            let n2 = c * c + e * e + f * f;
-            let mut v = if n0 >= n1 && n0 >= n2 {
-                [a, b, c]
-            } else if n1 >= n2 {
-                [b, d, e]
-            } else {
-                [c, e, f]
-            };
-            let mul = |v: [f32; 3]| {
-                [
-                    a * v[0] + b * v[1] + c * v[2],
-                    b * v[0] + d * v[1] + e * v[2],
-                    c * v[0] + e * v[1] + f * v[2],
-                ]
-            };
-            for _ in 0..3 {
-                let inv = 1.0 / (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-                v = mul(v.map(|t| t * inv));
-            }
-            let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-            let flat = !(n > 1e-12 && n.is_finite());
-            let v = if flat { [0.0; 3] } else { v.map(|t| t / n) };
-            let cv = mul(v);
-            e0[x] = v[0];
-            e1[x] = v[1];
-            e2[x] = v[2];
-            self.var[x] = if flat {
-                0.0
-            } else {
-                (v[0] * cv[0] + v[1] * cv[1] + v[2] * cv[2]).max(0.0)
-            };
-        }
+/// The principal axis (unit vector) and variance of a window from its
+/// covariance (the six [`PAIRS`] entries) by power iteration from the
+/// covariance's largest column (three steps: the error falls with
+/// (λ2/λ1)³, under 0.4 % where a window passes the two-colour test); axis
+/// and variance 0 for a window of one colour.
+#[inline(always)]
+fn principal_of([a, b, c, d, e, f]: [f32; 6]) -> ([f32; 3], f32) {
+    let n0 = a * a + b * b + c * c;
+    let n1 = b * b + d * d + e * e;
+    let n2 = c * c + e * e + f * f;
+    let mut v = if n0 >= n1 && n0 >= n2 {
+        [a, b, c]
+    } else if n1 >= n2 {
+        [b, d, e]
+    } else {
+        [c, e, f]
+    };
+    let mul = |v: [f32; 3]| {
+        [
+            a * v[0] + b * v[1] + c * v[2],
+            b * v[0] + d * v[1] + e * v[2],
+            c * v[0] + e * v[1] + f * v[2],
+        ]
+    };
+    for _ in 0..3 {
+        let inv = 1.0 / (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        v = mul(v.map(|t| t * inv));
     }
-
-    /// The colour-line stage's weight for each window from these statistics
-    /// of its square-root RGB: near a strong edge (as the luminance pass's
-    /// test, a neutral edge's principal variance being three times its
-    /// luminance variance) and holding two colours (little variance off its
-    /// principal line). `columns` is scratch.
-    fn weights(&mut self, out: &mut [f32], columns: &mut Vec<usize>) {
-        // The principal variance is at most the total and at most the
-        // covariance's Frobenius norm: windows failing either test with
-        // those bounds need no principal axis.
-        let [c00, c01, c02, c11, c12, c22] = &self.cov;
-        columns.clear();
-        columns.extend((0..out.len()).filter(|&x| {
-            let total = c00[x] + c11[x] + c22[x];
-            let off = c01[x] * c01[x] + c02[x] * c02[x] + c12[x] * c12[x];
-            let frobenius =
-                (c00[x] * c00[x] + c11[x] * c11[x] + c22[x] * c22[x] + 2.0 * off).sqrt();
-            let bound = total.min(frobenius);
-            bound > 3.0 * EDGE_LOW * EDGE_LOW && total - bound < TWO_COLOUR_NONE * bound
-        }));
-        out.fill(0.0);
-        self.principal(columns);
-        let [c00, _, _, c11, _, c22] = &self.cov;
-        for &x in columns.iter() {
-            let out = &mut out[x];
-            let var = self.var[x];
-            let total = c00[x] + c11[x] + c22[x];
-            let off_line = ((total - var) / var.max(1e-20)).max(0.0);
-            let edge = (((var / 3.0).sqrt() - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW)).clamp(0.0, 1.0);
-            let two = ((TWO_COLOUR_NONE - off_line) / (TWO_COLOUR_NONE - TWO_COLOUR_FULL))
-                .clamp(0.0, 1.0);
-            *out = if var > 0.0 { edge * two } else { 0.0 };
-        }
-    }
+    let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    let flat = !(n > 1e-12 && n.is_finite());
+    let v = if flat { [0.0; 3] } else { v.map(|t| t / n) };
+    let cv = mul(v);
+    let var = if flat {
+        0.0
+    } else {
+        (v[0] * cv[0] + v[1] * cv[1] + v[2] * cv[2]).max(0.0)
+    };
+    (v, var)
 }
 
 /// Whether each of `w × rows` cells lies within `d` cells (rows and columns)
@@ -644,15 +802,48 @@ fn near_some(weights: &[f32], w: usize, rows: usize, d: usize) -> Vec<bool> {
     near
 }
 
-fn colour_line_band(
+/// The colour-line stage's per-tile buffers (about 2 MB), kept for the
+/// next tile a thread works on: fresh ones cost a fifth of the stage in
+/// page faults (EOS D7200 benchmark photo 125 → 101 ms). Every value a
+/// tile reads it has written first.
+#[derive(Default)]
+struct LineScratch {
+    linear: [Vec<f32>; 3],
+    root: [Vec<f32>; 3],
+    hsum: [Vec<f32>; 18],
+    weights: Vec<f32>,
+    csum: [Vec<f32>; 10],
+    centred: [Vec<f32>; 6],
+}
+
+/// `buffer` resized to `len` values (old values stay where they fit).
+fn sized(buffer: &mut Vec<f32>, len: usize) -> &mut [f32] {
+    buffer.resize(len, 0.0);
+    buffer
+}
+
+/// The colour-line stage's changes to the pixels of `rows` × `columns` of
+/// the `width × h` image `data`. Like rows (a band reads 2r rows around
+/// it), the tile reads only 2r columns on either side; the box sums near
+/// those columns' outer edges see the edge repeated (as at the image's
+/// sides) and are wrong, but no changed pixel of the tile reads them.
+#[allow(clippy::too_many_arguments)]
+fn colour_line_tile(
     data: &[f32],
-    w: usize,
+    width: usize,
     h: usize,
     stride: usize,
     r: usize,
-    y0: usize,
-    y1: usize,
+    rows: std::ops::Range<usize>,
+    columns: std::ops::Range<usize>,
+    scratch: &mut LineScratch,
 ) -> Vec<(usize, [f32; 3])> {
+    let (y0, y1) = (rows.start, rows.end);
+    // The tile reads image columns x_first .. x_first + w and changes the
+    // `inner` ones of them.
+    let x_first = columns.start.saturating_sub(2 * r);
+    let w = (columns.end + 2 * r).min(width) - x_first;
+    let inner = columns.start - x_first..columns.end - x_first;
     let row_of = |y: isize| y.clamp(0, h as isize - 1) as usize;
     let inv_area = 1.0 / ((2 * r + 1) * (2 * r + 1)) as f32;
     let mut pad = vec![0.0f32; w + 2 * r];
@@ -662,39 +853,44 @@ fn colour_line_band(
     // moments.
     let ext0 = y0 as isize - 2 * r as isize;
     let ext_rows = (y1 - y0) + 4 * r;
-    let mut linear: [Vec<f32>; 3] = std::array::from_fn(|_| vec![0.0f32; ext_rows * w]);
-    let mut root: [Vec<f32>; 3] = std::array::from_fn(|_| vec![0.0f32; ext_rows * w]);
+    let LineScratch {
+        linear,
+        root,
+        hsum,
+        weights,
+        csum,
+        centred,
+    } = scratch;
+    for buffer in linear
+        .iter_mut()
+        .chain(root.iter_mut())
+        .chain(hsum.iter_mut())
+    {
+        sized(buffer, ext_rows * w);
+    }
     for e in 0..ext_rows {
         let y = row_of(ext0 + e as isize);
-        let src = &data[y * w * stride..(y + 1) * w * stride];
-        for (x, px) in src.chunks_exact(stride).enumerate() {
-            for c in 0..3 {
-                linear[c][e * w + x] = px[c].max(0.0);
-                root[c][e * w + x] = enc(px[c]);
+        let src = &data[(y * width + x_first) * stride..(y * width + x_first + w) * stride];
+        let span = e * w..(e + 1) * w;
+        for c in 0..3 {
+            let (lin, rt) = (&mut linear[c][span.clone()], &mut root[c][span.clone()]);
+            for ((px, l), q) in src.chunks_exact(stride).zip(lin).zip(rt) {
+                *l = px[c].max(0.0);
+                *q = enc(px[c]);
             }
         }
     }
-    let mut hsum: Vec<Vec<f32>> = (0..18).map(|_| vec![0.0f32; ext_rows * w]).collect();
     let mut moment = vec![0.0f32; w];
+    let (linear_sums, root_sums) = hsum.split_at_mut(9);
     for e in 0..ext_rows {
-        let span = e * w..(e + 1) * w;
-        for (set, channels) in [&linear, &root].into_iter().enumerate() {
-            for k in 0..9 {
-                if k < 3 {
-                    moment.copy_from_slice(&channels[k][span.clone()]);
-                } else {
-                    let (a, b) = PAIRS[k - 3];
-                    for ((m, p), q) in moment
-                        .iter_mut()
-                        .zip(&channels[a][span.clone()])
-                        .zip(&channels[b][span.clone()])
-                    {
-                        *m = p * q;
-                    }
-                }
-                box_row(&moment, r, &mut pad, &mut hsum[set * 9 + k][span.clone()]);
-            }
-        }
+        moment_sums(
+            root,
+            e * w..(e + 1) * w,
+            r,
+            &mut pad,
+            &mut moment,
+            root_sums,
+        );
     }
     // Rows y0 - r .. y1 + r: each window's weight; then, for windows within
     // 2r of a window of some weight (the only ones a changed pixel reads;
@@ -703,71 +899,77 @@ fn colour_line_band(
     // and three slopes); both summed along rows. Mid row m is ext row
     // m + r; its window spans ext rows m ..= m + 2r.
     let mid_rows = (y1 - y0) + 2 * r;
-    let mut stats = RowStats::new(w);
-    let mut vs: Vec<Vec<f32>> = (0..9).map(|_| vec![0.0f32; w]).collect();
-    let mut weights = vec![0.0f32; mid_rows * w];
-    let mut columns = Vec::with_capacity(w);
-    for m in 0..mid_rows {
-        for (k, out) in vs.iter_mut().enumerate() {
-            box_column(&hsum[9 + k], w, m, r, out);
+    let weights = sized(weights, mid_rows * w);
+    let blocks = w - w % LANES;
+    // A row of windows' sums of the nine moments.
+    let mut sums: Vec<Vec<f32>> = (0..9).map(|_| vec![0.0f32; w]).collect();
+    for (m, out) in weights.chunks_exact_mut(w).enumerate() {
+        for (sum, rows) in sums.iter_mut().zip(root_sums.iter()) {
+            box_column(rows, w, m, r, sum);
         }
-        stats.of(&vs, inv_area);
-        stats.weights(&mut weights[m * w..(m + 1) * w], &mut columns);
+        for x0 in (0..blocks).step_by(LANES) {
+            weights_of_block::<LANES>(&sums, r, x0, out);
+        }
+        for x in blocks..w {
+            weights_of_block::<1>(&sums, r, x, out);
+        }
     }
     let weighted: Vec<bool> = weights
         .chunks_exact(w)
         .map(|row| row.iter().any(|&v| v > 0.0))
         .collect();
-    let needed = near_some(&weights, w, mid_rows, 2 * r);
+    if !weighted.contains(&true) {
+        return Vec::new();
+    }
+    // The mid rows within 2r of a weighted one, and the linear moments of
+    // the ext rows their windows span.
+    let lined: Vec<bool> = (0..mid_rows)
+        .map(|m| weighted[m.saturating_sub(2 * r)..(m + 2 * r + 1).min(mid_rows)].contains(&true))
+        .collect();
+    for e in 0..ext_rows {
+        if lined[e.saturating_sub(2 * r)..(e + 1).min(mid_rows)].contains(&true) {
+            moment_sums(
+                linear,
+                e * w..(e + 1) * w,
+                r,
+                &mut pad,
+                &mut moment,
+                linear_sums,
+            );
+        }
+    }
+    let needed = near_some(weights, w, mid_rows, 2 * r);
     // Per window: the offsets of the three channels, the six entries of the
     // projection's symmetric slope matrix (shrink · axis · axisᵀ, the
     // [`PAIRS`] entries) and the weight.
-    let mut csum: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; mid_rows * w]).collect();
+    for buffer in csum.iter_mut() {
+        sized(buffer, mid_rows * w);
+    }
     let mut coef: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; w]).collect();
     // The windows' means and axes, for the range test of the pixel each is
     // centred on.
-    let mut centred: [Vec<f32>; 6] = std::array::from_fn(|_| vec![0.0f32; mid_rows * w]);
-    for m in 0..mid_rows {
-        if !weighted[m.saturating_sub(2 * r)..(m + 2 * r + 1).min(mid_rows)].contains(&true) {
-            continue;
+    for buffer in centred.iter_mut() {
+        sized(buffer, mid_rows * w);
+    }
+    for m in (0..mid_rows).filter(|&m| lined[m]) {
+        let (weights, needed) = (&weights[m * w..(m + 1) * w], &needed[m * w..(m + 1) * w]);
+        for (sum, rows) in sums.iter_mut().zip(linear_sums.iter()) {
+            box_column(rows, w, m, r, sum);
         }
-        for (k, out) in vs.iter_mut().enumerate() {
-            box_column(&hsum[k], w, m, r, out);
+        for x0 in (0..blocks).step_by(LANES) {
+            maps_of_block::<LANES>(&sums, w, m, r, x0, needed, weights, &mut coef, centred);
         }
-        stats.of(&vs, inv_area);
-        let weights = &weights[m * w..(m + 1) * w];
-        columns.clear();
-        columns.extend((0..w).filter(|&x| needed[m * w + x]));
-        stats.principal(&columns);
-        for c in coef.iter_mut() {
-            c.fill(0.0);
-        }
-        for &x in &columns {
-            let e = [stats.axis[0][x], stats.axis[1][x], stats.axis[2][x]];
-            let mean = [stats.mean[0][x], stats.mean[1][x], stats.mean[2][x]];
-            let var = stats.var[x];
-            // A window of one colour (a clipped patch) maps to its mean.
-            let shrink = var / (var + LINE_EPS);
-            let t = shrink * (e[0] * mean[0] + e[1] * mean[1] + e[2] * mean[2]);
-            for c in 0..3 {
-                coef[c][x] = mean[c] - t * e[c];
-            }
-            for (k, &(a, b)) in PAIRS.iter().enumerate() {
-                coef[3 + k][x] = shrink * e[a] * e[b];
-            }
-            coef[9][x] = if var > 0.0 { weights[x] } else { 0.0 };
-            for c in 0..3 {
-                centred[c][m * w + x] = mean[c];
-                centred[3 + c][m * w + x] = e[c];
-            }
+        for x in blocks..w {
+            maps_of_block::<1>(&sums, w, m, r, x, needed, weights, &mut coef, centred);
         }
         let span = m * w..(m + 1) * w;
         for (k, sum) in csum.iter_mut().enumerate() {
             box_row(&coef[k], r, &mut pad, &mut sum[span.clone()]);
         }
     }
-    let mut changes = Vec::new();
+    let mut changes = Vec::with_capacity(inner.len() * (y1 - y0));
     let mut model: Vec<Vec<f32>> = (0..10).map(|_| vec![0.0f32; w]).collect();
+    let mut weight = vec![0.0f32; w];
     for y in y0..y1 {
         // Output row y is mid row y - y0 + r (its windows: mid rows y - y0
         // ..= y - y0 + 2r) and ext row y - y0 + 2r.
@@ -778,14 +980,17 @@ fn colour_line_band(
         for (k, out) in model.iter_mut().enumerate() {
             box_column(&csum[k], w, m0, r, out);
         }
+        // Spread over the window, as in the luminance pass.
+        for (out, &sum) in weight.iter_mut().zip(&model[9]) {
+            *out = (2.0 * sum * inv_area).min(1.0);
+        }
         let e = y - y0 + 2 * r;
-        for x in 0..w {
-            // Spread over the window, as in the luminance pass.
-            let weight = (2.0 * model[9][x] * inv_area).min(1.0);
-            if weight <= 0.0 {
+        let (mut mixes, mut mixes_at) = ([0.0f32; LANES], usize::MAX);
+        for x in inner.clone() {
+            if weight[x] <= 0.0 {
                 continue;
             }
-            let i = y * w + x;
+            let i = y * width + x_first + x;
             let px = &data[i * stride..][..3];
             if px.iter().any(|&c| c < 0.0 || !c.is_finite()) {
                 continue;
@@ -795,7 +1000,18 @@ fn colour_line_band(
                 linear[1][e * w + x],
                 linear[2][e * w + x],
             ];
-            let weight = weight * within_the_mixes(&linear, &centred, w, r, e, m0 + r, x, p);
+            // Whole blocks of columns away from the image's sides at once.
+            let x0 = x - x % LANES;
+            let mix = if x0 >= r && x0 + LANES + r <= w {
+                if mixes_at != x0 {
+                    mixes = mixes_of_block(linear, centred, w, r, e, m0 + r, x0);
+                    mixes_at = x0;
+                }
+                mixes[x - x0]
+            } else {
+                within_the_mixes(linear, centred, w, r, e, m0 + r, x, p)
+            };
+            let weight = weight[x] * mix;
             if weight <= 0.0 {
                 continue;
             }
@@ -811,6 +1027,35 @@ fn colour_line_band(
         }
     }
     changes
+}
+
+/// The horizontal box sums of the three `channels` and their six [`PAIRS`]
+/// products over the values at `span` into `sums` (the same span), with
+/// `pad` and `moment` as scratch.
+fn moment_sums(
+    channels: &[Vec<f32>; 3],
+    span: std::ops::Range<usize>,
+    r: usize,
+    pad: &mut [f32],
+    moment: &mut [f32],
+    sums: &mut [Vec<f32>],
+) {
+    for (k, sum) in sums.iter_mut().enumerate() {
+        let row = if k < 3 {
+            &channels[k][span.clone()]
+        } else {
+            let (a, b) = PAIRS[k - 3];
+            for ((m, p), q) in moment
+                .iter_mut()
+                .zip(&channels[a][span.clone()])
+                .zip(&channels[b][span.clone()])
+            {
+                *m = p * q;
+            }
+            &*moment
+        };
+        box_row(row, r, pad, &mut sum[span.clone()]);
+    }
 }
 
 /// Misregistration mixes each channel of the two colours by its own share,
@@ -831,33 +1076,74 @@ fn within_the_mixes(
     x: usize,
     p: [f32; 3],
 ) -> f32 {
-    let mean = [
-        centred[0][m * w + x],
-        centred[1][m * w + x],
-        centred[2][m * w + x],
-    ];
-    let axis = [
-        centred[3][m * w + x],
-        centred[4][m * w + x],
-        centred[5][m * w + x],
-    ];
-    if axis == [0.0; 3] {
-        return 1.0;
-    }
+    let mean: [f32; 3] = std::array::from_fn(|c| centred[c][m * w + x]);
+    let axis: [f32; 3] = std::array::from_fn(|c| centred[3 + c][m * w + x]);
     // The line's ends: the window's extreme pixels along it.
     let (mut low, mut high) = (f32::MAX, f32::MIN);
     for row in e - r..=e + r {
         for dx in 0..=2 * r {
             let xx = (x + dx).saturating_sub(r).min(w - 1);
-            let t = (0..3)
-                .map(|c| axis[c] * (linear[c][row * w + xx] - mean[c]))
-                .sum::<f32>();
+            let t = along(axis, mean, std::array::from_fn(|c| linear[c][row * w + xx]));
             low = low.min(t);
             high = high.max(t);
         }
     }
+    mix_from_ends(axis, mean, low, high, p)
+}
+
+/// [`within_the_mixes`] for the [`LANES`] columns from `x0`, whose windows
+/// lie inside the image (`r <= x0`, `x0 + LANES + r <= w`), one window
+/// pixel at a time for all of them.
+fn mixes_of_block(
+    linear: &[Vec<f32>; 3],
+    centred: &[Vec<f32>; 6],
+    w: usize,
+    r: usize,
+    e: usize,
+    m: usize,
+    x0: usize,
+) -> [f32; LANES] {
+    let lanes = |v: &[f32], i: usize| -> [f32; LANES] { v[i..i + LANES].try_into().unwrap() };
+    let mean: [[f32; LANES]; 3] = std::array::from_fn(|c| lanes(&centred[c], m * w + x0));
+    let axis: [[f32; LANES]; 3] = std::array::from_fn(|c| lanes(&centred[3 + c], m * w + x0));
+    let (mut low, mut high) = ([f32::MAX; LANES], [f32::MIN; LANES]);
+    for row in e - r..=e + r {
+        for dx in 0..=2 * r {
+            let at = row * w + x0 + dx - r;
+            let px: [[f32; LANES]; 3] = std::array::from_fn(|c| lanes(&linear[c], at));
+            for i in 0..LANES {
+                let t = axis[0][i] * (px[0][i] - mean[0][i])
+                    + axis[1][i] * (px[1][i] - mean[1][i])
+                    + axis[2][i] * (px[2][i] - mean[2][i]);
+                low[i] = low[i].min(t);
+                high[i] = high[i].max(t);
+            }
+        }
+    }
+    let p: [[f32; LANES]; 3] = std::array::from_fn(|c| lanes(&linear[c], e * w + x0));
+    std::array::from_fn(|i| {
+        mix_from_ends(
+            axis.map(|a| a[i]),
+            mean.map(|a| a[i]),
+            low[i],
+            high[i],
+            p.map(|a| a[i]),
+        )
+    })
+}
+
+/// The position of `q` along the line through `mean` in direction `axis`.
+#[inline(always)]
+fn along(axis: [f32; 3], mean: [f32; 3], q: [f32; 3]) -> f32 {
+    axis[0] * (q[0] - mean[0]) + axis[1] * (q[1] - mean[1]) + axis[2] * (q[2] - mean[2])
+}
+
+/// [`within_the_mixes`] from the line's ends (positions `low` and `high`
+/// along it).
+#[inline(always)]
+fn mix_from_ends(axis: [f32; 3], mean: [f32; 3], low: f32, high: f32, p: [f32; 3]) -> f32 {
     let length = high - low;
-    if length.is_nan() || length <= 0.0 {
+    if axis == [0.0; 3] || length.is_nan() || length <= 0.0 {
         return 1.0;
     }
     let beyond = (0..3)
@@ -1150,6 +1436,127 @@ mod tests {
         }
     }
 
+    /// Patches of saturated colours with curved edges whose red and blue
+    /// lie a pixel off green, slight noise, clipped (zero), negative and
+    /// very bright pixels: windows of every kind the stage tells apart.
+    fn misregistered_patches(w: u32, h: u32, seed: u32) -> Rgb32FImage {
+        const COLOURS: [[f32; 3]; 5] = [
+            [0.0, 0.37, 0.55],
+            [0.64, 0.10, 0.35],
+            [0.95, 0.42, 0.0],
+            [0.28, 0.22, 0.10],
+            [0.8, 0.8, 0.85],
+        ];
+        let patch = |x: f32, y: f32| {
+            let v = ((x * 0.21 + (y * 0.13).sin() * 3.0) / 6.0).floor() as i32
+                + ((y * 0.17 + (x * 0.11).cos() * 2.0) / 7.0).floor() as i32 * 3;
+            COLOURS[(v + seed as i32).rem_euclid(5) as usize]
+        };
+        let mut state = 0x9e37_79b9_u32 ^ seed;
+        Rgb32FImage::from_fn(w, h, |x, y| {
+            state ^= state << 13;
+            state ^= state >> 17;
+            state ^= state << 5;
+            let noise = (state as f32 / u32::MAX as f32 - 0.5) * 0.004;
+            let (x, y) = (x as f32, y as f32);
+            let mut px = [
+                patch(x + 1.0, y)[0],
+                patch(x, y)[1],
+                patch(x - 0.6, y + 0.4)[2],
+            ]
+            .map(|c| c + noise);
+            match state % 97 {
+                0 => px = [0.0; 3],
+                1 => px[1] = -0.01,
+                2 => px = px.map(|c| 6.0 * c),
+                _ => {}
+            }
+            image::Rgb(px)
+        })
+    }
+
+    #[test]
+    fn the_stages_match_the_reference_bit_for_bit() {
+        // The tiles of `w`-wide rows `rows` of `tile` columns each, their
+        // changes in pixel order.
+        fn tiled<T>(
+            w: usize,
+            tile: usize,
+            mut one: impl FnMut(std::ops::Range<usize>) -> Vec<(usize, T)>,
+        ) -> Vec<(usize, T)> {
+            let mut all: Vec<_> = (0..w.div_ceil(tile))
+                .flat_map(|t| one(t * tile..((t + 1) * tile).min(w)))
+                .collect();
+            all.sort_by_key(|&(i, _)| i);
+            all
+        }
+        let lines = |changes: Vec<(usize, [f32; 3])>| {
+            changes
+                .into_iter()
+                .map(|(i, px)| (i, px.map(f32::to_bits)))
+                .collect::<Vec<_>>()
+        };
+        let luminance = |changes: Vec<(usize, f32, f32)>| {
+            changes
+                .into_iter()
+                .map(|(i, red, blue)| (i, [red.to_bits(), blue.to_bits()]))
+                .collect::<Vec<_>>()
+        };
+        // One scratch for all, as a thread keeps it from tile to tile.
+        let mut scratch = LineScratch::default();
+        let mut moved = [0, 0];
+        let sizes = [
+            (1, 9),
+            (5, 30),
+            (8, 8),
+            (13, 41),
+            (37, 50),
+            (67, 2 * LINE_BAND as u32 + 5),
+        ];
+        for (w, h) in sizes {
+            for seed in 0..3 {
+                let img = misregistered_patches(w, h, seed);
+                let (raw, w, h) = (img.as_raw(), w as usize, h as usize);
+                for r in [1, 2, 3, 4] {
+                    for (y0, y1) in [(0, h), (h / 3, h / 3 + h.min(LINE_BAND) / 2 + 1)] {
+                        let old = luminance(reference::suppress_band(raw, w, h, 3, r, y0, y1));
+                        let old_lines = lines(reference::colour_line_band(raw, w, h, 3, r, y0, y1));
+                        // Whole rows, and tiles of 1, 5 and 16 columns.
+                        for tile in [w, 1, 5, 16] {
+                            let at = format!(
+                                "{w} x {h}, seed {seed}, r {r}, rows {y0}..{y1}, tile {tile}"
+                            );
+                            let new = tiled(w, tile, |columns| {
+                                luminance(suppress_tile(raw, w, h, 3, r, y0..y1, columns))
+                            });
+                            assert_eq!(new, old, "luminance stage, {at}");
+                            let new = tiled(w, tile, |columns| {
+                                let rows = y0..y1;
+                                lines(colour_line_tile(
+                                    raw,
+                                    w,
+                                    h,
+                                    3,
+                                    r,
+                                    rows,
+                                    columns,
+                                    &mut scratch,
+                                ))
+                            });
+                            assert_eq!(new, old_lines, "colour lines, {at}");
+                        }
+                        moved[0] += old.len();
+                        moved[1] += old_lines.len();
+                    }
+                }
+            }
+        }
+        assert!(
+            moved[0] > 2000 && moved[1] > 2000,
+            "only {moved:?} pixels moved"
+        );
+    }
+
     #[test]
     fn the_result_does_not_depend_on_the_band_layout() {
         // Taller than several bands, with edges across band borders.
@@ -1168,13 +1575,24 @@ mod tests {
         let (w, h) = (img.width() as usize, img.height() as usize);
         let plan = plan_for(VERSION, luminance_noise(img.as_raw(), w, h, 3), 1.0);
         assert!(plan.colour_lines);
-        let changes = suppress_band(img.as_raw(), w, h, 3, plan.radius, 0, h);
+        let changes = suppress_tile(img.as_raw(), w, h, 3, plan.radius, 0..h, 0..w);
         for (i, red, blue) in changes {
             whole.as_mut()[i * 3] = red;
             whole.as_mut()[i * 3 + 2] = blue;
         }
         let first = whole.clone();
-        for (i, px) in colour_line_band(first.as_raw(), w, h, 3, plan.radius, 0, h) {
+        let mut scratch = LineScratch::default();
+        let all = colour_line_tile(
+            first.as_raw(),
+            w,
+            h,
+            3,
+            plan.radius,
+            0..h,
+            0..w,
+            &mut scratch,
+        );
+        for (i, px) in all {
             whole.as_mut()[i * 3..i * 3 + 3].copy_from_slice(&px);
         }
         assert_eq!(banded, whole);
