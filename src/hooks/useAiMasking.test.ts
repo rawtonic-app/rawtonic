@@ -383,9 +383,9 @@ describe("automatic AI masks from imported presets", () => {
     await waitFor(() => expect(subjectCalls().filter((c) => (c[1] as { path: string }).path === "/s/a.NEF")).toHaveLength(2));
     const asked = pending.length;
     await act(async () => pending[asked - 1]({ maskDataBase64: "data:image/png;base64,BBBB", startX: 300, startY: 200, endX: 600, endY: 400 }));
-    // Detected: its box is this photo's now, without the source's size.
+    // Detected: its box is this photo's now, with this photo's size.
     await waitFor(() => expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" }));
-    expect(subOf("sub-ai-subject")?.parameters).not.toHaveProperty("sourceSize");
+    expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ sourceSize: { width: 3000, height: 2000 } });
     expect(subOf("sub-ai-subject")?.parameters).not.toHaveProperty("detectPending");
   });
 

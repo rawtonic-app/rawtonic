@@ -292,13 +292,13 @@ export function useAiMasking() {
             const own = Object.fromEntries(
               keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
             );
-            // Detected on this photograph: no longer waiting (pasted ones),
-            // and an Object box is in this photograph's pixels now.
-            const {
-              [DETECT_PENDING]: _pending,
-              sourceSize: _sourceSize,
-              ...rest
-            } = { ...parameters, ...result, ...own } as Record<string, unknown>;
+            // Detected on this photograph: no longer waiting (pasted ones);
+            // an Object box is in this photograph's pixels, kept with its
+            // size so a copy places it alike on another photograph.
+            const { [DETECT_PENDING]: _pending, ...rest } = { ...parameters, ...result, ...own } as Record<string, unknown>;
+            if (sm.type === 'ai-subject' && selectedImage.width && selectedImage.height) {
+              rest.sourceSize = { width: selectedImage.width, height: selectedImage.height };
+            }
             return { ...sm, parameters: rest };
           }),
         })),
@@ -307,9 +307,11 @@ export function useAiMasking() {
     return true;
   };
 
-  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
+  /** An Object selection by its box; resolves to whether the result was
+   * dropped because the photo changed (here, or in the backend). */
+  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'subject');
 
     try {
@@ -326,9 +328,11 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      applyAiResult(selectedImage.path, subMaskId, newParameters);
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
+      if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
@@ -537,14 +541,14 @@ export function useAiMasking() {
           sub.id,
           { x: (p.startX ?? 0) * sx, y: (p.startY ?? 0) * sy },
           { x: (p.endX ?? 0) * sx, y: (p.endY ?? 0) * sy },
-        ).then(() => {
+        ).then((dropped) => {
           // Detected, or dropped by a photo switch (asked again when it is
-          // shown again); a failure stays asked until the photo opens again.
+          // shown again, or now); a failure stays asked until the photo
+          // opens again.
+          if (!dropped && !componentHasData(sub.id)) return;
+          requestedAutoMasks.current.delete(key);
           const now = useEditorStore.getState().selectedImage;
-          if (componentHasData(sub.id) || now?.path !== asked) {
-            requestedAutoMasks.current.delete(key);
-            if (now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
-          }
+          if (dropped && now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
         });
         continue;
       }

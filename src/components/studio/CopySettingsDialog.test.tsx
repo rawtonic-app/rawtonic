@@ -171,3 +171,21 @@ it("Previous reads the previous photograph's edit after its save, and pastes whe
   // The edit the failed save kept, not the older saved recipe.
   expect(paste.adjustments.exposure).toBe(4);
 });
+
+it("takes the keyboard while open and gives it back", async () => {
+  render(
+    <>
+      <button>Workspace control</button>
+      <CopySettingsDialogHost />
+    </>,
+  );
+  const control = screen.getByRole("button", { name: "Workspace control" });
+  control.focus();
+  const { result } = renderHook(useEditorActions);
+  await act(() => result.current.handleCopyAdjustments());
+  const dialog = screen.getByRole("dialog", { name: "Copy settings" });
+  expect(document.activeElement).toBe(dialog);
+  fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.activeElement).toBe(control);
+});

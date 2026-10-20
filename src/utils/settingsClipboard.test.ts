@@ -38,6 +38,17 @@ describe('settings clipboard', () => {
     expect('sharpenVersion' in chosenSettings(source, group('tone').keys, [])).toBe(false);
   });
 
+  it('carries the tone response a chosen layer’s Shadows follow, 1 from a source from before it', () => {
+    const shadows = { ...layer('lift'), adjustments: { ...layer('lift').adjustments, shadows: 100 } };
+    const current = recipe({ toneVersion: 2, masks: [shadows] } as Partial<Adjustments>);
+    expect(chosenSettings(current, ['masks'], ['lift']).toneVersion).toBe(2);
+    const legacy = recipe({ masks: [shadows] } as Partial<Adjustments>);
+    delete (legacy as Partial<Adjustments>).toneVersion;
+    expect(chosenSettings(legacy, ['masks'], ['lift']).toneVersion).toBe(1);
+    // A layer without tone values carries none.
+    expect('toneVersion' in chosenSettings(current, ['masks'], [])).toBe(false);
+  });
+
   it('finds the groups a photograph changed', () => {
     const source = recipe({ contrast: 20 });
     expect(groupModified(group('tone'), source, true)).toBe(true);

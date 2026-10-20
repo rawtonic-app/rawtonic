@@ -41,6 +41,18 @@ export function groupModified(group: SettingsGroup, adjustments: Adjustments, is
   return group.keys.some((key) => key in values && !sameAdjustmentValue(values[key], initial[key]));
 }
 
+/** Photo-wide responses (recipe version keys) a layer's values follow, with
+ * whether a layer's adjustments use them: the tone-slider response (Shadows,
+ * Highlights) and Defringe's detector. Sharpening, luminance noise, AI
+ * Denoise and diffraction have helpers of their own (`withSharpenVersion`…). */
+const LAYER_RESPONSES: [key: string, uses: (adjustments: Record<string, unknown>) => boolean][] = [
+  ['toneVersion', (a) => Number(a.shadows ?? 0) !== 0 || Number(a.highlights ?? 0) !== 0],
+  [
+    'defringeVersion',
+    (a) => Object.keys(a).some((key) => key.startsWith('defringe') && typeof a[key] === 'number' && a[key] !== 0),
+  ],
+];
+
 /** What a copy, sync or Previous takes from `source`: the settings of the
  * chosen groups (`keys`), and the chosen local layers (`layerIds`; none:
  * no layers), with the source's responses their values mean (sharpening,
@@ -54,6 +66,13 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));
   if (layers.length > 0) chosen.masks = structuredClone(layers);
+  // Photo-wide responses the chosen layers' values follow: the source's
+  // (1 when it has none), so the layers render as they did there.
+  for (const [key, uses] of LAYER_RESPONSES) {
+    if (!(key in chosen) && layers.some((layer: MaskContainer) => uses(layer.adjustments as Record<string, unknown>))) {
+      chosen[key] = values[key] ?? 1;
+    }
+  }
   const picked = chosen as Partial<Adjustments>;
   return withDiffractionVersion(
     withAiDenoiseVersion(withLumaNoiseVersion(withSharpenVersion(picked, source), source), source),

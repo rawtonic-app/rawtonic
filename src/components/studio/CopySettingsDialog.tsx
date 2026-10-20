@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
@@ -74,6 +74,13 @@ export function CopySettingsDialogHost() {
 function CopySettingsDialog({ request }: { request: PickerRequest }) {
   const { t } = useTranslation();
   const close = useCopySettingsDialog((s) => s.close);
+  const dialog = useRef<HTMLDivElement>(null);
+  // The keyboard goes to the picker while it is open and back after.
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    dialog.current?.focus();
+    return () => before?.focus?.();
+  }, []);
   const { source } = request;
   const layers = source.adjustments.masks ?? [];
   const modified = useMemo(
@@ -106,7 +113,28 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
   const nothing = groups.size === 0 && layerIds.size === 0;
   return createPortal(
     <div className="studio-settings studio-smart-album-backdrop" onKeyDown={keys}>
-      <div className="studio-copy-settings" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}>
+      <div
+        ref={dialog}
+        className="studio-copy-settings"
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          // Tab stays inside the picker.
+          if (e.key !== "Tab") return;
+          const controls = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input")];
+          if (controls.length === 0) return;
+          const [first, last] = [controls[0], controls[controls.length - 1]];
+          if (e.shiftKey && (document.activeElement === first || document.activeElement === e.currentTarget)) {
+            e.preventDefault();
+            last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }}
+      >
         <h2>{title}</h2>
         <div className="studio-copy-settings-quick">
           <button
