@@ -68,7 +68,7 @@ beforeEach(() => {
     finalPreviewUrl: null,
     hasRenderedFirstFrame: false,
     interactivePatch: null,
-    patchesSentToBackend: new Set(),
+    patchesSentToBackend: new Map(),
   });
   useUIStore.setState({ activeView: 'editor' });
   useSettingsStore.setState({ appSettings: null });

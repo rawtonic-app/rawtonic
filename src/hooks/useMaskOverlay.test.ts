@@ -20,7 +20,7 @@ describe('binary mask overlays', () => {
   beforeEach(() => {
     invoke.mockReset();
     select('/first.raf');
-    useEditorStore.setState({ activeMaskContainerId: 'mask', activeMaskId: 'child', patchesSentToBackend: new Set() });
+    useEditorStore.setState({ activeMaskContainerId: 'mask', activeMaskId: 'child', patchesSentToBackend: new Map() });
     URL.createObjectURL = vi.fn().mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:second');
     URL.revokeObjectURL = vi.fn();
   });
@@ -67,7 +67,7 @@ describe('binary mask overlays', () => {
   it('does not create a URL after unmount and strips already-cached masks without mutating the recipe', async () => {
     let resolve!: (bytes: ArrayBuffer) => void;
     invoke.mockImplementation(() => new Promise((done) => { resolve = done; }));
-    useEditorStore.setState({ patchesSentToBackend: new Set(['cached']) });
+    useEditorStore.setState({ patchesSentToBackend: new Map([['cached', 'large-data']]) });
     const source = { ...mask('active'), subMasks: [{ id: 'cached', parameters: { maskDataBase64: 'large-data' } } as SubMask] };
     const { result, unmount } = renderHook(() => useMaskOverlay());
     act(() => result.current.requestMaskOverlay(source, size, { masks: [source] } as Adjustments));

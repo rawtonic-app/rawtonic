@@ -218,11 +218,11 @@ pub async fn snapshot_delete(path: String, id: String) -> Result<Vec<Snapshot>, 
 }
 
 /// A small JPEG of `path` developed with `adjustments` (a snapshot's) as the
-/// Library develops its thumbnails, from the file: never from the open
-/// photograph's decoded image, which holds the current edit's decode-time
-/// development (AI Denoise, colour noise filter), nor from a base cached
-/// for it. Like the Library's thumbnails it leaves AI Denoise out (at
-/// 56 × 40 points it cannot be seen).
+/// Library develops its thumbnails, from the file and for the snapshot's
+/// colour noise filter: never from the open photograph's decoded image,
+/// which holds the current edit's decode-time development, nor from a base
+/// or preview proxy made for other settings. Like the Library's thumbnails
+/// it leaves AI Denoise out (at 56 × 40 points it cannot be seen).
 #[tauri::command]
 pub async fn snapshot_thumbnail(
     path: String,
@@ -233,6 +233,11 @@ pub async fn snapshot_thumbnail(
         let state = app_handle.state::<crate::app_state::AppState>();
         let gpu = crate::gpu_processing::get_or_init_gpu_context(&state, &app_handle).ok();
         let (source, _) = parse_virtual_path(&path);
+        // Snapshots of one colour noise filter share a decoded base.
+        let multiscale = rawtonic_engine::color_noise::multiscale(
+            &adjustments,
+            crate::formats::is_raw_file(&source),
+        );
         let mut adjustments = adjustments;
         let _ =
             rawtonic_export::exif_processing::resolve_unresolved_lens(&mut adjustments, &source);
@@ -242,8 +247,9 @@ pub async fn snapshot_thumbnail(
         };
         let image = crate::file_management::develop_thumbnail(
             &path,
-            &format!("{path}\0snapshot"),
+            &format!("{path}\0snapshot\0{multiscale}"),
             Some(metadata),
+            true,
             gpu.as_ref(),
             None,
             &app_handle,

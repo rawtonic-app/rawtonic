@@ -165,7 +165,7 @@ export function normalizeRelight(
  */
 export function stripSentRelightData(
   payload: { relightLights?: RelightLight[]; relightDepth?: RelightDepth },
-  sent: Set<string>,
+  sent: { has(name: string): boolean },
 ): string[] {
   const sending: string[] = [];
   const depth = payload.relightDepth;

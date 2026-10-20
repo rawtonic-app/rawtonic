@@ -228,6 +228,7 @@ pub fn generate_thumbnail_data(
         path_str,
         path_str,
         metadata,
+        false,
         gpu_context,
         preloaded_image,
         app_handle,
@@ -237,11 +238,14 @@ pub fn generate_thumbnail_data(
 /// The thumbnail of `path_str` developed with `metadata`'s adjustments
 /// (none: as a photograph never edited), as the Library shows it. Its
 /// decoded base is cached under `cache_key` (a photograph's own thumbnails
-/// use its path).
+/// use its path). `for_recipe`: adjustments other than the photograph's
+/// stored ones (a snapshot's), so a RAW is decoded for their colour noise
+/// filter, and its preview proxy only used when made for the same.
 pub(crate) fn develop_thumbnail(
     path_str: &str,
     cache_key: &str,
     metadata: Option<ImageMetadata>,
+    for_recipe: bool,
     gpu_context: Option<&GpuContext>,
     preloaded_image: Option<&DynamicImage>,
     app_handle: &AppHandle,
@@ -260,7 +264,12 @@ pub(crate) fn develop_thumbnail(
     // A preview proxy (preview_proxy.rs) develops the thumbnail like the
     // editor does, also for never-edited RAWs (RAW defaults and the camera's
     // lens data), so the Library and the placeholder show the edited look.
-    let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some())
+    let proxy_fits = || {
+        !for_recipe
+            || rawtonic_engine::color_noise::multiscale(&adjustments, is_raw)
+                == image_loader::stored_multiscale(path_str)
+    };
+    let proxy = (is_raw && preloaded_image.is_none() && gpu_context.is_some() && proxy_fits())
         .then(|| crate::preview_proxy::read(&source_path, &settings))
         .flatten();
     let (metadata, adjustments) = match (&proxy, metadata) {
@@ -364,13 +373,25 @@ pub(crate) fn develop_thumbnail(
                     }
                 };
 
-                let img = image_loader::load_base_image_from_bytes(
-                    file_slice,
-                    &source_path_str,
-                    true,
-                    &settings,
-                    None,
-                )?;
+                let img = if for_recipe {
+                    image_loader::load_base_image_for_recipe(
+                        file_slice,
+                        &source_path_str,
+                        true,
+                        &settings,
+                        None,
+                        None,
+                        &adjustments,
+                    )?
+                } else {
+                    image_loader::load_base_image_from_bytes(
+                        file_slice,
+                        &source_path_str,
+                        true,
+                        &settings,
+                        None,
+                    )?
+                };
 
                 if is_raw {
                     raw_scale_factor = crate::raw_processing::get_fast_demosaic_scale_factor(
