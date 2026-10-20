@@ -1195,7 +1195,7 @@
     "data": {
       "clearSidecars": "Cancella Tutti i File Sidecar",
       "clearSidecarsButton": "Cancella",
-      "clearSidecarsDesc": "Elimina i file .rrdata (modifiche) e .rrexif (cache EXIF) all'interno delle cartelle principali. Le foto di un progetto o di un catalogo non sono interessate: le loro modifiche sono salvate nel suo database. Cartelle principali:",
+      "clearSidecarsDesc": "Sposta nel cestino i file .rrdata (modifiche) e .rrexif (cache EXIF) nelle cartelle radice. Le foto di un progetto o catalogo non sono interessate: le loro modifiche sono salvate nel suo database. Cartelle radice:",
       "clearThumbnail": "Cancella Cache Miniature",
       "clearThumbnailButton": "Cancella",
       "clearThumbnailDesc": "Questo eliminerà tutte le immagini miniatura memorizzate nella cache. Verranno rigenerate automaticamente sfogliando la libreria.",
@@ -1214,12 +1214,12 @@
         "confirmClearAi": "Cancella Tag AI",
         "confirmClearAll": "Cancella Tutti i Tag",
         "confirmClearCache": "Cancella Cache",
-        "confirmDeleteAllEdits": "Elimina Tutte le Modifiche",
+        "confirmDeleteAllEdits": "Sposta tutte le modifiche nel cestino",
         "confirmResetLayout": "Ripristina layout",
         "confirmResetLayoutTitle": "Ripristina layout spazio di lavoro",
         "confirmTitle": "Conferma Eliminazione",
         "resetLayoutMessage": "Sei sicuro di voler ripristinare il layout dello spazio di lavoro? Tutti i pannelli ancorati, le larghezze e le posizioni dei selettori verranno ripristinati ai valori predefiniti.",
-        "sidecarMessage": "Sei sicuro di voler eliminare tutti i file sidecar?\n\nQuesto rimuoverà permanentemente le modifiche salvate nei file .rrdata per tutte le immagini all'interno di tutte le cartelle principali attive e le relative sottocartelle. Le foto di un progetto o di un catalogo non sono interessate: le loro modifiche sono salvate nel suo database."
+        "sidecarMessage": "Spostare tutti i file sidecar nel cestino?\n\nQuesto rimuove le modifiche salvate nei file .rrdata di tutte le immagini in tutte le cartelle radice attive e nelle loro sottocartelle; si possono ripristinare dal cestino. Le foto di un progetto o catalogo non sono interessate: le loro modifiche sono salvate nel suo database."
       },
       "noFolders": "Nessuna cartella selezionata",
       "resetLayoutButton": "Ripristina layout",
@@ -1238,15 +1238,15 @@
         "clearingAi": "Rimozione dei tag AI da tutti i file sidecar...",
         "clearingAll": "Rimozione di tutti i tag dai file sidecar...",
         "clearingCache": "Cancellazione cache miniature...",
-        "deleting": "Eliminazione dei file sidecar, attendere...",
+        "deleting": "Spostamento dei file sidecar nel cestino, attendere...",
         "failedToGetPath": "Impossibile recuperare il percorso del file di log.",
         "layoutResetSuccess": "Layout dello spazio di lavoro ripristinato.",
         "processing": "Elaborazione in corso...",
         "resettingLayout": "Ripristino dello spazio di lavoro...",
-        "sidecarSuccess": "{{count}} file sidecar eliminati con successo.",
-        "sidecarSuccess_one": "{{count}} file sidecar eliminato con successo.",
-        "sidecarSuccess_many": "{{count}} file sidecar eliminati con successo.",
-        "sidecarSuccess_other": "{{count}} file sidecar eliminati con successo."
+        "sidecarSuccess": "{{count}} file sidecar spostati nel cestino.",
+        "sidecarSuccess_one": "{{count}} file sidecar spostato nel cestino.",
+        "sidecarSuccess_many": "{{count}} file sidecar spostati nel cestino.",
+        "sidecarSuccess_other": "{{count}} file sidecar spostati nel cestino."
       },
       "title": "Gestione Dati"
     },

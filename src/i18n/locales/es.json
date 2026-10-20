@@ -1195,7 +1195,7 @@
     "data": {
       "clearSidecars": "Borrar todos los archivos sidecar",
       "clearSidecarsButton": "Borrar",
-      "clearSidecarsDesc": "Elimina los archivos .rrdata (ediciones) y .rrexif (caché EXIF) dentro de tus carpetas raíz. Las fotos de un proyecto o un catálogo no se ven afectadas: sus ediciones se guardan en su base de datos. Carpetas raíz:",
+      "clearSidecarsDesc": "Mueve a la papelera los archivos .rrdata (ediciones) y .rrexif (caché EXIF) de tus carpetas raíz. Las fotos de un proyecto o catálogo no se ven afectadas: sus ediciones se guardan en su base de datos. Carpetas raíz:",
       "clearThumbnail": "Borrar caché de miniaturas",
       "clearThumbnailButton": "Borrar",
       "clearThumbnailDesc": "Esto eliminará todas las imágenes en miniatura en caché. Se regenerarán automáticamente a medida que explores tu biblioteca.",
@@ -1214,12 +1214,12 @@
         "confirmClearAi": "Borrar etiquetas de IA",
         "confirmClearAll": "Borrar todas las etiquetas",
         "confirmClearCache": "Borrar caché",
-        "confirmDeleteAllEdits": "Eliminar todas las ediciones",
+        "confirmDeleteAllEdits": "Mover todas las ediciones a la papelera",
         "confirmResetLayout": "Restablecer diseño",
         "confirmResetLayoutTitle": "Restablecer el diseño del espacio de trabajo",
         "confirmTitle": "Confirmar eliminación",
         "resetLayoutMessage": "¿Estás seguro de que deseas restablecer el diseño del espacio de trabajo? Todos los paneles acoplados, anchuras y posiciones de los selectores se restaurarán a sus valores predeterminados.",
-        "sidecarMessage": "¿Estás seguro de que quieres eliminar todos los archivos sidecar?\n\nEsto eliminará permanentemente las ediciones guardadas en archivos .rrdata para todas las imágenes dentro de todas las carpetas raíz activas y sus subcarpetas. Las fotos de un proyecto o un catálogo no se ven afectadas: sus ediciones se guardan en su base de datos."
+        "sidecarMessage": "¿Mover todos los archivos sidecar a la papelera?\n\nEsto quita las ediciones guardadas en archivos .rrdata de todas las imágenes de todas las carpetas raíz activas y sus subcarpetas; se pueden recuperar de la papelera. Las fotos de un proyecto o catálogo no se ven afectadas: sus ediciones se guardan en su base de datos."
       },
       "noFolders": "No hay carpetas seleccionadas",
       "resetLayoutButton": "Restablecer diseño",
@@ -1238,15 +1238,15 @@
         "clearingAi": "Borrando etiquetas de IA de todos los archivos sidecar...",
         "clearingAll": "Borrando todas las etiquetas de los archivos sidecar...",
         "clearingCache": "Borrando caché de miniaturas...",
-        "deleting": "Eliminando archivos sidecar, por favor espera...",
+        "deleting": "Moviendo archivos sidecar a la papelera, por favor espera...",
         "failedToGetPath": "No se pudo recuperar la ruta del archivo de registro.",
         "layoutResetSuccess": "El diseño del espacio de trabajo se ha restablecido.",
         "processing": "Procesando...",
         "resettingLayout": "Restableciendo el espacio de trabajo...",
-        "sidecarSuccess": "{{count}} archivos sidecar eliminados con éxito.",
-        "sidecarSuccess_one": "{{count}} archivo sidecar eliminado con éxito.",
-        "sidecarSuccess_many": "{{count}} archivos sidecar eliminados con éxito.",
-        "sidecarSuccess_other": "{{count}} archivos sidecar eliminados con éxito."
+        "sidecarSuccess": "{{count}} archivos sidecar movidos a la papelera.",
+        "sidecarSuccess_one": "{{count}} archivo sidecar movido a la papelera.",
+        "sidecarSuccess_many": "{{count}} archivos sidecar movidos a la papelera.",
+        "sidecarSuccess_other": "{{count}} archivos sidecar movidos a la papelera."
       },
       "title": "Gestión de datos"
     },

@@ -1103,7 +1103,7 @@
     "data": {
       "clearSidecars": "すべてのサイドカーファイルを削除",
       "clearSidecarsButton": "削除",
-      "clearSidecarsDesc": "ルートフォルダ内の .rrdata ファイル（編集内容）と .rrexif ファイル（EXIF キャッシュ）を削除します。プロジェクトまたはカタログ内の写真は対象外です（編集内容はそのデータベースに保存されています）。ルートフォルダ:",
+      "clearSidecarsDesc": "ルートフォルダ内の .rrdata ファイル（編集）と .rrexif ファイル（EXIF キャッシュ）をゴミ箱に移動します。プロジェクトやカタログの写真は対象外です（編集はそのデータベースに保存されています）。ルートフォルダ:",
       "clearThumbnail": "サムネイルキャッシュを削除",
       "clearThumbnailButton": "削除",
       "clearThumbnailDesc": "キャッシュされたすべてのサムネイル画像を削除します。ライブラリを閲覧する際に自動的に再生成されます。",
@@ -1122,12 +1122,12 @@
         "confirmClearAi": "AIタグを削除",
         "confirmClearAll": "すべてのタグを削除",
         "confirmClearCache": "キャッシュを削除",
-        "confirmDeleteAllEdits": "すべての編集を削除",
+        "confirmDeleteAllEdits": "すべての編集をゴミ箱に移動",
         "confirmResetLayout": "レイアウトをリセット",
         "confirmResetLayoutTitle": "ワークスペースレイアウトのリセット",
         "confirmTitle": "削除の確認",
         "resetLayoutMessage": "ワークスペースのレイアウトをリセットしてもよろしいですか？ドッキングされたすべてのパネル、幅、および切り替えボタンの位置がデフォルトに復元されます。",
-        "sidecarMessage": "本当にすべてのサイドカーファイルを削除しますか？\n\nアクティブなルートフォルダとそのサブフォルダ内にあるすべての画像について、.rrdata ファイルに保存された編集内容が完全に削除されます。プロジェクトまたはカタログ内の写真は対象外です（編集内容はそのデータベースに保存されています）。"
+        "sidecarMessage": "すべてのサイドカーファイルをゴミ箱に移動しますか？\n\nすべての有効なルートフォルダとそのサブフォルダ内のすべての画像について、.rrdata ファイルに保存された編集が取り除かれます。ゴミ箱から元に戻せます。プロジェクトやカタログの写真は対象外です（編集はそのデータベースに保存されています）。"
       },
       "noFolders": "フォルダが選択されていません",
       "resetLayoutButton": "レイアウトをリセット",
@@ -1144,14 +1144,14 @@
         "clearingAi": "すべてのサイドカーファイルからAIタグを削除中...",
         "clearingAll": "サイドカーファイルからすべてのタグを削除中...",
         "clearingCache": "サムネイルキャッシュを削除中...",
-        "deleting": "サイドカーファイルを削除しています。しばらくお待ちください...",
+        "deleting": "サイドカーファイルをゴミ箱に移動しています。しばらくお待ちください...",
         "failedToGetPath": "ログファイルのパスを取得できませんでした。",
         "layoutResetSuccess": "ワークスペースレイアウトがデフォルトにリセットされました。",
         "processing": "処理中...",
         "resettingLayout": "ワークスペースをリセット中...",
-        "sidecarSuccess": "{{count}} 件のサイドカーファイルを正常に削除しました。",
-        "sidecarSuccess_one": "{{count}} 件のサイドカーファイルを正常に削除しました。",
-        "sidecarSuccess_other": "{{count}} 件のサイドカーファイルを正常に削除しました。"
+        "sidecarSuccess": "{{count}} 件のサイドカーファイルをゴミ箱に移動しました。",
+        "sidecarSuccess_one": "{{count}} 件のサイドカーファイルをゴミ箱に移動しました。",
+        "sidecarSuccess_other": "{{count}} 件のサイドカーファイルをゴミ箱に移動しました。"
       },
       "title": "データ管理"
     },

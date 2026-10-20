@@ -1195,7 +1195,7 @@
     "data": {
       "clearSidecars": "Limpar Todos os Arquivos Sidecar",
       "clearSidecarsButton": "Limpar",
-      "clearSidecarsDesc": "Exclui os arquivos .rrdata (edições) e .rrexif (cache EXIF) em suas pastas raiz. As fotos de um projeto ou catálogo não são afetadas: suas edições ficam salvas no banco de dados dele. Pastas raiz:",
+      "clearSidecarsDesc": "Move para a lixeira os arquivos .rrdata (edições) e .rrexif (cache EXIF) nas suas pastas raiz. Fotos de um projeto ou catálogo não são afetadas: as edições delas ficam no banco de dados dele. Pastas raiz:",
       "clearThumbnail": "Limpar Cache de Miniaturas",
       "clearThumbnailButton": "Limpar",
       "clearThumbnailDesc": "Isso excluirá todas as imagens em miniatura em cache. Elas serão regeneradas automaticamente conforme você navega em sua biblioteca.",
@@ -1214,12 +1214,12 @@
         "confirmClearAi": "Limpar Etiquetas de IA",
         "confirmClearAll": "Limpar Todas as Etiquetas",
         "confirmClearCache": "Limpar Cache",
-        "confirmDeleteAllEdits": "Excluir Todas as Edições",
+        "confirmDeleteAllEdits": "Mover todas as edições para a lixeira",
         "confirmResetLayout": "Redefinir layout",
         "confirmResetLayoutTitle": "Redefinir layout do espaço de trabalho",
         "confirmTitle": "Confirmar Exclusão",
         "resetLayoutMessage": "Tem certeza de que deseja redefinir o layout do espaço de trabalho? Todos os painéis acoplados, larguras e posições dos seletores serão restaurados para os padrões originais.",
-        "sidecarMessage": "Tem certeza de que deseja excluir todos os arquivos sidecar?\n\nIsso removerá permanentemente as edições salvas em arquivos .rrdata para todas as imagens dentro de todas as pastas raiz ativas e suas subpastas. As fotos de um projeto ou catálogo não são afetadas: suas edições ficam salvas no banco de dados dele."
+        "sidecarMessage": "Mover todos os arquivos sidecar para a lixeira?\n\nIsso remove as edições guardadas em arquivos .rrdata de todas as imagens em todas as pastas raiz ativas e suas subpastas; elas podem ser recuperadas da lixeira. Fotos de um projeto ou catálogo não são afetadas: as edições delas ficam no banco de dados dele."
       },
       "noFolders": "Nenhuma pasta selecionada",
       "resetLayoutButton": "Redefinir layout",
@@ -1238,15 +1238,15 @@
         "clearingAi": "Limpando etiquetas de IA de todos os arquivos sidecar...",
         "clearingAll": "Limpando todas as etiquetas dos arquivos sidecar...",
         "clearingCache": "Limpando cache de miniaturas...",
-        "deleting": "Excluindo arquivos sidecar, por favor aguarde...",
+        "deleting": "Movendo arquivos sidecar para a lixeira, por favor aguarde...",
         "failedToGetPath": "Não foi possível recuperar o caminho do arquivo de log.",
         "layoutResetSuccess": "O layout do espaço de trabalho foi redefinido para o padrão.",
         "processing": "Processando...",
         "resettingLayout": "Redefinando espaço de trabalho...",
-        "sidecarSuccess": "{{count}} arquivos sidecar excluídos com sucesso.",
-        "sidecarSuccess_one": "{{count}} arquivo sidecar excluído com sucesso.",
-        "sidecarSuccess_many": "{{count}} arquivos sidecar excluídos com sucesso.",
-        "sidecarSuccess_other": "{{count}} arquivos sidecar excluídos com sucesso."
+        "sidecarSuccess": "{{count}} arquivos sidecar movidos para a lixeira.",
+        "sidecarSuccess_one": "{{count}} arquivo sidecar movido para a lixeira.",
+        "sidecarSuccess_many": "{{count}} arquivos sidecar movidos para a lixeira.",
+        "sidecarSuccess_other": "{{count}} arquivos sidecar movidos para a lixeira."
       },
       "title": "Gerenciamento de Dados"
     },

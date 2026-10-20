@@ -1140,7 +1140,7 @@
     "data": {
       "clearSidecars": "Clear All Sidecar Files",
       "clearSidecarsButton": "Clear",
-      "clearSidecarsDesc": "Deletes the .rrdata files (edits) and .rrexif files (EXIF cache) within your root folders. Photos in a project or catalog are not affected: their edits are stored in its database. Root folders:",
+      "clearSidecarsDesc": "Moves the .rrdata files (edits) and .rrexif files (EXIF cache) within your root folders to the Trash. Photos in a project or catalog are not affected: their edits are stored in its database. Root folders:",
       "clearThumbnail": "Clear Thumbnail Cache",
       "clearThumbnailButton": "Clear",
       "clearThumbnailDesc": "This will delete all cached thumbnail images. They will be regenerated automatically as you browse your library.",
@@ -1159,12 +1159,12 @@
         "confirmClearAi": "Clear AI Tags",
         "confirmClearAll": "Clear All Tags",
         "confirmClearCache": "Clear Cache",
-        "confirmDeleteAllEdits": "Delete All Edits",
+        "confirmDeleteAllEdits": "Move All Edits to the Trash",
         "confirmResetLayout": "Reset Layout",
         "confirmResetLayoutTitle": "Reset Workspace Layout",
         "confirmTitle": "Confirm Deletion",
         "resetLayoutMessage": "Are you sure you want to reset the workspace layout? All docked panels, widths, and switcher positions will be restored to their defaults.",
-        "sidecarMessage": "Are you sure you want to delete all sidecar files?\n\nThis permanently removes the edits stored in .rrdata files for all images inside all active root folders and their subfolders. Photos in a project or catalog are not affected: their edits are stored in its database."
+        "sidecarMessage": "Move all sidecar files to the Trash?\n\nThis removes the edits stored in .rrdata files for all images inside all active root folders and their subfolders; they can be put back from the Trash. Photos in a project or catalog are not affected: their edits are stored in its database."
       },
       "noFolders": "No folders selected",
       "resetLayoutButton": "Reset Layout",
@@ -1181,14 +1181,14 @@
         "clearingAi": "Clearing AI tags from all sidecar files...",
         "clearingAll": "Clearing all tags from sidecar files...",
         "clearingCache": "Clearing thumbnail cache...",
-        "deleting": "Deleting sidecar files, please wait...",
+        "deleting": "Moving sidecar files to the Trash, please wait...",
         "failedToGetPath": "Could not retrieve log file path.",
         "layoutResetSuccess": "Workspace layout reset to default.",
         "processing": "Processing...",
         "resettingLayout": "Resetting workspace...",
-        "sidecarSuccess": "{{count}} sidecar files deleted successfully.",
-        "sidecarSuccess_one": "{{count}} sidecar file deleted successfully.",
-        "sidecarSuccess_other": "{{count}} sidecar files deleted successfully."
+        "sidecarSuccess": "{{count}} sidecar files moved to the Trash.",
+        "sidecarSuccess_one": "{{count}} sidecar file moved to the Trash.",
+        "sidecarSuccess_other": "{{count}} sidecar files moved to the Trash."
       },
       "title": "Data Management"
     },

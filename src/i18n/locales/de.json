@@ -1140,7 +1140,7 @@
     "data": {
       "clearSidecars": "Alle Filialdateien löschen",
       "clearSidecarsButton": "Löschen",
-      "clearSidecarsDesc": "Löscht die .rrdata-Dateien (Bearbeitungen) und .rrexif-Dateien (EXIF-Cache) in Ihren Stammordnern. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert. Stammordner:",
+      "clearSidecarsDesc": "Legt die .rrdata-Dateien (Bearbeitungen) und .rrexif-Dateien (EXIF-Cache) in Ihren Stammordnern in den Papierkorb. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert. Stammordner:",
       "clearThumbnail": "Miniaturbild-Cache löschen",
       "clearThumbnailButton": "Löschen",
       "clearThumbnailDesc": "Dies löscht alle zwischengespeicherten Miniaturbilder. Sie werden beim Durchsuchen der Bibliothek automatisch neu generiert.",
@@ -1159,12 +1159,12 @@
         "confirmClearAi": "KI-Tags löschen",
         "confirmClearAll": "Alle Tags löschen",
         "confirmClearCache": "Cache löschen",
-        "confirmDeleteAllEdits": "Alle Bearbeitungen löschen",
+        "confirmDeleteAllEdits": "Alle Bearbeitungen in den Papierkorb",
         "confirmResetLayout": "Layout zurücksetzen",
         "confirmResetLayoutTitle": "Arbeitsbereich-Layout zurücksetzen",
         "confirmTitle": "Löschen bestätigen",
         "resetLayoutMessage": "Möchten Sie das Layout des Arbeitsbereichs wirklich zurücksetzen? Alle angedockten Panels, Breiten und Umschalter-Positionen werden auf ihre Standardwerte zurückgesetzt.",
-        "sidecarMessage": "Sind Sie sicher, dass Sie alle Sidecar-Dateien löschen möchten?\n\nDies entfernt dauerhaft die in .rrdata-Dateien gespeicherten Bearbeitungen aller Bilder in allen aktiven Stammordnern und ihren Unterordnern. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert."
+        "sidecarMessage": "Alle Sidecar-Dateien in den Papierkorb legen?\n\nDies entfernt die in .rrdata-Dateien gespeicherten Bearbeitungen aller Bilder in allen aktiven Stammordnern und ihren Unterordnern; aus dem Papierkorb lassen sie sich zurücklegen. Fotos in einem Projekt oder einem Katalog sind nicht betroffen: Ihre Bearbeitungen sind in dessen Datenbank gespeichert."
       },
       "noFolders": "Keine Ordner ausgewählt",
       "resetLayoutButton": "Layout zurücksetzen",
@@ -1181,14 +1181,14 @@
         "clearingAi": "KI-Tags aus allen Filialdateien löschen...",
         "clearingAll": "Alle Tags aus Filialdateien löschen...",
         "clearingCache": "Miniaturbild-Cache löschen...",
-        "deleting": "Filialdateien werden gelöscht, bitte warten...",
+        "deleting": "Sidecar-Dateien werden in den Papierkorb gelegt, bitte warten...",
         "failedToGetPath": "Protokolldateipfad konnte nicht abgerufen werden.",
         "layoutResetSuccess": "Layout des Arbeitsbereichs auf Standard zurückgesetzt.",
         "processing": "Wird verarbeitet...",
         "resettingLayout": "Arbeitsbereich wird zurückgesetzt...",
-        "sidecarSuccess": "{{count}} Filialdateien erfolgreich gelöscht.",
-        "sidecarSuccess_one": "{{count}} Filialdatei erfolgreich gelöscht.",
-        "sidecarSuccess_other": "{{count}} Filialdateien erfolgreich gelöscht."
+        "sidecarSuccess": "{{count}} Sidecar-Dateien in den Papierkorb gelegt.",
+        "sidecarSuccess_one": "{{count}} Sidecar-Datei in den Papierkorb gelegt.",
+        "sidecarSuccess_other": "{{count}} Sidecar-Dateien in den Papierkorb gelegt."
       },
       "title": "Datenverwaltung"
     },

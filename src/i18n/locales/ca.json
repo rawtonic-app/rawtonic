@@ -1195,7 +1195,7 @@
     "data": {
       "clearSidecars": "Esborrar tots els fitxers sidecar",
       "clearSidecarsButton": "Esborrar",
-      "clearSidecarsDesc": "Suprimeix els fitxers .rrdata (edicions) i .rrexif (memòria cau EXIF) dins de les carpetes arrel. Les fotos d'un projecte o d'un catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades. Carpetes arrel:",
+      "clearSidecarsDesc": "Mou a la paperera els fitxers .rrdata (edicions) i .rrexif (memòria cau EXIF) de les carpetes arrel. Les fotos d’un projecte o catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades. Carpetes arrel:",
       "clearThumbnail": "Esborrar memòria cau de miniatures",
       "clearThumbnailButton": "Esborrar",
       "clearThumbnailDesc": "Això eliminarà totes les imatges en miniatura de la memòria cau. Es regeneraran automàticament mentre navegueu per la biblioteca.",
@@ -1214,12 +1214,12 @@
         "confirmClearAi": "Esborrar etiquetes d'IA",
         "confirmClearAll": "Esborrar totes les etiquetes",
         "confirmClearCache": "Esborrar memòria cau",
-        "confirmDeleteAllEdits": "Eliminar totes les edicions",
+        "confirmDeleteAllEdits": "Mou totes les edicions a la paperera",
         "confirmResetLayout": "Restablir disseny",
         "confirmResetLayoutTitle": "Restablir el disseny de l'espai de treball",
         "confirmTitle": "Confirmar eliminació",
         "resetLayoutMessage": "Esteu segur que voleu restablir el disseny de l'espai de treball? Tots els panells acoblats, les amplades i les posicions dels commutadors es restauraran als seus valors predeterminats.",
-        "sidecarMessage": "Esteu segur que voleu suprimir tots els fitxers sidecar?\n\nAixò eliminarà permanentment les edicions desades en fitxers .rrdata per a totes les imatges dins de totes les carpetes arrel actives i les seves subcarpetes. Les fotos d'un projecte o d'un catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades."
+        "sidecarMessage": "Vols moure tots els fitxers sidecar a la paperera?\n\nAixò treu les edicions desades en fitxers .rrdata de totes les imatges de totes les carpetes arrel actives i les seves subcarpetes; es poden recuperar de la paperera. Les fotos d’un projecte o catàleg no es veuen afectades: les seves edicions es desen a la seva base de dades."
       },
       "noFolders": "No s'ha seleccionat cap carpeta",
       "resetLayoutButton": "Restablir disseny",
@@ -1238,15 +1238,15 @@
         "clearingAi": "S'estan esborrant les etiquetes d'IA de tots els fitxers sidecar...",
         "clearingAll": "S'estan esborrant totes les etiquetes dels fitxers sidecar...",
         "clearingCache": "S'està esborrant la memòria cau de miniatures...",
-        "deleting": "S'estan suprimint els fitxers sidecar, espereu si us plau...",
+        "deleting": "S'estan movent els fitxers sidecar a la paperera, espereu si us plau...",
         "failedToGetPath": "No s'ha pogut recuperar el camí del fitxer de registre.",
         "layoutResetSuccess": "El disseny de l'espai de treball s'ha restablert.",
         "processing": "S'està processant...",
         "resettingLayout": "Restablint l'espai de treball...",
-        "sidecarSuccess": "{{count}} fitxers sidecar eliminats correctament.",
-        "sidecarSuccess_one": "{{count}} fitxer sidecar eliminat correctament.",
-        "sidecarSuccess_many": "{{count}} fitxers sidecar eliminats correctament.",
-        "sidecarSuccess_other": "{{count}} fitxers sidecar eliminats correctament."
+        "sidecarSuccess": "{{count}} fitxers sidecar moguts a la paperera.",
+        "sidecarSuccess_one": "{{count}} fitxer sidecar mogut a la paperera.",
+        "sidecarSuccess_many": "{{count}} fitxers sidecar moguts a la paperera.",
+        "sidecarSuccess_other": "{{count}} fitxers sidecar moguts a la paperera."
       },
       "title": "Gestió de dades"
     },

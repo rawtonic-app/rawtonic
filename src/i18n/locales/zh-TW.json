@@ -1103,7 +1103,7 @@
     "data": {
       "clearSidecars": "清除所有附屬檔案",
       "clearSidecarsButton": "清除",
-      "clearSidecarsDesc": "這將刪除根資料夾中的 .rrdata 檔案（編輯資料）和 .rrexif 檔案（EXIF 快取）。專案或目錄中的相片不受影響：其編輯資料儲存在該資料庫中。根資料夾：",
+      "clearSidecarsDesc": "將根資料夾中的 .rrdata 檔案（編輯）和 .rrexif 檔案（EXIF 快取）移到垃圾桶。專案或目錄中的照片不受影響：其編輯儲存在該資料庫中。根資料夾：",
       "clearThumbnail": "清除縮圖快取",
       "clearThumbnailButton": "清除",
       "clearThumbnailDesc": "這將刪除所有快取的縮圖。在您瀏覽相簿時，它們會自動重新生成。",
@@ -1122,12 +1122,12 @@
         "confirmClearAi": "清除 AI 標籤",
         "confirmClearAll": "清除所有標籤",
         "confirmClearCache": "清除快取",
-        "confirmDeleteAllEdits": "刪除所有編輯",
+        "confirmDeleteAllEdits": "將所有編輯移到垃圾桶",
         "confirmResetLayout": "重設版面配置",
         "confirmResetLayoutTitle": "重設工作區版面配置",
         "confirmTitle": "確認刪除",
         "resetLayoutMessage": "確定要重設工作區版面配置嗎？所有停靠的面板、寬度和切換器位置都將還原為預設值。",
-        "sidecarMessage": "您確定要刪除所有附屬檔案嗎？\n\n這將永久刪除所有活動根資料夾及其子資料夾中所有影像儲存在 .rrdata 檔案中的編輯資料。專案或目錄中的相片不受影響：其編輯資料儲存在該資料庫中。"
+        "sidecarMessage": "將所有附屬檔案移到垃圾桶？\n\n這會移除所有使用中根資料夾及其子資料夾中所有影像儲存在 .rrdata 檔案中的編輯；可以從垃圾桶放回。專案或目錄中的照片不受影響：其編輯儲存在該資料庫中。"
       },
       "noFolders": "未選擇資料夾",
       "resetLayoutButton": "重設版面配置",
@@ -1144,14 +1144,14 @@
         "clearingAi": "正在從所有附屬檔案中清除 AI 標籤...",
         "clearingAll": "正在從附屬檔案中清除所有標籤...",
         "clearingCache": "正在清除縮圖快取...",
-        "deleting": "正在刪除附屬檔案，請稍候...",
+        "deleting": "正在將附屬檔案移到垃圾桶，請稍候...",
         "failedToGetPath": "無法取得日誌檔案路徑。",
         "layoutResetSuccess": "工作區版面配置已重設為預設值。",
         "processing": "處理中...",
         "resettingLayout": "正在重設工作區...",
-        "sidecarSuccess": "{{count}} 個附屬檔案已成功刪除。",
-        "sidecarSuccess_one": "{{count}} 個附屬檔案已成功刪除。",
-        "sidecarSuccess_other": "{{count}} 個附屬檔案已成功刪除。"
+        "sidecarSuccess": "已將 {{count}} 個附屬檔案移到垃圾桶。",
+        "sidecarSuccess_one": "已將 {{count}} 個附屬檔案移到垃圾桶。",
+        "sidecarSuccess_other": "已將 {{count}} 個附屬檔案移到垃圾桶。"
       },
       "title": "資料管理"
     },
