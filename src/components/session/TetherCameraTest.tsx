@@ -45,8 +45,6 @@ interface Captured {
   ambiguous?: number[];
   /** The app request it answers (`tether_capture`'s number). */
   request?: number | null;
-  /** A request reported as not delivered this photo may belong to. */
-  lateRequest?: number | null;
   destination: string | null;
   assetId: string | null;
   skipped: boolean;
@@ -186,9 +184,6 @@ export default function TetherCameraTest({
   const exposures = useRef(new Map<string, StepId | null>());
   // Each photo step's failures, wherever they were heard.
   const failuresOf = useRef(new Map<StepId, Heard[]>());
-  // Photos per step that came after their shot was reported as not
-  // delivered (`Captured.lateRequest`).
-  const lateOf = useRef(new Map<StepId, number>());
   // Photo steps with a photo whose exposure cannot be told (reused names).
   const ambiguousSteps = useRef(new Set<StepId>());
   // The highest exposure number heard per helper connection.
@@ -291,28 +286,6 @@ export default function TetherCameraTest({
             if (!result || result.state !== "passed") return current;
             return { ...current, [late]: { ...result, state: "failed", reason: LATE_FAILURE } };
           });
-      }
-      // A photo that may be one the helper had reported as not delivered:
-      // its step says so (the failure stands: it came after the timeout).
-      const late = (payload as { lateRequest?: number | null }).lateRequest;
-      // While the test asks for a shot on the body it may be that one (the
-      // step says it cannot be told).
-      if (
-        name === "tether-captured" &&
-        h.exposure &&
-        late != null &&
-        requestSteps.current.has(late) &&
-        runningStep.current !== "bodyShot"
-      ) {
-        const step = requestSteps.current.get(late) ?? null;
-        if (step) {
-          lateOf.current.set(step, (lateOf.current.get(step) ?? 0) + 1);
-          if (step !== runningStep.current)
-            setResults((current) => {
-              const result = current[step];
-              return result ? { ...current, [step]: { ...result, late: (result.late ?? 0) + 1 } } : current;
-            });
-        }
       }
       if (heard.current.length > 500) heard.current.splice(0, 250);
       // One file of one exposure: its release names it the same way.
@@ -602,15 +575,6 @@ export default function TetherCameraTest({
       if (!photo) return { state: "failed", asked: 1, arrived: 0, reason: "no photo within 30 s" };
       const c = captured(photo);
       if (c.error) return { state: "failed", asked: 1, arrived: 0, ...notAdded(c.error) };
-      // It may be the late photo of a test shot reported as not delivered:
-      // that cannot be told, so neither pass nor fail.
-      if (requestSteps.current.has(c.lateRequest ?? -1))
-        return {
-          state: "inconclusive",
-          asked: 1,
-          arrived: 1,
-          reason: "the photo may be the late one of an earlier shot from Rawtonic; run the step again",
-        };
       return { state: "passed", asked: 1, arrived: 1 };
     },
     replug: async () => {
@@ -664,7 +628,6 @@ export default function TetherCameraTest({
   const run = async (id: StepId) => {
     runningStep.current = id;
     failuresOf.current.set(id, []);
-    lateOf.current.set(id, 0);
     setRunning(id);
     setPrompt("");
     let result: StepResult;
@@ -689,8 +652,6 @@ export default function TetherCameraTest({
         };
       }
     }
-    const late = lateOf.current.get(id);
-    if (late) result = { ...result, late };
     if (ambiguousSteps.current.has(id)) result = inconclusive(result);
     if (PHOTO_STEPS.includes(id)) lastPhotoStep.current = id;
     runningStep.current = null;

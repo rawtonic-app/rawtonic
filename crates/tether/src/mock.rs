@@ -189,6 +189,7 @@ impl Driver for MockDriver {
             shots: Default::default(),
             opened: now,
             stale: None,
+            complete: false,
             settings: vec![
                 match &self.spec.iso {
                     Some((value, choices)) => {
@@ -255,6 +256,8 @@ pub struct MockCamera {
     /// The value a setting had before its last set, reported until then
     /// (`stale_readback_ms`).
     stale: Option<(String, String, Instant)>,
+    /// A CaptureComplete to report next (`ignores_triggers_while_busy`).
+    complete: bool,
 }
 
 impl MockCamera {
@@ -545,6 +548,9 @@ impl Camera for MockCamera {
         if let Some(file) = self.repeat.take() {
             return Ok(CameraEvent::FileAdded(file));
         }
+        if std::mem::take(&mut self.complete) {
+            return Ok(CameraEvent::CaptureComplete);
+        }
         let now = Instant::now();
         while self.body.front().is_some_and(|&at| at <= now) {
             self.body.pop_front();
@@ -575,6 +581,9 @@ impl Camera for MockCamera {
                     if self.spec.report_twice {
                         self.repeat = Some(file.clone());
                     }
+                    // A shot's last file: the camera says its capture is
+                    // complete (as libgphoto2's Sony path does).
+                    self.complete = self.spec.ignores_triggers_while_busy && self.due.is_empty();
                     return Ok(CameraEvent::FileAdded(file));
                 }
                 Ok(CameraEvent::Timeout)

@@ -718,7 +718,7 @@ fn a_late_photo_is_not_fired_again_and_a_lost_one_is_reported() {
     };
     let helper = start_with(&spec, dir.path(), 300);
     helper.connect().unwrap();
-    let first = helper.capture();
+    helper.capture();
     helper.capture();
     // Shot 1 comes after the shot timeout: both requests are reported as
     // failed, the late file still arrives (as a body shot then), and
@@ -743,10 +743,6 @@ fn a_late_photo_is_not_fired_again_and_a_lost_one_is_reported() {
     assert_eq!(failed, 2);
     assert_eq!(photos.len(), 1);
     assert_eq!(photos[0].camera_name, "DSC00001.ARW");
-    // It names the oldest request reported as not delivered: it may be
-    // that shot's photo (or one fired on the body).
-    assert!(!photos[0].requested);
-    assert_eq!(photos[0].late_request, Some(first));
 }
 
 #[test]
@@ -1379,4 +1375,23 @@ fn a_camera_still_busy_with_the_last_shot_is_not_fired_again() {
     let second = helper.capture();
     let (photos, _) = helper.photos(1);
     assert_eq!(photos[0].request, Some(second));
+}
+
+#[test]
+fn a_one_at_a_time_camera_is_fired_again_only_after_the_last_shot_s_jpeg() {
+    // RAW+JPEG: the camera is still busy until its JPEG is handed over.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        raw_and_jpeg: true,
+        jpeg_late_ms: 400,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let requests: Vec<u64> = (0..3).map(|_| helper.capture()).collect();
+    let (photos, _) = helper.photos(6);
+    let mut answered: Vec<u64> = photos.iter().filter_map(|p| p.request).collect();
+    answered.dedup();
+    assert_eq!(answered, requests);
 }

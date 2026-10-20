@@ -790,9 +790,6 @@ pub struct TetherCaptured {
     pub ambiguous: Vec<u64>,
     /// The app request it answers (`tether_capture`'s number), if any.
     pub request: Option<u64>,
-    /// A request reported as not delivered that this photo may belong to
-    /// (`Captured::late_request`).
-    pub late_request: Option<u64>,
     /// From the app's request (or the camera's report) to: the camera's
     /// report, the complete download, the photo in the library.
     pub ms_to_event: Option<u64>,
@@ -923,7 +920,6 @@ impl Ingest<'_> {
             exposure: timing.map(|(c, _)| c.exposure),
             ambiguous: timing.map(|(c, _)| c.ambiguous.clone()).unwrap_or_default(),
             request: timing.and_then(|(c, _)| c.request),
-            late_request: timing.and_then(|(c, _)| c.late_request),
             ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
             ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
             ms_to_ingested: timing
@@ -1372,7 +1368,6 @@ mod tests {
                 exposure: n,
                 ambiguous: Vec::new(),
                 request: Some(n),
-                late_request: None,
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1425,7 +1420,6 @@ mod tests {
                 exposure: n,
                 ambiguous: Vec::new(),
                 request: Some(n),
-                late_request: None,
                 camera_folder: "/store_00010001".into(),
                 camera_name: format!("DSC{n:05}.ARW"),
                 size: 7,
@@ -2222,7 +2216,6 @@ mod tests {
                     exposure: 1,
                     ambiguous: Vec::new(),
                     request: Some(1),
-                    late_request: None,
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,

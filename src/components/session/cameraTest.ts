@@ -75,9 +75,6 @@ export interface StepResult {
   onScreen?: number[];
   /** Why photos on screen were not timed (or not all). */
   screenNote?: string;
-  /** Photos that came after their shot was reported as not delivered (or
-   * were shot on the body then: that cannot be told). */
-  late?: number;
   /** Settings read / changeable. */
   settings?: number;
   changeable?: number;
@@ -161,10 +158,6 @@ export const describe = (result: StepResult) => {
   if (library) parts.push(library);
   if (result.ms !== undefined) parts.push(`${result.ms} ms`);
   if (result.reason) parts.push(result.reason);
-  if (result.late)
-    parts.push(
-      `${result.late} photo${result.late === 1 ? "" : "s"} came after shots were reported as not delivered (late, or shot on the body)`,
-    );
   return parts.join("; ");
 };
 

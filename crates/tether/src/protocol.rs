@@ -150,10 +150,6 @@ pub struct Captured {
     pub requested: bool,
     /// The app request it answers (`Reply::Fired`), if any.
     pub request: Option<u64>,
-    /// No app shot was waiting, but this request had been reported as not
-    /// delivered (`ErrorKind::Timeout`): the photo may be its, come late,
-    /// or a shot on the body; that cannot be told (`requested` is false).
-    pub late_request: Option<u64>,
     /// Milliseconds on the helper's clock since the capture request (app
     /// shots) or the camera's event (body shots): the camera reported the
     /// file, and the download was complete.

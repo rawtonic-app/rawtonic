@@ -23,14 +23,15 @@ const READBACK_EVERY: Duration = Duration::from_millis(250);
 /// How long a shot waits for the last one's photo on a camera that takes
 /// one at a time (`Server::wait_for_the_last_shot`).
 pub const ONE_AT_A_TIME_WAIT: Duration = Duration::from_secs(10);
+/// After a shot's last file, how long its other files may still come when
+/// the camera reports no CaptureComplete (`Open::transferring`).
+const TRANSFER_SETTLE: Duration = Duration::from_secs(2);
 /// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
     /// The file kinds (extensions) it gave so far.
     kinds: Vec<String>,
     /// Its app request, if any.
     request: Option<Asked>,
-    /// `Captured::late_request`.
-    late: Option<u64>,
     /// `Captured::exposure`.
     number: u64,
 }
@@ -64,9 +65,6 @@ const MEMORY_ONLY: &str = "The camera keeps photos only in its memory now (no ca
 /// A shot whose file has not come after this long is reported as failed
 /// (it is never fired again; a file that still comes is downloaded).
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
-/// How many shots reported as not delivered are remembered for a photo
-/// that still comes (`Open::timed_out`).
-const TIMED_OUT_KEPT: usize = 16;
 
 struct Open {
     camera: Box<dyn Camera>,
@@ -74,9 +72,6 @@ struct Open {
     live_view: bool,
     /// App shots still waiting for their file, oldest first.
     waiting: VecDeque<Asked>,
-    /// App shots reported as not delivered (`SHOT_TIMEOUT`) whose file
-    /// has not come, oldest first (`Captured::late_request`).
-    timed_out: VecDeque<u64>,
     /// Files downloaded from this camera.
     downloaded: u64,
     /// Each camera file's last published download: length and content hash.
@@ -101,6 +96,12 @@ struct Open {
     /// `Request::Hold`: the camera's events are not read (nothing more is
     /// downloaded) until the connection ends.
     held: bool,
+    /// On a camera that takes one shot at a time: the camera may still be
+    /// handing over files of the last shot (a RAW+JPEG's second file) — since
+    /// when, as of its last file. Ends with the camera's CaptureComplete
+    /// (libgphoto2 reports it on the Sony path after the shot's last file),
+    /// or `TRANSFER_SETTLE` after the last file.
+    transferring: Option<Instant>,
 }
 
 pub struct Server<W: Write> {
@@ -324,7 +325,6 @@ impl<W: Write> Server<W> {
                     staging,
                     live_view: false,
                     waiting: VecDeque::new(),
-                    timed_out: VecDeque::new(),
                     downloaded: 0,
                     published: Default::default(),
                     downloads: Default::default(),
@@ -333,6 +333,7 @@ impl<W: Write> Server<W> {
                     memory_only: false,
                     connection: self.connections,
                     held: false,
+                    transferring: None,
                 });
                 Ok(Reply::Connected { status })
             }
@@ -391,6 +392,9 @@ impl<W: Write> Server<W> {
                 }
                 if let Some(open) = self.open.as_mut() {
                     open.waiting.push_back(asked);
+                    if open.camera.one_shot_at_a_time() {
+                        open.transferring = Some(Instant::now());
+                    }
                     log::info!(
                         "request {}: fired in {} ms; {} shot(s) waiting for their photo",
                         asked.id,
@@ -465,8 +469,18 @@ impl<W: Write> Server<W> {
         while let Some(open) = self.open.as_ref()
             && open.camera.one_shot_at_a_time()
             && !open.held
-            && let Some(last) = open.waiting.back().map(|asked| asked.id)
         {
+            let Some(last) = open.waiting.back().map(|asked| asked.id) else {
+                // Its photo came: its other files may still be on their way
+                // (the camera takes no shot meanwhile either).
+                match open.transferring {
+                    Some(since) if since.elapsed() < TRANSFER_SETTLE => {
+                        self.read_events(EVENT_POLL)?;
+                        continue;
+                    }
+                    _ => break,
+                }
+            };
             if started.elapsed() >= self.one_at_a_time_wait {
                 log::warn!(
                     "request {last} still has no photo after {} ms; the next shot is not fired",
@@ -564,11 +578,10 @@ impl<W: Write> Server<W> {
                 .is_some_and(|asked| asked.at.elapsed() > self.shot_timeout)
         {
             let asked = open.waiting.pop_front();
+            if open.waiting.is_empty() {
+                open.transferring = None;
+            }
             if let Some(asked) = asked {
-                open.timed_out.push_back(asked.id);
-                if open.timed_out.len() > TIMED_OUT_KEPT {
-                    open.timed_out.pop_front();
-                }
                 log::warn!(
                     "request {}: no photo {} s after the shot; reported as not delivered, not fired again",
                     asked.id,
@@ -636,7 +649,18 @@ impl<W: Write> Server<W> {
             return Ok(false);
         }
         match open.camera.wait_event(wait) {
-            Ok(CameraEvent::FileAdded(file)) => self.download(file, Shot::Waiting).map(|()| true),
+            Ok(CameraEvent::FileAdded(file)) => {
+                if open.transferring.is_some() {
+                    open.transferring = Some(Instant::now());
+                }
+                self.download(file, Shot::Waiting).map(|()| true)
+            }
+            Ok(CameraEvent::CaptureComplete) => {
+                if open.waiting.is_empty() {
+                    open.transferring = None;
+                }
+                Ok(true)
+            }
             Ok(CameraEvent::SettingsChanged) => self.event(Event::SettingsChanged).map(|()| true),
             Ok(CameraEvent::Timeout) => Ok(false),
             Ok(_) => Ok(true),
@@ -726,10 +750,10 @@ impl<W: Write> Server<W> {
             }),
             Shot::At(_) => None,
         };
-        let (requested, late, exposure) = match companion {
+        let (requested, exposure) = match companion {
             Some(e) => {
                 e.kinds.push(extension);
-                (e.request, e.late, e.number)
+                (e.request, e.number)
             }
             // A new exposure.
             None => {
@@ -737,31 +761,17 @@ impl<W: Write> Server<W> {
                     Shot::Waiting => open.waiting.pop_front(),
                     Shot::At(at) => Some(at),
                 };
-                // No shot waiting, but one reported as not delivered: this
-                // may be its photo, come after all, or a shot on the body
-                // (which cannot be told).
-                let late = match request {
-                    None => open.timed_out.pop_front(),
-                    Some(_) => None,
-                };
-                if let Some(late) = late {
-                    log::warn!(
-                        "{}: no shot waiting; may be the late photo of request {late} (reported as not delivered) or a shot on the body",
-                        file.name
-                    );
-                }
                 open.exposures += 1;
                 let exposure = Exposure {
                     kinds: vec![extension],
                     request,
-                    late,
                     number: open.exposures,
                 };
                 open.exposures_by_stem
                     .entry(stem)
                     .or_default()
                     .push_back(exposure);
-                (request, late, open.exposures)
+                (request, open.exposures)
             }
         };
         let started = requested.map_or(reported, |asked| asked.at);
@@ -863,7 +873,6 @@ impl<W: Write> Server<W> {
             size: expected,
             requested: requested.is_some(),
             request: requested.map(|asked| asked.id),
-            late_request: late,
             ms_to_event: requested.map(|_| reported.duration_since(started).as_millis() as u64),
             ms_to_downloaded: ms(started),
         };
