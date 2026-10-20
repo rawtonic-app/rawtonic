@@ -210,6 +210,33 @@ impl Library {
         ImportBatch { library: self }
     }
 
+    /// `import_batch` that goes on with batch `id` (an ingest resumed after
+    /// a quit: one Previous Import for all of its photographs) while it is
+    /// there, else starts one as `import_batch` does.
+    pub fn continue_import_batch(
+        &self,
+        kind: ImportKind,
+        id: Option<i64>,
+    ) -> Result<ImportBatch<'_>> {
+        let id = match id {
+            Some(id) => self
+                .conn
+                .query_row("SELECT id FROM import_batches WHERE id=?", [id], |r| {
+                    r.get(0)
+                })
+                .optional()?,
+            None => None,
+        };
+        self.import.set(Some((kind, id)));
+        Ok(ImportBatch { library: self })
+    }
+
+    /// The import batch the photographs added now join, once one was added
+    /// (`import_batch`).
+    pub fn current_import_batch(&self) -> Option<i64> {
+        self.import.get().and_then(|(_, id)| id)
+    }
+
     fn place(&self, path: &Path) -> Result<Place> {
         let path = path
             .canonicalize()

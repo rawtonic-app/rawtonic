@@ -1326,13 +1326,18 @@ impl Library {
     }
 
     /// Size and content fingerprint (`fingerprint`) of every registered
-    /// photograph, in one query: a cheap test whether a file is already in
-    /// the library before importing it (the import itself still compares
-    /// SHA-256 before it skips a duplicate).
+    /// photograph and recorded companion (a RAW's JPEG), in one query: a
+    /// cheap test whether a file is already in the library before importing
+    /// it (the import itself still compares SHA-256 before it skips a
+    /// duplicate).
     pub fn content_keys(&self) -> Result<HashSet<(u64, String)>> {
         Ok(self
             .conn
-            .prepare("SELECT size, fingerprint FROM assets")?
+            .prepare(
+                "SELECT size, fingerprint FROM assets
+                 UNION SELECT companion_size, companion_fingerprint FROM assets
+                 WHERE companion_size IS NOT NULL AND companion_fingerprint IS NOT NULL",
+            )?
             .query_map([], |r| {
                 Ok((r.get::<_, i64>(0)? as u64, r.get::<_, String>(1)?))
             })?

@@ -36,6 +36,10 @@ pub struct JobOptions {
     /// The album the photographs go into.
     #[serde(default)]
     pub album: Option<String>,
+    /// The import batch its photographs joined (Previous Import), once the
+    /// first was added: a resumed run adds the rest to it.
+    #[serde(default)]
+    pub batch: Option<i64>,
 }
 
 impl JobOptions {
@@ -50,6 +54,7 @@ impl JobOptions {
                 .transpose()?,
             roots: options.roots.to_vec(),
             album: options.album.map(Into::into),
+            batch: None,
         })
     }
 }
@@ -133,7 +138,9 @@ pub fn run_job(
         }
     };
     library.set_ingest_job_state(id, JobState::Running)?;
-    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
+    let _batch =
+        library.continue_import_batch(rawtonic_catalog::ImportKind::Ingest, options.batch)?;
+    let mut batch = options.batch;
     let items: Vec<_> = job.open_items().cloned().collect();
     let total = items
         .iter()
@@ -252,6 +259,14 @@ pub fn run_job(
             && let Some(album) = &options.album
         {
             add_to_album(library, album, &done)?;
+        }
+        // The batch the job's photographs join, kept before the first of
+        // them counts as done.
+        if let Some(current) = library.current_import_batch()
+            && batch != Some(current)
+        {
+            library.set_ingest_job_option(id, "batch", &serde_json::json!(current))?;
+            batch = Some(current);
         }
         let photo = &done[0];
         // A JPEG copied but not recorded (the library busy): the item stays
@@ -812,5 +827,29 @@ mod tests {
         run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
         assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 1);
         assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
+    }
+
+    /// A resumed job's photographs join the batch its first run started:
+    /// Previous Import is the whole ingest, also after another import.
+    #[test]
+    fn a_resumed_job_is_one_previous_import() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let sources = card(d.path());
+        let id = create_job(&lib, &sources, &options("{orig}")).unwrap();
+        let killed = catch_unwind(AssertUnwindSafe(|| {
+            run_job(&lib, &id, &AtomicBool::new(false), |done| {
+                if done.index == 2 {
+                    panic!("killed");
+                }
+            })
+        }));
+        assert!(killed.is_err());
+        let lib = Library::open(&lib.directory).unwrap();
+        let first = lib.previous_import().unwrap().unwrap();
+        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        let after = lib.previous_import().unwrap().unwrap();
+        assert_eq!(after.id, first.id);
+        assert_eq!(after.count, 4);
     }
 }
