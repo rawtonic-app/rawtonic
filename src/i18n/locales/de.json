@@ -2569,6 +2569,7 @@
         "empty": "Foto auswählen",
         "title": "Navigator"
       },
+      "searchFailed": "Die Bibliothek konnte nicht durchsucht werden: {{error}}",
       "smartAlbums": {
         "addGroup": "Regelgruppe",
         "addRule": "Regel",

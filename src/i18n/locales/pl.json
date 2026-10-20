@@ -2731,6 +2731,7 @@
         "empty": "Zaznacz zdjęcie",
         "title": "Nawigator"
       },
+      "searchFailed": "Nie udało się przeszukać biblioteki: {{error}}",
       "smartAlbums": {
         "addGroup": "Grupa reguł",
         "addRule": "Reguła",

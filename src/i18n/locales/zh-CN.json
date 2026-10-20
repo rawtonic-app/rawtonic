@@ -2509,6 +2509,7 @@
         "empty": "请选择一张照片",
         "title": "导航器"
       },
+      "searchFailed": "无法搜索资料库：{{error}}",
       "smartAlbums": {
         "addGroup": "规则组",
         "addRule": "规则",

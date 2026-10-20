@@ -2509,6 +2509,7 @@
         "empty": "사진을 선택하세요",
         "title": "탐색기"
       },
+      "searchFailed": "라이브러리를 검색할 수 없습니다: {{error}}",
       "smartAlbums": {
         "addGroup": "규칙 그룹",
         "addRule": "규칙",

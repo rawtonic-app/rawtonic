@@ -1,7 +1,9 @@
+import '../i18n';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { useCatalogSearch, SEARCH_DELAY_MS } from './useCatalogSearch';
+import { toast } from 'react-toastify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged } from '../utils/catalogWrites';
 import { IMPORTS_CHANGED } from '../utils/folderSync';
@@ -9,6 +11,7 @@ import { OFFLINE_CHANGED } from '../utils/offline';
 import { RawStatus } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+vi.mock('react-toastify', () => ({ toast: { error: vi.fn() } }));
 const listeners = new Map<string, () => void>();
 vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn(async (name: string, handler: () => void) => {
@@ -159,4 +162,16 @@ it('also asks what the photographs of shown virtual copies pass besides text and
   });
   expect([...(useLibraryStore.getState().catalogCopies ?? [])]).toEqual(['/job/Capture/a.arw']);
   useLibraryStore.setState({ imageList: [] });
+});
+
+it('shows nothing, and says so, when a search fails after an earlier one worked', async () => {
+  useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
+  renderHook(() => useCatalogSearch());
+  await settle();
+  expect(useLibraryStore.getState().catalogMatches?.size).toBe(1);
+  mockInvoke.mockRejectedValue('database is locked');
+  act(() => useLibraryStore.getState().setSearchCriteria({ text: 'groom' }));
+  await settle();
+  expect(useLibraryStore.getState().catalogMatches?.size).toBe(0);
+  expect(vi.mocked(toast.error)).toHaveBeenCalledWith(expect.stringContaining('database is locked'));
 });

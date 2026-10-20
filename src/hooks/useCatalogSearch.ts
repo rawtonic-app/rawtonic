@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import i18n from 'i18next';
+import { toast } from 'react-toastify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { copyBaseRule, photographPath, searchLibrary, searchRule } from '../utils/librarySearch';
@@ -68,7 +70,12 @@ export function useCatalogSearch() {
               catalogCopies: copies ? new Set(copies.map(photographPath)) : null,
             });
           })
-          .catch((e) => console.error('Library search failed:', e));
+          .catch((e) => {
+            // The old answer is not this filter's: show nothing and say why.
+            if (cancelled || mine !== generation || useLibraryStore.getState().sessionDirectory !== directory) return;
+            setLibrary({ catalogMatches: new Set(), catalogCopies: null });
+            toast.error(i18n.t('studio.library.searchFailed', { error: String(e) }));
+          });
       }, delay);
     };
     ask(SEARCH_DELAY_MS);

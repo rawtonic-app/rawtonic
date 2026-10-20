@@ -45,6 +45,7 @@ pub async fn session_facets(
     requests: Vec<FacetRequest>,
 ) -> Result<BTreeMap<Field, Vec<FacetValue>>, String> {
     with_library(directory, false, move |lib| {
+        start_facts_pass_if_needed(lib);
         // Lists asked with the same rule (all of them while nothing is
         // chosen) are counted in one scan.
         let mut by_rule: Vec<(Rule, Vec<Field>)> = Vec::new();
@@ -194,7 +195,9 @@ pub fn start_facts_pass(directory: PathBuf) {
 }
 
 /// Starts the pass when photographs of `lib` were added without their
-/// facts (by an edit, an import from another catalog, …) and none runs.
+/// facts (by an edit, an import from another catalog, …) and none runs:
+/// asked by every search and value list, so whatever registered them, the
+/// Library's next look fills them in.
 fn start_facts_pass_if_needed(lib: &Library) {
     if lib.facts_backlog().is_ok_and(|n| n > 0) {
         start_facts_pass(lib.directory.clone());
@@ -208,8 +211,12 @@ mod tests {
     use serde_json::json;
     use tauri::async_runtime::block_on;
 
+    /// Tests that start the (one, process-wide) facts pass run one at a time.
+    static PASS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn search_facets_and_smart_albums_reach_the_catalog() {
+        let _one = PASS.lock().unwrap_or_else(|e| e.into_inner());
         let temp = tempfile::tempdir().unwrap();
         let lib = Library::create(temp.path(), "Search", Mode::Session).unwrap();
         let capture = lib.directory.join("Capture");
@@ -314,6 +321,33 @@ mod tests {
             &|_| panic!("nothing to say"),
         )
         .unwrap();
+    }
+
+    /// A value list asked of a library with photographs not read yet starts
+    /// the pass for it (an import after the startup pass finished).
+    #[test]
+    fn value_lists_start_the_facts_pass_for_unread_photographs() {
+        let _one = PASS.lock().unwrap_or_else(|e| e.into_inner());
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Later", Mode::Session).unwrap();
+        let photo = lib.directory.join("Capture/A.ARW");
+        std::fs::write(&photo, b"a").unwrap();
+        lib.add_asset(&photo).unwrap();
+        let directory = lib.directory.clone();
+        block_on(session_facets(
+            directory.to_string_lossy().into_owned(),
+            vec![FacetRequest {
+                field: Field::Camera,
+                rule: Rule::everything(),
+            }],
+        ))
+        .unwrap();
+        let running = FACTS_PASS
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|(dir, _)| dir.clone());
+        assert_eq!(running, Some(directory));
     }
 
     /// The catalog's file types say RAW exactly where the grid does.

@@ -2650,6 +2650,7 @@
         "empty": "Sélectionnez une photo",
         "title": "Navigation"
       },
+      "searchFailed": "La recherche dans la bibliothèque a échoué : {{error}}",
       "smartAlbums": {
         "addGroup": "Groupe de règles",
         "addRule": "Règle",

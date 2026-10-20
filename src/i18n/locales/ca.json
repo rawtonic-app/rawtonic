@@ -2650,6 +2650,7 @@
         "empty": "Selecciona una foto",
         "title": "Navegador"
       },
+      "searchFailed": "No s'ha pogut cercar a la biblioteca: {{error}}",
       "smartAlbums": {
         "addGroup": "Grup de regles",
         "addRule": "Regla",

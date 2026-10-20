@@ -2509,6 +2509,7 @@
         "empty": "請選擇一張照片",
         "title": "導覽器"
       },
+      "searchFailed": "無法搜尋資料庫：{{error}}",
       "smartAlbums": {
         "addGroup": "規則群組",
         "addRule": "規則",

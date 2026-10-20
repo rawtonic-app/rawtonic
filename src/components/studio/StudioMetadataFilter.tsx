@@ -96,7 +96,11 @@ export default function StudioMetadataFilter() {
           .then((result) => {
             if (!cancelled && mine === generation) setFacets(result ?? {});
           })
-          .catch((e) => console.error("Metadata lists failed:", e));
+          .catch((e) => {
+            // No lists rather than another filter's counts.
+            if (!cancelled && mine === generation) setFacets({});
+            console.error("Metadata lists failed:", e);
+          });
       }, COUNT_DELAY_MS);
     };
     count();

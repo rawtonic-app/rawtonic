@@ -2509,6 +2509,7 @@
         "empty": "写真を選択してください",
         "title": "ナビゲーター"
       },
+      "searchFailed": "ライブラリを検索できませんでした: {{error}}",
       "smartAlbums": {
         "addGroup": "ルールのグループ",
         "addRule": "ルール",

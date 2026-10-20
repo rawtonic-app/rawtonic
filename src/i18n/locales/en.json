@@ -2569,6 +2569,7 @@
         "empty": "Select a photograph",
         "title": "Navigator"
       },
+      "searchFailed": "The library could not be searched: {{error}}",
       "smartAlbums": {
         "addGroup": "Group of rules",
         "addRule": "Rule",

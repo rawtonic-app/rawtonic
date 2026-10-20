@@ -265,7 +265,10 @@ pub async fn library_import(
             lib.relink(&relink.from, &relink.to);
         }
         let catalog = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
-        import_into(&catalog, &lib)
+        let report = import_into(&catalog, &lib);
+        // The imported photographs' capture facts, for the search.
+        crate::library_search::start_facts_pass(catalog.directory.clone());
+        report
     })
     .await
     .map_err(|e| e.to_string())?
