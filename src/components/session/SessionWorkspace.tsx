@@ -108,6 +108,13 @@ interface ImportResult {
    * backend's `ImportResult` keeps its snake_case field names). */
   companion_of?: string | null;
 }
+/** Mirrors `ingest::queue::JobSummary` (`session_ingest_jobs`). */
+interface IngestJobSummary {
+  id: string;
+  total: number;
+  open: number;
+  available: number;
+}
 /** Mirrors `session_bridge::IngestScan`. */
 interface IngestScan {
   files: IngestCandidate[];
@@ -548,6 +555,55 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       .catch((e) => {
         if (current()) toast.error(i18n.t("session.toasts.hotFolderResumeFailed", { error: String(e) }));
       });
+  }, [sessionDirectory]);
+
+  // Opening a library (also at start-up) finishes the ingests a quit,
+  // crash or card taken out left unfinished in it (`ingest::queue`); what
+  // waits for a card or drive not connected is said, and can be forgotten.
+  const ingestResumedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionDirectory || !isTauri() || ingestResumedFor.current === sessionDirectory) return;
+    ingestResumedFor.current = sessionDirectory;
+    const current = () => openDirectory.current === sessionDirectory;
+    void (async () => {
+      try {
+        const jobs = await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, { directory: sessionDirectory });
+        if (!current() || !jobs.length) return;
+        if (jobs.some((job) => job.available > 0)) {
+          setImporting(true);
+          setImportMode("copy");
+          try {
+            const results = await invoke<ImportResult[]>(Invokes.SessionIngestResume, { directory: sessionDirectory });
+            const photos = results.filter((r) => !r.companion_of && !r.error && !r.skipped).length;
+            if (photos) toast.success(i18n.t("session.toasts.ingestResumed", { n: photos }));
+          } finally {
+            setImporting(false);
+            window.dispatchEvent(new Event(IMPORTS_CHANGED));
+            if (current()) await refreshRef.current();
+          }
+        }
+        if (!current()) return;
+        const waiting = (await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, { directory: sessionDirectory }))
+          .filter((job) => job.open > 0);
+        for (const job of waiting) {
+          const forget = () =>
+            void invoke(Invokes.SessionIngestForget, { directory: sessionDirectory, id: job.id }).catch((e) =>
+              toast.error(String(e)),
+            );
+          toast.info(
+            <span>
+              {i18n.t("session.toasts.ingestWaiting", { n: job.open })}{" "}
+              <button type="button" className="session-link-button" onClick={forget}>
+                {i18n.t("session.toasts.ingestForget")}
+              </button>
+            </span>,
+            { autoClose: false },
+          );
+        }
+      } catch (e) {
+        if (current()) toast.error(i18n.t("session.toasts.ingestResumeFailed", { error: String(e) }));
+      }
+    })();
   }, [sessionDirectory]);
 
   const startHotFolder = async (event: React.FormEvent) => {

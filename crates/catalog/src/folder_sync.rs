@@ -647,11 +647,15 @@ impl Library {
                 .or_default()
                 .push(index);
         }
-        // A RAW's companion JPEG is part of that photograph, not new.
+        // A RAW's companion JPEG is part of that photograph, not new; a copy
+        // an unfinished ingest made is recorded by it.
         let companions = self.companions()?;
+        let planned = self.planned_ingest_copies()?;
         let unknown: Vec<PathBuf> = files
             .into_iter()
-            .filter(|f| !paths.contains(f.as_path()) && !companions.contains_key(f))
+            .filter(|f| {
+                !paths.contains(f.as_path()) && !companions.contains_key(f) && !planned.contains(f)
+            })
             .collect();
         let total = unknown.len();
         // Content hashes of present photographs, read once.

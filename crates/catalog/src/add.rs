@@ -150,15 +150,17 @@ pub struct PlannedAsset {
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
     /// The companion file beside it (`Library::companion`).
-    companion: Option<String>,
+    companion: Option<(String, crate::companion::Identity)>,
 }
 
 impl PlannedAsset {
     /// Registers the photograph with `name`, a file beside it, as its
-    /// companion (a RAW's JPEG), in the same transaction.
+    /// companion (a RAW's JPEG; its size and content fingerprint read now),
+    /// in the same transaction.
     pub fn with_companion(mut self, name: &str) -> Result<Self> {
         crate::companion::validate_name(name)?;
-        self.companion = Some(name.to_string());
+        let identity = crate::companion::Identity::read(&self.path.with_file_name(name))?;
+        self.companion = Some((name.to_string(), identity));
         Ok(self)
     }
 }
@@ -173,6 +175,9 @@ pub struct AddReport {
     /// Files not added and why (not a file, outside a session, an
     /// unreadable sidecar): nothing of them is in the library.
     pub failed: Vec<(PathBuf, String)>,
+    /// Files an unfinished ingest copied and will record itself (with
+    /// their companion), left to it (`Library::planned_ingest_copies`).
+    pub importing: Vec<PathBuf>,
 }
 
 /// While it lives, photographs the library adds join one import batch
@@ -317,8 +322,9 @@ impl Library {
             }
             let id = Uuid::new_v4().to_string();
             tx.execute(
-                "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text,raw_jpeg_pair)
-                 VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text,
+                                    raw_jpeg_pair,companion_size,companion_fingerprint)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 params![
                     id,
                     asset.root,
@@ -328,7 +334,12 @@ impl Library {
                     asset.fingerprint,
                     asset.kind,
                     asset.metadata.as_ref().map(search_text).unwrap_or_default(),
-                    asset.companion
+                    asset.companion.as_ref().map(|(name, _)| name),
+                    asset.companion.as_ref().map(|(_, id)| id.size as i64),
+                    asset
+                        .companion
+                        .as_ref()
+                        .map(|(_, id)| id.fingerprint.as_str())
                 ],
             )?;
             match &asset.metadata {
@@ -404,6 +415,7 @@ impl Library {
         let mut planned = Vec::new();
         let mut seen = HashSet::new();
         let companions = self.companions()?;
+        let ingesting = self.planned_ingest_copies()?;
         for path in paths {
             let plan = (|| -> Result<Option<PlannedAsset>> {
                 let place = self.place(path)?;
@@ -417,6 +429,10 @@ impl Library {
                 // A RAW's companion JPEG is part of that photograph.
                 if let Some(owner) = companions.get(&place.path) {
                     report.known.push(self.asset(owner)?);
+                    return Ok(None);
+                }
+                if ingesting.contains(&place.path) {
+                    report.importing.push(place.path.clone());
                     return Ok(None);
                 }
                 let contents = Contents::read_sidecars(&place.path)?;
@@ -746,6 +762,8 @@ mod tests {
                  DROP TABLE asset_imports; DROP TABLE import_batches;
                  ALTER TABLE b5 RENAME TO import_batches; ALTER TABLE a5 RENAME TO asset_imports;
                  CREATE INDEX asset_imports_batch ON asset_imports(batch_id);
+                 ALTER TABLE assets DROP COLUMN companion_size;
+                 ALTER TABLE assets DROP COLUMN companion_fingerprint; DROP TABLE ingest_items;
                  PRAGMA user_version=5;",
             )
             .unwrap();

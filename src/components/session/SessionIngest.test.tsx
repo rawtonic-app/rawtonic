@@ -251,6 +251,34 @@ describe("Dropping photographs onto the window", () => {
     expect(message).toContain("1 JPEGs kept with their RAWs");
   });
 
+  it("opening a library finishes its interrupted ingest; photographs waiting for their card are said, not resumed", async () => {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let jobs = [
+      { id: "job-1", total: 5, open: 2, available: 2 },
+      { id: "job-2", total: 3, open: 3, available: 0 },
+    ];
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_jobs") return jobs;
+      if (command === "session_ingest_resume") {
+        jobs = [jobs[1]];
+        return [
+          { source: "/Volumes/CARD/DCIM/D.ARW", destination: "/jobs/Acme/Capture/D.ARW", skipped: false, error: null },
+          { source: "/Volumes/CARD/DCIM/D.JPG", destination: "/jobs/Acme/Capture/D.JPG", skipped: false, error: null,
+            companion_of: "/jobs/Acme/Capture/D.ARW" },
+        ];
+      }
+      return base(command, args);
+    });
+    await open();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("An interrupted import was finished: 1 photos"));
+    await waitFor(() => expect(toast.info).toHaveBeenCalled());
+    render(<>{vi.mocked(toast.info).mock.calls[0][0] as React.ReactNode}</>);
+    expect(screen.getByText(/3 photos of an interrupted import wait for their card or drive/)).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Forget them" }));
+    expect(invoke).toHaveBeenCalledWith("session_ingest_forget", { directory: "/jobs/Acme", id: "job-2" });
+  });
+
   it("dropped onto a folder of the library: copies into that folder", async () => {
     const user = userEvent.setup();
     const navigate = await open();

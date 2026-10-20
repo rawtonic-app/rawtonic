@@ -3,7 +3,7 @@
 //! the library already holds, and the copy itself one file after the other,
 //! each reported as soon as it is in the library so the app shows it while
 //! the rest still copy.
-use crate::{ImportOptions, ImportResult, destination_folder, import_pair};
+use crate::{ImportResult, destination_folder};
 use anyhow::{Context, Result};
 use rawtonic_catalog::Library;
 use std::{
@@ -240,79 +240,20 @@ pub struct FileDone<'a> {
 /// copy; a pair's JPEG is reported right after its RAW, with the RAW's
 /// asset. A cancel stops before the next file; the file it interrupted is
 /// neither published nor reported (`verified_copy` never leaves a partial
-/// copy). Fails at once only when the destination folder is not one an
-/// import may copy into.
+/// copy). The batch is an ingest job kept in the library (`queue`): what a
+/// quit, crash or card taken out leaves undone is finished by
+/// `queue::run_job` later. Fails at once only when the destination folder
+/// is not one an import may copy into.
 pub fn import_batch(
     library: &Library,
     sources: &[PathBuf],
     options: &BatchOptions<'_>,
     cancel: &AtomicBool,
-    mut on_file: impl FnMut(FileDone<'_>),
+    on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
-    let destination = destination_folder(library, options.folder, options.roots)?;
-    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
-    let groups = pair_sources(sources, options.pair_raw);
-    let total = sources.len();
-    let mut results = Vec::with_capacity(total);
-    let mut bytes = 0u64;
-    for (number, group) in groups.iter().enumerate() {
-        if cancel.load(Ordering::Acquire) {
-            break;
-        }
-        let import = ImportOptions {
-            destination: &destination,
-            template: options.template,
-            sequence: options.sequence_start + number as u64,
-            sequence_start: options.sequence_start,
-            backup: options.backup,
-        };
-        let failed = |source: &Path, error: anyhow::Error| ImportResult {
-            source: source.to_path_buf(),
-            error: Some(error.to_string()),
-            ..Default::default()
-        };
-        let (photo, companion) = match import_pair(
-            library,
-            &group.photo,
-            group.companion.as_deref(),
-            &import,
-            None,
-            cancel,
-        ) {
-            Ok(pair) => (pair.photo, pair.companion),
-            Err(error) => {
-                let message = error.to_string();
-                (
-                    failed(&group.photo, error),
-                    group
-                        .companion
-                        .as_deref()
-                        .map(|c| failed(c, anyhow::anyhow!(message))),
-                )
-            }
-        };
-        let mut stop = false;
-        for result in std::iter::once(photo).chain(companion) {
-            if cancel.load(Ordering::Acquire) && result.error.is_some() {
-                stop = true;
-                break;
-            }
-            if !result.skipped && result.error.is_none() {
-                bytes += fs::metadata(&result.source).map(|m| m.len()).unwrap_or(0);
-            }
-            on_file(FileDone {
-                index: results.len(),
-                total,
-                result: &result,
-                bytes,
-            });
-            results.push(result);
-        }
-        if stop {
-            break;
-        }
-    }
-    Ok(results)
+    destination_folder(library, options.folder, options.roots)?;
+    let job = crate::queue::create_job(library, sources, options)?;
+    crate::queue::run_job(library, &job, cancel, on_file)
 }
 
 /// Where a source photograph is, which decides how an import into a
@@ -1630,5 +1571,38 @@ mod tests {
             "{results:?}"
         );
         assert_eq!(lib.summary().unwrap().assets, count);
+    }
+
+    /// The library's copy of a companion deleted: importing the pair (or
+    /// the JPEG alone) again puts it back as the companion, never as a
+    /// photograph of its own under the companion's name.
+    #[test]
+    fn a_lost_companion_is_put_back_not_imported_as_a_photograph() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card");
+        let sources = vec![
+            write(&card.join("A.ARW"), b"raw"),
+            write(&card.join("A.JPG"), b"jpeg"),
+        ];
+        let never = AtomicBool::new(false);
+        import_batch(&lib, &sources, &options("{orig}"), &never, |_| {}).unwrap();
+        let capture = lib.directory.join("Capture");
+        let asset = lib.asset_at(&capture.join("A.ARW")).unwrap().unwrap();
+        for again in [&sources[..], &sources[1..]] {
+            fs::remove_file(capture.join("A.JPG")).unwrap();
+            let results = import_batch(&lib, again, &options("{orig}"), &never, |_| {}).unwrap();
+            let jpeg = results.last().unwrap();
+            assert_eq!(jpeg.companion_of.as_ref(), Some(&asset.path), "{results:?}");
+            assert_eq!(names(&capture), ["A.ARW", "A.JPG"]);
+            assert_eq!(lib.summary().unwrap().assets, 1);
+            assert_eq!(lib.companion(&asset).unwrap(), Some(capture.join("A.JPG")));
+        }
+        // Another JPEG of that name never takes the companion's place.
+        fs::remove_file(capture.join("A.JPG")).unwrap();
+        let other = write(&d.path().join("card2/A.JPG"), b"another jpeg");
+        let results = import_batch(&lib, &[other], &options("{orig}"), &never, |_| {}).unwrap();
+        assert_eq!(results[0].destination, Some(capture.join("A_1.JPG")));
+        assert_eq!(lib.companion(&asset).unwrap(), None);
     }
 }

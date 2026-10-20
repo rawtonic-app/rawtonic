@@ -734,21 +734,7 @@ pub async fn session_ingest(
             roots: &roots,
             pair_raw: pair_raw(separate_jpeg),
         };
-        let started = std::time::Instant::now();
-        let report = |done: rawtonic_ingest::batch::FileDone<'_>| {
-            let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
-            let _ = app.emit(
-                "session-ingest-progress",
-                serde_json::json!({
-                    "current": done.index + 1,
-                    "total": done.total,
-                    "bytes": done.bytes,
-                    "mbps": done.bytes as f64
-                        / 1_000_000.0
-                        / started.elapsed().as_secs_f64().max(0.001),
-                }),
-            );
-        };
+        let report = ingest_reporter(&app);
         match mode.unwrap_or_default() {
             IngestMode::Copy => rawtonic_ingest::batch::import_batch(
                 &lib,
@@ -778,6 +764,104 @@ pub async fn session_ingest(
     }
     result?
 }
+/// Announces each photograph of an ingest (`session-ingest-imported`) and
+/// the count and speed (`session-ingest-progress`).
+fn ingest_reporter(app: &tauri::AppHandle) -> impl FnMut(rawtonic_ingest::batch::FileDone<'_>) {
+    let started = std::time::Instant::now();
+    move |done| {
+        let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
+        let _ = app.emit(
+            "session-ingest-progress",
+            serde_json::json!({
+                "current": done.index + 1,
+                "total": done.total,
+                "bytes": done.bytes,
+                "mbps": done.bytes as f64
+                    / 1_000_000.0
+                    / started.elapsed().as_secs_f64().max(0.001),
+            }),
+        );
+    }
+}
+
+/// The ingests a quit, crash or card taken out left unfinished in the
+/// library at `directory` (`ingest::queue`), with how many photographs each
+/// has left and how many of those are there now. None while an ingest runs
+/// (it may be one of them). Reads only.
+#[tauri::command]
+pub async fn session_ingest_jobs(
+    directory: String,
+) -> Result<Vec<rawtonic_ingest::queue::JobSummary>, String> {
+    if IMPORT_RUNNING.load(Ordering::Acquire) {
+        return Ok(Vec::new());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        lib.unfinished_ingest_jobs()
+            .map(|jobs| {
+                jobs.iter()
+                    .map(rawtonic_ingest::queue::JobSummary::of)
+                    .collect()
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Finishes the unfinished ingests of the library at `directory` whose
+/// photographs are there now, as `session_ingest` copies (same events, same
+/// cancel); photographs whose card or drive is missing stay for later.
+#[tauri::command]
+pub async fn session_ingest_resume(
+    directory: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
+    if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
+        return Err("An ingest is already running".into());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        let mut results = Vec::new();
+        for job in lib.unfinished_ingest_jobs().map_err(|e| e.to_string())? {
+            if CANCEL_IMPORT.load(Ordering::Acquire) {
+                break;
+            }
+            if rawtonic_ingest::queue::JobSummary::of(&job).available == 0 {
+                continue;
+            }
+            let done = rawtonic_ingest::queue::run_job(
+                &lib,
+                &job.id,
+                &CANCEL_IMPORT,
+                ingest_reporter(&app),
+            )
+            .map_err(|e| e.to_string())?;
+            results.extend(done);
+        }
+        Ok(results)
+    })
+    .await
+    .map_err(|e| e.to_string());
+    CANCEL_IMPORT.store(false, Ordering::Release);
+    IMPORT_RUNNING.store(false, Ordering::Release);
+    result?
+}
+
+/// Gives up the unfinished ingest `id` of the library at `directory` (its
+/// card is gone for good): it is not resumed, and copies it made but did
+/// not record become photographs of their own when the folder is read.
+#[tauri::command]
+pub async fn session_ingest_forget(directory: String, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        lib.set_ingest_job_state(&id, rawtonic_catalog::ingest_jobs::JobState::Cancelled)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn session_cancel_ingest() {
     CANCEL_IMPORT.store(true, Ordering::Release);
