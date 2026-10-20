@@ -199,7 +199,11 @@ export function copyBaseRule(text: string, selection: MetadataSelection | undefi
 /** The keywords a photograph's tags hold (`user:` typed ones and automatic
  * tags; colour labels are not keywords), as the catalog derives them. */
 const keywordsOf = (tags: string[] | null) =>
-  (tags ?? []).filter((tag) => !tag.startsWith('color:')).map((tag) => tag.replace(/^user:/, ''));
+  (tags ?? [])
+    .filter((tag) => !tag.startsWith('color:'))
+    // Trimmed and never empty, as the catalog indexes keywords.
+    .map((tag) => tag.replace(/^user:/, '').trim())
+    .filter(Boolean);
 
 /** The words of the search box, as the catalog splits them. */
 export const searchWords = (text: string) => text.trim().split(/\s+/).filter(Boolean);

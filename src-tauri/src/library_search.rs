@@ -196,9 +196,9 @@ pub fn start_facts_pass(directory: PathBuf) {
 
 /// Starts the pass when photographs of `lib` were added without their
 /// facts (by an edit, an import from another catalog, …) and none runs:
-/// asked by every search and value list, so whatever registered them, the
-/// Library's next look fills them in.
-fn start_facts_pass_if_needed(lib: &Library) {
+/// asked by every search, value list and album read, so whatever registered
+/// them (an edit, an import), the Library's next look fills them in.
+pub(crate) fn start_facts_pass_if_needed(lib: &Library) {
     if lib.facts_backlog().is_ok_and(|n| n > 0) {
         start_facts_pass(lib.directory.clone());
     }

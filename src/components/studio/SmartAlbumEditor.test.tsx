@@ -167,6 +167,10 @@ describe("rule values", () => {
     expect(Number.isNaN(parseExposure("fast"))).toBe(true);
     expect(formatExposure(0.004)).toBe("1/250");
     expect(formatExposure(2)).toBe("2");
+    // Round trip: what is shown is what is saved.
+    for (const seconds of [0.625, 0.35, 1 / 3, 0.004, 1 / 8000, 30, 2.5]) {
+      expect(parseExposure(formatExposure(seconds))).toBe(seconds);
+    }
   });
 
   it("finds incomplete rules", () => {

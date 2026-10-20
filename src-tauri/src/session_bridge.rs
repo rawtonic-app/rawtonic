@@ -1114,6 +1114,7 @@ pub async fn session_albums(
     directory: String,
 ) -> Result<Vec<rawtonic_catalog::Collection>, String> {
     with_library(directory, false, |lib| {
+        crate::library_search::start_facts_pass_if_needed(lib);
         lib.collections().map_err(|e| e.to_string())
     })
     .await
@@ -1224,6 +1225,7 @@ pub async fn session_album_remove(
 #[tauri::command]
 pub async fn session_album_paths(directory: String, id: String) -> Result<Vec<PathBuf>, String> {
     with_library(directory, false, move |lib| {
+        crate::library_search::start_facts_pass_if_needed(lib);
         lib.collection_paths(&id).map_err(|e| e.to_string())
     })
     .await

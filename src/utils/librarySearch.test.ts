@@ -133,6 +133,9 @@ describe('library search rules', () => {
     expect(copyMatches(path, ['user:Bride'], '', { keyword: ['bride'] }, [])).toBe(true);
     expect(copyMatches(path, ['color:red'], '', { keyword: [''] }, [])).toBe(true);
     expect(copyMatches(path, ['user:x'], '', { keyword: [''] }, [])).toBe(false);
+    // Keywords as the catalog indexes them: trimmed, never empty.
+    expect(copyMatches(path, ['user: harbour '], '', { keyword: ['harbour'] }, [])).toBe(true);
+    expect(copyMatches(path, ['user:  '], '', { keyword: [''] }, [])).toBe(true);
   });
 
   it('finds a virtual copy by its photograph', () => {

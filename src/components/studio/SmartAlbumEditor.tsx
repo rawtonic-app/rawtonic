@@ -79,11 +79,13 @@ export function parseExposure(text: string): number {
   return Number(clean);
 }
 
-/** Seconds as photographers write them: 1/250, 0.5, 2. */
+/** Seconds as photographers write them where that is exact (1/250, 2),
+ * else as the number itself (0.625): what is shown is what is saved. */
 export function formatExposure(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "";
-  if (seconds < 0.4) return `1/${Math.round(1 / seconds)}`;
-  return String(Math.round(seconds * 10) / 10);
+  const denominator = Math.round(1 / seconds);
+  if (seconds < 1 && denominator > 1 && 1 / denominator === seconds) return `1/${denominator}`;
+  return String(seconds);
 }
 
 /** A fresh value for `op` of `field` (keeps `previous` when it still fits). */
