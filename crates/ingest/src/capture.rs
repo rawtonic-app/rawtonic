@@ -785,9 +785,25 @@ pub(crate) mod tests {
         assert_eq!(found("K.CR3"), Some(card.join("K.xmp")));
         assert_eq!(found("k.jpg"), None);
         // Two that differ only in case (a case-sensitive volume): neither.
+        // On a volume that folds case (macOS APFS by default) they are one
+        // file, so this part needs a case-sensitive one.
         touch("J.ARW");
         touch("J.xmp");
         touch("J.XMP");
+        if fs::read_dir(card)
+            .unwrap()
+            .filter(|e| {
+                e.as_ref()
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case("J.xmp")
+            })
+            .count()
+            < 2
+        {
+            return;
+        }
         let error = card_sidecar(&card.join("J.ARW")).unwrap_err();
         assert!(error.contains("letter case"), "{error}");
         // The full form wins over an ambiguous short one.
