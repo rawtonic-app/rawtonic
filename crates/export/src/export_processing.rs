@@ -1347,11 +1347,25 @@ pub fn encode_with_metadata(
     #[cfg(feature = "performance-profiling")]
     let metadata_stage = crate::performance::PerformanceStage::new("export_metadata");
 
-    if let Some(metadata) = metadata
-        && let Err(e) =
+    if let Some(metadata) = metadata {
+        // A photo with generated areas is never written without its AI
+        // marking: on a failure the marking alone, else no export.
+        let encoded = metadata.generated.then(|| image_bytes.clone());
+        if let Err(e) =
             crate::exif_processing::embed_export_metadata(&mut image_bytes, extension, metadata)
-    {
-        log::warn!("Failed to write metadata: {}", e);
+        {
+            log::warn!("Failed to write metadata: {}", e);
+            if let Some(mut bytes) = encoded {
+                crate::exif_processing::ExportMetadata::marking_only()
+                    .and_then(|marking| {
+                        crate::exif_processing::embed_export_metadata(
+                            &mut bytes, extension, &marking,
+                        )
+                    })
+                    .map_err(|e| format!("The AI marking could not be written: {e}"))?;
+                image_bytes = bytes;
+            }
+        }
     }
     #[cfg(feature = "performance-profiling")]
     drop(metadata_stage);
