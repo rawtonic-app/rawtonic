@@ -2050,6 +2050,54 @@ mod tests {
     }
 
     #[test]
+    fn lightroom_per_dab_radius_flow_and_hardness_are_kept() {
+        // A pen stroke in Lightroom changes radius, flow and CenterWeight
+        // between dabs ("r"/"f"/"h"); every dab keeps the settings it was
+        // painted with (a stroke per run of equal settings, exact for
+        // Lightroom's tip: a dab at every point, accumulated 1 − Π(1 − a)).
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+ <rdf:Description xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+  <crs:MaskGroupBasedCorrections><rdf:Seq>
+   <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Pen" crs:LocalExposure2012="0.25">
+    <crs:CorrectionMasks><rdf:Seq>
+     <rdf:li><rdf:Description crs:What="Mask/Paint" crs:MaskValue="1" crs:Radius="0.05" crs:Flow="1" crs:CenterWeight="0">
+      <crs:Dabs><rdf:Seq><rdf:li>d 0.300000 0.500000</rdf:li><rdf:li>f 0.400000</rdf:li>
+       <rdf:li>d 0.310000 0.500000</rdf:li><rdf:li>r 0.030000</rdf:li><rdf:li>f 0.700000</rdf:li>
+       <rdf:li>d 0.320000 0.500000</rdf:li><rdf:li>h 0.500000</rdf:li><rdf:li>d 0.330000 0.500000</rdf:li>
+       <rdf:li>d 0.340000 0.500000</rdf:li></rdf:Seq></crs:Dabs>
+     </rdf:Description></rdf:li>
+    </rdf:Seq></crs:CorrectionMasks>
+   </rdf:Description></rdf:li>
+  </rdf:Seq></crs:MaskGroupBasedCorrections>
+ </rdf:Description></rdf:RDF></x:xmpmeta>"#;
+        let (layers, _) = super::lightroom_masks(xmp);
+        let strokes = layers[0]["subMasks"][0]["parameters"]["lrNormalized"]["strokes"]
+            .as_array()
+            .unwrap()
+            .clone();
+        let settings: Vec<(usize, f64, f64, f64)> = strokes
+            .iter()
+            .map(|s| {
+                (
+                    s["dabs"].as_array().unwrap().len(),
+                    s["radius"].as_f64().unwrap(),
+                    s["flow"].as_f64().unwrap(),
+                    s["centerWeight"].as_f64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            settings,
+            vec![
+                (1, 0.05, 1.0, 0.0),
+                (1, 0.05, 0.4, 0.0),
+                (1, 0.03, 0.7, 0.0),
+                (2, 0.03, 0.7, 0.5)
+            ]
+        );
+    }
+
+    #[test]
     fn lightroom_colour_ranges_keep_their_samples_and_refine() {
         // As Lightroom Classic 15.6 writes them (attributes on an inner
         // rdf:Description): two points and one area at Refine 25.

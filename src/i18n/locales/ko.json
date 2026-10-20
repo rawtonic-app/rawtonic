@@ -2212,6 +2212,10 @@
         "brushOpacity": "브러시 불투명도",
         "brushSize": "브러시 크기",
         "hardness": "경도",
+        "penPressure": "펜 압력",
+        "penPressureTitle": "압력 감지 펜으로 세게 누를수록 더 넓게(크기) 또는 더 강하게(흐름) 칠합니다. 마우스는 항상 최대 압력으로 칠합니다.",
+        "pressureFlow": "흐름",
+        "pressureSize": "크기",
         "size": "크기"
       },
       "draw": "그리기",

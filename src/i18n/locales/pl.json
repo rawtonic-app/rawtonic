@@ -2386,6 +2386,10 @@
         "brushOpacity": "Krycie pędzla",
         "brushSize": "Rozmiar pędzla",
         "hardness": "Twardość",
+        "penPressure": "Nacisk pióra",
+        "penPressureTitle": "Piórem czułym na nacisk mocniejszy nacisk maluje szerszą (Rozmiar) lub mocniejszą (Przepływ) linię. Mysz zawsze maluje z pełnym naciskiem.",
+        "pressureFlow": "Przepływ",
+        "pressureSize": "Rozmiar",
         "size": "Rozmiar"
       },
       "draw": "Maluj",

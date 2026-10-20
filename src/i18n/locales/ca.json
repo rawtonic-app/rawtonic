@@ -2321,6 +2321,10 @@
         "brushOpacity": "Opacitat del pinzell",
         "brushSize": "Mida del pinzell",
         "hardness": "Duresa",
+        "penPressure": "Pressió del llapis",
+        "penPressureTitle": "Amb un llapis sensible a la pressió, prémer més pinta un traç més ample (Mida) o més intens (Flux). Un ratolí sempre pinta amb pressió màxima.",
+        "pressureFlow": "Flux",
+        "pressureSize": "Mida",
         "size": "Mida"
       },
       "draw": "Pinta",

@@ -2321,6 +2321,10 @@
         "brushOpacity": "Opacità pennello",
         "brushSize": "Dimensione pennello",
         "hardness": "Durezza",
+        "penPressure": "Pressione della penna",
+        "penPressureTitle": "Con una penna sensibile alla pressione, premendo di più si dipinge un tratto più largo (Dimensione) o più intenso (Flusso). Un mouse dipinge sempre a piena pressione.",
+        "pressureFlow": "Flusso",
+        "pressureSize": "Dimensione",
         "size": "Dimensione"
       },
       "draw": "Dipingi",

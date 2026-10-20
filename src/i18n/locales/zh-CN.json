@@ -2212,6 +2212,10 @@
         "brushOpacity": "画笔不透明度",
         "brushSize": "画笔大小",
         "hardness": "硬度",
+        "penPressure": "笔压",
+        "penPressureTitle": "使用压感笔时，按得越重，笔触越宽（大小）或越浓（流量）。鼠标始终以最大压力绘制。",
+        "pressureFlow": "流量",
+        "pressureSize": "大小",
         "size": "大小"
       },
       "draw": "绘制",

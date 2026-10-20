@@ -11,6 +11,7 @@ import { MASK_VERSION } from "../../utils/adjustments";
 import { Mask } from "../panel/right/Masks";
 import { warnIfComponentStartsLayer } from "./layerLimitToast";
 import { keepWithinLayerLimit } from "../../utils/layerLimit";
+import { usePenAvailable } from "../../utils/penPressure";
 import {
   BRUSH_SIZE_MAX,
   BRUSH_SIZE_MIN,
@@ -43,6 +44,7 @@ export default function StudioLayerControls({
   const { setAdjustments } = useEditorActions();
   const appSettings = useSettingsStore((s) => s.appSettings);
   const handleSettingsChange = useSettingsStore((s) => s.handleSettingsChange);
+  const penAvailable = usePenAvailable();
   if (!layer) return null;
   const onInteraction = (active: boolean) =>
     setEditor({ isSliderDragging: active });
@@ -238,6 +240,30 @@ export default function StudioLayerControls({
             />
             {t("studio.layers.brush.autoMask")}
           </label>
+          {/* Pen pressure (Capture One: size; flow as well): only strokes
+              drawn with a pressure-sensitive pen carry it, so it shows once
+              the webview has reported a pen. */}
+          {penAvailable && (
+            <div className="studio-inline" title={t("studio.layers.brush.penPressureTitle")}>
+              <span>{t("studio.layers.brush.penPressure")}</span>
+              <label className="studio-check">
+                <input
+                  type="checkbox"
+                  checked={brushSettings?.pressureSize ?? true}
+                  onChange={(e) => setBrush({ pressureSize: e.target.checked })}
+                />
+                {t("studio.layers.brush.pressureSize")}
+              </label>
+              <label className="studio-check">
+                <input
+                  type="checkbox"
+                  checked={!!brushSettings?.pressureFlow}
+                  onChange={(e) => setBrush({ pressureFlow: e.target.checked })}
+                />
+                {t("studio.layers.brush.pressureFlow")}
+              </label>
+            </div>
+          )}
         </>
       )}
       {/* Draw and Erase paint on the layer's mask (one is active while

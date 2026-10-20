@@ -2212,6 +2212,10 @@
         "brushOpacity": "ブラシの不透明度",
         "brushSize": "ブラシサイズ",
         "hardness": "硬さ",
+        "penPressure": "ペンの筆圧",
+        "penPressureTitle": "筆圧対応ペンでは、強く押すほど太い（サイズ）または濃い（流量）ストロークになります。マウスは常に最大筆圧で描画します。",
+        "pressureFlow": "流量",
+        "pressureSize": "サイズ",
         "size": "サイズ"
       },
       "draw": "描画",

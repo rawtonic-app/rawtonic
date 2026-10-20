@@ -429,6 +429,11 @@ export interface BrushSettings {
   /** Lightroom's and Capture One's Auto Mask: strokes keep to colours like
    * the one under the brush centre. */
   autoMask?: boolean;
+  /** Pen pressure scales new pen strokes' size and/or flow (absent: size on,
+   * flow off, as Capture One's Pen Pressure). A mouse paints at full
+   * pressure (user decision D3). */
+  pressureSize?: boolean;
+  pressureFlow?: boolean;
 }
 
 export enum LibraryViewMode {

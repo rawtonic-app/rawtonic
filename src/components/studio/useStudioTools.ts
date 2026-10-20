@@ -111,6 +111,8 @@ export function useStudioTools() {
     hardness: brushSettings?.hardness ?? 50,
     opacity: brushSettings?.opacity,
     flow: brushSettings?.flow,
+    pressureSize: brushSettings?.pressureSize,
+    pressureFlow: brushSettings?.pressureFlow,
     tool: ToolType.Brush,
   });
 

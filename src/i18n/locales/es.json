@@ -2321,6 +2321,10 @@
         "brushOpacity": "Opacidad del pincel",
         "brushSize": "Tamaño del pincel",
         "hardness": "Dureza",
+        "penPressure": "Presión del lápiz",
+        "penPressureTitle": "Con un lápiz sensible a la presión, presionar más pinta un trazo más ancho (Tamaño) o más intenso (Flujo). Un ratón siempre pinta con presión máxima.",
+        "pressureFlow": "Flujo",
+        "pressureSize": "Tamaño",
         "size": "Tamaño"
       },
       "draw": "Pintar",
