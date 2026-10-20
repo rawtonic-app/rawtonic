@@ -6,6 +6,8 @@
 #   scripts/review.sh [--base REF]   review the commits REF..HEAD (default origin/main)
 #   scripts/review.sh --plan FILE    review a plan before implementing it
 #   --reviewer codex|claude          who reviews (default: the machine's switch)
+#   --author codex|claude|human      who wrote the change (default: detected from
+#                                    the calling agent, see below)
 #   scripts/review.sh --default codex|claude   set the switch for every worktree
 #                                    of this clone (`--default` alone shows it)
 # Exit: 0 approve, 1 changes requested, 2 usage, 3 reviewer unavailable.
@@ -16,8 +18,10 @@
 # The reviewer runs read-only (`codex exec --sandbox read-only`) with the same
 # model and reasoning effort on every machine (RAWTONIC_REVIEW_MODEL,
 # RAWTONIC_REVIEW_EFFORT override them), so a verdict does not depend on
-# which host's ~/.codex/config.toml happened to run it. A change written by
-# Codex (a commit with a `Co-Authored-By: Codex` trailer) is reviewed by Claude
+# which host's ~/.codex/config.toml happened to run it. The author is the agent
+# that runs the review (agents ship their own branches): Codex sets
+# CODEX_THREAD_ID in its shells, Claude Code sets CLAUDECODE=1. A change written
+# by Codex is reviewed by Claude
 # instead (`claude -p` with only Read/Grep/Glob, no MCP servers or settings;
 # RAWTONIC_CLAUDE_REVIEW_MODEL), since
 # the reviewer must be another model than the author. When Codex's usage
@@ -30,7 +34,7 @@ set -eu
 cd "$(dirname "$0")/.."
 DIR=scripts/review
 
-BASE=origin/main; PLAN=''; FULL=1; REVIEWER=''
+BASE=origin/main; PLAN=''; FULL=1; REVIEWER=''; AUTHOR=''
 SWITCH="$(git rev-parse --path-format=absolute --git-common-dir)/rawtonic-reviewer"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,6 +47,7 @@ while [ $# -gt 0 ]; do
     --base) BASE=$2; FULL=0; shift 2 ;;
     --plan) PLAN=$2; shift 2 ;;
     --reviewer) REVIEWER=$2; shift 2 ;;
+    --author) AUTHOR=$2; shift 2 ;;
     *) echo "review: unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -62,23 +67,28 @@ else
   git rev-parse -q --verify "$BASE" >/dev/null || { echo "review: unknown base $BASE" >&2; exit 2; }
   [ -n "$(git log --oneline "$BASE"..HEAD)" ] || { echo "review: no commits in $BASE..HEAD" >&2; exit 2; }
   HEAD_SHA=$(git rev-parse HEAD)
-  BY_CODEX=$(git log --format=%B "$BASE"..HEAD | grep -ci '^Co-Authored-By: *Codex' || true)
-  BY_CLAUDE=$(git log --format=%B "$BASE"..HEAD | grep -ci '^Co-Authored-By: *Claude' || true)
+  # Codex first: a Codex started from a Claude Code shell inherits CLAUDECODE.
+  if [ -z "$AUTHOR" ]; then
+    if [ -n "${CODEX_THREAD_ID:-}" ]; then AUTHOR=codex
+    elif [ "${CLAUDECODE:-}" = 1 ]; then AUTHOR=claude
+    else AUTHOR=human
+    fi
+  fi
+  case "$AUTHOR" in
+    codex|claude|human) ;;
+    *) echo "review: unknown author: $AUTHOR" >&2; exit 2 ;;
+  esac
   if [ "$DEFAULT" = claude ] && [ "$REVIEWER" != codex ]; then
     # Switched to Claude (Codex's limit): Claude reviews everything; for
-    # Claude's own commits that is a same-model review, said in the verdict.
+    # Claude's own change that is a same-model review, said in the verdict.
     REVIEWER=claude
-    [ "$BY_CLAUDE" = 0 ] || SAME_MODEL=1
-  elif [ "$BY_CODEX" != 0 ] && [ "$BY_CLAUDE" != 0 ]; then
-    echo "review: commits by both Codex and Claude; split the branch so another model reviews each" >&2; exit 2
-  elif [ "$BY_CODEX" != 0 ]; then
-    [ "$REVIEWER" != codex ] || { echo "review: commits written by Codex need another reviewer (--reviewer claude)" >&2; exit 2; }
+    [ "$AUTHOR" != claude ] || SAME_MODEL=1
+  elif [ "$AUTHOR" = codex ]; then
+    [ "$REVIEWER" != codex ] || { echo "review: a change written by Codex needs another reviewer (--reviewer claude)" >&2; exit 2; }
     REVIEWER=claude
-  elif [ "$REVIEWER" = claude ] && [ "$BY_CLAUDE" != 0 ]; then
-    echo "review: commits written by Claude need another reviewer (default codex)" >&2; exit 2
+  elif [ "$REVIEWER" = claude ] && [ "$AUTHOR" = claude ]; then
+    echo "review: a change written by Claude needs another reviewer (default codex)" >&2; exit 2
   fi
-  [ "$BY_CODEX" = 0 ] || [ "$REVIEWER" != codex ] ||
-    { echo "review: commits written by Codex need another reviewer (--reviewer claude)" >&2; exit 2; }
   {
     cat "$DIR/prompt.md"
     printf '\n## The change\n\nReview the commits `%s..HEAD` (HEAD %s). Read them with `git log %s..HEAD` and `git diff %s...HEAD`.\n\n' \
@@ -140,10 +150,10 @@ if [ -z "$PLAN" ]; then
   if [ "$FULL" = 1 ]; then
     STORE="$(git rev-parse --git-dir)/rawtonic-review"
     mkdir -p "$STORE"
-    python3 -c 'import json, sys; v = json.load(open(sys.argv[1])); v["reviewer"] = sys.argv[3]
+    python3 -c 'import json, sys; v = json.load(open(sys.argv[1])); v["reviewer"] = sys.argv[3]; v["author"] = sys.argv[5]
 if sys.argv[4]: v["summary"] = "Same-model review (reviewer switched to Claude, Codex limit). " + v["summary"]
 json.dump(v, open(sys.argv[2], "w"), indent=1)' \
-      "$OUT" "$STORE/$HEAD_SHA.json" "$REVIEWER" "${SAME_MODEL:-}"
+      "$OUT" "$STORE/$HEAD_SHA.json" "$REVIEWER" "${SAME_MODEL:-}" "$AUTHOR"
   fi
 fi
 printf 'review: %s\n' "$VERDICT"
