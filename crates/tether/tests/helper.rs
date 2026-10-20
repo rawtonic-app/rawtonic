@@ -443,35 +443,29 @@ fn raw_and_jpeg_of_one_exposure_answer_one_request() {
 #[test]
 fn interleaved_raw_and_jpeg_files_keep_their_exposure_and_request() {
     let dir = tempfile::tempdir().unwrap();
-    // A.ARW, B.ARW, C.ARW, A.JPG, B.JPG, C.JPG; requests 4 and 5 never
-    // deliver.
+    // Ten RAWs, then their JPEGs; requests 11 and 12 never deliver.
     let spec = MockSpec {
         raw_and_jpeg: true,
-        jpeg_late_ms: 300,
-        lost_shots: vec![4, 5],
+        jpeg_late_ms: 1500,
+        lost_shots: vec![11, 12],
         ..MockSpec::default()
     };
-    let helper = start_with(&spec, dir.path(), 1500);
+    let helper = start_with(&spec, dir.path(), 3000);
     helper.connect().unwrap();
-    for _ in 0..5 {
+    for _ in 0..12 {
         helper.capture();
     }
-    let (photos, mut other) = helper.photos(6);
-    assert_eq!(photos.len(), 6, "{other:?}");
-    let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
-    assert_eq!(
-        names,
-        [
-            "DSC00001.ARW",
-            "DSC00002.ARW",
-            "DSC00003.ARW",
-            "DSC00001.JPG",
-            "DSC00002.JPG",
-            "DSC00003.JPG"
-        ]
-    );
+    let (photos, mut other) = helper.photos(20);
+    assert_eq!(photos.len(), 20, "{other:?}");
+    let names: Vec<String> = photos.iter().map(|p| p.camera_name.clone()).collect();
+    let expected: Vec<String> = (1..=10)
+        .map(|n| format!("DSC{n:05}.ARW"))
+        .chain((1..=10).map(|n| format!("DSC{n:05}.JPG")))
+        .collect();
+    assert_eq!(names, expected, "every RAW before the JPEGs");
     let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
-    assert_eq!(exposures, [1, 2, 3, 1, 2, 3]);
+    let numbers: Vec<u64> = (1..=10).chain(1..=10).collect();
+    assert_eq!(exposures, numbers);
     // The JPEGs did not take the open requests: both time out.
     let deadline = Instant::now() + WAIT;
     while Instant::now() < deadline

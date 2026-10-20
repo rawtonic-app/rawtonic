@@ -16,11 +16,8 @@ use std::time::{Duration, Instant};
 
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
-/// Which app shot a downloaded file belongs to.
-/// An exposure files were matched to (`Open::recent`).
+/// The newest exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
-    /// Its file name without the extension.
-    stem: String,
     /// The file kinds (extensions) it gave so far.
     kinds: Vec<String>,
     /// Its app request, if any.
@@ -29,9 +26,7 @@ struct Exposure {
     number: u64,
 }
 
-/// How many exposures a late RAW or JPEG of one is looked for in.
-const RECENT_EXPOSURES: usize = 8;
-
+/// Which app shot a downloaded file belongs to.
 enum Shot {
     /// The oldest waiting one, if any — unless the file turns out to be a
     /// repeated report of the last photo.
@@ -66,10 +61,11 @@ struct Open {
     published: std::collections::HashMap<CameraFile, (usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
-    /// The last exposures files were matched to, newest last: RAW and JPEG
-    /// of one exposure share the name and answer one request, and may come
-    /// interleaved with another exposure's files (A.RAW, B.RAW, A.JPG).
-    recent: VecDeque<Exposure>,
+    /// The newest exposure of each file name (without the extension): RAW
+    /// and JPEG of one exposure share the name and answer one request, and
+    /// may come interleaved with other exposures' files, however late
+    /// (A.RAW, B.RAW, A.JPG). One entry per name the camera used.
+    exposures_by_stem: std::collections::HashMap<String, Exposure>,
     /// Exposures so far (`Captured::exposure`).
     exposures: u64,
     /// The camera came to keep photos only in its memory ("Save to" without
@@ -280,7 +276,7 @@ impl<W: Write> Server<W> {
                     downloaded: 0,
                     published: Default::default(),
                     downloads: Default::default(),
-                    recent: VecDeque::new(),
+                    exposures_by_stem: Default::default(),
                     exposures: 0,
                     memory_only: false,
                     connection: self.connections,
@@ -500,14 +496,14 @@ impl<W: Write> Server<W> {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
             None => (file.name.clone(), String::new()),
         };
-        // Another file of a recent exposure (same name, a kind it has not
-        // given yet; the newest such): the same request, not the next one.
+        // Another file of the name's newest exposure (a kind it has not
+        // given yet): the same request, not the next one. A kind it already
+        // gave starts a new exposure (a reused name).
         let companion = match shot_of {
             Shot::Waiting => open
-                .recent
-                .iter_mut()
-                .rev()
-                .find(|e| e.stem == stem && !e.kinds.contains(&extension)),
+                .exposures_by_stem
+                .get_mut(&stem)
+                .filter(|e| !e.kinds.contains(&extension)),
             Shot::At(_) => None,
         };
         let (requested, exposure) = match companion {
@@ -522,15 +518,12 @@ impl<W: Write> Server<W> {
                     Shot::At(at) => Some(at),
                 };
                 open.exposures += 1;
-                if open.recent.len() == RECENT_EXPOSURES {
-                    open.recent.pop_front();
-                }
-                open.recent.push_back(Exposure {
-                    stem,
+                let exposure = Exposure {
                     kinds: vec![extension],
                     request,
                     number: open.exposures,
-                });
+                };
+                open.exposures_by_stem.insert(stem, exposure);
                 (request, open.exposures)
             }
         };

@@ -243,7 +243,55 @@ it("fails a step whose RAW was not added although its JPEG was", async () => {
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
-  await runStep(/\| Shots from Rawtonic \| FAIL \| 5\/5 in the library; .*5 files not added to the library \|/);
-  expect(report()).toContain("- Files not added to the library: 5");
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 5\/5 in the library; .*5 files not added or shots not delivered \|/);
+  expect(report()).toContain("- Files not added or shots not delivered during the test: 5");
   expect(report()).not.toMatch(/someone|disk full/);
 });
+
+it("a companion that fails to download, or fails after its step ended, fails that step", async () => {
+  // The JPEG is in; its RAW's download fails (the helper reports the shot
+  // as not delivered).
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      emit("tether-captured", {
+        cameraName: `DSCF${n}.JPG`,
+        connection: 1,
+        exposure: n,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+      emit("tether-capture-failed", { kind: "storage", message: "Writing DSCF.RAF failed" });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 5\/5 in the library; \d+ ms; shot not delivered \(storage\) \|/);
+  // A body shot passes; its RAW fails later, after the step.
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  await screen.findByText("Press the shutter button on the camera now.");
+  emit("tether-captured", {
+    cameraName: "DSCF50.JPG",
+    connection: 1,
+    exposure: 50,
+    destination: null,
+    assetId: "b",
+    skipped: false,
+    error: null,
+    requested: false,
+  });
+  await waitFor(() => expect(report()).toContain("| Shot on the camera | pass |"), { timeout: 4000 });
+  emit("tether-captured", {
+    cameraName: "DSCF50.RAF",
+    connection: 1,
+    exposure: 50,
+    destination: null,
+    assetId: null,
+    skipped: false,
+    error: "disk full",
+    requested: false,
+  });
+  expect(report()).toContain("| Shot on the camera | FAIL | 1/1 in the library; a file of its photos failed after the step |");
+  expect(report()).toContain("- Files not added or shots not delivered during the test: 6");
+}, 20_000);

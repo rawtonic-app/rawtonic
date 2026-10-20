@@ -92,6 +92,11 @@ const NO_PHOTO: Failure = { reason: "no photo arrived" };
 /** Steps that take photos, and how long after one its last files may come. */
 const PHOTO_STEPS: StepId[] = ["shots", "burst", "bodyShot", "replug"];
 const SETTLE_MS = 1000;
+/** A file not added to the library or a shot the helper reports as not
+ * delivered (also the second file of a RAW+JPEG exposure). */
+const isFailure = (h: Heard) =>
+  (h.name === "tether-captured" && Boolean(captured(h).error)) || h.name === "tether-capture-failed";
+const LATE_FAILURE = "a file of its photos failed after the step";
 
 const systemName = () => {
   try {
@@ -127,8 +132,12 @@ export default function TetherCameraTest({
   const [shotCount, setShotCount] = useState(10);
   const [appVersion, setAppVersion] = useState("unknown");
   const [copied, setCopied] = useState(false);
-  // Files of the test's photos that did not go into the library.
-  const [filesNotAdded, setFilesNotAdded] = useState(0);
+  // Files not added to the library and shots not delivered during the test.
+  const [failures, setFailures] = useState(0);
+  // The photo step running, and the last one that ran: a failure heard
+  // after its end (a late RAW or JPEG of its last exposure) fails it.
+  const runningStep = useRef<StepId | null>(null);
+  const lastPhotoStep = useRef<StepId | null>(null);
 
   // Everything heard during the test, so a wait never misses what came
   // before it was set up.
@@ -158,8 +167,7 @@ export default function TetherCameraTest({
       if (name === "tether-captured") {
         // One exposure as RAW and JPEG counts once: the helper gives both
         // its number.
-        const { connection, exposure, error } = payload as Captured;
-        if (error) setFilesNotAdded((n) => n + 1);
+        const { connection, exposure } = payload as Captured;
         if (connection == null || exposure == null) h.exposure = true;
         else {
           const key = `${connection}/${exposure}`;
@@ -168,6 +176,16 @@ export default function TetherCameraTest({
         }
       }
       heard.current.push(h);
+      if (isFailure(h)) {
+        setFailures((n) => n + 1);
+        const late = runningStep.current === null ? lastPhotoStep.current : null;
+        if (late)
+          setResults((current) => {
+            const result = current[late];
+            if (!result || result.state === "failed") return current;
+            return { ...current, [late]: { ...result, state: "failed", reason: LATE_FAILURE } };
+          });
+      }
       if (heard.current.length > 500) heard.current.splice(0, 250);
       if (name === "tether-captured") {
         const c = payload as Captured;
@@ -329,9 +347,12 @@ export default function TetherCameraTest({
         }
       }
       const fired = BURST - errors.length;
+      // Exposures in, and every fired shot ended: in, or reported as never
+      // delivered (a failed file of an exposure already in ends nothing).
       let arrived = 0;
+      let ended = 0;
       let last = since;
-      while (arrived < fired) {
+      while (ended < fired) {
         const photo = await next(
           (h) =>
             h.at > last &&
@@ -344,10 +365,14 @@ export default function TetherCameraTest({
           break;
         }
         last = photo.at;
-        if (photo.name === "tether-capture-failed") errors.push(notDelivered(photo.payload));
-        else if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ""));
-        else arrived += 1;
-        if (arrived + errors.length >= BURST) break;
+        if (photo.name === "tether-capture-failed") {
+          errors.push(notDelivered(photo.payload));
+          if ((photo.payload as { kind?: string }).kind === "timeout") ended += 1;
+        } else {
+          ended += 1;
+          if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ""));
+          else arrived += 1;
+        }
       }
       return {
         state: errors.length === 0 && arrived === BURST ? "passed" : "failed",
@@ -420,6 +445,7 @@ export default function TetherCameraTest({
   };
 
   const run = async (id: StepId) => {
+    runningStep.current = id;
     setRunning(id);
     setPrompt("");
     const started = now();
@@ -433,17 +459,20 @@ export default function TetherCameraTest({
       // Every file of the step's photos counts, also the second file of a
       // RAW+JPEG exposure (counted once above), and one a moment late.
       await new Promise((done) => window.setTimeout(done, SETTLE_MS));
-      const failed = heard.current.filter(
-        (h) => h.at >= started && h.name === "tether-captured" && captured(h).error,
-      );
-      if (failed.length > 0) {
-        const reason = `${failed.length} files not added to the library`;
-        result =
-          result.state === "failed"
-            ? { ...result, reason: result.reason ? `${result.reason}, ${reason}` : reason }
-            : { ...result, state: "failed", reason, detail: captured(failed[0]).error ?? undefined };
+      const failed = heard.current.filter((h) => h.at >= started && isFailure(h));
+      if (failed.length > 0 && result.state !== "failed") {
+        const first = failed[0];
+        result = {
+          ...result,
+          state: "failed",
+          reason: `${failed.length} files not added or shots not delivered`,
+          detail:
+            first.name === "tether-capture-failed" ? notDelivered(first.payload).detail : (captured(first).error ?? undefined),
+        };
       }
     }
+    if (PHOTO_STEPS.includes(id)) lastPhotoStep.current = id;
+    runningStep.current = null;
     setResults((current) => ({ ...current, [id]: result }));
     setPrompt("");
     setRunning(null);
@@ -461,7 +490,7 @@ export default function TetherCameraTest({
     transport: camera.transport ?? "mock",
     transferQueue: camera.transferQueue ?? false,
     freeCameraCopies,
-    filesNotAdded,
+    failures,
   };
   const report = buildReport(info, results);
   const stepNames: Record<StepId, string> = {

@@ -19,7 +19,7 @@ const INFO: ReportInfo = {
   transport: "imageCaptureCore",
   transferQueue: false,
   freeCameraCopies: true,
-  filesNotAdded: 0,
+  failures: 0,
 };
 
 it("takes medians and nearest-rank percentiles", () => {
@@ -54,7 +54,7 @@ it("writes an anonymous report with the camera, its firmware, the driver and eve
   expect(report).toContain("- Firmware: 2.00");
   expect(report).toContain("- Camera driver: libgphoto2 2.5.34 via ImageCaptureCore (macOS camera service)");
   expect(report).toContain("- Compatibility list: tested");
-  expect(report).toContain("- Files not added to the library: 0");
+  expect(report).toContain("- Files not added or shots not delivered during the test: 0");
   expect(report).toContain("| Connect | pass | 2310 ms |");
   expect(report).toContain("photo on screen median 1140 ms, p95 1214 ms (n=3)");
   expect(report).toContain("| Burst from Rawtonic | FAIL | 4/5 in the library;");
