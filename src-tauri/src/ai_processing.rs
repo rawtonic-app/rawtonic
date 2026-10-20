@@ -1643,10 +1643,12 @@ fn display_rgb8(image: DynamicImage, linear: bool) -> image::RgbImage {
     })
 }
 
+/// `options` can stop the run (`RunOptions::terminate`).
 pub fn generate_image_embeddings(
     image: &DynamicImage,
     encoder: &rawtonic_onnx::Model,
     linear: bool,
+    options: Option<&ort::session::RunOptions>,
 ) -> Result<ImageEmbeddings> {
     let (orig_width, orig_height) = image.dimensions();
 
@@ -1667,7 +1669,11 @@ pub fn generate_image_embeddings(
 
     let start = std::time::Instant::now();
     let (embeddings, high_res_0, high_res_1) = encoder.run(|session| {
-        let outputs = session.run(ort::inputs!["image" => Tensor::from_array(input.clone())?])?;
+        let inputs = ort::inputs!["image" => Tensor::from_array(input.clone())?];
+        let outputs = match options {
+            Some(options) => session.run_with_options(inputs, options)?,
+            None => session.run(inputs)?,
+        };
         let output = |name: &str| -> Result<Array<f32, IxDyn>> {
             let array = outputs[name].try_extract_array::<f32>()?.to_owned();
             rawtonic_onnx::ensure_finite(array.iter())?;
@@ -3293,6 +3299,43 @@ mod tool_tests {
         assert!(r(400) < r(1600) && r(1600) < r(6000));
     }
 
+    /// Terminating the run options stops SAM's encoder at once (a cancelled
+    /// encoding ahead), and the model stays usable; models from `$AI_MODELS`,
+    /// runtime from `ORT_DYLIB_PATH`.
+    #[test]
+    #[ignore = "needs AI_MODELS and ORT_DYLIB_PATH"]
+    fn a_terminated_encoding_stops_and_the_encoder_stays_usable() {
+        let models = std::path::PathBuf::from(std::env::var("AI_MODELS").unwrap());
+        let encoder =
+            rawtonic_onnx::Model::load_file(&models.join(super::ENCODER_FILENAME)).unwrap();
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::new(1600, 1200));
+        super::generate_image_embeddings(&image, &encoder, false, None).unwrap();
+        let full = std::time::Instant::now();
+        super::generate_image_embeddings(&image, &encoder, false, None).unwrap();
+        let full = full.elapsed();
+        let options = std::sync::Arc::new(ort::session::RunOptions::new().unwrap());
+        let stopper = {
+            let options = options.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(full / 10);
+                options.terminate().unwrap();
+            })
+        };
+        let stopped = std::time::Instant::now();
+        assert!(super::generate_image_embeddings(&image, &encoder, false, Some(&options)).is_err());
+        let stopped = stopped.elapsed();
+        stopper.join().unwrap();
+        println!(
+            "full encoding {full:?}, terminated after {stopped:?} on {}",
+            encoder.provider()
+        );
+        assert!(
+            stopped < full,
+            "terminated after {stopped:?}, full {full:?}"
+        );
+        super::generate_image_embeddings(&image, &encoder, false, None).unwrap();
+    }
+
     /// The subject mask of a box around a bright patch covers the patch in
     /// every aspect ratio (a decoder that bakes in its export example's crop
     /// misplaces it); models from `$AI_MODELS`, runtime from `ORT_DYLIB_PATH`.
@@ -3314,7 +3357,8 @@ mod tool_tests {
                 }
             });
             let image = image::DynamicImage::ImageRgb8(image);
-            let embeddings = super::generate_image_embeddings(&image, &encoder, false).unwrap();
+            let embeddings =
+                super::generate_image_embeddings(&image, &encoder, false, None).unwrap();
             let margin = (w.min(h) / 50) as f64;
             let mask = super::run_sam_decoder(
                 &decoder,
@@ -3465,7 +3509,8 @@ mod tool_tests {
                 }
             }
             let start = std::time::Instant::now();
-            let embeddings = super::generate_image_embeddings(&image, &encoder, linear).unwrap();
+            let embeddings =
+                super::generate_image_embeddings(&image, &encoder, linear, None).unwrap();
             encode_s += start.elapsed().as_secs_f64();
             let tol = 3.0 * upscale as f32;
             let score = |mask: &image::GrayImage| -> [f64; 3] {
