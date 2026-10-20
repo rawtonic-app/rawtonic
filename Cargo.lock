@@ -5581,6 +5581,7 @@ name = "rawtonic-metadata"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libc",
  "roxmltree",
  "serde",
  "serde_json",
@@ -5644,6 +5645,7 @@ dependencies = [
  "gphoto2",
  "libc",
  "log",
+ "rawtonic-metadata",
  "serde",
  "serde_json",
  "tempfile",

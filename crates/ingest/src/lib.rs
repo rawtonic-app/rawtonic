@@ -226,7 +226,7 @@ pub fn sha256(path: &Path) -> Result<String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Destination parent must already exist. Atomic persist_noclobber closes the
+/// Destination parent must already exist. The no-clobber persist closes the
 /// existence-check race; a concurrent writer can never have its file replaced.
 pub fn verified_copy(
     source: &Path,
@@ -277,7 +277,15 @@ pub fn verified_copy(
         "Source changed during verification"
     );
     ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
-    temp.persist_noclobber(destination).map_err(|e| e.error)?;
+    if rawtonic_metadata::no_clobber::persist(temp, destination)?
+        == rawtonic_metadata::no_clobber::Persisted::Copied
+        && sha256(destination)? != hash
+    {
+        // The volume had no exclusive rename; the copy this call just made
+        // (created exclusively, never a file that was there) is bad.
+        let _ = fs::remove_file(destination);
+        anyhow::bail!("Destination SHA-256 verification failed");
+    }
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(CopyReceipt {

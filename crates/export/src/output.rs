@@ -30,7 +30,7 @@ pub fn write_new_output(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) -> io::
     let mut temp = builder.tempfile_in(parent)?;
     temp.write_all(bytes.as_ref())?;
     temp.as_file().sync_all()?;
-    temp.persist_noclobber(path).map_err(|e| e.error)?;
+    rawtonic_metadata::no_clobber::persist(temp, path)?;
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(())
