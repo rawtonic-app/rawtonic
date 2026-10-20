@@ -388,7 +388,7 @@ fn rules_that_cannot_be_evaluated_are_refused() {
         json!({"field":"captureDate","op":"inLast","value":{"amount":0,"unit":"days"}}),
         json!({"field":"captureDate","op":"inLast","value":{"amount":2,"unit":"fortnights"}}),
         json!({"field":"iso","op":"between","value":[100]}),
-        json!({"field":"folder","op":"contains","value":"relative/path"}),
+        json!({"field":"folder","op":"contains","value":"../outside"}),
     ] {
         assert!(lib.search(&rule(bad.clone())).is_err(), "{bad}");
     }
@@ -612,7 +612,8 @@ fn facets_list_values_with_their_counts_within_a_search() {
             p("wedding", 2),
             p("Bride", 1),
             p("dance floor", 1),
-            p("landscape", 1)
+            p("landscape", 1),
+            p("", 1)
         ]
     );
     assert_eq!(
@@ -790,14 +791,37 @@ fn case_is_folded_beyond_ascii_whichever_way_a_word_is_found() {
     let d = tempfile::tempdir().unwrap();
     let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
     let capture = lib.directory.join("Capture");
-    for name in ["École 1.jpg", "École 2.jpg", "Hafen.jpg"] {
+    for name in [
+        "École 1.jpg",
+        "École 2.jpg",
+        "Hafen.jpg",
+        "ΟΣΟΣ 1.jpg",
+        "οσος 2.jpg",
+    ] {
         fs::write(capture.join(name), name).unwrap();
         lib.add_asset(&capture.join(name)).unwrap();
     }
     let search = |lib: &Library, text: &str| {
         found(lib, json!({"field":"text","op":"contains","value":text}))
     };
-    // "éco": two of three photographs (checked row by row) …
+    // "éco": two of five photographs (through the index) …
+    assert_eq!(search(&lib, "éco"), ["École 1.jpg", "École 2.jpg"]);
+    // Greek: the final sigma folds the same in both ways a word is found.
+    assert_eq!(search(&lib, "οσος"), ["ΟΣΟΣ 1.jpg", "οσος 2.jpg"]);
+    for gone in ["Hafen.jpg", "École 1.jpg"] {
+        lib.forget_at(&capture.join(gone)).unwrap();
+    }
+    // … and of three, most hold "οσος": checked row by row, same result.
+    assert_eq!(search(&lib, "ΟΣΟΣ"), ["ΟΣΟΣ 1.jpg", "οσος 2.jpg"]);
+    assert_eq!(search(&lib, "οσοσ"), Vec::<String>::new());
+    fs::write(capture.join("Hafen.jpg"), "Hafen.jpg").unwrap();
+    lib.add_asset(&capture.join("Hafen.jpg")).unwrap();
+    fs::write(capture.join("École 1.jpg"), "École 1.jpg").unwrap();
+    lib.add_asset(&capture.join("École 1.jpg")).unwrap();
+    // "éco": two of five again; with the Greek ones gone, two of three.
+    for gone in ["ΟΣΟΣ 1.jpg", "οσος 2.jpg"] {
+        lib.forget_at(&capture.join(gone)).unwrap();
+    }
     assert_eq!(search(&lib, "éco"), ["École 1.jpg", "École 2.jpg"]);
     assert_eq!(search(&lib, "ÉC"), ["École 1.jpg", "École 2.jpg"]);
     assert_eq!(
@@ -826,5 +850,58 @@ fn case_is_folded_beyond_ascii_whichever_way_a_word_is_found() {
     assert_eq!(
         found(&lib, json!({"field":"keyword","op":"is","value":"ärger"})),
         ["Hafen.jpg"]
+    );
+}
+
+#[test]
+fn a_smart_album_of_a_folder_moves_with_its_session() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, _) = library(d.path());
+    let day2 = lib.directory.join("Capture/Day 2");
+    let rules = rule(json!({"field":"folder","op":"is","value":day2.to_string_lossy()}));
+    let smart = lib.create_smart_collection("Day 2", None, &rules).unwrap();
+    assert_eq!(smart.count, 1);
+    // Kept relative to the library; a folder outside it stays absolute.
+    let kept = lib
+        .collections()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id == smart.id)
+        .unwrap();
+    assert_eq!(
+        kept.rules,
+        Some(rule(
+            json!({"field":"folder","op":"is","value":"Capture/Day 2"})
+        ))
+    );
+    let outside = d.path().join("elsewhere").to_string_lossy().into_owned();
+    lib.set_collection_rules(
+        &smart.id,
+        &rule(json!({"combine":"any","rules":[
+            {"field":"folder","op":"contains","value":outside},
+            {"field":"folder","op":"is","value":day2.to_string_lossy()}
+        ]})),
+    )
+    .unwrap();
+    drop(lib);
+    let moved = d.path().join("Moved");
+    fs::rename(d.path().join("Job"), &moved).unwrap();
+    let lib = Library::open(&moved).unwrap();
+    assert_eq!(
+        names(lib.collection_paths(&smart.id).unwrap()),
+        ["scan.jpg"]
+    );
+    let kept = lib
+        .collections()
+        .unwrap()
+        .into_iter()
+        .find(|c| c.id == smart.id)
+        .unwrap();
+    assert_eq!(
+        kept.rules,
+        Some(rule(json!({"combine":"any","rules":[
+            {"field":"folder","op":"contains","value":outside},
+            {"field":"folder","op":"is","value":"Capture/Day 2"}
+        ]})))
     );
 }

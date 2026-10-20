@@ -230,15 +230,25 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   useEffect(() => {
     if (!session) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Only the newest refresh of this session may publish; navigating
+    // away (another album, folder or session) meanwhile drops it.
+    let generation = 0;
+    let alive = true;
     const refresh = async () => {
+      const mine = ++generation;
+      const current = () => alive && mine === generation && stillShown(session);
       const list = (await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session }).catch(() => null)) ?? [];
-      if (!stillShown(session)) return;
+      if (!current()) return;
       setSessionAlbums(list);
       const active = activeAlbumRef.current;
       const album = active?.startsWith(SESSION_ALBUM_PREFIX)
         ? list.find((a) => a.id === active.slice(SESSION_ALBUM_PREFIX.length))
         : undefined;
-      if (album && isSmart(album)) await openSessionAlbum(session, album, onSelectAlbum, true).catch(() => {});
+      if (!album || !isSmart(album)) return;
+      const select: SelectAlbum = (...args) => {
+        if (current() && activeAlbumRef.current === active) onSelectAlbum(...args);
+      };
+      await openSessionAlbum(session, album, select, true).catch(() => {});
     };
     const changed = () => {
       clearTimeout(timer);
@@ -246,6 +256,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     };
     window.addEventListener(CATALOG_CHANGED, changed);
     return () => {
+      alive = false;
       clearTimeout(timer);
       window.removeEventListener(CATALOG_CHANGED, changed);
     };

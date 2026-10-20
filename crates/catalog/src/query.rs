@@ -178,6 +178,35 @@ impl Rule {
         }
     }
 
+    /// The rule as a library keeps it: folders inside `directory` relative
+    /// to it, so a session moved while closed keeps its smart albums.
+    pub fn relative_to(&self, directory: &Path) -> Self {
+        match self {
+            Self::Group { combine, rules } => Self::Group {
+                combine: *combine,
+                rules: rules.iter().map(|r| r.relative_to(directory)).collect(),
+            },
+            Self::Condition {
+                field: Field::Folder,
+                op,
+                value: Value::String(folder),
+            } => {
+                let value = match Path::new(folder).strip_prefix(directory) {
+                    Ok(relative) if Path::new(folder).is_absolute() => {
+                        relative.to_string_lossy().into_owned()
+                    }
+                    _ => folder.clone(),
+                };
+                Self::Condition {
+                    field: Field::Folder,
+                    op: *op,
+                    value: Value::String(value),
+                }
+            }
+            other => other.clone(),
+        }
+    }
+
     /// Every photograph.
     pub fn everything() -> Self {
         Self::Group {
@@ -404,7 +433,8 @@ impl<'a> Compiler<'a> {
         }
         let mut parts = Vec::with_capacity(words.len());
         for word in words {
-            let phrase = format!("\"{}\"", word.replace('"', "\"\""));
+            // The index holds folded text and compares exactly.
+            let phrase = format!("\"{}\"", crate::fold(&word).replace('"', "\"\""));
             // A word most photographs have (the first letters of a file
             // name) is faster to check in each row than to collect from
             // the index; the index finds the others at once.
@@ -806,8 +836,15 @@ impl<'a> Compiler<'a> {
                 }
             }
             Field::Folder => {
+                // A folder of the library is kept relative to it (smart
+                // albums move with a session); others are absolute.
                 let folder = PathBuf::from(text_value(value)?);
-                ensure!(folder.is_absolute(), "Folders are absolute paths");
+                let folder = if folder.is_absolute() {
+                    folder
+                } else {
+                    crate::validate_relative(&folder)?;
+                    self.directory.join(folder)
+                };
                 let test = self.folder(&folder, op != Op::Is && op != Op::IsNot)?;
                 match op {
                     Op::Contains | Op::Is => Ok(test),
@@ -1192,18 +1229,18 @@ impl Library {
             .map(|(field, _, tally)| (field, tally.values(field)))
             .collect();
         if fields.contains(&Field::Keyword) {
-            // Keywords differing only in (ASCII) case are one value, with
-            // one of their spellings (the column's NOCASE index groups).
-            // CROSS JOIN keeps the matches as the outer loop: SQLite would
+            // Keywords differing only in case are one value (folded as the
+            // keyword rules compare), with one of their spellings. CROSS JOIN
+            // keeps the matches as the outer loop: SQLite would
             // otherwise walk every keyword and look its photograph up
             // (10× slower for a narrow search, measured on 50,000).
             let mut query = self.conn.prepare(&format!(
-                "SELECT k.keyword, count(*) AS n FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
-                 WHERE {} GROUP BY k.keyword ORDER BY n DESC, k.keyword",
+                "SELECT min(k.keyword), count(*) AS n FROM {} CROSS JOIN asset_keywords k ON k.asset_id=a.id
+                 WHERE {} GROUP BY rawtonic_fold(k.keyword) ORDER BY n DESC, rawtonic_fold(k.keyword)",
                 compiled.from(false, false),
                 compiled.condition
             ))?;
-            let values = query
+            let mut values: Vec<FacetValue> = query
                 .query_map(compiled.params().as_slice(), |r| {
                     Ok(FacetValue {
                         value: r.get(0)?,
@@ -1211,6 +1248,22 @@ impl Library {
                     })
                 })?
                 .collect::<rusqlite::Result<_>>()?;
+            // And the photographs without any ("No keyword", the `empty` rule).
+            let without: i64 = self.conn.query_row(
+                &format!(
+                    "SELECT count(*) FROM {} WHERE ({}) AND NOT EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id)",
+                    compiled.from(false, false),
+                    compiled.condition
+                ),
+                compiled.params().as_slice(),
+                |r| r.get(0),
+            )?;
+            if without > 0 {
+                values.push(FacetValue {
+                    value: String::new(),
+                    count: without as usize,
+                });
+            }
             result.insert(Field::Keyword, values);
         }
         Ok(result)

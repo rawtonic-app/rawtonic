@@ -46,13 +46,17 @@ export function useCatalogSearch() {
     }
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Only the newest request publishes: an older one answering late (a
+    // search asked before a write) must not replace a newer answer.
+    let generation = 0;
     const ask = (delay: number) => {
       clearTimeout(timer);
       timer = setTimeout(() => {
+        const mine = ++generation;
         searchLibrary(directory, rule)
           .then((paths) => {
             // A newer search, or another library, has taken over.
-            if (cancelled || useLibraryStore.getState().sessionDirectory !== directory) return;
+            if (cancelled || mine !== generation || useLibraryStore.getState().sessionDirectory !== directory) return;
             setLibrary({ catalogMatches: new Set(paths.map(photographPath)) });
           })
           .catch((e) => console.error('Library search failed:', e));

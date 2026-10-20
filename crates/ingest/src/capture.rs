@@ -33,6 +33,16 @@ const WHOLE_FILE_LIMIT: u64 = 512 << 20;
 /// Capture facts of `path` read from its header; never fails (a file
 /// without metadata gets its modification time as date).
 pub fn read_capture(path: &Path) -> Capture {
+    read_capture_within(path, WHOLE_FILE_LIMIT)
+}
+
+/// How much of a file the library's capture facts are read from: the
+/// header steps only, never the rest of a large file without a date (the
+/// naming of an ingest reads further for its date).
+const FACTS_LIMIT: u64 = READ_STEPS[READ_STEPS.len() - 1];
+
+/// `read_capture` reading at most `most` bytes of the file.
+fn read_capture_within(path: &Path, most: u64) -> Capture {
     let mut capture = Capture::default();
     if let Ok(mut file) = fs::File::open(path)
         && let Ok(meta) = file.metadata()
@@ -43,7 +53,7 @@ pub fn read_capture(path: &Path) -> Capture {
         for limit in READ_STEPS
             .into_iter()
             .chain([WHOLE_FILE_LIMIT])
-            .map(|step| step.min(len))
+            .map(|step| step.min(most).min(len))
         {
             if limit <= buffer.len() as u64 && !buffer.is_empty() {
                 continue;
@@ -53,7 +63,7 @@ pub fn read_capture(path: &Path) -> Capture {
                 break;
             }
             let read = from_bytes(&buffer);
-            let done = read.captured.is_some() || buffer.len() as u64 >= len;
+            let done = read.captured.is_some() || buffer.len() as u64 >= len.min(most);
             capture = read;
             if done {
                 break;
@@ -73,13 +83,14 @@ pub fn read_capture(path: &Path) -> Capture {
 }
 
 /// What `path`'s EXIF says for the library's search (`rawtonic_catalog::
-/// CaptureFacts`); `None` when the file cannot be read now. A capture time
+/// CaptureFacts`), from at most its first 16 MiB; `None` when the file
+/// cannot be read now. A capture time
 /// only from the file's own metadata, never its modification time.
 pub fn capture_facts(path: &Path) -> Option<rawtonic_catalog::CaptureFacts> {
     fs::File::open(path)
         .ok()
         .filter(|f| f.metadata().is_ok_and(|m| m.is_file()))?;
-    let capture = read_capture(path);
+    let capture = read_capture_within(path, FACTS_LIMIT);
     let dated = matches!(
         capture.date_source,
         DateSource::Original | DateSource::Digitized | DateSource::FileDate
@@ -717,6 +728,28 @@ pub(crate) mod tests {
             capture.captured.map(|d| d.to_string()).as_deref(),
             Some("2024-05-06 07:08:09")
         );
+    }
+
+    /// The library's facts come from the header steps only: a date past
+    /// them is not looked for (the ingest's naming reads on for it).
+    #[test]
+    fn capture_facts_never_read_past_the_header_steps() {
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("very-late.jpg");
+        let mut bytes = vec![0xFF, 0xD8];
+        // About 18 MB of APP2 segments, then the EXIF.
+        for _ in 0..300 {
+            bytes.extend([0xFF, 0xE2]);
+            bytes.extend(60_000u16.to_be_bytes());
+            bytes.extend(vec![0u8; 59_998]);
+        }
+        bytes.extend(&jpeg_with_exif(&tiff_exif("2024:05:06 07:08:09"))[2..]);
+        assert!(bytes.len() as u64 > FACTS_LIMIT);
+        fs::write(&photo, &bytes).unwrap();
+        assert_eq!(read_capture(&photo).date_source, DateSource::Original);
+        let facts = capture_facts(&photo).unwrap();
+        assert_eq!(facts.captured, None);
+        assert_eq!(facts.model, None);
     }
 
     /// A CIFF heap with one TimeStamp record: the CRW's capture time.

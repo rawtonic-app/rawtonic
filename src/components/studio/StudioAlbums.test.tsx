@@ -426,6 +426,31 @@ describe("Smart albums in the Albums tool", () => {
     act(() => useSmartAlbumEditor.getState().close());
   });
 
+  it("drops a refresh that answers after the grid moved on", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      useLibraryStore.setState({ activeAlbumId: "session-album:s" });
+      let answer: (paths: string[]) => void = () => {};
+      const select = await renderTool();
+      mockInvoke.mockImplementation(async (command) => {
+        if (command === "session_albums") return albums;
+        if (command === "session_album_paths") return new Promise((resolve) => (answer = resolve));
+        return undefined;
+      });
+      act(() => catalogChanged());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      // The user opens a folder before the smart album's paths arrive.
+      useLibraryStore.setState({ activeAlbumId: null });
+      await act(async () => answer(["/job/Capture/a.arw"]));
+      expect(select).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("offers a new smart album in a session, in a group too", async () => {
     await renderTool();
     fireEvent.click(screen.getByLabelText("New album"));

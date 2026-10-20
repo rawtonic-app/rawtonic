@@ -84,12 +84,15 @@ export default function StudioMetadataFilter() {
     if (!directory) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // Only the newest count publishes (an older one may answer late).
+    let generation = 0;
     const count = () => {
       clearTimeout(timer);
       timer = setTimeout(() => {
+        const mine = ++generation;
         libraryFacets(directory, base, selection)
           .then((result) => {
-            if (!cancelled) setFacets(result ?? {});
+            if (!cancelled && mine === generation) setFacets(result ?? {});
           })
           .catch((e) => console.error("Metadata lists failed:", e));
       }, COUNT_DELAY_MS);

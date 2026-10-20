@@ -43,22 +43,25 @@ END;
 
 -- Text search finds a part of any word (`0123` in `DSC00123.ARW`, like
 -- Lightroom's and Capture One's "contains"), so the index is a trigram one;
--- it also holds the camera and lens.
+-- it also holds the camera and lens. The text is stored case-folded by the
+-- library's own function (`rawtonic_fold`, registered on every connection
+-- the library opens) and the index compares exactly, so the index and the
+-- searches that scan rows fold case identically.
 DROP TRIGGER IF EXISTS assets_ai;
 DROP TRIGGER IF EXISTS assets_au;
 DROP TRIGGER IF EXISTS assets_ad;
 DROP TABLE IF EXISTS asset_search;
-CREATE VIRTUAL TABLE asset_search USING fts5(asset_id UNINDEXED, content, tokenize='trigram');
+CREATE VIRTUAL TABLE asset_search USING fts5(asset_id UNINDEXED, content, tokenize='trigram case_sensitive 1');
 INSERT INTO asset_search(asset_id, content)
- SELECT id, rel_path || ' ' || search_text || ' ' || make || ' ' || camera || ' ' || lens FROM assets;
+ SELECT id, rawtonic_fold(rel_path || ' ' || search_text || ' ' || make || ' ' || camera || ' ' || lens) FROM assets;
 CREATE TRIGGER assets_ai AFTER INSERT ON assets BEGIN
  INSERT INTO asset_search(asset_id, content)
-  VALUES(new.id, new.rel_path || ' ' || new.search_text || ' ' || new.make || ' ' || new.camera || ' ' || new.lens);
+  VALUES(new.id, rawtonic_fold(new.rel_path || ' ' || new.search_text || ' ' || new.make || ' ' || new.camera || ' ' || new.lens));
 END;
 CREATE TRIGGER assets_au AFTER UPDATE OF rel_path, search_text, make, camera, lens ON assets BEGIN
  DELETE FROM asset_search WHERE asset_id = old.id;
  INSERT INTO asset_search(asset_id, content)
-  VALUES(new.id, new.rel_path || ' ' || new.search_text || ' ' || new.make || ' ' || new.camera || ' ' || new.lens);
+  VALUES(new.id, rawtonic_fold(new.rel_path || ' ' || new.search_text || ' ' || new.make || ' ' || new.camera || ' ' || new.lens));
 END;
 CREATE TRIGGER assets_ad AFTER DELETE ON assets BEGIN
  DELETE FROM asset_search WHERE asset_id = old.id;

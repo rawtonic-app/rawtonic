@@ -1,7 +1,8 @@
 //! Library search and smart albums (G36/G37): Tauri glue over
 //! `rawtonic_catalog::query`. Each command opens the library in a blocking
 //! worker (`session_bridge::with_library`); nothing here reads photographs
-//! except the capture-facts pass, which reads each one's header once.
+//! except the capture-facts pass, which reads each one's header (at most
+//! its first 16 MiB) once.
 use crate::session_bridge::with_library;
 use rawtonic_catalog::{Collection, Field, Library, Rule, query::FacetValue};
 use serde::Deserialize;

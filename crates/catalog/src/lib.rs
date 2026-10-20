@@ -89,6 +89,11 @@ pub const SMART: &str = "smart";
 /// The SQL function the search folds case with (`Library::configure`).
 pub(crate) const FOLD: &str = "rawtonic_fold";
 
+/// How the search folds case: Unicode lower case (`École` → `école`).
+pub(crate) fn fold(text: &str) -> String {
+    text.to_lowercase()
+}
+
 /// Lightweight startup read model. Recipe payloads stay in SQLite; opening a
 /// library does not need to deserialize every existing photo's editor history.
 pub struct AssetIndexEntry {
@@ -364,9 +369,9 @@ impl Library {
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
         )?;
-        // The search's case folding (`query`): Unicode lower case, as the
-        // trigram index folds (`École` is found by `éco` either way). Only
-        // queries use it; nothing stored depends on it.
+        // The search's case folding (`query`, `fold`): the text index holds
+        // folded text (its triggers call it), and every search that scans
+        // rows folds with it too, so both find the same.
         conn.create_scalar_function(
             FOLD,
             1,
@@ -375,7 +380,7 @@ impl Library {
             |ctx| {
                 Ok(match ctx.get_raw(0) {
                     rusqlite::types::ValueRef::Text(text) => {
-                        Some(String::from_utf8_lossy(text).to_lowercase())
+                        Some(fold(&String::from_utf8_lossy(text)))
                     }
                     rusqlite::types::ValueRef::Integer(n) => Some(n.to_string()),
                     rusqlite::types::ValueRef::Real(n) => Some(n.to_string()),
@@ -609,7 +614,8 @@ impl Library {
     }
 
     /// A new smart album with `rules` at the end of `parent` (a group or
-    /// the top level).
+    /// the top level). Folders inside the library are kept relative to it
+    /// (`Rule::relative_to`), so the album moves with a session.
     pub fn create_smart_collection(
         &self,
         name: &str,
@@ -617,6 +623,7 @@ impl Library {
         rules: &Rule,
     ) -> Result<Collection> {
         let name = Self::collection_name(name)?;
+        let rules = &rules.relative_to(&self.directory);
         rules.validate()?;
         self.ensure_group(parent)?;
         let id = Uuid::new_v4().to_string();
@@ -647,8 +654,10 @@ impl Library {
         })
     }
 
-    /// Replaces a smart album's rules.
+    /// Replaces a smart album's rules (folders inside the library kept
+    /// relative to it, as `create_smart_collection` does).
     pub fn set_collection_rules(&self, id: &str, rules: &Rule) -> Result<()> {
+        let rules = &rules.relative_to(&self.directory);
         rules.validate()?;
         ensure!(
             self.conn.execute(

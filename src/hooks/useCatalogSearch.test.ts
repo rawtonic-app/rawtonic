@@ -101,3 +101,17 @@ it('searches again when the background pass recorded capture facts', async () =>
   unmount();
   expect(listeners.has('library-facts-recorded')).toBe(false);
 });
+
+it('keeps the newest answer when an older search answers late', async () => {
+  const answers: Array<(paths: string[]) => void> = [];
+  mockInvoke.mockImplementation(() => new Promise((resolve) => answers.push(resolve as (p: string[]) => void)));
+  useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
+  renderHook(() => useCatalogSearch());
+  await settle();
+  act(() => catalogChanged());
+  await settle();
+  expect(answers).toHaveLength(2);
+  await act(async () => answers[1](['/job/new.arw']));
+  await act(async () => answers[0](['/job/old.arw']));
+  expect([...(useLibraryStore.getState().catalogMatches ?? [])]).toEqual(['/job/new.arw']);
+});
