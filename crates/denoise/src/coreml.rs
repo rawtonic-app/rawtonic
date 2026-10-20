@@ -73,7 +73,7 @@ impl CoreMlModel {
         low_precision_accumulation: bool,
     ) -> Result<Self> {
         let compiled = compiled_path(package);
-        if !compiled.join("coremldata.bin").exists() {
+        if !is_compiled(&compiled) {
             compile(package, &compiled)?;
         }
         let url = file_url(&compiled)?;
@@ -326,31 +326,35 @@ fn file_url(path: &Path) -> Result<Retained<NSURL>> {
     Ok(NSURL::fileURLWithPath(&NSString::from_str(s)))
 }
 
-/// Compiles into a temporary folder and moves the result into place.
+/// Compiles `package` into `compiled` (`publish::publish_dir`: the app and
+/// the CLI may compile at once; the second uses the first one's result).
 fn compile(package: &Path, compiled: &Path) -> Result<()> {
     ensure!(
         package.exists(),
         "model package {} missing",
         package.display()
     );
-    let url = file_url(package)?;
-    #[allow(deprecated)]
-    let out = autoreleasepool(|_| unsafe { MLModel::compileModelAtURL_error(&url) })
-        .map_err(|e| anyhow!("Core ML could not compile {}: {e:?}", package.display()))?;
-    let out_path = PathBuf::from(
-        out.path()
-            .context("compiled model without a path")?
-            .to_string(),
-    );
-    let staging = compiled.with_extension("mlmodelc.partial");
-    let _ = std::fs::remove_dir_all(&staging);
-    if std::fs::rename(&out_path, &staging).is_err() {
-        copy_dir(&out_path, &staging)?;
-        let _ = std::fs::remove_dir_all(&out_path);
-    }
-    let _ = std::fs::remove_dir_all(compiled);
-    std::fs::rename(&staging, compiled)?;
-    Ok(())
+    crate::publish::publish_dir(compiled, is_compiled, |staging| {
+        let url = file_url(package)?;
+        #[allow(deprecated)]
+        let out = autoreleasepool(|_| unsafe { MLModel::compileModelAtURL_error(&url) })
+            .map_err(|e| anyhow!("Core ML could not compile {}: {e:?}", package.display()))?;
+        let out_path = PathBuf::from(
+            out.path()
+                .context("compiled model without a path")?
+                .to_string(),
+        );
+        if std::fs::rename(&out_path, staging).is_err() {
+            copy_dir(&out_path, staging)?;
+            let _ = std::fs::remove_dir_all(&out_path);
+        }
+        Ok(())
+    })
+}
+
+/// Whether `compiled` holds a compiled model.
+fn is_compiled(compiled: &Path) -> bool {
+    compiled.join("coremldata.bin").exists()
 }
 
 fn copy_dir(from: &Path, to: &Path) -> Result<()> {

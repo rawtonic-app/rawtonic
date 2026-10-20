@@ -16,6 +16,8 @@ mod tiles;
 #[cfg(target_os = "macos")]
 pub mod coreml;
 mod onnx;
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+mod publish;
 
 use std::fs;
 use std::io::Write;
@@ -140,7 +142,8 @@ impl MosaicDenoiser for MatchFilter {
             "noise scale {noise_scale}"
         );
         // Scale 1 keeps the keys results were cached under before scales.
-        let mut tag = self.backend.cache_tag();
+        let backend_tag = self.backend.cache_tag();
+        let mut tag = backend_tag.clone();
         if noise_scale != 1.0 {
             tag.push_str(&format!("|noise×{noise_scale}"));
         }
@@ -163,7 +166,10 @@ impl MosaicDenoiser for MatchFilter {
             started.elapsed().as_secs_f32(),
             profile.channels
         );
-        if let Some(path) = self.cache_path(key) {
+        // A backend that moved to the CPU during the run (a GPU fault) made
+        // a mixed result, which is neither the GPU's nor the CPU's.
+        let same_backend = self.backend.cache_tag() == backend_tag;
+        if let Some(path) = self.cache_path(key).filter(|_| same_backend) {
             // A cache that cannot be written only costs the next run time.
             let _ = write_cache(&path, &out);
             if let (Some(limit), Some(dir)) = (self.cache_limit, path.parent()) {
@@ -195,19 +201,20 @@ fn cache_key(tag: &str, mosaic: &[f32], width: usize, height: usize, pattern: [u
     hash
 }
 
+/// A cached result, `None` when missing or unusable: of another length, or
+/// with non-finite values (written before NaN tiles were refused).
 fn read_cache(path: &Path, len: usize) -> Option<Vec<f32>> {
     let bytes = fs::read(path).ok()?;
     if bytes.len() != len * 2 {
         return None;
     }
-    Some(
-        bytes
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|&b| half::f16::from_le_bytes(b).to_f32())
-            .collect(),
-    )
+    let values: Vec<f32> = bytes
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| half::f16::from_le_bytes(b).to_f32())
+        .collect();
+    values.iter().all(|v| v.is_finite()).then_some(values)
 }
 
 /// Deletes the oldest `.f16` files until the folder holds at most `limit` bytes.
@@ -235,21 +242,22 @@ fn prune(dir: &Path, limit: u64) {
     }
 }
 
-/// Temporary file beside the target, then a rename.
+/// A temporary file of its own beside the target (the app and the CLI share
+/// the cache), then a rename.
 fn write_cache(path: &Path, values: &[f32]) -> Result<()> {
     let dir = path.parent().context("cache path without a folder")?;
     fs::create_dir_all(dir)?;
-    let tmp = path.with_extension("f16.partial");
-    {
-        let mut file = fs::File::create(&tmp)?;
-        let mut bytes = Vec::with_capacity(values.len() * 2);
-        for &v in values {
-            bytes.extend_from_slice(&half::f16::from_f32(v).to_le_bytes());
-        }
-        file.write_all(&bytes)?;
-        file.sync_all()?;
+    let mut file = tempfile::Builder::new()
+        .prefix(".denoise-")
+        .suffix(".partial")
+        .tempfile_in(dir)?;
+    let mut bytes = Vec::with_capacity(values.len() * 2);
+    for &v in values {
+        bytes.extend_from_slice(&half::f16::from_f32(v).to_le_bytes());
     }
-    fs::rename(&tmp, path)?;
+    file.write_all(&bytes)?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|e| e.error)?;
     Ok(())
 }
 
@@ -277,6 +285,96 @@ mod tests {
                 0.1 + 0.3 * ((i % width) as f32 / width as f32) + noise
             })
             .collect()
+    }
+
+    /// Returns NaN, as a faulting GPU can without an error.
+    struct Faulty;
+
+    impl Backend for Faulty {
+        fn run(&self, _: &[f32]) -> Result<Vec<f32>> {
+            Ok(vec![f32::NAN; 4 * TILE * TILE])
+        }
+    }
+
+    #[test]
+    fn non_finite_network_output_is_an_error_and_not_cached() {
+        let (w, h) = (300, 200);
+        let dir = tempfile::tempdir().unwrap();
+        let filter = MatchFilter::new(Box::new(Faulty), Some(dir.path().to_path_buf()));
+        let error = filter
+            .denoise(&noisy_mosaic(w, h), w, h, [0, 1, 1, 2])
+            .unwrap_err();
+        assert!(format!("{error:#}").contains("non-finite"), "{error:#}");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    /// Identity on a "GPU" that moves to the CPU after its first tile, as
+    /// rawtonic-onnx does after a failed run.
+    struct FallsBack(std::sync::atomic::AtomicUsize);
+
+    impl Backend for FallsBack {
+        fn run(&self, input: &[f32]) -> Result<Vec<f32>> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(input[..4 * TILE * TILE].to_vec())
+        }
+
+        fn cache_tag(&self) -> String {
+            match self.0.load(std::sync::atomic::Ordering::SeqCst) {
+                0 => "webgpu".to_string(),
+                _ => String::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn a_result_from_a_backend_that_changed_during_the_run_is_not_cached() {
+        let (w, h) = (300, 200);
+        let mosaic = noisy_mosaic(w, h);
+        let dir = tempfile::tempdir().unwrap();
+        let filter = MatchFilter::new(
+            Box::new(FallsBack(Default::default())),
+            Some(dir.path().to_path_buf()),
+        );
+        filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+        // Now on the CPU from the start: cached.
+        filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_cached_result_with_nan_is_computed_again() {
+        let (w, h) = (300, 200);
+        let mosaic = noisy_mosaic(w, h);
+        let dir = tempfile::tempdir().unwrap();
+        let filter = MatchFilter::new(Box::new(Identity), Some(dir.path().to_path_buf()));
+        let first = filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        let cached = fs::read_dir(dir.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path();
+        // As an earlier build cached a faulty GPU's tile.
+        let mut bytes = fs::read(&cached).unwrap();
+        bytes[..2].copy_from_slice(&half::f16::NAN.to_le_bytes());
+        fs::write(&cached, &bytes).unwrap();
+        let again = filter.denoise(&mosaic, w, h, [0, 1, 1, 2]).unwrap();
+        assert_eq!(again, first);
+        assert_eq!(read_cache(&cached, mosaic.len()).unwrap(), first);
+    }
+
+    #[test]
+    fn cache_writes_leave_other_writers_staging_files_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("00000000000000ab.f16");
+        // The name every writer used before: another process mid-write.
+        let other = path.with_extension("f16.partial");
+        fs::write(&other, b"other writer").unwrap();
+        write_cache(&path, &[0.25, 0.5]).unwrap();
+        assert_eq!(read_cache(&path, 2).unwrap(), [0.25, 0.5]);
+        assert_eq!(fs::read(&other).unwrap(), b"other writer");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
     }
 
     #[test]
