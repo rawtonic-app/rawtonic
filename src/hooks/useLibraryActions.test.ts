@@ -54,3 +54,17 @@ it('rates nothing in the Library once the selection was emptied, the open photog
   result.current.handleRate(2);
   expect(useLibraryStore.getState().imageRatings).toEqual({ '/open.jpg': 2 });
 });
+
+it('labels nothing in the Library once the selection was emptied, the open photograph in Develop', async () => {
+  vi.mocked(invoke).mockClear();
+  useEditorStore.setState({ selectedImage: { path: '/open.jpg' } as never });
+  useLibraryStore.setState({ imageList: [{ path: '/open.jpg', tags: [] } as never], multiSelectedPaths: [] });
+  useUIStore.setState({ activeView: 'library' });
+  const { result } = renderHook(() => useLibraryActions());
+  await result.current.handleSetColorLabel('red');
+  expect(invoke).not.toHaveBeenCalled();
+  useUIStore.setState({ activeView: 'editor' });
+  await result.current.handleSetColorLabel('red');
+  expect(vi.mocked(invoke).mock.calls[0][1]).toEqual({ paths: ['/open.jpg'], color: 'red' });
+  useUIStore.setState({ activeView: 'library' });
+});

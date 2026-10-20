@@ -18,6 +18,15 @@ import { noteListedOffline } from '../utils/offline';
 import { noteBackgroundAiError } from '../utils/aiErrors';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 import type { PreloadedLibraryData } from './useAppInitialization';
+import { isBelow } from '../utils/catalogFolders';
+
+/** The folder of `roots` that `path` is in (or is), the innermost one: a
+ * name prefix is not a parent (`/photos/2024-old` is not in `/photos/2024`). */
+export function rootContaining(path: string, roots: string[]): string | undefined {
+  return roots
+    .filter((root) => path === root || isBelow(path, root))
+    .reduce<string | undefined>((best, root) => (!best || root.length > best.length ? root : best), undefined);
+}
 
 /** Longest time the previous photograph's frame stands in for the next one. */
 const HOLD_FRAME_MS = 700;
@@ -344,7 +353,7 @@ export function useAppNavigation({ clearThumbnailQueue, refs }: AppNavigationPro
           }
         } else if (path && expandParents) {
           const allRoots = [...(rootPaths || []), ...(pinnedFolders || [])].filter(Boolean) as string[];
-          const relevantRoot = allRoots.find((r) => path.startsWith(r));
+          const relevantRoot = rootContaining(path, allRoots);
 
           if (relevantRoot) {
             const separator = path.includes('/') ? '/' : '\\';
