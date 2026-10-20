@@ -129,3 +129,13 @@ it('searches again after an import, a tethered capture or a relink', async () =>
   await settle();
   expect(mockInvoke.mock.calls.length).toBe(before + 2);
 });
+
+it('asks again when the grid gets a new list (a rename or a refresh)', async () => {
+  useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
+  renderHook(() => useCatalogSearch());
+  await settle();
+  const before = mockInvoke.mock.calls.length;
+  act(() => useLibraryStore.setState({ imageList: [] }));
+  await settle();
+  expect(mockInvoke.mock.calls.length).toBe(before + 1);
+});

@@ -71,6 +71,8 @@ export default function StudioMetadataFilter() {
     })),
   );
   const viewMode = useSettingsStore((s) => s.appSettings?.libraryViewMode);
+  // A refreshed list (rename, move, background tagging) is counted again.
+  const imageList = useLibraryStore((s) => s.imageList);
   const selection = filter.metadata;
   const [facets, setFacets] = useState<Facets>({});
   const base = useMemo(() => {
@@ -104,7 +106,7 @@ export default function StudioMetadataFilter() {
       clearTimeout(timer);
       stop();
     };
-  }, [directory, base, selection]);
+  }, [directory, base, selection, imageList]);
 
   if (!directory) return null;
   const toggle = (field: FacetField, value: string) => {

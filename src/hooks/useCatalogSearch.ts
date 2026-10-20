@@ -21,6 +21,9 @@ export function useCatalogSearch() {
   const directory = useLibraryStore((s) => s.sessionDirectory);
   const text = useLibraryStore((s) => s.searchCriteria.text);
   const selection = useLibraryStore((s) => s.filterCriteria.metadata);
+  // A new list (a folder refreshed after a rename, move or background
+  // tagging) is asked about again: its paths or keywords may have changed.
+  const imageList = useLibraryStore((s) => s.imageList);
 
   // Facts the background pass recorded (a library opened after an update,
   // photographs added by an edit) are catalog changes too: searches, lists
@@ -70,5 +73,5 @@ export function useCatalogSearch() {
       clearTimeout(timer);
       stop();
     };
-  }, [directory, text, selection]);
+  }, [directory, text, selection, imageList]);
 }

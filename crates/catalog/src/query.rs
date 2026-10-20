@@ -1087,14 +1087,33 @@ impl Tally {
     /// newest first, `""` (none) last among equals.
     fn values(self, field: Field) -> Vec<FacetValue> {
         let mut merged: HashMap<String, usize> = HashMap::new();
+        // Spellings that differ only in case are one value, as the camera
+        // and lens rules compare (`crate::fold`); the most frequent
+        // spelling is shown.
+        let mut spelled: HashMap<String, (String, usize)> = HashMap::new();
         for (text, n) in self.texts {
             let key = match field {
                 Field::FileType => file_type(&text.to_lowercase()).to_string(),
                 Field::Label => text.to_lowercase(),
+                Field::Camera | Field::Lens => {
+                    let folded = crate::fold(&text);
+                    let shown = spelled.entry(folded.clone()).or_insert((text.clone(), 0));
+                    if n > shown.1 || (n == shown.1 && text < shown.0) {
+                        *shown = (text, n);
+                    }
+                    folded
+                }
                 _ => text,
             };
             *merged.entry(key).or_default() += n;
         }
+        let mut merged: HashMap<String, usize> = merged
+            .into_iter()
+            .map(|(key, n)| match spelled.remove(&key) {
+                Some((shown, _)) => (shown, n),
+                None => (key, n),
+            })
+            .collect();
         for (bits, n) in self.numbers {
             let x = f64::from_bits(bits);
             let key = match field {

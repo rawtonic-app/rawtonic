@@ -972,3 +972,32 @@ fn a_keyword_in_two_spellings_counts_its_photograph_once() {
         .collect();
     assert_eq!(arger, [1]);
 }
+
+#[test]
+fn camera_spellings_differing_in_case_are_one_value() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    lib.record_facts(
+        &ids[3],
+        &CaptureFacts {
+            model: Some("ilce-7rm4".into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let facets = lib.facets(&Rule::everything(), &[Field::Camera]).unwrap();
+    let cameras: Vec<_> = facets[&Field::Camera]
+        .iter()
+        .map(|v| (v.value.as_str(), v.count))
+        .collect();
+    // As many as choosing it finds.
+    assert_eq!(cameras, [("ILCE-7RM4", 3), ("Canon EOS R5", 1)]);
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"camera","op":"is","value":"ILCE-7RM4"})
+        )
+        .len(),
+        3
+    );
+}

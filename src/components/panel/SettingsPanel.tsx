@@ -52,6 +52,7 @@ import {
   resolveViewerBackground,
 } from '../../utils/viewerDisplay';
 import { viewerBackgroundLabel } from './editor/viewerBackgroundMenu';
+import { catalogChanged } from '../../utils/catalogWrites';
 
 interface ConfirmModalState {
   confirmText: string;
@@ -735,6 +736,8 @@ export default function SettingsPanel({
         totalCount += count;
       }
       setTagsClearMessage(t('settings.data.statuses.allSuccess', { count: totalCount }));
+      // Keyword searches, lists and smart albums follow the cleared tags.
+      catalogChanged();
       onLibraryRefresh();
     } catch (err) {
       console.error('Failed to clear tags:', err);
