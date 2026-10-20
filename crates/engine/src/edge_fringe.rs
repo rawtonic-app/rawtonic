@@ -1438,7 +1438,8 @@ mod tests {
 
     /// Patches of saturated colours with curved edges whose red and blue
     /// lie a pixel off green, slight noise, clipped (zero), negative and
-    /// very bright pixels: windows of every kind the stage tells apart.
+    /// very bright pixels, and with `seed` 2 also infinite, NaN and huge
+    /// (1e20) ones: windows of every kind the stages tell apart.
     fn misregistered_patches(w: u32, h: u32, seed: u32) -> Rgb32FImage {
         const COLOURS: [[f32; 3]; 5] = [
             [0.0, 0.37, 0.55],
@@ -1469,6 +1470,9 @@ mod tests {
                 0 => px = [0.0; 3],
                 1 => px[1] = -0.01,
                 2 => px = px.map(|c| 6.0 * c),
+                3 if seed == 2 => px[0] = f32::INFINITY,
+                4 if seed == 2 => px[2] = f32::NAN,
+                5 if seed == 2 => px[1] = 1e20,
                 _ => {}
             }
             image::Rgb(px)
