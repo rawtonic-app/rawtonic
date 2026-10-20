@@ -2321,6 +2321,10 @@
         "brushOpacity": "Opacité du pinceau",
         "brushSize": "Taille du pinceau",
         "hardness": "Dureté",
+        "penPressure": "Pression du stylet",
+        "penPressureTitle": "Avec un stylet sensible à la pression, appuyer plus fort peint un trait plus large (Taille) ou plus intense (Flux). Une souris peint toujours à pleine pression.",
+        "pressureFlow": "Flux",
+        "pressureSize": "Taille",
         "size": "Taille"
       },
       "draw": "Peindre",

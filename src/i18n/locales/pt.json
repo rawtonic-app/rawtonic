@@ -2321,6 +2321,10 @@
         "brushOpacity": "Opacidade do pincel",
         "brushSize": "Tamanho do pincel",
         "hardness": "Dureza",
+        "penPressure": "Pressão da caneta",
+        "penPressureTitle": "Com uma caneta sensível à pressão, pressionar mais pinta um traço mais largo (Tamanho) ou mais forte (Fluxo). Um rato pinta sempre com pressão total.",
+        "pressureFlow": "Fluxo",
+        "pressureSize": "Tamanho",
         "size": "Tamanho"
       },
       "draw": "Pintar",

@@ -11,6 +11,7 @@ import { Adjustments, Coord, MaskContainer, GuideLine, GuideOrientation } from '
 import type { LiveStroke } from '../../../utils/liveMaskRender';
 import { AUTO_MASK_VERSION } from '../../../utils/autoMaskUpgrade';
 import { autoMaskPrewarmPath } from '../../../utils/autoMaskPrewarm';
+import { pointPressure, pressureKeys, pressureMapping, withPressure, type StrokePoint } from '../../../utils/penPressure';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
 import { RenderSize } from '../../../hooks/useImageRenderSize';
@@ -106,9 +107,13 @@ interface DrawnLine {
    * for Capture One tips without Auto Mask, denser dabs (crates/engine
    * `DabTip::dab_version_2`). */
   dabVersion?: number;
+  /** Pen pressure (points' `p`) scales the dab size / flow; only pen strokes
+   * carry them (crates/engine `PenPressure`). */
+  pressureSize?: true;
+  pressureFlow?: true;
   /** The photo's geometry the stroke was painted in (see `ShapeFrame`). */
   frame?: ShapeFrame;
-  points: Array<Coord>;
+  points: Array<StrokePoint>;
   tool: ToolType;
 }
 
@@ -1390,6 +1395,9 @@ const ImageCanvas = memo(
     // webview delivers about one move per display frame, the mouse or pen
     // may report more (coalesced events), so a fast stroke keeps its curve.
     const coalescedMoves = useRef<PointerEvent[]>([]);
+    // The last pointer event's pressure to store (a pen's while a mapping is
+    // on, else none): pointer events precede the mouse events strokes use.
+    const pointerPressure = useRef<number | undefined>(undefined);
     // The stroke being drawn in image space, grown by each move's new points.
     const liveStroke = useRef<Omit<LiveStroke, 'maskId'> | null>(null);
     const nextStrokeId = useRef(0);
@@ -1598,6 +1606,10 @@ const ImageCanvas = memo(
     const strokeHardness = isFlowMask ? undefined : brushSettings?.hardness;
     const strokeAutoMask = !isFlowMask && brushSettings?.autoMask ? true : undefined;
     const strokeAutoMaskVersion = strokeAutoMask ? AUTO_MASK_VERSION : undefined;
+    const strokePressure = useMemo(
+      () => (isFlowMask ? { size: false, flow: false } : pressureMapping(brushSettings)),
+      [isFlowMask, brushSettings],
+    );
 
     // An Auto Mask stroke reads the full-resolution photo as it looks before
     // develop. Building it (~0.3 s for 40 MP) delayed the first stroke's first
@@ -1990,7 +2002,7 @@ const ImageCanvas = memo(
       (line: DrawnLine, added: Coord[] | null) => {
         if (!onLiveMaskPreview || !activeContainer || !activeSubMask || !isBrushActive) return;
         const { scale } = imageRenderSize;
-        const toImage = (p: Coord) => ({ x: p.x / scale + cropX, y: p.y / scale + cropY });
+        const toImage = (p: StrokePoint) => withPressure({ x: p.x / scale + cropX, y: p.y / scale + cropY }, p.p);
         let stroke = liveStroke.current;
         if (added && stroke && stroke.subMaskId === activeSubMask.id) {
           stroke.points.push(...added.map(toImage));
@@ -2008,6 +2020,7 @@ const ImageCanvas = memo(
           autoMask: strokeAutoMask,
           autoMaskVersion: strokeAutoMaskVersion,
           dabVersion: DAB_VERSION,
+          ...pressureKeys(stroke.points, strokePressure),
           frame: drawingFrame,
           points: stroke.points.slice(),
           tool: line.tool,
@@ -2031,6 +2044,7 @@ const ImageCanvas = memo(
         notePointerSessionStroke(imageSpaceLine.points.length);
       },
       [
+        strokePressure,
         onLiveMaskPreview,
         activeContainer,
         activeSubMask,
@@ -2250,7 +2264,7 @@ const ImageCanvas = memo(
 
           const newLine: DrawnLine = {
             brushSize: isBrushActive && brushSettings?.size ? brushStageSize : 2,
-            points: [pos],
+            points: [isBrushActive ? withPressure(pos, pointerPressure.current) : pos],
             tool: effectiveTool,
           };
           coalescedMoves.current = [];
@@ -2436,7 +2450,7 @@ const ImageCanvas = memo(
         if (currentLine.current) {
           // Earlier coalesced positions of this move first, then the
           // delivered one; points closer than 2 px to the last are dropped.
-          const passed: Coord[] = [];
+          const passed: StrokePoint[] = [];
           const coalesced = coalescedMoves.current;
           coalescedMoves.current = [];
           const stage = drawingStageRef.current;
@@ -2444,12 +2458,12 @@ const ImageCanvas = memo(
             for (const move of coalesced) {
               stage.setPointersPositions(move);
               const at = getCanvasPointer(stage);
-              if (at) passed.push(at);
+              if (at) passed.push(withPressure(at, pointPressure(move, strokePressure)));
             }
             stage.setPointersPositions(e.evt ?? e);
           }
-          passed.push(pos);
-          const added: Coord[] = [];
+          passed.push(isBrushActive ? withPressure(pos, pointerPressure.current) : pos);
+          const added: StrokePoint[] = [];
           let lastPoint = currentLine.current.points[currentLine.current.points.length - 1];
           for (const point of passed) {
             if (lastPoint) {
@@ -2477,6 +2491,7 @@ const ImageCanvas = memo(
         }
       },
       [
+        strokePressure,
         previewLiveStroke,
         isGuidedPerspectiveActive,
         drawingFrame,
@@ -2720,11 +2735,17 @@ const ImageCanvas = memo(
           autoMask: strokeAutoMask,
           autoMaskVersion: strokeAutoMaskVersion,
           dabVersion: DAB_VERSION,
+          ...pressureKeys(line.points, strokePressure),
           frame: drawingFrame,
-          points: line.points.map((p: Coord) => ({
-            x: p.x / scale + cropX,
-            y: p.y / scale + cropY,
-          })),
+          points: line.points.map((p: StrokePoint) =>
+            withPressure(
+              {
+                x: p.x / scale + cropX,
+                y: p.y / scale + cropY,
+              },
+              p.p,
+            ),
+          ),
           tool: line.tool,
         };
 
@@ -2754,6 +2775,7 @@ const ImageCanvas = memo(
         }
       }
     }, [
+      strokePressure,
       isGuidedPerspectiveActive,
       drawingFrame,
       isCropping,
@@ -2927,18 +2949,25 @@ const ImageCanvas = memo(
     // the coalesced positions (WebKit and Chromium, where supported).
     useEffect(() => {
       if (!isBrushActive) return;
+      const onPointerDown = (e: PointerEvent) => {
+        pointerPressure.current = pointPressure(e, strokePressure);
+      };
       const onPointerMove = (e: PointerEvent) => {
+        pointerPressure.current = pointPressure(e, strokePressure);
         if (!isDrawing.current) return;
         const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
         // The last coalesced event is the delivered one.
         coalescedMoves.current = events.slice(0, -1);
       };
+      window.addEventListener('pointerdown', onPointerDown, true);
       window.addEventListener('pointermove', onPointerMove, true);
       return () => {
+        window.removeEventListener('pointerdown', onPointerDown, true);
         window.removeEventListener('pointermove', onPointerMove, true);
         coalescedMoves.current = [];
+        pointerPressure.current = undefined;
       };
-    }, [isBrushActive]);
+    }, [isBrushActive, strokePressure]);
 
     useEffect(() => {
       if (!isToolActive) return;

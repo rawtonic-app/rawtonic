@@ -245,19 +245,29 @@ function domClick(params: Params) {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Synthetic drag for platforms without native input (Linux). */
+/** Synthetic drag for platforms without native input (Linux). With
+ * `pressures` (one 0–1 per point) it is a pen drag: synthetic pen pressure
+ * tests the stroke's pressure mapping, not a tablet's hardware path. */
 async function domDrag(params: Params) {
   const points = params.points as [number, number][];
   if (!Array.isArray(points) || points.length < 2)
     throw new Error("a drag needs at least two points");
+  const pressures = Array.isArray(params.pressures)
+    ? (params.pressures as number[])
+    : null;
+  if (pressures && pressures.length !== points.length)
+    throw new Error("pressures needs one value per point");
+  const pen = (i: number) =>
+    pressures ? { pointerType: "pen", pressure: pressures[i] } : {};
   const interval =
     typeof params.interval_ms === "number" ? params.interval_ms : 1000 / 60;
   const extra = modifiers(params);
   const [x0, y0] = points[0];
   const start = document.elementFromPoint(x0, y0);
   if (!start) throw new Error(`nothing at ${x0},${y0}`);
-  firePointer(start, "down", x0, y0, 1, extra);
-  for (const [x, y] of points.slice(1)) {
+  firePointer(start, "down", x0, y0, 1, { ...extra, ...pen(0) });
+  for (const [i, [x, y]] of points.entries()) {
+    if (i === 0) continue;
     await sleep(interval);
     firePointer(
       document.elementFromPoint(x, y) ?? start,
@@ -265,7 +275,7 @@ async function domDrag(params: Params) {
       x,
       y,
       1,
-      extra,
+      { ...extra, ...pen(i) },
     );
   }
   const [x1, y1] = points[points.length - 1];

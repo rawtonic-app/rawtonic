@@ -238,6 +238,27 @@ export default function StudioLayerControls({
             />
             {t("studio.layers.brush.autoMask")}
           </label>
+          {/* Pen pressure (Capture One: size; flow as well): only strokes
+              drawn with a pressure-sensitive pen carry it. */}
+          <div className="studio-inline" title={t("studio.layers.brush.penPressureTitle")}>
+            <span>{t("studio.layers.brush.penPressure")}</span>
+            <label className="studio-check">
+              <input
+                type="checkbox"
+                checked={brushSettings?.pressureSize ?? true}
+                onChange={(e) => setBrush({ pressureSize: e.target.checked })}
+              />
+              {t("studio.layers.brush.pressureSize")}
+            </label>
+            <label className="studio-check">
+              <input
+                type="checkbox"
+                checked={!!brushSettings?.pressureFlow}
+                onChange={(e) => setBrush({ pressureFlow: e.target.checked })}
+              />
+              {t("studio.layers.brush.pressureFlow")}
+            </label>
+          </div>
         </>
       )}
       {/* Draw and Erase paint on the layer's mask (one is active while

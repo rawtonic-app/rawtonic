@@ -894,6 +894,10 @@ impl Default for LinearMaskParameters {
 struct Point {
     x: f64,
     y: f64,
+    /// Pen pressure 0–1 at this point (pen strokes with a pressure mapping,
+    /// see `BrushLine::pressure_size`); absent: 1, as for every mouse stroke.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    p: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -937,6 +941,14 @@ struct BrushLine {
     /// dabs closer (`DabTip::dab_version_2`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dab_version: Option<u32>,
+    /// Pen pressure (each point's `p`) scales the dab radius
+    /// (`pressure_size`, Capture One's Pen Pressure) and/or the dab flow
+    /// (`pressure_flow`) at that point. Absent: neither; a mouse stroke never
+    /// carries them (user decision D3: a mouse paints at constant pressure).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pressure_size: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pressure_flow: bool,
     /// The photo's geometry the stroke was painted in (see `ShapeFrame`).
     #[serde(
         default,
@@ -1540,8 +1552,13 @@ fn stroke_models_v3(
     for i in 1..dabs.len() {
         arc[i] = arc[i - 1] + (dabs[i].0 - dabs[i - 1].0).hypot(dabs[i].1 - dabs[i - 1].1);
     }
+    // In radii of dab i (equal for every dab but under pen pressure).
+    let outers: Vec<f32> = clusters
+        .iter()
+        .map(|c| c.map_or(outer, |c| c.outer))
+        .collect();
     let within = |i: usize, reach: f32| {
-        let arc = &arc;
+        let (arc, outer) = (&arc, outers[i]);
         (0..dabs.len()).filter(move |&j| (arc[j] - arc[i]).abs() <= reach * outer)
     };
 
@@ -2227,6 +2244,95 @@ impl DabTip {
     }
 }
 
+/// Pen pressure of a stroke: what each point's `p` (0–1, absent 1) scales.
+/// Linear in both, like Capture One's Pen Pressure on size, so the full
+/// range from no dab to the set size and flow is reachable and the response
+/// is monotonic without steps (bar: plan M7; tablet test open).
+/// Dab centres, their (radius, flow) factors, and the share of a step
+/// after the last dab.
+type PenDabs = (Vec<(f32, f32)>, Vec<(f32, f32)>, f32);
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PenPressure {
+    size: bool,
+    flow: bool,
+}
+
+impl PenPressure {
+    /// Only strokes with a mapping and at least one point's pressure; the
+    /// others (every mouse stroke, every saved recipe before) take the
+    /// rasteriser's unchanged path.
+    fn of(line: &BrushLine) -> Option<Self> {
+        let pen = Self {
+            size: line.pressure_size,
+            flow: line.pressure_flow,
+        };
+        ((pen.size || pen.flow) && line.points.iter().any(|point| point.p.is_some())).then_some(pen)
+    }
+
+    /// A point's (radius, flow) factor.
+    fn factors(self, p: Option<f32>) -> (f32, f32) {
+        let p = p.unwrap_or(1.0);
+        let p = if p.is_finite() {
+            p.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        (
+            if self.size { p } else { 1.0 },
+            if self.flow { p } else { 1.0 },
+        )
+    }
+
+    /// The dabs of a pressure stroke with their factors, and the share of
+    /// a step the path covered after its last dab (for the end dab). Each
+    /// dab sits one step of its own radius after the one before (spacing as
+    /// a share of the dab's size, as the references space a smaller tip
+    /// closer); pressure is interpolated linearly between points. Lightroom
+    /// tips keep a dab at every point.
+    fn dabs(
+        self,
+        points: &[Point],
+        local: impl Fn(&Point) -> (f32, f32),
+        step: f32,
+        lightroom: bool,
+    ) -> PenDabs {
+        if lightroom {
+            return (
+                points.iter().map(&local).collect(),
+                points.iter().map(|point| self.factors(point.p)).collect(),
+                0.0,
+            );
+        }
+        let spacing = |size: f32| (step * size).max(0.5);
+        let first = self.factors(points[0].p);
+        let (mut dabs, mut scales) = (vec![local(&points[0])], vec![first]);
+        let mut remaining = spacing(first.0);
+        let mut last_step = remaining;
+        for pair in points.windows(2) {
+            let (x1, y1) = local(&pair[0]);
+            let (x2, y2) = local(&pair[1]);
+            let length = (x2 - x1).hypot(y2 - y1);
+            if length <= 0.0 {
+                continue;
+            }
+            let (p1, p2) = (pair[0].p.unwrap_or(1.0), pair[1].p.unwrap_or(1.0));
+            let mut at = 0.0;
+            while remaining <= length - at {
+                at += remaining;
+                let t = at / length;
+                let factors = self.factors(Some(p1 + (p2 - p1) * t));
+                dabs.push((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+                scales.push(factors);
+                remaining = spacing(factors.0);
+                last_step = remaining;
+            }
+            remaining -= length - at;
+        }
+        (dabs, scales, 1.0 - remaining / last_step)
+    }
+}
+
 /// Coverage builds up within one stroke over dabs spaced evenly along the
 /// path, as 1 − Π(1 − flow · dab), so it depends on the path and not on how
 /// densely the pointer was sampled (Capture One's and Photoshop's flow); the
@@ -2247,6 +2353,7 @@ fn blend_stroke_dabs(
     colours: Option<&[[f32; 3]]>,
     linear_colours: Option<&[[f32; 3]]>,
     auto_mask_version: u32,
+    pressure: Option<PenPressure>,
     combine: impl Fn(u8, u8) -> u8 + Sync,
 ) -> usize {
     let (min_x, min_y, max_x, max_y) = bounds;
@@ -2272,11 +2379,20 @@ fn blend_stroke_dabs(
 
     let mut dabs = vec![local(&points[0])];
     let mut travelled = 0.0;
+    // Pen pressure: each dab's (radius, flow) factor, with dabs spaced by
+    // the step of their own radius (`PenPressure::dabs`). Empty without.
+    let mut scales: Vec<(f32, f32)> = Vec::new();
     // Lightroom stores its dabs: one at every point.
     if lightroom.is_some() {
         dabs = points.iter().map(local).collect();
     }
-    for pair in points.windows(2).filter(|_| lightroom.is_none()) {
+    if let Some(pen) = pressure {
+        (dabs, scales, travelled) = pen.dabs(points, local, step, lightroom.is_some());
+    }
+    for pair in points
+        .windows(2)
+        .filter(|_| lightroom.is_none() && pressure.is_none())
+    {
         let (x1, y1) = local(&pair[0]);
         let (x2, y2) = local(&pair[1]);
         let length = (x2 - x1).hypot(y2 - y1);
@@ -2294,9 +2410,20 @@ fn blend_stroke_dabs(
     // Version 2's end dab: the share of a step since the last dab.
     let mut end_weight = None;
     if end_dab && lightroom.is_none() && travelled > 1e-3 {
-        dabs.push(local(&points[points.len() - 1]));
-        end_weight = Some((travelled / step).min(1.0));
+        let last = &points[points.len() - 1];
+        dabs.push(local(last));
+        // With pressure `travelled` is already the share of the last step.
+        end_weight = Some(match pressure {
+            Some(pen) => {
+                scales.push(pen.factors(last.p));
+                travelled.min(1.0)
+            }
+            None => (travelled / step).min(1.0),
+        });
     }
+    // A dab's (radius, flow) factor: exactly 1 without pressure, so those
+    // strokes compute what they did before.
+    let scale_of = |dab: usize| scales.get(dab).copied().unwrap_or((1.0, 1.0));
     // A dab's exponent on what it keeps (1 for every dab in version 1).
     let last_dab = dabs.len() - 1;
     let exponent = |dab: usize| match end_weight {
@@ -2351,6 +2478,7 @@ fn blend_stroke_dabs(
             mask,
             (min_x, min_y, bb_w, bb_h),
             &dabs,
+            &scales,
             end_weight,
             outer,
             tip_at,
@@ -2367,39 +2495,65 @@ fn blend_stroke_dabs(
     // (1 − flow · tip)^density, tabulated over the falloff; the power per
     // pixel cost more than the rest of the dab.
     const KEPT_STEPS: usize = 4096;
-    let kept_table: Option<Vec<f32>> = (density != 1.0 && lightroom.is_none() && colours.is_none())
-        .then(|| {
-            (0..=KEPT_STEPS)
-                .map(|i| {
-                    let t = i as f32 / KEPT_STEPS as f32;
-                    (1.0 - flow * (1.0 - t * t * (3.0 - 2.0 * t))).powf(density)
-                })
-                .collect()
-        });
+    let kept_for = |flow: f32| -> Vec<f32> {
+        (0..=KEPT_STEPS)
+            .map(|i| {
+                let t = i as f32 / KEPT_STEPS as f32;
+                (1.0 - flow * (1.0 - t * t * (3.0 - 2.0 * t))).powf(density)
+            })
+            .collect()
+    };
+    let tabulated = density != 1.0 && lightroom.is_none() && colours.is_none();
+    let varying_flow = pressure.is_some_and(|pen| pen.flow);
+    let kept_table: Option<Vec<f32>> = (tabulated && !varying_flow).then(|| kept_for(flow));
+    // Pressure on flow: a table per dab at its own flow, for dabs large
+    // enough to repay it (a per-pixel power made such strokes 2.4× slower).
+    let dab_tables: Vec<Option<Vec<f32>>> = if tabulated && varying_flow {
+        (0..dabs.len())
+            .into_par_iter()
+            .map(|dab| {
+                let (size, flow_factor) = scale_of(dab);
+                let area = std::f32::consts::PI * (outer * size).powi(2);
+                (area >= 4.0 * KEPT_STEPS as f32).then(|| kept_for(flow * flow_factor))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     let rows = &mut mask.as_mut()[min_y as usize * width..(max_y as usize + 1) * width];
     rows.par_chunks_mut(width).enumerate().for_each(|(y, row)| {
         let py = y as f32;
         let mut keep: Vec<f32> = Vec::new();
         for (dab, &(dx, dy)) in dabs.iter().enumerate() {
+            // The tip is evaluated at the distance scaled to the full
+            // radius; the factors are 1 without pressure.
+            let (size, flow_factor) = scale_of(dab);
+            if size <= 0.0 {
+                continue;
+            }
+            let (dab_outer, dab_radius_sq) = (outer * size, radius_sq * (size * size));
+            let (tip_scale, flow) = (1.0 / (size * size), flow * flow_factor);
             let offset_y = py - dy;
-            if offset_y.abs() > outer {
+            if offset_y.abs() > dab_outer {
                 continue;
             }
             if keep.is_empty() {
                 keep.resize(bb_w, 1.0);
             }
-            let half = (radius_sq - offset_y * offset_y).max(0.0).sqrt();
+            let half = (dab_radius_sq - offset_y * offset_y).max(0.0).sqrt();
             let left = ((dx - half).floor() as i32).max(0);
             let right = ((dx + half).ceil() as i32).min(bb_w as i32 - 1);
             let table = kept_table
                 .as_deref()
+                .or_else(|| dab_tables.get(dab).and_then(Option::as_deref))
                 .filter(|_| end_weight.is_none() || dab != last_dab);
             for x in left..=right {
                 let offset_x = x as f32 - dx;
                 let dist_sq = offset_x * offset_x + offset_y * offset_y;
-                if dist_sq > radius_sq {
+                if dist_sq > dab_radius_sq {
                     continue;
                 }
+                let dist_sq = dist_sq * tip_scale;
                 if let Some(table) = table {
                     keep[x as usize] *= if dist_sq <= inner_radius_sq {
                         table[0]
@@ -2456,6 +2610,7 @@ fn blend_stroke_auto_mask_v2(
     mask: &mut GrayImage,
     (min_x, min_y, bb_w, bb_h): (u32, u32, usize, usize),
     dabs: &[(f32, f32)],
+    scales: &[(f32, f32)],
     end_weight: Option<f32>,
     outer: f32,
     tip_at: impl Fn(f32) -> f32 + Sync,
@@ -2465,15 +2620,22 @@ fn blend_stroke_auto_mask_v2(
     version: u32,
     combine: impl Fn(u8, u8) -> u8 + Sync,
 ) {
+    let scale_of = |dab: usize| scales.get(dab).copied().unwrap_or((1.0, 1.0));
     let models: Vec<AutoMaskModel> = if version >= 3 {
         let clusters: Vec<Option<AutoMaskClusters>> = dabs
             .par_iter()
-            .map(|&centre| AutoMaskClusters::of(colours, bb_w, bb_h, centre, outer))
+            .enumerate()
+            .map(|(dab, &centre)| {
+                AutoMaskClusters::of(colours, bb_w, bb_h, centre, outer * scale_of(dab).0)
+            })
             .collect();
         stroke_models_v3(&clusters, dabs)
     } else {
         dabs.par_iter()
-            .map(|&centre| AutoMaskModel::fit(colours, bb_w, bb_h, centre, outer))
+            .enumerate()
+            .map(|(dab, &centre)| {
+                AutoMaskModel::fit(colours, bb_w, bb_h, centre, outer * scale_of(dab).0)
+            })
             .collect()
     };
     let radius_sq = outer * outer;
@@ -2484,24 +2646,30 @@ fn blend_stroke_auto_mask_v2(
         let mut keep: Vec<f32> = Vec::new();
         let mut shares: Vec<(f32, f32)> = Vec::new();
         for (dab, &(dx, dy)) in dabs.iter().enumerate() {
+            let (size, flow_factor) = scale_of(dab);
+            if size <= 0.0 {
+                continue;
+            }
+            let (dab_outer, dab_radius_sq) = (outer * size, radius_sq * (size * size));
+            let (tip_scale, flow) = (1.0 / (size * size), flow * flow_factor);
             let offset_y = py - dy;
-            if offset_y.abs() > outer {
+            if offset_y.abs() > dab_outer {
                 continue;
             }
             if keep.is_empty() {
                 keep.resize(bb_w, 1.0);
                 shares.resize(bb_w, (0.0, 0.0));
             }
-            let half = (radius_sq - offset_y * offset_y).max(0.0).sqrt();
+            let half = (dab_radius_sq - offset_y * offset_y).max(0.0).sqrt();
             let left = ((dx - half).floor() as i32).max(0);
             let right = ((dx + half).ceil() as i32).min(bb_w as i32 - 1);
             for x in left..=right {
                 let offset_x = x as f32 - dx;
                 let dist_sq = offset_x * offset_x + offset_y * offset_y;
-                if dist_sq > radius_sq {
+                if dist_sq > dab_radius_sq {
                     continue;
                 }
-                let intensity = tip_at(dist_sq);
+                let intensity = tip_at(dist_sq * tip_scale);
                 let x = x as usize;
                 // Version 2's end dab counts for its share of a step.
                 let (kept, intensity) = match end_weight {
@@ -2980,10 +3148,11 @@ fn apply_brush_line(
 
     // Auto Mask needs the photo; without it the stroke paints as usual.
     let auto_mask = source.filter(|_| line.auto_mask && !is_eraser);
+    let pressure = PenPressure::of(line);
     let tip = match (line.lr_center_weight, line.hardness) {
         (Some(center_weight), _) => Some(DabTip::lightroom(radius, center_weight)),
         (None, Some(hardness)) => Some(DabTip::capture_one(radius, hardness / 100.0)),
-        (None, None) if flow < 1.0 || auto_mask.is_some() => {
+        (None, None) if flow < 1.0 || auto_mask.is_some() || pressure.is_some() => {
             Some(DabTip::feathered(radius, feather))
         }
         (None, None) => None,
@@ -3035,6 +3204,7 @@ fn apply_brush_line(
             colours.as_deref(),
             linear_colours.as_deref(),
             line.auto_mask_version.unwrap_or(1),
+            pressure,
             combine,
         );
         // Profiling only: dabs of this stroke, the rows and columns of its
@@ -6616,6 +6786,7 @@ mod stroke_rasterization_tests {
                 points.push(Point {
                     x: last.x,
                     y: last.y,
+                    p: None,
                 });
                 continue;
             }
@@ -6624,6 +6795,7 @@ mod stroke_rasterization_tests {
                     + (next() % 100) as f64 / 37.0,
                 y: (next() % (height * 3)) as f64 * 0.8 - height as f64 * 0.4
                     + (next() % 100) as f64 / 41.0,
+                p: None,
             });
         }
         points
@@ -6657,6 +6829,8 @@ mod stroke_rasterization_tests {
                         auto_mask: false,
                         auto_mask_version: None,
                         dab_version: None,
+                        pressure_size: false,
+                        pressure_flow: false,
                         frame: None,
                     };
                     let offset = ((next() % 9) as f32 - 4.5, (next() % 7) as f32 - 2.0);
@@ -6718,7 +6892,10 @@ mod stroke_rasterization_tests {
         BrushLine {
             tool: tool.into(),
             brush_size: 20.0,
-            points: points.iter().map(|&(x, y)| Point { x, y }).collect(),
+            points: points
+                .iter()
+                .map(|&(x, y)| Point { x, y, p: None })
+                .collect(),
             feather: 0.5,
             opacity,
             flow,
@@ -6727,6 +6904,8 @@ mod stroke_rasterization_tests {
             auto_mask: false,
             auto_mask_version: None,
             dab_version: None,
+            pressure_size: false,
+            pressure_flow: false,
             frame: None,
         }
     }
@@ -6742,7 +6921,10 @@ mod stroke_rasterization_tests {
         let line = |points: &[(f64, f64)], flow: f32| BrushLine {
             tool: "brush".into(),
             brush_size: 40.0,
-            points: points.iter().map(|&(x, y)| Point { x, y }).collect(),
+            points: points
+                .iter()
+                .map(|&(x, y)| Point { x, y, p: None })
+                .collect(),
             feather: 0.5,
             opacity: None,
             flow: Some(flow),
@@ -6751,6 +6933,8 @@ mod stroke_rasterization_tests {
             auto_mask: false,
             auto_mask_version: None,
             dab_version: None,
+            pressure_size: false,
+            pressure_flow: false,
             frame: None,
         };
         // One dab at 50 % coverage; two dabs on the same spot reach 75 %
@@ -6856,7 +7040,10 @@ mod stroke_rasterization_tests {
         let line = |points: &[(f64, f64)], hardness: f32, flow: f32| BrushLine {
             tool: "brush".into(),
             brush_size: 2.0 * r,
-            points: points.iter().map(|&(x, y)| Point { x, y }).collect(),
+            points: points
+                .iter()
+                .map(|&(x, y)| Point { x, y, p: None })
+                .collect(),
             feather: 0.5,
             opacity: None,
             flow: Some(flow),
@@ -6865,6 +7052,8 @@ mod stroke_rasterization_tests {
             auto_mask: false,
             auto_mask_version: None,
             dab_version: None,
+            pressure_size: false,
+            pressure_flow: false,
             frame: None,
         };
         let stroke = [(120.0, -150.0), (120.0, 270.0)];
@@ -6931,7 +7120,18 @@ mod stroke_rasterization_tests {
         let line = |hardness: f32, flow: f32, version: Option<u32>| BrushLine {
             tool: "brush".into(),
             brush_size: 2.0 * r,
-            points: vec![Point { x: x0, y: cy }, Point { x: x1, y: cy }],
+            points: vec![
+                Point {
+                    x: x0,
+                    y: cy,
+                    p: None,
+                },
+                Point {
+                    x: x1,
+                    y: cy,
+                    p: None,
+                },
+            ],
             feather: 0.5,
             opacity: None,
             flow: Some(flow),
@@ -6940,6 +7140,8 @@ mod stroke_rasterization_tests {
             auto_mask: false,
             auto_mask_version: None,
             dab_version: version,
+            pressure_size: false,
+            pressure_flow: false,
             frame: None,
         };
         // Per row across the stroke's middle: the largest swing along it and
@@ -6998,7 +7200,10 @@ mod stroke_rasterization_tests {
         BrushLine {
             tool: "brush".into(),
             brush_size: 111.5,
-            points: points.iter().map(|&(x, y)| Point { x, y }).collect(),
+            points: points
+                .iter()
+                .map(|&(x, y)| Point { x, y, p: None })
+                .collect(),
             feather: 0.5,
             opacity: None,
             flow: None,
@@ -7007,6 +7212,8 @@ mod stroke_rasterization_tests {
             auto_mask: false,
             auto_mask_version: None,
             dab_version: None,
+            pressure_size: false,
+            pressure_flow: false,
             frame: None,
         }
     }
@@ -9299,7 +9506,11 @@ mod drawn_mask_frame_tests {
             "range": 6.0, "rangeEnd": 2.0, "frame": drawn});
         let radial = shape_as_shown("radial", &radial, now, 1.0).into_owned();
         let linear = shape_as_shown("linear", &linear, now, 1.0).into_owned();
-        let mut points = vec![Point { x: 12.0, y: 31.0 }];
+        let mut points = vec![Point {
+            x: 12.0,
+            y: 31.0,
+            p: None,
+        }];
         let mut size = 10.0f32;
         strokes_as_shown(
             [(
@@ -9417,5 +9628,162 @@ mod drawn_mask_frame_tests {
                 .get("frame")
                 .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod pen_pressure_tests {
+    use super::*;
+
+    /// A horizontal stroke along y = 60 from x = 40 to 360 as a recipe line,
+    /// one point every 8 px with pressure `pressure(t)` (t = 0..1 along it)
+    /// or none, plus the extra recipe keys in `extra`.
+    fn line(pressure: Option<fn(f64) -> f64>, extra: Value) -> BrushLine {
+        let points: Vec<Value> = (0..=40)
+            .map(|i| {
+                let t = i as f64 / 40.0;
+                let mut point = serde_json::json!({"x": 40.0 + 320.0 * t, "y": 60.0});
+                if let Some(pressure) = pressure {
+                    point["p"] = pressure(t).into();
+                }
+                point
+            })
+            .collect();
+        let mut line = serde_json::json!({"tool": "brush", "brushSize": 60.0,
+            "points": points, "feather": 0.5, "hardness": 80.0, "dabVersion": 2});
+        for (key, value) in extra.as_object().unwrap() {
+            line[key] = value.clone();
+        }
+        serde_json::from_value(line).unwrap()
+    }
+
+    fn paint(line: &BrushLine) -> GrayImage {
+        let mut mask = GrayImage::new(400, 120);
+        apply_brush_line(&mut mask, line, 1.0, (0.0, 0.0), None);
+        mask
+    }
+
+    /// Rows painted at least half at column `x`: the stroke's width there.
+    fn width_at(mask: &GrayImage, x: u32) -> u32 {
+        (0..mask.height())
+            .filter(|&y| mask.get_pixel(x, y)[0] >= 128)
+            .count() as u32
+    }
+
+    fn ramp(t: f64) -> f64 {
+        t
+    }
+
+    #[test]
+    fn mouse_strokes_keep_their_recipe_and_their_pixels() {
+        // No `p` (every mouse stroke): no new keys, and the pressure keys
+        // alone or `p` alone change no pixel.
+        let mouse = line(None, serde_json::json!({}));
+        let saved = serde_json::to_value(&mouse).unwrap();
+        assert!(saved["points"][0].get("p").is_none());
+        assert!(saved.get("pressureSize").is_none() && saved.get("pressureFlow").is_none());
+        let plain = paint(&mouse);
+        let flags = serde_json::json!({"pressureSize": true, "pressureFlow": true});
+        assert!(paint(&line(None, flags.clone())) == plain);
+        assert!(paint(&line(Some(ramp), serde_json::json!({}))) == plain);
+        // Pressure 1 throughout paints the mouse stroke (within one level:
+        // dabs are placed by the pressure walk).
+        let full = paint(&line(
+            Some(|_| 1.0),
+            serde_json::json!({"pressureSize": true}),
+        ));
+        let most = plain
+            .pixels()
+            .zip(full.pixels())
+            .map(|(a, b)| a[0].abs_diff(b[0]))
+            .max()
+            .unwrap();
+        assert!(
+            most <= 1,
+            "pressure 1 differs from the mouse stroke by {most}"
+        );
+        let round_trip: BrushLine =
+            serde_json::from_value(serde_json::to_value(line(Some(ramp), flags.clone())).unwrap())
+                .unwrap();
+        assert_eq!(round_trip, line(Some(ramp), flags));
+    }
+
+    #[test]
+    fn pressure_scales_the_width_monotonically() {
+        let mask = paint(&line(Some(ramp), serde_json::json!({"pressureSize": true})));
+        let full = width_at(&paint(&line(None, serde_json::json!({}))), 200);
+        // Columns 80..=320 (pressure 0.125..0.875): never narrower further on.
+        let widths: Vec<u32> = (80..=320).step_by(8).map(|x| width_at(&mask, x)).collect();
+        assert!(
+            widths
+                .windows(2)
+                .all(|w| w[1] + 1 >= w[0] && w[1] <= w[0] + 3),
+            "{widths:?}"
+        );
+        // Linear in pressure: half the width at half pressure, about.
+        let half = width_at(&mask, 200) as f32;
+        assert!(
+            (half / full as f32 - 0.5).abs() < 0.08,
+            "{half} of {full} at pressure 0.5"
+        );
+        assert!(width_at(&mask, 44) <= 4, "{}", width_at(&mask, 44));
+    }
+
+    #[test]
+    fn pressure_scales_the_flow_monotonically() {
+        let flow = |extra: Value, p: Option<fn(f64) -> f64>| {
+            let mut extra = extra;
+            extra["flow"] = 40.0.into();
+            paint(&line(p, extra))
+        };
+        let mask = flow(serde_json::json!({"pressureFlow": true}), Some(ramp));
+        let centre: Vec<u8> = (80..=320)
+            .step_by(4)
+            .map(|x| mask.get_pixel(x, 60)[0])
+            .collect();
+        assert!(centre.windows(2).all(|w| w[1] >= w[0]), "{centre:?}");
+        assert!(centre[0] < centre[centre.len() - 1] / 2, "{centre:?}");
+        // Width unchanged: the edge stays where the full-flow stroke's is.
+        let plain = flow(serde_json::json!({}), None);
+        assert_eq!(width_at(&mask, 300) > 0, width_at(&plain, 300) > 0);
+        // Pressure 0.5 is the stroke at half the flow.
+        let half_p = flow(serde_json::json!({"pressureFlow": true}), Some(|_| 0.5));
+        let mut half_flow = line(None, serde_json::json!({}));
+        half_flow.flow = Some(20.0);
+        let half_flow = paint(&half_flow);
+        let most = half_p
+            .pixels()
+            .zip(half_flow.pixels())
+            .map(|(a, b)| a[0].abs_diff(b[0]))
+            .max()
+            .unwrap();
+        assert!(most <= 1, "{most}");
+    }
+
+    #[test]
+    fn pressure_reaches_lightroom_and_auto_mask_tips() {
+        // Lightroom's tip (a dab at every point) and Auto Mask v2 both
+        // shrink with pressure.
+        let lightroom = paint(&line(
+            Some(ramp),
+            serde_json::json!({"pressureSize": true, "lrCenterWeight": 0.5, "flow": 50.0}),
+        ));
+        assert!(width_at(&lightroom, 100) < width_at(&lightroom, 300));
+        let image = DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(400, 120, |_, _| {
+            Rgba([128, 128, 128, 255])
+        }));
+        let source = ParametricMaskSource::new(Arc::new(image), (400.0, 120.0)).unwrap();
+        let sampler = SourceSampler::new(&source, 1.0, (0.0, 0.0));
+        for version in [2, 3] {
+            let stroke = line(
+                Some(ramp),
+                serde_json::json!({"pressureSize": true, "autoMask": true,
+                    "autoMaskVersion": version}),
+            );
+            let mut mask = GrayImage::new(400, 120);
+            apply_brush_line(&mut mask, &stroke, 1.0, (0.0, 0.0), Some(&sampler));
+            let (thin, wide) = (width_at(&mask, 100), width_at(&mask, 300));
+            assert!(thin > 0 && thin < wide, "v{version}: {thin} vs {wide}");
+        }
     }
 }

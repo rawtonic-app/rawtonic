@@ -2256,6 +2256,10 @@
         "brushOpacity": "Brush opacity",
         "brushSize": "Brush size",
         "hardness": "Hardness",
+        "penPressure": "Pen pressure",
+        "penPressureTitle": "With a pressure-sensitive pen, pressing harder paints a wider (Size) or stronger (Flow) stroke. A mouse always paints at full pressure.",
+        "pressureFlow": "Flow",
+        "pressureSize": "Size",
         "size": "Size"
       },
       "draw": "Draw",

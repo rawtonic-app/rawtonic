@@ -2256,6 +2256,10 @@
         "brushOpacity": "Pinseldeckkraft",
         "brushSize": "Pinselgröße",
         "hardness": "Härte",
+        "penPressure": "Stiftdruck",
+        "penPressureTitle": "Mit einem drucksensitiven Stift malt stärkerer Druck breiter (Größe) oder kräftiger (Fluss). Eine Maus malt immer mit vollem Druck.",
+        "pressureFlow": "Fluss",
+        "pressureSize": "Größe",
         "size": "Größe"
       },
       "draw": "Malen",
