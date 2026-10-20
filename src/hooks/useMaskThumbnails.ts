@@ -91,15 +91,13 @@ function requestAdjustments(adjustments: Adjustments): Adjustments {
   const strip = (subMasks?: SubMask[]) =>
     subMasks?.forEach((sub) => {
       if (!sub.id || !sub.parameters || !patchesSentToBackend.has(sub.id)) return;
-      // Only the very bitmap the backend holds under the id.
-      const sent = patchesSentToBackend.get(sub.id);
       for (const key of MASK_DATA_KEYS) {
-        if (sub.parameters[key] === sent) sub.parameters[key] = null;
+        if (sub.parameters[key] !== undefined) sub.parameters[key] = null;
       }
     });
   payload.masks?.forEach((mask: MaskContainer) => strip(mask.subMasks));
   payload.aiPatches?.forEach((patch: AiPatch) => {
-    if (patch.id && patch.patchData && patchesSentToBackend.get(patch.id) === patch.patchData) patch.patchData = null;
+    if (patch.id && patch.patchData && patchesSentToBackend.has(patch.id)) patch.patchData = null;
     strip(patch.subMasks);
   });
   return payload;

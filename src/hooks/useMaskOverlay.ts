@@ -41,10 +41,8 @@ function stripSentMaskData(subMasks: SubMask[]) {
   const { patchesSentToBackend } = useEditorStore.getState();
   for (const sm of subMasks) {
     if (!sm.id || !sm.parameters || !patchesSentToBackend.has(sm.id)) continue;
-    // Only the very bitmap the backend holds under the id.
-    const sent = patchesSentToBackend.get(sm.id);
-    if (sm.parameters.mask_data_base64 === sent) sm.parameters.mask_data_base64 = null;
-    if (sm.parameters.maskDataBase64 === sent) sm.parameters.maskDataBase64 = null;
+    if (sm.parameters.mask_data_base64 !== undefined) sm.parameters.mask_data_base64 = null;
+    if (sm.parameters.maskDataBase64 !== undefined) sm.parameters.maskDataBase64 = null;
   }
 }
 

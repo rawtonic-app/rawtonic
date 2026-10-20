@@ -208,7 +208,7 @@ export function useImageProcessing(
       const referenced = live ? null : withParameterReferences(currentAdjustments);
       const payload = withRecipe ? withViewStates(referenced ? referenced.adjustments : currentAdjustments) : null;
       const { patchesSentToBackend } = useEditorStore.getState();
-      const newlySentPatches = new Map<string, unknown>();
+      const newlySentPatches = new Set<string>();
       if (payload) {
         if (cropEdit) {
           payload.crop = null;
@@ -220,17 +220,18 @@ export function useImageProcessing(
           subMasks.forEach((sm: SubMask) => {
             if (sm.id && sm.parameters) {
               const keys = ['mask_data_base64', 'maskDataBase64'];
+              let foundMaskData = false;
 
               for (const key of keys) {
-                const data = sm.parameters[key];
-                if (data !== undefined && data !== null) {
-                  // The backend holds this very bitmap under the id.
-                  if (patchesSentToBackend.get(sm.id) === data) {
+                if (sm.parameters[key] !== undefined && sm.parameters[key] !== null) {
+                  foundMaskData = true;
+                  if (patchesSentToBackend.has(sm.id)) {
                     sm.parameters[key] = null;
-                  } else {
-                    newlySentPatches.set(sm.id, data);
                   }
                 }
+              }
+              if (foundMaskData && !patchesSentToBackend.has(sm.id)) {
+                newlySentPatches.add(sm.id);
               }
             }
           });
@@ -239,10 +240,10 @@ export function useImageProcessing(
         if (payload.aiPatches && Array.isArray(payload.aiPatches)) {
           payload.aiPatches.forEach((p: AiPatch) => {
             if (p.id && p.patchData && !p.isLoading) {
-              if (patchesSentToBackend.get(p.id) === p.patchData) {
+              if (patchesSentToBackend.has(p.id)) {
                 p.patchData = null;
               } else {
-                newlySentPatches.set(p.id, p.patchData);
+                newlySentPatches.add(p.id);
               }
             }
             if (p.subMasks) processSubMasks(p.subMasks);
@@ -254,7 +255,7 @@ export function useImageProcessing(
             if (container.subMasks) processSubMasks(container.subMasks);
           });
         }
-        stripSentRelightData(payload, patchesSentToBackend).forEach((name) => newlySentPatches.set(name, true));
+        stripSentRelightData(payload, patchesSentToBackend).forEach((name) => newlySentPatches.add(name));
       }
 
       const jobId = ++previewJobIdRef.current;
@@ -315,7 +316,7 @@ export function useImageProcessing(
         }
 
         if (newlySentPatches.size > 0) {
-          newlySentPatches.forEach((data, id) => patchesSentToBackend.set(id, data));
+          newlySentPatches.forEach((id) => patchesSentToBackend.add(id));
         }
         if (referenced) acknowledgeParameters(referenced.sent);
 

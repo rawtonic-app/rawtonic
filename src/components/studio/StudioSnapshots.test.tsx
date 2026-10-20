@@ -264,3 +264,25 @@ it("develops each thumbnail once when a photograph is shown again before they ar
   const shown = useSnapshotStore.getState().thumbnails.a;
   for (const url of created) if (url !== shown) expect(URL.revokeObjectURL).toHaveBeenCalledWith(url);
 });
+
+it("restores AI bitmaps under ids of their own when the renderer holds others under theirs", async () => {
+  const sky = (id: string, data: string) => ({ id, type: "ai-sky", visible: true, invert: false, opacity: 100, mode: "additive", parameters: { maskDataBase64: data } });
+  const snapshot = {
+    ...recipe(1),
+    masks: [{ ...structuredClone(INITIAL_ADJUSTMENTS.masks[0] ?? {}), id: "layer", name: "Sky", visible: true, invert: false, opacity: 100, adjustments: {}, subMasks: [sky("sky", "data:old"), sky("fresh", "data:x")] }],
+    aiPatches: [{ id: "patch", isLoading: false, name: "Remove", visible: true, invert: false, prompt: "", patchData: { color: "c", mask: "m", offsetX: 0, offsetY: 0, width: 1, height: 1, isSrgbEncoded: true }, subMasks: [] }],
+  } as unknown as Adjustments;
+  kept[PHOTO] = [{ id: "a", name: "Sky look", createdAt: "2026-10-20T10:00:00.000Z", adjustments: snapshot }];
+  // The renderer holds the mask computed again since, under "sky", and the patch.
+  useEditorStore.setState({ patchesSentToBackend: new Set(["sky", "patch"]) });
+  render(<StudioSnapshots />);
+  await screen.findByText("Sky look");
+  fireEvent.click(screen.getByTitle("Restore Sky look (a history step: Undo returns)"));
+  const restored = useEditorStore.getState().adjustments;
+  const [first, second] = restored.masks[0].subMasks;
+  expect(first.id).not.toBe("sky");
+  expect(first.parameters).toMatchObject({ maskDataBase64: "data:old" });
+  expect(second.id).toBe("fresh");
+  expect(restored.aiPatches[0].id).not.toBe("patch");
+  expect(restored.aiPatches[0].patchData).toMatchObject({ color: "c" });
+});

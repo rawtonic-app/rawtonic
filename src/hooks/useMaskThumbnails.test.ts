@@ -53,7 +53,7 @@ beforeEach(() => {
     activeMaskContainerId: 'l2',
     activeMaskId: radial.id,
     isSliderDragging: false,
-    patchesSentToBackend: new Map(),
+    patchesSentToBackend: new Set(),
   });
 });
 afterEach(() => {

@@ -155,11 +155,7 @@ interface EditorState {
   /** The layer whose luma range the eyedropper sets from the photo, or null
    * when it is off (Lightroom's Luminance Range sampling). */
   lumaPickerLayer: string | null;
-  /** The bitmaps (AI masks, AI patches) and named data the native side
-   * holds, by id: what it was sent (`true` for named data). A recipe sends
-   * a bitmap again when it holds another one under the same id (a restored
-   * snapshot, Undo across a recomputed mask). */
-  patchesSentToBackend: Map<string, unknown>;
+  patchesSentToBackend: Set<string>;
 
   // Clipboard
   copiedAdjustments: Adjustments | null;
@@ -260,7 +256,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showMaskWithSelectTool: false,
   maskOverlayAuto: 'auto',
   lumaPickerLayer: null,
-  patchesSentToBackend: new Map<string, unknown>(),
+  patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
 

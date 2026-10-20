@@ -6,7 +6,7 @@ import { useEditorStore } from "../store/useEditorStore";
 import { useUIStore } from "../store/useUIStore";
 import { useSettingsStore } from "../store/useSettingsStore";
 import { useLibraryStore } from "../store/useLibraryStore";
-import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, type Adjustments } from "../utils/adjustments";
+import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER } from "../utils/adjustments";
 import { Invokes, Panel } from "../components/ui/AppProperties";
 import { debouncedSave } from "./useEditorActions";
 import { toast } from "react-toastify";
@@ -69,7 +69,7 @@ beforeEach(() => {
     displaySize: { width: 0, height: 0 },
     originalSize: { width: 4000, height: 3000 },
     interactivePatch: null,
-    patchesSentToBackend: new Map(),
+    patchesSentToBackend: new Set(),
     clippingWarnings: false,
     softProof: false,
     softProofSpace: "srgb",
@@ -393,37 +393,4 @@ describe("AI Denoise busy note", () => {
     await act(async () => first.reject("Load cancelled"));
     expect(useEditorStore.getState().aiDenoiseBusy).toBe(true);
   });
-});
-
-it("sends a mask bitmap again when the recipe holds another one under the same id", async () => {
-  const withSky = (data: string): Adjustments => ({
-    ...structuredClone(INITIAL_ADJUSTMENTS),
-    masks: [
-      {
-        ...structuredClone(INITIAL_MASK_CONTAINER),
-        id: "layer",
-        subMasks: [
-          { id: "sky", type: "ai-sky", visible: true, invert: false, opacity: 100, mode: "additive", parameters: { maskDataBase64: data } },
-        ],
-      },
-    ],
-  }) as Adjustments;
-  const sent = (index: number) =>
-    (calls()[index][1] as { jsAdjustments: { masks: { subMasks: { parameters: { maskDataBase64: string | null } }[] }[] } })
-      .jsAdjustments.masks[0].subMasks[0].parameters.maskDataBase64;
-  useEditorStore.setState({ adjustments: withSky("data:old") });
-  mount();
-  await finish();
-  expect(sent(0)).toBe("data:old");
-  // The same bitmap again: the backend holds it.
-  act(() => useEditorStore.setState({ adjustments: { ...withSky("data:old"), exposure: 0.5 } }));
-  await finish();
-  expect(sent(1)).toBeNull();
-  // The mask recomputed, then a snapshot restored or Undo back to the old one.
-  act(() => useEditorStore.setState({ adjustments: withSky("data:new") }));
-  await finish();
-  expect(sent(2)).toBe("data:new");
-  act(() => useEditorStore.setState({ adjustments: withSky("data:old") }));
-  await finish();
-  expect(sent(3)).toBe("data:old");
 });
