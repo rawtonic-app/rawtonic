@@ -224,7 +224,11 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   }, [session, onSelectAlbum]);
   // A rating, label, flag or keyword written to the catalog, an import or a
   // relink: smart albums count again, and the one shown shows what its
-  // rules match now (Lightroom's smart collections update live).
+  // rules match now (Lightroom's smart collections update live). The
+  // callback is read when it is used: the parent passes a new one on every
+  // render, which must not cancel a pending refresh.
+  const selectRef = useRef(onSelectAlbum);
+  selectRef.current = onSelectAlbum;
   useEffect(() => {
     if (!session) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -244,7 +248,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
         : undefined;
       if (!album || !isSmart(album)) return;
       const select: SelectAlbum = (...args) => {
-        if (current() && activeAlbumRef.current === active) onSelectAlbum(...args);
+        if (current() && activeAlbumRef.current === active) selectRef.current(...args);
       };
       await openSessionAlbum(session, album, select, true).catch(() => {});
     };
@@ -262,7 +266,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       clearTimeout(timer);
       stop();
     };
-  }, [session, onSelectAlbum]);
+  }, [session]);
 
   /** Offline photographs of the session (Missing Photographs, shown when any). */
   const [missing, setMissing] = useState(0);

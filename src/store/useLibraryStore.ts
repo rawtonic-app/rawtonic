@@ -59,6 +59,11 @@ interface LibraryState {
    * its catalog finds for the search box and the chosen metadata values;
    * null when neither filters (or outside a library). */
   catalogMatches: Set<string> | null;
+  /** With virtual copies shown and the search box or keywords filtering:
+   * the photographs whose copies pass the rest of the filter (a copy is
+   * then matched on its own name and tags, `copyMatches`). Null: copies
+   * follow their photograph's `catalogMatches`. */
+  catalogCopies: Set<string> | null;
 
   // UI State specific to the Library View
   isTreeLoading: boolean;
@@ -103,6 +108,7 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All },
   searchCriteria: { tags: [], text: '', mode: 'OR' },
   catalogMatches: null,
+  catalogCopies: null,
 
   isTreeLoading: false,
   isViewLoading: false,

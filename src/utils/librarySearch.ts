@@ -179,6 +179,43 @@ export function filterAsRule(
   };
 }
 
+/**
+ * Virtual copies keep keywords of their own (the catalog searches the
+ * photograph's), so a copy is matched in two parts: everything but the
+ * search box and the keyword list by its photograph (`copyBaseRule`, asked
+ * of the catalog), the search box and keywords by the copy's own name and
+ * tags (`copyMatches`). Null when neither filters: a copy then follows its
+ * photograph's answer.
+ */
+export function copyBaseRule(text: string, selection: MetadataSelection | undefined): Rule | null {
+  if (!text.trim() && !selection?.keyword?.length) return null;
+  const rules = selectionRules({ ...selection, keyword: [] });
+  return rules.length ? all(rules) : { combine: 'all', rules: [] };
+}
+
+/** The keywords a photograph's tags hold (`user:` typed ones and automatic
+ * tags; colour labels are not keywords), as the catalog derives them. */
+const keywordsOf = (tags: string[] | null) =>
+  (tags ?? []).filter((tag) => !tag.startsWith('color:')).map((tag) => tag.replace(/^user:/, ''));
+
+/** Whether a virtual copy's own name and tags hold every word of the search
+ * box and one of the chosen keywords (case ignored, as the catalog does). */
+export function copyMatches(
+  path: string,
+  tags: string[] | null,
+  text: string,
+  selection: MetadataSelection | undefined,
+): boolean {
+  const keywords = keywordsOf(tags).map((k) => k.toLowerCase());
+  const photo = photographPath(path);
+  const name = photo.slice(Math.max(photo.lastIndexOf('/'), photo.lastIndexOf('\\')) + 1).toLowerCase();
+  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.every((word) => name.includes(word) || keywords.some((k) => k.includes(word)))) return false;
+  const chosen = selection?.keyword ?? [];
+  if (!chosen.length) return true;
+  return chosen.some((value) => (value === '' ? keywords.length === 0 : keywords.includes(value.toLowerCase())));
+}
+
 /** A library path without a virtual copy's `?vc=` suffix (the catalog finds
  * the photograph; its copies follow it). */
 export const photographPath = (path: string): string => {

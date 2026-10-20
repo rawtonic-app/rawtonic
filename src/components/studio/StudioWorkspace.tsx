@@ -643,6 +643,8 @@ export default function StudioWorkspace(props: Props) {
       onClickCapture={(e) => focusWorkspaceControl(e.target)}
       style={{ "--tools-width": `${width}px` } as React.CSSProperties}
     >
+      {/* Library and Develop both show the Albums tool (it opens the editor). */}
+      <SmartAlbumEditorHost />
       {sessionBar.center && sessionBar.end ? (
         <>
           {createPortal(modules, sessionBar.center)}
@@ -1105,7 +1107,6 @@ export default function StudioWorkspace(props: Props) {
                 </label>
               </div>
               {metadataOpen && <StudioMetadataFilter />}
-              <SmartAlbumEditorHost />
               <StudioBrowser
                 {...browserProps}
                 size={size}

@@ -1043,4 +1043,21 @@ fn a_listed_focal_length_or_aperture_selects_what_it_counts() {
         found(&lib, json!({"field":"focalLength","op":"is","value":50})),
         ["DSC00123.ARW"]
     );
+    // Typed values compare with the stored ones.
+    assert_eq!(
+        found(&lib, json!({"field":"focalLength","op":"is","value":50.5})),
+        ["DSC00124.ARW"]
+    );
+    assert!(
+        !found(&lib, json!({"field":"focalLength","op":"gt","value":50.5}))
+            .contains(&"DSC00124.ARW".to_string())
+    );
+    assert_eq!(
+        found(&lib, json!({"field":"aperture","op":"is","value":2.85})),
+        ["DSC00123.ARW"]
+    );
+    assert!(
+        !found(&lib, json!({"field":"aperture","op":"isNot","value":2.85}))
+            .contains(&"DSC00123.ARW".to_string())
+    );
 }

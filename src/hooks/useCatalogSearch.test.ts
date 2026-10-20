@@ -139,3 +139,24 @@ it('asks again when the grid gets a new list (a rename or a refresh)', async () 
   await settle();
   expect(mockInvoke.mock.calls.length).toBe(before + 1);
 });
+
+it('also asks what the photographs of shown virtual copies pass besides text and keywords', async () => {
+  useLibraryStore.setState({
+    searchCriteria: { text: 'client', tags: [], mode: 'OR' },
+    filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All, metadata: { camera: ['X-T4'] } },
+    imageList: [
+      {
+        path: '/job/Capture/a.arw?vc=1', is_edited: false, modified: 0, rating: 0, tags: ['user:client'], exif: null,
+        is_virtual_copy: true, is_cloud_placeholder: false, is_raw: true, group_id: null,
+      },
+    ],
+  });
+  renderHook(() => useCatalogSearch());
+  await settle();
+  expect(mockInvoke).toHaveBeenCalledWith('session_search', {
+    directory: '/job',
+    rule: { field: 'camera', op: 'is', value: 'X-T4' },
+  });
+  expect([...(useLibraryStore.getState().catalogCopies ?? [])]).toEqual(['/job/Capture/a.arw']);
+  useLibraryStore.setState({ imageList: [] });
+});

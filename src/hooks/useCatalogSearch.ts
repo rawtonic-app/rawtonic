@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
-import { photographPath, searchLibrary, searchRule } from '../utils/librarySearch';
+import { copyBaseRule, photographPath, searchLibrary, searchRule } from '../utils/librarySearch';
 
 /** How long typing pauses before the catalog is asked. */
 export const SEARCH_DELAY_MS = 80;
@@ -45,9 +45,11 @@ export function useCatalogSearch() {
     const rule = directory ? searchRule(text, selection) : null;
     const { setLibrary } = useLibraryStore.getState();
     if (!directory || !rule) {
-      setLibrary({ catalogMatches: null });
+      setLibrary({ catalogMatches: null, catalogCopies: null });
       return;
     }
+    // Copies are matched on their own tags for the search box and keywords.
+    const copyRule = imageList.some((image) => image.is_virtual_copy) ? copyBaseRule(text, selection) : null;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Only the newest request publishes: an older one answering late (a
@@ -57,11 +59,14 @@ export function useCatalogSearch() {
       clearTimeout(timer);
       timer = setTimeout(() => {
         const mine = ++generation;
-        searchLibrary(directory, rule)
-          .then((paths) => {
+        Promise.all([searchLibrary(directory, rule), copyRule ? searchLibrary(directory, copyRule) : null])
+          .then(([paths, copies]) => {
             // A newer search, or another library, has taken over.
             if (cancelled || mine !== generation || useLibraryStore.getState().sessionDirectory !== directory) return;
-            setLibrary({ catalogMatches: new Set(paths.map(photographPath)) });
+            setLibrary({
+              catalogMatches: new Set(paths.map(photographPath)),
+              catalogCopies: copies ? new Set(copies.map(photographPath)) : null,
+            });
           })
           .catch((e) => console.error('Library search failed:', e));
       }, delay);

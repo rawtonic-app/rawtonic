@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EditedStatus, LibraryViewMode, RawStatus } from '../components/ui/AppProperties';
 import {
+  copyBaseRule,
+  copyMatches,
   cullingRules,
   filterAsRule,
   photographPath,
@@ -110,6 +112,23 @@ describe('library search rules', () => {
     ]);
     expect(filterAsRule(null, '', undefined, { ...filter, editedStatus: EditedStatus.EditedOnly })).toBeNull();
     expect(filterAsRule(null, '', undefined, filter, ['iso>800'])).toBeNull();
+  });
+
+  it('matches a virtual copy on its own name and tags', () => {
+    expect(copyBaseRule('', {})).toBeNull();
+    expect(copyBaseRule('', { camera: ['X-T4'] })).toBeNull();
+    expect(copyBaseRule('bride', { camera: ['X-T4'], keyword: ['Wedding'] })).toEqual({
+      field: 'camera',
+      op: 'is',
+      value: 'X-T4',
+    });
+    expect(copyBaseRule('bride', undefined)).toEqual({ combine: 'all', rules: [] });
+    const path = '/job/Capture/DSC00123.ARW?vc=1';
+    expect(copyMatches(path, ['user:Bride', 'color:red'], 'bride 0123', {})).toBe(true);
+    expect(copyMatches(path, ['user:Bride'], 'groom', {})).toBe(false);
+    expect(copyMatches(path, ['user:Bride'], '', { keyword: ['bride'] })).toBe(true);
+    expect(copyMatches(path, ['color:red'], '', { keyword: [''] })).toBe(true);
+    expect(copyMatches(path, ['user:x'], '', { keyword: [''] })).toBe(false);
   });
 
   it('finds a virtual copy by its photograph', () => {

@@ -426,6 +426,35 @@ describe("Smart albums in the Albums tool", () => {
     act(() => useSmartAlbumEditor.getState().close());
   });
 
+  it("refreshes the shown smart album although the parent rendered meanwhile", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      useLibraryStore.setState({ activeAlbumId: "session-album:s" });
+      const first = vi.fn();
+      const view = render(
+        <ContextMenuProvider>
+          <StudioAlbums onSelectAlbum={first} />
+        </ContextMenuProvider>,
+      );
+      await act(async () => {});
+      act(() => catalogChanged());
+      // The parent renders with a new callback before the refresh runs.
+      const second = vi.fn();
+      view.rerender(
+        <ContextMenuProvider>
+          <StudioAlbums onSelectAlbum={second} />
+        </ContextMenuProvider>,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(second).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drops a refresh that answers after the grid moved on", async () => {
     vi.useFakeTimers();
     try {

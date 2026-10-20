@@ -523,9 +523,21 @@ impl<'a> Compiler<'a> {
         let near = |n: f64| match tolerance {
             Tolerance::Absolute(t) => t,
             Tolerance::Relative(r) => n.abs() * r,
+            Tolerance::Listed(_) => 0.0,
         };
-        Ok(match op {
-            Op::Is | Op::IsNot => {
+        Ok(match (op, tolerance) {
+            (Op::Is | Op::IsNot, Tolerance::Listed(listed)) => {
+                let n = number(value)?;
+                self.push(n);
+                self.push(n);
+                let test = format!("({column} = ? OR {listed} = ?)");
+                if op == Op::Is {
+                    test
+                } else {
+                    format!("({column} IS NULL OR NOT {test})")
+                }
+            }
+            (Op::Is | Op::IsNot, _) => {
                 let n = number(value)?;
                 self.push(n);
                 self.push(near(n));
@@ -536,7 +548,7 @@ impl<'a> Compiler<'a> {
                     format!("({column} IS NULL OR NOT ({test}))")
                 }
             }
-            Op::Lt | Op::Le | Op::Gt | Op::Ge => {
+            (Op::Lt | Op::Le | Op::Gt | Op::Ge, _) => {
                 let n = number(value)?;
                 // Within the tolerance counts as equal.
                 let (sign, bound) = match op {
@@ -548,15 +560,15 @@ impl<'a> Compiler<'a> {
                 self.push(bound);
                 format!("{column} {sign} ?")
             }
-            Op::Between => {
+            (Op::Between, _) => {
                 let (from, to) = pair(value, number)?;
                 let (from, to) = if from <= to { (from, to) } else { (to, from) };
                 self.push(from - near(from));
                 self.push(to + near(to));
                 format!("{column} BETWEEN ? AND ?")
             }
-            Op::Empty => format!("{column} IS NULL"),
-            Op::NotEmpty => format!("{column} IS NOT NULL"),
+            (Op::Empty, _) => format!("{column} IS NULL"),
+            (Op::NotEmpty, _) => format!("{column} IS NOT NULL"),
             _ => bail!("This operator does not apply to numbers"),
         })
     }
@@ -794,18 +806,22 @@ impl<'a> Compiler<'a> {
                     self.one_of("lower(m.label)", op, labels)
                 }
             },
-            // Compared as the value lists show them (`Tally::add`): whole
-            // millimetres, f-numbers to a tenth, so a listed value selects
-            // exactly the photographs counted for it.
             Field::Iso => self.number_column("a.iso", op, value, Tolerance::Absolute(0.0)),
-            Field::FocalLength => {
-                self.number_column("round(a.focal_length)", op, value, Tolerance::Absolute(0.0))
-            }
-            Field::Aperture => self.number_column(
-                "(round(a.aperture * 10) / 10.0)",
+            // "Is" also takes the photographs the value lists count under
+            // the value (`Tally::add`: whole millimetres, f-numbers to a
+            // tenth), so a listed value selects exactly what it counts;
+            // an exact value (50.5) and comparisons read the stored one.
+            Field::FocalLength => self.number_column(
+                "a.focal_length",
                 op,
                 value,
-                Tolerance::Absolute(0.0),
+                Tolerance::Listed("round(a.focal_length)"),
+            ),
+            Field::Aperture => self.number_column(
+                "a.aperture",
+                op,
+                value,
+                Tolerance::Listed("(round(a.aperture * 10) / 10.0)"),
             ),
             // Cameras round exposure times (1/250 is 0.004 or 1/256).
             Field::Exposure => {
@@ -980,6 +996,9 @@ impl<'a> Compiler<'a> {
 enum Tolerance {
     Absolute(f64),
     Relative(f64),
+    /// Exact, and for "is" also the photographs a value list counts under
+    /// the value (the SQL that rounds as the list does).
+    Listed(&'static str),
 }
 
 /// One value of a facet and how many photographs have it.
