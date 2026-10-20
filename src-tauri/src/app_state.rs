@@ -284,6 +284,20 @@ pub struct CachedPreview {
     pub unscaled_crop_offset: (f32, f32),
     pub preview_dim: u32,
     pub interactive_divisor: f32,
+    /// Built from a reduced source shown only until the decode is in
+    /// (`editor_preview::interim_source`).
+    pub interim: bool,
+}
+
+impl CachedPreview {
+    /// Whether this base serves a frame of `source` with `transform_hash`.
+    /// An interim base never serves a lasting source: the same Standard
+    /// proxy may turn out to be an offline photograph's only source.
+    pub fn serves(&self, source: &Arc<DynamicImage>, transform_hash: u64, interim: bool) -> bool {
+        self.source.ptr_eq(&Arc::downgrade(source))
+            && self.transform_hash == transform_hash
+            && self.interim == interim
+    }
 }
 
 /// The mask layer the native display draws over the preview while it is
@@ -485,6 +499,35 @@ mod preview_job_order_tests {
         assert!(!preview_job_is_stale(Some(8), Some(8)));
         assert!(!preview_job_is_stale(None, Some(8)));
         assert!(!preview_job_is_stale(Some(1), None));
+    }
+}
+
+#[cfg(test)]
+mod cached_preview_tests {
+    use super::CachedPreview;
+    use image::DynamicImage;
+    use std::sync::Arc;
+
+    #[test]
+    fn an_interim_base_does_not_serve_the_same_source_once_it_lasts() {
+        // A Standard proxy's base built while it stood in for a decode, then
+        // the photograph turned out offline: the same proxy is its source.
+        let proxy = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let cached = CachedPreview {
+            source: Arc::downgrade(&proxy),
+            image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+            small_image: None,
+            transform_hash: 7,
+            scale: 0.5,
+            unscaled_crop_offset: (0.0, 0.0),
+            preview_dim: 2,
+            interactive_divisor: 1.0,
+            interim: true,
+        };
+        assert!(cached.serves(&proxy, 7, true));
+        assert!(!cached.serves(&proxy, 7, false));
+        assert!(!cached.serves(&proxy, 8, true));
+        assert!(!cached.serves(&Arc::new(DynamicImage::new_rgb32f(4, 4)), 7, true));
     }
 }
 

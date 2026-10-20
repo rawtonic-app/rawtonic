@@ -948,6 +948,27 @@ pub(crate) fn preview_source(state: &AppState) -> Result<(LoadedImage, f32, (u32
     })
 }
 
+fn is_offline(state: &AppState, loaded_image: &LoadedImage) -> bool {
+    state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_deref()
+        == Some(loaded_image.path.as_str())
+}
+
+/// Whether `loaded_image` at `source_scale` is shown only until the decode
+/// is in: online, a reduced source (the decode's draft or a stored proxy).
+/// Its base does not measure the automatic lateral CA
+/// (`build_reduced_preview_base`) and is cached apart.
+pub(crate) fn interim_source(
+    state: &AppState,
+    loaded_image: &LoadedImage,
+    source_scale: f32,
+) -> bool {
+    source_scale < 1.0 && !is_offline(state, loaded_image)
+}
+
 /// The preview base (warped, cropped, retouched source at `build_dim`) for
 /// `adjustments`, from the reusable previews or built and kept there.
 /// `base_adjustments` may differ by a draft flag only.
@@ -962,15 +983,9 @@ fn preview_base(
     build_dim: u32,
     preparation_key: u64,
 ) -> Result<preview_cache::PreviewBase, String> {
-    let offline = state
-        .offline_source
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_deref()
-        == Some(loaded_image.path.as_str());
-    // Online, a reduced source (the decode's draft or a stored proxy) is shown
-    // only until the decode is in. Its base is kept apart: the same proxy may
-    // turn out to be an offline photograph's lasting source.
+    let offline = is_offline(state, loaded_image);
+    // Its base is kept apart: the same proxy may turn out to be an offline
+    // photograph's lasting source.
     let interim = source_scale < 1.0 && !offline;
     let cache_key = if interim {
         preview_cache::interim_key(preparation_key)
@@ -1097,9 +1112,9 @@ pub(crate) fn process_preview_job(
         && rawtonic_engine::face_retouch::is_active(&adjustments_clone))
     .then(|| (preview_dim / 2).max(256));
     let build_dim = draft_dim.unwrap_or(preview_dim);
+    let interim = interim_source(&state, &loaded_image, source_scale);
     let base_valid = cached_preview_lock.as_ref().is_some_and(|c| {
-        c.source.ptr_eq(&Arc::downgrade(&loaded_image.image))
-            && c.transform_hash == new_transform_hash
+        c.serves(&loaded_image.image, new_transform_hash, interim)
             && (c.preview_dim == preview_dim || Some(c.preview_dim) == draft_dim)
     });
     let small_valid = base_valid
@@ -1170,6 +1185,7 @@ pub(crate) fn process_preview_job(
         unscaled_crop_offset,
         preview_dim: base_dim,
         interactive_divisor,
+        interim,
     });
 
     drop(cached_preview_lock);
@@ -1898,9 +1914,11 @@ fn render_split_before_blocking(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|c| {
-            c.source.ptr_eq(&Arc::downgrade(&loaded_image.image))
-                && c.transform_hash == transform_hash
-                && c.preview_dim == preview_dim
+            c.serves(
+                &loaded_image.image,
+                transform_hash,
+                interim_source(&state, &loaded_image, source_scale),
+            ) && c.preview_dim == preview_dim
         })
         .map(|c| (Arc::clone(&c.image), c.scale));
     let (base, scale) = match cached {
