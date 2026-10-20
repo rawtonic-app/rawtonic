@@ -44,6 +44,10 @@ pub struct Tca {
     pub br: Option<f32>,
     #[serde(rename = "@bb")]
     pub bb: Option<f32>,
+    #[serde(rename = "@kr")]
+    pub kr: Option<f32>,
+    #[serde(rename = "@kb")]
+    pub kb: Option<f32>,
 }
 
 #[derive(Debug, Deserialize, Clone, PartialEq)]
@@ -158,7 +162,8 @@ pub struct LensDistortionParams {
     #[serde(default = "unit_zoom", skip_serializing_if = "is_unit_zoom")]
     zoom: f64,
     /// Growth of the red and blue scales with the squared radius relative
-    /// to the half diagonal (the camera's own CA data, embedded_lens.rs).
+    /// to the half diagonal (the camera's own CA data, embedded_lens.rs;
+    /// lensfun's poly3 lateral CA, `to_warp_tca`).
     #[serde(default, skip_serializing_if = "is_zero")]
     tca_vr2: f64,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -460,8 +465,8 @@ impl Lens {
             }
         };
 
-        let (tca_vr, tca_vb) = if tcas.is_empty() {
-            (1.0, 1.0)
+        let tca = if tcas.is_empty() {
+            TCA_NONE
         } else {
             tcas.sort_by(|a, b| a.focal.partial_cmp(&b.focal).unwrap_or(Ordering::Equal));
 
@@ -472,7 +477,7 @@ impl Lens {
             } else if focal_length > tcas.last().unwrap().focal {
                 extract_tca_params(tcas.last().unwrap())
             } else {
-                let mut res = (1.0, 1.0);
+                let mut res = TCA_NONE;
                 for pair in tcas.windows(2) {
                     let (d1, d2) = (&pair[0], &pair[1]);
                     if focal_length >= d1.focal && focal_length <= d2.focal {
@@ -484,10 +489,7 @@ impl Lens {
                             res = p1;
                         } else {
                             let t = (focal_length - d1.focal) / range;
-                            res = (
-                                p1.0 + t as f64 * (p2.0 - p1.0),
-                                p1.1 + t as f64 * (p2.1 - p1.1),
-                            );
+                            res = std::array::from_fn(|i| p1[i] + t as f64 * (p2[i] - p1[i]));
                         }
                         break;
                     }
@@ -612,6 +614,8 @@ impl Lens {
         let (k1, k2, k3, model) =
             to_warp_distortion((k1, k2, k3, model), distortion_scale).unwrap_or((0.0, 0.0, 0.0, 0));
         let s2 = vignetting_scale * vignetting_scale;
+        let (tca_vr, tca_vr2) = to_warp_tca([tca[0], tca[1], tca[2]], distortion_scale);
+        let (tca_vb, tca_vb2) = to_warp_tca([tca[3], tca[4], tca[5]], distortion_scale);
 
         Some(LensDistortionParams {
             k1,
@@ -624,8 +628,8 @@ impl Lens {
             vig_k2: vig_k2 * s2 * s2,
             vig_k3: vig_k3 * s2 * s2 * s2,
             zoom: 1.0,
-            tca_vr2: 0.0,
-            tca_vb2: 0.0,
+            tca_vr2,
+            tca_vb2,
         })
     }
 }
@@ -692,8 +696,46 @@ fn extract_dist_params(dist: &Distortion) -> (f64, f64, f64, u32) {
     }
 }
 
-fn extract_tca_params(tca: &Tca) -> (f64, f64) {
-    (tca.vr.unwrap_or(1.0) as f64, tca.vb.unwrap_or(1.0) as f64)
+/// No lateral CA: red and blue `v`, `c`, `b` as in `extract_tca_params`.
+const TCA_NONE: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
+
+/// The database's lateral CA as red and blue (`v`, `c`, `b`) of lensfun's
+/// poly3 model, scale = v + c·r + b·r² at Hugin radius r (mod-subpix.cpp);
+/// its linear model (`kr`, `kb`) is the constant scale alone.
+fn extract_tca_params(tca: &Tca) -> [f64; 6] {
+    let value = |v: Option<f32>, default: f64| v.map_or(default, f64::from);
+    match tca.model.as_str() {
+        "linear" => [value(tca.kr, 1.0), 0.0, 0.0, value(tca.kb, 1.0), 0.0, 0.0],
+        "poly3" => [
+            value(tca.vr, 1.0),
+            value(tca.cr, 0.0),
+            value(tca.br, 0.0),
+            value(tca.vb, 1.0),
+            value(tca.cb, 0.0),
+            value(tca.bb, 0.0),
+        ],
+        _ => TCA_NONE,
+    }
+}
+
+/// One channel's poly3 lateral CA (`v`, `c`, `b` in Hugin units, where Hugin
+/// radius = `scale` × photo radius) as the warp's scale `v` + `v2`·r² over
+/// the photo's half-diagonal: exact without a linear term, else fitted to
+/// the displacement on [0, 1] (`embedded_lens::fit_chromatic`).
+fn to_warp_tca([v, c, b]: [f64; 3], scale: f64) -> (f64, f64) {
+    if c == 0.0 {
+        return (v, b * scale * scale);
+    }
+    let curve: Vec<(f64, f64)> = (0..=64)
+        .map(|i| {
+            let r = i as f64 / 64.0;
+            (r, v - 1.0 + c * scale * r + b * scale * scale * r * r)
+        })
+        .collect();
+    match crate::embedded_lens::fit_chromatic(&curve) {
+        Some((a, b2)) if a.is_finite() && b2.is_finite() => (1.0 + a, b2),
+        _ => (v, b * scale * scale),
+    }
 }
 
 fn extract_vig_params(vig: &Vignetting) -> (f64, f64, f64) {
@@ -1020,6 +1062,23 @@ pub fn find_lens_exact<'a>(db: &'a LensDatabase, maker: &str, exif_lens: &str) -
     })
 }
 
+/// The crop factor of the frame a photo was taken with: `frame` where the
+/// photo states it (a crop mode's frame is smaller than the sensor), else
+/// the body's from lensfun's camera list, by name and then by the model's
+/// letters and digits. What lens profiles are scaled by
+/// (`Lens::get_distortion_params`).
+pub fn body_crop_factor(
+    db: &LensDatabase,
+    maker: &str,
+    model: &str,
+    frame: Option<f32>,
+) -> Option<f32> {
+    frame
+        .filter(|crop| (0.5..=8.0).contains(crop))
+        .or_else(|| camera_crop_factor(db, maker, model))
+        .or_else(|| camera_crop_factor_loose(db, model))
+}
+
 /// The body's crop factor from lensfun's camera list.
 pub fn camera_crop_factor(db: &LensDatabase, maker: &str, model: &str) -> Option<f32> {
     camera_crop_factor_without(db, maker, model, &[])
@@ -1218,6 +1277,91 @@ mod tests {
         let x: f64 = 1.0 / 1.6;
         let expected = 1.0 - 2.0777 * x.powi(2) + 2.2485 * x.powi(4) - 1.0106 * x.powi(6);
         assert!((brightness(&apsc, 1.0) - expected).abs() < 1e-4);
+    }
+
+    fn tca_params(tca: &str) -> LensDistortionParams {
+        let xml = format!(
+            r#"<lensdatabase><lens>
+                <maker>Test</maker><model>Test 35mm</model><mount>Test</mount>
+                <cropfactor>1.0</cropfactor><aspect-ratio>3:2</aspect-ratio>
+                <calibration>{tca}</calibration>
+            </lens></lensdatabase>"#
+        );
+        quick_xml::de::from_str::<LensDatabase>(&xml)
+            .unwrap()
+            .lenses
+            .remove(0)
+            .get_distortion_params(35.0, None, None, Some(1.0))
+            .unwrap()
+    }
+
+    /// lensfun's lateral CA reaches the warp with its radial terms: poly3's
+    /// quadratic term exactly (Hugin radius 1 = half the shorter side of a
+    /// 3:2 frame, the warp's 1 = half the diagonal), its linear term as the
+    /// closest scale + growth with r², and the linear model's `kr`/`kb`.
+    #[test]
+    fn lateral_ca_keeps_the_profiles_radial_terms() {
+        let hugin = 1.5f64.hypot(1.0);
+        let quadratic = tca_params(
+            r#"<tca model="poly3" focal="35" vr="1.0003" br="0.0002" vb="0.9998" bb="-0.0001"/>"#,
+        );
+        assert_eq!(quadratic.tca_vr, f64::from(1.0003f32));
+        assert_eq!(quadratic.tca_vb, f64::from(0.9998f32));
+        assert!((quadratic.tca_vr2 - f64::from(0.0002f32) * hugin * hugin).abs() < 1e-12);
+        assert!((quadratic.tca_vb2 + f64::from(0.0001f32) * hugin * hugin).abs() < 1e-12);
+
+        let linear = tca_params(r#"<tca model="linear" focal="35" kr="1.0004" kb="0.9997"/>"#);
+        assert_eq!(linear.tca_vr, f64::from(1.0004f32));
+        assert_eq!(linear.tca_vb, f64::from(0.9997f32));
+        assert_eq!((linear.tca_vr2, linear.tca_vb2), (0.0, 0.0));
+
+        // A linear radius term: the displacement left over is a small part of
+        // the term's own.
+        let (c, b) = (f64::from(0.0004f32), f64::from(-0.0001f32));
+        let with_c = tca_params(&format!(
+            r#"<tca model="poly3" focal="35" vr="1" cr="{c}" br="{b}" vb="1" cb="0" bb="0"/>"#
+        ));
+        let (mut left, mut term) = (0.0f64, 0.0f64);
+        for i in 0..=100 {
+            let r = i as f64 / 100.0;
+            let x = hugin * r;
+            let profile = 1.0 + c * x + b * x * x;
+            let warp = with_c.tca_vr + with_c.tca_vr2 * r * r;
+            left = left.max(r * (profile - warp).abs());
+            term = term.max(r * (profile - 1.0).abs());
+        }
+        assert!(left < 0.15 * term, "left {left} of {term}");
+        assert_eq!((with_c.tca_vb, with_c.tca_vb2), (1.0, 0.0));
+    }
+
+    /// The frame's crop factor where the photo states one (a crop mode),
+    /// else the body's from the camera list, also by a looser model name.
+    #[test]
+    fn body_crop_factor_prefers_the_frame_then_the_camera_list() {
+        let db = quick_xml::de::from_str::<LensDatabase>(
+            r#"<lensdatabase><camera>
+                <maker>Canon</maker><model>Canon EOS 7D</model><mount>Canon EF-S</mount>
+                <cropfactor>1.611</cropfactor>
+            </camera><camera>
+                <maker>Nikon Corporation</maker><model>Nikon Z 7_2</model><mount>Nikon Z</mount>
+                <cropfactor>1.0</cropfactor>
+            </camera></lensdatabase>"#,
+        )
+        .unwrap();
+        assert_eq!(
+            body_crop_factor(&db, "Canon", "Canon EOS 7D", None),
+            Some(1.611)
+        );
+        assert_eq!(
+            body_crop_factor(&db, "Canon", "Canon EOS 7D", Some(1.5)),
+            Some(1.5)
+        );
+        assert_eq!(
+            body_crop_factor(&db, "Canon", "Canon EOS 7D", Some(40.0)),
+            Some(1.611)
+        );
+        assert_eq!(body_crop_factor(&db, "Nikon", "Z 7 2", None), Some(1.0));
+        assert_eq!(body_crop_factor(&db, "Sony", "ILCE-7C", None), None);
     }
 
     /// Prints the lens matched for each line of `$LENS_MATCH_CASES` (make,

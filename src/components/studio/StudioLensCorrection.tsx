@@ -8,11 +8,6 @@ import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";
 import { ToolGroup } from "./StudioDevelop";
 
-const exifNumber = (value: string | null | undefined) => {
-  const parsed = parseFloat(value ?? "");
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
 /** Every lens-profile setting back to "no profile". */
 export const LENS_PROFILE_OFF: Partial<Adjustments> = {
   lensMaker: INITIAL_ADJUSTMENTS.lensMaker,
@@ -104,9 +99,9 @@ export default function StudioLensCorrection() {
       {
         maker,
         model,
-        focalLength: exifNumber(exif.FocalLength),
-        aperture: exifNumber(exif.FNumber),
-        distance: exifNumber(exif.SubjectDistance),
+        // The backend reads focal length, f-number, distance and crop factor
+        // from it, as a save does.
+        exif,
       },
     ).catch(() => null);
 
