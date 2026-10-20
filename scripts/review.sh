@@ -18,7 +18,8 @@
 # RAWTONIC_REVIEW_EFFORT override them), so a verdict does not depend on
 # which host's ~/.codex/config.toml happened to run it. A change written by
 # Codex (a commit with a `Co-Authored-By: Codex` trailer) is reviewed by Claude
-# instead (`claude -p`, read-only tools; RAWTONIC_CLAUDE_REVIEW_MODEL), since
+# instead (`claude -p` with only Read/Grep/Glob, no MCP servers or settings;
+# RAWTONIC_CLAUDE_REVIEW_MODEL), since
 # the reviewer must be another model than the author. When Codex's usage
 # limit runs short, `--default claude` switches the reviewer to Claude for
 # Claude's own commits too; that is a same-model review, and the verdict
@@ -100,9 +101,15 @@ elif [ "$REVIEWER" = claude ]; then
   command -v claude >/dev/null 2>&1 || { echo "review: claude not found (Claude Code CLI)" >&2; exit 3; }
   MODEL=${RAWTONIC_CLAUDE_REVIEW_MODEL:-claude-opus-5-5}
   printf '== review: claude %s (read-only) on %s\n' "$MODEL" "${PLAN:-$BASE..HEAD}"
-  claude -p --model "$MODEL" --output-format json --json-schema "$(cat "$DIR/verdict.schema.json")" \
-    --allowedTools Read Grep Glob 'Bash(git log:*)' 'Bash(git diff:*)' 'Bash(git show:*)' \
-    --disallowedTools Edit Write NotebookEdit <"$PROMPT" >"$LOG" 2>&1 &&
+  # Read-only by construction: only the read-only built-in tools (no Bash: even
+  # `git diff --output` writes), no MCP servers, no user/project settings and
+  # their permission allowances; the commits and the diff go into the prompt.
+  if [ -z "$PLAN" ]; then
+    { printf '\n## Commits\n\n'; git log "$BASE"..HEAD; printf '\n## Diff\n\n'; git diff "$BASE"...HEAD; } >>"$PROMPT"
+  fi
+  claude -p --model "$MODEL" --tools Read,Grep,Glob --setting-sources '' --strict-mcp-config \
+    --permission-mode dontAsk --output-format json --json-schema "$(cat "$DIR/verdict.schema.json")" \
+    <"$PROMPT" >"$LOG" 2>&1 &&
     python3 -c 'import json, sys; json.dump(json.load(open(sys.argv[1]))["structured_output"], open(sys.argv[2], "w"))' "$LOG" "$OUT" ||
     { tail -n 20 "$LOG" >&2; echo "review: claude failed (logged in? usage limit?)" >&2; exit 3; }
 elif command -v codex >/dev/null 2>&1; then

@@ -242,6 +242,21 @@ grep -q "Same-model review" "$gd/rawtonic-review/$head.json" || fail "same-model
 (cd "$T/main" && sh scripts/review.sh --default codex) >/dev/null || fail "--default codex exited $?"
 review_in "$T/wt-unreviewed-claude" && fail "mixed branch reviewed after switching back"
 
+# 19. The real Claude invocation is read-only: a stub `claude` records its
+# arguments and prompt; only read-only tools, no MCP servers, no settings, and
+# the diff is in the prompt.
+printf '#!/bin/sh\nprintf "%%s\\n" "$@" >"%s/claude-args"\ncat >"%s/claude-prompt"\necho %s\n' "$T" "$T" \
+  "'{\"structured_output\": {\"verdict\": \"approve\", \"summary\": \"claude stub\", \"findings\": []}}'" >"$T/bin/claude"
+chmod +x "$T/bin/claude"
+new_branch unreviewed-real
+git -C "$T/wt-unreviewed-real" commit -q --allow-empty -m "fix: real" -m "Co-Authored-By: Codex <noreply@openai.com>"
+(cd "$T/wt-unreviewed-real" && unset RAWTONIC_REVIEWER && sh scripts/review.sh) >"$T/out" 2>&1 || fail "stubbed claude review exited $?"
+grep -qx "Read,Grep,Glob" "$T/claude-args" || fail "claude reviewer not limited to read-only tools"
+grep -qx -- "--strict-mcp-config" "$T/claude-args" || fail "claude reviewer may load MCP servers"
+grep -qx -- "--setting-sources" "$T/claude-args" || fail "claude reviewer loads user/project settings"
+grep -q "unreviewed-real" "$T/claude-prompt" || fail "diff missing from the claude prompt"
+rm "$T/bin/claude"
+
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
   exit 1
