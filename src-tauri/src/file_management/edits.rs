@@ -340,7 +340,7 @@ pub async fn apply_adjustments_to_paths(
                 let (adjustments, size) = placed
                     .get(path)
                     .map_or((&adjustments, None), |(placed, size)| (placed, Some(*size)));
-                Ok(pasted_metadata(
+                pasted_metadata(
                     path,
                     source_path,
                     sidecar_path,
@@ -348,7 +348,7 @@ pub async fn apply_adjustments_to_paths(
                     paste.as_ref(),
                     size,
                     lens_db.as_deref(),
-                ))
+                )
             },
         )
     })
@@ -358,7 +358,8 @@ pub async fn apply_adjustments_to_paths(
 /// The editor sidecar of `path` with `adjustments` applied
 /// (`apply_adjustments_to_paths`): pasted keys replace the photo's, layers
 /// as `paste` says; its drawn masks stay on its content and its lens data is
-/// resolved again.
+/// resolved again. Refused when the layers would exceed what the renderer
+/// applies (it would keep but ignore the extra ones).
 fn pasted_metadata(
     path: &str,
     source_path: &Path,
@@ -367,7 +368,7 @@ fn pasted_metadata(
     paste: Option<&PasteFrom>,
     size: Option<(f64, f64)>,
     lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
-) -> ImageMetadata {
+) -> Result<ImageMetadata, String> {
     let mut existing_metadata =
         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
@@ -393,6 +394,16 @@ fn pasted_metadata(
             new_map.insert(k.clone(), v);
         }
     }
+    let layers = |adjustments: &Value| {
+        rawtonic_engine::masks::rendered_layers(adjustments.get("masks").unwrap_or(&Value::Null))
+    };
+    let (before, after) = (layers(&previous), layers(&new_adjustments));
+    let limit = rawtonic_engine::image_processing::MAX_MASKS;
+    if after > limit && after > before {
+        return Err(format!(
+            "{path}: {after} visible layers with the pasted ones; at most {limit} are applied"
+        ));
+    }
     // Pasted, synced or preset geometry: the photo's own drawn
     // masks stay on its content.
     crate::mask_generation::keep_drawn_masks_on_photo(&previous, &mut new_adjustments, size);
@@ -408,7 +419,7 @@ fn pasted_metadata(
     );
 
     existing_metadata.adjustments = new_adjustments;
-    existing_metadata
+    Ok(existing_metadata)
 }
 
 /// Whether two photograph paths (virtual copies included) are of one file.
@@ -901,15 +912,7 @@ mod tests {
             replace_layers: false,
         };
         let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-            Ok(pasted_metadata(
-                path,
-                source,
-                sidecar,
-                &pasted,
-                Some(&paste),
-                None,
-                None,
-            ))
+            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
         });
         assert!(failed.is_empty(), "{failed:?}");
         let (_, sidecar) = parse_virtual_path(&paths[1]);
@@ -930,15 +933,7 @@ mod tests {
             std::slice::from_ref(&copy),
             None,
             |path, source, sidecar| {
-                Ok(pasted_metadata(
-                    path,
-                    source,
-                    sidecar,
-                    &pasted,
-                    Some(&paste),
-                    None,
-                    None,
-                ))
+                pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
             },
         );
         assert!(failed.is_empty(), "{failed:?}");
@@ -948,6 +943,38 @@ mod tests {
             saved["masks"][0]["subMasks"][0]["parameters"]["maskDataBase64"],
             "data:source"
         );
+    }
+
+    #[test]
+    fn a_paste_beyond_the_rendered_layer_limit_is_refused() {
+        let (_temp, paths) = session_with_photos(1);
+        let layers: Vec<Value> = (0..32)
+            .map(|i| sky_layer(&format!("l{i}"), "data:x"))
+            .collect();
+        let paste = PasteFrom {
+            source: "/elsewhere/B.ARW".into(),
+            replace_layers: false,
+        };
+        // The photograph has one layer; 32 more would be 33.
+        let pasted = serde_json::json!({ "masks": layers });
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+        });
+        assert_eq!(failed.len(), 1);
+        assert!(failed[0].1.contains("at most 32"), "{failed:?}");
+        let (_, sidecar) = parse_virtual_path(&paths[0]);
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(
+            saved["masks"].as_array().unwrap().len(),
+            1,
+            "nothing written"
+        );
+        // 31 fit.
+        let pasted = serde_json::json!({ "masks": layers[..31] });
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+        });
+        assert!(failed.is_empty(), "{failed:?}");
     }
 
     /// Timing of a sync of 100 library photographs (the recipe writes
@@ -981,15 +1008,7 @@ mod tests {
         for _ in 0..5 {
             let start = std::time::Instant::now();
             let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-                Ok(pasted_metadata(
-                    path,
-                    source,
-                    sidecar,
-                    &pasted,
-                    Some(&paste),
-                    None,
-                    None,
-                ))
+                pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
             });
             assert!(failed.is_empty());
             runs.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -1009,7 +1028,7 @@ mod tests {
         );
         let start = std::time::Instant::now();
         edit_sidecars(&paths[1..], None, |path, source, sidecar| {
-            Ok(pasted_metadata(
+            pasted_metadata(
                 path,
                 source,
                 sidecar,
@@ -1017,7 +1036,7 @@ mod tests {
                 Some(&paste),
                 None,
                 None,
-            ))
+            )
         });
         let plain = start.elapsed().as_secs_f64() * 1000.0;
         eprintln!(

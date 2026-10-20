@@ -29,6 +29,15 @@ describe('settings clipboard', () => {
     expect(chosenSettings(source, group('tone').keys, []).masks).toBeUndefined();
   });
 
+  it('carries the responses a chosen layer’s values mean, also without their tools', () => {
+    const sharpLayer = { ...layer('detail'), adjustments: { ...layer('detail').adjustments, sharpness: 30 } };
+    const source = recipe({ sharpenVersion: 2, masks: [sharpLayer] } as Partial<Adjustments>);
+    const chosen = chosenSettings(source, ['masks'], ['detail']);
+    expect(chosen.sharpenVersion).toBe(2);
+    // Nothing chosen that sharpens: no response either.
+    expect('sharpenVersion' in chosenSettings(source, group('tone').keys, [])).toBe(false);
+  });
+
   it('finds the groups a photograph changed', () => {
     const source = recipe({ contrast: 20 });
     expect(groupModified(group('tone'), source, true)).toBe(true);

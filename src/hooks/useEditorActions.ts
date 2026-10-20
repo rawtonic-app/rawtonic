@@ -31,6 +31,7 @@ import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import { chosenSettings, pasteLayers, samePhotograph } from '../utils/settingsClipboard';
+import { keepWithinLayerLimit } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -157,6 +158,11 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
   }
   const isRaw = isRawInLibrary(from);
   try {
+    // Its recipe as last edited: after its save still under way, or the
+    // edit a failed save kept.
+    debouncedSave.flush();
+    const unsaved = await waitForPendingMetadataSave(from);
+    if (unsaved) return { path: from, adjustments: unsaved, isRaw };
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: from });
     const adjustments =
       meta?.adjustments && !meta.adjustments.is_null
@@ -644,7 +650,9 @@ export function useEditorActions() {
             replaceLayers,
           );
         }
-        setAdjustments(next);
+        // More layers than the renderer applies: refused here as the
+        // backend refuses it (it says which photo).
+        if (keepWithinLayerLimit(adjustments, next) === next) setAdjustments(next);
       }
 
       const paste = pasteFrom ? { source: pasteFrom, replaceLayers } : null;
@@ -778,11 +786,15 @@ export function useEditorActions() {
     async (paths?: string[]) => {
       const { previousPhoto, selectedImage } = useEditorStore.getState();
       if (!previousPhoto || previousPhoto === selectedImage?.path) return;
+      // The photographs meant now, not those selected when the source is read.
+      const { multiSelectedPaths } = useLibraryStore.getState();
+      const targets =
+        paths ?? (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
       const source = await settingsSource(previousPhoto);
       if (!source) return;
       const choice = rememberedChoice(source.adjustments);
       const applied = settingsToApply(withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source));
-      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, paths, { pasteFrom: source.path });
+      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path });
     },
     [applyAdjustmentsToPaths],
   );

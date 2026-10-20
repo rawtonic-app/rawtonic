@@ -2,6 +2,10 @@ import {
   ADJUSTMENT_GROUPS,
   initialAdjustmentsFor,
   sameAdjustmentValue,
+  withAiDenoiseVersion,
+  withDiffractionVersion,
+  withLumaNoiseVersion,
+  withSharpenVersion,
   type Adjustments,
   type MaskContainer,
 } from './adjustments';
@@ -39,7 +43,8 @@ export function groupModified(group: SettingsGroup, adjustments: Adjustments, is
 
 /** What a copy, sync or Previous takes from `source`: the settings of the
  * chosen groups (`keys`), and the chosen local layers (`layerIds`; none:
- * no layers). */
+ * no layers), with the source's responses their values mean (sharpening,
+ * luminance noise, AI Denoise, diffraction versions; a layer's too). */
 export function chosenSettings(source: Adjustments, keys: string[], layerIds: string[]): Partial<Adjustments> {
   const chosen: Record<string, unknown> = {};
   const values = source as unknown as Record<string, unknown>;
@@ -49,7 +54,11 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));
   if (layers.length > 0) chosen.masks = structuredClone(layers);
-  return chosen as Partial<Adjustments>;
+  const picked = chosen as Partial<Adjustments>;
+  return withDiffractionVersion(
+    withAiDenoiseVersion(withLumaNoiseVersion(withSharpenVersion(picked, source), source), source),
+    source,
+  );
 }
 
 /** Layers pasted (`pasted`) into a photograph's own (`own`), as the backend

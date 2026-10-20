@@ -141,3 +141,33 @@ it("pastes the previous photograph's settings, as last chosen", async () => {
   expect("clarity" in paste.adjustments).toBe(false);
   expect(paste.paste).toEqual({ source: "/s/A.ARW", replaceLayers: false });
 });
+
+it("Previous reads the previous photograph's edit after its save, and pastes where it was asked", async () => {
+  const { debouncedSave } = await import("../../hooks/useEditorActions");
+  let failSave = () => {};
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail)
+      return new Promise((_, reject) => (failSave = () => reject(new Error("disk full"))));
+    if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: -1 } };
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  // A's last edit is still being saved when B opens.
+  debouncedSave("/s/A.ARW", { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 4 });
+  debouncedSave.flush();
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never }));
+  useLibraryStore.setState({ multiSelectedPaths: ["/s/B.ARW"] });
+  let done!: Promise<void>;
+  act(() => {
+    done = result.current.handlePasteFromPrevious();
+  });
+  // Meanwhile another photo is selected; the paste still goes to B.
+  useLibraryStore.setState({ multiSelectedPaths: ["/s/C.ARW"] });
+  await act(async () => failSave());
+  await act(() => done);
+  await act(async () => {});
+  const [paste] = applied();
+  expect(paste.paths).toEqual(["/s/B.ARW"]);
+  // The edit the failed save kept, not the older saved recipe.
+  expect(paste.adjustments.exposure).toBe(4);
+});

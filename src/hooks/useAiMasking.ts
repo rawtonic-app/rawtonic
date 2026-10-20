@@ -292,8 +292,13 @@ export function useAiMasking() {
             const own = Object.fromEntries(
               keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
             );
-            // Detected on this photograph: no longer waiting (pasted ones).
-            const { [DETECT_PENDING]: _pending, ...rest } = { ...parameters, ...result, ...own } as Record<string, unknown>;
+            // Detected on this photograph: no longer waiting (pasted ones),
+            // and an Object box is in this photograph's pixels now.
+            const {
+              [DETECT_PENDING]: _pending,
+              sourceSize: _sourceSize,
+              ...rest
+            } = { ...parameters, ...result, ...own } as Record<string, unknown>;
             return { ...sm, parameters: rest };
           }),
         })),
@@ -469,6 +474,13 @@ export function useAiMasking() {
   // pixels by the backend, which knows the photo's EXIF orientation.
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
+  /** Whether the open photograph's component `id` holds its bitmap now. */
+  const componentHasData = (id: string) => {
+    const sub = (useEditorStore.getState().adjustments.masks ?? [])
+      .flatMap((m: MaskContainer) => m.subMasks)
+      .find((sm: SubMask) => sm.id === id);
+    return Boolean((sub?.parameters as { maskDataBase64?: string | null } | undefined)?.maskDataBase64);
+  };
   const requestedAutoMasks = useRef(new Set<string>());
   const [askAgain, setAskAgain] = useState(0);
   const requestedPlacements = useRef(new Set<string>());
@@ -520,11 +532,20 @@ export function useAiMasking() {
         };
         const sx = p.sourceSize?.width ? selectedImage.width / p.sourceSize.width : 1;
         const sy = p.sourceSize?.height ? selectedImage.height / p.sourceSize.height : 1;
+        const asked = selectedImage.path;
         void handleGenerateAiMask(
           sub.id,
           { x: (p.startX ?? 0) * sx, y: (p.startY ?? 0) * sy },
           { x: (p.endX ?? 0) * sx, y: (p.endY ?? 0) * sy },
-        );
+        ).then(() => {
+          // Detected, or dropped by a photo switch (asked again when it is
+          // shown again); a failure stays asked until the photo opens again.
+          const now = useEditorStore.getState().selectedImage;
+          if (componentHasData(sub.id) || now?.path !== asked) {
+            requestedAutoMasks.current.delete(key);
+            if (now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
+          }
+        });
         continue;
       }
       // A People mask computes again whenever its parts or person change
@@ -564,7 +585,13 @@ export function useAiMasking() {
       // the photo opens again, or now when it is open again already.
       const asked = selectedImage?.path;
       void run.then((dropped) => {
-        if (!dropped) return;
+        if (!dropped) {
+          // Computed: asked again only when its data is cleared again (a
+          // paste of the same layer). A failure stays asked until the photo
+          // opens again.
+          if (componentHasData(sub.id)) requestedAutoMasks.current.delete(key);
+          return;
+        }
         requestedAutoMasks.current.delete(key);
         const now = useEditorStore.getState().selectedImage;
         if (now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);

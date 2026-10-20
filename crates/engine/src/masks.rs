@@ -221,6 +221,24 @@ fn has_bitmap(parameters: &Value) -> bool {
         .any(|key| parameters.get(key).is_some_and(|v| !v.is_null()))
 }
 
+/// How many layers of `masks` the renderer applies (shown, with a
+/// component: `MaskDefinition::produces_bitmap`); it applies at most
+/// `image_processing::MAX_MASKS`.
+pub fn rendered_layers(masks: &Value) -> usize {
+    masks
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|layer| {
+            layer.get("visible").and_then(Value::as_bool) != Some(false)
+                && layer
+                    .get("subMasks")
+                    .and_then(Value::as_array)
+                    .is_some_and(|subs| !subs.is_empty())
+        })
+        .count()
+}
+
 /// How many components of shown layers (`masks`) wait for their AI
 /// detection on this photograph (`DETECT_PENDING` without a bitmap).
 /// Rendered without it, such a layer would apply its adjustments to the
