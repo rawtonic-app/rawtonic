@@ -175,11 +175,17 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   const [drag, setDrag] = useState<{ id: string; target: string | null; zone: DropZone } | null>(null);
   const { t } = useTranslation();
 
+  // Answers about a session closed meanwhile are dropped (a slow read must
+  // not show the last session's albums or counts in the next one).
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+  const stillShown = (asked: string | null) => sessionRef.current === asked;
   const reload = useCallback(async () => {
     try {
-      if (session)
-        setSessionAlbums((await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session })) ?? []);
-      else await loadLibraryAlbums();
+      if (session) {
+        const list = (await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session })) ?? [];
+        if (stillShown(session)) setSessionAlbums(list);
+      } else await loadLibraryAlbums();
     } catch (e) {
       toast.error(t("studio.library.albums.toasts.readFailed", { error: String(e) }));
     }
@@ -194,6 +200,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     const changed = async () => {
       if (!session) return;
       const list = (await invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session }).catch(() => null)) ?? [];
+      if (!stillShown(session)) return;
       setSessionAlbums(list);
       const active = activeAlbumRef.current;
       const album = active?.startsWith(SESSION_ALBUM_PREFIX)
@@ -210,11 +217,8 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   const [missing, setMissing] = useState(0);
   const recountMissing = useCallback(async () => {
     if (!session) return setMissing(0);
-    try {
-      setMissing(((await offlinePhotographs(session)) ?? []).length);
-    } catch {
-      setMissing(0);
-    }
+    const count = await offlinePhotographs(session).then((list) => (list ?? []).length).catch(() => 0);
+    if (stillShown(session)) setMissing(count);
   }, [session]);
   useEffect(() => {
     void recountMissing();
@@ -223,7 +227,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     (preserveEditor = false) => {
       if (!session) return Promise.resolve(0);
       return openMissingView(session, t("offline.missingView"), onSelectAlbum, preserveEditor).then((count) => {
-        setMissing(count);
+        if (stillShown(session)) setMissing(count);
         return count;
       });
     },
@@ -252,11 +256,8 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   const [imported, setImported] = useState(0);
   const recountImported = useCallback(async () => {
     if (!session) return setImported(0);
-    try {
-      setImported((await previousImport(session)).paths.length);
-    } catch {
-      setImported(0);
-    }
+    const count = await previousImport(session).then((batch) => batch.paths.length).catch(() => 0);
+    if (stillShown(session)) setImported(count);
   }, [session]);
   useEffect(() => {
     void recountImported();
@@ -266,7 +267,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       if (!session) return Promise.resolve(0);
       return openPreviousImport(session, t("studio.library.albums.previousImport"), onSelectAlbum, preserveEditor).then(
         (count) => {
-          setImported(count);
+          if (stillShown(session)) setImported(count);
           return count;
         },
       );

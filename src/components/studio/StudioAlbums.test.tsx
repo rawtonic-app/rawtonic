@@ -361,3 +361,29 @@ describe("app-wide albums outside sessions", () => {
     expect(stored).toHaveLength(2);
   });
 });
+
+describe("switching sessions", () => {
+  it("drops album lists and counts the closed session answers late", async () => {
+    const late: Array<() => void> = [];
+    const base = mockInvoke.getMockImplementation()!;
+    mockInvoke.mockImplementation(async (command, args) => {
+      const directory = (args as { directory?: string })?.directory;
+      if (directory === "/old" && command === "session_albums")
+        return new Promise((resolve) => late.push(() => resolve([{ id: "o", name: "Old album", parent: null, count: 1 }])));
+      if (directory === "/old" && command === "session_previous_import")
+        return new Promise((resolve) =>
+          late.push(() => resolve({ batch: { id: 1, kind: "ingest", created_at: "", count: 5 }, paths: ["1", "2", "3", "4", "5"] })),
+        );
+      if (command === "session_previous_import") return { batch: null, paths: [] };
+      return base(command, args);
+    });
+    useLibraryStore.setState({ sessionDirectory: "/old" });
+    await renderTool();
+    await act(async () => useLibraryStore.setState({ sessionDirectory: "/job" }));
+    expect(screen.getByText("Picks")).toBeTruthy();
+    await act(async () => late.forEach((answer) => answer()));
+    expect(screen.queryByText("Old album")).toBeNull();
+    expect(screen.queryByText("Previous Import")).toBeNull();
+    expect(screen.getByText("Picks")).toBeTruthy();
+  });
+});
