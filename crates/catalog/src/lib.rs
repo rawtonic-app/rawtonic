@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 pub mod add;
 pub mod checksum;
+pub mod companion;
 pub mod folder_sync;
 pub mod folders;
 pub mod hot_folder;

@@ -573,6 +573,9 @@ pub fn list_images_in_dir(path: String, app_handle: AppHandle) -> Result<Vec<Ima
             images.push((file_name, entry_path));
         }
     }
+    // A RAW's companion JPEG is part of the RAW's photograph.
+    let companions = crate::session_bridge::companions_in_folder(Path::new(&path));
+    images.retain(|(_, path)| !companions.contains(path));
 
     let metadata_snapshot = listing_metadata_snapshot(
         &images
@@ -693,7 +696,13 @@ pub fn list_images_recursive(
     update_rotational_disk_flag(&path, &app_handle);
 
     let sources = rawtonic_export::sidecars::sources_with_copies(Path::new(&path));
-    let images: Vec<PathBuf> = sources.iter().map(|(image, _)| image.clone()).collect();
+    // A RAW's companion JPEG is part of the RAW's photograph.
+    let companions = crate::session_bridge::companions_in_folder(Path::new(&path));
+    let images: Vec<PathBuf> = sources
+        .iter()
+        .map(|(image, _)| image.clone())
+        .filter(|image| !companions.contains(image))
+        .collect();
     let mut sidecars_by_path: HashMap<PathBuf, Vec<Option<String>>> = sources.into_iter().collect();
 
     let metadata_snapshot = listing_metadata_snapshot(&images, &settings);

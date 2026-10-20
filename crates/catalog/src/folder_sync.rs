@@ -647,9 +647,11 @@ impl Library {
                 .or_default()
                 .push(index);
         }
+        // A RAW's companion JPEG is part of that photograph, not new.
+        let companions = self.companions()?;
         let unknown: Vec<PathBuf> = files
             .into_iter()
-            .filter(|f| !paths.contains(f.as_path()))
+            .filter(|f| !paths.contains(f.as_path()) && !companions.contains_key(f))
             .collect();
         let total = unknown.len();
         // Content hashes of present photographs, read once.

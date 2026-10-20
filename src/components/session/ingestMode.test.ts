@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preselectIngestMode } from "./ingestMode";
+import { hasRawJpegPairs, preselectIngestMode } from "./ingestMode";
 
 const card = { medium: "card" as const };
 const disk = { medium: "disk" as const };
@@ -46,5 +46,18 @@ describe("ingest mode preselection", () => {
 
   it("with no sources yet copies", () => {
     expect(preselectIngestMode({ catalog: true, files: [], intoFolder: false }).mode).toBe("copy");
+  });
+});
+
+describe("hasRawJpegPairs", () => {
+  it("finds a RAW and a JPEG or HEIF of one name in one folder, letter case aside", () => {
+    expect(hasRawJpegPairs(["/c/100/A.ARW", "/c/100/a.jpg"])).toBe(true);
+    expect(hasRawJpegPairs(["C:\\DCIM\\B.CR3", "C:\\DCIM\\B.HIF"])).toBe(true);
+  });
+  it("leaves out other folders, three files of a name and developed pairs", () => {
+    expect(hasRawJpegPairs(["/c/100/A.ARW", "/c/101/A.JPG"])).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.CR3", "/c/A.DNG", "/c/A.JPG"])).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.TIF", "/c/A.JPG"])).toBe(false);
+    expect(hasRawJpegPairs(["/c/A.ARW", "/c/A.PNG"])).toBe(false);
   });
 });

@@ -700,6 +700,7 @@ pub async fn session_ingest(
     sequence_start: Option<u32>,
     folder: Option<String>,
     mode: Option<IngestMode>,
+    separate_jpeg: Option<bool>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
@@ -722,6 +723,7 @@ pub async fn session_ingest(
             backup: backup.as_deref().map(Path::new),
             folder: folder.as_deref().map(Path::new),
             roots: &roots,
+            separate_jpeg: separate_jpeg.unwrap_or(false),
         };
         let started = std::time::Instant::now();
         let report = |done: rawtonic_ingest::batch::FileDone<'_>| {
@@ -749,6 +751,7 @@ pub async fn session_ingest(
             IngestMode::Add => rawtonic_ingest::batch::add_batch(
                 &lib,
                 &sources,
+                separate_jpeg.unwrap_or(false),
                 rawtonic_ingest::batch::source_medium,
                 &CANCEL_IMPORT,
                 report,
@@ -1263,6 +1266,42 @@ pub(crate) fn offline_in_folder(folder: &Path, recursive: bool) -> Vec<OfflineEn
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The companion files (a RAW's JPEG, `Library::companion`) a library
+/// records in `folder` or below it, under `folder` as it was given (not
+/// resolved), so a listing of it leaves them out: they are part of their
+/// RAW's photograph.
+pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
+    let Some(dir) = library_for(&folder.join("_")) else {
+        return HashSet::new();
+    };
+    let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
+        return HashSet::new();
+    };
+    lib.companions()
+        .map(|companions| {
+            companions
+                .into_keys()
+                .filter_map(|path| {
+                    path.strip_prefix(&canonical)
+                        .ok()
+                        .map(|below| folder.join(below))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The companion file of the photograph at `photo` (it moves and goes to
+/// the Trash with it), if its library records one and it is there.
+pub(crate) fn companion_of(photo: &Path) -> Option<PathBuf> {
+    let lib = Library::open(&library_for(photo)?).ok()?;
+    let asset = lib.asset_at(photo).ok()??;
+    let companion = lib.companion(&asset).ok()??;
+    // Under the photograph's path as given, as the caller's other files.
+    let companion = photo.with_file_name(companion.file_name()?);
+    companion.is_file().then_some(companion)
 }
 
 /// Which of `paths` (whose files are gone) a library holds, with the

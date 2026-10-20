@@ -149,6 +149,18 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    /// The companion file beside it (`Library::companion`).
+    companion: Option<String>,
+}
+
+impl PlannedAsset {
+    /// Registers the photograph with `name`, a file beside it, as its
+    /// companion (a RAW's JPEG), in the same transaction.
+    pub fn with_companion(mut self, name: &str) -> Result<Self> {
+        crate::companion::validate_name(name)?;
+        self.companion = Some(name.to_string());
+        Ok(self)
+    }
 }
 
 /// What `add_files` did.
@@ -259,6 +271,7 @@ impl Library {
             recipe,
             metadata,
             xmp_digest: contents.xmp_digest,
+            companion: None,
         })
     }
 
@@ -304,8 +317,8 @@ impl Library {
             }
             let id = Uuid::new_v4().to_string();
             tx.execute(
-                "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text)
-                 VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text,raw_jpeg_pair)
+                 VALUES(?,?,?,?,?,?,?,?,?)",
                 params![
                     id,
                     asset.root,
@@ -314,7 +327,8 @@ impl Library {
                     asset.mtime,
                     asset.fingerprint,
                     asset.kind,
-                    asset.metadata.as_ref().map(search_text).unwrap_or_default()
+                    asset.metadata.as_ref().map(search_text).unwrap_or_default(),
+                    asset.companion
                 ],
             )?;
             match &asset.metadata {
@@ -382,11 +396,14 @@ impl Library {
     /// Adds an explicit list of files, each with what its sidecars hold
     /// (`Contents::read_sidecars`): first every file is read, then all new
     /// ones are inserted in one transaction. Files already registered are
-    /// left alone; files that cannot be added are reported, not added.
+    /// left alone, a photograph's companion (`Library::companion`) too (both
+    /// reported as `known`, the companion as its photograph); files that
+    /// cannot be added are reported, not added.
     pub fn add_files(&self, paths: &[PathBuf]) -> Result<AddReport> {
         let mut report = AddReport::default();
         let mut planned = Vec::new();
         let mut seen = HashSet::new();
+        let companions = self.companions()?;
         for path in paths {
             let plan = (|| -> Result<Option<PlannedAsset>> {
                 let place = self.place(path)?;
@@ -395,6 +412,11 @@ impl Library {
                 }
                 if let Some(id) = self.registered_id(&place.root, &place.rel)? {
                     report.known.push(self.asset(&id)?);
+                    return Ok(None);
+                }
+                // A RAW's companion JPEG is part of that photograph.
+                if let Some(owner) = companions.get(&place.path) {
+                    report.known.push(self.asset(owner)?);
                     return Ok(None);
                 }
                 let contents = Contents::read_sidecars(&place.path)?;

@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -67,7 +68,7 @@ import {
   type OpenIngestDetail,
 } from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
-import { preselectIngestMode, type IngestMode } from "./ingestMode";
+import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import "./session.css";
@@ -101,6 +102,10 @@ interface ImportResult {
   sidecar?: string | null;
   /** A problem that did not keep the photograph out (its sidecar). */
   warning?: string | null;
+  /** On a RAW's result: its companion JPEG copied beside it. */
+  companion?: string | null;
+  /** On a companion JPEG's result: the RAW's copy it belongs to. */
+  companionOf?: string | null;
 }
 /** Mirrors `session_bridge::IngestScan`. */
 interface IngestScan {
@@ -271,6 +276,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const scanList = useRef(0);
   const scansRunning = useRef(0);
   const [backup, setBackup] = useState<string | null>(null);
+  // RAW+JPEG pairs come in as one photograph unless this is set.
+  const [separateJpeg, setSeparateJpeg] = useState(false);
   const [template, setTemplate] = useState("{orig}");
   const [sequenceStart, setSequenceStart] = useState(1);
   // The ingest dialog's example name made by the backend from the first
@@ -962,6 +969,11 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const preselected = modeChoice.mode;
   useEffect(() => setMode(preselected), [sources, target.folder, preselected]);
   const ingestMode: IngestMode = mode === "add" && modeChoice.canAdd ? "add" : "copy";
+  // The choice of separate JPEGs is offered only when there are pairs.
+  const pairsChosen = useMemo(
+    () => hasRawJpegPairs(sources.filter((file) => chosen.has(file.path)).map((file) => file.path)),
+    [sources, chosen],
+  );
 
   const ingest = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -995,10 +1007,14 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         sequenceStart,
         backup,
         folder,
+        separateJpeg,
       });
       const failures = results.filter((r) => r.error);
-      const skipped = results.filter((r) => r.skipped).length;
-      const copied = results.length - failures.length - skipped;
+      // A companion JPEG is part of its RAW's photograph, not one of its own.
+      const photos = results.filter((r) => !r.companionOf);
+      const skipped = photos.filter((r) => r.skipped).length;
+      const copied = photos.filter((r) => !r.error).length - skipped;
+      const companions = results.filter((r) => r.companionOf && !r.error && !r.skipped).length;
       const sidecars = results.filter((r) => r.sidecar && !r.error).length;
       const warnings = results.filter((r) => r.warning);
       let albumError: string | null = null;
@@ -1029,6 +1045,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
               : t("session.toasts.ingested", { count: copied }),
             skipped ? t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
             sidecars ? t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
+            companions ? t("session.toasts.companionsKept", { n: companions }) : null,
             album && !albumError ? t("session.toasts.addedToAlbum", { name: album.name }) : null,
             results.length < files.length ? t("session.toasts.ingestCancelled") : null,
           ]
@@ -1769,6 +1786,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                     {t("session.ingest.addToAlbum", { name: target.album.name })}
                   </label>
                 )
+              )}
+              {pairsChosen && (
+                <label className="session-ingest-album">
+                  <input type="checkbox" checked={separateJpeg} onChange={(e) => setSeparateJpeg(e.target.checked)} />
+                  {t("session.ingest.separateJpeg")}
+                </label>
               )}
             </section>
             {ingestMode === "copy" && (

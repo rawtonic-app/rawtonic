@@ -211,7 +211,9 @@ fn xmp_for(image: &Path) -> PathBuf {
 }
 
 /// Every file that belongs to `images` and moves with them: editor sidecars,
-/// virtual copies, the EXIF cache, and an XMP whose every photo is included.
+/// virtual copies, the EXIF cache, a RAW's companion JPEG
+/// (`session_bridge::companion_of`), and an XMP whose every photo is
+/// included.
 pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     let selected: HashSet<&PathBuf> = images.iter().collect();
     let mut files = BTreeSet::new();
@@ -219,18 +221,26 @@ pub fn associated_files(images: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
         for file in crate::file_management::find_all_associated_files(image)? {
             files.insert(file);
         }
+        let companion = crate::session_bridge::companion_of(image);
+        if let Some(companion) = &companion {
+            files.insert(companion.clone());
+        }
         let xmp = xmp_for(image);
         if !xmp.is_file() || files.contains(&xmp) {
             continue;
         }
-        // Another photo with this name (RAW+JPEG) keeps its XMP.
+        // Another photo with this name (RAW+JPEG) keeps its XMP; a
+        // companion is no photo of its own.
         let stem = image.file_stem();
         let shared = fs::read_dir(image.parent().ok_or("No parent folder")?)
             .map_err(|e| e.to_string())?
             .filter_map(Result::ok)
             .map(|e| e.path())
             .any(|p| {
-                p.file_stem() == stem && is_supported_image_file(&p) && !selected.contains(&p)
+                p.file_stem() == stem
+                    && is_supported_image_file(&p)
+                    && !selected.contains(&p)
+                    && companion.as_ref() != Some(&p)
             });
         if !shared {
             files.insert(xmp);
@@ -929,7 +939,10 @@ pub fn trash_photos(
     let mut assigned: HashSet<PathBuf> = groups.iter().flatten().cloned().collect();
     for image in &images {
         let mut group = Vec::new();
-        for file in crate::file_management::find_all_associated_files(image)? {
+        for file in crate::file_management::find_all_associated_files(image)?
+            .into_iter()
+            .chain(crate::session_bridge::companion_of(image))
+        {
             if assigned.insert(file.clone()) {
                 group.push(file);
             }
@@ -970,6 +983,38 @@ mod tests {
         );
         assert_eq!(album_key(Path::new("/p/DSCF0135.RAF.rrdata")), None);
         assert_eq!(album_key(Path::new("/p/DSCF0135.xmp")), None);
+    }
+
+    /// A RAW's recorded companion JPEG moves and goes to the Trash with it,
+    /// and so does the XMP (the companion is no photo of its own); a JPEG
+    /// of the same name that is not its companion keeps the XMP.
+    #[test]
+    fn a_companion_jpeg_belongs_to_its_raw() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let capture = dir.join("Capture");
+        for name in ["A.RAF", "A.JPG", "A.xmp", "B.RAF", "B.JPG", "B.xmp"] {
+            fs::write(capture.join(name), name).unwrap();
+        }
+        let lib = rawtonic_catalog::Library::open(&dir).unwrap();
+        let planned = lib
+            .plan_add(&capture.join("A.RAF"), Default::default())
+            .unwrap()
+            .with_companion("A.JPG")
+            .unwrap();
+        lib.insert_planned(vec![planned]).unwrap();
+        lib.add_files(&[capture.join("B.RAF"), capture.join("B.JPG")])
+            .unwrap();
+        let files = associated_files(&[capture.join("A.RAF"), capture.join("B.RAF")]).unwrap();
+        assert!(files.contains(&capture.join("A.JPG")));
+        assert!(files.contains(&capture.join("A.xmp")));
+        assert!(!files.contains(&capture.join("B.JPG")));
+        assert!(!files.contains(&capture.join("B.xmp")));
+        assert_eq!(
+            crate::session_bridge::companions_in_folder(&capture),
+            HashSet::from([capture.join("A.JPG")])
+        );
+        assert!(crate::session_bridge::companions_in_folder(&dir.join("Selects")).is_empty());
     }
 
     #[test]
