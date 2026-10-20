@@ -1388,9 +1388,7 @@ pub(crate) fn process_preview_job(
             return Err(format!("{PREVIEW_RENDER_FAILED}: {error}"));
         }
     };
-    if source_scale >= 1.0 {
-        state.rendered_source.mark(&loaded_image.image);
-    }
+    state.rendered_source.mark(&loaded_image.image);
     if !is_interactive {
         rewarm_mask_source(app_handle, &state, &loaded_image, adjustments_clone);
     }

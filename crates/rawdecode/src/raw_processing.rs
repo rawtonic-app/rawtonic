@@ -54,7 +54,8 @@ pub fn develop_raw_image_with(
 }
 
 /// Receives the draft of a full development (`develop_raw_image_with_draft`):
-/// the oriented image and the size the full development will have.
+/// the oriented image and the size the full development will have. The full
+/// development starts when it returns.
 pub struct DraftSink(pub Box<dyn Fn(DynamicImage, (u32, u32)) + Send + Sync>);
 
 impl std::fmt::Debug for DraftSink {
@@ -69,7 +70,7 @@ impl std::fmt::Debug for DraftSink {
 /// mosaic is decoded and its highlights rebuilt, then demosaics. One decode
 /// instead of a separate fast decode beside the full one, which competed
 /// with it for the cores and decoded the file twice. The full development
-/// is the same with or without a sink.
+/// is the same with or without a sink, and starts once the sink returns.
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
     fast_demosaic: bool,
@@ -665,100 +666,96 @@ fn develop_internal(
         intermediate_into_rgb(developed_intermediate)
     };
 
-    // The draft develops beside the full development, from a copy of the
-    // prepared mosaic, on threads of its own: in the shared pool its work
-    // would queue behind the demosaicing's.
-    std::thread::scope(|scope| {
-        if let Some(sink) = draft
-            && !fast_demosaic
-            && !is_linear_format
-            && superccd.is_none()
-        {
-            check_cancel()?;
-            let frame = raw_image
-                .crop_area
-                .filter(|crop| !crop.is_empty())
-                .map(|crop| crop.d)
-                .or(raw_image.active_area.map(|area| area.d))
-                .unwrap_or_else(|| raw_image.dim());
-            let mut draft_raw = raw_image.clone();
-            let finish = &finish;
-            scope.spawn(move || {
-                draft_pool().install(|| {
-                    #[cfg(feature = "performance-profiling")]
-                    let _stage = crate::performance::PerformanceStage::new("raw_draft");
-                    let mut draft_developer = RawDevelop {
-                        keep_negative: true,
-                        ..RawDevelop::default()
-                    };
-                    draft_developer.demosaic_algorithm = DemosaicAlgorithm::Speed;
-                    draft_developer
-                        .steps
-                        .retain(|&step| step != ProcessingStep::SRgb);
-                    let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true)
-                        .and_then(|own| match own {
-                            Some(intermediate) => Ok(intermediate),
-                            None => Ok(draft_developer.develop_intermediate(&draft_raw)?),
-                        })
-                        .and_then(|intermediate| {
-                            drop(draft_raw);
-                            finish(intermediate)
-                        });
-                    match developed {
-                        Ok(image) => {
-                            let image = apply_orientation(image, orientation);
-                            // Orientation may turn the frame.
-                            let (w, h) = (frame.w as u32, frame.h as u32);
-                            let full = if (image.width() > image.height()) == (w > h) {
-                                (w, h)
-                            } else {
-                                (h, w)
-                            };
-                            (sink.0)(image, full);
-                        }
-                        Err(e) => log::debug!("No draft: {e}"),
-                    }
-                })
-            });
-        }
-
+    // The draft develops first, from a copy of the prepared mosaic, and the
+    // full development starts once it is handed over. Beside the full
+    // development (its own 4 threads next to the demosaicing's) it was
+    // starved of the cores: a 24 MP CR3's 1.5 MP draft came 735 instead of
+    // 480 ms after the start on a 6-core Ryzen, for 40-90 ms more until the
+    // full development (notes: benchmark-results/linux-first-frame-2026-10-20b).
+    if let Some(sink) = draft
+        && !fast_demosaic
+        && !is_linear_format
+        && superccd.is_none()
+    {
         check_cancel()?;
-        let mut developed_intermediate = {
-            #[cfg(feature = "performance-profiling")]
-            let _stage = crate::performance::PerformanceStage::new("raw_develop");
-            // Fast developments run in parallel thumbnail workers, which would
-            // keep immediate purging on almost continuously.
-            let _purge = (!fast_demosaic).then(crate::allocator::ImmediatePurge::begin);
-            // Fast developments of X-Trans mosaics bin 3 x 3 blocks (a third of
-            // the size, like Bayer's half-size superpixels): rawler's Speed
-            // demosaic keeps them at full size, which made the first frame of
-            // a never-opened 40 MP RAF wait ~0.45 s for it.
-            let own = if is_linear_format {
-                None
-            } else {
-                develop_rgb_mosaic(&mut raw_image, rescale_factor, fast_demosaic)?
-            };
-            match own {
-                Some(intermediate) => intermediate,
-                None if is_linear_format => developer.develop_linear_in_place(&mut raw_image)?,
-                None => developer.develop_intermediate(&raw_image)?,
-            }
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("raw_draft");
+        let frame = raw_image
+            .crop_area
+            .filter(|crop| !crop.is_empty())
+            .map(|crop| crop.d)
+            .or(raw_image.active_area.map(|area| area.d))
+            .unwrap_or_else(|| raw_image.dim());
+        let mut draft_raw = raw_image.clone();
+        let mut draft_developer = RawDevelop {
+            keep_negative: true,
+            ..RawDevelop::default()
         };
-
-        drop(raw_image);
-
-        if let Some(Some(frame)) = undemosaiced_frame {
-            check_cancel()?;
-            developed_intermediate = crop_intermediate(developed_intermediate, frame);
+        draft_developer.demosaic_algorithm = DemosaicAlgorithm::Speed;
+        draft_developer
+            .steps
+            .retain(|&step| step != ProcessingStep::SRgb);
+        let developed = develop_rgb_mosaic(&mut draft_raw, rescale_factor, true)
+            .and_then(|own| match own {
+                Some(intermediate) => Ok(intermediate),
+                None => Ok(draft_developer.develop_intermediate(&draft_raw)?),
+            })
+            .and_then(|intermediate| {
+                drop(draft_raw);
+                finish(intermediate)
+            });
+        match developed {
+            Ok(image) => {
+                let image = apply_orientation(image, orientation);
+                // Orientation may turn the frame.
+                let (w, h) = (frame.w as u32, frame.h as u32);
+                let full = if (image.width() > image.height()) == (w > h) {
+                    (w, h)
+                } else {
+                    (h, w)
+                };
+                (sink.0)(image, full);
+            }
+            Err(e) => log::debug!("No draft: {e}"),
         }
+    }
 
-        if let Some(layout) = superccd {
-            check_cancel()?;
-            developed_intermediate = undo_superccd_layout(developed_intermediate, layout)?;
+    check_cancel()?;
+    let mut developed_intermediate = {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("raw_develop");
+        // Fast developments run in parallel thumbnail workers, which would
+        // keep immediate purging on almost continuously.
+        let _purge = (!fast_demosaic).then(crate::allocator::ImmediatePurge::begin);
+        // Fast developments of X-Trans mosaics bin 3 x 3 blocks (a third of
+        // the size, like Bayer's half-size superpixels): rawler's Speed
+        // demosaic keeps them at full size, which made the first frame of
+        // a never-opened 40 MP RAF wait ~0.45 s for it.
+        let own = if is_linear_format {
+            None
+        } else {
+            develop_rgb_mosaic(&mut raw_image, rescale_factor, fast_demosaic)?
+        };
+        match own {
+            Some(intermediate) => intermediate,
+            None if is_linear_format => developer.develop_linear_in_place(&mut raw_image)?,
+            None => developer.develop_intermediate(&raw_image)?,
         }
+    };
 
-        Ok((finish(developed_intermediate)?, orientation))
-    })
+    drop(raw_image);
+
+    if let Some(Some(frame)) = undemosaiced_frame {
+        check_cancel()?;
+        developed_intermediate = crop_intermediate(developed_intermediate, frame);
+    }
+
+    if let Some(layout) = superccd {
+        check_cancel()?;
+        developed_intermediate = undo_superccd_layout(developed_intermediate, layout)?;
+    }
+
+    Ok((finish(developed_intermediate)?, orientation))
 }
 
 /// What `prepare_raw_image` resolved besides the changes to the raw image.
@@ -1577,19 +1574,6 @@ fn sony_linear_white(
         .then_some(white)
 }
 
-/// Threads for drafts (`develop_raw_image_with_draft`), apart from the
-/// global pool the full development keeps busy.
-fn draft_pool() -> &'static rayon::ThreadPool {
-    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
-    POOL.get_or_init(|| {
-        rayon::ThreadPoolBuilder::new()
-            .num_threads(4)
-            .thread_name(|i| format!("raw-draft-{i}"))
-            .build()
-            .expect("draft thread pool")
-    })
-}
-
 /// Full-resolution develop of an RGB colour-filter mosaic (Bayer, X-Trans)
 /// with Rawtonic's demosaicing (demosaic.rs) instead of rawler's PPG and
 /// X-Trans averaging. Returns the same intermediate as rawler's Rescale,
@@ -2158,6 +2142,57 @@ mod draft_tests {
             println!(
                 "{name}: draft {w}x{h} at {draft_ms:.0} ms, full {fw}x{fh} at {full_ms:.0} ms (alone {plain_ms:.0} ms)"
             );
+            count += 1;
+        }
+        assert!(count > 0);
+    }
+
+    /// The full development starts once the draft is handed over: a load
+    /// cancelled from the sink (another photograph asked for while the
+    /// draft shows) skips its demosaicing instead of finishing it.
+    #[test]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory; times itself, run with --test-threads=1"]
+    fn the_full_development_starts_after_its_draft() {
+        let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
+        let mut count = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let started = std::time::Instant::now();
+            if develop_raw_image(&bytes, false, 2.5, "auto".into(), None).is_err() {
+                continue;
+            }
+            let plain_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let generation = Arc::new(AtomicUsize::new(1));
+            let cancel = Arc::clone(&generation);
+            let sink = DraftSink(Box::new(move |_, _| {
+                cancel.store(2, Ordering::SeqCst);
+            }));
+            let started = std::time::Instant::now();
+            let result = develop_raw_image_with_draft(
+                &bytes,
+                false,
+                2.5,
+                "auto".into(),
+                Some((Arc::clone(&generation), 1)),
+                None,
+                Some(&sink),
+            );
+            let cancelled_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if generation.load(Ordering::SeqCst) == 1 {
+                // Linear (demosaiced) DNGs have nothing to draft.
+                continue;
+            }
+            assert!(result.is_err(), "{name}: developed after a cancel");
+            // Drafts take a half of the full development or less.
+            assert!(
+                cancelled_ms < plain_ms * 0.75,
+                "{name}: cancelled after {cancelled_ms:.0} ms, alone {plain_ms:.0} ms"
+            );
+            println!("{name}: cancelled after {cancelled_ms:.0} ms (alone {plain_ms:.0} ms)");
             count += 1;
         }
         assert!(count > 0);
