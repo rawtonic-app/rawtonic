@@ -1,0 +1,29 @@
+name: Camera report (tethering)
+description: Paste the report of the camera test in the tether panel, so others know how well tethering works with your camera.
+title: "Camera report: "
+labels: ["tethering", "camera report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Run **Camera test…** in the tether panel (session bar → Tether, camera connected), then copy the report it shows and paste it below. The report holds the camera model and firmware, your system, the Rawtonic version, the camera driver and each step's result — no serial number, file names, folders, user name or photos. Rawtonic sends nothing itself. The list of cameras is in [docs/TETHER_CAMERAS.md](https://github.com/rawtonic-app/rawtonic/blob/main/docs/TETHER_CAMERAS.md).
+
+        Please check what you paste: this issue is public.
+  - type: textarea
+    id: report
+    attributes:
+      label: Camera test report
+      description: Paste the copied report here, unchanged.
+      placeholder: "### Rawtonic camera test"
+    validations:
+      required: true
+  - type: input
+    id: usb-mode
+    attributes:
+      label: Camera's USB mode
+      description: The setting on the camera body, e.g. PC Remote or USB tether shooting.
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: What did not work as expected, what you skipped and why, settings on the body that mattered.

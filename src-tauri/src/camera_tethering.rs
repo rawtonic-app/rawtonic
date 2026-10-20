@@ -260,8 +260,23 @@ fn on_incoming(
                 );
             }
         }
-        Incoming::Event(Event::CaptureFailed { error }) => {
-            let _ = app.emit("tether-capture-failed", error);
+        Incoming::Event(Event::CaptureFailed {
+            error,
+            request,
+            exposure,
+            ambiguous,
+        }) => {
+            let _ = app.emit(
+                "tether-capture-failed",
+                json!({
+                    "kind": error.kind,
+                    "message": error.message,
+                    "request": request,
+                    "connection": exposure.map(|(connection, _)| connection),
+                    "exposure": exposure.map(|(_, exposure)| exposure),
+                    "ambiguous": ambiguous,
+                }),
+            );
         }
         Incoming::Event(Event::SettingsChanged) => {
             let _ = app.emit("tether-settings-changed", ());
@@ -450,11 +465,14 @@ fn reconnect_lost(
         h.lost = None;
         h.connection = Some(Connection::new(session.clone(), status.clone(), config));
         log::info!("Tether: {model} is back, connected again");
+        let library = h.library.clone();
         drop(helper);
         connected(TetherStatus {
             session,
             camera: status,
             connected: true,
+            transport: transport(library.as_deref()),
+            library,
         });
         return;
     }
@@ -619,20 +637,35 @@ pub struct TetherStatus {
     pub camera: CameraStatus,
     /// False while the camera is away and waits to be connected again.
     pub connected: bool,
+    /// libgphoto2's version (`None`: the mock camera).
+    pub library: Option<String>,
+    /// How the helper reaches the camera: `imageCaptureCore` (macOS's
+    /// camera service, our libgphoto2 port driver), `usb` (libusb) or
+    /// `mock`.
+    pub transport: &'static str,
+}
+
+/// `TetherStatus::transport` for a helper with this camera library.
+fn transport(library: Option<&str>) -> &'static str {
+    match library {
+        None => "mock",
+        Some(_) if cfg!(target_os = "macos") => "imageCaptureCore",
+        Some(_) => "usb",
+    }
 }
 
 /// Tells the interface (`AppHandle::emit` in the app).
 type Notify = Arc<dyn Fn(&str, serde_json::Value) + Send + Sync>;
 /// Frees a committed photo from the camera's transfer queue (the helper's
-/// `Release`; a no-op on cameras without one).
-type Release = Arc<dyn Fn(&Captured) + Send + Sync>;
+/// `Release`; a no-op on cameras without one): whether it was freed.
+type Release = Arc<dyn Fn(&Captured) -> Result<bool, String> + Send + Sync>;
 
 /// `Release` through the helper that delivered the photo: none once that
 /// helper ended (a new one numbers its connections afresh).
 fn release_via(client: std::sync::Weak<Client>) -> Release {
     Arc::new(move |captured: &Captured| {
         let Some(client) = client.upgrade() else {
-            return;
+            return Err("The tether helper ended.".into());
         };
         let release = Request::Release {
             connection: captured.connection,
@@ -640,12 +673,17 @@ fn release_via(client: std::sync::Weak<Client>) -> Release {
             camera_folder: captured.camera_folder.clone(),
             camera_name: captured.camera_name.clone(),
         };
-        if let Err(e) = client.request(release, QUICK) {
-            log::warn!(
-                "Tether: {} not freed on the camera: {}",
-                captured.camera_name,
-                e.message
-            );
+        match client.request(release, QUICK) {
+            Ok(Reply::Released { freed }) => Ok(freed),
+            Ok(_) => Err("Unexpected answer from the tether helper.".into()),
+            Err(e) => {
+                log::warn!(
+                    "Tether: {} not freed on the camera: {}",
+                    captured.camera_name,
+                    e.message
+                );
+                Err(e.message)
+            }
         }
     })
 }
@@ -730,6 +768,15 @@ pub struct TetherCaptured {
     pub error: Option<String>,
     /// Fired by the app (else on the body, or left from an earlier run).
     pub requested: bool,
+    /// The helper's connection and exposure numbers (the RAW and JPEG of
+    /// one exposure share them); none for a photo left from an earlier run.
+    pub connection: Option<u64>,
+    pub exposure: Option<u64>,
+    /// The exposures it may belong to when that cannot be told (a reused
+    /// camera file name); empty when certain.
+    pub ambiguous: Vec<u64>,
+    /// The app request it answers (`tether_capture`'s number), if any.
+    pub request: Option<u64>,
     /// From the app's request (or the camera's report) to: the camera's
     /// report, the complete download, the photo in the library.
     pub ms_to_event: Option<u64>,
@@ -737,9 +784,24 @@ pub struct TetherCaptured {
     pub ms_to_ingested: Option<u64>,
 }
 
+/// A committed photo's release on the camera (`Request::Release`), told
+/// after its `TetherCaptured`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TetherReleased {
+    pub camera_name: String,
+    /// Its photo's helper connection and exposure (as in `TetherCaptured`),
+    /// so the release can be told apart from another file of that name.
+    pub connection: u64,
+    pub exposure: u64,
+    /// Freed from the camera's transfer queue (false: it keeps none).
+    pub freed: bool,
+    pub error: Option<String>,
+}
+
 struct Ingest<'a> {
     notify: &'a (dyn Fn(&str, serde_json::Value) + Send + Sync),
-    release: &'a (dyn Fn(&Captured) + Send + Sync),
+    release: &'a (dyn Fn(&Captured) -> Result<bool, String> + Send + Sync),
     lib: &'a Library,
     root: &'a Path,
     config: &'a Mutex<CaptureConfig>,
@@ -842,6 +904,10 @@ impl Ingest<'_> {
             skipped: result.skipped,
             error: result.error,
             requested: timing.is_some_and(|(c, _)| c.requested),
+            connection: timing.map(|(c, _)| c.connection),
+            exposure: timing.map(|(c, _)| c.exposure),
+            ambiguous: timing.map(|(c, _)| c.ambiguous.clone()).unwrap_or_default(),
+            request: timing.and_then(|(c, _)| c.request),
             ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
             ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
             ms_to_ingested: timing
@@ -854,7 +920,18 @@ impl Ingest<'_> {
             && free
             && let Some((captured, _)) = &captured
         {
-            (self.release)(captured);
+            let released = (self.release)(captured);
+            // For the camera test: the release came after the commit.
+            (self.notify)(
+                "tether-released",
+                json!(TetherReleased {
+                    camera_name: captured.camera_name.clone(),
+                    connection: captured.connection,
+                    exposure: captured.exposure,
+                    freed: released.as_ref().is_ok_and(|freed| *freed),
+                    error: released.err(),
+                }),
+            );
         }
     }
 }
@@ -916,10 +993,17 @@ pub async fn tether_connect(
                 std::thread::spawn(move || reconnect_when_back(app, choice));
             },
         )?;
+        let library = HELPER
+            .lock()
+            .unwrap()
+            .as_ref()
+            .and_then(|h| h.library.clone());
         Ok(TetherStatus {
             session,
             camera: status,
             connected: true,
+            transport: transport(library.as_deref()),
+            library,
         })
     })
     .await
@@ -1102,6 +1186,8 @@ fn status_of(state: &Mutex<Option<Helper>>) -> Option<TetherStatus> {
         session: connection.session.clone(),
         camera: connection.status.clone(),
         connected,
+        library: h.library.clone(),
+        transport: transport(h.library.as_deref()),
     })
 }
 
@@ -1124,8 +1210,15 @@ pub async fn tether_set_setting(key: String, value: String, app: AppHandle) -> R
 
 /// Fires the shutter; the photo arrives as `tether-captured`.
 #[tauri::command]
-pub async fn tether_capture(app: AppHandle) -> Result<(), String> {
-    blocking(move || camera_request(&app, Request::Capture, CAPTURE).map(|_| ())).await
+pub async fn tether_capture(app: AppHandle) -> Result<Option<u64>, String> {
+    blocking(move || {
+        camera_request(&app, Request::Capture, CAPTURE).map(|reply| match reply {
+            // The request's number, named again by its photo or failure.
+            Reply::Fired { request } => Some(request),
+            _ => None,
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1191,6 +1284,7 @@ mod tests {
         let freed_tx = Mutex::new(freed_tx);
         let release: Release = Arc::new(move |captured: &Captured| {
             let _ = freed_tx.lock().unwrap().send(captured.camera_name.clone());
+            Ok(true)
         });
         let config = Arc::new(Mutex::new(CaptureConfig {
             template: "{orig}".into(),
@@ -1225,6 +1319,9 @@ mod tests {
                 path,
                 connection: 1,
                 download: n,
+                exposure: n,
+                ambiguous: Vec::new(),
+                request: Some(n),
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1244,6 +1341,13 @@ mod tests {
             .recv_timeout(Duration::from_secs(30))
             .expect("freed after its commit");
         assert_eq!(first, "DSCF0002.RAF", "turned off for the first photo");
+        // The interface hears of the release after the photo's commit.
+        let (name, value) = seen.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert_eq!(name, "tether-released");
+        let released: TetherReleased = serde_json::from_value(value).unwrap();
+        assert_eq!(released.camera_name, "DSCF0002.RAF");
+        assert_eq!((released.connection, released.exposure), (1, 2));
+        assert!(released.freed && released.error.is_none());
         drop(tx);
         assert!(freed.recv_timeout(Duration::from_secs(30)).is_err());
     }
@@ -1267,6 +1371,9 @@ mod tests {
                 path,
                 connection: 1,
                 download: n,
+                exposure: n,
+                ambiguous: Vec::new(),
+                request: Some(n),
                 camera_folder: "/store_00010001".into(),
                 camera_name: format!("DSC{n:05}.ARW"),
                 size: 7,
@@ -1286,7 +1393,7 @@ mod tests {
         let (notify, seen) = collector();
         let worker = spawn_ingest(
             notify,
-            Arc::new(|_: &Captured| {}),
+            Arc::new(|_: &Captured| Ok(false)),
             Default::default(),
             session.clone(),
             config,
@@ -2060,6 +2167,9 @@ mod tests {
                     path: staging.join("x"),
                     connection: 1,
                     download: 1,
+                    exposure: 1,
+                    ambiguous: Vec::new(),
+                    request: Some(1),
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,
@@ -2083,7 +2193,8 @@ mod tests {
             .unwrap();
         client.request(Request::Capture, CAPTURE).unwrap();
         let (release, captured) = first;
-        release(&captured);
+        // Through the helper that delivered it (or none once it ended).
+        assert!(!matches!(release(&captured), Ok(true)));
         assert!(
             client.request(Request::Capture, CAPTURE).is_err(),
             "the new camera's photo was not freed"
@@ -2234,9 +2345,9 @@ mod tests {
                 camera_folder: captured.camera_folder.clone(),
                 camera_name: captured.camera_name.clone(),
             };
-            if let Some(client) = releasing.upgrade() {
-                client.request(release, QUICK).unwrap();
-            }
+            let client = releasing.upgrade().ok_or("helper ended")?;
+            let reply = client.request(release, QUICK).unwrap();
+            Ok(reply == Reply::Released { freed: true })
         });
         spawn_ingest(
             notify,
@@ -2337,7 +2448,7 @@ mod tests {
         let (_tx, rx) = mpsc::channel();
         spawn_ingest(
             notify,
-            Arc::new(|_: &Captured| {}),
+            Arc::new(|_: &Captured| Ok(false)),
             staging::recover(&staging::root(&session)).unwrap(),
             session.clone(),
             config,
@@ -2372,7 +2483,7 @@ mod tests {
         let (_tx, rx) = mpsc::channel();
         spawn_ingest(
             notify,
-            Arc::new(|_: &Captured| {}),
+            Arc::new(|_: &Captured| Ok(false)),
             staging::recover(&staging::root(&session)).unwrap(),
             session.clone(),
             config,

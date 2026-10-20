@@ -1033,6 +1033,12 @@
       "lastFailed": "{{file}} could not be added",
       "lastIn": "{{file}} is in the library",
       "lastTiming": "{{file}} in the library {{ms}} ms after the shot",
+      "level": {
+        "notSupported": "This camera is not supported yet.",
+        "reported": "Reported working by users of this camera model.",
+        "tested": "Tested with this camera model on {{systems}} ({{date}}).",
+        "unlisted": "Not tested with this camera model yet. Once it is connected, the camera test makes a report you can share."
+      },
       "liveView": "Live view",
       "looking": "Looking for cameras…",
       "nextCapture": "Next capture",
@@ -1041,8 +1047,55 @@
       "reconnecting": "Rawtonic connects the camera again when it is back.",
       "refresh": "Look for cameras again",
       "setOnBody": "Set on the camera body",
+      "test": {
+        "bursting": "Firing {{shots}} shots in a row…",
+        "button": "Camera test…",
+        "buttonTitle": "Test this camera step by step and make an anonymous report",
+        "close": "Close the camera test",
+        "copied": "Copied",
+        "copy": "Copy report",
+        "how": {
+          "autofocus": "Focuses once. Skip it with a manual-focus lens or MF set on the camera.",
+          "bodyShot": "Run, then press the shutter button on the camera within 30 seconds.",
+          "burst": "Fires {{shots}} shots as fast as the camera takes them.",
+          "release": "Checks that each photo was freed on the camera only after it was verified in the library (cameras with a transfer queue).",
+          "replug": "Run, pull the USB cable, then plug it back in. Rawtonic should connect again by itself.",
+          "setSetting": "Changes one setting (such as ISO) to the next value, reads it back and sets it back.",
+          "settings": "Reads the camera's settings.",
+          "shots": "Fires the chosen number of shots, each once the one before is in."
+        },
+        "intro": "Run each step with your camera; Rawtonic measures it. Open a photo in Develop first: new photos show there, which times the photo on screen. Nothing is sent anywhere: at the end you can copy the report below.",
+        "openIssue": "Open a camera report on GitHub",
+        "plugBack": "Plug the cable back in (switch the camera on again if it went off).",
+        "pressShutter": "Press the shutter button on the camera now.",
+        "pullCable": "Pull the USB cable out now.",
+        "report": "Report (exactly what is copied)",
+        "reportHint": "Camera model and firmware, system, app version, camera driver and the step results only: no serial number, file names, folders, user name or photos.",
+        "run": "Run",
+        "shotAfterReplug": "Connected again; one more shot…",
+        "shotCount": "Number of shots",
+        "shotOf": "Shot {{n}} of {{total}}…",
+        "skip": "Skip",
+        "state": {
+          "failed": "Failed",
+          "inconclusive": "Inconclusive",
+          "passed": "Passed",
+          "skipped": "Skipped"
+        },
+        "steps": {
+          "autofocus": "Autofocus",
+          "bodyShot": "Shot on the camera",
+          "burst": "Burst",
+          "connect": "Connect",
+          "release": "Transfer queue",
+          "replug": "Cable out and back in",
+          "setSetting": "Change a setting",
+          "settings": "Read settings",
+          "shots": "Shots"
+        },
+        "title": "Camera test"
+      },
       "title": "Tethered shooting",
-      "untested": "Supported, but not yet tested with this camera model.",
       "usbHint": "Set the camera’s USB mode to remote shooting (Sony: PC Remote; Fujifilm: USB tether shooting)."
     },
     "toasts": {

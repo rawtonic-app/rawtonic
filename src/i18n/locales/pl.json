@@ -1119,6 +1119,12 @@
       "lastFailed": "Nie udało się dodać {{file}}",
       "lastIn": "{{file}} jest w bibliotece",
       "lastTiming": "{{file}} w bibliotece {{ms}} ms po zdjęciu",
+      "level": {
+        "notSupported": "Ten aparat nie jest jeszcze obsługiwany.",
+        "reported": "Według użytkowników tego modelu aparatu działa.",
+        "tested": "Przetestowano z tym modelem aparatu w {{systems}} ({{date}}).",
+        "unlisted": "Jeszcze nie testowano z tym modelem aparatu. Po podłączeniu test aparatu tworzy raport, który możesz udostępnić."
+      },
       "liveView": "Podgląd na żywo",
       "looking": "Szukanie aparatów…",
       "nextCapture": "Następne zdjęcie",
@@ -1127,8 +1133,55 @@
       "reconnecting": "Rawtonic połączy aparat ponownie, gdy wróci.",
       "refresh": "Szukaj aparatów ponownie",
       "setOnBody": "Ustawione na korpusie aparatu",
+      "test": {
+        "bursting": "{{shots}} zdjęć jedno po drugim…",
+        "button": "Test aparatu…",
+        "buttonTitle": "Przetestuj ten aparat krok po kroku i utwórz anonimowy raport",
+        "close": "Zamknij test aparatu",
+        "copied": "Skopiowano",
+        "copy": "Kopiuj raport",
+        "how": {
+          "autofocus": "Ustawia ostrość raz. Pomiń przy obiektywie manualnym lub MF w aparacie.",
+          "bodyShot": "Uruchom, a potem w ciągu 30 sekund naciśnij spust migawki aparatu.",
+          "burst": "Wykonuje {{shots}} zdjęć tak szybko, jak aparat je przyjmuje.",
+          "release": "Sprawdza, czy każde zdjęcie zostało zwolnione w aparacie dopiero po weryfikacji w bibliotece (aparaty z kolejką transferu).",
+          "replug": "Uruchom, odłącz kabel USB i podłącz go ponownie. Rawtonic powinien połączyć się sam.",
+          "setSetting": "Zmienia jedno ustawienie (np. ISO) na następną wartość, odczytuje je i przywraca.",
+          "settings": "Odczytuje ustawienia aparatu.",
+          "shots": "Wykonuje wybraną liczbę zdjęć, każde, gdy poprzednie dotarło."
+        },
+        "intro": "Wykonaj każdy krok ze swoim aparatem; Rawtonic go mierzy. Najpierw otwórz zdjęcie w Wywoływaniu: nowe zdjęcia pojawiają się tam, co mierzy czas do zdjęcia na ekranie. Nic nie jest wysyłane: na końcu możesz skopiować raport poniżej.",
+        "openIssue": "Otwórz raport aparatu na GitHubie",
+        "plugBack": "Podłącz kabel ponownie (włącz aparat, jeśli się wyłączył).",
+        "pressShutter": "Naciśnij teraz spust migawki aparatu.",
+        "pullCable": "Odłącz teraz kabel USB.",
+        "report": "Raport (dokładnie to, co zostanie skopiowane)",
+        "reportHint": "Tylko model i firmware aparatu, system, wersja aplikacji, sterownik aparatu i wyniki kroków: bez numeru seryjnego, nazw plików, folderów, nazwy użytkownika i zdjęć.",
+        "run": "Uruchom",
+        "shotAfterReplug": "Znowu połączono; jeszcze jedno zdjęcie…",
+        "shotCount": "Liczba zdjęć",
+        "shotOf": "Zdjęcie {{n}} z {{total}}…",
+        "skip": "Pomiń",
+        "state": {
+          "failed": "Niezaliczony",
+          "inconclusive": "Nierozstrzygnięty",
+          "passed": "Zaliczony",
+          "skipped": "Pominięty"
+        },
+        "steps": {
+          "autofocus": "Autofokus",
+          "bodyShot": "Zdjęcie z aparatu",
+          "burst": "Seria",
+          "connect": "Połączenie",
+          "release": "Kolejka transferu",
+          "replug": "Kabel odłączony i podłączony",
+          "setSetting": "Zmiana ustawienia",
+          "settings": "Odczyt ustawień",
+          "shots": "Zdjęcia"
+        },
+        "title": "Test aparatu"
+      },
       "title": "Fotografowanie z podłączeniem",
-      "untested": "Obsługiwany, ale jeszcze nie testowany z tym modelem aparatu.",
       "usbHint": "Ustaw tryb USB aparatu na zdalne fotografowanie (Sony: PC Remote; Fujifilm: USB tether)."
     },
     "toasts": {

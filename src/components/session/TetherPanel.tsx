@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Aperture, Camera, Focus, LoaderCircle, RefreshCcw, Unplug, Video, X } from "lucide-react";
+import { Aperture, Camera, ClipboardCheck, Focus, LoaderCircle, RefreshCcw, Unplug, Video, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
@@ -17,6 +17,8 @@ import {
   type PresetItemJson,
 } from "./nextCapture";
 import { TETHER_CAPTURE_EVENT, panelHandlesCapture, setTetherConnected } from "./tether";
+import TetherCameraTest, { type TestedCamera } from "./TetherCameraTest";
+import { compatibilityOf } from "./cameraTest";
 import "./tether.css";
 
 /** Mirrors `rawtonic_tether::protocol::CameraInfo`. */
@@ -41,6 +43,8 @@ interface CameraStatus {
   canPreview: boolean;
   /** The camera keeps each photo until the computer frees it. */
   transferQueue?: boolean;
+  serial?: string | null;
+  firmware?: string | null;
 }
 
 /** Mirrors `camera_tethering::TetherStatus`. */
@@ -49,6 +53,10 @@ export interface TetherStatus {
   camera: CameraStatus;
   /** False while the camera is away, waiting to be connected again. */
   connected?: boolean;
+  /** libgphoto2's version (null: the mock camera). */
+  library?: string | null;
+  /** How the helper reaches the camera (imageCaptureCore, usb, mock). */
+  transport?: string;
 }
 
 /** Mirrors `rawtonic_tether::protocol::Setting`. */
@@ -102,15 +110,26 @@ export const ramOnly = (settings: { key: string; value: string }[]) => {
   return target.includes("ram") && !target.includes("card");
 };
 
-/** Bodies tethering was tested with (libgphoto2's model names; notes:
- * reference/tether.md). Information for the user only: every camera is
- * handled the same way. */
-export const TESTED_BODIES = [
-  "Sony Alpha-A7 III (PC Control)",
-  "Sony Alpha-A7 IV (PC Control)",
-  "Fuji Fujifilm X-H2S",
-  "Fuji GFX 50 R",
-];
+/** What the compatibility list (tetherCameras.json) says of a camera
+ * model. Information for the user only: every camera is handled the same
+ * way. */
+function Compatibility({ model }: { model: string }) {
+  const { t } = useTranslation();
+  const entry = compatibilityOf(model);
+  const level = !entry
+    ? t("session.tether.level.unlisted")
+    : entry.level === "tested"
+      ? t("session.tether.level.tested", { systems: entry.systems?.join(", ") ?? "", date: entry.tested ?? "" })
+      : entry.level === "reported"
+        ? t("session.tether.level.reported")
+        : t("session.tether.level.notSupported");
+  return (
+    <p className="tether-note" data-level={entry?.level ?? "unlisted"}>
+      {level}
+      {entry?.notes && <> {entry.notes}</>}
+    </p>
+  );
+}
 
 /** The panel's naming template and next-capture choice, kept across its
  * unmounting (the connection keeps using them). */
@@ -158,7 +177,14 @@ export default function TetherPanel({
   const [frame, setFrame] = useState<string | null>(null);
   const [last, setLast] = useState<TetherCaptured | null>(null);
   const [capturing, setCapturing] = useState(0);
+  // The camera test, with the camera it tests (it outlives a cable pull).
+  const [testing, setTesting] = useState<TestedCamera | null>(null);
+  const [connectMs, setConnectMs] = useState<number | null>(null);
   const connected = status !== null;
+  // A closed (hidden) panel ends its camera test: it asks nothing more.
+  useEffect(() => {
+    if (hidden) setTesting(null);
+  }, [hidden]);
 
   const findCameras = useCallback(async () => {
     setError("");
@@ -293,6 +319,7 @@ export default function TetherPanel({
     setBusy(true);
     setError("");
     setWaiting(false);
+    const started = performance.now();
     try {
       const status = await invoke<TetherStatus>(Invokes.TetherConnect, {
         directory,
@@ -301,6 +328,7 @@ export default function TetherPanel({
         ...nextCaptureOf(nextCapture, presets),
         freeCameraCopies: freeCopies,
       });
+      setConnectMs(Math.round(performance.now() - started));
       onStatus(status);
       await readSettings();
     } catch (e) {
@@ -437,6 +465,8 @@ export default function TetherPanel({
     }
   };
 
+  const selected = cameras?.find((c) => c.port === port);
+
   return (
     <aside className="tether-panel" hidden={hidden} aria-label={t("session.tether.title")}>
       <header className="tether-header">
@@ -446,7 +476,16 @@ export default function TetherPanel({
           <X size={15} />
         </button>
       </header>
-      {!connected ? (
+      {testing ? (
+        <div className="tether-body">
+          <TetherCameraTest
+            camera={testing}
+            connectMs={connectMs}
+            freeCameraCopies={freeCopies}
+            onClose={() => setTesting(null)}
+          />
+        </div>
+      ) : !connected ? (
         <div className="tether-body">
           <label className="session-field">
             {t("session.tether.camera")}
@@ -476,6 +515,7 @@ export default function TetherPanel({
             </div>
             <small>{t("session.tether.usbHint")}</small>
           </label>
+          {selected && <Compatibility model={selected.model} />}
           <NamingEditor mode="ingest" value={template} onChange={setTemplate}
             label={t("session.fields.filenameTemplate")} job={jobName} />
           <NextCaptureFields value={nextCapture} onChange={(form) => void changeNextCapture(form)} presets={presets} />
@@ -510,9 +550,7 @@ export default function TetherPanel({
               <span>{t("session.tether.battery", { level: status.camera.battery })}</span>
             )}
           </div>
-          {!TESTED_BODIES.includes(status.camera.model) && (
-            <p className="tether-note">{t("session.tether.untested")}</p>
-          )}
+          <Compatibility model={status.camera.model} />
           <div className="tether-actions">
             <button
               type="button"
@@ -599,6 +637,17 @@ export default function TetherPanel({
               {error}
             </p>
           )}
+          <button
+            type="button"
+            className="session-action tether-wide"
+            title={t("session.tether.test.buttonTitle")}
+            onClick={() =>
+              setTesting({ ...status.camera, library: status.library ?? null, transport: status.transport ?? "mock" })
+            }
+          >
+            <ClipboardCheck size={14} />
+            <span>{t("session.tether.test.button")}</span>
+          </button>
           <button type="button" className="session-action tether-wide" onClick={() => void disconnect()}>
             <Unplug size={14} />
             <span>{t("session.tether.disconnect")}</span>

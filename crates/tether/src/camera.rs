@@ -76,9 +76,9 @@ pub trait Camera {
     }
     /// Frees a downloaded photo the app committed from the camera's USB
     /// transfer queue, on cameras that keep one; never a file on a card.
-    /// Nothing on others.
-    fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {
-        Ok(())
+    /// Nothing on others. Whether it freed one.
+    fn release(&mut self, _file: &CameraFile) -> Result<bool, TetherError> {
+        Ok(false)
     }
     /// Test hook: whether the helper should stop dead at `point` while
     /// handling the camera's `shot`-th file (1-based). Only the mock says yes.

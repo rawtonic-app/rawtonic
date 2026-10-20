@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -28,7 +28,6 @@ pub enum Request {
         staging: PathBuf,
         /// Only this body (its serial number): another one is closed again
         /// before anything of it is read or downloaded.
-        #[serde(default)]
         serial: Option<String>,
     },
     Disconnect,
@@ -44,7 +43,8 @@ pub enum Request {
         key: String,
         value: String,
     },
-    /// Fires the shutter; the photo arrives as a `Captured` event.
+    /// Fires the shutter; the photo arrives as a `Captured` event naming
+    /// the request number of the `Fired` reply.
     Capture,
     Autofocus,
     /// Starts or stops sending live-view frames.
@@ -100,12 +100,12 @@ pub struct CameraStatus {
     /// also writes a card copy is the camera's setting: a Fujifilm GFX 50R
     /// in USB tether mode writes none, so the app frees a photo only after
     /// its verified commit, and the user can turn freeing off.
-    #[serde(default)]
     pub transfer_queue: bool,
     /// The body's serial number, when it reports one: a reconnect takes
     /// only the same body (two of one model may be attached).
-    #[serde(default)]
     pub serial: Option<String>,
+    /// The body's firmware version, when it reports one.
+    pub firmware: Option<String>,
 }
 
 /// A camera setting the interface shows (`key` is ours; `camera_key` the
@@ -134,12 +134,21 @@ pub struct Captured {
     /// Its number among that connection's downloads (named again in
     /// `Release`: a camera file name may stand for a newer photo by then).
     pub download: u64,
+    /// Its exposure's number in that connection: the RAW and JPEG of one
+    /// exposure share it.
+    pub exposure: u64,
+    /// Which exposure it belongs to cannot be told (a reused file name;
+    /// `server` explains): the exposures it may belong to, besides being a
+    /// new one; empty when certain.
+    pub ambiguous: Vec<u64>,
     /// Where it was on the camera.
     pub camera_folder: String,
     pub camera_name: String,
     pub size: u64,
     /// Whether the shot was requested by the app (else fired on the body).
     pub requested: bool,
+    /// The app request it answers (`Reply::Fired`), if any.
+    pub request: Option<u64>,
     /// Milliseconds on the helper's clock since the capture request (app
     /// shots) or the camera's event (body shots): the camera reported the
     /// file, and the download was complete.
@@ -222,6 +231,17 @@ pub enum Reply {
     Settings {
         settings: Vec<Setting>,
     },
+    /// The answer to `Capture`: the shutter fired; this request's number
+    /// (`Captured::request`, `Event::CaptureFailed::request`).
+    Fired {
+        request: u64,
+    },
+    /// The answer to `Release`: whether the photo was freed from the
+    /// camera's transfer queue (false: the camera keeps none, or the photo
+    /// is not the one to free any more).
+    Released {
+        freed: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -237,6 +257,13 @@ pub enum Event {
     /// A shot was asked for or reported but did not arrive.
     CaptureFailed {
         error: TetherError,
+        /// The app request it was for, when known.
+        request: Option<u64>,
+        /// The connection and exposure (`Captured`) of a file that could
+        /// not be downloaded or saved; none for a shot that never came.
+        exposure: Option<(u64, u64)>,
+        /// The exposures it may belong to (`Captured::ambiguous`).
+        ambiguous: Vec<u64>,
     },
     /// The camera reported changed settings (a dial turned): read them again.
     SettingsChanged,

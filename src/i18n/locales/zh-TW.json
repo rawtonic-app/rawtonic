@@ -1008,6 +1008,12 @@
       "lastFailed": "{{file}} 無法加入",
       "lastIn": "{{file}} 已在圖庫中",
       "lastTiming": "{{file}} 在拍攝後 {{ms}} 毫秒進入圖庫",
+      "level": {
+        "notSupported": "尚不支援此相機。",
+        "reported": "此相機型號的使用者回報可以使用。",
+        "tested": "已在 {{systems}} 上以此相機型號測試（{{date}}）。",
+        "unlisted": "尚未以此相機型號測試。連接後，相機測試會產生一份可分享的報告。"
+      },
       "liveView": "即時取景",
       "looking": "正在尋找相機…",
       "nextCapture": "下一次拍攝",
@@ -1016,8 +1022,55 @@
       "reconnecting": "相機恢復連線後，Rawtonic 會自動重新連線。",
       "refresh": "重新尋找相機",
       "setOnBody": "在機身上設定",
+      "test": {
+        "bursting": "連續拍攝 {{shots}} 張…",
+        "button": "相機測試…",
+        "buttonTitle": "逐步測試此相機並產生匿名報告",
+        "close": "關閉相機測試",
+        "copied": "已複製",
+        "copy": "複製報告",
+        "how": {
+          "autofocus": "對焦一次。使用手動鏡頭或相機設為 MF 時請略過。",
+          "bodyShot": "點選執行，然後在 30 秒內按下相機的快門按鈕。",
+          "burst": "以相機能接受的最快速度拍攝 {{shots}} 張。",
+          "release": "檢查每張照片是否僅在圖庫中驗證後才在相機上釋放（有傳輸佇列的相機）。",
+          "replug": "點選執行，拔下 USB 線，再重新插上。Rawtonic 應會自動重新連接。",
+          "setSetting": "將一項設定（如 ISO）改為下一個值，讀回後再改回。",
+          "settings": "讀取相機的設定。",
+          "shots": "拍攝所選張數，每張在上一張到達後拍攝。"
+        },
+        "intro": "用你的相機執行每個步驟，Rawtonic 會進行測量。請先在顯影中開啟一張照片：新照片會顯示在那裡，藉此測量照片顯示到螢幕上的時間。不會傳送任何內容：最後你可以複製下方的報告。",
+        "openIssue": "在 GitHub 上開啟相機報告",
+        "plugBack": "重新插上傳輸線（如果相機已關機，請重新開機）。",
+        "pressShutter": "現在按下相機的快門按鈕。",
+        "pullCable": "現在拔下 USB 線。",
+        "report": "報告（即將複製的內容）",
+        "reportHint": "僅包含相機型號和韌體、系統、應用程式版本、相機驅動程式和各步驟結果：沒有序號、檔名、資料夾、使用者名稱或照片。",
+        "run": "執行",
+        "shotAfterReplug": "已重新連接；再拍一張…",
+        "shotCount": "拍攝張數",
+        "shotOf": "第 {{n}} 張，共 {{total}} 張…",
+        "skip": "略過",
+        "state": {
+          "failed": "失敗",
+          "inconclusive": "無法判定",
+          "passed": "通過",
+          "skipped": "已略過"
+        },
+        "steps": {
+          "autofocus": "自動對焦",
+          "bodyShot": "在相機上拍攝",
+          "burst": "連拍",
+          "connect": "連接",
+          "release": "傳輸佇列",
+          "replug": "拔出並重新插入傳輸線",
+          "setSetting": "變更一項設定",
+          "settings": "讀取設定",
+          "shots": "拍攝"
+        },
+        "title": "相機測試"
+      },
       "title": "連線拍攝",
-      "untested": "受支援，但尚未在此相機型號上測試。",
       "usbHint": "將相機的 USB 模式設為遙控拍攝（Sony：PC 遙控；Fujifilm：USB 連線拍攝）。"
     },
     "toasts": {

@@ -1076,6 +1076,12 @@
       "lastFailed": "{{file}} n’a pas pu être ajouté",
       "lastIn": "{{file}} est dans la bibliothèque",
       "lastTiming": "{{file}} dans la bibliothèque {{ms}} ms après la prise",
+      "level": {
+        "notSupported": "Cet appareil n'est pas encore pris en charge.",
+        "reported": "Fonctionne d'après les utilisateurs de ce modèle d'appareil.",
+        "tested": "Testé avec ce modèle d'appareil sous {{systems}} ({{date}}).",
+        "unlisted": "Pas encore testé avec ce modèle d'appareil. Une fois connecté, le test de l'appareil crée un rapport que vous pouvez partager."
+      },
       "liveView": "Visée en direct",
       "looking": "Recherche d’appareils…",
       "nextCapture": "Prochaine prise",
@@ -1084,8 +1090,55 @@
       "reconnecting": "Rawtonic reconnecte l’appareil dès qu’il est de retour.",
       "refresh": "Rechercher à nouveau",
       "setOnBody": "Réglé sur le boîtier",
+      "test": {
+        "bursting": "{{shots}} prises à la suite…",
+        "button": "Test de l'appareil…",
+        "buttonTitle": "Tester cet appareil étape par étape et créer un rapport anonyme",
+        "close": "Fermer le test de l'appareil",
+        "copied": "Copié",
+        "copy": "Copier le rapport",
+        "how": {
+          "autofocus": "Fait la mise au point une fois. Passez cette étape avec un objectif manuel ou en MF.",
+          "bodyShot": "Lancez, puis appuyez sur le déclencheur de l'appareil dans les 30 secondes.",
+          "burst": "Déclenche {{shots}} prises aussi vite que l'appareil les accepte.",
+          "release": "Vérifie que chaque photo n'a été libérée sur l'appareil qu'après sa vérification dans la bibliothèque (appareils avec file de transfert).",
+          "replug": "Lancez, débranchez le câble USB puis rebranchez-le. Rawtonic doit se reconnecter tout seul.",
+          "setSetting": "Passe un réglage (par exemple l'ISO) à la valeur suivante, le relit puis le rétablit.",
+          "settings": "Lit les réglages de l'appareil.",
+          "shots": "Déclenche le nombre de prises choisi, chacune une fois la précédente arrivée."
+        },
+        "intro": "Effectuez chaque étape avec votre appareil ; Rawtonic la mesure. Ouvrez d'abord une photo dans Développement : les nouvelles photos s'y affichent, ce qui mesure le temps jusqu'à la photo à l'écran. Rien n'est envoyé : à la fin, vous pouvez copier le rapport ci-dessous.",
+        "openIssue": "Ouvrir un rapport d'appareil sur GitHub",
+        "plugBack": "Rebranchez le câble (rallumez l'appareil s'il s'est éteint).",
+        "pressShutter": "Appuyez maintenant sur le déclencheur de l'appareil.",
+        "pullCable": "Débranchez maintenant le câble USB.",
+        "report": "Rapport (exactement ce qui est copié)",
+        "reportHint": "Uniquement le modèle et le firmware de l'appareil, le système, la version de l'application, le pilote de l'appareil et les résultats des étapes : aucun numéro de série, nom de fichier, dossier, nom d'utilisateur ni photo.",
+        "run": "Lancer",
+        "shotAfterReplug": "Reconnecté ; encore une prise…",
+        "shotCount": "Nombre de prises",
+        "shotOf": "Prise {{n}} sur {{total}}…",
+        "skip": "Passer",
+        "state": {
+          "failed": "Échoué",
+          "inconclusive": "Non concluant",
+          "passed": "Réussi",
+          "skipped": "Passé"
+        },
+        "steps": {
+          "autofocus": "Autofocus",
+          "bodyShot": "Prise sur l'appareil",
+          "burst": "Rafale",
+          "connect": "Connexion",
+          "release": "File de transfert",
+          "replug": "Câble débranché et rebranché",
+          "setSetting": "Modifier un réglage",
+          "settings": "Lire les réglages",
+          "shots": "Prises"
+        },
+        "title": "Test de l'appareil"
+      },
       "title": "Prise de vue connectée",
-      "untested": "Pris en charge, mais pas encore testé avec ce modèle d’appareil.",
       "usbHint": "Réglez le mode USB de l’appareil sur la prise de vue à distance (Sony : PC Remote ; Fujifilm : prise de vue USB connectée)."
     },
     "toasts": {

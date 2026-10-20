@@ -1076,6 +1076,12 @@
       "lastFailed": "Não foi possível adicionar {{file}}",
       "lastIn": "{{file}} está na biblioteca",
       "lastTiming": "{{file}} na biblioteca {{ms}} ms após o disparo",
+      "level": {
+        "notSupported": "Esta câmera ainda não é suportada.",
+        "reported": "Funciona, segundo usuários deste modelo de câmera.",
+        "tested": "Testado com este modelo de câmera em {{systems}} ({{date}}).",
+        "unlisted": "Ainda não testado com este modelo de câmera. Depois de conectada, o teste de câmera cria um relatório que você pode compartilhar."
+      },
       "liveView": "Visualização ao vivo",
       "looking": "A procurar câmaras…",
       "nextCapture": "Próxima captura",
@@ -1084,8 +1090,55 @@
       "reconnecting": "O Rawtonic volta a ligar a câmara quando ela voltar.",
       "refresh": "Procurar câmaras de novo",
       "setOnBody": "Definido no corpo da câmara",
+      "test": {
+        "bursting": "{{shots}} disparos seguidos…",
+        "button": "Teste de câmera…",
+        "buttonTitle": "Testar esta câmera passo a passo e criar um relatório anônimo",
+        "close": "Fechar o teste de câmera",
+        "copied": "Copiado",
+        "copy": "Copiar relatório",
+        "how": {
+          "autofocus": "Foca uma vez. Pule com uma lente manual ou MF na câmera.",
+          "bodyShot": "Execute e pressione o obturador da câmera em até 30 segundos.",
+          "burst": "Dispara {{shots}} fotos tão rápido quanto a câmera aceita.",
+          "release": "Verifica que cada foto só foi liberada na câmera depois de verificada na biblioteca (câmeras com fila de transferência).",
+          "replug": "Execute, desconecte o cabo USB e conecte-o de novo. O Rawtonic deve se reconectar sozinho.",
+          "setSetting": "Muda um ajuste (como o ISO) para o próximo valor, lê de volta e o restaura.",
+          "settings": "Lê os ajustes da câmera.",
+          "shots": "Dispara o número escolhido de fotos, cada uma quando a anterior chegou."
+        },
+        "intro": "Faça cada passo com sua câmera; o Rawtonic mede. Abra antes uma foto em Revelação: as novas fotos aparecem ali, e assim é medido o tempo até a foto na tela. Nada é enviado: no fim você pode copiar o relatório abaixo.",
+        "openIssue": "Abrir um relatório de câmera no GitHub",
+        "plugBack": "Conecte o cabo de novo (ligue a câmera outra vez se ela desligou).",
+        "pressShutter": "Pressione agora o botão do obturador da câmera.",
+        "pullCable": "Desconecte agora o cabo USB.",
+        "report": "Relatório (exatamente o que é copiado)",
+        "reportHint": "Apenas modelo e firmware da câmera, sistema, versão do app, driver da câmera e os resultados dos passos: nenhum número de série, nome de arquivo, pasta, nome de usuário ou foto.",
+        "run": "Executar",
+        "shotAfterReplug": "Conectada de novo; mais um disparo…",
+        "shotCount": "Número de disparos",
+        "shotOf": "Disparo {{n}} de {{total}}…",
+        "skip": "Pular",
+        "state": {
+          "failed": "Falhou",
+          "inconclusive": "Inconclusivo",
+          "passed": "Aprovado",
+          "skipped": "Pulado"
+        },
+        "steps": {
+          "autofocus": "Foco automático",
+          "bodyShot": "Disparo na câmera",
+          "burst": "Sequência",
+          "connect": "Conectar",
+          "release": "Fila de transferência",
+          "replug": "Cabo fora e de volta",
+          "setSetting": "Alterar um ajuste",
+          "settings": "Ler ajustes",
+          "shots": "Disparos"
+        },
+        "title": "Teste de câmera"
+      },
       "title": "Captura conectada",
-      "untested": "Suportada, mas ainda não testada com este modelo de câmara.",
       "usbHint": "Defina o modo USB da câmara para disparo remoto (Sony: PC Remote; Fujifilm: disparo USB conectado)."
     },
     "toasts": {

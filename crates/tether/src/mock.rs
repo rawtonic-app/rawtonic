@@ -56,6 +56,8 @@ pub struct MockSpec {
     pub preview: bool,
     /// The body's serial number.
     pub serial: Option<String>,
+    /// Its firmware version.
+    pub firmware: Option<String>,
     /// No memory card in (a camera that then keeps photos in its memory).
     pub no_card: bool,
     /// The card is taken out this long after the connect.
@@ -67,6 +69,12 @@ pub struct MockSpec {
     pub fire_drops_reports: bool,
     /// Each exposure gives a RAW and a JPEG file (same name, .JPG).
     pub raw_and_jpeg: bool,
+    /// The JPEG comes this much after its RAW (else right after it): later
+    /// exposures' files can come in between.
+    pub jpeg_late_ms: u64,
+    /// With `raw_and_jpeg`: JPEGs only from this shot on (the format
+    /// changed on the body).
+    pub jpeg_from_shot: Option<u64>,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
     pub capture_target: Option<String>,
     /// A real photo to hand out (each shot gets its number appended, so no
@@ -100,8 +108,11 @@ impl Default for MockSpec {
             report_twice: false,
             preview: true,
             serial: Some("MOCK0001".into()),
+            firmware: Some("1.00".into()),
             capture_target: None,
             raw_and_jpeg: false,
+            jpeg_late_ms: 0,
+            jpeg_from_shot: None,
             no_card: false,
             card_out_after_ms: None,
             target_read_fails: false,
@@ -230,7 +241,12 @@ impl MockCamera {
 
     /// The JPEG of an exposure that also gives one (`raw_and_jpeg`).
     fn jpeg_of(&mut self, (at, raw): &(Instant, CameraFile)) -> Option<(Instant, CameraFile)> {
-        if !self.spec.raw_and_jpeg {
+        if !self.spec.raw_and_jpeg
+            || self
+                .spec
+                .jpeg_from_shot
+                .is_some_and(|from| self.fired < from)
+        {
             return None;
         }
         let stem = raw
@@ -243,7 +259,7 @@ impl MockCamera {
             .or_default()
             .push_back(self.fired);
         Some((
-            *at + Duration::from_millis(1),
+            *at + Duration::from_millis(self.spec.jpeg_late_ms.max(1)),
             CameraFile {
                 folder: raw.folder.clone(),
                 name,
@@ -321,6 +337,7 @@ impl Camera for MockCamera {
             can_preview: self.spec.preview,
             transfer_queue: self.spec.queue_limit.is_some(),
             serial: self.spec.serial.clone(),
+            firmware: self.spec.firmware.clone(),
         }
     }
 
@@ -443,9 +460,12 @@ impl Camera for MockCamera {
             || crate::camera::memory_only(self.status().capture_target.as_deref()))
     }
 
-    fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {
+    fn release(&mut self, _file: &CameraFile) -> Result<bool, TetherError> {
+        if self.spec.queue_limit.is_none() {
+            return Ok(false);
+        }
         self.queued = self.queued.saturating_sub(1);
-        Ok(())
+        Ok(true)
     }
 
     fn autofocus(&mut self) -> Result<(), TetherError> {

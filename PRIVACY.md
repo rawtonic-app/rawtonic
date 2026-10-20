@@ -26,7 +26,11 @@ Rawtonic goes online only when you ask it to:
 
 Tethered shooting talks to the camera over its USB cable only; Rawtonic's
 copy of the camera library is built without its network (Wi-Fi/PTP-IP)
-driver.
+driver. The camera test in the tether panel sends nothing: it shows its
+report (camera model and firmware, system, Rawtonic version, camera driver
+and the test's results and timings — no serial number, file names, folders,
+user name or photos) for you to copy yourself; its GitHub button only opens
+the camera report form in your browser.
 
 Exported files carry the metadata you choose to keep. When you strip
 metadata, a photo with areas made by a generative AI tool still records

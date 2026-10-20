@@ -111,6 +111,18 @@ fn serial_number(summary: &str) -> Option<String> {
         .filter(|serial| !serial.is_empty())
 }
 
+/// The firmware version in libgphoto2's summary (the "Version: …" line
+/// under "Model: …", the PTP DeviceVersion).
+fn firmware_version(summary: &str) -> Option<String> {
+    summary
+        .lines()
+        .skip_while(|line| !line.starts_with("Model:"))
+        .take(2)
+        .find_map(|line| line.trim().strip_prefix("Version:"))
+        .map(|version| version.trim().to_string())
+        .filter(|version| !version.is_empty())
+}
+
 pub struct GphotoDriver {
     context: gphoto2::Context,
 }
@@ -203,6 +215,7 @@ impl Driver for GphotoDriver {
         }
         let transfer_queue = has_transfer_queue(&summary);
         let serial = serial_number(&summary);
+        let firmware = firmware_version(&summary);
         if transfer_queue {
             log::info!(
                 "{} keeps a USB transfer queue: committed photos are freed from it",
@@ -215,6 +228,7 @@ impl Driver for GphotoDriver {
             info,
             transfer_queue,
             serial,
+            firmware,
             trigger: true,
             capture: true,
             preview: true,
@@ -236,6 +250,7 @@ pub struct GphotoCamera {
     /// the computer frees it, and stops shooting when the queue is full.
     transfer_queue: bool,
     serial: Option<String>,
+    firmware: Option<String>,
     /// Our setting key → the camera's name for it, once found.
     names: HashMap<&'static str, String>,
 }
@@ -323,6 +338,7 @@ impl Camera for GphotoCamera {
             can_preview: self.preview,
             transfer_queue: self.transfer_queue,
             serial: self.serial.clone(),
+            firmware: self.firmware.clone(),
         }
     }
 
@@ -565,12 +581,13 @@ impl Camera for GphotoCamera {
         Ok(crate::camera::memory_only(target.as_deref()))
     }
 
-    fn release(&mut self, file: &CameraFile) -> Result<(), TetherError> {
+    fn release(&mut self, file: &CameraFile) -> Result<bool, TetherError> {
         if !self.transfer_queue {
-            return Ok(());
+            return Ok(false);
         }
         self.camera
             .delete_file(&self.context, &file.folder, &file.name)
+            .map(|()| true)
             .map_err(|e| session_error(&format!("Freeing {} on the camera", file.name), e))
     }
 
@@ -629,14 +646,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_summary_tells_the_driver_paths_and_the_serial() {
-        let canon = "Model: Canon EOS R5\n  Serial Number: 0123\nVendor Extension ID: 0xb (1.0)\n";
+    fn the_summary_tells_the_driver_paths_the_serial_and_the_firmware() {
+        let canon = "Model: Canon EOS R5\n  Version: 1-8.1.0\n  Serial Number: 0123\n\
+                     Vendor Extension ID: 0xb (1.0)\n";
         assert!(on_canon_path(canon) && !has_transfer_queue(canon));
         assert_eq!(serial_number(canon).as_deref(), Some("0123"));
+        assert_eq!(firmware_version(canon).as_deref(), Some("1-8.1.0"));
         let fuji =
             "Vendor Extension ID: 0xe (1.0)\nDevice Property Summary:\nCurrent State (d212)\n";
         assert!(has_transfer_queue(fuji) && !on_canon_path(fuji));
-        let sony = "Vendor Extension ID: 0x11 (1.0)\n";
+        let sony = "Vendor Extension ID: 0x11 (1.0)\n  Version: 1.0\n";
         assert!(!on_canon_path(sony) && !has_transfer_queue(sony) && serial_number(sony).is_none());
+        assert!(firmware_version(sony).is_none());
     }
 }

@@ -59,11 +59,12 @@ impl Helper {
         )
     }
 
-    fn capture(&self) {
-        assert_eq!(
-            self.client.request(Request::Capture, WAIT).unwrap(),
-            Reply::Ok
-        );
+    /// Fires; the request's number.
+    fn capture(&self) -> u64 {
+        match self.client.request(Request::Capture, WAIT).unwrap() {
+            Reply::Fired { request } => request,
+            other => panic!("{other:?}"),
+        }
     }
 
     /// Events until `n` photos arrived (or `WAIT` passed, or the helper
@@ -210,7 +211,10 @@ fn a_full_transfer_queue_fires_again_once_photos_are_released() {
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
-    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: true }
+    );
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
 }
@@ -278,12 +282,12 @@ fn a_release_from_an_earlier_connection_does_not_reach_the_camera_now_open() {
     assert_eq!(first.camera_name, second.camera_name);
     assert_eq!(
         helper.client.request(release(&first), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: false }
     );
     assert!(helper.client.request(Request::Capture, WAIT).is_err());
     assert_eq!(
         helper.client.request(release(&second), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: true }
     );
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
@@ -364,7 +368,7 @@ fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
     // The first one's release comes after the second photo took its name.
     assert_eq!(
         helper.client.request(release(&photos[0]), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: false }
     );
     assert!(
         helper.client.request(Request::Capture, WAIT).is_err(),
@@ -372,7 +376,7 @@ fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
     );
     assert_eq!(
         helper.client.request(release(&photos[1]), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: true }
     );
     helper.capture();
 }
@@ -426,13 +430,114 @@ fn raw_and_jpeg_of_one_exposure_answer_one_request() {
     let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
     assert_eq!(names, ["DSC00001.ARW", "DSC00001.JPG"], "{other:?}");
     assert!(photos.iter().all(|p| p.requested));
+    // One exposure: the camera test counts it once.
+    assert_eq!(photos[0].exposure, photos[1].exposure);
     // The second request is still open and times out as not delivered.
     assert!(
         other
             .iter()
-            .any(|e| matches!(e, Some(Event::CaptureFailed { error }) if error.kind == ErrorKind::Timeout)),
+            .any(|e| matches!(e, Some(Event::CaptureFailed { error, .. }) if error.kind == ErrorKind::Timeout)),
         "{other:?}"
     );
+}
+
+#[test]
+fn interleaved_raw_and_jpeg_files_keep_their_exposure_and_request() {
+    let dir = tempfile::tempdir().unwrap();
+    // Ten RAWs, then their JPEGs; requests 11 and 12 never deliver.
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        jpeg_late_ms: 1500,
+        lost_shots: vec![11, 12],
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 3000);
+    helper.connect().unwrap();
+    for _ in 0..12 {
+        helper.capture();
+    }
+    let (photos, mut other) = helper.photos(20);
+    assert_eq!(photos.len(), 20, "{other:?}");
+    let names: Vec<String> = photos.iter().map(|p| p.camera_name.clone()).collect();
+    let expected: Vec<String> = (1..=10)
+        .map(|n| format!("DSC{n:05}.ARW"))
+        .chain((1..=10).map(|n| format!("DSC{n:05}.JPG")))
+        .collect();
+    assert_eq!(names, expected, "every RAW before the JPEGs");
+    let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
+    let numbers: Vec<u64> = (1..=10).chain(1..=10).collect();
+    assert_eq!(exposures, numbers);
+    // Distinct names: never ambiguous.
+    assert!(photos.iter().all(|p| p.ambiguous.is_empty()));
+    // The JPEGs did not take the open requests: both time out.
+    let deadline = Instant::now() + WAIT;
+    while Instant::now() < deadline
+        && other
+            .iter()
+            .filter(|e| matches!(e, Some(Event::CaptureFailed { .. })))
+            .count()
+            < 2
+    {
+        other.push(helper.next_event(Duration::from_millis(200)));
+    }
+    let failed = other
+        .iter()
+        .filter(|e| matches!(e, Some(Event::CaptureFailed { error, .. }) if error.kind == ErrorKind::Timeout))
+        .count();
+    assert_eq!(failed, 2, "{other:?}");
+}
+
+#[test]
+fn interleaved_raw_and_jpeg_under_one_reused_name_keep_their_exposures() {
+    let dir = tempfile::tempdir().unwrap();
+    // Every file is DSC00001: three RAWs, then their three JPEGs; requests
+    // 4 and 5 never deliver.
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        restart_numbering_every: Some(1),
+        jpeg_late_ms: 1500,
+        lost_shots: vec![4, 5],
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 3000);
+    helper.connect().unwrap();
+    for _ in 0..5 {
+        helper.capture();
+    }
+    let (photos, mut other) = helper.photos(6);
+    assert_eq!(photos.len(), 6, "{other:?}");
+    let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "DSC00001.ARW",
+            "DSC00001.ARW",
+            "DSC00001.ARW",
+            "DSC00001.JPG",
+            "DSC00001.JPG",
+            "DSC00001.JPG"
+        ]
+    );
+    let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
+    // Ambiguous under one name: three exposures, each with one JPEG; each
+    // JPEG is marked so.
+    assert_eq!(exposures, [1, 2, 3, 3, 2, 1]);
+    let ambiguous: Vec<Vec<u64>> = photos.iter().map(|p| p.ambiguous.clone()).collect();
+    assert_eq!(
+        ambiguous,
+        [vec![], vec![], vec![], vec![1, 2, 3], vec![1, 2], vec![1]]
+    );
+    let deadline = Instant::now() + WAIT;
+    let timeouts = |other: &[Option<Event>]| {
+        other
+            .iter()
+            .filter(|e| matches!(e, Some(Event::CaptureFailed { error, .. }) if error.kind == ErrorKind::Timeout))
+            .count()
+    };
+    while Instant::now() < deadline && timeouts(&other) < 2 {
+        other.push(helper.next_event(Duration::from_millis(200)));
+    }
+    assert_eq!(timeouts(&other), 2, "{other:?}");
 }
 
 #[test]
@@ -468,7 +573,7 @@ fn a_card_taken_out_during_the_connection_stops_firing_and_reading() {
     assert_eq!(helper.photos(1).0.len(), 1);
     // Found before the camera is read again, and said once.
     match helper.next_event(Duration::from_secs(5)) {
-        Some(Event::CaptureFailed { error }) => assert_eq!(error.kind, ErrorKind::Unsupported),
+        Some(Event::CaptureFailed { error, .. }) => assert_eq!(error.kind, ErrorKind::Unsupported),
         other => panic!("{other:?}"),
     }
     assert_eq!(
@@ -557,6 +662,8 @@ fn raw_and_jpeg_under_reused_names_answer_their_own_requests() {
     let (photos, other) = helper.photos(4);
     assert_eq!(photos.len(), 4, "{other:?}");
     assert!(photos.iter().all(|p| p.requested));
+    let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
+    assert_eq!(exposures, [1, 1, 2, 2]);
     // Both requests answered: none times out.
     std::thread::sleep(Duration::from_millis(1700));
     assert!(
@@ -621,8 +728,11 @@ fn a_late_photo_is_not_fired_again_and_a_lost_one_is_reported() {
     let deadline = Instant::now() + Duration::from_secs(3);
     while Instant::now() < deadline {
         match helper.incoming.recv_timeout(Duration::from_millis(100)) {
-            Ok(Incoming::Event(Event::CaptureFailed { error })) => {
+            Ok(Incoming::Event(Event::CaptureFailed {
+                error, exposure, ..
+            })) => {
                 assert_eq!(error.kind, ErrorKind::Timeout);
+                assert_eq!(exposure, None, "a shot that never came has no exposure");
                 failed += 1;
             }
             Ok(Incoming::Event(Event::Captured { captured })) => photos.push(captured),
@@ -884,7 +994,10 @@ fn a_short_request_behind_a_long_capture_is_not_taken_for_a_hung_helper() {
         matches!(settings, Ok(Reply::Settings { .. })),
         "{settings:?}"
     );
-    assert_eq!(capture.join().unwrap().unwrap(), Reply::Ok);
+    assert!(matches!(
+        capture.join().unwrap().unwrap(),
+        Reply::Fired { .. }
+    ));
     assert!(client.alive());
 }
 
@@ -967,9 +1080,148 @@ fn a_held_camera_delivers_nothing_more_and_still_frees_its_photos() {
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
-    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: true }
+    );
     assert_eq!(
         helper.client.request(Request::Disconnect, WAIT).unwrap(),
         Reply::Ok
     );
+}
+
+/// What the camera test's report and its transfer queue step rest on: the
+/// body's firmware comes with the status, and a release says whether a
+/// photo was freed — never on a camera without a transfer queue.
+#[test]
+fn the_status_names_the_firmware_and_a_release_says_whether_it_freed() {
+    let dir = tempfile::tempdir().unwrap();
+    let helper = start(&MockSpec::default(), dir.path());
+    let Reply::Connected { status } = helper.connect().unwrap() else {
+        panic!("not connected");
+    };
+    assert_eq!(status.firmware.as_deref(), Some("1.00"));
+    assert!(!status.transfer_queue);
+    helper.capture();
+    let photo = helper.photos(1).0.remove(0);
+    let release = Request::Release {
+        connection: photo.connection,
+        download: photo.download,
+        camera_folder: photo.camera_folder.clone(),
+        camera_name: photo.camera_name.clone(),
+    };
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: false }
+    );
+}
+
+/// A file that cannot be saved names its exposure: the camera test fails
+/// the step that took it, also when its other file (RAW or JPEG) is in.
+#[test]
+fn a_file_that_cannot_be_saved_names_its_exposure() {
+    let dir = tempfile::tempdir().unwrap();
+    let helper = start(&MockSpec::default(), dir.path());
+    helper.connect().unwrap();
+    // The transfer folder cannot take files any more.
+    let incoming = helper.staging.join(staging::INCOMING);
+    let _ = std::fs::remove_dir_all(&incoming);
+    std::fs::create_dir_all(incoming.parent().unwrap()).unwrap();
+    std::fs::write(&incoming, b"not a folder").unwrap();
+    helper.capture();
+    match helper.next_event(WAIT) {
+        Some(Event::CaptureFailed {
+            error,
+            exposure,
+            ambiguous,
+            ..
+        }) => {
+            assert_eq!(error.kind, ErrorKind::Storage, "{error:?}");
+            assert_eq!(exposure.map(|(_, exposure)| exposure), Some(1));
+            assert!(ambiguous.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A JPEG later than the shot timeout still belongs to its RAW's exposure:
+/// it does not take a newer open request.
+#[test]
+fn a_companion_later_than_the_shot_timeout_keeps_its_exposure() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        jpeg_late_ms: 800,
+        lost_shots: vec![2],
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 600);
+    helper.connect().unwrap();
+    let first = helper.capture();
+    std::thread::sleep(Duration::from_millis(300));
+    let second = helper.capture();
+    assert_ne!(first, second);
+    let (photos, mut other) = helper.photos(2);
+    // Both files answer the first request: the camera test matches its
+    // shots by it.
+    assert!(
+        photos.iter().all(|p| p.request == Some(first)),
+        "{photos:?}"
+    );
+    let exposures: Vec<(&str, u64)> = photos
+        .iter()
+        .map(|p| (p.camera_name.as_str(), p.exposure))
+        .collect();
+    assert_eq!(
+        exposures,
+        [("DSC00001.ARW", 1), ("DSC00001.JPG", 1)],
+        "{other:?}"
+    );
+    let deadline = Instant::now() + WAIT;
+    let timeouts = |other: &[Option<Event>]| {
+        other
+            .iter()
+            .filter(|e| matches!(e, Some(Event::CaptureFailed { error, .. }) if error.kind == ErrorKind::Timeout))
+            .count()
+    };
+    while Instant::now() < deadline && timeouts(&other) < 1 {
+        other.push(helper.next_event(Duration::from_millis(200)));
+    }
+    assert_eq!(timeouts(&other), 1, "request 2 never came: {other:?}");
+    assert!(other.iter().any(
+        |e| matches!(e, Some(Event::CaptureFailed { request, .. }) if *request == Some(second))
+    ));
+}
+
+/// Under a reused name, a RAW-only exposure and then a RAW+JPEG one: the
+/// JPEG belongs to the second.
+#[test]
+fn a_change_from_raw_to_raw_and_jpeg_under_a_reused_name_keeps_the_jpeg_with_its_raw() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        restart_numbering_every: Some(1),
+        raw_and_jpeg: true,
+        jpeg_from_shot: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    let photos = helper.photos(3).0;
+    let exposures: Vec<(&str, u64)> = photos
+        .iter()
+        .map(|p| (p.camera_name.as_str(), p.exposure))
+        .collect();
+    assert_eq!(
+        exposures,
+        [
+            ("DSC00001.ARW", 1),
+            ("DSC00001.ARW", 2),
+            ("DSC00001.JPG", 2)
+        ]
+    );
+    // Exposure 1 may have been RAW+JPEG with this JPEG: marked.
+    let ambiguous: Vec<Vec<u64>> = photos.iter().map(|p| p.ambiguous.clone()).collect();
+    assert_eq!(ambiguous, [vec![], vec![], vec![1, 2]]);
 }

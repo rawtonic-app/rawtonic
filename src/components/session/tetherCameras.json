@@ -1,0 +1,62 @@
+{
+  "about": "Cameras tethering was tried with, and how well it works. Shown in the tether panel for the connected camera and listed in docs/TETHER_CAMERAS.md (keep both in step; a test checks it). Levels: tested (measured by the Rawtonic project on a body), reported (a user's camera test report says it works), notSupported (Rawtonic refuses to connect it). 'match' holds the camera library's model names, 'matchPrefix' a start of them. Timings are medians / 95th percentiles in milliseconds; 'photoOnScreen' was measured by screen recording, shutter request to the new photo shown in Develop.",
+  "cameras": [
+    {
+      "name": "Sony α7 III",
+      "match": ["Sony Alpha-A7 III (PC Control)"],
+      "level": "tested",
+      "usbMode": "PC Remote",
+      "tested": "2026-10-19",
+      "systems": ["macOS 26"],
+      "photoOnScreen": { "median": 1487, "p95": 1510 },
+      "shots": "100/100",
+      "works": ["capture", "settings", "autofocus", "liveView", "bodyShots", "reconnect"],
+      "notes": "In AF-S a shot that finds no focus is not exposed; the camera reports nothing for it."
+    },
+    {
+      "name": "Sony α7 IV",
+      "match": ["Sony Alpha-A7 IV (PC Control)"],
+      "level": "tested",
+      "usbMode": "PC Remote",
+      "tested": "2026-10-19",
+      "systems": ["macOS 26"],
+      "photoOnScreen": { "median": 1140, "p95": 1214 },
+      "shots": "100/100",
+      "works": ["capture", "settings", "autofocus", "liveView", "bodyShots", "reconnect"],
+      "notes": "The ISO list shows the extended values as \"Multi Frame Noise Reduction\"; choosing one changes nothing."
+    },
+    {
+      "name": "Fujifilm X-H2S",
+      "match": ["Fuji Fujifilm X-H2S"],
+      "level": "tested",
+      "usbMode": "USB tether shooting",
+      "tested": "2026-10-19",
+      "systems": ["macOS 26"],
+      "photoOnScreen": { "median": 1140, "p95": 1281 },
+      "shots": "50/50",
+      "transferQueue": true,
+      "works": ["capture", "settings", "autofocus", "bodyShots", "reconnect", "transferQueue"],
+      "notes": "Live view shows about 3 frames a second and stops after a shot. With image review set to Continuous the camera refuses the next remote shot until the review is dismissed. Keeps its card copy of each photo."
+    },
+    {
+      "name": "Fujifilm GFX 50R",
+      "match": ["Fuji GFX 50 R"],
+      "level": "tested",
+      "usbMode": "USB tether shooting",
+      "tested": "2026-10-19",
+      "systems": ["macOS 26"],
+      "photoOnScreen": { "median": 2409, "p95": 2585 },
+      "shots": "50/50",
+      "transferQueue": true,
+      "works": ["capture", "settings", "autofocus", "bodyShots", "reconnect", "transferQueue"],
+      "notes": "No live view. Refuses shots as busy for about 3 seconds after connecting. Writes no card copy in USB tether mode: the library copy is the only one."
+    },
+    {
+      "name": "Canon EOS cameras",
+      "matchPrefix": "Canon",
+      "level": "notSupported",
+      "works": [],
+      "notes": "Not offered yet: no Canon body has been tested, and the camera library can lose the report of a photo on these bodies."
+    }
+  ]
+}

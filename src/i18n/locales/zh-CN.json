@@ -1008,6 +1008,12 @@
       "lastFailed": "{{file}} 无法添加",
       "lastIn": "{{file}} 已在图库中",
       "lastTiming": "{{file}} 在拍摄后 {{ms}} 毫秒进入图库",
+      "level": {
+        "notSupported": "尚不支持此相机。",
+        "reported": "此相机型号的用户报告可以使用。",
+        "tested": "已在 {{systems}} 上用此相机型号测试（{{date}}）。",
+        "unlisted": "尚未用此相机型号测试。连接后，相机测试会生成一份可分享的报告。"
+      },
       "liveView": "实时取景",
       "looking": "正在查找相机…",
       "nextCapture": "下一次拍摄",
@@ -1016,8 +1022,55 @@
       "reconnecting": "相机恢复连接后，Rawtonic 会自动重新连接。",
       "refresh": "重新查找相机",
       "setOnBody": "在机身上设置",
+      "test": {
+        "bursting": "连续拍摄 {{shots}} 张…",
+        "button": "相机测试…",
+        "buttonTitle": "逐步测试此相机并生成匿名报告",
+        "close": "关闭相机测试",
+        "copied": "已复制",
+        "copy": "复制报告",
+        "how": {
+          "autofocus": "对焦一次。使用手动镜头或相机设为 MF 时请跳过。",
+          "bodyShot": "点击运行，然后在 30 秒内按下相机的快门按钮。",
+          "burst": "以相机能接受的最快速度拍摄 {{shots}} 张。",
+          "release": "检查每张照片是否仅在资料库中验证后才在相机上释放（有传输队列的相机）。",
+          "replug": "点击运行，拔下 USB 线，再重新插上。Rawtonic 应会自动重新连接。",
+          "setSetting": "将一项设置（如 ISO）改为下一个值，读回后再改回。",
+          "settings": "读取相机的设置。",
+          "shots": "拍摄所选张数，每张在上一张到达后拍摄。"
+        },
+        "intro": "用你的相机执行每个步骤，Rawtonic 会进行测量。请先在显影中打开一张照片：新照片会显示在那里，从而测量照片显示到屏幕上的时间。不会发送任何内容：最后你可以复制下面的报告。",
+        "openIssue": "在 GitHub 上打开相机报告",
+        "plugBack": "重新插上数据线（如果相机已关机，请重新开机）。",
+        "pressShutter": "现在按下相机的快门按钮。",
+        "pullCable": "现在拔下 USB 线。",
+        "report": "报告（即将复制的内容）",
+        "reportHint": "仅包含相机型号和固件、系统、应用版本、相机驱动和各步骤结果：没有序列号、文件名、文件夹、用户名或照片。",
+        "run": "运行",
+        "shotAfterReplug": "已重新连接；再拍一张…",
+        "shotCount": "拍摄张数",
+        "shotOf": "第 {{n}} 张，共 {{total}} 张…",
+        "skip": "跳过",
+        "state": {
+          "failed": "失败",
+          "inconclusive": "无法判定",
+          "passed": "通过",
+          "skipped": "已跳过"
+        },
+        "steps": {
+          "autofocus": "自动对焦",
+          "bodyShot": "在相机上拍摄",
+          "burst": "连拍",
+          "connect": "连接",
+          "release": "传输队列",
+          "replug": "拔出并重新插入数据线",
+          "setSetting": "更改一项设置",
+          "settings": "读取设置",
+          "shots": "拍摄"
+        },
+        "title": "相机测试"
+      },
       "title": "联机拍摄",
-      "untested": "受支持，但尚未在此相机型号上测试。",
       "usbHint": "将相机的 USB 模式设为遥控拍摄（Sony：PC 遥控；Fujifilm：USB 联机拍摄）。"
     },
     "toasts": {
