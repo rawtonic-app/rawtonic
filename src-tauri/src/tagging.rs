@@ -324,72 +324,64 @@ pub async fn start_background_indexing(
             folder_path
         );
         let total_images = image_paths.len();
-        let processed_count = Arc::new(Mutex::new(0));
-        let tag_set = Arc::new((tag_names, tag_embeddings));
+        let processed_count = Mutex::new(0);
+        let tag_set = (tag_names, tag_embeddings);
+        let app_handle_inner = app_handle_clone.clone();
 
-        stream::iter(image_paths)
-            .for_each_concurrent(max_concurrent_tasks, |path| {
-                let app_handle_inner = app_handle_clone.clone();
-                let tag_models_inner = tag_models.clone();
-                let gpu_context_inner = gpu_context.clone();
-                let processed_count_inner = Arc::clone(&processed_count);
-                let tags_inner = Arc::clone(&tag_set);
+        for_each_blocking(image_paths, max_concurrent_tasks, move |path| {
+            let path_str = path.to_string_lossy().to_string();
+            let (_, sidecar_path) = parse_virtual_path(&path_str);
 
-                async move {
-                    let path_str = path.to_string_lossy().to_string();
-                    let (_, sidecar_path) = parse_virtual_path(&path_str);
+            let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
 
-                    let metadata = crate::exif_processing::load_sidecar(&sidecar_path);
+            let should_generate_tags = match &metadata.tags {
+                None => true,
+                Some(tags) => !tags.iter().any(|tag| {
+                    !tag.starts_with(COLOR_TAG_PREFIX) && !tag.starts_with(USER_TAG_PREFIX)
+                }),
+            };
 
-                    let should_generate_tags = match &metadata.tags {
-                        None => true,
-                        Some(tags) => !tags.iter().any(|tag| {
-                            !tag.starts_with(COLOR_TAG_PREFIX) && !tag.starts_with(USER_TAG_PREFIX)
-                        }),
-                    };
-
-                    if should_generate_tags {
-                        match file_management::get_cached_or_generate_thumbnail_image(
-                            &path_str,
-                            &app_handle_inner,
-                            gpu_context_inner.as_ref(),
+            if should_generate_tags {
+                match file_management::get_cached_or_generate_thumbnail_image(
+                    &path_str,
+                    &app_handle_inner,
+                    gpu_context.as_ref(),
+                ) {
+                    Ok(image) => {
+                        if let Ok(ai_tags) = generate_tags(
+                            &image,
+                            &tag_models.vision,
+                            &tag_set.0,
+                            &tag_set.1,
+                            is_custom,
+                            ai_tag_count,
                         ) {
-                            Ok(image) => {
-                                if let Ok(ai_tags) = generate_tags(
-                                    &image,
-                                    &tag_models_inner.vision,
-                                    &tags_inner.0,
-                                    &tags_inner.1,
-                                    is_custom,
-                                    ai_tag_count,
-                                ) {
-                                    println!("Found AI tags for {}: {:?}", path_str, ai_tags);
-                                    if let Err(e) = store_ai_tags(&sidecar_path, ai_tags) {
-                                        eprintln!("Could not save AI tags for {}: {}", path_str, e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!(
-                                    "Could not get or generate image for tagging {}: {}",
-                                    path_str, e
-                                );
+                            println!("Found AI tags for {}: {:?}", path_str, ai_tags);
+                            if let Err(e) = store_ai_tags(&sidecar_path, ai_tags) {
+                                eprintln!("Could not save AI tags for {}: {}", path_str, e);
                             }
                         }
                     }
-
-                    let mut count = processed_count_inner.lock().unwrap();
-                    *count += 1;
-                    let _ = app_handle_inner.emit(
-                        "indexing-progress",
-                        serde_json::json!({
-                            "current": *count,
-                            "total": total_images
-                        }),
-                    );
+                    Err(e) => {
+                        eprintln!(
+                            "Could not get or generate image for tagging {}: {}",
+                            path_str, e
+                        );
+                    }
                 }
-            })
-            .await;
+            }
+
+            let mut count = processed_count.lock().unwrap();
+            *count += 1;
+            let _ = app_handle_inner.emit(
+                "indexing-progress",
+                serde_json::json!({
+                    "current": *count,
+                    "total": total_images
+                }),
+            );
+        })
+        .await;
 
         println!("Background indexing finished for: {}", folder_path);
         let _ = app_handle_clone.emit("indexing-finished", ());
@@ -404,6 +396,28 @@ pub async fn start_background_indexing(
     *state.indexing_task_handle.lock().unwrap() = Some(task);
 
     Ok(())
+}
+
+/// Runs `work` for each of `items` on blocking workers, at most `limit` at
+/// a time. Decoding and inference block for seconds: on the async executor
+/// they would run one by one and could not be stopped. Aborting the task
+/// that awaits this starts no further items; running ones finish.
+async fn for_each_blocking<T: Send + 'static>(
+    items: Vec<T>,
+    limit: usize,
+    work: impl Fn(T) + Send + Sync + 'static,
+) {
+    let work = Arc::new(work);
+    stream::iter(items)
+        .for_each_concurrent(limit, |item| {
+            let work = Arc::clone(&work);
+            async move {
+                if let Err(e) = tokio::task::spawn_blocking(move || work(item)).await {
+                    eprintln!("AI tagging worker failed: {e}");
+                }
+            }
+        })
+        .await;
 }
 
 /// Adds `ai_tags` to the photo's saved tags. Inference takes seconds, and
@@ -551,93 +565,78 @@ fn sync_xmp_for_rrdata(
 
 #[tauri::command]
 pub async fn clear_ai_tags(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
-    crate::file_management::blocking(move || clear_ai_tags_blocking(root_path, app_handle)).await?
-}
-
-fn clear_ai_tags_blocking(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
-    if !Path::new(&root_path).exists() {
-        return Err(format!("Root path does not exist: {}", root_path));
-    }
-    let _turn = file_management::sidecar_field_edit();
-
-    let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
-    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
-    let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
-
-    let mut updated_count = 0;
-    let walker = WalkDir::new(root_path).into_iter();
-
-    for entry in walker.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.is_file()
-            && path.extension().and_then(|s| s.to_str()) == Some("rrdata")
-            && let Ok(content) = fs::read_to_string(path)
-            && let Ok(mut metadata) = serde_json::from_str::<ImageMetadata>(&content)
-            && let Some(tags) = &mut metadata.tags
-        {
-            let original_len = tags.len();
-            // Keep color tags and user tags, remove others (AI tags)
-            tags.retain(|tag| {
-                tag.starts_with(COLOR_TAG_PREFIX) || tag.starts_with(USER_TAG_PREFIX)
-            });
-
-            if tags.len() < original_len {
-                if tags.is_empty() {
-                    metadata.tags = None;
-                }
-                if let Ok(json_string) = serde_json::to_string_pretty(&metadata)
-                    && rawtonic_metadata::atomic_write(path, json_string).is_ok()
-                {
-                    updated_count += 1;
-                    sync_xmp_for_rrdata(path, &metadata, enable_xmp_sync, create_xmp_if_missing);
-                }
-            }
-        }
-    }
-    Ok(updated_count)
+    crate::file_management::blocking(move || {
+        // Keep color tags and user tags, remove others (AI tags)
+        clear_tags_blocking(&root_path, &app_handle, |tag| {
+            tag.starts_with(COLOR_TAG_PREFIX) || tag.starts_with(USER_TAG_PREFIX)
+        })
+    })
+    .await?
 }
 
 #[tauri::command]
 pub async fn clear_all_tags(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
-    crate::file_management::blocking(move || clear_all_tags_blocking(root_path, app_handle)).await?
+    crate::file_management::blocking(move || {
+        // Keep only color tags, remove AI and user tags
+        clear_tags_blocking(&root_path, &app_handle, |tag| {
+            tag.starts_with(COLOR_TAG_PREFIX)
+        })
+    })
+    .await?
 }
 
-fn clear_all_tags_blocking(root_path: String, app_handle: AppHandle) -> Result<usize, String> {
-    if !Path::new(&root_path).exists() {
-        return Err(format!("Root path does not exist: {}", root_path));
-    }
-    let _turn = file_management::sidecar_field_edit();
-
+fn clear_tags_blocking(
+    root_path: &str,
+    app_handle: &AppHandle,
+    keep: impl Fn(&str) -> bool,
+) -> Result<usize, String> {
     let settings = crate::app_settings::load_settings(app_handle.clone()).unwrap_or_default();
-    let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
-    let create_xmp_if_missing = settings.create_xmp_if_missing.unwrap_or(false);
+    clear_tags_under(
+        Path::new(root_path),
+        keep,
+        settings.enable_xmp_sync.unwrap_or(false),
+        settings.create_xmp_if_missing.unwrap_or(false),
+    )
+}
 
+/// Removes the tags `keep` refuses from every sidecar under `root`; returns
+/// how many photos changed. Each photo is read and written like any other
+/// tag edit (`load_sidecar`, `write_editor_sidecar`, one sidecar turn per
+/// photo), so a library photo's catalog state changes with its sidecar file
+/// and the tags do not come back from the catalog.
+fn clear_tags_under(
+    root: &Path,
+    keep: impl Fn(&str) -> bool,
+    enable_xmp_sync: bool,
+    create_xmp_if_missing: bool,
+) -> Result<usize, String> {
+    if !root.exists() {
+        return Err(format!("Root path does not exist: {}", root.display()));
+    }
     let mut updated_count = 0;
-    let walker = WalkDir::new(root_path).into_iter();
-
-    for entry in walker.filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(root).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        if path.is_file()
-            && path.extension().and_then(|s| s.to_str()) == Some("rrdata")
-            && let Ok(content) = fs::read_to_string(path)
-            && let Ok(mut metadata) = serde_json::from_str::<ImageMetadata>(&content)
-            && let Some(tags) = &mut metadata.tags
+        if !(path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rrdata")) {
+            continue;
+        }
+        let _turn = file_management::sidecar_field_edit();
+        let mut metadata = crate::exif_processing::load_sidecar(path);
+        let Some(tags) = &mut metadata.tags else {
+            continue;
+        };
+        let original_len = tags.len();
+        tags.retain(|tag| keep(tag));
+        if tags.len() == original_len {
+            continue;
+        }
+        if tags.is_empty() {
+            metadata.tags = None;
+        }
+        if let Ok(json_string) = serde_json::to_string_pretty(&metadata)
+            && crate::session_bridge::write_editor_sidecar(path, json_string).is_ok()
         {
-            let original_len = tags.len();
-            // Keep only color tags, remove AI and user tags
-            tags.retain(|tag| tag.starts_with(COLOR_TAG_PREFIX));
-
-            if tags.len() < original_len {
-                if tags.is_empty() {
-                    metadata.tags = None;
-                }
-                if let Ok(json_string) = serde_json::to_string_pretty(&metadata)
-                    && rawtonic_metadata::atomic_write(path, json_string).is_ok()
-                {
-                    updated_count += 1;
-                    sync_xmp_for_rrdata(path, &metadata, enable_xmp_sync, create_xmp_if_missing);
-                }
-            }
+            updated_count += 1;
+            sync_xmp_for_rrdata(path, &metadata, enable_xmp_sync, create_xmp_if_missing);
         }
     }
     Ok(updated_count)
@@ -690,6 +689,86 @@ mod tests {
         assert_eq!(saved.rating, 5);
         assert_eq!(saved.adjustments["exposure"], 2.0);
         assert_eq!(saved.tags.unwrap(), ["beach", "dog", "user:trip"]);
+    }
+
+    /// Clearing tags changes a session photo in its catalog too: the catalog
+    /// is what the app reads, so a cleared tag must not come back from it.
+    #[test]
+    fn cleared_tags_stay_cleared_for_session_photos() {
+        use rawtonic_catalog::{Library, Mode};
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Tags", Mode::Session).unwrap();
+        let source = lib.directory.join("Capture/A.ARW");
+        fs::write(&source, b"tag fixture").unwrap();
+        let sidecar = lib.directory.join("Capture/A.ARW.rrdata");
+        crate::session_bridge::write_editor_sidecar(
+            &sidecar,
+            r#"{"version":1,"rating":3,"tags":["color:red","dog","user:trip"],"adjustments":{}}"#,
+        )
+        .unwrap();
+        let ai_only =
+            |tag: &str| tag.starts_with(COLOR_TAG_PREFIX) || tag.starts_with(USER_TAG_PREFIX);
+        assert_eq!(
+            clear_tags_under(&lib.directory, ai_only, false, false),
+            Ok(1)
+        );
+        let saved = crate::exif_processing::load_sidecar(&sidecar);
+        let mut tags = saved.tags.unwrap();
+        tags.sort();
+        assert_eq!(tags, ["color:red", "user:trip"]);
+        assert_eq!(saved.rating, 3);
+        assert_eq!(
+            clear_tags_under(&lib.directory, ai_only, false, false),
+            Ok(0)
+        );
+        let colour_only = |tag: &str| tag.starts_with(COLOR_TAG_PREFIX);
+        assert_eq!(
+            clear_tags_under(&lib.directory, colour_only, false, false),
+            Ok(1)
+        );
+        let saved = crate::exif_processing::load_sidecar(&sidecar);
+        assert_eq!(saved.tags.unwrap(), ["color:red"]);
+        // The file beside the photo says the same.
+        let file: serde_json::Value = serde_json::from_slice(&fs::read(&sidecar).unwrap()).unwrap();
+        assert_eq!(file["tags"], serde_json::json!(["color:red"]));
+    }
+
+    /// Indexing runs its photos `limit` at a time beside the executor, and
+    /// a cancelled run (a new folder, `abort`) starts no further photos.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn indexing_honours_the_thread_setting_and_stops_when_aborted() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::Duration;
+        let running = Arc::new(AtomicUsize::new(0));
+        let most = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(AtomicUsize::new(0));
+        let work = {
+            let (running, most, started) = (running.clone(), most.clone(), started.clone());
+            move |_: usize| {
+                started.fetch_add(1, Ordering::SeqCst);
+                let now = running.fetch_add(1, Ordering::SeqCst) + 1;
+                most.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(40));
+                running.fetch_sub(1, Ordering::SeqCst);
+            }
+        };
+        for_each_blocking((0..9).collect(), 3, work.clone()).await;
+        assert_eq!(started.load(Ordering::SeqCst), 9);
+        assert_eq!(most.load(Ordering::SeqCst), 3);
+
+        started.store(0, Ordering::SeqCst);
+        let task = tokio::spawn(for_each_blocking((0..100).collect(), 2, work));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let at_abort = started.load(Ordering::SeqCst);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(at_abort < 100);
+        assert_eq!(
+            started.load(Ordering::SeqCst),
+            at_abort,
+            "started photos after abort"
+        );
     }
 
     #[test]

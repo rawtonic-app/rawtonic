@@ -1409,6 +1409,7 @@ pub async fn get_or_init_tag_models(
     if let Some(models) = cached() {
         return Ok(models);
     }
+    let pressure_generation = crate::ai_lifecycle::LIFECYCLE.pressure_generation();
 
     let models_dir = get_models_dir(app_handle)?;
     let mut files = vec![
@@ -1465,12 +1466,14 @@ pub async fn get_or_init_tag_models(
     });
 
     // Dropped only under memory pressure (`ai_lifecycle`): tagging runs in
-    // the Library, where the masking models are unloaded.
-    ai_state_mutex
-        .lock()
-        .unwrap()
-        .get_or_insert_with(AiState::default)
-        .tag_models = Some(models.clone());
+    // the Library, where the masking models are unloaded. A load that
+    // overlapped such an unload is used once and not kept.
+    let mut ai = ai_state_mutex.lock().unwrap();
+    if crate::ai_lifecycle::LIFECYCLE.keep_tag_models(pressure_generation) {
+        ai.get_or_insert_with(AiState::default).tag_models = Some(models.clone());
+    } else {
+        log::info!("AI: tagging models loaded during a memory-pressure unload are not kept");
+    }
     Ok(models)
 }
 

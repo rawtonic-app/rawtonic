@@ -55,6 +55,9 @@ struct Usage {
     busy: usize,
     /// Counts unloads; a load that started before one is not kept.
     generation: u64,
+    /// Counts memory-pressure unloads, the only ones that drop the tagging
+    /// models (`take_unloaded`).
+    pressure_unloads: u64,
 }
 
 /// Use, running computations and unloads of the masking models.
@@ -82,6 +85,7 @@ impl Lifecycle {
                 last_use: None,
                 busy: 0,
                 generation: 0,
+                pressure_unloads: 0,
             }),
         }
     }
@@ -121,6 +125,18 @@ impl Lifecycle {
         true
     }
 
+    /// Read before loading the tagging models; pass to `keep_tag_models`.
+    pub fn pressure_generation(&self) -> u64 {
+        self.usage().pressure_unloads
+    }
+
+    /// Whether tagging models whose load started at `pressure_generation`
+    /// may be kept: no memory-pressure unload since (other unloads keep
+    /// them). Call under the lock of the state that will hold them.
+    pub fn keep_tag_models(&self, pressure_generation: u64) -> bool {
+        self.usage().pressure_unloads == pressure_generation
+    }
+
     /// Marks a computation with a model as running until the guard drops.
     pub fn run(&self) -> Running<'_> {
         self.usage().busy += 1;
@@ -143,9 +159,12 @@ impl Lifecycle {
 
     /// Counts an unload: loads that started before it are not kept, and the
     /// idle time stops until the next use or load.
-    fn unloaded(&self) {
+    fn unloaded(&self, reason: UnloadReason) {
         let mut usage = self.usage();
         usage.generation += 1;
+        if reason == UnloadReason::MemoryPressure {
+            usage.pressure_unloads += 1;
+        }
         usage.last_use = None;
     }
 }
@@ -208,7 +227,7 @@ fn models_loaded(state: &AppState) -> bool {
 /// Drops the masking models and their caches (see the module), returns
 /// what was dropped.
 pub fn unload(state: &AppState, reason: UnloadReason) -> Vec<&'static str> {
-    LIFECYCLE.unloaded();
+    LIFECYCLE.unloaded(reason);
     let taken = {
         let mut ai = state.ai_state.lock().unwrap_or_else(|e| e.into_inner());
         ai.as_mut().map(|ai| take_unloaded(ai, reason))
@@ -406,11 +425,25 @@ mod tests {
         assert!(lifecycle.idle_at(t0 + idle * 3, idle));
     }
 
+    /// The tagging models outlive Library and idle unloads, but a load
+    /// that finishes after a memory-pressure unload is not kept either.
+    #[test]
+    fn tag_models_loaded_during_a_memory_pressure_unload_are_not_kept() {
+        let lifecycle = Lifecycle::new();
+        let before = lifecycle.pressure_generation();
+        lifecycle.unloaded(UnloadReason::Library);
+        lifecycle.unloaded(UnloadReason::Idle);
+        assert!(lifecycle.keep_tag_models(before));
+        lifecycle.unloaded(UnloadReason::MemoryPressure);
+        assert!(!lifecycle.keep_tag_models(before));
+        assert!(lifecycle.keep_tag_models(lifecycle.pressure_generation()));
+    }
+
     #[test]
     fn a_load_that_finishes_after_an_unload_is_not_kept() {
         let lifecycle = Lifecycle::new();
         let before = lifecycle.generation();
-        lifecycle.unloaded();
+        lifecycle.unloaded(UnloadReason::Library);
         assert!(!lifecycle.keep(before));
         // The unload stopped the idle time; a later load starts it again.
         assert!(!lifecycle.idle_at(Instant::now() + IDLE_UNLOAD * 2, IDLE_UNLOAD));
@@ -460,7 +493,7 @@ mod tests {
         let running = lifecycle.run();
         drop(model);
         // An unload while it runs.
-        lifecycle.unloaded();
+        lifecycle.unloaded(UnloadReason::Library);
         let taken = slot.lock().unwrap().take();
         drop(taken);
         assert_eq!(in_run.as_str(), "model");
