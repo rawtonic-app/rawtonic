@@ -962,11 +962,26 @@ fn preview_base(
     build_dim: u32,
     preparation_key: u64,
 ) -> Result<preview_cache::PreviewBase, String> {
+    let offline = state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_deref()
+        == Some(loaded_image.path.as_str());
+    // Online, a reduced source (the decode's draft or a stored proxy) is shown
+    // only until the decode is in. Its base is kept apart: the same proxy may
+    // turn out to be an offline photograph's lasting source.
+    let interim = source_scale < 1.0 && !offline;
+    let cache_key = if interim {
+        preview_cache::interim_key(preparation_key)
+    } else {
+        preparation_key
+    };
     let reusable = state
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .get(&loaded_image.image, preparation_key, build_dim);
+        .get(&loaded_image.image, cache_key, build_dim);
     if let Some(preview) = reusable {
         return Ok(preview);
     }
@@ -978,12 +993,6 @@ fn preview_base(
         let (full_width, full_height) = full_dims;
         let needs_full = crate::image_loader::has_base_retouch(adjustments)
             || adjustments["lensBlurEnabled"].as_bool().unwrap_or(false);
-        let offline = state
-            .offline_source
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_deref()
-            == Some(loaded_image.path.as_str());
         if needs_full && !offline {
             return Err("The photograph is still loading".to_string());
         }
@@ -991,7 +1000,6 @@ fn preview_base(
         let _stage = crate::performance::PerformanceStage::new("preview_proxy_base");
         let scale = reduced_preview_scale(full_width, full_height, adjustments, build_dim)
             .unwrap_or(source_scale);
-        // Online, the draft or stored proxy is shown until the decode is in.
         build_reduced_preview_base(
             &loaded_image.image,
             source_scale,
@@ -999,7 +1007,7 @@ fn preview_base(
             base_adjustments,
             build_dim,
             scale,
-            !offline,
+            interim,
         )?
     } else {
         generate_shared_transformed_preview(
@@ -1014,12 +1022,7 @@ fn preview_base(
         .reusable_previews
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(
-            &loaded_image.image,
-            preparation_key,
-            build_dim,
-            preview.clone(),
-        );
+        .insert(&loaded_image.image, cache_key, build_dim, preview.clone());
     Ok(preview)
 }
 
@@ -2785,13 +2788,16 @@ mod lateral_ca_sharing_tests {
 
     #[test]
     fn an_interim_preview_base_does_not_measure_its_reduced_copy() {
-        // A decode's draft at half size, shown until the decode is in.
+        // A decode's draft, shown until the decode is in.
         let full = DynamicImage::ImageRgb32F(photo(3000, 2000));
-        let draft = downscale_f32_image(&full, 1500, 1000);
+        // (A size no other test's reduced copy has: the estimates are cached
+        // per pixels for the whole process.)
+        let draft = downscale_f32_image(&full, 1400, 1400);
+        let scale = draft.width() as f32 / 3000.0;
         let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
         let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
         let base = |recipe: &serde_json::Value, interim: bool| {
-            build_reduced_preview_base(&draft, 0.5, (3000, 2000), recipe, 1500, 0.5, interim)
+            build_reduced_preview_base(&draft, scale, (3000, 2000), recipe, 1400, scale, interim)
                 .unwrap()
                 .image
                 .to_rgb32f()
