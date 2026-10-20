@@ -722,6 +722,8 @@ fn develop_internal(
 
     check_cancel()?;
     let mut developed_intermediate = {
+        #[cfg(test)]
+        FULL_DEVELOPMENTS.with(|n| n.set(n.get() + 1));
         #[cfg(feature = "performance-profiling")]
         let _stage = crate::performance::PerformanceStage::new("raw_develop");
         // Fast developments run in parallel thumbnail workers, which would
@@ -756,6 +758,12 @@ fn develop_internal(
     }
 
     Ok((finish(developed_intermediate)?, orientation))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Full developments started on this thread (`draft_tests`).
+    static FULL_DEVELOPMENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// What `prepare_raw_image` resolved besides the changes to the raw image.
@@ -2151,7 +2159,7 @@ mod draft_tests {
     /// cancelled from the sink (another photograph asked for while the
     /// draft shows) skips its demosaicing instead of finishing it.
     #[test]
-    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory; times itself, run with --test-threads=1"]
+    #[ignore = "requires RAWTONIC_RAW_FIXTURES pointing to a local sample directory"]
     fn the_full_development_starts_after_its_draft() {
         let dir = std::env::var("RAWTONIC_RAW_FIXTURES").expect("local fixture directory");
         let mut count = 0;
@@ -2160,17 +2168,15 @@ mod draft_tests {
             let Ok(bytes) = std::fs::read(&path) else {
                 continue;
             };
-            let started = std::time::Instant::now();
             if develop_raw_image(&bytes, false, 2.5, "auto".into(), None).is_err() {
                 continue;
             }
-            let plain_ms = started.elapsed().as_secs_f64() * 1000.0;
             let generation = Arc::new(AtomicUsize::new(1));
             let cancel = Arc::clone(&generation);
             let sink = DraftSink(Box::new(move |_, _| {
                 cancel.store(2, Ordering::SeqCst);
             }));
-            let started = std::time::Instant::now();
+            let before = FULL_DEVELOPMENTS.with(std::cell::Cell::get);
             let result = develop_raw_image_with_draft(
                 &bytes,
                 false,
@@ -2180,19 +2186,17 @@ mod draft_tests {
                 None,
                 Some(&sink),
             );
-            let cancelled_ms = started.elapsed().as_secs_f64() * 1000.0;
+            let full = FULL_DEVELOPMENTS.with(std::cell::Cell::get) - before;
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             if generation.load(Ordering::SeqCst) == 1 {
                 // Linear (demosaiced) DNGs have nothing to draft.
                 continue;
             }
             assert!(result.is_err(), "{name}: developed after a cancel");
-            // Drafts take a half of the full development or less.
-            assert!(
-                cancelled_ms < plain_ms * 0.75,
-                "{name}: cancelled after {cancelled_ms:.0} ms, alone {plain_ms:.0} ms"
+            assert_eq!(
+                full, 0,
+                "{name}: the full development started beside its draft"
             );
-            println!("{name}: cancelled after {cancelled_ms:.0} ms (alone {plain_ms:.0} ms)");
             count += 1;
         }
         assert!(count > 0);
