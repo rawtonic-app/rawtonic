@@ -374,7 +374,10 @@ describe("switching sessions", () => {
         return new Promise((resolve) =>
           late.push(() => resolve({ batch: { id: 1, kind: "ingest", created_at: "", count: 5 }, paths: ["1", "2", "3", "4", "5"] })),
         );
+      if (directory === "/old" && command === "session_offline")
+        return new Promise((resolve) => late.push(() => resolve([{ path: "/old/a.arw", reason: "missing" }])));
       if (command === "session_previous_import") return { batch: null, paths: [] };
+      if (command === "session_offline") return [];
       return base(command, args);
     });
     useLibraryStore.setState({ sessionDirectory: "/old" });
@@ -384,6 +387,7 @@ describe("switching sessions", () => {
     await act(async () => late.forEach((answer) => answer()));
     expect(screen.queryByText("Old album")).toBeNull();
     expect(screen.queryByText("Previous Import")).toBeNull();
+    expect(screen.queryByText("Missing Photographs")).toBeNull();
     expect(screen.getByText("Picks")).toBeTruthy();
   });
 });

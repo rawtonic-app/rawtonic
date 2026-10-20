@@ -712,17 +712,28 @@ fn new_copy_path(
     Err("Could not find a free id for the virtual copy".to_string())
 }
 
+/// Picks a free copy id and writes the new copy (`write`: its path and
+/// sidecar) as one step: two copies made at the same moment never take the
+/// same id (the check would see neither written yet).
+fn create_copy(
+    source: &Path,
+    taken: impl Fn(&Path) -> bool,
+    new_id: impl FnMut() -> String,
+    write: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<String, String> {
+    static CREATING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = CREATING.lock().unwrap_or_else(|e| e.into_inner());
+    let (path, sidecar) = new_copy_path(source, taken, new_id)?;
+    write(&sidecar)?;
+    Ok(path)
+}
+
 fn create_virtual_copy_blocking(
     source_virtual_path: String,
     target_album_id: Option<String>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&source_virtual_path);
-
-    let (new_virtual_path, new_sidecar_path) =
-        new_copy_path(&source_path, crate::session_bridge::copy_exists, || {
-            Uuid::new_v4().to_string()[..6].to_string()
-        })?;
 
     // The new copy starts from the photograph's state: its sidecar, or for an
     // offline photograph the library's. Written through the library, which
@@ -731,16 +742,19 @@ fn create_virtual_copy_blocking(
         crate::session_bridge::read_editor_sidecar(&source_sidecar_path)
             .and_then(|state| serde_json::to_vec_pretty(&state).ok())
     });
-    if let Some(bytes) = source_state {
-        crate::session_bridge::write_editor_sidecar(&new_sidecar_path, bytes)
-            .map_err(|e| format!("Failed to copy sidecar file: {}", e))?;
-    } else {
-        let default_metadata = ImageMetadata::default();
-        let json_string =
-            serde_json::to_string_pretty(&default_metadata).map_err(|e| e.to_string())?;
-        crate::session_bridge::write_editor_sidecar(new_sidecar_path, json_string)
-            .map_err(|e| e.to_string())?;
-    }
+    let bytes = match source_state {
+        Some(bytes) => bytes,
+        None => serde_json::to_vec_pretty(&ImageMetadata::default()).map_err(|e| e.to_string())?,
+    };
+    let new_virtual_path = create_copy(
+        &source_path,
+        crate::session_bridge::copy_exists,
+        || Uuid::new_v4().to_string()[..6].to_string(),
+        |sidecar| {
+            crate::session_bridge::write_editor_sidecar(sidecar, &bytes)
+                .map_err(|e| format!("Failed to copy sidecar file: {}", e))
+        },
+    )?;
 
     if let Some(album_id) = target_album_id {
         let _ = add_to_album(album_id, vec![new_virtual_path.clone()], app_handle);
@@ -846,6 +860,43 @@ mod tests {
         assert_eq!(read(&taken), "the existing copy's edit");
         // Only taken ids: an error, nothing replaced.
         assert!(new_copy_path(&photo, |_| true, || "aaaaaa".to_string()).is_err());
+    }
+
+    #[test]
+    fn copies_made_at_the_same_moment_with_the_same_id_both_keep_their_edit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = tmp.path().join("photo.raf");
+        write(&photo, "raw");
+        // Both draw the same id first; the check and the write are one step.
+        let made: Vec<_> = (0..2)
+            .map(|n| {
+                let photo = photo.clone();
+                std::thread::spawn(move || {
+                    let mut ids = ["cccccc", "dddddd"].into_iter().map(String::from);
+                    create_copy(
+                        &photo,
+                        |p| p.exists(),
+                        || ids.next().unwrap(),
+                        |sidecar| {
+                            // Slow enough for the other to look meanwhile.
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            fs::write(sidecar, format!("edit {n}")).map_err(|e| e.to_string())
+                        },
+                    )
+                    .unwrap()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect();
+        assert_ne!(made[0], made[1]);
+        let mut edits: Vec<_> = made
+            .iter()
+            .map(|path| read(&parse_virtual_path(path).1))
+            .collect();
+        edits.sort();
+        assert_eq!(edits, ["edit 0", "edit 1"]);
     }
 
     #[test]
