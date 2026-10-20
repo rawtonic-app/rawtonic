@@ -336,7 +336,8 @@ function ValueEditor({
       kind === "date" ? (
         <input key={key} className="studio-metadata-input" type="date" aria-label={label} value={String(v ?? "")} onChange={(e) => set(e.target.value)} />
       ) : (
-        <NumberInput key={key} field={field} value={v} label={label} onChange={set} />
+        // Keyed by the field too: another field's number is shown afresh.
+        <NumberInput key={`${field}-${key}`} field={field} value={v} label={label} onChange={set} />
       );
     return (
       <span className="studio-rule-value">

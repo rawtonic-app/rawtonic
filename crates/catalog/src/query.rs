@@ -892,7 +892,13 @@ impl<'a> Compiler<'a> {
             Field::Folder => {
                 // A folder of the library is kept relative to it (smart
                 // albums move with a session); others are absolute.
-                let folder = PathBuf::from(text_value(value)?);
+                // Verbatim: `Day ` and `Day` are two folders.
+                let folder = value.as_str().context("Folders are paths")?;
+                ensure!(
+                    !folder.is_empty() && folder.len() <= 4096,
+                    "A folder rule needs a path"
+                );
+                let folder = PathBuf::from(folder);
                 let folder = if folder.is_absolute() {
                     folder
                 } else if folder == Path::new(".") {

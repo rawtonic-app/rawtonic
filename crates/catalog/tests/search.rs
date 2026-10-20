@@ -1129,3 +1129,22 @@ fn keywords_with_spaces_around_them_are_listed_as_they_select() {
         ["scan.jpg"]
     );
 }
+
+#[test]
+fn folder_names_are_taken_verbatim() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    for folder in ["Day", "Day "] {
+        fs::create_dir_all(capture.join(folder)).unwrap();
+        let photo = capture.join(folder).join(format!("{}.jpg", folder.len()));
+        fs::write(&photo, folder).unwrap();
+        lib.add_asset(&photo).unwrap();
+    }
+    let in_folder = |name: &str| {
+        let path = capture.join(name).to_string_lossy().into_owned();
+        found(&lib, json!({"field":"folder","op":"is","value":path}))
+    };
+    assert_eq!(in_folder("Day"), ["3.jpg"]);
+    assert_eq!(in_folder("Day "), ["4.jpg"]);
+}

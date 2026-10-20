@@ -227,3 +227,23 @@ describe("rule rows", () => {
     expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(false);
   });
 });
+
+describe("range rows", () => {
+  it("shows a range afresh when its field changes", async () => {
+    render(<SmartAlbumEditorHost />);
+    act(() =>
+      useSmartAlbumEditor.getState().open({
+        name: "x",
+        parent: null,
+        rules: { combine: "all", rules: [{ field: "exposure", op: "between", value: [0.004, 0.004] }] },
+      }),
+    );
+    await settle();
+    const row = screen.getByRole("group", { name: "Shutter speed (s)" });
+    expect((within(row).getAllByLabelText("Value")[0] as HTMLInputElement).value).toBe("1/250");
+    fireEvent.change(within(row).getByLabelText("Field"), { target: { value: "iso" } });
+    const iso = screen.getByRole("group", { name: "ISO" });
+    const shown = within(iso).getAllByLabelText("Value").map((input) => (input as HTMLInputElement).value);
+    expect(shown.every((value) => value !== "1/250")).toBe(true);
+  });
+});
