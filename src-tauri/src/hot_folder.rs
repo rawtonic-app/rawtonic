@@ -509,7 +509,9 @@ fn spawn(
 
 /// Runs a change of the watch in a blocking worker, one at a time: stopping
 /// a watch waits for its thread, which may be hashing a large file or
-/// reading a slow drive, and must not hold up the app's main thread.
+/// reading a slow drive, and must not hold up the app's main thread. The
+/// workers do not keep the order the commands came in; the app sends each
+/// one after the last has finished (`utils/hotFolderCommands.ts`).
 async fn changing<R: Send + 'static>(
     work: impl FnOnce() -> R + Send + 'static,
 ) -> Result<R, String> {
@@ -589,17 +591,7 @@ pub async fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
-    // Taken in the order the libraries were opened, before the queue.
-    let ticket = RESUMES.fetch_add(1, Ordering::SeqCst) + 1;
-    changing(move || resume(directory, app, ticket)).await?
-}
-
-/// The last `hot_folder_resume` asked for: a resume a newer one overtook
-/// (another library was opened meanwhile) starts nothing.
-static RESUMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-
-fn superseded(ticket: u64) -> bool {
-    RESUMES.load(Ordering::SeqCst) != ticket
+    changing(move || resume(directory, app)).await?
 }
 
 /// Stops a watch that imports into another library than `session` (only
@@ -619,14 +611,7 @@ fn leave_other_libraries(session: &Path) {
     }
 }
 
-fn resume(
-    directory: String,
-    app: AppHandle,
-    ticket: u64,
-) -> Result<Option<HotFolderStatus>, String> {
-    if superseded(ticket) {
-        return Ok(None);
-    }
+fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
     let session = Path::new(&directory)
         .canonicalize()
         .map_err(|e| e.to_string())?;
@@ -761,23 +746,18 @@ mod tests {
     }
 
     /// Library A's resume came late and started its watch; then library B,
-    /// which has no hot folder, is opened: A's watch stops, and a resume A
-    /// still had queued behind B's starts nothing.
+    /// which has no hot folder, is opened: A's watch stops.
     #[test]
     fn opening_another_library_stops_the_last_ones_watch() {
         let _one = ONE_WATCH.lock().unwrap_or_else(|e| e.into_inner());
         let (a, a_done) = fake_watch("/libraries/A");
         *WATCH.lock().unwrap() = Some(a);
-        let late_a = RESUMES.fetch_add(1, Ordering::SeqCst) + 1;
-        let b = RESUMES.fetch_add(1, Ordering::SeqCst) + 1;
-        assert!(!superseded(b));
         leave_other_libraries(Path::new("/libraries/B"));
         assert!(WATCH.lock().unwrap().is_none());
         assert!(
             a_done.load(Ordering::Acquire),
             "A's watch stopped and joined"
         );
-        assert!(superseded(late_a), "A's queued resume starts nothing");
         // The library's own watch is kept.
         let (own, own_done) = fake_watch("/libraries/B");
         *WATCH.lock().unwrap() = Some(own);
