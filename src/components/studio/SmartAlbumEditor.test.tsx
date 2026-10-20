@@ -178,6 +178,9 @@ describe("rule values", () => {
     expect(incomplete({ field: "album", op: "is", value: "" })).toBe(true);
     expect(incomplete({ field: "captureDate", op: "between", value: ["2026-01-01", ""] })).toBe(true);
     expect(incomplete({ combine: "all", rules: [{ field: "rating", op: "ge", value: 1 }] })).toBe(false);
+    expect(incomplete({ field: "iso", op: "ge", value: NaN })).toBe(true);
+    expect(incomplete({ field: "iso", op: "between", value: [100, NaN] })).toBe(true);
+    expect(incomplete({ field: "iso", op: "empty" })).toBe(false);
   });
 });
 
@@ -208,7 +211,14 @@ describe("rule rows", () => {
     const input = within(exposure).getByLabelText("Value") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "1/" } });
     expect(input.value).toBe("1/");
+    // Not a number yet: incomplete, nothing different from it can be saved.
+    expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "abc" } });
+    expect(input.value).toBe("abc");
+    expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(true);
     fireEvent.change(input, { target: { value: "1/500" } });
     expect(input.value).toBe("1/500");
+    await settle();
+    expect((screen.getByText("Create") as HTMLButtonElement).disabled).toBe(false);
   });
 });

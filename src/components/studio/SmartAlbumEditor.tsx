@@ -260,11 +260,11 @@ function NumberInput({ field, value, onChange, label }: { field: Field; value: u
   // The rule's value changed from outside the typing (a rule above was
   // removed and this row now shows another rule): show it. While typing,
   // the value follows the text, so the text is kept as typed ("1/").
+  const parse = (t: string) => (t.trim() === "" ? NaN : field === "exposure" ? parseExposure(t) : Number(t));
   const typed = useRef(value);
-  if (typed.current !== value) {
+  if (!Object.is(typed.current, value)) {
     typed.current = value;
-    const parsed = field === "exposure" ? parseExposure(text) : Number(text);
-    if (parsed !== value) setText(shown(value));
+    if (!Object.is(parse(text), value)) setText(shown(value));
   }
   return (
     <input
@@ -274,11 +274,11 @@ function NumberInput({ field, value, onChange, label }: { field: Field; value: u
       value={text}
       onChange={(e) => {
         setText(e.target.value);
-        const n = field === "exposure" ? parseExposure(e.target.value) : Number(e.target.value);
-        if (Number.isFinite(n)) {
-          typed.current = n;
-          onChange(n);
-        }
+        // Text that is no number (yet: "1/", "abc") makes the rule
+        // incomplete, so what is saved is always what is shown.
+        const n = parse(e.target.value);
+        typed.current = n;
+        onChange(n);
       }}
     />
   );
@@ -413,7 +413,12 @@ export function incomplete(rule: Rule): boolean {
   if (kind === "choice")
     return Array.isArray(rule.value) ? rule.value.length === 0 : typeof rule.value !== "string" || !rule.value;
   if (kind === "album" || kind === "folder") return !rule.value;
-  if (rule.op === "between" && Array.isArray(rule.value)) return rule.value.some((v) => v === "" || v === undefined);
+  if (rule.op === "between" && Array.isArray(rule.value)) {
+    if (kind === "number") return rule.value.some((v) => typeof v !== "number" || !Number.isFinite(v));
+    return rule.value.some((v) => v === "" || v === undefined);
+  }
+  if (kind === "number" && rule.op !== "empty" && rule.op !== "notEmpty")
+    return typeof rule.value !== "number" || !Number.isFinite(rule.value);
   return false;
 }
 

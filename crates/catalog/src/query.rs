@@ -794,13 +794,19 @@ impl<'a> Compiler<'a> {
                     self.one_of("lower(m.label)", op, labels)
                 }
             },
-            Field::Iso => self.number_column("a.iso", op, value, Tolerance::Absolute(0.5)),
+            // Compared as the value lists show them (`Tally::add`): whole
+            // millimetres, f-numbers to a tenth, so a listed value selects
+            // exactly the photographs counted for it.
+            Field::Iso => self.number_column("a.iso", op, value, Tolerance::Absolute(0.0)),
             Field::FocalLength => {
-                self.number_column("a.focal_length", op, value, Tolerance::Absolute(0.5))
+                self.number_column("round(a.focal_length)", op, value, Tolerance::Absolute(0.0))
             }
-            Field::Aperture => {
-                self.number_column("a.aperture", op, value, Tolerance::Absolute(0.05))
-            }
+            Field::Aperture => self.number_column(
+                "(round(a.aperture * 10) / 10.0)",
+                op,
+                value,
+                Tolerance::Absolute(0.0),
+            ),
             // Cameras round exposure times (1/250 is 0.004 or 1/256).
             Field::Exposure => {
                 self.number_column("a.exposure", op, value, Tolerance::Relative(0.03))

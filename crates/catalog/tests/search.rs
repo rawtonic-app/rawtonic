@@ -1001,3 +1001,46 @@ fn camera_spellings_differing_in_case_are_one_value() {
         3
     );
 }
+
+#[test]
+fn a_listed_focal_length_or_aperture_selects_what_it_counts() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    for (id, focal, aperture) in [(&ids[0], 50.0, 2.85), (&ids[1], 50.5, 2.75)] {
+        lib.record_facts(
+            id,
+            &CaptureFacts {
+                focal_length: Some(focal),
+                aperture: Some(aperture),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    }
+    let facets = lib
+        .facets(&Rule::everything(), &[Field::FocalLength, Field::Aperture])
+        .unwrap();
+    for field in [Field::FocalLength, Field::Aperture] {
+        for listed in &facets[&field] {
+            if listed.value.is_empty() {
+                continue;
+            }
+            let name = if field == Field::FocalLength {
+                "focalLength"
+            } else {
+                "aperture"
+            };
+            let value: f64 = listed.value.parse().unwrap();
+            assert_eq!(
+                found(&lib, json!({"field":name,"op":"is","value":value})).len(),
+                listed.count,
+                "{field:?} {}",
+                listed.value
+            );
+        }
+    }
+    assert_eq!(
+        found(&lib, json!({"field":"focalLength","op":"is","value":50})),
+        ["DSC00123.ARW"]
+    );
+}
