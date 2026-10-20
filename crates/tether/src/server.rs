@@ -524,6 +524,8 @@ impl<W: Write> Server<W> {
             return Ok(Err(e));
         }
         let set_ms = ms(started);
+        // From the set's end: a Sony body's set itself steps for seconds.
+        let set = Instant::now();
         loop {
             let Some(open) = self.open.as_mut() else {
                 return Ok(Err(not_connected()));
@@ -532,7 +534,7 @@ impl<W: Write> Server<W> {
                 Ok(now) => now,
                 Err(e) => return Ok(Err(e)),
             };
-            if now.as_deref() == Some(value) || started.elapsed() >= READBACK {
+            if now.as_deref() == Some(value) || set.elapsed() >= READBACK {
                 log::info!(
                     "set {key} {} -> {value}: set in {set_ms} ms, camera reports {} after {} ms",
                     before.as_deref().unwrap_or("?"),

@@ -1439,3 +1439,23 @@ fn a_one_at_a_time_camera_still_transferring_is_not_fired() {
     let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
     assert_eq!(refused.kind, ErrorKind::Busy);
 }
+
+#[test]
+fn a_slow_set_is_read_back_after_it_returned() {
+    // The read-back window starts when the set returned: a Sony body's set
+    // steps for seconds, and the reading after it can still be stale.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        set_delay_ms: 3500,
+        stale_readback_ms: 1000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    assert_eq!(
+        set_iso(&helper, "400"),
+        Reply::SettingSet {
+            value: Some("400".into())
+        }
+    );
+}

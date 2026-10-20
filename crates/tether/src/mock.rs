@@ -87,6 +87,8 @@ pub struct MockSpec {
     /// taken, without an error (a Sony a7 III in MF: five triggers within
     /// 0.2 s gave one photo); the helper then fires one shot at a time.
     pub ignores_triggers_while_busy: bool,
+    /// A set takes this long (a Sony body steps through its values).
+    pub set_delay_ms: u64,
     /// After a set, the settings still report the value before it for this
     /// long (libgphoto2 answers a property from its last reading for 2 s).
     pub stale_readback_ms: u64,
@@ -135,6 +137,7 @@ impl Default for MockSpec {
             kept_values: vec![],
             ignores_triggers_while_busy: false,
             stale_readback_ms: 0,
+            set_delay_ms: 0,
         }
     }
 }
@@ -416,6 +419,7 @@ impl Camera for MockCamera {
                 format!("The camera does not take {value} for {key}."),
             ));
         }
+        std::thread::sleep(Duration::from_millis(self.spec.set_delay_ms));
         let before = std::mem::replace(&mut setting.value, value.into());
         if self.spec.kept_values.iter().any(|v| v == value) {
             setting.value = before.clone();
