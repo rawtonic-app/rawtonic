@@ -5,7 +5,7 @@ import StudioLayerControls from "./StudioLayerControls";
 import { useStudioTools } from "./useStudioTools";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useUIStore } from "../../store/useUIStore";
-import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, type Adjustments } from "../../utils/adjustments";
+import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, MASK_VERSION, type Adjustments } from "../../utils/adjustments";
 import { addComponentBeforeLumaRange, createSubMask } from "../../utils/maskUtils";
 import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { Panel } from "../ui/AppProperties";
@@ -143,10 +143,10 @@ describe("refine edge", () => {
       fireEvent.blur(field);
     };
     type("40");
-    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: 3 });
+    expect(layerOf()).toMatchObject({ refineEdge: 40, maskVersion: MASK_VERSION });
     type("0");
     expect(layerOf().refineEdge).toBeUndefined();
-    expect(layerOf().maskVersion).toBe(3);
+    expect(layerOf().maskVersion).toBe(MASK_VERSION);
   });
 
   it("gives new layers the 16-bit mask and leaves older ones alone", () => {
@@ -159,7 +159,7 @@ describe("refine edge", () => {
     tools!.addLayer(Mask.Radial);
     const masks = useEditorStore.getState().adjustments.masks;
     expect(masks[0].maskVersion).toBeUndefined();
-    expect(masks[1].maskVersion).toBe(3);
+    expect(masks[1].maskVersion).toBe(MASK_VERSION);
   });
 });
 

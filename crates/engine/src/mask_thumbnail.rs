@@ -145,15 +145,19 @@ pub fn layer_thumbnail_definition(layer: &MaskDefinition) -> MaskDefinition {
 
 /// One component's own coverage (with its invert and opacity), whatever its
 /// mode in the layer: Lightroom's component thumbnails show the component,
-/// the row shows how it combines.
-pub fn component_thumbnail_definition(component: &SubMask) -> MaskDefinition {
+/// the row shows how it combines. Drawn with the mask version of its `layer`
+/// (its gradients, grow and feather as the layer renders them).
+pub fn component_thumbnail_definition(
+    layer: &MaskDefinition,
+    component: &SubMask,
+) -> MaskDefinition {
     MaskDefinition {
         id: component.id.clone(),
         name: String::new(),
         visible: true,
         invert: false,
         opacity: 100.0,
-        mask_version: None,
+        mask_version: layer.mask_version,
         refine_edge: None,
         adjustments: Value::Null,
         sub_masks: vec![SubMask {
@@ -339,7 +343,7 @@ mod tests {
             ]
         }))
         .unwrap();
-        let def = component_thumbnail_definition(&layer.sub_masks[1]);
+        let def = component_thumbnail_definition(&layer, &layer.sub_masks[1]);
         assert!(def.produces_bitmap() && !def.invert && def.opacity == 100.0);
         assert_eq!(def.sub_masks.len(), 1);
         assert_eq!(def.sub_masks[0].mode, SubMaskMode::Additive);
@@ -369,6 +373,35 @@ mod tests {
         .unwrap();
         // Visible "all" minus nothing (the hidden component), inverted: empty.
         assert!(mask.as_raw().iter().all(|&v| v == 0));
+    }
+
+    #[test]
+    fn a_component_thumbnail_keeps_its_layers_mask_version() {
+        for version in [None, Some(2), Some(3)] {
+            let layer: MaskDefinition = serde_json::from_value(json!({
+                "id": "l", "name": "Layer", "visible": true, "invert": false, "adjustments": {},
+                "maskVersion": version,
+                "subMasks": [{"id": "g", "type": "linear", "visible": true, "mode": "additive",
+                    "parameters": {"startX": 1.3, "startY": 0.0, "endX": 6.7, "endY": 0.0, "range": 2.6}}]
+            }))
+            .unwrap();
+            let def = component_thumbnail_definition(&layer, &layer.sub_masks[0]);
+            assert_eq!(def.mask_version, version);
+            // A lone additive component: its thumbnail is the layer's mask.
+            let render = |def: &MaskDefinition| {
+                crate::mask_generation::generate_mask_bitmap(
+                    def,
+                    16,
+                    8,
+                    1.0,
+                    (0.0, 0.0),
+                    &PhotoGeometry::default(),
+                    None,
+                )
+                .unwrap()
+            };
+            assert_eq!(render(&def).as_raw(), render(&layer).as_raw());
+        }
     }
 
     fn decode(url: &str) -> GrayImage {

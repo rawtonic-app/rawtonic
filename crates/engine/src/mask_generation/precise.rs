@@ -100,6 +100,7 @@ fn combined_coverage(
     for sub in &def.sub_masks {
         let Some(mut coverage) = sub_mask_coverage(
             sub,
+            def.mask_version,
             width,
             height,
             scale,
@@ -141,8 +142,10 @@ fn bytes_to_coverage(mask: &GrayImage) -> Vec<f32> {
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn sub_mask_coverage(
     sub: &SubMask,
+    mask_version: Option<u32>,
     width: u32,
     height: u32,
     scale: f32,
@@ -190,20 +193,45 @@ fn sub_mask_coverage(
                     parameters,
                     ..sub.clone()
                 };
-                let mut coverage = bytes_to_coverage(&bitmap(&plain)?);
                 // The photo's short side on this grid, so the amounts mean the
                 // same in the preview, an export and any crop.
                 let base = geometry
                     .size
                     .map_or(width.min(height) as f32, |(w, h)| w.min(h) as f32 * scale);
+                // Version 4: grown and feathered on the grid with the photo
+                // around it that the two reach, so coverage just outside the
+                // crop grows and feathers into it as in the uncropped photo.
+                let margin = if mask_version.is_some_and(|version| version >= 4) {
+                    PhotoMargin::reaching(
+                        geometry,
+                        scale,
+                        crop_offset,
+                        width,
+                        height,
+                        amounts,
+                        base,
+                    )
+                } else {
+                    PhotoMargin::default()
+                };
+                let (grid_width, grid_height) = margin.grid(width, height);
+                let mut coverage = bytes_to_coverage(&generate_sub_mask_bitmap(
+                    &plain,
+                    grid_width,
+                    grid_height,
+                    scale,
+                    margin.offset(crop_offset),
+                    geometry,
+                    warped_image,
+                )?);
                 grow_and_feather(
                     &mut coverage,
-                    width as usize,
-                    height as usize,
+                    grid_width as usize,
+                    grid_height as usize,
                     amounts,
                     base,
                 );
-                Some(coverage)
+                Some(margin.crop(coverage, width, height))
             }
         },
         _ => bitmap(sub).map(|mask| bytes_to_coverage(&mask)),
@@ -297,6 +325,91 @@ fn grow_feather(parameters: &Value) -> Option<(f32, f32)> {
     let amounts: GrowFeatherParameters =
         serde_json::from_value(parameters.clone()).unwrap_or_default();
     (amounts.grow.abs() > 0.01 || amounts.feather > 0.0).then_some((amounts.grow, amounts.feather))
+}
+
+/// Pixels of the photo around a mask grid (whole pixels on each side, never
+/// past the photo's edges): a grid that far larger is drawn, filtered and
+/// cut back.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct PhotoMargin {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
+}
+
+impl PhotoMargin {
+    /// As far as `grow_and_feather` with `amounts` reaches, within the photo
+    /// (`geometry`'s size, oriented, at `scale`); none when the photo's size
+    /// is not known.
+    fn reaching(
+        geometry: &PhotoGeometry,
+        scale: f32,
+        crop_offset: (f32, f32),
+        width: u32,
+        height: u32,
+        (grow, feather): (f32, f32),
+        base: f32,
+    ) -> Self {
+        let Some((photo_w, photo_h)) = geometry.size else {
+            return Self::default();
+        };
+        let (photo_w, photo_h) = if geometry.frame.orientation_steps % 2 == 1 {
+            (photo_h, photo_w)
+        } else {
+            (photo_w, photo_h)
+        };
+        let grow_px = (grow / 100.0 * base * 0.01).abs();
+        let sigma = feather / 100.0 * base * 0.005;
+        // The rank filters' whole and fractional steps, the blur's kernel.
+        let reach = grow_px.floor()
+            + 1.0
+            + if sigma > 0.01 {
+                (sigma * 3.0).ceil()
+            } else {
+                0.0
+            };
+        // Grid pixel x samples the photo at x + offset, inside it while
+        // 0 ≤ x + offset < the photo's width: whole pixels before the grid
+        // fit `floor(offset)`, after it `ceil(room)`.
+        let reaching = |pixels: f32| pixels.clamp(0.0, reach) as u32;
+        Self {
+            left: reaching(crop_offset.0.floor()),
+            top: reaching(crop_offset.1.floor()),
+            right: reaching((photo_w as f32 * scale - crop_offset.0 - width as f32).ceil()),
+            bottom: reaching((photo_h as f32 * scale - crop_offset.1 - height as f32).ceil()),
+        }
+    }
+
+    fn grid(&self, width: u32, height: u32) -> (u32, u32) {
+        (
+            width + self.left + self.right,
+            height + self.top + self.bottom,
+        )
+    }
+
+    fn offset(&self, crop_offset: (f32, f32)) -> (f32, f32) {
+        (
+            crop_offset.0 - self.left as f32,
+            crop_offset.1 - self.top as f32,
+        )
+    }
+
+    /// `coverage` of the larger grid cut back to the `width` × `height` one.
+    fn crop(&self, coverage: Vec<f32>, width: u32, height: u32) -> Vec<f32> {
+        if *self == Self::default() {
+            return coverage;
+        }
+        let grid_width = (width + self.left + self.right) as usize;
+        let (left, top) = (self.left as usize, self.top as usize);
+        coverage
+            .chunks_exact(grid_width)
+            .skip(top)
+            .take(height as usize)
+            .flat_map(|row| &row[left..left + width as usize])
+            .copied()
+            .collect()
+    }
 }
 
 /// `apply_grow_and_feather`'s amounts on coverage: grow by up to 1% and
@@ -1140,6 +1253,73 @@ mod tests {
         // Without the photo, Refine edge leaves the layer as it is.
         let refined = generate(&layer(Some(2), Some(12.0), 100.0, radial()));
         assert_eq!(refined, mask);
+    }
+
+    #[test]
+    fn version_four_grows_and_feathers_from_beyond_the_crop() {
+        // A 400 × 240 photo whose subject ends just left of the crop.
+        let (photo_w, photo_h) = (400u32, 240u32);
+        let subject = GrayImage::from_fn(photo_w, photo_h, |x, y| {
+            Luma([if (60..98).contains(&x) && (50..190).contains(&y) {
+                255
+            } else {
+                0
+            }])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        subject.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let url = format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(png.into_inner())
+        );
+        let sub = serde_json::json!({"id": "s", "type": "ai-subject", "visible": true,
+            "mode": "additive", "parameters": {"startX": 0.0, "startY": 0.0, "endX": 0.0,
+            "endY": 0.0, "maskDataBase64": url, "grow": 100.0, "feather": 100.0}});
+        let geometry = PhotoGeometry::default().with_photo_size(photo_w as f64, photo_h as f64);
+        let (crop, width, height) = ((100u32, 40u32), 200u32, 160u32);
+        let generate = |version, w, h, offset: (u32, u32)| {
+            let def = layer(Some(version), None, 100.0, sub.clone());
+            let offset = (offset.0 as f32, offset.1 as f32);
+            generate_layer_mask(&def, w, h, 1.0, offset, &geometry, None).unwrap()
+        };
+        let whole = generate(4, photo_w, photo_h, (0, 0));
+        let whole = whole.wide().unwrap();
+        let cut: Vec<u16> = (crop.1..crop.1 + height)
+            .flat_map(|y| {
+                let row = (y * photo_w + crop.0) as usize;
+                whole[row..row + width as usize].to_vec()
+            })
+            .collect();
+        // Version 4: the cropped mask is the uncropped photo's, cut.
+        let cropped = generate(4, width, height, crop);
+        assert_eq!(cropped.wide().unwrap(), cut.as_slice());
+        assert!(
+            cut[(60 * width) as usize] > 0,
+            "the grown subject reaches into the crop"
+        );
+        // Version 3 grew and feathered the crop alone: nothing reaches in.
+        let old = generate(3, width, height, crop);
+        assert!(old.as_raw().iter().all(|&v| v == 0));
+
+        // A fractional crop: its last pixel samples the photo at x = 397.5,
+        // the column after it at 398.5 and 399.5 (inside the photo), where
+        // the only coverage is.
+        let edge = GrayImage::from_fn(photo_w, photo_h, |x, _| {
+            Luma([if x == 399 { 255 } else { 0 }])
+        });
+        let mut png = std::io::Cursor::new(Vec::new());
+        edge.write_to(&mut png, image::ImageFormat::Png).unwrap();
+        let mut sub = sub.clone();
+        sub["parameters"]["maskDataBase64"] = Value::from(format!(
+            "data:image/png;base64,{}",
+            general_purpose::STANDARD.encode(png.into_inner())
+        ));
+        let def = layer(Some(4), None, 100.0, sub);
+        let mask = generate_layer_mask(&def, 98, 20, 1.0, (300.5, 100.0), &geometry, None).unwrap();
+        assert!(
+            mask.as_raw()[97] > 0,
+            "the column at 399.5 grows into the crop"
+        );
     }
 
     #[test]

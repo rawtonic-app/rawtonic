@@ -229,7 +229,7 @@ fn mask_thumbnails(
         }
         for sub in &mask.sub_masks {
             if component_ids.contains(&sub.id) {
-                components.push((sub.id.clone(), component_thumbnail_definition(sub)));
+                components.push((sub.id.clone(), component_thumbnail_definition(mask, sub)));
             }
         }
     }

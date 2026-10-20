@@ -74,9 +74,13 @@ export function layerThumbnailKey(layer: MaskContainer): string {
   );
 }
 
-/** What a component's thumbnail depends on: its own shape, invert and opacity. */
-export function componentThumbnailKey(sub: SubMask): string {
-  return JSON.stringify({ ...sub, name: undefined, mode: undefined, visible: undefined }, summarizeMaskData);
+/** What a component's thumbnail depends on: its own shape, invert and
+ * opacity, and its layer's mask version (the native side draws it with it). */
+export function componentThumbnailKey(sub: SubMask, maskVersion?: number): string {
+  return JSON.stringify(
+    { ...sub, name: undefined, mode: undefined, visible: undefined, maskVersion: maskVersion ?? null },
+    summarizeMaskData,
+  );
 }
 
 /** The recipe as the native side needs it, without AI bitmaps it already has
@@ -174,7 +178,7 @@ export function useMaskThumbnailUpdates() {
       }
       for (const sub of selected?.subMasks ?? []) {
         if (sub.type === Mask.LumaRange) continue;
-        const key = geometry + componentThumbnailKey(sub);
+        const key = geometry + componentThumbnailKey(sub, selected?.maskVersion);
         keys.set(sub.id, key);
         if (made.get(sub.id) !== key) componentIds.push(sub.id);
       }
