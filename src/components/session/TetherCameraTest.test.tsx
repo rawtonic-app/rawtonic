@@ -295,3 +295,45 @@ it("a companion that fails to download, or fails after its step ended, fails tha
   expect(report()).toContain("| Shot on the camera | FAIL | 1/1 in the library; a file of its photos failed after the step |");
   expect(report()).toContain("- Files not added or shots not delivered during the test: 6");
 }, 20_000);
+
+it("a failure goes to the step whose exposure it belongs to, not the step running then", async () => {
+  onCapture = (n) =>
+    window.setTimeout(
+      () =>
+        emit("tether-captured", {
+          cameraName: `DSCF${n}.JPG`,
+          connection: 1,
+          exposure: n,
+          destination: null,
+          assetId: `a${n}`,
+          skipped: false,
+          error: null,
+          requested: true,
+        }),
+      5,
+    );
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| pass \|/);
+  // During the burst, the RAW of shot 2 fails: the shots step fails, the
+  // burst does not.
+  const base = onCapture;
+  onCapture = (n) => {
+    base(n);
+    if (n === 6)
+      window.setTimeout(
+        () =>
+          emit("tether-capture-failed", { kind: "storage", message: "DSCF2.RAF could not be saved", connection: 1, exposure: 2 }),
+        5,
+      );
+  };
+  await runStep(/\| Burst from Rawtonic \| pass \| 5\/5/);
+  expect(report()).toMatch(/\| Shots from Rawtonic \| FAIL \| 5\/5 in the library; .*; a file of its photos failed after the step \|/);
+  // During the transfer-queue step, a failure without an exposure goes to
+  // the last photo step.
+  for (const _ of [1, 2]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.click(screen.getByRole("button", { name: "Run" }));
+  emit("tether-capture-failed", { kind: "timeout", message: "late", connection: null, exposure: null });
+  await waitFor(() => expect(report()).toContain("| Burst from Rawtonic | FAIL |"), { timeout: 4000 });
+}, 20_000);

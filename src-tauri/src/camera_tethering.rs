@@ -260,8 +260,16 @@ fn on_incoming(
                 );
             }
         }
-        Incoming::Event(Event::CaptureFailed { error }) => {
-            let _ = app.emit("tether-capture-failed", error);
+        Incoming::Event(Event::CaptureFailed { error, exposure }) => {
+            let _ = app.emit(
+                "tether-capture-failed",
+                json!({
+                    "kind": error.kind,
+                    "message": error.message,
+                    "connection": exposure.map(|(connection, _)| connection),
+                    "exposure": exposure.map(|(_, exposure)| exposure),
+                }),
+            );
         }
         Incoming::Event(Event::SettingsChanged) => {
             let _ = app.emit("tether-settings-changed", ());

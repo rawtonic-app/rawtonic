@@ -245,6 +245,9 @@ pub enum Event {
     /// A shot was asked for or reported but did not arrive.
     CaptureFailed {
         error: TetherError,
+        /// The connection and exposure (`Captured`) of a file that could
+        /// not be downloaded or saved; none for a shot that never came.
+        exposure: Option<(u64, u64)>,
     },
     /// The camera reported changed settings (a dial turned): read them again.
     SettingsChanged,

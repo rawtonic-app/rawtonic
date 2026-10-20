@@ -16,8 +16,10 @@ use std::time::{Duration, Instant};
 
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
-/// The newest exposure of a file name (`Open::exposures_by_stem`).
+/// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
+    /// When its first file came.
+    at: Instant,
     /// The file kinds (extensions) it gave so far.
     kinds: Vec<String>,
     /// Its app request, if any.
@@ -61,11 +63,12 @@ struct Open {
     published: std::collections::HashMap<CameraFile, (usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
-    /// The newest exposure of each file name (without the extension): RAW
-    /// and JPEG of one exposure share the name and answer one request, and
-    /// may come interleaved with other exposures' files, however late
-    /// (A.RAW, B.RAW, A.JPG). One entry per name the camera used.
-    exposures_by_stem: std::collections::HashMap<String, Exposure>,
+    /// The exposures of each file name (without the extension) of the last
+    /// `SHOT_TIMEOUT`, oldest first: RAW and JPEG of one exposure share the
+    /// name and answer one request, and may come interleaved with other
+    /// exposures' files, under other names or the same one (A.RAW, B.RAW,
+    /// A.JPG; A.RAW, A.RAW, A.JPG, A.JPG with reused names).
+    exposures_by_stem: std::collections::HashMap<String, VecDeque<Exposure>>,
     /// Exposures so far (`Captured::exposure`).
     exposures: u64,
     /// The camera came to keep photos only in its memory ("Save to" without
@@ -403,6 +406,7 @@ impl<W: Write> Server<W> {
                     ErrorKind::Timeout,
                     "The camera did not deliver the photo. It was not fired again.",
                 ),
+                exposure: None,
             })?;
         }
         self.read_events(wait).map(|_| ())
@@ -427,6 +431,7 @@ impl<W: Write> Server<W> {
                     open.memory_only = true;
                     self.event(Event::CaptureFailed {
                         error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
+                        exposure: None,
                     })?;
                     return Ok(false);
                 }
@@ -496,14 +501,19 @@ impl<W: Write> Server<W> {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
             None => (file.name.clone(), String::new()),
         };
-        // Another file of the name's newest exposure (a kind it has not
-        // given yet): the same request, not the next one. A kind it already
-        // gave starts a new exposure (a reused name).
+        // Another file of an exposure of the name (the oldest that has not
+        // given this kind yet; cameras send files in exposure order): the
+        // same request, not the next one. Otherwise a new exposure. An
+        // exposure older than a shot may take is not waited on any more.
+        open.exposures_by_stem.retain(|_, exposures| {
+            exposures.retain(|e| reported.duration_since(e.at) < SHOT_TIMEOUT);
+            !exposures.is_empty()
+        });
         let companion = match shot_of {
             Shot::Waiting => open
                 .exposures_by_stem
                 .get_mut(&stem)
-                .filter(|e| !e.kinds.contains(&extension)),
+                .and_then(|exposures| exposures.iter_mut().find(|e| !e.kinds.contains(&extension))),
             Shot::At(_) => None,
         };
         let (requested, exposure) = match companion {
@@ -519,15 +529,20 @@ impl<W: Write> Server<W> {
                 };
                 open.exposures += 1;
                 let exposure = Exposure {
+                    at: reported,
                     kinds: vec![extension],
                     request,
                     number: open.exposures,
                 };
-                open.exposures_by_stem.insert(stem, exposure);
+                open.exposures_by_stem
+                    .entry(stem)
+                    .or_default()
+                    .push_back(exposure);
                 (request, open.exposures)
             }
         };
         let started = requested.unwrap_or(reported);
+        let connection = open.connection;
         let (data, size) = match downloaded {
             Ok(downloaded) => downloaded,
             Err(error) if error.kind == ErrorKind::Disconnected => return self.lost(error),
@@ -537,6 +552,7 @@ impl<W: Write> Server<W> {
                         error.kind,
                         format!("{} could not be downloaded: {}", file.name, error.message),
                     ),
+                    exposure: Some((connection, exposure)),
                 });
             }
         };
@@ -545,7 +561,7 @@ impl<W: Write> Server<W> {
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,
-            Err(e) => return self.storage_failed(&file, e),
+            Err(e) => return self.storage_failed(&file, e, (connection, exposure)),
         };
         if open.camera.abort_at(AbortPoint::MidDownload, shot) {
             let _ = partial.write(&data[..data.len() / 2]);
@@ -557,7 +573,7 @@ impl<W: Write> Server<W> {
             .and_then(|()| partial.publish(expected));
         let path = match published {
             Ok(path) => path,
-            Err(e) => return self.storage_failed(&file, e),
+            Err(e) => return self.storage_failed(&file, e, (connection, exposure)),
         };
         // Only a photo that is safely in the transfer folder counts as
         // downloaded (a repeat of a failed one is taken again).
@@ -581,7 +597,12 @@ impl<W: Write> Server<W> {
         self.event(Event::Captured { captured })
     }
 
-    fn storage_failed(&mut self, file: &CameraFile, e: io::Error) -> io::Result<()> {
+    fn storage_failed(
+        &mut self,
+        file: &CameraFile,
+        e: io::Error,
+        exposure: (u64, u64),
+    ) -> io::Result<()> {
         self.event(Event::CaptureFailed {
             error: TetherError::new(
                 ErrorKind::Storage,
@@ -590,6 +611,7 @@ impl<W: Write> Server<W> {
                     file.name
                 ),
             ),
+            exposure: Some(exposure),
         })
     }
 }
