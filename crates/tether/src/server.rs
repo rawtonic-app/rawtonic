@@ -62,6 +62,9 @@ struct Open {
     /// This connection's number: a release names the connection its photo
     /// came from, so a late one never reaches another camera's photo.
     connection: u64,
+    /// `Request::Hold`: the camera's events are not read (nothing more is
+    /// downloaded) until the connection ends.
+    held: bool,
 }
 
 pub struct Server<W: Write> {
@@ -263,11 +266,18 @@ impl<W: Write> Server<W> {
                     exposure: None,
                     memory_only: false,
                     connection: self.connections,
+                    held: false,
                 });
                 Ok(Reply::Connected { status })
             }
             Request::Disconnect => {
                 self.open = None;
+                Ok(Reply::Ok)
+            }
+            Request::Hold => {
+                let open = self.camera()?;
+                open.held = true;
+                open.live_view = false;
                 Ok(Reply::Ok)
             }
             Request::Settings => Ok(Reply::Settings {
@@ -286,6 +296,12 @@ impl<W: Write> Server<W> {
             }
             Request::Capture => {
                 let open = self.camera()?;
+                if open.held {
+                    return Err(TetherError::new(
+                        ErrorKind::NotConnected,
+                        "The camera is being disconnected.",
+                    ));
+                }
                 if open.memory_only || open.camera.memory_only()? {
                     open.memory_only = true;
                     return Err(TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY));
@@ -384,6 +400,10 @@ impl<W: Write> Server<W> {
         let Some(open) = self.open.as_mut() else {
             return Ok(false);
         };
+        if open.held {
+            std::thread::sleep(wait);
+            return Ok(false);
+        }
         // Checked before every read of the camera's events: reading them may
         // already take a photo out of the camera's memory.
         if !open.memory_only {

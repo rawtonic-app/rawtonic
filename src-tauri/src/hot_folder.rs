@@ -120,9 +120,25 @@ struct Watch {
     session: PathBuf,
     settings: CaptureSettings,
     include_subfolders: bool,
+    /// Its thread, joined when the watch stops.
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Watch {
+    /// Stops the watch and waits for its thread: nothing of it is written
+    /// after this (a watch replacing it must not have the old one record its
+    /// files and last capture against the new folder). The thread checks the
+    /// stop between files and while copying, so this is short.
+    fn stop(mut self) -> Self {
+        self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            log::warn!("Hot folder: its watch ended with a panic");
+        }
+        self
+    }
+
     fn status(&self) -> HotFolderStatus {
         HotFolderStatus {
             folder: self.folder.clone(),
@@ -422,8 +438,7 @@ impl<'a> Watcher<'a> {
 /// Stops the running watch (the library keeps its hot folder).
 fn suspend() -> Option<Watch> {
     let watch = WATCH.lock().ok()?.take()?;
-    watch.stop.store(true, Ordering::Release);
-    Some(watch)
+    Some(watch.stop())
 }
 
 /// Starts watching the hot folder `session` keeps, in place of any other.
@@ -441,7 +456,7 @@ fn spawn(
     let missing = Arc::new(AtomicBool::new(!config.folder.is_dir()));
     let settings: CaptureSettings =
         serde_json::from_value(config.settings.clone()).unwrap_or_default();
-    {
+    let worker = {
         let (stop, imported, missing, session, config) = (
             stop.clone(),
             imported.clone(),
@@ -475,8 +490,8 @@ fn spawn(
                     std::thread::sleep(POLL);
                 }
             })
-            .map_err(|e| e.to_string())?;
-    }
+            .map_err(|e| e.to_string())?
+    };
     let watch = Watch {
         stop,
         imported,
@@ -485,17 +500,57 @@ fn spawn(
         session,
         settings,
         include_subfolders: config.include_subfolders,
+        worker: Some(worker),
     };
     let status = watch.status();
     *WATCH.lock().map_err(|e| e.to_string())? = Some(watch);
     Ok(status)
 }
 
+/// Runs a change of the watch in a blocking worker, one at a time: stopping
+/// a watch waits for its thread, which may be hashing a large file or
+/// reading a slow drive, and must not hold up the app's main thread. The
+/// workers do not keep the order the commands came in; the app sends each
+/// one after the last has finished (`utils/hotFolderCommands.ts`).
+async fn changing<R: Send + 'static>(
+    work: impl FnOnce() -> R + Send + 'static,
+) -> Result<R, String> {
+    static CHANGING: Mutex<()> = Mutex::new(());
+    crate::file_management::blocking(move || {
+        let _one = CHANGING.lock().unwrap_or_else(|e| e.into_inner());
+        work()
+    })
+    .await
+}
+
 /// Starts watching `folder` for the library in `directory` and keeps it
 /// there, so watching resumes when the library is opened again.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn hot_folder_start(
+pub async fn hot_folder_start(
+    directory: String,
+    folder: String,
+    template: String,
+    next_capture: NextCapture,
+    metadata: Option<NextCaptureMetadata>,
+    include_subfolders: Option<bool>,
+    app: AppHandle,
+) -> Result<HotFolderStatus, String> {
+    changing(move || {
+        start(
+            directory,
+            folder,
+            template,
+            next_capture,
+            metadata,
+            include_subfolders,
+            app,
+        )
+    })
+    .await?
+}
+
+fn start(
     directory: String,
     folder: String,
     template: String,
@@ -532,13 +587,35 @@ pub fn hot_folder_start(
 /// already running for it: its status). A watched folder that is gone is
 /// watched all the same and shown as missing.
 #[tauri::command]
-pub fn hot_folder_resume(
+pub async fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
+    changing(move || resume(directory, app)).await?
+}
+
+/// Stops a watch that imports into another library than `session` (only
+/// one library is open): a library without a hot folder must not leave the
+/// last one's watch taking photos into a library the user has left.
+fn leave_other_libraries(session: &Path) {
+    let other = {
+        let Ok(mut watch) = WATCH.lock() else { return };
+        if watch.as_ref().is_some_and(|w| w.session != session) {
+            watch.take()
+        } else {
+            None
+        }
+    };
+    if let Some(other) = other {
+        other.stop();
+    }
+}
+
+fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
     let session = Path::new(&directory)
         .canonicalize()
         .map_err(|e| e.to_string())?;
+    leave_other_libraries(&session);
     if let Ok(watch) = WATCH.lock()
         && let Some(watch) = watch.as_ref()
         && watch.session == session
@@ -565,27 +642,57 @@ pub fn hot_folder_resume(
 /// its hot folder, which resumes when it is opened again. With `directory`,
 /// only the watch of that library (not one resumed for another meanwhile).
 #[tauri::command]
-pub fn hot_folder_suspend(directory: Option<String>) {
-    let Ok(mut watch) = WATCH.lock() else { return };
-    let matches = watch.as_ref().is_some_and(|running| {
-        directory.is_none_or(|directory| {
-            Path::new(&directory)
-                .canonicalize()
-                .is_ok_and(|directory| directory == running.session)
-        })
-    });
-    if matches && let Some(running) = watch.take() {
-        running.stop.store(true, Ordering::Release);
+pub async fn hot_folder_suspend(directory: Option<String>) -> Result<(), String> {
+    changing(move || suspend_for(directory)).await
+}
+
+fn suspend_for(directory: Option<String>) {
+    let session = directory.map(|d| Path::new(&d).canonicalize());
+    match session {
+        Some(Ok(session)) => {
+            stop_watch_of(Some(&session));
+        }
+        // A library that cannot be found has no running watch.
+        Some(Err(_)) => {}
+        None => {
+            stop_watch_of(None);
+        }
     }
 }
 
-/// Stops watching, and the library forgets its hot folder (the running
-/// watch's library, else the one in `directory`).
+/// Stops the running watch when it is `session`'s (any with `None`): a
+/// request about one library never touches another's watch, also when it
+/// runs late (after that library was opened).
+fn stop_watch_of(session: Option<&Path>) -> Option<Watch> {
+    let running = {
+        let mut watch = WATCH.lock().ok()?;
+        if watch
+            .as_ref()
+            .is_some_and(|running| session.is_none_or(|s| running.session == s))
+        {
+            watch.take()
+        } else {
+            None
+        }
+    };
+    running.map(Watch::stop)
+}
+
+/// Stops watching, and the library forgets its hot folder: the library in
+/// `directory` (its watch only), else the running watch's library.
 #[tauri::command]
-pub fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
-    let session = match (suspend(), directory) {
-        (Some(watch), _) => watch.session,
-        (None, Some(directory)) => PathBuf::from(directory),
+pub async fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
+    changing(move || stop_and_forget(directory)).await?
+}
+
+fn stop_and_forget(directory: Option<String>) -> Result<(), String> {
+    let asked = directory
+        .map(|d| Path::new(&d).canonicalize().map_err(|e| e.to_string()))
+        .transpose()?;
+    let stopped = stop_watch_of(asked.as_deref());
+    let session = match (asked, stopped) {
+        (Some(session), _) => session,
+        (None, Some(watch)) => watch.session,
         (None, None) => return Ok(()),
     };
     let lib = Library::open(&session).map_err(|e| format!("{e:#}"))?;
@@ -606,6 +713,122 @@ mod tests {
 
     fn session(root: &Path) -> Library {
         Library::create(&root.join("Job"), "Job", Mode::Session).unwrap()
+    }
+
+    /// Tests that put a watch into the app's one `WATCH` run one at a time.
+    static ONE_WATCH: Mutex<()> = Mutex::new(());
+
+    /// A watch of `session` whose thread runs until it is stopped; `done`
+    /// is set when it has ended.
+    fn fake_watch(session: &str) -> (Watch, Arc<AtomicBool>) {
+        let stop = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let (stop, done) = (stop.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                done.store(true, Ordering::Release);
+            })
+        };
+        let watch = Watch {
+            stop,
+            imported: Default::default(),
+            missing: Default::default(),
+            folder: PathBuf::from("/hot"),
+            session: PathBuf::from(session),
+            settings: CaptureSettings::default(),
+            include_subfolders: false,
+            worker: Some(worker),
+        };
+        (watch, done)
+    }
+
+    /// Library A's resume came late and started its watch; then library B,
+    /// which has no hot folder, is opened: A's watch stops.
+    #[test]
+    fn opening_another_library_stops_the_last_ones_watch() {
+        let _one = ONE_WATCH.lock().unwrap_or_else(|e| e.into_inner());
+        let (a, a_done) = fake_watch("/libraries/A");
+        *WATCH.lock().unwrap() = Some(a);
+        leave_other_libraries(Path::new("/libraries/B"));
+        assert!(WATCH.lock().unwrap().is_none());
+        assert!(
+            a_done.load(Ordering::Acquire),
+            "A's watch stopped and joined"
+        );
+        // The library's own watch is kept.
+        let (own, own_done) = fake_watch("/libraries/B");
+        *WATCH.lock().unwrap() = Some(own);
+        leave_other_libraries(Path::new("/libraries/B"));
+        assert!(WATCH.lock().unwrap().is_some());
+        assert!(!own_done.load(Ordering::Acquire));
+        suspend();
+        assert!(own_done.load(Ordering::Acquire));
+    }
+
+    /// A stop for library A that runs late, after library B resumed its
+    /// watch, stops and forgets A's hot folder only.
+    #[test]
+    fn a_late_stop_for_one_library_leaves_anothers_watch_and_hot_folder() {
+        let _one = ONE_WATCH.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = tempfile::tempdir().unwrap();
+        let make = |name: &str| {
+            let dir = tmp.path().join(name);
+            let lib = Library::create(&dir, name, Mode::Session).unwrap();
+            lib.set_hot_folder(Some(&HotFolderConfig {
+                folder: tmp.path().join(format!("hot-{name}")),
+                template: "{orig}".into(),
+                include_subfolders: false,
+                settings: json!({}),
+                last_capture: None,
+            }))
+            .unwrap();
+            dir.canonicalize().unwrap()
+        };
+        let (a, b) = (make("A"), make("B"));
+        let (b_watch, b_done) = fake_watch(b.to_str().unwrap());
+        *WATCH.lock().unwrap() = Some(b_watch);
+        stop_and_forget(Some(a.to_string_lossy().into_owned())).unwrap();
+        assert!(Library::open(&a).unwrap().hot_folder().unwrap().is_none());
+        assert!(Library::open(&b).unwrap().hot_folder().unwrap().is_some());
+        assert!(!b_done.load(Ordering::Acquire), "B's watch runs on");
+        suspend_for(Some(a.to_string_lossy().into_owned()));
+        assert!(!b_done.load(Ordering::Acquire));
+        stop_and_forget(None).unwrap();
+        assert!(b_done.load(Ordering::Acquire));
+        assert!(Library::open(&b).unwrap().hot_folder().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_stopped_watch_has_finished_writing() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let (stop, done) = (stop.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                // The file it was taking in when it was stopped.
+                std::thread::sleep(Duration::from_millis(200));
+                done.store(true, Ordering::Release);
+            })
+        };
+        let watch = Watch {
+            stop,
+            imported: Default::default(),
+            missing: Default::default(),
+            folder: PathBuf::from("/hot"),
+            session: PathBuf::from("/job"),
+            settings: CaptureSettings::default(),
+            include_subfolders: false,
+            worker: Some(worker),
+        };
+        let stopped = watch.stop();
+        assert!(done.load(Ordering::Acquire), "joined before returning");
+        assert!(stopped.worker.is_none());
     }
 
     #[test]

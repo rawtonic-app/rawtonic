@@ -887,3 +887,89 @@ fn a_short_request_behind_a_long_capture_is_not_taken_for_a_hung_helper() {
     assert_eq!(capture.join().unwrap().unwrap(), Reply::Ok);
     assert!(client.alive());
 }
+
+/// The app is gone while the helper cannot read the end of its requests (a
+/// camera call that hangs keeps it from reading; here its input is simply
+/// kept open by another process): it ends itself after its grace time —
+/// also when its stderr pipe was closed with the app (a write there must
+/// not stop the watchdog).
+#[cfg(unix)]
+#[test]
+fn a_helper_whose_app_is_gone_ends_itself() {
+    let dir = tempfile::tempdir().unwrap();
+    // `sh` starts the helper (recording its pid) with an input that stays
+    // open and exits a second later, as an app that quit or crashed.
+    for stderr in ["2>/dev/null >/dev/null", "2>&1 >/dev/null | true"] {
+        let pid_file = dir.path().join("pid");
+        let _ = std::fs::remove_file(&pid_file);
+        let script = format!(
+            r#"sleep 30 </dev/null 2>/dev/null | sh -c 'echo $$ > "$1"; exec "$0" --mock' "$0" "$PID_FILE" {stderr} & sleep 1"#
+        );
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script)
+            .arg(HELPER)
+            .env("PID_FILE", &pid_file)
+            .env("RAWTONIC_TETHER_PARENT_GRACE_MS", "200")
+            .env("RAWTONIC_TETHER_MOCK", "{}")
+            .output()
+            .unwrap();
+        // `sh` returned after its own second, not when the helper's input ends.
+        let started = Instant::now();
+        let pid = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .to_string();
+        let alive = || {
+            std::process::Command::new("kill")
+                .args(["-0", &pid])
+                .status()
+                .unwrap()
+                .success()
+        };
+        while alive() && started.elapsed() < WAIT {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!alive(), "the helper outlived its app ({stderr})");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "ended by its grace, not its input ({stderr})"
+        );
+    }
+}
+
+/// A held camera (a library switch or disconnect is under way) delivers
+/// nothing more and fires nothing, but still frees what was delivered.
+#[test]
+fn a_held_camera_delivers_nothing_more_and_still_frees_its_photos() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        body_shots_ms: vec![300],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(
+        helper.client.request(Request::Hold, WAIT).unwrap(),
+        Reply::Ok
+    );
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::NotConnected);
+    // The body shot after the hold is not downloaded.
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(helper.photos(1).0.is_empty());
+    let release = Request::Release {
+        connection: photos[0].connection,
+        download: photos[0].download,
+        camera_folder: photos[0].camera_folder.clone(),
+        camera_name: photos[0].camera_name.clone(),
+    };
+    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    assert_eq!(
+        helper.client.request(Request::Disconnect, WAIT).unwrap(),
+        Reply::Ok
+    );
+}

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -32,6 +32,12 @@ pub enum Request {
         serial: Option<String>,
     },
     Disconnect,
+    /// Stops taking photos from the camera but keeps it open: every photo
+    /// downloaded so far was delivered before the reply, none follows, and
+    /// releases are still served (a library switch takes in the last photos
+    /// and frees them on the camera before it is closed). Until `Disconnect`
+    /// or `Connect`; firing is refused meanwhile.
+    Hold,
     /// The camera's settings as they are now.
     Settings,
     SetSetting {

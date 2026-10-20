@@ -31,7 +31,16 @@ impl log::Log for StderrLog {
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            eprintln!("{} {} {}", record.level(), record.target(), record.args());
+            // Never a panic when the app's end of the pipe is gone (eprintln!
+            // would panic): the helper must still be able to end itself.
+            use std::io::Write as _;
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "{} {} {}",
+                record.level(),
+                record.target(),
+                record.args()
+            );
         }
     }
 
@@ -170,6 +179,32 @@ fn main_run_loop() -> ! {
     }
 }
 
+/// How long the helper waits after the app is gone before it ends itself.
+#[cfg(unix)]
+const PARENT_GRACE: Duration = Duration::from_secs(10);
+
+/// Serving the app: when the app is gone (quit or crashed; the helper is
+/// handed to another parent) its requests end and the helper closes the
+/// camera. A helper stuck inside a camera call never reads that end, so
+/// after `grace` it ends itself instead of outliving the app. Nothing is
+/// lost: an unfinished download was never released on the camera, and its
+/// partial transfer file is kept as incomplete.
+#[cfg(unix)]
+fn end_with_the_app(grace: Duration) {
+    let parent = std::os::unix::process::parent_id();
+    std::thread::spawn(move || {
+        while std::os::unix::process::parent_id() == parent {
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        std::thread::sleep(grace);
+        // Nothing that could fail before the end (the app's stderr pipe is
+        // usually closed by now).
+        // SAFETY: _exit ends the process at once, without exit handlers that
+        // could wait for the camera call still running on another thread.
+        unsafe { libc::_exit(3) };
+    });
+}
+
 /// The command line's work; the process's exit code.
 fn run(args: &[String]) -> i32 {
     let mock = args.iter().any(|a| a == "--mock");
@@ -182,6 +217,14 @@ fn run(args: &[String]) -> i32 {
         Some("probe") => probe(args, mock),
         Some("version") => version(),
         _ => driver(mock).and_then(|d| {
+            #[cfg(unix)]
+            end_with_the_app(
+                std::env::var("RAWTONIC_TETHER_PARENT_GRACE_MS")
+                    .ok()
+                    .and_then(|ms| ms.parse().ok())
+                    .map(Duration::from_millis)
+                    .unwrap_or(PARENT_GRACE),
+            );
             // Tests shorten how long a shot may take.
             let timeout = std::env::var("RAWTONIC_TETHER_SHOT_TIMEOUT_MS")
                 .ok()
@@ -197,7 +240,8 @@ fn run(args: &[String]) -> i32 {
     match result {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("rawtonic-tether: {e}");
+            use std::io::Write as _;
+            let _ = writeln!(std::io::stderr(), "rawtonic-tether: {e}");
             1
         }
     }

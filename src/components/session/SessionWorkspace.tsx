@@ -55,6 +55,7 @@ import { useContextMenu } from "../../context/ContextMenuContext";
 import { useSessionBar } from "./sessionBar";
 import { SESSION_ALBUMS_CHANGED } from "../studio/StudioAlbums";
 import { OFFLINE_CHANGED, OFFLINE_COUNTED, watchVolumes } from "../../utils/offline";
+import { hotFolderCommand } from "../../utils/hotFolderCommands";
 import { FOLDER_SYNC_APPLIED, IMPORTS_CHANGED, OPEN_FOLDER_SYNC_EVENT, type OpenFolderSyncDetail } from "../../utils/folderSync";
 import IngestPreviewGrid, { fileName, type IngestCandidate } from "./IngestPreviewGrid";
 import {
@@ -470,7 +471,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // pauses it (the library keeps it and resumes it when opened again).
   useEffect(() => {
     if (hotFolder && session && !hotFolder.session.startsWith(session.directory.replace(/\/$/, ""))) {
-      void invoke("hot_folder_suspend", { directory: hotFolder.session });
+      void hotFolderCommand("hot_folder_suspend", { directory: hotFolder.session }).catch(() => {});
       setHotFolder(null);
     }
   }, [session, hotFolder]);
@@ -522,7 +523,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     resumedFor.current = sessionDirectory;
     // Still the library shown when the answer comes.
     const current = () => openDirectory.current === sessionDirectory;
-    invoke<HotFolderStatus | null>("hot_folder_resume", { directory: sessionDirectory })
+    hotFolderCommand<HotFolderStatus | null>("hot_folder_resume", { directory: sessionDirectory })
       .then((status) => {
         if (typeof status?.folder !== "string") return;
         // Resumed for a library left meanwhile: it must not feed the next one.
@@ -545,7 +546,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!session) return;
     const { nextCapture, metadata } = nextCaptureOf(nextCaptureForm, presets);
     try {
-      const status = await invoke<HotFolderStatus>("hot_folder_start", {
+      const status = await hotFolderCommand<HotFolderStatus>("hot_folder_start", {
         directory: session.directory,
         folder: hotPath,
         template,
@@ -562,7 +563,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   };
   const stopHotFolder = async () => {
     try {
-      await invoke("hot_folder_stop", { directory: session?.directory ?? null });
+      await hotFolderCommand("hot_folder_stop", { directory: session?.directory ?? null });
       setHotFolder(null);
     } catch (e) {
       setError(String(e));

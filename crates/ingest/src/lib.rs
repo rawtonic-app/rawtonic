@@ -262,6 +262,59 @@ pub fn verified_copy(
     })
 }
 
+/// Creates `folder` and its missing parents like `fs::create_dir_all`, then
+/// syncs every folder from `folder`'s parent up to `base` (each holds the
+/// entry of the next): a power cut after an import committed cannot drop a
+/// new year or date folder (with the photo in it) after the photo's staging
+/// copy was removed and a camera that keeps no card copy let go of it.
+/// Synced on every call, not only by the call that made a folder: a sync
+/// that failed before, or a folder another import made a moment ago, is
+/// made durable here too.
+fn create_dir_all_durable(folder: &Path, base: &Path) -> std::io::Result<()> {
+    create_dir_all_syncing(folder, base, |dir| {
+        #[cfg(unix)]
+        fs::File::open(dir)?.sync_all()?;
+        #[cfg(not(unix))]
+        let _ = dir;
+        Ok(())
+    })
+}
+
+/// `parent` as a directory to open: a relative path of one component
+/// (`--backup backup`) has the empty parent, the current directory.
+fn containing_dir(parent: &Path) -> &Path {
+    if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    }
+}
+
+/// `create_dir_all_durable` with the directory sync given (`sync`: called
+/// for each folder from `folder`'s parent up to `base`, innermost first).
+fn create_dir_all_syncing(
+    folder: &Path,
+    base: &Path,
+    mut sync: impl FnMut(&Path) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    fs::create_dir_all(folder)?;
+    if !folder.starts_with(base) {
+        return Err(std::io::Error::other(format!(
+            "{} is not inside {}",
+            folder.display(),
+            base.display()
+        )));
+    }
+    let mut at = folder;
+    while at != base
+        && let Some(parent) = at.parent()
+    {
+        sync(containing_dir(parent))?;
+        at = parent;
+    }
+    Ok(())
+}
+
 pub fn choose_destination(
     folder: &Path,
     name: &str,
@@ -446,7 +499,7 @@ pub fn destination_folder(
     let folder = match folder {
         None => {
             let capture = library.directory.join(&library.manifest.capture);
-            fs::create_dir_all(&capture)?;
+            create_dir_all_durable(&capture, &library.directory)?;
             capture
         }
         Some(folder) => {
@@ -563,7 +616,7 @@ fn import_one_into_with(
         folder = folder
             .join(date.format("%Y").to_string())
             .join(date.format("%Y-%m-%d").to_string());
-        fs::create_dir_all(&folder)?;
+        create_dir_all_durable(&folder, destination.path())?;
     }
     ensure!(
         folder.is_dir(),
@@ -598,7 +651,10 @@ fn import_one_into_with(
     })?;
     let mut backup_result = None;
     if let Some(backup_folder) = backup {
-        fs::create_dir_all(backup_folder)?;
+        create_dir_all_durable(
+            backup_folder,
+            backup_folder.parent().unwrap_or(backup_folder),
+        )?;
         ensure!(
             backup_folder.canonicalize()? != folder.canonicalize()?,
             "Backup must be a different directory"
@@ -794,6 +850,46 @@ fn register(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn new_date_folders_are_synced_into_their_parents() {
+        let d = tempfile::tempdir().unwrap();
+        let library = d.path().join("Library");
+        fs::create_dir(&library).unwrap();
+        let day = library.join("2026").join("2026-10-20");
+        let syncing = |folder: &Path, fail: bool| {
+            let mut synced = Vec::new();
+            let result = create_dir_all_syncing(folder, &library, |dir| {
+                synced.push(dir.to_path_buf());
+                if fail {
+                    Err(std::io::Error::other("no sync"))
+                } else {
+                    Ok(())
+                }
+            });
+            (result, synced)
+        };
+        // A failed sync fails the import, though the folders are there now.
+        let (result, _) = syncing(&day, true);
+        assert!(result.is_err() && day.is_dir());
+        // The next import that day syncs the chain again: the year holds the
+        // day, the library the year.
+        let (result, synced) = syncing(&day, false);
+        result.unwrap();
+        assert_eq!(synced, [library.join("2026"), library.clone()]);
+        // Every time, also when another import made the folders.
+        assert_eq!(syncing(&day, false).1.len(), 2);
+        assert!(syncing(&d.path().join("elsewhere"), false).0.is_err());
+        // A backup folder given relative, of one component (`--backup
+        // backup`): its parent is the current directory.
+        let backup = Path::new("backup");
+        assert_eq!(containing_dir(backup.parent().unwrap()), Path::new("."));
+        assert_eq!(containing_dir(Path::new("/a")), Path::new("/a"));
+        // `.` is a directory a sync can open.
+        fs::File::open(containing_dir(Path::new(""))).unwrap();
+        // The real one, on this filesystem.
+        create_dir_all_durable(&library.join("2027").join("2027-01-01"), &library).unwrap();
+    }
+
     #[test]
     fn verifies_bytes_and_never_overwrites() {
         let d = tempfile::tempdir().unwrap();
