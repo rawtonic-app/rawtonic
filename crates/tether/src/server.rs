@@ -17,6 +17,21 @@ use std::time::{Duration, Instant};
 /// How long one wait for camera events lasts while nothing else is due.
 const EVENT_POLL: Duration = Duration::from_millis(20);
 /// Which app shot a downloaded file belongs to.
+/// An exposure files were matched to (`Open::recent`).
+struct Exposure {
+    /// Its file name without the extension.
+    stem: String,
+    /// The file kinds (extensions) it gave so far.
+    kinds: Vec<String>,
+    /// Its app request, if any.
+    request: Option<Instant>,
+    /// `Captured::exposure`.
+    number: u64,
+}
+
+/// How many exposures a late RAW or JPEG of one is looked for in.
+const RECENT_EXPOSURES: usize = 8;
+
 enum Shot {
     /// The oldest waiting one, if any — unless the file turns out to be a
     /// repeated report of the last photo.
@@ -51,10 +66,10 @@ struct Open {
     published: std::collections::HashMap<CameraFile, (usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
-    /// The last exposure a file was matched to: its file name without the
-    /// extension and its app request, if any (RAW and JPEG of one exposure
-    /// share the name and answer one request).
-    exposure: Option<(String, Vec<String>, Option<Instant>)>,
+    /// The last exposures files were matched to, newest last: RAW and JPEG
+    /// of one exposure share the name and answer one request, and may come
+    /// interleaved with another exposure's files (A.RAW, B.RAW, A.JPG).
+    recent: VecDeque<Exposure>,
     /// Exposures so far (`Captured::exposure`).
     exposures: u64,
     /// The camera came to keep photos only in its memory ("Save to" without
@@ -265,7 +280,7 @@ impl<W: Write> Server<W> {
                     downloaded: 0,
                     published: Default::default(),
                     downloads: Default::default(),
-                    exposure: None,
+                    recent: VecDeque::new(),
                     exposures: 0,
                     memory_only: false,
                     connection: self.connections,
@@ -485,28 +500,38 @@ impl<W: Write> Server<W> {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
             None => (file.name.clone(), String::new()),
         };
-        let requested = match shot_of {
-            // Another file of the same exposure (same name, other kind):
-            // the same request, not the next one.
-            Shot::Waiting => match &mut open.exposure {
-                Some((last_stem, kinds, at))
-                    if *last_stem == stem && !kinds.contains(&extension) =>
-                {
-                    kinds.push(extension.clone());
-                    *at
-                }
-                // A file of a kind the exposure already gave starts the next one.
-                _ => {
-                    let at = open.waiting.pop_front();
-                    open.exposure = Some((stem, vec![extension], at));
-                    open.exposures += 1;
-                    at
-                }
-            },
-            Shot::At(at) => {
-                open.exposure = Some((stem, vec![extension], Some(at)));
+        // Another file of a recent exposure (same name, a kind it has not
+        // given yet; the newest such): the same request, not the next one.
+        let companion = match shot_of {
+            Shot::Waiting => open
+                .recent
+                .iter_mut()
+                .rev()
+                .find(|e| e.stem == stem && !e.kinds.contains(&extension)),
+            Shot::At(_) => None,
+        };
+        let (requested, exposure) = match companion {
+            Some(e) => {
+                e.kinds.push(extension);
+                (e.request, e.number)
+            }
+            // A new exposure.
+            None => {
+                let request = match shot_of {
+                    Shot::Waiting => open.waiting.pop_front(),
+                    Shot::At(at) => Some(at),
+                };
                 open.exposures += 1;
-                Some(at)
+                if open.recent.len() == RECENT_EXPOSURES {
+                    open.recent.pop_front();
+                }
+                open.recent.push_back(Exposure {
+                    stem,
+                    kinds: vec![extension],
+                    request,
+                    number: open.exposures,
+                });
+                (request, open.exposures)
             }
         };
         let started = requested.unwrap_or(reported);
@@ -552,7 +577,7 @@ impl<W: Write> Server<W> {
             path,
             connection: open.connection,
             download: shot,
-            exposure: open.exposures,
+            exposure,
             camera_folder: file.folder,
             camera_name: file.name,
             size: expected,

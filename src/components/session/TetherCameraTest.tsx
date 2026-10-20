@@ -89,6 +89,9 @@ const notDelivered = (payload: unknown): Failure => {
 };
 const notAdded = (error: string): Failure => ({ reason: "photo not added to the library", detail: error });
 const NO_PHOTO: Failure = { reason: "no photo arrived" };
+/** Steps that take photos, and how long after one its last files may come. */
+const PHOTO_STEPS: StepId[] = ["shots", "burst", "bodyShot", "replug"];
+const SETTLE_MS = 1000;
 
 const systemName = () => {
   try {
@@ -124,6 +127,8 @@ export default function TetherCameraTest({
   const [shotCount, setShotCount] = useState(10);
   const [appVersion, setAppVersion] = useState("unknown");
   const [copied, setCopied] = useState(false);
+  // Files of the test's photos that did not go into the library.
+  const [filesNotAdded, setFilesNotAdded] = useState(0);
 
   // Everything heard during the test, so a wait never misses what came
   // before it was set up.
@@ -153,7 +158,8 @@ export default function TetherCameraTest({
       if (name === "tether-captured") {
         // One exposure as RAW and JPEG counts once: the helper gives both
         // its number.
-        const { connection, exposure } = payload as Captured;
+        const { connection, exposure, error } = payload as Captured;
+        if (error) setFilesNotAdded((n) => n + 1);
         if (connection == null || exposure == null) h.exposure = true;
         else {
           const key = `${connection}/${exposure}`;
@@ -416,11 +422,27 @@ export default function TetherCameraTest({
   const run = async (id: StepId) => {
     setRunning(id);
     setPrompt("");
+    const started = now();
     let result: StepResult;
     try {
       result = await runners[id]();
     } catch (e) {
       result = { state: "failed", ...refused(e) };
+    }
+    if (PHOTO_STEPS.includes(id) && !closed.current) {
+      // Every file of the step's photos counts, also the second file of a
+      // RAW+JPEG exposure (counted once above), and one a moment late.
+      await new Promise((done) => window.setTimeout(done, SETTLE_MS));
+      const failed = heard.current.filter(
+        (h) => h.at >= started && h.name === "tether-captured" && captured(h).error,
+      );
+      if (failed.length > 0) {
+        const reason = `${failed.length} files not added to the library`;
+        result =
+          result.state === "failed"
+            ? { ...result, reason: result.reason ? `${result.reason}, ${reason}` : reason }
+            : { ...result, state: "failed", reason, detail: captured(failed[0]).error ?? undefined };
+      }
     }
     setResults((current) => ({ ...current, [id]: result }));
     setPrompt("");
@@ -439,6 +461,7 @@ export default function TetherCameraTest({
     transport: camera.transport ?? "mock",
     transferQueue: camera.transferQueue ?? false,
     freeCameraCopies,
+    filesNotAdded,
   };
   const report = buildReport(info, results);
   const stepNames: Record<StepId, string> = {

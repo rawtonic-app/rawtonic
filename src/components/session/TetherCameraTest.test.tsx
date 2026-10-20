@@ -113,14 +113,16 @@ it("runs the steps with the camera and reports them without serial number, paths
     requested: false,
   });
   emit("tether-released", { cameraName: "DSCF99.RAF", freed: true, error: null });
-  await waitFor(() => expect(report()).toContain("| Shot on the camera | pass | 1/1 in the library |"));
+  await waitFor(() => expect(report()).toContain("| Shot on the camera | pass | 1/1 in the library |"), { timeout: 4000 });
   // The cable out and back in, then a shot.
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await screen.findByText("Pull the USB cable out now.");
   emit("tether-state", { connected: false, error: { kind: "disconnected", message: "gone" } });
   await screen.findByText(/Plug the cable back in/);
   emit("tether-state", { connected: true });
-  await waitFor(() => expect(report()).toMatch(/\| Cable out and back in \| pass \| 1\/1 in the library; \d+ ms;/));
+  await waitFor(() => expect(report()).toMatch(/\| Cable out and back in \| pass \| 1\/1 in the library; \d+ ms;/), {
+    timeout: 4000,
+  });
   await runStep(/\| Transfer queue freed after commit \| pass \| 12 freed \|/);
   const text = report();
   expect(text).toContain("- Firmware: 4.10");
@@ -129,7 +131,7 @@ it("runs the steps with the camera and reports them without serial number, paths
   expect(text).not.toMatch(/93X1234567|someone|Acme|DSCF|\/Users/);
   fireEvent.click(screen.getByRole("button", { name: "Open a camera report on GitHub" }));
   expect(openUrl).toHaveBeenCalledWith("https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml");
-});
+}, 20_000);
 
 it("fails a shot whose photo did not come in, its message kept out of the report", async () => {
   onCapture = () =>
@@ -221,4 +223,27 @@ it("runs under React's StrictMode (its effects set up twice)", async () => {
     </StrictMode>,
   );
   await runStep(/\| Read settings \| pass \|/);
+});
+
+it("fails a step whose RAW was not added although its JPEG was", async () => {
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      for (const [extension, error] of [["JPG", null], ["RAF", "disk full at /Users/someone/x"]])
+        emit("tether-captured", {
+          cameraName: `DSCF${n}.${extension}`,
+          connection: 1,
+          exposure: n,
+          destination: null,
+          assetId: error ? null : `a${n}`,
+          skipped: false,
+          error,
+          requested: true,
+        });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 5\/5 in the library; .*5 files not added to the library \|/);
+  expect(report()).toContain("- Files not added to the library: 5");
+  expect(report()).not.toMatch(/someone|disk full/);
 });

@@ -69,6 +69,9 @@ pub struct MockSpec {
     pub fire_drops_reports: bool,
     /// Each exposure gives a RAW and a JPEG file (same name, .JPG).
     pub raw_and_jpeg: bool,
+    /// The JPEG comes this much after its RAW (else right after it): later
+    /// exposures' files can come in between.
+    pub jpeg_late_ms: u64,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
     pub capture_target: Option<String>,
     /// A real photo to hand out (each shot gets its number appended, so no
@@ -105,6 +108,7 @@ impl Default for MockSpec {
             firmware: Some("1.00".into()),
             capture_target: None,
             raw_and_jpeg: false,
+            jpeg_late_ms: 0,
             no_card: false,
             card_out_after_ms: None,
             target_read_fails: false,
@@ -246,7 +250,7 @@ impl MockCamera {
             .or_default()
             .push_back(self.fired);
         Some((
-            *at + Duration::from_millis(1),
+            *at + Duration::from_millis(self.spec.jpeg_late_ms.max(1)),
             CameraFile {
                 folder: raw.folder.clone(),
                 name,

@@ -102,6 +102,8 @@ export interface ReportInfo {
   transport: string;
   transferQueue: boolean;
   freeCameraCopies: boolean;
+  /** Files of the test's photos that did not go into the library. */
+  filesNotAdded: number;
 }
 
 const TRANSPORTS: Record<string, string> = {
@@ -168,6 +170,7 @@ export const buildReport = (info: ReportInfo, results: Partial<Record<StepId, St
     `- Camera driver: ${driver}`,
     `- Transfer queue: ${info.transferQueue ? `yes (freeing ${info.freeCameraCopies ? "on" : "off"})` : "no"}`,
     `- Compatibility list: ${entry ? LEVELS[entry.level] : "not listed"}`,
+    `- Files not added to the library: ${info.filesNotAdded}`,
     "",
     "| Step | Result | Measured |",
     "|---|---|---|",

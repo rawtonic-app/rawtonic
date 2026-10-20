@@ -441,6 +441,56 @@ fn raw_and_jpeg_of_one_exposure_answer_one_request() {
 }
 
 #[test]
+fn interleaved_raw_and_jpeg_files_keep_their_exposure_and_request() {
+    let dir = tempfile::tempdir().unwrap();
+    // A.ARW, B.ARW, C.ARW, A.JPG, B.JPG, C.JPG; requests 4 and 5 never
+    // deliver.
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        jpeg_late_ms: 300,
+        lost_shots: vec![4, 5],
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 1500);
+    helper.connect().unwrap();
+    for _ in 0..5 {
+        helper.capture();
+    }
+    let (photos, mut other) = helper.photos(6);
+    assert_eq!(photos.len(), 6, "{other:?}");
+    let names: Vec<&str> = photos.iter().map(|p| p.camera_name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "DSC00001.ARW",
+            "DSC00002.ARW",
+            "DSC00003.ARW",
+            "DSC00001.JPG",
+            "DSC00002.JPG",
+            "DSC00003.JPG"
+        ]
+    );
+    let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
+    assert_eq!(exposures, [1, 2, 3, 1, 2, 3]);
+    // The JPEGs did not take the open requests: both time out.
+    let deadline = Instant::now() + WAIT;
+    while Instant::now() < deadline
+        && other
+            .iter()
+            .filter(|e| matches!(e, Some(Event::CaptureFailed { .. })))
+            .count()
+            < 2
+    {
+        other.push(helper.next_event(Duration::from_millis(200)));
+    }
+    let failed = other
+        .iter()
+        .filter(|e| matches!(e, Some(Event::CaptureFailed { error }) if error.kind == ErrorKind::Timeout))
+        .count();
+    assert_eq!(failed, 2, "{other:?}");
+}
+
+#[test]
 fn a_camera_without_a_card_is_not_opened() {
     let dir = tempfile::tempdir().unwrap();
     // "Save to" says the card, but none is in: it would keep photos in memory.
