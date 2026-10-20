@@ -27,6 +27,20 @@ pub fn cancel_ai_task(task_id: String, state: tauri::State<'_, AppState>) -> Res
     Ok(())
 }
 
+/// The error of a mask asked for one photo while another is loaded (the
+/// editor switched photos meanwhile); the editor asks again once its photo
+/// is open (`useAiMasking.ts`).
+pub(crate) const PHOTO_CHANGED: &str = "The photo changed while its mask was asked for";
+
+/// Whether `loaded` (the photo the backend holds) is the photo `asked` for.
+fn ensure_photo(loaded: &str, asked: &str) -> Result<(), String> {
+    if loaded == asked {
+        Ok(())
+    } else {
+        Err(PHOTO_CHANGED.to_string())
+    }
+}
+
 fn encode_to_base64_png(image: &GrayImage) -> Result<String, String> {
     let mut buf = Cursor::new(Vec::new());
     image
@@ -40,6 +54,7 @@ fn encode_to_base64_png(image: &GrayImage) -> Result<String, String> {
 #[tauri::command]
 pub async fn generate_ai_foreground_mask(
     js_adjustments: serde_json::Value,
+    path: String,
     rotation: f32,
     flip_horizontal: bool,
     flip_vertical: bool,
@@ -59,7 +74,7 @@ pub async fn generate_ai_foreground_mask(
 
     LIFECYCLE.touch();
     let started = std::time::Instant::now();
-    let mask = subject_mask(&state, &app_handle, &js_adjustments, true, cancel_flag)
+    let mask = subject_mask(&state, &app_handle, &js_adjustments, &path, cancel_flag)
         .await?
         .ok_or_else(|| "The subject model is not available".to_string())?;
     log::info!(
@@ -81,6 +96,7 @@ pub async fn generate_ai_foreground_mask(
 #[tauri::command]
 pub async fn generate_ai_sky_mask(
     js_adjustments: serde_json::Value,
+    path: String,
     rotation: f32,
     flip_horizontal: bool,
     flip_vertical: bool,
@@ -100,7 +116,7 @@ pub async fn generate_ai_sky_mask(
 
     LIFECYCLE.touch();
     let started = std::time::Instant::now();
-    let mask = sky_mask(&state, &app_handle, &js_adjustments, true, cancel_flag)
+    let mask = sky_mask(&state, &app_handle, &js_adjustments, &path, cancel_flag)
         .await?
         .ok_or_else(|| "The sky model is not available".to_string())?;
     log::info!(
@@ -123,6 +139,7 @@ pub async fn generate_ai_sky_mask(
 #[tauri::command]
 pub async fn generate_ai_depth_mask(
     js_adjustments: serde_json::Value,
+    path: String,
     min_depth: f32,
     max_depth: f32,
     min_fade: f32,
@@ -150,6 +167,7 @@ pub async fn generate_ai_depth_mask(
     // Keyed by the photo actually loaded, taken before the model loads: a
     // photo switch meanwhile cannot file one photo's depth under another.
     let loaded = crate::image_loader::wait_for_original_image(&state)?;
+    ensure_photo(&loaded.path, &path)?;
     let path_hash = geometry_key(&loaded.path, &js_adjustments);
     let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
@@ -663,17 +681,20 @@ async fn network(
 
 /// The Subject or Sky mask (PNG data URL at the photo's size) of the photo
 /// that is loaded, with the caller's geometry: cached per photo and
-/// geometry, else computed and cached. `download`: false for background
-/// requests, which use an installed model only (`Ok(None)` without one).
-/// Cancelling `cancel` stops a run of ONNX Runtime at once.
+/// geometry, else computed and cached. `asked`: the photo a click asked
+/// for (`PHOTO_CHANGED` when another is loaded), which may download the
+/// model; `None` for background requests, which use an installed model only
+/// (`Ok(None)` without one). Cancelling `cancel` stops a run of ONNX Runtime
+/// at once.
 async fn auto_mask(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
     kind: AutoMask,
-    download: bool,
+    asked: Option<&str>,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, String> {
+    let download = asked.is_some();
     let cancelled = || cancel.is_some_and(|t| t.is_cancelled());
     // Counts as running from here, so an idle unload waits for the load too.
     let _running = LIFECYCLE.run();
@@ -681,6 +702,9 @@ async fn auto_mask(
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
     let loaded = crate::image_loader::wait_for_original_image(state)?;
+    if let Some(asked) = asked {
+        ensure_photo(&loaded.path, asked)?;
+    }
     let key = geometry_key(&loaded.path, js_adjustments);
     if let Some(mask) = cached_mask(state, kind, &key) {
         return Ok(Some(mask));
@@ -786,7 +810,7 @@ async fn subject_mask(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
-    download: bool,
+    asked: &str,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, String> {
     auto_mask(
@@ -794,7 +818,7 @@ async fn subject_mask(
         app_handle,
         js_adjustments,
         AutoMask::Subject,
-        download,
+        Some(asked),
         cancel,
     )
     .await
@@ -804,7 +828,7 @@ async fn sky_mask(
     state: &tauri::State<'_, AppState>,
     app_handle: &tauri::AppHandle,
     js_adjustments: &serde_json::Value,
-    download: bool,
+    asked: &str,
     cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<Option<Arc<String>>, String> {
     auto_mask(
@@ -812,7 +836,7 @@ async fn sky_mask(
         app_handle,
         js_adjustments,
         AutoMask::Sky,
-        download,
+        Some(asked),
         cancel,
     )
     .await
@@ -851,7 +875,7 @@ async fn precompute(
         return Ok(());
     }
     let start = std::time::Instant::now();
-    match auto_mask(&state, &app_handle, &js_adjustments, kind, false, cancel).await {
+    match auto_mask(&state, &app_handle, &js_adjustments, kind, None, cancel).await {
         Ok(Some(_)) => {
             log::info!(
                 "AI {} mask: background mask of {path} ready after {} ms",
@@ -1186,5 +1210,16 @@ mod tests {
         assert_eq!(geometry_key("x.raf", &a), geometry_key("x.raf", &b));
         assert_ne!(geometry_key("x.raf", &a), geometry_key("x.raf", &c));
         assert_ne!(geometry_key("x.raf", &a), geometry_key("y.raf", &a));
+    }
+
+    #[test]
+    fn a_mask_is_only_for_the_photo_asked_for() {
+        assert_eq!(ensure_photo("/a.raf", "/a.raf"), Ok(()));
+        assert_eq!(
+            ensure_photo("/b.raf", "/a.raf"),
+            Err(PHOTO_CHANGED.to_string())
+        );
+        // A virtual copy is another photo of the same file.
+        assert!(ensure_photo("/a.raf?vc=1", "/a.raf").is_err());
     }
 }
