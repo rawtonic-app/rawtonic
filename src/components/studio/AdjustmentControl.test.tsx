@@ -51,6 +51,20 @@ describe("professional adjustment control", () => {
     expect(change).not.toHaveBeenCalled();
     expect((input as HTMLInputElement).value).toBe("1");
   });
+  it("keeps the value selected after the click that focuses it", () => {
+    render(<AdjustmentControl label="Exposure" value={1.25} onChange={() => {}} />);
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    // The focusing click: its mouse-up must not collapse the selection
+    // (WebKit does unless the default is prevented), so typing replaces the
+    // value without Cmd+A (notes: reference/wp7-use-test-c1-lr.md finding 1).
+    fireEvent.mouseDown(input);
+    input.focus();
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, input.value.length]);
+    expect(fireEvent.mouseUp(input)).toBe(false);
+    // A second click into the focused field places the caret as usual.
+    fireEvent.mouseDown(input);
+    expect(fireEvent.mouseUp(input)).toBe(true);
+  });
   it("supports fine and coarse keyboard steps and reset", () => {
     const change = vi.fn();
     render(<AdjustmentControl label="Contrast" value={0} onChange={change} />);

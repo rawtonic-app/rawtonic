@@ -23,6 +23,7 @@ import AdjustmentControl from "./AdjustmentControl";
 import { useStudioTools } from "./useStudioTools";
 import { shortcutHint } from "../../utils/keyboardUtils";
 import { runAutoStraighten } from "../../utils/autoStraighten";
+import { selectOnFocus } from "../../utils/selectOnFocus";
 
 const withKey = (title: string, key: string | null) =>
   key ? `${title} (${key})` : title;
@@ -254,6 +255,7 @@ export default function StudioCropControls({
           }}
         >
           <input
+            {...selectOnFocus}
             aria-label={t("studio.crop.aria.ratioWidth")}
             inputMode="decimal"
             value={newRatio.w}
@@ -261,6 +263,7 @@ export default function StudioCropControls({
           />
           ×
           <input
+            {...selectOnFocus}
             aria-label={t("studio.crop.aria.ratioHeight")}
             inputMode="decimal"
             value={newRatio.h}

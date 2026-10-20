@@ -20,6 +20,7 @@ import {
   type Rule,
 } from "../../utils/librarySearch";
 import { SESSION_ALBUMS_CHANGED, childrenOf, type SessionAlbum } from "./StudioAlbums";
+import { selectOnFocus } from "../../utils/selectOnFocus";
 
 /** What a field's value is, which decides its operators and inputs. */
 type Kind = "search" | "text" | "number" | "date" | "choice" | "album" | "folder" | "bool";
@@ -273,6 +274,7 @@ function NumberInput({ field, value, onChange, label }: { field: Field; value: u
   }
   return (
     <input
+      {...selectOnFocus}
       className="studio-metadata-input"
       aria-label={label}
       inputMode="decimal"
@@ -309,6 +311,7 @@ function ValueEditor({
     return (
       <span className="studio-rule-value">
         <input
+          {...selectOnFocus}
           className="studio-metadata-input"
           aria-label={t("studio.library.smartAlbums.amountLabel")}
           type="number"

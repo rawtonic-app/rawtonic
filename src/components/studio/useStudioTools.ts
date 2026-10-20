@@ -41,6 +41,9 @@ export function toggleRemoveObjects(selectTool: (tool: StudioTool) => void) {
   if (!isSpotToolActive || on) selectTool("spot");
 }
 
+/** Gradients, drawn by a drag on the photo once created. */
+const isDrawnShape = (kind: MaskKind) => kind === "linear" || kind === "radial";
+
 /** Tool state and actions shared by the layer panel, the viewer's tool bar
  * and the tool settings popover. */
 export function useStudioTools() {
@@ -152,6 +155,8 @@ export function useStudioTools() {
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
       ...(maskKind === "luminance" ? { lumaPickerLayer: id } : {}),
+      // A gradient is drawn by the next drag on the photo.
+      shapeDrawTarget: isDrawnShape(maskKind) ? mask.id : null,
       // A new layer keeps the current brush size.
       brushSettings: {
         ...brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE),
@@ -231,6 +236,7 @@ export function useStudioTools() {
       isStraightenActive: false,
       // A luminance range starts sampling tones on the photo (Lightroom).
       ...(kind === "luminance" ? { lumaPickerLayer: target.id } : {}),
+      shapeDrawTarget: isDrawnShape(kind) ? added[0].id : null,
       // A brush component (Intersect's) paints, as `paintOnLayer` does.
       ...(kind === "brush" ? { brushSettings: brushFor(brushSettings?.size ?? DEFAULT_BRUSH_SIZE) } : {}),
     });

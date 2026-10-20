@@ -1,7 +1,7 @@
 import "../../i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import StudioLayers from "./StudioLayers";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import StudioLayers, { layerListEdgeStep } from "./StudioLayers";
 import { useEditorStore } from "../../store/useEditorStore";
 import { useProcessStore } from "../../store/useProcessStore";
 import { useUIStore } from "../../store/useUIStore";
@@ -246,5 +246,65 @@ describe("rendered layer limit", () => {
       (badge) => badge.closest("[data-layer-row]")!.getAttribute("data-layer-row"),
     );
     expect(marked.sort()).toEqual(["l33", "l34"]);
+  });
+});
+
+describe("long layer lists", () => {
+  it("keep the selected layer in view inside the list's own scroll area", () => {
+    const scrolled: string[] = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () {
+      scrolled.push((this as HTMLElement).dataset.layerRow ?? "");
+    };
+    try {
+      render(<StudioLayers />);
+      // The list holds the rows; the settings follow it outside, so a long
+      // list scrolls within itself instead of pushing them down.
+      const list = screen.getByRole("list", { name: /layers/i });
+      expect(list.querySelector(".studio-layer-settings")).toBeNull();
+      expect(document.querySelector(".studio-layer-settings")).not.toBeNull();
+      expect(scrolled).toEqual(["l2"]);
+      fireEvent.click(document.querySelector('[data-layer-row="l1"] .studio-layer-name')!);
+      expect(scrolled).toEqual(["l2", "l1"]);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+});
+
+describe("dragging a layer to the list's ends", () => {
+  it("keeps scrolling while the pointer is held at an edge, and stops at the release", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("requestAnimationFrame", (fn: FrameRequestCallback) => setTimeout(() => fn(0), 16) as unknown as number);
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
+    const elementFromPoint = document.elementFromPoint;
+    document.elementFromPoint = () => null;
+    try {
+      render(<StudioLayers />);
+      const list = screen.getByRole("list", { name: /layers/i });
+      list.getBoundingClientRect = () => ({ top: 100, bottom: 300, left: 0, right: 200, width: 200, height: 200 }) as DOMRect;
+      const row = document.querySelector('[data-layer-row="l1"]')!;
+      fireEvent.pointerDown(row, { button: 0, clientX: 50, clientY: 200 });
+      // One move to the bottom edge, then the pointer stays there.
+      fireEvent.pointerMove(document, { clientX: 50, clientY: 295 });
+      act(() => vi.advanceTimersByTime(16 * 5));
+      expect(list.scrollTop).toBe(40);
+      fireEvent.pointerUp(document, { clientX: 50, clientY: 295 });
+      act(() => vi.advanceTimersByTime(16 * 5));
+      expect(list.scrollTop).toBe(40);
+    } finally {
+      document.elementFromPoint = elementFromPoint;
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("layerListEdgeStep", () => {
+  it("scrolls towards the edge the pointer is near, not in the middle", () => {
+    const list = { top: 100, bottom: 300 };
+    expect(layerListEdgeStep(list, 110)).toBeLessThan(0);
+    expect(layerListEdgeStep(list, 200)).toBe(0);
+    expect(layerListEdgeStep(list, 295)).toBeGreaterThan(0);
   });
 });

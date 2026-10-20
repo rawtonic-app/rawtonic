@@ -155,6 +155,10 @@ interface EditorState {
   /** The layer whose luma range the eyedropper sets from the photo, or null
    * when it is off (Lightroom's Luminance Range sampling). */
   lumaPickerLayer: string | null;
+  /** A new linear or radial component waiting to be drawn: the first drag
+   * on the photo draws it (Lightroom, Capture One); a click keeps its
+   * default shape. Never part of the recipe. */
+  shapeDrawTarget: string | null;
   patchesSentToBackend: Set<string>;
 
   // Clipboard
@@ -256,6 +260,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   showMaskWithSelectTool: false,
   maskOverlayAuto: 'auto',
   lumaPickerLayer: null,
+  shapeDrawTarget: null,
   patchesSentToBackend: new Set<string>(),
 
   setEditor: (updater) => set((state) => (typeof updater === 'function' ? updater(state) : updater)),
@@ -393,5 +398,12 @@ useEditorStore.subscribe((state, previous) => {
       state.selectedImage?.path !== previous.selectedImage?.path)
   )
     patch.lumaPickerLayer = null;
+  // So does a shape waiting for its drag.
+  if (
+    state.shapeDrawTarget &&
+    state.shapeDrawTarget === previous.shapeDrawTarget &&
+    (state.activeMaskId !== previous.activeMaskId || state.selectedImage?.path !== previous.selectedImage?.path)
+  )
+    patch.shapeDrawTarget = null;
   if (Object.keys(patch).length > 0) state.setEditor(patch);
 });

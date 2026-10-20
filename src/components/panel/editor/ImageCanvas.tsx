@@ -81,12 +81,19 @@ import {
 import {
   dragLinearLine,
   linearFrame,
-  linearFromDrag,
   linearLineOffsets,
   rotateLinear,
   type LinearLine,
   type LinearParams,
 } from '../../../utils/linearMask';
+import {
+  draftToCommit,
+  restoreAfterShapeDrag,
+  shapeFromDrag,
+  type ShapeDraft,
+  type ShapeDragState,
+} from '../../../utils/shapeDraw';
+import { requestLiveMaskRender } from '../../../utils/liveMaskRender';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -208,6 +215,8 @@ interface MaskOverlayProps {
   onMaskInteractionStart(event?: KonvaEventObject<Event>): void;
   isToolActive: boolean;
   isSelected: boolean;
+  /** A new gradient waiting for (or following) its first drag. */
+  isBeingDrawn?: boolean;
   onMaskMouseEnter(): void;
   onMaskMouseLeave(): void;
   onPreviewUpdate?(id: string, subMask: Partial<SubMask>): void;
@@ -362,6 +371,7 @@ const MaskOverlay = memo(
     onMaskInteractionStart,
     isToolActive,
     isSelected,
+    isBeingDrawn = false,
     onMaskMouseEnter,
     onMaskMouseLeave,
     onPreviewUpdate,
@@ -840,7 +850,6 @@ const MaskOverlay = memo(
 
     if (subMask.type === Mask.Radial) {
       const { centerX, centerY, radiusX, radiusY, rotation } = p as RadialParams;
-      if (p.isInitialDraw && (radiusX < 1 || radiusY < 2)) return null;
 
       return (
         <Group>
@@ -979,7 +988,6 @@ const MaskOverlay = memo(
       const defaultRange = Math.min(cropW, cropH) * 0.1;
       const params = { ...p, range: p.range ?? defaultRange } as LinearParams;
       const { startX, startY, endX, endY } = params;
-      if (p.isInitialDraw && Math.hypot(startX - endX, startY - endY) < 1) return null;
 
       const { along, normal } = linearFrame(params);
       const offsets = linearLineOffsets(params);
@@ -996,7 +1004,7 @@ const MaskOverlay = memo(
       const startLine = parallel(offsets.start);
       const endLine = parallel(offsets.end);
       const editable = isSelected && !isToolActive;
-      const showFeatherLines = isSelected && (!isToolActive || p.isInitialDraw);
+      const showFeatherLines = isSelected && (!isToolActive || isBeingDrawn);
       const lineProps = {
         stroke: commonProps.stroke,
         opacity: commonProps.opacity,
@@ -1299,6 +1307,7 @@ const ImageCanvas = memo(
     const isMaskRangeDragging = useEditorStore((state) => state.isMaskRangeDragging);
     const maskOverlayAutoHidden = useEditorStore((state) => state.maskOverlayAuto === 'hidden');
     const lumaPickerLayer = useEditorStore((state) => state.lumaPickerLayer);
+    const shapeDrawTarget = useEditorStore((state) => state.shapeDrawTarget);
     const tatTarget = useEditorStore((state) => state.tatTarget);
     const relightHandles = useRelightStore((s) => s.panelOpen && s.showHandles);
     const isSpotToolActive = useEditorStore((state) => state.isSpotToolActive);
@@ -1352,7 +1361,8 @@ const ImageCanvas = memo(
 
     const [isCropViewVisible, setIsCropViewVisible] = useState(false);
     const cropImageRef = useRef<HTMLImageElement>(null);
-    const [localInitialDrawParams, setLocalInitialDrawParams] = useState<SubMask['parameters'] | null>(null);
+    // The gradient a drag is drawing: its component and its shape so far.
+    const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
     const [isMaskInteractionActive, setIsMaskInteractionActive] = useState(false);
     // Pressing a mask handle must never pan or click-zoom the view, even when
     // no hover preceded the press (pens, Sidecar, synthetic input). The editor
@@ -1395,7 +1405,7 @@ const ImageCanvas = memo(
       setIsStrokeActive(drawing);
     }, []);
     const drawingStageRef = useRef<Konva.Stage | null>(null);
-    const dragStartPointer = useRef<Coord | null>(null);
+    const dragStartPointer = useRef<(Coord & ShapeDragState) | null>(null);
     const lastBrushPoint = useRef<Coord | null>(null);
     const currentLine = useRef<DrawnLine | null>(null);
     // The positions the pointer passed since the last delivered move: the
@@ -1654,7 +1664,34 @@ const ImageCanvas = memo(
     const isParametricActive =
       isLumaPickerActive ||
       (isMasking && (activeSubMask?.type === Mask.Color || activeSubMask?.type === Mask.Luminance));
-    const isInitialDrawing = isMasking && activeSubMask?.parameters?.isInitialDraw === true;
+    // A new gradient: the next drag on the photo draws it.
+    const isInitialDrawing =
+      isMasking &&
+      !!activeSubMask &&
+      shapeDrawTarget === activeSubMask.id &&
+      (activeSubMask.type === Mask.Linear || activeSubMask.type === Mask.Radial);
+    // Another component or photograph ends a gradient drag: its draft is
+    // dropped, the drawing session ends and the preview shows the recipe's
+    // shape again.
+    const activeSubMaskId = activeSubMask?.id;
+    const livePreviewRef = useRef(onLiveMaskPreview);
+    livePreviewRef.current = onLiveMaskPreview;
+    const shownImagePath = useRef(selectedImage.path);
+    useEffect(() => {
+      const samePhoto = shownImagePath.current === selectedImage.path;
+      shownImagePath.current = selectedImage.path;
+      const start = dragStartPointer.current;
+      setShapeDraft(null);
+      if (!start || start.id === activeSubMaskId) return;
+      dragStartPointer.current = null;
+      setDrawing(false);
+      drawingStageRef.current = null;
+      if (samePhoto)
+        restoreAfterShapeDrag(start, useEditorStore.getState().adjustments, {
+          renderLive: requestLiveMaskRender,
+          showLayer: (layer) => livePreviewRef.current?.(layer),
+        });
+    }, [activeSubMaskId, selectedImage.path, setDrawing]);
 
     // Control+Option drags change the brush instead of painting (Capture One).
     const canvasRootRef = useRef<HTMLDivElement>(null);
@@ -1696,12 +1733,18 @@ const ImageCanvas = memo(
       }
       setDrawing(false);
       drawingStageRef.current = null;
+      // A gradient drag ended by leaving the tool or masking.
+      if (dragStartPointer.current)
+        restoreAfterShapeDrag(dragStartPointer.current, useEditorStore.getState().adjustments, {
+          renderLive: requestLiveMaskRender,
+          showLayer: (layer) => livePreviewRef.current?.(layer),
+        });
       dragStartPointer.current = null;
       currentLine.current = null;
       lastBrushPoint.current = null;
       setPreviewBox(null);
       previewBoxRef.current = null;
-      setLocalInitialDrawParams(null);
+      setShapeDraft(null);
     }, [isToolActive, setDrawing]);
 
     useEffect(() => {
@@ -2133,7 +2176,6 @@ const ImageCanvas = memo(
           newParams.flipHorizontal = adjustments.flipHorizontal || false;
           newParams.flipVertical = adjustments.flipVertical || false;
           newParams.orientationSteps = adjustments.orientationSteps || 0;
-          delete newParams.isInitialDraw;
 
           const activeId = isMasking ? activeMaskId : null;
           updateSubMask(activeId, { parameters: newParams });
@@ -2147,36 +2189,9 @@ const ImageCanvas = memo(
           if (!pos) return;
 
           const { scale } = imageRenderSize;
-          const x = pos.x / scale + cropX;
-          const y = pos.y / scale + cropY;
-
-          dragStartPointer.current = { x, y };
-
-          let initialParams = { ...activeSubMask.parameters };
-
-          if (activeSubMask.type === Mask.Radial) {
-            initialParams = {
-              ...initialParams,
-              centerX: x,
-              centerY: y,
-              radiusX: 0,
-              radiusY: 0,
-              rotation: 0,
-              frame: drawingFrame,
-            };
-          } else if (activeSubMask.type === Mask.Linear) {
-            initialParams = {
-              ...initialParams,
-              startX: x,
-              startY: y,
-              endX: x,
-              endY: y,
-              range: 0,
-              frame: drawingFrame,
-            };
-          }
-
-          setLocalInitialDrawParams(initialParams);
+          dragStartPointer.current = { id: activeSubMask.id, x: pos.x / scale + cropX, y: pos.y / scale + cropY };
+          // The shape changes once the press has moved far enough to draw.
+          setShapeDraft(null);
           return;
         }
 
@@ -2393,7 +2408,9 @@ const ImageCanvas = memo(
           return;
         }
 
-        if (isInitialDrawing && dragStartPointer.current && activeSubMask && localInitialDrawParams) {
+        if (isInitialDrawing && dragStartPointer.current && activeSubMask) {
+          // A drag belongs to the component it started on.
+          if (dragStartPointer.current.id !== activeSubMask.id) return;
           const stage =
             drawingStageRef.current || (e && typeof e.target?.getStage === 'function' ? e.target.getStage() : null);
           if (!stage) return;
@@ -2401,31 +2418,23 @@ const ImageCanvas = memo(
           if (!pointerPos) return;
 
           const { scale } = imageRenderSize;
-          const x = pointerPos.x / scale + cropX;
-          const y = pointerPos.y / scale + cropY;
+          const updatedParams = shapeFromDrag(
+            activeSubMask.type,
+            { ...activeSubMask.parameters, frame: drawingFrame },
+            dragStartPointer.current,
+            { x: pointerPos.x / scale + cropX, y: pointerPos.y / scale + cropY },
+            {
+              // Image to screen pixels, viewer zoom included.
+              scale: screenPixelsPerImagePixel,
+              handle: Math.min(effectiveImageDimensions.width, effectiveImageDimensions.height) * 0.2,
+              snap: !!(e?.evt?.shiftKey ?? e?.shiftKey),
+              drawing: dragStartPointer.current.drawing,
+            },
+          );
+          if (!updatedParams) return;
+          dragStartPointer.current.drawing = true;
 
-          const distX = x - dragStartPointer.current.x;
-          const distY = y - dragStartPointer.current.y;
-          const screenThreshold = 15;
-          if (Math.sqrt(distX * distX + distY * distY) < screenThreshold / scale) {
-            return;
-          }
-
-          const updatedParams = { ...localInitialDrawParams };
-
-          if (activeSubMask.type === Mask.Radial) {
-            updatedParams.radiusX = Math.max(1, Math.abs(x - dragStartPointer.current.x));
-            updatedParams.radiusY = Math.max(1, Math.abs(y - dragStartPointer.current.y));
-          } else if (activeSubMask.type === Mask.Linear) {
-            // Capture One: the press is the 100% point, the pointer the 0%
-            // point; Shift locks the direction to 45° steps.
-            const handleDist = Math.min(effectiveImageDimensions.width, effectiveImageDimensions.height) * 0.2;
-            const shift = !!(e?.evt?.shiftKey ?? e?.shiftKey);
-            Object.assign(updatedParams, linearFromDrag(updatedParams as LinearParams, dragStartPointer.current, { x, y }, handleDist, shift));
-            delete updatedParams.rangeEnd;
-          }
-
-          setLocalInitialDrawParams(updatedParams);
+          setShapeDraft({ id: activeSubMask.id, params: updatedParams });
 
           if (onLiveMaskPreview && activeContainer && activeSubMask) {
             const previewSubMask = {
@@ -2439,6 +2448,7 @@ const ImageCanvas = memo(
               ),
             };
             onLiveMaskPreview(previewContainer, renderShapesLive ? { renderLive: true } : undefined);
+            if (renderShapesLive) dragStartPointer.current.renderedLive = true;
           }
 
           const activeId = isMasking ? activeMaskId : null;
@@ -2526,10 +2536,10 @@ const ImageCanvas = memo(
         effectiveImageDimensions,
         brushSettings,
         isMasking,
-        localInitialDrawParams,
         brushImageSpaceSize,
         getCanvasPointer,
         renderShapesLive,
+        screenPixelsPerImagePixel,
         cursorPreview.visible,
         brushGesture,
         uncroppedImageRenderSize?.width,
@@ -2596,7 +2606,6 @@ const ImageCanvas = memo(
           flipVertical: adjustments.flipVertical || false,
           orientationSteps: adjustments.orientationSteps || 0,
         };
-        delete newParams.isInitialDraw;
         delete newParams.tolerance;
         updateSubMask(isMasking ? activeMaskId : null, { parameters: newParams });
         return;
@@ -2648,28 +2657,15 @@ const ImageCanvas = memo(
 
       if (isInitialDrawing && activeSubMask) {
         setDrawing(false);
-        const activeId = isMasking ? activeMaskId : null;
-
-        const newParams = { ...localInitialDrawParams };
-        delete newParams.isInitialDraw;
-
-        if (activeSubMask.type === Mask.Radial && (newParams as RadialParams).radiusX < 10 && (newParams as RadialParams).radiusY < 10) {
-          newParams.radiusX = 100;
-          newParams.radiusY = 100;
-        } else if (activeSubMask.type === Mask.Linear) {
-          if (!newParams.range || newParams.range < 10) {
-            const handleDist = Math.min(effectiveImageDimensions.width, effectiveImageDimensions.height) * 0.2;
-            newParams.startX = dragStartPointer.current!.x + handleDist;
-            newParams.startY = dragStartPointer.current!.y;
-            newParams.endX = dragStartPointer.current!.x - handleDist;
-            newParams.endY = dragStartPointer.current!.y;
-            newParams.range = 100;
-          }
-        }
-
-        updateSubMask(activeId, { parameters: newParams });
-        setLocalInitialDrawParams(null);
+        // A click without a drag keeps the shape the tool created; a drag
+        // started on another component (the tool changed meanwhile) draws
+        // nothing and leaves this one waiting.
+        const drawn = draftToCommit(shapeDraft, activeSubMask.id);
+        const started = dragStartPointer.current?.id === activeSubMask.id;
+        if (drawn) updateSubMask(isMasking ? activeMaskId : null, { parameters: drawn });
+        setShapeDraft(null);
         dragStartPointer.current = null;
+        if (started) useEditorStore.getState().setEditor({ shapeDrawTarget: null });
         return;
       }
 
@@ -2806,7 +2802,7 @@ const ImageCanvas = memo(
       onGenerateAiMask,
       updateSubMask,
       effectiveImageDimensions,
-      localInitialDrawParams,
+      shapeDraft,
       brushImageSpaceSize,
       setDrawing,
       isAiSubjectActive,
@@ -3396,8 +3392,8 @@ const ImageCanvas = memo(
                         sortedSubMasks.map((subMask: SubMask) => {
                           const activeId = activeMaskId;
                           const renderSubMask =
-                            subMask.id === activeId && localInitialDrawParams
-                              ? { ...subMask, parameters: localInitialDrawParams }
+                            subMask.id === activeId && shapeDraft?.id === subMask.id
+                              ? { ...subMask, parameters: shapeDraft.params }
                               : subMask;
 
                           if (
@@ -3420,6 +3416,7 @@ const ImageCanvas = memo(
                                 imageWidth={effectiveImageDimensions.width}
                                 isSelected={renderSubMask.id === activeId}
                                 isToolActive={isToolActive}
+                                isBeingDrawn={isInitialDrawing && renderSubMask.id === activeId}
                                 onMaskInteractionEnd={handleMaskInteractionEnd}
                                 onMaskInteractionStart={handleMaskInteractionStart}
                                 onMaskMouseEnter={() => !isToolActive && setIsMaskHovered(true)}

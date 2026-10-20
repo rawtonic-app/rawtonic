@@ -1,5 +1,5 @@
 import { swallowDragClick } from '../../utils/swallowClick';
-import { Fragment, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDown,
@@ -213,6 +213,14 @@ function NewLayerGrid() {
  * the selected layer; with no layers, the new-layer grid. Below a divider the
  * selection's settings: the selected component's, then the layer's.
  */
+/** Pixels a layer drag scrolls the list per frame with the pointer at `y`:
+ * within 20 px of its top or bottom edge (or past it), towards that edge. */
+export function layerListEdgeStep(list: { top: number; bottom: number }, y: number): number {
+  if (y < list.top + 20) return -8;
+  if (y > list.bottom - 20) return 8;
+  return 0;
+}
+
 export default function StudioLayers({
   compact = false,
 }: {
@@ -242,6 +250,16 @@ export default function StudioLayers({
     target: string | null;
     above: boolean;
   } | null>(null);
+  // The list scrolls within its own height, so the selected layer's
+  // settings below it stay in reach with many layers (notes:
+  // reference/wp7-use-test-c1-lr.md finding 3); the selection stays in view.
+  const listRef = useRef<HTMLDivElement>(null);
+  const selectedId = layer?.id ?? null;
+  useEffect(() => {
+    if (!selectedId) return;
+    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-layer-row]") ?? [];
+    [...rows].find((row) => row.dataset.layerRow === selectedId)?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedId]);
 
   const selectLayer = (mask: MaskContainer) => {
     setEditor({
@@ -414,19 +432,38 @@ export default function StudioLayers({
         above: !rect.height || y < rect.top + rect.height / 2,
       };
     };
+    // Held near the list's ends, the drag scrolls it to rows out of view,
+    // frame by frame until the pointer leaves the edge or the drag ends.
+    let pointer = start;
+    let scrollFrame = 0;
+    const edgeScroll = () => {
+      scrollFrame = 0;
+      const list = listRef.current;
+      if (!ghost || !list) return;
+      const step = layerListEdgeStep(list.getBoundingClientRect(), pointer.y);
+      if (!step) return;
+      list.scrollTop += step;
+      drop = rowAt(pointer.x, pointer.y);
+      setLayerDrag({ id: mask.id, ...drop });
+      scrollFrame = requestAnimationFrame(edgeScroll);
+    };
     const move = (ev: PointerEvent) => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
         ghost = createDragGhost({ label: mask.name, kind: "layer" });
       }
+      pointer = { x: ev.clientX, y: ev.clientY };
       ghost.move(ev.clientX, ev.clientY);
       drop = rowAt(ev.clientX, ev.clientY);
       setLayerDrag({ id: mask.id, ...drop });
+      if (!scrollFrame) scrollFrame = requestAnimationFrame(edgeScroll);
     };
     const end = (ev: PointerEvent) => {
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", end, true);
       document.removeEventListener("pointercancel", end, true);
+      cancelAnimationFrame(scrollFrame);
+      scrollFrame = 0;
       if (!ghost) return;
       ghost.remove();
       setLayerDrag(null);
@@ -482,7 +519,7 @@ export default function StudioLayers({
           <span className="studio-layer-solo-end">{t("studio.develop.layers.soloEnd")}</span>
         </button>
       )}
-      <div className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
+      <div ref={listRef} className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
         {[...masks].reverse().map((mask) => {
           const selected = layer?.id === mask.id;
           const unrendered = unrenderedIds.has(mask.id);

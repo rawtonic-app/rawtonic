@@ -467,6 +467,27 @@ describe("crop tool panel", () => {
   });
 });
 
+describe("new gradients", () => {
+  it("wait for a drag on the photo to draw them, outside the recipe", () => {
+    workspace();
+    useUIStore.setState({ activePanel: Panel.Masks });
+    press("l", "KeyL");
+    const linear = editor().adjustments.masks[0].subMasks[0];
+    expect(linear.type).toBe(Mask.Linear);
+    // The next drag draws it (notes: reference/wp7-use-test-c1-lr.md finding 2).
+    expect(editor().shapeDrawTarget).toBe(linear.id);
+    expect(Object.keys(linear.parameters)).not.toContain("isInitialDraw");
+    press("t", "KeyT");
+    const radial = editor().adjustments.masks[1].subMasks[0];
+    expect(editor().shapeDrawTarget).toBe(radial.id);
+    // Picking another component ends it; a brush never waits for a drag.
+    useEditorStore.setState({ activeMaskId: linear.id });
+    expect(editor().shapeDrawTarget).toBeNull();
+    press("b", "KeyB");
+    expect(editor().shapeDrawTarget).toBeNull();
+  });
+});
+
 describe("radial panel", () => {
   it("draws the mask inside or outside", () => {
     const radial = createSubMask(Mask.Radial, image);

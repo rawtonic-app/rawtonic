@@ -8,6 +8,7 @@ import {
   type PointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { selectOnFocus } from "../../utils/selectOnFocus";
 
 export interface AdjustmentControlProps {
   label: string;
@@ -250,9 +251,11 @@ export default memo(function AdjustmentControl({
         type="text"
         value={text}
         disabled={disabled}
+        onMouseDown={selectOnFocus.onMouseDown}
+        onMouseUp={selectOnFocus.onMouseUp}
         onFocus={(e) => {
           active.current = true;
-          e.target.select();
+          selectOnFocus.onFocus(e);
         }}
         onChange={(e) => setText(e.target.value)}
         onBlur={commitText}
