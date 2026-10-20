@@ -1398,7 +1398,7 @@ const ImageCanvas = memo(
       setIsStrokeActive(drawing);
     }, []);
     const drawingStageRef = useRef<Konva.Stage | null>(null);
-    const dragStartPointer = useRef<(Coord & { id: string }) | null>(null);
+    const dragStartPointer = useRef<(Coord & { id: string; drawing?: boolean }) | null>(null);
     const lastBrushPoint = useRef<Coord | null>(null);
     const currentLine = useRef<DrawnLine | null>(null);
     // The positions the pointer passed since the last delivered move: the
@@ -2416,9 +2416,11 @@ const ImageCanvas = memo(
               scale: screenPixelsPerImagePixel,
               handle: Math.min(effectiveImageDimensions.width, effectiveImageDimensions.height) * 0.2,
               snap: !!(e?.evt?.shiftKey ?? e?.shiftKey),
+              drawing: dragStartPointer.current.drawing,
             },
           );
           if (!updatedParams) return;
+          dragStartPointer.current.drawing = true;
 
           setShapeDraft({ id: activeSubMask.id, params: updatedParams });
 

@@ -11,18 +11,19 @@ export const SHAPE_DRAG_THRESHOLD = 15;
  * A new gradient drawn by one drag on the photo (Lightroom, Capture One), in
  * image pixels: a radial from its centre (the press) out to the pointer, a
  * linear from its 100% point (the press) to its 0% point (`linearFromDrag`).
- * Null while the drag is shorter than `SHAPE_DRAG_THRESHOLD` screen pixels.
- * `handle` places a linear's orientation points; `snap` (Shift) locks its
- * direction to 45° steps.
+ * Null while the drag is shorter than `SHAPE_DRAG_THRESHOLD` screen pixels,
+ * unless it has been longer already (`drawing`): once drawing, the shape
+ * follows the pointer back towards the press. `handle` places a linear's
+ * orientation points; `snap` (Shift) locks its direction to 45° steps.
  */
 export function shapeFromDrag(
   type: Mask,
   params: SubMask['parameters'],
   from: Point,
   to: Point,
-  { scale, handle, snap = false }: { scale: number; handle: number; snap?: boolean },
+  { scale, handle, snap = false, drawing = false }: { scale: number; handle: number; snap?: boolean; drawing?: boolean },
 ): SubMask['parameters'] | null {
-  if (Math.hypot(to.x - from.x, to.y - from.y) < SHAPE_DRAG_THRESHOLD / scale) return null;
+  if (!drawing && Math.hypot(to.x - from.x, to.y - from.y) < SHAPE_DRAG_THRESHOLD / scale) return null;
   if (type === Mask.Radial) {
     return {
       ...params,

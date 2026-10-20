@@ -65,3 +65,17 @@ describe('a cancelled gradient drag', () => {
     expect(committedShapeLayer(layers, 'gone')).toBeNull();
   });
 });
+
+describe('a gradient drag back towards its press', () => {
+  it('keeps following the pointer once it has drawn', () => {
+    const { parameters } = createSubMask(Mask.Radial, image);
+    const from = { x: 0, y: 0 };
+    const opts = { scale: 1, handle: 1 };
+    // Out 100 px: drawing starts; back to 5 px: the shape shrinks with it
+    // instead of keeping the 100 px draft (the release commits what is shown).
+    const out = shapeFromDrag(Mask.Radial, parameters, from, { x: 100, y: 0 }, opts);
+    expect(out).toMatchObject({ radiusX: 100 });
+    const back = shapeFromDrag(Mask.Radial, parameters, from, { x: 5, y: 0 }, { ...opts, drawing: true });
+    expect(back).toMatchObject({ radiusX: 5 });
+  });
+});
