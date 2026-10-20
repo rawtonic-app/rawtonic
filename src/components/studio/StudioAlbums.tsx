@@ -22,7 +22,7 @@ import { TILE_DROP_EVENT, type TileDropDetail } from "./tileDrag";
 import { createDragGhost } from "./dragGhost";
 import { MISSING_VIEW_ID, OFFLINE_CHANGED, OFFLINE_COUNTED, offlinePhotographs, openMissingView } from "../../utils/offline";
 import { IMPORTS_CHANGED, PREVIOUS_IMPORT_VIEW_ID, openPreviousImport, previousImport } from "../../utils/folderSync";
-import { CATALOG_CHANGED } from "../../utils/catalogWrites";
+import { onCatalogChange } from "../../utils/catalogWrites";
 import type { Group, Rule } from "../../utils/librarySearch";
 import { asGroup, useSmartAlbumEditor } from "./SmartAlbumEditor";
 import {
@@ -224,9 +224,9 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     window.addEventListener(SESSION_ALBUMS_CHANGED, onChanged);
     return () => window.removeEventListener(SESSION_ALBUMS_CHANGED, onChanged);
   }, [session, onSelectAlbum]);
-  // A rating, label, flag or keyword written to the catalog: smart albums
-  // count again, and the one shown shows what its rules match now
-  // (Lightroom's smart collections update live).
+  // A rating, label, flag or keyword written to the catalog, an import or a
+  // relink: smart albums count again, and the one shown shows what its
+  // rules match now (Lightroom's smart collections update live).
   useEffect(() => {
     if (!session) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -254,11 +254,11 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       clearTimeout(timer);
       timer = setTimeout(() => void refresh(), SMART_REFRESH_MS);
     };
-    window.addEventListener(CATALOG_CHANGED, changed);
+    const stop = onCatalogChange(changed);
     return () => {
       alive = false;
       clearTimeout(timer);
-      window.removeEventListener(CATALOG_CHANGED, changed);
+      stop();
     };
   }, [session, onSelectAlbum]);
 

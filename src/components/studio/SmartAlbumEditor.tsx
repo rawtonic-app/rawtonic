@@ -255,9 +255,17 @@ function ConditionEditor({ rule, albums, folder, onChange, onRemove }: RuleProps
 }
 
 function NumberInput({ field, value, onChange, label }: { field: Field; value: unknown; onChange: (v: number) => void; label: string }) {
-  const [text, setText] = useState(() =>
-    field === "exposure" ? formatExposure(Number(value)) : String(value ?? ""),
-  );
+  const shown = (v: unknown) => (field === "exposure" ? formatExposure(Number(v)) : String(v ?? ""));
+  const [text, setText] = useState(() => shown(value));
+  // The rule's value changed from outside the typing (a rule above was
+  // removed and this row now shows another rule): show it. While typing,
+  // the value follows the text, so the text is kept as typed ("1/").
+  const typed = useRef(value);
+  if (typed.current !== value) {
+    typed.current = value;
+    const parsed = field === "exposure" ? parseExposure(text) : Number(text);
+    if (parsed !== value) setText(shown(value));
+  }
   return (
     <input
       className="studio-metadata-input"
@@ -267,7 +275,10 @@ function NumberInput({ field, value, onChange, label }: { field: Field; value: u
       onChange={(e) => {
         setText(e.target.value);
         const n = field === "exposure" ? parseExposure(e.target.value) : Number(e.target.value);
-        if (Number.isFinite(n)) onChange(n);
+        if (Number.isFinite(n)) {
+          typed.current = n;
+          onChange(n);
+        }
       }}
     />
   );

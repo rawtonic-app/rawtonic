@@ -4,7 +4,7 @@ import type { ParseKeys, TFunction } from "i18next";
 import { useShallow } from "zustand/react/shallow";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { useSettingsStore } from "../../store/useSettingsStore";
-import { CATALOG_CHANGED } from "../../utils/catalogWrites";
+import { onCatalogChange } from "../../utils/catalogWrites";
 import {
   FACET_FIELDS,
   cullingRules,
@@ -98,11 +98,11 @@ export default function StudioMetadataFilter() {
       }, COUNT_DELAY_MS);
     };
     count();
-    window.addEventListener(CATALOG_CHANGED, count);
+    const stop = onCatalogChange(count);
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      window.removeEventListener(CATALOG_CHANGED, count);
+      stop();
     };
   }, [directory, base, selection]);
 

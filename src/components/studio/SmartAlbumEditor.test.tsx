@@ -180,3 +180,35 @@ describe("rule values", () => {
     expect(incomplete({ combine: "all", rules: [{ field: "rating", op: "ge", value: 1 }] })).toBe(false);
   });
 });
+
+describe("rule rows", () => {
+  it("shows each remaining rule's own number after a rule above it is removed", async () => {
+    render(<SmartAlbumEditorHost />);
+    act(() =>
+      useSmartAlbumEditor.getState().open({
+        name: "x",
+        parent: null,
+        rules: {
+          combine: "any",
+          rules: [
+            { field: "rating", op: "ge", value: 3 },
+            { field: "rating", op: "ge", value: 5 },
+          ],
+        },
+      }),
+    );
+    await settle();
+    const [first] = screen.getAllByRole("group", { name: "Rating" });
+    fireEvent.click(within(first).getByLabelText("Remove the Rating rule"));
+    const [left] = screen.getAllByRole("group", { name: "Rating" });
+    expect((within(left).getByLabelText("Value") as HTMLInputElement).value).toBe("5");
+    // Typing a fraction keeps what is typed while it is incomplete.
+    fireEvent.change(within(left).getByLabelText("Field"), { target: { value: "exposure" } });
+    const exposure = screen.getByRole("group", { name: "Shutter speed (s)" });
+    const input = within(exposure).getByLabelText("Value") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "1/" } });
+    expect(input.value).toBe("1/");
+    fireEvent.change(input, { target: { value: "1/500" } });
+    expect(input.value).toBe("1/500");
+  });
+});

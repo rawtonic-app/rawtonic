@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { useCatalogSearch, SEARCH_DELAY_MS } from './useCatalogSearch';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged } from '../utils/catalogWrites';
+import { IMPORTS_CHANGED } from '../utils/folderSync';
+import { OFFLINE_CHANGED } from '../utils/offline';
 import { RawStatus } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
@@ -114,4 +116,16 @@ it('keeps the newest answer when an older search answers late', async () => {
   await act(async () => answers[1](['/job/new.arw']));
   await act(async () => answers[0](['/job/old.arw']));
   expect([...(useLibraryStore.getState().catalogMatches ?? [])]).toEqual(['/job/new.arw']);
+});
+
+it('searches again after an import, a tethered capture or a relink', async () => {
+  useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
+  renderHook(() => useCatalogSearch());
+  await settle();
+  const before = mockInvoke.mock.calls.length;
+  act(() => window.dispatchEvent(new Event(IMPORTS_CHANGED)));
+  await settle();
+  act(() => window.dispatchEvent(new Event(OFFLINE_CHANGED)));
+  await settle();
+  expect(mockInvoke.mock.calls.length).toBe(before + 2);
 });

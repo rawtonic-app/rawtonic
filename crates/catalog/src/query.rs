@@ -936,6 +936,11 @@ impl<'a> Compiler<'a> {
                     format!("(a.root_id='session' AND {directory_of} = ?)")
                 }
             }
+            // A folder holding the library: with its subfolders, every
+            // photograph in the library's own folder.
+            Err(_) if below && self.directory.starts_with(folder) => {
+                "a.root_id='session'".to_string()
+            }
             Err(_) => "0".to_string(),
         };
         self.roots = true;

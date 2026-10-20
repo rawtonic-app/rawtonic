@@ -1,4 +1,6 @@
 import { invoke, type InvokeArgs } from '@tauri-apps/api/core';
+import { IMPORTS_CHANGED } from './folderSync';
+import { OFFLINE_CHANGED } from './offline';
 
 let last: Promise<unknown> = Promise.resolve();
 
@@ -22,4 +24,16 @@ export const CATALOG_CHANGED = 'rawtonic:catalog-changed';
 
 export function catalogChanged() {
   window.dispatchEvent(new Event(CATALOG_CHANGED));
+}
+
+/** Calls `handler` after anything changed what the catalog finds: a write
+ * (`CATALOG_CHANGED`), an import, tethered capture or synchronization
+ * (`IMPORTS_CHANGED`), a relink or a check that found files gone
+ * (`OFFLINE_CHANGED`). Returns the unsubscribe. */
+export function onCatalogChange(handler: () => void): () => void {
+  const events = [CATALOG_CHANGED, IMPORTS_CHANGED, OFFLINE_CHANGED];
+  for (const event of events) window.addEventListener(event, handler);
+  return () => {
+    for (const event of events) window.removeEventListener(event, handler);
+  };
 }

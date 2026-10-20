@@ -905,3 +905,32 @@ fn a_smart_album_of_a_folder_moves_with_its_session() {
         ]})))
     );
 }
+
+#[test]
+fn a_folder_above_the_library_holds_its_photographs_with_subfolders() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, _) = library(d.path());
+    let above = d
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"folder","op":"contains","value":above})
+        )
+        .len(),
+        4
+    );
+    assert!(
+        found(
+            &lib,
+            json!({"field":"folder","op":"notContains","value":above})
+        )
+        .is_empty()
+    );
+    // Directly in it: none (they are in the library's folders).
+    assert!(found(&lib, json!({"field":"folder","op":"is","value":above})).is_empty());
+}

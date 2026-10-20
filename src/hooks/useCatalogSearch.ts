@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { CATALOG_CHANGED, catalogChanged } from '../utils/catalogWrites';
+import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { photographPath, searchLibrary, searchRule } from '../utils/librarySearch';
 
 /** How long typing pauses before the catalog is asked. */
@@ -12,8 +12,9 @@ export const FACTS_RECORDED = 'library-facts-recorded';
 /**
  * Keeps `catalogMatches` to what the library's catalog finds for the search
  * box and the chosen metadata values: asked when either changes (after a
- * short pause in typing) and again after every catalog write, so the grid
- * follows keyword, rating or label changes. Outside a library, or with
+ * short pause in typing) and again after every catalog change (writes,
+ * imports, relinks: `onCatalogChange`), so the grid follows keyword,
+ * rating or label changes and newly imported photographs. Outside a library, or with
  * nothing to search, it is null and the grid filters by itself.
  */
 export function useCatalogSearch() {
@@ -63,12 +64,11 @@ export function useCatalogSearch() {
       }, delay);
     };
     ask(SEARCH_DELAY_MS);
-    const changed = () => ask(SEARCH_DELAY_MS);
-    window.addEventListener(CATALOG_CHANGED, changed);
+    const stop = onCatalogChange(() => ask(SEARCH_DELAY_MS));
     return () => {
       cancelled = true;
       clearTimeout(timer);
-      window.removeEventListener(CATALOG_CHANGED, changed);
+      stop();
     };
   }, [directory, text, selection]);
 }
