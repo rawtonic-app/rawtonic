@@ -80,7 +80,9 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 8 (2026-10-20) judges whether such a speck stands
+/// The newest version: 9 (2026-10-20) keeps each pixel's filtered chroma
+/// within the range of its neighbourhood's filtered reconstruction
+/// ([`Tuning::range_clamp`]); 8 (2026-10-20) judges whether such a speck stands
 /// out in brightness by its luminance after the luminance noise reduction
 /// ([`Tuning::speck_luma_after_nr`]); 7 (2026-10-18) gives an isolated colour speck (a
 /// pixel far from its 3 × 3 median chroma while its luminance is not) its
@@ -97,7 +99,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 8;
+pub const VERSION: u64 = 9;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -348,6 +350,22 @@ pub struct Tuning {
     /// luminance noise reduction the luminance is the input's, as in
     /// version 7 (the CPU reference has none). Version 8.
     pub speck_luma_after_nr: bool,
+    /// The filtered chroma of each pixel (reconstruction plus kept detail)
+    /// is kept within the range, per component, of the plain expansion of
+    /// the rebuilt level 1 at the pixel and its 8 neighbours (and of its own
+    /// edge-aware reconstruction), widened by this many finest noise σ
+    /// (0 = off, multiples of 0.25 up to 3.75). Most isolated colour specks
+    /// left after version 8 were not lone input outliers but pixels whose
+    /// noisy chroma the energy gain or the finest edge guard kept next to
+    /// luminance and colour edges (dark pixels by a bright border, rims of
+    /// colour edges), where the speck swap's luminance gate keeps them: a
+    /// pixel may now go beyond what its neighbourhood's reconstruction holds
+    /// only by about the noise. A colour edge stays (its pixels lie between
+    /// the two sides' reconstructions), as do thin coloured lines up to the
+    /// widened range. It fades with the filter like the speck swap
+    /// ([`Tuning::speck_strength`]) and for pixels far beyond the range
+    /// ([`RANGE_CLAMP_FAR`]). Version 9.
+    pub range_clamp: f32,
 }
 
 impl Default for Tuning {
@@ -404,9 +422,16 @@ impl Tuning {
         if version == 7 {
             return v7;
         }
-        Self {
+        let v8 = Self {
             speck_luma_after_nr: true,
             ..v7
+        };
+        if version == 8 {
+            return v8;
+        }
+        Self {
+            range_clamp: RANGE_CLAMP,
+            ..v8
         }
     }
 
@@ -446,6 +471,7 @@ impl Tuning {
             finest_detail_aware: false,
             speck_swap: 0.0,
             speck_luma_after_nr: false,
+            range_clamp: 0.0,
         }
     }
 
@@ -456,9 +482,11 @@ impl Tuning {
     /// ([`Tuning::finest_detail_aware`]); + 64 + 128 × 4 K with the speck
     /// swap K ([`Tuning::speck_swap`]); + 2048 when its luminance gate reads
     /// the luminance after the luminance noise reduction
-    /// ([`Tuning::speck_luma_after_nr`]); and the switch's squared multiple.
+    /// ([`Tuning::speck_luma_after_nr`]); + 4096 × 4 T with the range clamp
+    /// T ([`Tuning::range_clamp`]); and the switch's squared multiple.
     pub fn finest_guide_code(&self) -> (f32, f32) {
         let aware = if self.finest_detail_aware { 32.0 } else { 0.0 }
+            + 4096.0 * self.range_clamp_steps()
             + if self.speck_swap > 0.0 {
                 64.0 + 128.0 * (self.speck_swap * 4.0).round().min(15.0)
                     + if self.speck_luma_after_nr {
@@ -582,6 +610,11 @@ impl Tuning {
             return 0.0;
         }
         (thresholds[0] / base).clamp(0.0, 1.0)
+    }
+
+    /// [`Tuning::range_clamp`] in steps of 0.25 σ (at most 15).
+    fn range_clamp_steps(&self) -> f32 {
+        (self.range_clamp * 4.0).round().clamp(0.0, 15.0)
     }
 
     /// The renderer's squared range of the finest level's aware expansion;
@@ -1088,6 +1121,15 @@ pub const AWARE_FAR: f32 = 25.0;
 /// reference/color-noise-reference.md, round 13).
 pub const SPECK_SWAP: f32 = 2.0;
 pub const SPECK_LUMA: f32 = 1.0;
+
+/// Version 9's [`Tuning::range_clamp`] in finest noise σ (notes:
+/// reference/color-noise-reference.md, round 15).
+pub const RANGE_CLAMP: f32 = 1.5;
+/// Beyond the range by this many finest noise σ (from, to) the clamp fades
+/// out: a coloured point that far from its neighbourhood (a small light, a
+/// real fine detail) keeps its colour, as with the speck swap's luminance
+/// gate.
+pub const RANGE_CLAMP_FAR: [f32; 2] = [4.0, 8.0];
 
 /// Taps and weights of the expansion of a coarser level at finer position
 /// `x` (`n` coarser samples): 1/8, 3/4, 1/8 around an even position, 1/2,
@@ -2156,6 +2198,79 @@ pub fn filtered_pixel_from(
     with_chroma(rgb, lp, a, b)
 }
 
+/// [`filtered_pixel_from`] with the filtered chroma passed through `keep`
+/// ([`keep_in_range`]).
+#[inline]
+pub fn filtered_pixel_in_range(
+    rgb: [f32; 3],
+    level1: Px,
+    rebuilt: Px,
+    g: f32,
+    c0: [f32; 2],
+    keep: impl Fn([f32; 2]) -> [f32; 2],
+) -> [f32; 3] {
+    let p = rgb.map(encode);
+    let lp = LUMA[0] * p[0] + LUMA[1] * p[1] + LUMA[2] * p[2];
+    let ab = keep(std::array::from_fn(|c| {
+        rebuilt[c] + g * (c0[c] - level1[c])
+    }));
+    with_chroma(rgb, lp, ab[0], ab[1])
+}
+
+/// The range a pixel's filtered chroma is kept in ([`Tuning::range_clamp`]):
+/// per component the lowest and highest of the plain expansion of
+/// `rebuilt` at (x, y) and its 8 neighbours (clamped to the `w` × `h`
+/// image) and of the pixel's own reconstruction `own` (renderer
+/// `ms_rebuilt_range`).
+pub fn rebuilt_range(
+    rebuilt: &Plane,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+    own: Px,
+) -> ([f32; 2], [f32; 2]) {
+    let (mut lo, mut hi) = ([own[0], own[1]], [own[0], own[1]]);
+    for dy in -1..=1isize {
+        for dx in -1..=1isize {
+            let e = expand_at(
+                rebuilt,
+                (x as isize + dx).clamp(0, w as isize - 1) as usize,
+                (y as isize + dy).clamp(0, h as isize - 1) as usize,
+            );
+            for c in 0..2 {
+                lo[c] = lo[c].min(e[c]);
+                hi[c] = hi[c].max(e[c]);
+            }
+        }
+    }
+    (lo, hi)
+}
+
+/// Chroma `ab` kept within `range` widened by `margin` ([`Tuning::range_clamp`]),
+/// by `strength`, fading out while its farthest component lies
+/// [`RANGE_CLAMP_FAR`] noise `sigma` beyond the range (renderer
+/// `apply_color_noise_multiscale`, code bits 12–15).
+pub fn keep_in_range(
+    ab: [f32; 2],
+    range: ([f32; 2], [f32; 2]),
+    margin: f32,
+    sigma: f32,
+    strength: f32,
+) -> [f32; 2] {
+    let (lo, hi) = range;
+    let beyond = (0..2)
+        .map(|c| (lo[c] - ab[c]).max(ab[c] - hi[c]).max(0.0))
+        .fold(0.0f32, f32::max);
+    let [f0, f1] = RANGE_CLAMP_FAR;
+    let t = ((beyond / sigma - f0) / (f1 - f0)).clamp(0.0, 1.0);
+    let share = strength * (1.0 - t * t * (3.0 - 2.0 * t));
+    std::array::from_fn(|c| {
+        let kept = ab[c].clamp(lo[c] - margin, hi[c] + margin);
+        ab[c] * (1.0 - share) + kept * share
+    })
+}
+
 /// [`filtered_pixel`] with the edge-kept detail from the guide
 /// ([`Tuning::guide_edge`]): the detail kept by the energy gain `g` is the
 /// pixel's own, the further share `edge` kept only by the finest edge guard
@@ -2273,6 +2388,10 @@ pub fn apply_with(
             strength,
         )
     });
+    // Version 9 (renderer: code bits 12–15).
+    let range_margin = (strength > 0.0 && aware2 > 0.0 && tuning.range_clamp > 0.0)
+        .then(|| tuning.range_clamp_steps() * 0.25 * aware2.sqrt());
+    let sigma = aware2.sqrt();
     let mut out = vec![0.0f32; w * h * 3];
     out.par_chunks_mut(w * 3)
         .enumerate()
@@ -2359,21 +2478,34 @@ pub fn apply_with(
                     row[x * 3..x * 3 + 3].copy_from_slice(&v);
                     continue;
                 }
-                let v = filtered_pixel_from(
-                    rgb,
-                    level1_at,
-                    rebuilt_at,
-                    if edge2 > 0.0 {
-                        gain(size2[i], t2, steepness).max(gain(
-                            level1_gradient2(&rebuilt, x, y),
-                            edge2,
-                            steepness,
-                        ))
-                    } else {
-                        gain(size2[i], t2, steepness)
-                    },
-                    speck.as_ref().map_or_else(|| chroma(rgb), |s| s[i]),
-                );
+                let g = if edge2 > 0.0 {
+                    gain(size2[i], t2, steepness).max(gain(
+                        level1_gradient2(&rebuilt, x, y),
+                        edge2,
+                        steepness,
+                    ))
+                } else {
+                    gain(size2[i], t2, steepness)
+                };
+                let c0 = speck.as_ref().map_or_else(|| chroma(rgb), |s| s[i]);
+                let v = match range_margin {
+                    Some(margin) => {
+                        filtered_pixel_in_range(rgb, level1_at, rebuilt_at, g, c0, |ab| {
+                            // Within the margin of its own reconstruction the
+                            // chroma lies in the widened range already.
+                            if (ab[0] - rebuilt_at[0])
+                                .abs()
+                                .max((ab[1] - rebuilt_at[1]).abs())
+                                <= margin
+                            {
+                                return ab;
+                            }
+                            let range = rebuilt_range(&rebuilt, x, y, w, h, rebuilt_at);
+                            keep_in_range(ab, range, margin, sigma, strength)
+                        })
+                    }
+                    None => filtered_pixel_from(rgb, level1_at, rebuilt_at, g, c0),
+                };
                 row[x * 3..x * 3 + 3].copy_from_slice(&v);
             }
         });
@@ -2636,14 +2768,15 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 8);
+        assert_eq!(VERSION, 9);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
         assert_eq!(version(&json!({"colorNoiseVersion": 4}), true), 4);
         assert_eq!(version(&json!({"colorNoiseVersion": 5}), true), 5);
         assert_eq!(version(&json!({"colorNoiseVersion": 7}), true), 7);
-        assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), VERSION);
+        assert_eq!(version(&json!({"colorNoiseVersion": 8}), true), 8);
+        assert_eq!(version(&json!({"colorNoiseVersion": 10}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
 
@@ -2839,7 +2972,6 @@ mod tests {
         // Version 7 recipes render exactly as before version 8: its speck
         // swap's luminance gate reads the input's luminance.
         let (v7, v8) = (Tuning::for_version(7), Tuning::for_version(8));
-        assert_eq!(v8, Tuning::default());
         assert_eq!(
             (v7.speck_luma_after_nr, v8.speck_luma_after_nr),
             (false, true)
@@ -2858,6 +2990,36 @@ mod tests {
         );
         for version in 2..=7 {
             assert!(!Tuning::for_version(version).speck_luma_after_nr);
+        }
+    }
+
+    #[test]
+    fn version_8_keeps_its_constants() {
+        // Version 8 recipes render exactly as before version 9: no range
+        // clamp.
+        let (v8, v9) = (Tuning::for_version(8), Tuning::for_version(9));
+        assert_eq!(v9, Tuning::default());
+        assert_eq!((v8.range_clamp, v9.range_clamp), (0.0, RANGE_CLAMP));
+        assert_eq!(
+            v8.finest_guide_code(),
+            (35.0 + 64.0 + 128.0 * 8.0 + 2048.0, 1.0)
+        );
+        assert_eq!(
+            v9.finest_guide_code(),
+            (
+                35.0 + 64.0 + 128.0 * 8.0 + 2048.0 + 4096.0 * 4.0 * RANGE_CLAMP,
+                1.0
+            )
+        );
+        assert_eq!(
+            Tuning {
+                range_clamp: 0.0,
+                ..v9
+            },
+            v8
+        );
+        for version in 2..=8 {
+            assert_eq!(Tuning::for_version(version).range_clamp, 0.0);
         }
     }
 
@@ -2908,6 +3070,72 @@ mod tests {
         let (at1, swapped1) = (left(&v6, 0.01), left(&v7, 0.01));
         println!("speck chroma left at Color 1: version 6 {at1:.4}, version 7 {swapped1:.4}");
         assert!(swapped1 > 0.7 * at1, "{at1} → {swapped1}");
+    }
+
+    #[test]
+    fn version_9_keeps_filtered_chroma_within_the_neighbourhood() {
+        // A noisy grey beside an orange area (a colour edge at x = 64) with
+        // single darker off-colour pixels on the grey side next to the edge:
+        // they stand out in brightness, so the speck swap leaves them, and
+        // the detail kept along the edge kept their chroma (notes:
+        // reference/color-noise-reference.md, round 15). (Coloured points
+        // far beyond the range keep their colour:
+        // version_7_keeps_coloured_points_that_stand_out_in_brightness.)
+        let (w, h) = (128u32, 128u32);
+        let (grey, orange) = ([0.2f32; 3], [0.40f32, 0.25, 0.15]);
+        let mut rng = Rng(21);
+        let mut image = Rgb32FImage::from_fn(w, h, |x, _| {
+            let base = if x < 64 { grey } else { orange };
+            image::Rgb(base.map(|v| (v.sqrt() + 0.01 * rng.gaussian()).max(0.0).powi(2)))
+        });
+        // Square-root RGB of an off-colour pixel `dark` below the grey.
+        let put = |image: &mut Rgb32FImage, (x, y): (u32, u32), dark: f32, push: f32| {
+            let p = grey[0].sqrt() - dark;
+            let rgb = [p - push, p, p + push];
+            image.put_pixel(x, y, image::Rgb(rgb.map(|v| v.max(0.0).powi(2))));
+        };
+        let specks: Vec<(u32, u32)> = (0..30).map(|k| (62 + k % 2, 4 + k * 4)).collect();
+        for &p in &specks {
+            put(&mut image, p, 0.08, 0.05);
+        }
+        let settings = Settings {
+            amount: 0.5,
+            detail: 0.5,
+            smoothness: 0.5,
+        };
+        let render =
+            |version: u64| apply_to_linear(&image, settings, &Tuning::for_version(version));
+        let (v8, v9) = (render(8), render(9));
+        // Each column's mean chroma over the rows without specks.
+        let rows: Vec<u32> = (0..h).filter(|y| y % 4 != 0).collect();
+        let column = |out: &Rgb32FImage, x: u32| {
+            let s = rows.iter().fold([0.0f32; 2], |s, &y| {
+                let c = chroma(out.get_pixel(x, y).0);
+                [s[0] + c[0], s[1] + c[1]]
+            });
+            s.map(|v| v / rows.len() as f32)
+        };
+        // How far the specks' chroma lies from their column's.
+        let off = |out: &Rgb32FImage| {
+            specks
+                .iter()
+                .map(|&(x, y)| {
+                    let (c, m) = (chroma(out.get_pixel(x, y).0), column(out, x));
+                    (c[0] - m[0]).hypot(c[1] - m[1])
+                })
+                .sum::<f32>()
+                / specks.len() as f32
+        };
+        // The edge itself: the chroma step from x = 61 to x = 66.
+        let step = |out: &Rgb32FImage| {
+            let (a, b) = (column(out, 61), column(out, 66));
+            (b[0] - a[0]).hypot(b[1] - a[1])
+        };
+        let (s8, s9) = (off(&v8), off(&v9));
+        let (e8, e9) = (step(&v8), step(&v9));
+        println!("speck chroma v8 {s8:.4}, v9 {s9:.4}; edge step v8 {e8:.4}, v9 {e9:.4}");
+        assert!(s9 < 0.6 * s8, "version 9 left the specks: {s8} -> {s9}");
+        assert!((e9 / e8 - 1.0).abs() < 0.01, "edge step {e8} -> {e9}");
     }
 
     #[test]
@@ -2969,9 +3197,17 @@ mod tests {
                     .sum::<f32>()
                     / points.len() as f32
             };
-            let (v6, v7) = (kept(&Tuning::for_version(6)), kept(&Tuning::for_version(7)));
-            println!("point chroma on {ground}: version 6 {v6:.4}, version 7 {v7:.4}");
+            let (v6, v7, v9) = (
+                kept(&Tuning::for_version(6)),
+                kept(&Tuning::for_version(7)),
+                kept(&Tuning::for_version(9)),
+            );
+            println!(
+                "point chroma on {ground}: version 6 {v6:.4}, version 7 {v7:.4}, version 9 {v9:.4}"
+            );
             assert!(v7 > 0.95 * v6, "{ground}: {v6} → {v7}");
+            // Version 9's range clamp fades out this far beyond the range.
+            assert!(v9 > 0.95 * v7, "{ground}: {v7} → {v9}");
         }
     }
 

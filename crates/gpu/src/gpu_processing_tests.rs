@@ -9116,6 +9116,9 @@ fn multiscale_color_noise_matches_its_cpu_reference() {
         (7, 25, 50),
         (6, 15, 65),
         (7, 15, 65),
+        (8, 25, 50),
+        (9, 25, 50),
+        (9, 15, 65),
     ];
     for (version, color, detail) in cases {
         let gpu = render_source(
@@ -9257,6 +9260,16 @@ fn multiscale_color_noise_at_zero_or_without_version_is_unchanged() {
         render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 8})),
         render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 7}))
     );
+    // Version 9 changes only the filtered chroma: at Color 0 it renders as
+    // version 8.
+    assert_eq!(
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 9})),
+        render(json!({"colorNoiseReduction": 0, "colorNoiseVersion": 8}))
+    );
+    assert_ne!(
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 9})),
+        render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 8}))
+    );
     // Version 3 keeps more of the quiet coarse levels than version 2.
     assert_ne!(
         render(json!({"colorNoiseReduction": 25, "colorNoiseVersion": 3})),
@@ -9339,13 +9352,19 @@ fn multiscale_color_noise_version_8_judges_specks_after_luminance_noise_reductio
         chroma_at(7, &specks),
         chroma_at(8, &specks),
     );
-    let (p7, p8) = (chroma_at(7, &points), chroma_at(8, &points));
+    let (p7, p8, p9) = (
+        chroma_at(7, &points),
+        chroma_at(8, &points),
+        chroma_at(9, &points),
+    );
     println!(
-        "speck chroma v6 {s6:.4}, v7 {s7:.4}, v8 {s8:.4}; bright points v7 {p7:.4}, v8 {p8:.4}"
+        "speck chroma v6 {s6:.4}, v7 {s7:.4}, v8 {s8:.4}; bright points v7 {p7:.4}, v8 {p8:.4}, v9 {p9:.4}"
     );
     assert!(s7 > 0.8 * s6, "version 7 changed: {s6} -> {s7}");
     assert!(s8 < 0.7 * s7, "version 8 left the specks: {s7} -> {s8}");
     assert!(p8 > 0.95 * p7, "bright points lost colour: {p7} -> {p8}");
+    // Version 9's range clamp fades out for points this far beyond it.
+    assert!(p9 > 0.95 * p8, "bright points lost colour: {p8} -> {p9}");
     // Without luminance noise reduction the gate reads the input's
     // luminance: version 8 renders as version 7 (the CPU reference).
     let render = |version: u64| {
@@ -9409,13 +9428,87 @@ fn multiscale_color_noise_version_8_keeps_wide_gamut_points() {
             .sum::<f32>()
             / points.len() as f32
     };
-    let (v6, v7, v8) = (chroma_at(6), chroma_at(7), chroma_at(8));
-    println!("wide-gamut point chroma v6 {v6:.4}, v7 {v7:.4}, v8 {v8:.4}");
+    let (v6, v7, v8, v9) = (chroma_at(6), chroma_at(7), chroma_at(8), chroma_at(9));
+    println!("wide-gamut point chroma v6 {v6:.4}, v7 {v7:.4}, v8 {v8:.4}, v9 {v9:.4}");
+    assert!(
+        v9 > 0.95 * v8,
+        "wide-gamut points lost colour: {v8} -> {v9}"
+    );
     assert!(v7 > 0.95 * v6, "version 7 changed: {v6} -> {v7}");
     assert!(
         v8 > 0.95 * v7,
         "wide-gamut points lost colour: {v7} -> {v8}"
     );
+}
+
+#[test]
+#[ignore = "requires a native GPU"]
+fn multiscale_color_noise_version_9_keeps_chroma_within_the_neighbourhood() {
+    // A noisy grey beside an orange area (a colour edge at x = 64) with
+    // single darker off-colour pixels on the grey side next to the edge,
+    // which stand out in brightness (the speck swap leaves them) and whose
+    // chroma the detail kept along the edge kept in version 8; version 9
+    // pulls them into the range of their neighbourhood's reconstruction,
+    // the edge itself unchanged (rawtonic-engine
+    // `version_9_keeps_filtered_chroma_within_the_neighbourhood`).
+    let context = context();
+    let (w, h) = (128u32, 128u32);
+    let mut state = 13u32;
+    let mut noise = move || {
+        state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        (state >> 8) as f32 / (1u32 << 24) as f32 - 0.5
+    };
+    let (grey, orange) = ([0.2f32; 3], [0.40f32, 0.25, 0.15]);
+    let mut image = ImageBuffer::from_fn(w, h, |x, _| {
+        let base = if x < 64 { grey } else { orange };
+        image::Rgb(base.map(|v: f32| (v.sqrt() + 0.035 * noise()).max(0.0).powi(2)))
+    });
+    let specks: Vec<(u32, u32)> = (0..30).map(|k| (62 + k % 2, 4 + k * 4)).collect();
+    for &(x, y) in &specks {
+        let p = grey[0].sqrt() - 0.08;
+        image.put_pixel(
+            x,
+            y,
+            image::Rgb([p - 0.05, p, p + 0.05].map(|v: f32| v.max(0.0).powi(2))),
+        );
+    }
+    let image = DynamicImage::ImageRgb32F(image);
+    let rows: Vec<u32> = (0..h).filter(|y| y % 4 != 0).collect();
+    let measure = |version: u64| -> (f32, f32) {
+        let out = render_source(
+            &context,
+            &image,
+            json!({"colorNoiseReduction": 50, "colorNoiseVersion": version,
+                   "lumaNoiseReduction": 0, "sharpness": 0}),
+            RenderOutputPrecision::SixteenBit,
+        )
+        .to_rgb32f();
+        let chroma = |x: u32, y: u32| {
+            let [r, g, b] = out.get_pixel(x, y).0.map(|v| v.max(0.0).sqrt());
+            [r - g, b - g]
+        };
+        let column = |x: u32| {
+            let s = rows.iter().fold([0.0f32; 2], |s, &y| {
+                let c = chroma(x, y);
+                [s[0] + c[0], s[1] + c[1]]
+            });
+            s.map(|v| v / rows.len() as f32)
+        };
+        let off = specks
+            .iter()
+            .map(|&(x, y)| {
+                let (c, m) = (chroma(x, y), column(x));
+                (c[0] - m[0]).hypot(c[1] - m[1])
+            })
+            .sum::<f32>()
+            / specks.len() as f32;
+        let (a, b) = (column(61), column(66));
+        (off, (b[0] - a[0]).hypot(b[1] - a[1]))
+    };
+    let ((s8, e8), (s9, e9)) = (measure(8), measure(9));
+    println!("speck chroma v8 {s8:.4}, v9 {s9:.4}; edge step v8 {e8:.4}, v9 {e9:.4}");
+    assert!(s9 < 0.6 * s8, "version 9 left the specks: {s8} -> {s9}");
+    assert!((e9 / e8 - 1.0).abs() < 0.01, "edge step {e8} -> {e9}");
 }
 
 #[test]
@@ -9518,7 +9611,7 @@ fn multiscale_color_noise_latency_probe() {
     let cache = Mutex::new(None);
     // Twice, so the first pass compiles the pipelines and fills the caches.
     for pass in 0..3 {
-        for version in 1..=8 {
+        for version in 1..=9 {
             for slider in ["exposure", "colorNoiseReduction"] {
                 let mut times = Vec::new();
                 for frame in 0..24 {
