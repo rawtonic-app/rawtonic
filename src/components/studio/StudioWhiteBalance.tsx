@@ -2,7 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState, type ReactNode } from "react";
 import type { WhiteBalanceMode } from "../../utils/adjustments";
 import { KELVIN_SCALE, WHITE_BALANCE_PRESETS } from "../../utils/whiteBalance";
-import { toast } from "react-toastify";
 import { useTranslation } from "react-i18next";
 import { Invokes } from "../ui/AppProperties";
 import AdjustmentControl from "./AdjustmentControl";

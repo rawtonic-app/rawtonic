@@ -132,7 +132,7 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
   }, []);
 
   const handleUpdateExif = useCallback(async (paths: Array<string> | undefined, updates: Record<string, string>) => {
-    const { multiSelectedPaths, imageList, setLibrary } = useLibraryStore.getState();
+    const { multiSelectedPaths, setLibrary } = useLibraryStore.getState();
     const { selectedImage, setEditor } = useEditorStore.getState();
 
     const pathsToUpdate =

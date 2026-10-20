@@ -50,7 +50,7 @@ module.exports = [
       'react-hooks/exhaustive-deps': 'warn',
       'no-unused-vars': 'off',
       '@typescript-eslint/no-unused-vars': [
-        'warn',
+        'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
       'i18next/no-literal-string': [

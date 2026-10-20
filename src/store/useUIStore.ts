@@ -249,8 +249,6 @@ export interface UIState {
 
   setUI: (updater: Partial<UIState> | ((state: UIState) => Partial<UIState>)) => void;
   setPanel: (panel: Panel | null) => void;
-  customEscapeHandler: (() => void) | null;
-  setCustomEscapeHandler: (handler: (() => void) | null) => void;
   searchFocusRequest: number;
   requestSearchFocus: () => void;
   toggleFullScreen: () => void;
@@ -502,8 +500,6 @@ export const useUIStore = create<UIState>((set, get) => ({
     return defaultWorkspace;
   },
 
-  customEscapeHandler: null,
-  setCustomEscapeHandler: (handler) => set({ customEscapeHandler: handler }),
   searchFocusRequest: 0,
   requestSearchFocus: () => set((state) => ({ searchFocusRequest: state.searchFocusRequest + 1 })),
 

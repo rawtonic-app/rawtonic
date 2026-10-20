@@ -6,7 +6,6 @@ import {
   Adjustments,
   COPYABLE_ADJUSTMENT_KEYS,
   ADJUSTMENT_GROUPS,
-  INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
   sameAdjustmentValue,
   withAiDenoiseVersion,

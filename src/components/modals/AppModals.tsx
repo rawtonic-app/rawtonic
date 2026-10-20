@@ -63,10 +63,9 @@ export default function AppModals(props: AppModalsProps) {
     })),
   );
 
-  const { selectedImage, finalPreviewUrl } = useEditorStore(
+  const { selectedImage } = useEditorStore(
     useShallow((state) => ({
       selectedImage: state.selectedImage,
-      finalPreviewUrl: state.finalPreviewUrl,
     })),
   );
 

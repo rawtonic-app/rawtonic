@@ -207,7 +207,6 @@ function App() {
     handleSelectSubfolder,
     handleSelectAlbum,
     handleOpenFolder,
-    handleContinueSession,
   } = useAppNavigation({
     clearThumbnailQueue,
     refs: navigationRefs,
@@ -228,7 +227,7 @@ function App() {
     handleRemoveRootFolder,
   } = useLibraryActions(handleImageSelect);
 
-  const { displayList: sortedImageList, badges: groupBadgeInfo, flagCounts } = useSortedLibrary();
+  const { displayList: sortedImageList, flagCounts } = useSortedLibrary();
 
   const handleLibraryRefresh = useCallback(async () => {
     // Renames, moves, trash and undo change paths; picks are keyed by them.

@@ -1,3 +1,4 @@
+import { swallowDragClick } from '../../utils/swallowClick';
 import type { PointerEvent as ReactPointerEvent } from "react";
 import i18n from "i18next";
 import { toast } from "react-toastify";
@@ -78,12 +79,7 @@ export function startTileDrag(event: ReactPointerEvent<HTMLElement>, path: strin
     const drop = e.type === "pointerup" ? dropTargetAt(e.clientX, e.clientY) : null;
     setTarget(null);
     // The press ended a drag, not a click on the tile.
-    const swallow = (click: MouseEvent) => {
-      click.stopPropagation();
-      click.preventDefault();
-    };
-    window.addEventListener("click", swallow, { capture: true, once: true });
-    setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+    swallowDragClick();
     if (drop?.dataset.dropRefused) toast.info(drop.dataset.dropRefused);
     else if (drop?.dataset.albumDrop)
       drop.dispatchEvent(

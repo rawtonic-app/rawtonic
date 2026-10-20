@@ -253,7 +253,7 @@ describe("Dropping photographs onto the window", () => {
   it("in a catalog, a folder of its list on another drive is a destination, shown with its full path and drive", async () => {
     const user = userEvent.setup();
     lastSession = { ...summary, directory: "/Users/me/Main.catalog", manifest: { ...summary.manifest, name: "Main", mode: "catalog" } };
-    vi.mocked(invoke).mockImplementation(async (command, args) => {
+    vi.mocked(invoke).mockImplementation(async (command) => {
       if (command === "session_last" || command === "session_summary") return lastSession;
       if (command === "session_flags") return {};
       if (command === "session_ingest_scan") return { files: scanned, truncated: false };
