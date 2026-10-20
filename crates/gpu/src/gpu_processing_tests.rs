@@ -8930,6 +8930,75 @@ fn renders_over_the_texture_limit_match_whole_renders() {
     println!("{comparisons} windowed renders matched whole renders byte for byte");
 }
 
+/// Clarity's large blur reaches 40 × short side / 1080 pixels: beyond the
+/// tiles' 128-pixel overlap above a 3456-pixel short side. From
+/// `renderVersion` 2 its vertical pass reads the whole radius at tile edges,
+/// so rows next to a tile seam render as the same content inside a tile
+/// (the photo shifted down by 1024 rows); before, they differed there.
+#[test]
+#[ignore = "requires a native GPU; Clarity at tile seams of a photo above 3456 px"]
+fn the_large_blur_has_its_whole_radius_at_tile_seams() {
+    let context = context();
+    // Radius 200 at a 5400-pixel short side.
+    let width = 5400;
+    let content = |y: i64, x: u32| {
+        // A different brightness every 16 rows.
+        let mut h = (y.div_euclid(16) as u32).wrapping_mul(0x9e37_79b9);
+        h ^= h >> 15;
+        let band = 0.1 + 0.8 * (h % 1000) as f32 / 1000.0;
+        let v = band + 0.05 * (x as f32 / width as f32);
+        image::Rgb([v, v * 0.9, v * 0.8])
+    };
+    let photo = |height: u32, shift: i64| {
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(width, height, |x, y| {
+            content(y as i64 - shift, x)
+        }))
+    };
+    let seam = 2048;
+    let rows = |shift: u32| Roi {
+        x: 0,
+        y: seam - 150 + shift,
+        width,
+        height: 300,
+    };
+    let mut worst = Vec::new();
+    for version in [1, 2] {
+        let profile = json!({"clarity": 80, "renderVersion": version});
+        let render = |source: &DynamicImage, roi: Roi| {
+            chunk_test_render(
+                &context,
+                source,
+                &profile,
+                false,
+                RenderOutputPrecision::SixteenBit,
+                Some(roi),
+            )
+            .unwrap()
+            .into_rgb16()
+        };
+        let at_seam = render(&photo(6000, 0), rows(0));
+        let inside = render(&photo(7024, 1024), rows(1024));
+        let diff = at_seam
+            .as_raw()
+            .iter()
+            .zip(inside.as_raw())
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        worst.push(diff);
+    }
+    println!(
+        "largest difference at the seam: v1 {} v2 {} (of 65535)",
+        worst[0], worst[1]
+    );
+    assert!(worst[0] > 64, "version 1 shows the seam: {}", worst[0]);
+    assert!(
+        worst[1] <= 1,
+        "version 2 renders the seam as a tile's inside: {}",
+        worst[1]
+    );
+}
+
 #[test]
 #[ignore = "requires a native GPU; renders over the texture limit never return the source"]
 fn renders_over_the_texture_limit_fail_instead_of_skipping_edits() {

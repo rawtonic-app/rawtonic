@@ -9,6 +9,7 @@ import {
   RAW_DETAIL_DEFAULTS,
   TONE_VERSION,
   FRINGE_VERSION,
+  RENDER_VERSION,
   DEFRINGE_VERSION,
   SHARPEN_VERSION,
   LUMA_NOISE_VERSION,
@@ -91,6 +92,15 @@ describe('RAW detail defaults', () => {
     expect(colorNoiseMultiscale({ colorNoiseReduction: 25 }, true)).toBe(false);
     expect(colorNoiseMultiscale({}, true)).toBe(true);
     expect(colorNoiseMultiscale({}, false)).toBe(false);
+  });
+
+  it('starts new edits on the current render version and keeps saved recipes on theirs', () => {
+    expect(initialAdjustmentsFor(true).renderVersion).toBe(RENDER_VERSION);
+    expect(initialAdjustmentsFor(false).renderVersion).toBe(RENDER_VERSION);
+    const saved = { ...INITIAL_ADJUSTMENTS, exposure: 0.5 } as Adjustments;
+    expect('renderVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments(saved, true)))).toBe(false);
+    expect(normalizeLoadedAdjustments({ ...saved, renderVersion: 2 }, false).renderVersion).toBe(2);
+    expect(COPYABLE_ADJUSTMENT_KEYS).not.toContain('renderVersion');
   });
 
   it('start new RAW edits with the edge-fringe pass and keep saved recipes without it', () => {

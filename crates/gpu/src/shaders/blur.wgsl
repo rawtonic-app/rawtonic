@@ -10,8 +10,10 @@ struct BlurParams {
     source_y: u32,
     full_width: u32,
     full_height: u32,
-    _pad1: u32,
-    _pad2: u32,
+    // Rows the horizontal pass blurs above the input region, and all the
+    // rows it blurs (the vertical pass's whole radius at the region's edges).
+    rows_above: u32,
+    blurred_rows: u32,
     _pad3: u32,
 }
 
@@ -33,14 +35,14 @@ fn gaussian(x: f32, sigma: f32) -> f32 {
 @compute @workgroup_size(16, 16, 1)
 fn horizontal_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     let dims = vec2<i32>(textureDimensions(output_texture));
-    if (id.x >= u32(dims.x) || id.y >= params.input_height) {
+    if (id.x >= u32(dims.x) || id.y >= params.blurred_rows) {
         return;
     }
 
     let radius = i32(params.radius);
     let sigma = f32(radius) / 2.0;
 
-    let absolute_coord = vec2<u32>(id.x + params.tile_offset_x, id.y + params.tile_offset_y);
+    let absolute_coord = vec2<u32>(id.x + params.tile_offset_x, id.y + params.tile_offset_y - params.rows_above);
     let full_dims = vec2<i32>(i32(params.full_width), i32(params.full_height));
     let window_origin = vec2<i32>(i32(params.source_x), i32(params.source_y));
 
@@ -73,8 +75,8 @@ fn vertical_blur(@builtin(global_invocation_id) id: vec3<u32>) {
     let radius = i32(params.radius);
     let sigma = f32(radius) / 2.0;
 
-    let local_coord = vec2<i32>(id.xy);
-    let max_y = i32(params.input_height) - 1;
+    let local_coord = vec2<i32>(i32(id.x), i32(id.y + params.rows_above));
+    let max_y = i32(params.blurred_rows) - 1;
 
     var total_color = vec3<f32>(0.0);
     var total_weight = 0.0;

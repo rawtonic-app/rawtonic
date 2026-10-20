@@ -159,6 +159,21 @@ pub(crate) fn compute_thumbnail_cache_hash(
         if crate::preview_proxy::proxy_path(&source_path).is_some_and(|p| p.is_file()) {
             hasher.update(b"\0developed-from-proxy-v1");
         }
+        // A never-edited RAW renders with the defaults of its time
+        // (`embedded_lens::apply_default`: lens profile, render version).
+        if adjustments
+            .as_ref()
+            .is_none_or(|adjustments| adjustments.get("lensCorrectionMode").is_none())
+        {
+            hasher.update(
+                format!(
+                    "\0never-edited-defaults-{}-{}",
+                    rawtonic_engine::source_facts::VERSION,
+                    rawtonic_engine::image_processing::RENDER_VERSION
+                )
+                .as_bytes(),
+            );
+        }
         // Contrast, Shadows, Whites and Blacks keep tones in order since
         // 2026-10-12 (the RAW look's slider gains reversed near black and
         // white). Only thumbnails that use them are rendered again; the
@@ -446,7 +461,11 @@ pub fn generate_thumbnail_data(
             flip_horizontal,
             flip_vertical,
         );
-        let rotated_image = apply_rotation(flipped_image, rotation_degrees);
+        let rotated_image = apply_rotation(
+            flipped_image,
+            rotation_degrees,
+            rawtonic_engine::image_processing::render_version(&meta.adjustments) >= 2,
+        );
 
         let scaled_crop_json = if let Some(c) = &crop_data {
             serde_json::to_value(Crop {
@@ -1577,9 +1596,8 @@ mod thumbnail_queue_tests {
             hasher.finalize().to_hex().to_string()
         };
         for adjustments in [
-            b"null".as_slice(),
-            br#"{"exposure":1}"#,
-            br#"{"contrast":0,"shadows":0,"whites":0,"blacks":0,"highlights":-40}"#,
+            br#"{"lensCorrectionMode":"manual","exposure":1}"#.as_slice(),
+            br#"{"lensCorrectionMode":"manual","contrast":0,"shadows":0,"whites":0,"blacks":0,"highlights":-40}"#,
         ] {
             assert_eq!(
                 compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
@@ -1587,11 +1605,19 @@ mod thumbnail_queue_tests {
                 "thumbnails without the tone sliders stay cached"
             );
         }
+        // Never-edited RAWs (no lens mode) render with the current defaults
+        // (lens profile, render version): made again when those change.
+        for adjustments in [b"null".as_slice(), br#"{"exposure":1}"#] {
+            assert_ne!(
+                compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
+                previous_hash(adjustments)
+            );
+        }
         for adjustments in [
-            br#"{"contrast":20}"#.as_slice(),
-            br#"{"shadows":-30}"#,
-            br#"{"whites":-100}"#,
-            br#"{"blacks":5}"#,
+            br#"{"lensCorrectionMode":"manual","contrast":20}"#.as_slice(),
+            br#"{"lensCorrectionMode":"manual","shadows":-30}"#,
+            br#"{"lensCorrectionMode":"manual","whites":-100}"#,
+            br#"{"lensCorrectionMode":"manual","blacks":5}"#,
         ] {
             assert_ne!(
                 compute_thumbnail_cache_hash(path_str, adjustments).unwrap(),
