@@ -666,19 +666,22 @@ mod tests {
     #[test]
     fn a_catalog_copies_into_the_folders_its_list_shows() {
         let d = tempfile::tempdir().unwrap();
-        let lib = Library::create(&d.path().join("Main.catalog"), "Main", Mode::Catalog).unwrap();
+        // Destinations are reported resolved (macOS's temporary folder is
+        // under a link, /var → /private/var).
+        let base = d.path().canonicalize().unwrap();
+        let lib = Library::create(&base.join("Main.catalog"), "Main", Mode::Catalog).unwrap();
         // A folder the catalog holds photographs of, elsewhere.
-        let shoot = d.path().join("Drive/Shoots/2026");
+        let shoot = base.join("Drive/Shoots/2026");
         fs::create_dir_all(shoot.join("Day 2")).unwrap();
         fs::create_dir_all(shoot.join(".thumbs")).unwrap();
         fs::write(shoot.join("KEEP.ARW"), b"registered").unwrap();
         lib.add_asset(&shoot.join("KEEP.ARW")).unwrap();
         // A top-level folder of the app's folder list, without photographs yet.
-        let root = d.path().join("Drive/Clients");
+        let root = base.join("Drive/Clients");
         fs::create_dir_all(root.join("Acme")).unwrap();
-        let unlisted = d.path().join("Drive/Private");
+        let unlisted = base.join("Drive/Private");
         fs::create_dir_all(&unlisted).unwrap();
-        let sources = photos(d.path(), 4);
+        let sources = photos(&base, 4);
         // A file of that name already there is kept as it is.
         fs::write(shoot.join("Day 2/DSC_0001.ARW"), b"someone else's").unwrap();
 
@@ -742,7 +745,7 @@ mod tests {
             assert!(!names(&folder).contains(&"DSC_0003.ARW".to_string()));
         }
         // A session copies into its own folders only.
-        let session = library(&d.path().join("s"));
+        let session = library(&base.join("s"));
         opts.folder = Some(&root);
         assert!(
             import_batch(
