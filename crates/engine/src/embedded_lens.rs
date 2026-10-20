@@ -1040,19 +1040,10 @@ pub fn apply_default(adjustments: &mut serde_json::Value, source: &Path) {
     // A never-edited RAW also starts with the current edge-fringe pass, as
     // the editor's new edits do.
     let is_raw = crate::formats::is_raw_file(source);
-    // A photo without any recipe, or with an empty one (Library Reset; the
-    // editor's load adds only `lensProfileFor`), renders as a new edit
-    // (`renderVersion`, as the editor's `loadedRenderVersion`); a saved
-    // partial recipe without a lens mode (batch presets, batch Auto) keeps
-    // the version it was made with.
-    if adjustments.is_null()
-        || adjustments.as_object().is_some_and(|map| {
-            map.keys()
-                .all(|key| key == crate::lens_recipe::LENS_PROFILE_FOR)
-        })
-    {
-        crate::image_processing::apply_render_default(adjustments);
-    }
+    // A new recipe renders as a new edit (`renderVersion`, as the editor's
+    // `loadedRenderVersion`); a saved partial recipe without a lens mode
+    // keeps the version it was made with.
+    crate::image_processing::apply_render_default(adjustments);
     crate::edge_fringe::apply_default(adjustments, true, is_raw);
     // And with the current automatic lateral CA, which decides itself
     // against the camera's CA data (`lateral_ca::applies`, `competes`).

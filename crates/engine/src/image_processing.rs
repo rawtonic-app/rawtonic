@@ -4658,11 +4658,22 @@ pub fn render_version(adjustments: &serde_json::Value) -> u64 {
         .clamp(1, RENDER_VERSION)
 }
 
-/// Sets the current render version on the recipe of a never-edited photo
-/// (as the editor does for new edits, RAW or not); saved recipes are left
-/// as they are.
+/// Whether a recipe is new: none, or empty (Library Reset saves `{}`; the
+/// editor's load adds only `lensProfileFor`). It renders as a new edit.
+pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
+    adjustments.is_null()
+        || adjustments.as_object().is_some_and(|map| {
+            map.keys()
+                .all(|key| key == crate::lens_recipe::LENS_PROFILE_FOR)
+        })
+}
+
+/// Sets the current render version on a new recipe (`is_new_recipe`), as
+/// the editor does for new edits (RAW or not): before a never-edited photo
+/// renders, and before a batch edit (paste, preset, Auto) fills one. Saved
+/// recipes, partial ones included, keep the version they were made with.
 pub fn apply_render_default(adjustments: &mut serde_json::Value) {
-    if adjustments.get(RENDER_VERSION_KEY).is_some() {
+    if !is_new_recipe(adjustments) {
         return;
     }
     if adjustments.is_null() {
@@ -7472,6 +7483,27 @@ mod thumbnail_tests {
 mod render_version_tests {
     use super::*;
     use serde_json::json;
+
+    /// A recipe started by a batch edit (paste, preset, Auto) or for a
+    /// never-edited render gets the current render version first; a saved
+    /// recipe, also a partial one without a lens mode, keeps its own.
+    #[test]
+    fn only_new_recipes_start_on_the_current_render_version() {
+        let lens_stamp = json!({crate::lens_recipe::LENS_PROFILE_FOR: "[\"manual\"]"});
+        for new in [serde_json::Value::Null, json!({}), lens_stamp] {
+            let mut recipe = new.clone();
+            apply_render_default(&mut recipe);
+            assert_eq!(recipe[RENDER_VERSION_KEY], RENDER_VERSION, "{new}");
+        }
+        for saved in [
+            json!({"clarity": 30}),
+            json!({"renderVersion": 1, "exposure": 1}),
+        ] {
+            let mut recipe = saved.clone();
+            apply_render_default(&mut recipe);
+            assert_eq!(recipe, saved);
+        }
+    }
 
     /// The Classic look's inherited Color Grading and Calibration, on the
     /// photo and a layer, with both tool switches off.

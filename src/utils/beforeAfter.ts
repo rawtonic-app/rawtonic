@@ -44,6 +44,9 @@ export function originalPreviewAdjustments(adjustments: Adjustments): Adjustment
   const original: Adjustments = { ...INITIAL_ADJUSTMENTS };
   const target = original as unknown as Record<string, unknown>;
   for (const key of BEFORE_FRAMING_KEYS) target[key] = adjustments[key];
+  // The photo's render pipeline (warps keep wide-gamut colour from 2), so
+  // before and after differ by the edit only.
+  original.renderVersion = adjustments.renderVersion;
   return original;
 }
 
