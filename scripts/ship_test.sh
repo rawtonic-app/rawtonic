@@ -211,6 +211,37 @@ expect_last "$T/out" "ship: FAILED during push main (exit 1)*"
 rm "$T/origin.git/hooks/pre-receive"
 [ -d "$LOCK" ] && fail "lock left behind"
 
+# 17. A change written by Codex is reviewed by Claude: the stored verdict and
+# the pull request name the reviewer; Codex may not review it, and Claude may
+# not review Claude's own commits.
+review_in() { (cd "$1" && shift && RAWTONIC_REVIEWER=review-approve sh scripts/review.sh "$@") >"$T/out" 2>&1; }
+new_branch unreviewed-codex
+git -C "$T/wt-unreviewed-codex" commit -q --allow-empty -m "fix: by codex" -m "Co-Authored-By: Codex <noreply@openai.com>"
+review_in "$T/wt-unreviewed-codex" --reviewer codex && fail "codex reviewed codex's commits"
+review_in "$T/wt-unreviewed-codex" || fail "review of codex's commits exited $?"
+gd=$(git -C "$T/wt-unreviewed-codex" rev-parse --git-dir); head=$(git -C "$T/wt-unreviewed-codex" rev-parse HEAD)
+grep -q '"reviewer": "claude"' "$gd/rawtonic-review/$head.json" || fail "codex's commits not routed to claude"
+echo "$head" >"$gd/rawtonic-check-passed"
+ship unreviewed-codex "$T/main" || fail "ship of codex's commits exited $?"
+grep -q "Verdict on .* by claude" "$T/gh-unreviewed-codex.body" || fail "reviewer missing from the pull request"
+new_branch unreviewed-claude
+git -C "$T/wt-unreviewed-claude" commit -q --allow-empty -m "fix: by claude" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+review_in "$T/wt-unreviewed-claude" --reviewer claude && fail "claude reviewed claude's commits"
+git -C "$T/wt-unreviewed-claude" commit -q --allow-empty -m "fix: by codex" -m "Co-Authored-By: Codex <noreply@openai.com>"
+review_in "$T/wt-unreviewed-claude" && fail "mixed-author branch reviewed"
+grep -q "split the branch" "$T/out" || fail "mixed authors: no reason given"
+
+# 18. The machine's switch (Codex limit): Claude then reviews Claude's commits
+# too, marked as a same-model review; switching back restores the refusal.
+(cd "$T/wt-unreviewed-claude" && sh scripts/review.sh --default claude) >/dev/null || fail "--default claude exited $?"
+(cd "$T/main" && sh scripts/review.sh --default) | grep -q "is claude" || fail "switch not shared across worktrees"
+review_in "$T/wt-unreviewed-claude" || fail "switched review exited $?"
+gd=$(git -C "$T/wt-unreviewed-claude" rev-parse --git-dir); head=$(git -C "$T/wt-unreviewed-claude" rev-parse HEAD)
+grep -q '"reviewer": "claude"' "$gd/rawtonic-review/$head.json" || fail "switch did not route to claude"
+grep -q "Same-model review" "$gd/rawtonic-review/$head.json" || fail "same-model review not marked"
+(cd "$T/main" && sh scripts/review.sh --default codex) >/dev/null || fail "--default codex exited $?"
+review_in "$T/wt-unreviewed-claude" && fail "mixed branch reviewed after switching back"
+
 if [ "$FAILS" != 0 ]; then
   printf 'last output:\n'; cat "$T/out"
   exit 1
