@@ -104,14 +104,14 @@ fn on_canon_path(summary: &str) -> bool {
 
 /// Whether libgphoto2 drives the camera on its Sony capture path (vendor
 /// extension 0x11 with the SDIO ControlDevice operation, which its summary
-/// names "Sony Capture"). It hands each photo over through the camera's one
-/// in-memory object (0xffffc001) and reports CaptureComplete after a shot's
-/// last file; a body fired again before then takes no shot and reports
+/// names "Sony Capture" on its capabilities line). It hands each photo
+/// over through the camera's one in-memory object (0xffffc001) and reports
+/// CaptureComplete after a shot's last file; a body fired again before then takes no shot and reports
 /// nothing: an a7 III in MF took one photo for five shots fired within
 /// 0.2 s (2026-10-20), so shots are fired one at a time there. (Its QX path
 /// reports no CaptureComplete.) notes: reference/tether.md
 fn on_sony_path(summary: &str) -> bool {
-    summary.contains(": 0x11 (") && summary.contains("Sony Capture,")
+    summary.contains(": 0x11 (") && summary.contains("Sony Capture")
 }
 
 /// The serial number in libgphoto2's summary ("Serial Number: …").
@@ -675,7 +675,7 @@ mod tests {
             "Vendor Extension ID: 0xe (1.0)\nDevice Property Summary:\nCurrent State (d212)\n";
         assert!(has_transfer_queue(fuji) && !on_canon_path(fuji));
         let sony = "Vendor Extension ID: 0x11 (1.0)\n  Version: 1.0\n\nDevice Capabilities:\n\tFile Download, \
-                    File Deletion, File Upload\n\tGeneric Image Capture, No Open Capture, Sony Capture, \n";
+                    File Deletion, File Upload\n\tGeneric Image Capture, No Open Capture, Sony Capture\n";
         assert!(!on_canon_path(sony) && !has_transfer_queue(sony) && serial_number(sony).is_none());
         assert!(on_sony_path(sony) && !on_sony_path(fuji) && !on_sony_path(canon));
         // The QX path (no SDIO capture): not one at a time.
