@@ -80,7 +80,9 @@ use std::sync::{Arc, Mutex};
 /// `colorNoiseReduction`, the newest ([`VERSION`]) when they leave it to the
 /// RAW default (photos never edited; the editor starts them the same way).
 pub const VERSION_KEY: &str = "colorNoiseVersion";
-/// The newest version: 7 (2026-10-18) gives an isolated colour speck (a
+/// The newest version: 8 (2026-10-20) judges whether such a speck stands
+/// out in brightness by its luminance after the luminance noise reduction
+/// ([`Tuning::speck_luma_after_nr`]); 7 (2026-10-18) gives an isolated colour speck (a
 /// pixel far from its 3 × 3 median chroma while its luminance is not) its
 /// neighbourhood's median chroma as its finest detail ([`Tuning::speck_swap`]);
 /// 6 (2026-10-17) measures the finest detail against
@@ -95,7 +97,7 @@ pub const VERSION_KEY: &str = "colorNoiseVersion";
 /// ([`Tuning::linear_means`]); 3 (2026-10-16) keeps more 8–30 px colour
 /// texture where those scales of the photo are quiet ([`Tuning::quiet`],
 /// [`Tuning::coarse_noise_fall`]); 2 is the same filter before that.
-pub const VERSION: u64 = 7;
+pub const VERSION: u64 = 8;
 /// The first version that is this filter (on a base image without the
 /// decode-time chroma clean-up; every later version shares that base).
 pub const MULTISCALE_VERSION: u64 = 2;
@@ -332,6 +334,20 @@ pub struct Tuning {
     /// ISO band and RawNIND ground-truth error equal or lower (notes:
     /// reference/color-noise-reference.md, rounds 12–13). Version 7.
     pub speck_swap: f32,
+    /// The speck swap's luminance gate reads the pixel's luminance after the
+    /// luminance noise reduction (renderer) instead of before it: a pixel
+    /// darker or brighter than its neighbours only by noise, which the
+    /// luminance noise reduction brings back to them, is an off-colour
+    /// speck; a point the luminance noise reduction keeps standing out (a
+    /// small light, real fine detail) keeps its colour. Before it, such
+    /// pixels kept their noisy chroma: most isolated colour specks left
+    /// after version 7 (on 55 high-ISO RAWs at Color 50 8.0 → 5.8 per
+    /// Mpx, Capture One 5.4, Camera Raw 4.7) for colour edges ≥ 0.9998 of
+    /// version 7 in every ISO band and RawNIND ground-truth error unchanged
+    /// (notes: reference/color-noise-reference.md, round 14). Without
+    /// luminance noise reduction the luminance is the input's, as in
+    /// version 7 (the CPU reference has none). Version 8.
+    pub speck_luma_after_nr: bool,
 }
 
 impl Default for Tuning {
@@ -381,9 +397,16 @@ impl Tuning {
         if version == 6 {
             return v6;
         }
-        Self {
+        let v7 = Self {
             speck_swap: SPECK_SWAP,
             ..v6
+        };
+        if version == 7 {
+            return v7;
+        }
+        Self {
+            speck_luma_after_nr: true,
+            ..v7
         }
     }
 
@@ -422,6 +445,7 @@ impl Tuning {
             guide_detail: false,
             finest_detail_aware: false,
             speck_swap: 0.0,
+            speck_luma_after_nr: false,
         }
     }
 
@@ -430,11 +454,18 @@ impl Tuning {
     /// is the guide's, + 8 with the edge gate, + 16 when all detail is the
     /// guide's; + 32 with the detail against the aware expansion
     /// ([`Tuning::finest_detail_aware`]); + 64 + 128 × 4 K with the speck
-    /// swap K ([`Tuning::speck_swap`]); and the switch's squared multiple.
+    /// swap K ([`Tuning::speck_swap`]); + 2048 when its luminance gate reads
+    /// the luminance after the luminance noise reduction
+    /// ([`Tuning::speck_luma_after_nr`]); and the switch's squared multiple.
     pub fn finest_guide_code(&self) -> (f32, f32) {
         let aware = if self.finest_detail_aware { 32.0 } else { 0.0 }
             + if self.speck_swap > 0.0 {
                 64.0 + 128.0 * (self.speck_swap * 4.0).round().min(15.0)
+                    + if self.speck_luma_after_nr {
+                        2048.0
+                    } else {
+                        0.0
+                    }
             } else {
                 0.0
             };
@@ -2605,12 +2636,13 @@ mod tests {
         assert!(multiscale(&serde_json::Value::Null, true));
         assert!(!multiscale(&json!({}), false));
         assert_eq!(version(&json!({}), true), VERSION);
-        assert_eq!(VERSION, 7);
+        assert_eq!(VERSION, 8);
         // Saved versions stay; unknown newer ones get the newest.
         assert_eq!(version(&json!({"colorNoiseVersion": 2}), true), 2);
         assert_eq!(version(&json!({"colorNoiseVersion": 3}), true), 3);
         assert_eq!(version(&json!({"colorNoiseVersion": 4}), true), 4);
         assert_eq!(version(&json!({"colorNoiseVersion": 5}), true), 5);
+        assert_eq!(version(&json!({"colorNoiseVersion": 7}), true), 7);
         assert_eq!(version(&json!({"colorNoiseVersion": 9}), true), VERSION);
         assert_eq!(version(&json!({"colorNoiseVersion": 0}), true), 1);
     }
@@ -2788,7 +2820,6 @@ mod tests {
     fn version_6_keeps_its_constants() {
         // Version 6 recipes render exactly as before version 7.
         let (v6, v7) = (Tuning::for_version(6), Tuning::for_version(7));
-        assert_eq!(v7, Tuning::default());
         assert_eq!((v6.speck_swap, v7.speck_swap), (0.0, SPECK_SWAP));
         assert_eq!(v7.finest_guide_code(), (35.0 + 64.0 + 128.0 * 8.0, 1.0));
         assert_eq!(
@@ -2800,6 +2831,33 @@ mod tests {
         );
         for version in 2..=6 {
             assert_eq!(Tuning::for_version(version).speck_swap, 0.0);
+        }
+    }
+
+    #[test]
+    fn version_7_keeps_its_constants() {
+        // Version 7 recipes render exactly as before version 8: its speck
+        // swap's luminance gate reads the input's luminance.
+        let (v7, v8) = (Tuning::for_version(7), Tuning::for_version(8));
+        assert_eq!(v8, Tuning::default());
+        assert_eq!(
+            (v7.speck_luma_after_nr, v8.speck_luma_after_nr),
+            (false, true)
+        );
+        assert_eq!(v7.finest_guide_code(), (35.0 + 64.0 + 128.0 * 8.0, 1.0));
+        assert_eq!(
+            v8.finest_guide_code(),
+            (35.0 + 64.0 + 128.0 * 8.0 + 2048.0, 1.0)
+        );
+        assert_eq!(
+            Tuning {
+                speck_luma_after_nr: false,
+                ..v8
+            },
+            v7
+        );
+        for version in 2..=7 {
+            assert!(!Tuning::for_version(version).speck_luma_after_nr);
         }
     }
 

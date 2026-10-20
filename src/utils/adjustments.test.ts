@@ -55,7 +55,7 @@ describe('RAW detail defaults', () => {
   });
 
   it('keep the colour noise filter a saved recipe rendered with', () => {
-    expect(COLOR_NOISE_VERSION).toBe(7);
+    expect(COLOR_NOISE_VERSION).toBe(8);
     expect(initialAdjustmentsFor(true).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     expect(initialAdjustmentsFor(false).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     // Saved colour amount without a version: the earlier filter.
@@ -66,7 +66,7 @@ describe('RAW detail defaults', () => {
     const partial = { exposure: 0.5 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(partial, true).colorNoiseVersion).toBe(COLOR_NOISE_VERSION);
     expect(normalizeLoadedAdjustments(partial, false).colorNoiseVersion).toBeUndefined();
-    // Saved versions stay, also the earlier multi-scale tunings (2–6).
+    // Saved versions stay, also the earlier multi-scale tunings (2–7).
     const versioned = { colorNoiseReduction: 25, colorNoiseVersion: 2 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(versioned, true).colorNoiseVersion).toBe(2);
     const third = { colorNoiseReduction: 25, colorNoiseVersion: 3 } as unknown as Adjustments;
@@ -77,11 +77,14 @@ describe('RAW detail defaults', () => {
     expect(normalizeLoadedAdjustments(fifth, true).colorNoiseVersion).toBe(5);
     const sixth = { colorNoiseReduction: 25, colorNoiseVersion: 6 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(sixth, true).colorNoiseVersion).toBe(6);
+    const seventh = { colorNoiseReduction: 25, colorNoiseVersion: 7 } as unknown as Adjustments;
+    expect(normalizeLoadedAdjustments(seventh, true).colorNoiseVersion).toBe(7);
     const first = { colorNoiseReduction: 25, colorNoiseVersion: 1 } as unknown as Adjustments;
     expect(normalizeLoadedAdjustments(first, true).colorNoiseVersion).toBe(1);
   });
 
-  it('develop versions 2 to 7 on the same base image (multi-scale filter)', () => {
+  it('develop versions 2 to 8 on the same base image (multi-scale filter)', () => {
+    expect(colorNoiseMultiscale({ colorNoiseVersion: 8 }, true)).toBe(true);
     expect(colorNoiseMultiscale({ colorNoiseVersion: 7 }, true)).toBe(true);
     expect(colorNoiseMultiscale({ colorNoiseVersion: 6 }, true)).toBe(true);
     expect(colorNoiseMultiscale({ colorNoiseVersion: 5 }, true)).toBe(true);
