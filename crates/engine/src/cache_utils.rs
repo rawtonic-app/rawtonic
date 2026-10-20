@@ -102,23 +102,27 @@ pub fn calculate_thumbnail_base_hash(adjustments: &serde_json::Value) -> u64 {
     hasher.finish()
 }
 
+/// Key of the uncropped preview's base (the photo before its geometry), so
+/// crop-mode geometry changes reuse it. Leaves the crop and the geometry out
+/// unless the base carries retouching placed in the mask frame (patches,
+/// spots, face retouch), which moves with the geometry.
 pub fn calculate_visual_hash(path: &str, adjustments: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
+    let placed = crate::image_loader::has_base_retouch(adjustments);
 
     if let Some(obj) = adjustments.as_object() {
         for (key, value) in obj {
-            if GEOMETRY_KEYS.contains(&key.as_str()) {
+            let geometry = GEOMETRY_KEYS.contains(&key.as_str())
+                || matches!(
+                    key.as_str(),
+                    "rotation" | "orientationSteps" | "flipHorizontal" | "flipVertical"
+                );
+            if key == "crop" || (geometry && !placed) {
                 continue;
             }
-
-            match key.as_str() {
-                "crop" | "rotation" | "orientationSteps" | "flipHorizontal" | "flipVertical" => (),
-                _ => {
-                    key.hash(&mut hasher);
-                    value.to_string().hash(&mut hasher);
-                }
-            }
+            key.hash(&mut hasher);
+            value.to_string().hash(&mut hasher);
         }
     }
 
@@ -418,5 +422,43 @@ mod decoded_cache_tests {
         assert_eq!(cache.items.len(), 1);
         cache.make_room_for_next();
         assert!(cache.items.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn the_uncropped_base_follows_the_geometry_only_with_placed_retouching() {
+        let turned = |recipe: &serde_json::Value| {
+            let mut turned = recipe.clone();
+            turned["rotation"] = json!(2.5);
+            turned["orientationSteps"] = json!(1);
+            turned["lensDistortionAmount"] = json!(40);
+            turned["crop"] = json!({"x": 10.0, "y": 10.0, "width": 100.0, "height": 80.0});
+            turned
+        };
+        // Without retouching the base is the same whatever the geometry.
+        let plain = json!({"exposure": 0.5});
+        assert_eq!(
+            calculate_visual_hash("/a.CR3", &plain),
+            calculate_visual_hash("/a.CR3", &turned(&plain))
+        );
+        // A spot sits in the mask frame: turning the photo moves it on the base.
+        let spotted = json!({"exposure": 0.5, "spots": [{"x": 40.0, "y": 30.0, "radius": 8.0,
+            "sourceX": 60.0, "sourceY": 30.0}]});
+        assert_ne!(
+            calculate_visual_hash("/a.CR3", &spotted),
+            calculate_visual_hash("/a.CR3", &turned(&spotted))
+        );
+        // The crop alone still reuses it.
+        let mut cropped = spotted.clone();
+        cropped["crop"] = json!({"x": 1.0, "y": 2.0, "width": 50.0, "height": 40.0});
+        assert_eq!(
+            calculate_visual_hash("/a.CR3", &spotted),
+            calculate_visual_hash("/a.CR3", &cropped)
+        );
     }
 }
