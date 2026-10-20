@@ -86,7 +86,14 @@ import {
   type LinearLine,
   type LinearParams,
 } from '../../../utils/linearMask';
-import { committedShapeLayer, draftToCommit, shapeFromDrag, type ShapeDraft } from '../../../utils/shapeDraw';
+import {
+  draftToCommit,
+  restoreAfterShapeDrag,
+  shapeFromDrag,
+  type ShapeDraft,
+  type ShapeDragState,
+} from '../../../utils/shapeDraw';
+import { requestLiveMaskRender } from '../../../utils/liveMaskRender';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -1398,7 +1405,7 @@ const ImageCanvas = memo(
       setIsStrokeActive(drawing);
     }, []);
     const drawingStageRef = useRef<Konva.Stage | null>(null);
-    const dragStartPointer = useRef<(Coord & { id: string; drawing?: boolean }) | null>(null);
+    const dragStartPointer = useRef<(Coord & ShapeDragState) | null>(null);
     const lastBrushPoint = useRef<Coord | null>(null);
     const currentLine = useRef<DrawnLine | null>(null);
     // The positions the pointer passed since the last delivered move: the
@@ -1669,8 +1676,6 @@ const ImageCanvas = memo(
     const activeSubMaskId = activeSubMask?.id;
     const livePreviewRef = useRef(onLiveMaskPreview);
     livePreviewRef.current = onLiveMaskPreview;
-    const renderShapesLiveRef = useRef(renderShapesLive);
-    renderShapesLiveRef.current = renderShapesLive;
     const shownImagePath = useRef(selectedImage.path);
     useEffect(() => {
       const samePhoto = shownImagePath.current === selectedImage.path;
@@ -1681,10 +1686,11 @@ const ImageCanvas = memo(
       dragStartPointer.current = null;
       setDrawing(false);
       drawingStageRef.current = null;
-      const committed = samePhoto
-        ? committedShapeLayer(useEditorStore.getState().adjustments.masks, start.id)
-        : null;
-      if (committed) livePreviewRef.current?.(committed, renderShapesLiveRef.current ? { renderLive: true } : undefined);
+      if (samePhoto)
+        restoreAfterShapeDrag(start, useEditorStore.getState().adjustments, {
+          renderLive: requestLiveMaskRender,
+          showLayer: (layer) => livePreviewRef.current?.(layer),
+        });
     }, [activeSubMaskId, selectedImage.path, setDrawing]);
 
     // Control+Option drags change the brush instead of painting (Capture One).
@@ -1727,6 +1733,12 @@ const ImageCanvas = memo(
       }
       setDrawing(false);
       drawingStageRef.current = null;
+      // A gradient drag ended by leaving the tool or masking.
+      if (dragStartPointer.current)
+        restoreAfterShapeDrag(dragStartPointer.current, useEditorStore.getState().adjustments, {
+          renderLive: requestLiveMaskRender,
+          showLayer: (layer) => livePreviewRef.current?.(layer),
+        });
       dragStartPointer.current = null;
       currentLine.current = null;
       lastBrushPoint.current = null;
@@ -2436,6 +2448,7 @@ const ImageCanvas = memo(
               ),
             };
             onLiveMaskPreview(previewContainer, renderShapesLive ? { renderLive: true } : undefined);
+            if (renderShapesLive) dragStartPointer.current.renderedLive = true;
           }
 
           const activeId = isMasking ? activeMaskId : null;

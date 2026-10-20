@@ -52,8 +52,28 @@ export function draftToCommit(draft: ShapeDraft | null, activeId: string): SubMa
   return draft && draft.id === activeId ? draft.params : null;
 }
 
-/** The layer holding component `id` as the recipe has it: what the preview
- * shows again when a drag drawing that component is cancelled. */
-export function committedShapeLayer<T extends { subMasks: { id: string }[] }>(layers: T[], id: string): T | null {
-  return layers.find((layer) => layer.subMasks.some((sub) => sub.id === id)) ?? null;
+/** A gradient drag in progress: the component it draws, whether it has
+ * passed the click threshold, and whether its shape was rendered into the
+ * developed preview (native live render) rather than committed. */
+export interface ShapeDragState {
+  id: string;
+  drawing?: boolean;
+  renderedLive?: boolean;
+}
+
+/**
+ * A gradient drag cancelled before its release (another component, tool or
+ * mode became active): the preview returns to the recipe, which never held
+ * the draft. A live-rendered draft is replaced by a render of the recipe as
+ * it is, whatever mode the editor is in now; the drawn layer's overlay shows
+ * its committed shape.
+ */
+export function restoreAfterShapeDrag<A extends { masks: { subMasks: { id: string }[] }[] }>(
+  drag: ShapeDragState,
+  recipe: A,
+  { renderLive, showLayer }: { renderLive(recipe: A): void; showLayer(layer: A['masks'][number]): void },
+) {
+  const layer = recipe.masks.find((m) => m.subMasks.some((sub) => sub.id === drag.id));
+  if (drag.renderedLive) renderLive(recipe);
+  if (layer) showLayer(layer);
 }

@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Mask } from '../components/panel/right/Masks';
 import { createSubMask } from './maskUtils';
-import { SHAPE_DRAG_THRESHOLD, committedShapeLayer, draftToCommit, shapeFromDrag } from './shapeDraw';
+import { SHAPE_DRAG_THRESHOLD, draftToCommit, restoreAfterShapeDrag, shapeFromDrag } from './shapeDraw';
 import { linearFrame, linearLineOffsets, type LinearParams } from './linearMask';
 
 const image = { width: 6000, height: 4000 };
@@ -54,15 +54,26 @@ describe('releasing a gradient drag', () => {
 });
 
 describe('a cancelled gradient drag', () => {
-  it('shows the layer of the drawn component as the recipe has it', () => {
-    const radial = createSubMask(Mask.Radial, image);
-    const brush = createSubMask(Mask.Brush, image);
-    const layers = [
-      { id: 'a', subMasks: [brush] },
-      { id: 'b', subMasks: [brush, radial] },
-    ];
-    expect(committedShapeLayer(layers, radial.id)).toBe(layers[1]);
-    expect(committedShapeLayer(layers, 'gone')).toBeNull();
+  const radial = createSubMask(Mask.Radial, image);
+  const brush = createSubMask(Mask.Brush, image);
+  const recipe = { masks: [{ id: 'a', subMasks: [brush] }, { id: 'b', subMasks: [brush, radial] }] };
+
+  it('renders the recipe again when the draft was rendered live, in any mode', () => {
+    const renderLive = vi.fn();
+    const showLayer = vi.fn();
+    restoreAfterShapeDrag({ id: radial.id, drawing: true, renderedLive: true }, recipe, { renderLive, showLayer });
+    expect(renderLive).toHaveBeenCalledWith(recipe);
+    expect(showLayer).toHaveBeenCalledWith(recipe.masks[1]);
+  });
+
+  it('leaves the developed preview alone when nothing was rendered live', () => {
+    const renderLive = vi.fn();
+    const showLayer = vi.fn();
+    restoreAfterShapeDrag({ id: radial.id }, recipe, { renderLive, showLayer });
+    expect(renderLive).not.toHaveBeenCalled();
+    restoreAfterShapeDrag({ id: 'gone', renderedLive: true }, recipe, { renderLive, showLayer });
+    expect(renderLive).toHaveBeenCalledWith(recipe);
+    expect(showLayer).toHaveBeenCalledTimes(1);
   });
 });
 
