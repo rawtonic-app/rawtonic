@@ -167,18 +167,6 @@ fn lum(c: [f32; 3]) -> f32 {
     0.25 * (c[0] + 2.0 * c[1] + c[2])
 }
 
-fn oklab(c: [f32; 3]) -> [f32; 3] {
-    let l = 0.412_221_47 * c[0] + 0.536_332_55 * c[1] + 0.051_445_995 * c[2];
-    let m = 0.211_903_5 * c[0] + 0.680_699_5 * c[1] + 0.107_396_96 * c[2];
-    let s = 0.088_302_46 * c[0] + 0.281_718_85 * c[1] + 0.629_978_7 * c[2];
-    let (l, m, s) = (l.max(0.0).cbrt(), m.max(0.0).cbrt(), s.max(0.0).cbrt());
-    [
-        0.210_454_26 * l + 0.793_617_8 * m - 0.004_072_047 * s,
-        1.977_998_5 * l - 2.428_592_2 * m + 0.450_593_7 * s,
-        0.025_904_037 * l + 0.782_771_77 * m - 0.808_675_77 * s,
-    ]
-}
-
 /// Membership (1 inside, 0 beyond the shoulder) of `hue` in `range`.
 fn in_hue(hue: f32, (lo, hi): (f32, f32)) -> f32 {
     let half = 0.5 * (hi - lo);
@@ -503,12 +491,12 @@ fn taps_into<'a>(out: &mut [f32], tap: impl Fn(usize) -> &'a [f32], weights: &[f
         }
         out[b..b + 8].copy_from_slice(&acc);
     }
-    for i in whole..n {
+    for (i, o) in out.iter_mut().enumerate().skip(whole) {
         let mut acc = 0.0f32;
         for (k, weight) in weights.iter().enumerate() {
             acc += weight * tap(k)[i];
         }
-        out[i] = acc;
+        *o = acc;
     }
 }
 
@@ -1102,7 +1090,8 @@ fn judge_8(
     }
 }
 
-/// [`oklab`] in eight lanes (the cube roots lane by lane).
+/// Oklab of eight linear sRGB colours, the first `count` of them (the
+/// cube roots lane by lane).
 #[inline(always)]
 fn oklab_8(c: &[Lanes; 3], count: usize) -> [Lanes; 3] {
     let l = lanes(|i| 0.412_221_47 * c[0][i] + 0.536_332_55 * c[1][i] + 0.051_445_995 * c[2][i]);
@@ -1179,8 +1168,8 @@ mod tests {
 
     /// Chroma of a linear RGB colour in Oklab.
     fn chroma(p: &[f32]) -> f32 {
-        let lab = oklab([p[0], p[1], p[2]]);
-        lab[1].hypot(lab[2])
+        let lab = oklab_8(&[[p[0]; 8], [p[1]; 8], [p[2]; 8]], 1);
+        lab[1][0].hypot(lab[2][0])
     }
 
     /// Blur of a step at `edge` (bright to the right) with a Gaussian of
@@ -1491,7 +1480,9 @@ mod tests {
             }
         }
         let rgba: Vec<f32> = data
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2], 0.25])
             .collect();
         let bits = |v: &[f32]| v.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
