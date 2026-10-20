@@ -39,8 +39,11 @@ interface Captured {
   cameraName: string;
   connection?: number | null;
   exposure?: number | null;
-  /** Its exposure cannot be told for sure (a reused camera file name). */
-  ambiguous?: boolean;
+  /** The exposures it may belong to when that cannot be told (a reused
+   * camera file name); empty when certain. */
+  ambiguous?: number[];
+  /** The app request it answers (`tether_capture`'s number). */
+  request?: number | null;
   destination: string | null;
   assetId: string | null;
   skipped: boolean;
@@ -79,6 +82,13 @@ const sameFile = (a: string, b: string) => a === b || a.startsWith(`${b}?`);
 const captured = (h: Heard) => h.payload as Captured;
 /** A shot requested from the app: its first file in (RAW+JPEG come as two). */
 const appExposure = (h: Heard) => h.name === "tether-captured" && captured(h).requested && h.exposure === true;
+/** The first file of the app request `request`, or its failure (a shot that
+ * never came, or the first file of its exposure failing). */
+const answers = (h: Heard, request: number | null) => {
+  if (request === null) return appExposure(h) || ownFailure(h);
+  if ((h.payload as { request?: number | null }).request !== request) return false;
+  return h.name === "tether-captured" ? h.exposure === true : ownFailure(h);
+};
 /** Thrown into a running step when the test is closed. */
 const CLOSED = "the camera test was closed";
 
@@ -172,6 +182,8 @@ export default function TetherCameraTest({
   const failuresOf = useRef(new Map<StepId, Heard[]>());
   // Photo steps with a photo whose exposure cannot be told (reused names).
   const ambiguousSteps = useRef(new Set<StepId>());
+  // The highest exposure number heard per helper connection.
+  const newest = useRef(new Map<number, number>());
   // Committed photos waiting for their release, and what the releases said.
   // (`releasedEarly`: released before their commit was heard.)
   const releases = useRef({
@@ -189,6 +201,10 @@ export default function TetherCameraTest({
       .catch(() => undefined);
     const hear = (name: string, payload: unknown) => {
       seq.current += 1;
+      const heardConnection = (payload as { connection?: number | null }).connection;
+      const heardExposure = (payload as { exposure?: number | null }).exposure;
+      if (heardConnection != null && heardExposure != null)
+        newest.current.set(heardConnection, Math.max(newest.current.get(heardConnection) ?? 0, heardExposure));
       const h: Heard = { name, payload, seq: seq.current, at: now() };
       const running = runningStep.current && PHOTO_STEPS.includes(runningStep.current) ? runningStep.current : null;
       // The photo step a file or a failed file belongs to: its exposure's.
@@ -205,16 +221,27 @@ export default function TetherCameraTest({
       else if (name === "tether-capture-failed" && owner === null) owner = lastPhotoStep.current;
       h.foreign = owner !== running;
       heard.current.push(h);
-      const ambiguous = (payload as { ambiguous?: boolean }).ambiguous === true;
-      if ((name === "tether-captured" || name === "tether-capture-failed") && ambiguous && owner) {
-        ambiguousSteps.current.add(owner);
-        // A step that has ended cannot be told any more.
-        if (owner !== runningStep.current) {
-          const step = owner;
-          setResults((current) => {
-            const result = current[step];
-            return result ? { ...current, [step]: inconclusive(result) } : current;
-          });
+      const candidates = (payload as { ambiguous?: number[] }).ambiguous ?? [];
+      const ambiguous = candidates.length > 0;
+      if ((name === "tether-captured" || name === "tether-capture-failed") && ambiguous) {
+        // Every step it may belong to cannot be told: the one it was given,
+        // the one running (it may be a new exposure) and those of the other
+        // exposures it may belong to.
+        const steps = new Set<StepId>();
+        if (owner) steps.add(owner);
+        if (running) steps.add(running);
+        for (const number of candidates) {
+          const step = connection == null ? null : exposures.current.get(`${connection}/${number}`);
+          if (step) steps.add(step);
+        }
+        for (const step of steps) {
+          ambiguousSteps.current.add(step);
+          // A step that has ended cannot be told any more.
+          if (step !== runningStep.current)
+            setResults((current) => {
+              const result = current[step];
+              return result ? { ...current, [step]: inconclusive(result) } : current;
+            });
         }
       }
       // A failure of an ambiguous file is counted, but it cannot be told
@@ -308,16 +335,15 @@ export default function TetherCameraTest({
   const shoot = useCallback(async (screen: boolean) => {
     const since = now();
     const after = seq.current;
+    let request: number | null;
     try {
-      await ask(Invokes.TetherCapture);
+      request = (await ask<number | null>(Invokes.TetherCapture)) ?? null;
     } catch (e) {
       return { error: refused(e) };
     }
-    const photo = await next(
-      (h) => appExposure(h) || ownFailure(h),
-      SHOT_WAIT_MS,
-      after,
-    );
+    // This request's photo (its first file) or its failure, never another
+    // shot's (one fired before the test, say).
+    const photo = await next((h) => answers(h, request), SHOT_WAIT_MS, after);
     if (!photo) return { error: NO_PHOTO };
     if (photo.name === "tether-capture-failed") return { error: notDelivered(photo.payload) };
     const c = captured(photo);
@@ -396,13 +422,18 @@ export default function TetherCameraTest({
       let after = seq.current;
       const errors: Failure[] = [];
       setPrompt(t("session.tether.test.bursting", { shots: BURST }));
+      // The burst's own requests, each ended once by its answer.
+      const requests = new Set<number | null>();
       for (let i = 0; i < BURST; i += 1) {
         try {
-          await ask(Invokes.TetherCapture);
+          requests.add((await ask<number | null>(Invokes.TetherCapture)) ?? null);
         } catch (e) {
           errors.push(refused(e));
         }
       }
+      const open = new Set([...requests].filter((r): r is number => r !== null));
+      const anyOpen = (h: Heard) =>
+        requests.has(null) ? answers(h, null) : [...open].some((request) => answers(h, request));
       const fired = BURST - errors.length;
       // Exposures in, and every fired shot ended: in, or reported as never
       // delivered (a failed file of an exposure already in ends nothing).
@@ -410,13 +441,14 @@ export default function TetherCameraTest({
       let ended = 0;
       let last = since;
       while (ended < fired) {
-        const photo = await next((h) => appExposure(h) || ownFailure(h), SHOT_WAIT_MS, after);
+        const photo = await next(anyOpen, SHOT_WAIT_MS, after);
         if (!photo) {
           errors.push(NO_PHOTO);
           break;
         }
         after = photo.seq;
         last = photo.at;
+        open.delete((photo.payload as { request?: number }).request ?? -1);
         if (photo.name === "tether-capture-failed") {
           errors.push(notDelivered(photo.payload));
           ended += 1;
@@ -436,12 +468,20 @@ export default function TetherCameraTest({
     },
     bodyShot: async () => {
       const after = seq.current;
+      // Newer than every exposure heard before (a late file of an earlier
+      // exposure is no shot of now).
+      const before = new Map(newest.current);
       setPrompt(t("session.tether.test.pressShutter"));
       const photo = await next(
         // A photo of this connection (one left from an earlier run has no
         // exposure and is no shot of now).
         (h) =>
-          h.name === "tether-captured" && !captured(h).requested && h.exposure === true && captured(h).exposure != null,
+          h.name === "tether-captured" &&
+          !captured(h).requested &&
+          h.exposure === true &&
+          captured(h).exposure != null &&
+          captured(h).connection != null &&
+          (captured(h).exposure ?? 0) > (before.get(captured(h).connection ?? -1) ?? 0),
         BODY_SHOT_WAIT_MS,
         after,
       );

@@ -59,11 +59,12 @@ impl Helper {
         )
     }
 
-    fn capture(&self) {
-        assert_eq!(
-            self.client.request(Request::Capture, WAIT).unwrap(),
-            Reply::Ok
-        );
+    /// Fires; the request's number.
+    fn capture(&self) -> u64 {
+        match self.client.request(Request::Capture, WAIT).unwrap() {
+            Reply::Fired { request } => request,
+            other => panic!("{other:?}"),
+        }
     }
 
     /// Events until `n` photos arrived (or `WAIT` passed, or the helper
@@ -467,7 +468,7 @@ fn interleaved_raw_and_jpeg_files_keep_their_exposure_and_request() {
     let numbers: Vec<u64> = (1..=10).chain(1..=10).collect();
     assert_eq!(exposures, numbers);
     // Distinct names: never ambiguous.
-    assert!(photos.iter().all(|p| !p.ambiguous));
+    assert!(photos.iter().all(|p| p.ambiguous.is_empty()));
     // The JPEGs did not take the open requests: both time out.
     let deadline = Instant::now() + WAIT;
     while Instant::now() < deadline
@@ -521,8 +522,11 @@ fn interleaved_raw_and_jpeg_under_one_reused_name_keep_their_exposures() {
     // Ambiguous under one name: three exposures, each with one JPEG; each
     // JPEG is marked so.
     assert_eq!(exposures, [1, 2, 3, 3, 2, 1]);
-    let ambiguous: Vec<bool> = photos.iter().map(|p| p.ambiguous).collect();
-    assert_eq!(ambiguous, [false, false, false, true, true, true]);
+    let ambiguous: Vec<Vec<u64>> = photos.iter().map(|p| p.ambiguous.clone()).collect();
+    assert_eq!(
+        ambiguous,
+        [vec![], vec![], vec![], vec![1, 2, 3], vec![1, 2], vec![1]]
+    );
     let deadline = Instant::now() + WAIT;
     let timeouts = |other: &[Option<Event>]| {
         other
@@ -990,7 +994,10 @@ fn a_short_request_behind_a_long_capture_is_not_taken_for_a_hung_helper() {
         matches!(settings, Ok(Reply::Settings { .. })),
         "{settings:?}"
     );
-    assert_eq!(capture.join().unwrap().unwrap(), Reply::Ok);
+    assert!(matches!(
+        capture.join().unwrap().unwrap(),
+        Reply::Fired { .. }
+    ));
     assert!(client.alive());
 }
 
@@ -1127,10 +1134,11 @@ fn a_file_that_cannot_be_saved_names_its_exposure() {
             error,
             exposure,
             ambiguous,
+            ..
         }) => {
             assert_eq!(error.kind, ErrorKind::Storage, "{error:?}");
             assert_eq!(exposure.map(|(_, exposure)| exposure), Some(1));
-            assert!(!ambiguous);
+            assert!(ambiguous.is_empty());
         }
         other => panic!("{other:?}"),
     }
@@ -1149,10 +1157,17 @@ fn a_companion_later_than_the_shot_timeout_keeps_its_exposure() {
     };
     let helper = start_with(&spec, dir.path(), 600);
     helper.connect().unwrap();
-    helper.capture();
+    let first = helper.capture();
     std::thread::sleep(Duration::from_millis(300));
-    helper.capture();
+    let second = helper.capture();
+    assert_ne!(first, second);
     let (photos, mut other) = helper.photos(2);
+    // Both files answer the first request: the camera test matches its
+    // shots by it.
+    assert!(
+        photos.iter().all(|p| p.request == Some(first)),
+        "{photos:?}"
+    );
     let exposures: Vec<(&str, u64)> = photos
         .iter()
         .map(|p| (p.camera_name.as_str(), p.exposure))
@@ -1173,6 +1188,9 @@ fn a_companion_later_than_the_shot_timeout_keeps_its_exposure() {
         other.push(helper.next_event(Duration::from_millis(200)));
     }
     assert_eq!(timeouts(&other), 1, "request 2 never came: {other:?}");
+    assert!(other.iter().any(
+        |e| matches!(e, Some(Event::CaptureFailed { request, .. }) if *request == Some(second))
+    ));
 }
 
 /// Under a reused name, a RAW-only exposure and then a RAW+JPEG one: the
@@ -1204,6 +1222,6 @@ fn a_change_from_raw_to_raw_and_jpeg_under_a_reused_name_keeps_the_jpeg_with_its
         ]
     );
     // Exposure 1 may have been RAW+JPEG with this JPEG: marked.
-    let ambiguous: Vec<bool> = photos.iter().map(|p| p.ambiguous).collect();
-    assert_eq!(ambiguous, [false, false, true]);
+    let ambiguous: Vec<Vec<u64>> = photos.iter().map(|p| p.ambiguous.clone()).collect();
+    assert_eq!(ambiguous, [vec![], vec![], vec![1, 2]]);
 }

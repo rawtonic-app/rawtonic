@@ -262,6 +262,7 @@ fn on_incoming(
         }
         Incoming::Event(Event::CaptureFailed {
             error,
+            request,
             exposure,
             ambiguous,
         }) => {
@@ -270,6 +271,7 @@ fn on_incoming(
                 json!({
                     "kind": error.kind,
                     "message": error.message,
+                    "request": request,
                     "connection": exposure.map(|(connection, _)| connection),
                     "exposure": exposure.map(|(_, exposure)| exposure),
                     "ambiguous": ambiguous,
@@ -770,8 +772,11 @@ pub struct TetherCaptured {
     /// one exposure share them); none for a photo left from an earlier run.
     pub connection: Option<u64>,
     pub exposure: Option<u64>,
-    /// The exposure cannot be told for sure (a reused camera file name).
-    pub ambiguous: bool,
+    /// The exposures it may belong to when that cannot be told (a reused
+    /// camera file name); empty when certain.
+    pub ambiguous: Vec<u64>,
+    /// The app request it answers (`tether_capture`'s number), if any.
+    pub request: Option<u64>,
     /// From the app's request (or the camera's report) to: the camera's
     /// report, the complete download, the photo in the library.
     pub ms_to_event: Option<u64>,
@@ -897,7 +902,8 @@ impl Ingest<'_> {
             requested: timing.is_some_and(|(c, _)| c.requested),
             connection: timing.map(|(c, _)| c.connection),
             exposure: timing.map(|(c, _)| c.exposure),
-            ambiguous: timing.is_some_and(|(c, _)| c.ambiguous),
+            ambiguous: timing.map(|(c, _)| c.ambiguous.clone()).unwrap_or_default(),
+            request: timing.and_then(|(c, _)| c.request),
             ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
             ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
             ms_to_ingested: timing
@@ -1198,8 +1204,15 @@ pub async fn tether_set_setting(key: String, value: String, app: AppHandle) -> R
 
 /// Fires the shutter; the photo arrives as `tether-captured`.
 #[tauri::command]
-pub async fn tether_capture(app: AppHandle) -> Result<(), String> {
-    blocking(move || camera_request(&app, Request::Capture, CAPTURE).map(|_| ())).await
+pub async fn tether_capture(app: AppHandle) -> Result<Option<u64>, String> {
+    blocking(move || {
+        camera_request(&app, Request::Capture, CAPTURE).map(|reply| match reply {
+            // The request's number, named again by its photo or failure.
+            Reply::Fired { request } => Some(request),
+            _ => None,
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1301,7 +1314,8 @@ mod tests {
                 connection: 1,
                 download: n,
                 exposure: n,
-                ambiguous: false,
+                ambiguous: Vec::new(),
+                request: Some(n),
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1351,7 +1365,8 @@ mod tests {
                 connection: 1,
                 download: n,
                 exposure: n,
-                ambiguous: false,
+                ambiguous: Vec::new(),
+                request: Some(n),
                 camera_folder: "/store_00010001".into(),
                 camera_name: format!("DSC{n:05}.ARW"),
                 size: 7,
@@ -2146,7 +2161,8 @@ mod tests {
                     connection: 1,
                     download: 1,
                     exposure: 1,
-                    ambiguous: false,
+                    ambiguous: Vec::new(),
+                    request: Some(1),
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,

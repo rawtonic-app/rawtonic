@@ -35,6 +35,7 @@ const SETTINGS = [{ key: "iso", label: "ISO", value: "160", choices: ["160", "20
 
 let iso = "160";
 let shot = 0;
+let numbered = false;
 /** What the mock camera does when fired: a photo in the library, its
  * Develop frame, and (on a camera with a transfer queue) its release. */
 let onCapture: (n: number) => void;
@@ -42,6 +43,7 @@ let onCapture: (n: number) => void;
 beforeEach(() => {
   iso = "160";
   shot = 0;
+  numbered = false;
   onCapture = (n) => {
     const destination = `/Users/someone/Jobs/Acme/Capture/DSCF${n}.RAF`;
     window.setTimeout(() => {
@@ -69,7 +71,9 @@ beforeEach(() => {
       case "tether_capture":
         shot += 1;
         onCapture(shot);
-        return Promise.resolve(null);
+        // The helper's request number, when the test's events name it
+        // (else none: shots are matched by the order of their exposures).
+        return Promise.resolve(numbered ? shot : null);
       default:
         return Promise.resolve(null);
     }
@@ -424,7 +428,7 @@ it("a step with a photo whose exposure cannot be told is inconclusive, never pas
         cameraName: "DSC00001.ARW",
         connection: 1,
         exposure: n,
-        ambiguous: false,
+        ambiguous: [],
         destination: null,
         assetId: `a${n}`,
         skipped: false,
@@ -436,7 +440,7 @@ it("a step with a photo whose exposure cannot be told is inconclusive, never pas
           cameraName: "DSC00001.JPG",
           connection: 1,
           exposure: 2,
-          ambiguous: true,
+          ambiguous: [1, 2],
           destination: null,
           assetId: "j",
           skipped: false,
@@ -456,7 +460,7 @@ it("a step with a photo whose exposure cannot be told is inconclusive, never pas
     cameraName: "DSC00001.JPG",
     connection: 1,
     exposure: 7,
-    ambiguous: true,
+    ambiguous: [6, 7],
     destination: null,
     assetId: "k",
     skipped: false,
@@ -486,7 +490,7 @@ it("an ambiguous file that fails makes its step inconclusive, and earlier-run ph
           message: "DSC00001.JPG could not be saved",
           connection: 1,
           exposure: 3,
-          ambiguous: true,
+          ambiguous: [2, 3],
         });
     }, 5);
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
@@ -507,4 +511,74 @@ it("an ambiguous file that fails makes its step inconclusive, and earlier-run ph
   expect(report()).toContain("- Files not added or shots not delivered during the test: 1");
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   await runStep(/\| Transfer queue freed after commit \| pass \| 5 freed \|/);
+}, 20_000);
+
+it("a photo of a shot from before the test does not answer a test shot", async () => {
+  numbered = true;
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      if (n === 1) {
+        // A late file of a shot fired before the test opened (request 77),
+        // then the test's first shot never comes.
+        emit("tether-captured", {
+          cameraName: "DSC09000.JPG",
+          connection: 1,
+          exposure: 900,
+          ambiguous: [],
+          request: 77,
+          destination: null,
+          assetId: "old",
+          skipped: false,
+          error: null,
+          requested: true,
+        });
+        emit("tether-capture-failed", { kind: "timeout", message: "never came", request: 1, connection: null, exposure: null, ambiguous: [] });
+        return;
+      }
+      emit("tether-captured", {
+        cameraName: `DSCF${n}.RAF`,
+        connection: 1,
+        exposure: 900 + n,
+        ambiguous: [],
+        request: n,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 4\/5 in the library;/);
+}, 20_000);
+
+it("an ambiguous file makes every step it may belong to inconclusive", async () => {
+  numbered = true;
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      emit("tether-captured", {
+        cameraName: "DSC00001.ARW",
+        connection: 1,
+        exposure: n,
+        ambiguous: [],
+        request: n,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+      // During the burst: a JPEG under the reused name fails; it may be
+      // shot 2's (Shots) or shot 7's (Burst).
+      if (n === 7)
+        emit("tether-capture-failed", { kind: "storage", message: "JPG not saved", request: 7, connection: 1, exposure: 7, ambiguous: [2, 7] });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(/\| Shots from Rawtonic \| pass \|/);
+  await runStep(/\| Burst from Rawtonic \| inconclusive \|/);
+  expect(report()).toMatch(/\| Shots from Rawtonic \| inconclusive \|/);
 }, 20_000);

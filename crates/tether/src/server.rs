@@ -21,9 +21,16 @@ struct Exposure {
     /// The file kinds (extensions) it gave so far.
     kinds: Vec<String>,
     /// Its app request, if any.
-    request: Option<Instant>,
+    request: Option<Asked>,
     /// `Captured::exposure`.
     number: u64,
+}
+
+/// An app shot request: when it fired, and its number (`Reply::Fired`).
+#[derive(Debug, Clone, Copy)]
+struct Asked {
+    at: Instant,
+    id: u64,
 }
 
 /// Which app shot a downloaded file belongs to.
@@ -32,7 +39,7 @@ enum Shot {
     /// repeated report of the last photo.
     Waiting,
     /// The blocking capture fired at this time returned it.
-    At(Instant),
+    At(Asked),
 }
 
 fn content_hash(data: &[u8]) -> u64 {
@@ -54,7 +61,7 @@ struct Open {
     staging: PathBuf,
     live_view: bool,
     /// App shots still waiting for their file, oldest first.
-    waiting: VecDeque<Instant>,
+    waiting: VecDeque<Asked>,
     /// Files downloaded from this camera.
     downloaded: u64,
     /// Each camera file's last published download: length and content hash.
@@ -88,6 +95,8 @@ pub struct Server<W: Write> {
     shot_timeout: Duration,
     /// Connections opened so far.
     connections: u64,
+    /// App shot requests so far (`Asked::id`).
+    asked: u64,
 }
 
 /// Reads requests on their own thread, so the loop can wait for the camera
@@ -142,6 +151,7 @@ impl<W: Write> Server<W> {
             open: None,
             shot_timeout: SHOT_TIMEOUT,
             connections: 0,
+            asked: 0,
         }
     }
 
@@ -231,7 +241,7 @@ impl<W: Write> Server<W> {
     fn answer(
         &mut self,
         request: Request,
-        fired: &mut Option<(CameraFile, Instant)>,
+        fired: &mut Option<(CameraFile, Asked)>,
     ) -> Result<Reply, TetherError> {
         match request {
             Request::Hello => Ok(Reply::Hello {
@@ -323,10 +333,20 @@ impl<W: Write> Server<W> {
                 }
                 let at = Instant::now();
                 match open.camera.fire()? {
-                    Fired::Pending => open.waiting.push_back(at),
-                    Fired::File(file) => *fired = Some((file, at)),
+                    Fired::Pending => {}
+                    Fired::File(file) => {
+                        self.asked += 1;
+                        let asked = Asked { at, id: self.asked };
+                        *fired = Some((file, asked));
+                        return Ok(Reply::Fired { request: asked.id });
+                    }
                 }
-                Ok(Reply::Ok)
+                self.asked += 1;
+                let asked = Asked { at, id: self.asked };
+                if let Some(open) = self.open.as_mut() {
+                    open.waiting.push_back(asked);
+                }
+                Ok(Reply::Fired { request: asked.id })
             }
             Request::Autofocus => {
                 self.camera()?.camera.autofocus()?;
@@ -396,16 +416,17 @@ impl<W: Write> Server<W> {
             && open
                 .waiting
                 .front()
-                .is_some_and(|at| at.elapsed() > self.shot_timeout)
+                .is_some_and(|asked| asked.at.elapsed() > self.shot_timeout)
         {
-            open.waiting.pop_front();
+            let asked = open.waiting.pop_front();
             self.event(Event::CaptureFailed {
                 error: TetherError::new(
                     ErrorKind::Timeout,
                     "The camera did not deliver the photo. It was not fired again.",
                 ),
+                request: asked.map(|asked| asked.id),
                 exposure: None,
-                ambiguous: false,
+                ambiguous: Vec::new(),
             })?;
         }
         self.read_events(wait).map(|_| ())
@@ -430,8 +451,9 @@ impl<W: Write> Server<W> {
                     open.memory_only = true;
                     self.event(Event::CaptureFailed {
                         error: TetherError::new(ErrorKind::Unsupported, MEMORY_ONLY),
+                        request: None,
                         exposure: None,
-                        ambiguous: false,
+                        ambiguous: Vec::new(),
                     })?;
                     return Ok(false);
                 }
@@ -508,23 +530,29 @@ impl<W: Write> Server<W> {
         // libgphoto2 gives no exposure identity, and A.RAW, A.RAW, A.JPG,
         // A.JPG may be two RAW+JPEG exposures or two RAW-only and two
         // JPEG-only ones (likewise A.RAW; A.RAW+A.JPG; A.JPG). Such a file
-        // is marked `ambiguous` (the camera test then reports its step as
+        // names the exposures it may belong to (`ambiguous`) (the camera test then reports its step as
         // inconclusive). notes: reference/tether.md
-        let ambiguous = matches!(shot_of, Shot::Waiting)
-            && open.exposures_by_stem.get(&stem).is_some_and(|exposures| {
-                let open_ones = exposures
+        let ambiguous: Vec<u64> = match (&shot_of, open.exposures_by_stem.get(&stem)) {
+            (Shot::Waiting, Some(exposures)) => {
+                let candidates: Vec<u64> = exposures
                     .iter()
                     .filter(|e| !e.kinds.contains(&extension))
-                    .count();
-                // Another exposure of the name could have taken it: more
-                // than one open, or one open that is not the newest (then
-                // a newer exposure of the name already has this kind).
-                open_ones > 1
-                    || (open_ones == 1
-                        && exposures
-                            .back()
-                            .is_some_and(|e| e.kinds.contains(&extension)))
-            });
+                    .map(|e| e.number)
+                    .collect();
+                // Another exposure of the name could have taken it (more
+                // than one open), or it may be a new exposure (the one open
+                // is not the newest: a newer one already has this kind).
+                let newest_has_it = exposures
+                    .back()
+                    .is_some_and(|e| e.kinds.contains(&extension));
+                if candidates.len() > 1 || (candidates.len() == 1 && newest_has_it) {
+                    candidates
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
+        };
         let companion = match shot_of {
             Shot::Waiting => open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
                 exposures
@@ -558,7 +586,7 @@ impl<W: Write> Server<W> {
                 (request, open.exposures)
             }
         };
-        let started = requested.unwrap_or(reported);
+        let started = requested.map_or(reported, |asked| asked.at);
         let connection = open.connection;
         let (data, size) = match downloaded {
             Ok(downloaded) => downloaded,
@@ -569,6 +597,7 @@ impl<W: Write> Server<W> {
                         error.kind,
                         format!("{} could not be downloaded: {}", file.name, error.message),
                     ),
+                    request: requested.map(|asked| asked.id),
                     exposure: Some((connection, exposure)),
                     ambiguous,
                 });
@@ -579,7 +608,15 @@ impl<W: Write> Server<W> {
         let expected = size.unwrap_or(data.len() as u64);
         let mut partial = match Partial::create(&open.staging, shot, &file.name) {
             Ok(partial) => partial,
-            Err(e) => return self.storage_failed(&file, e, (connection, exposure), ambiguous),
+            Err(e) => {
+                return self.storage_failed(
+                    &file,
+                    e,
+                    requested.map(|asked| asked.id),
+                    (connection, exposure),
+                    ambiguous,
+                );
+            }
         };
         if open.camera.abort_at(AbortPoint::MidDownload, shot) {
             let _ = partial.write(&data[..data.len() / 2]);
@@ -591,7 +628,15 @@ impl<W: Write> Server<W> {
             .and_then(|()| partial.publish(expected));
         let path = match published {
             Ok(path) => path,
-            Err(e) => return self.storage_failed(&file, e, (connection, exposure), ambiguous),
+            Err(e) => {
+                return self.storage_failed(
+                    &file,
+                    e,
+                    requested.map(|asked| asked.id),
+                    (connection, exposure),
+                    ambiguous,
+                );
+            }
         };
         // Only a photo that is safely in the transfer folder counts as
         // downloaded (a repeat of a failed one is taken again).
@@ -610,6 +655,7 @@ impl<W: Write> Server<W> {
             camera_name: file.name,
             size: expected,
             requested: requested.is_some(),
+            request: requested.map(|asked| asked.id),
             ms_to_event: requested.map(|_| reported.duration_since(started).as_millis() as u64),
             ms_to_downloaded: ms(started),
         };
@@ -620,8 +666,9 @@ impl<W: Write> Server<W> {
         &mut self,
         file: &CameraFile,
         e: io::Error,
+        request: Option<u64>,
         exposure: (u64, u64),
-        ambiguous: bool,
+        ambiguous: Vec<u64>,
     ) -> io::Result<()> {
         self.event(Event::CaptureFailed {
             error: TetherError::new(
@@ -631,6 +678,7 @@ impl<W: Write> Server<W> {
                     file.name
                 ),
             ),
+            request,
             exposure: Some(exposure),
             ambiguous,
         })

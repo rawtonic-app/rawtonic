@@ -43,7 +43,8 @@ pub enum Request {
         key: String,
         value: String,
     },
-    /// Fires the shutter; the photo arrives as a `Captured` event.
+    /// Fires the shutter; the photo arrives as a `Captured` event naming
+    /// the request number of the `Fired` reply.
     Capture,
     Autofocus,
     /// Starts or stops sending live-view frames.
@@ -137,14 +138,17 @@ pub struct Captured {
     /// exposure share it.
     pub exposure: u64,
     /// Which exposure it belongs to cannot be told (a reused file name;
-    /// `server` explains): counts built on `exposure` are not certain.
-    pub ambiguous: bool,
+    /// `server` explains): the exposures it may belong to, besides being a
+    /// new one; empty when certain.
+    pub ambiguous: Vec<u64>,
     /// Where it was on the camera.
     pub camera_folder: String,
     pub camera_name: String,
     pub size: u64,
     /// Whether the shot was requested by the app (else fired on the body).
     pub requested: bool,
+    /// The app request it answers (`Reply::Fired`), if any.
+    pub request: Option<u64>,
     /// Milliseconds on the helper's clock since the capture request (app
     /// shots) or the camera's event (body shots): the camera reported the
     /// file, and the download was complete.
@@ -227,6 +231,11 @@ pub enum Reply {
     Settings {
         settings: Vec<Setting>,
     },
+    /// The answer to `Capture`: the shutter fired; this request's number
+    /// (`Captured::request`, `Event::CaptureFailed::request`).
+    Fired {
+        request: u64,
+    },
     /// The answer to `Release`: whether the photo was freed from the
     /// camera's transfer queue (false: the camera keeps none, or the photo
     /// is not the one to free any more).
@@ -248,11 +257,13 @@ pub enum Event {
     /// A shot was asked for or reported but did not arrive.
     CaptureFailed {
         error: TetherError,
+        /// The app request it was for, when known.
+        request: Option<u64>,
         /// The connection and exposure (`Captured`) of a file that could
         /// not be downloaded or saved; none for a shot that never came.
         exposure: Option<(u64, u64)>,
-        /// That exposure cannot be told for sure (`Captured::ambiguous`).
-        ambiguous: bool,
+        /// The exposures it may belong to (`Captured::ambiguous`).
+        ambiguous: Vec<u64>,
     },
     /// The camera reported changed settings (a dial turned): read them again.
     SettingsChanged,
