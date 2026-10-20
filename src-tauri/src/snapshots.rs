@@ -57,15 +57,24 @@ fn in_library(
         }
         None => return Ok(Vec::new()),
     };
-    if change.is_some() && source.is_file() {
+    if change.is_some() && source.is_file() && lib.is_untouched(&asset.id)? {
         // A registered photograph whose sidecar was never adopted (it is
         // until the folder is indexed again) adopts it first: the sidecar
-        // derived after the change must not replace its edit. Nothing
-        // happens to one edited or adopted before.
+        // derived after the change must not replace its edit.
         let contents = rawtonic_catalog::Contents::read_sidecars(source)?;
         lib.adopt_contents(&asset.id, &contents)?;
     }
     let copy = copy_for_sidecar(sidecar).map(|(_, copy)| copy);
+    // A virtual copy's sidecar decides its edit while the photograph is
+    // there: it is read before anything changes (one that cannot be read
+    // stops the change) and keeps all but its snapshots.
+    let copy_file: Option<Value> = match (&copy, change.is_some() && source.is_file()) {
+        (Some(_), true) if sidecar.is_file() => Some(
+            serde_json::from_slice(&std::fs::read(sidecar)?)
+                .with_context(|| format!("{} is not a valid editor sidecar", sidecar.display()))?,
+        ),
+        _ => None,
+    };
     let mut version = lib.version_for(&asset.id, copy.as_deref())?;
     if version.is_none() && change.is_some() && sidecar.is_file() {
         // A virtual copy the library has not recorded yet: its sidecar is.
@@ -89,9 +98,13 @@ fn in_library(
     }
     // The sidecar beside the file is derived from the library's state again,
     // which carries the snapshots (offline: the library keeps them only).
-    let state = match &copy {
-        None => lib.editor_state(&asset.id)?,
-        Some(copy) => lib.copy_state(&asset.id, copy)?,
+    let state = match (&copy, copy_file) {
+        (None, _) => lib.editor_state(&asset.id)?,
+        (Some(_), Some(mut file)) => {
+            snapshots::set_in_state(&mut file, &lib.snapshots(&version)?)?;
+            Some(file)
+        }
+        (Some(copy), None) => lib.copy_state(&asset.id, copy)?,
     };
     if source.is_file()
         && let Some(state) = state
@@ -519,6 +532,84 @@ mod tests {
             let asset = lib.asset_at(photo).unwrap().unwrap();
             assert_eq!(lib.metadata(&asset.id).unwrap().keywords, ["dog"]);
         }
+    }
+
+    #[test]
+    fn a_virtual_copy_keeps_its_own_sidecar_edit_and_an_unreadable_one_stops_the_change() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Snaps", Mode::Session).unwrap();
+        let photo = lib.directory.join("Capture/A.ARW");
+        fs::write(&photo, b"library fixture").unwrap();
+        let copy_sidecar = lib.directory.join("Capture/A.ARW.c0ffee.rrdata");
+        write_editor_sidecar(
+            &copy_sidecar,
+            br#"{"version":1,"rating":0,"tags":[],"adjustments":{"exposure":1}}"#,
+        )
+        .unwrap();
+        // The copy's sidecar changes beside the library (another machine's
+        // sync): it decides while the photograph is there.
+        fs::write(
+            &copy_sidecar,
+            br#"{"version":1,"rating":3,"tags":[],"adjustments":{"exposure":2}}"#,
+        )
+        .unwrap();
+        let copy_path = format!("{}?vc=c0ffee", photo.to_string_lossy());
+        add(Path::new(&copy_path), "Copy look", json!({"exposure": 2}));
+        let state: Value = serde_json::from_slice(&fs::read(&copy_sidecar).unwrap()).unwrap();
+        assert_eq!(state["adjustments"]["exposure"], 2);
+        assert_eq!(state["rating"], 3);
+        assert_eq!(sidecar_snapshots(&copy_sidecar), ["Copy look"]);
+
+        fs::write(&copy_sidecar, b"{ broken").unwrap();
+        let id = snapshots_after(&copy_path, None).unwrap()[0].id.clone();
+        assert!(snapshots_after(&copy_path, Some(Change::Delete { id })).is_err());
+        assert_eq!(fs::read(&copy_sidecar).unwrap(), b"{ broken");
+        let asset = lib.asset_at(&photo).unwrap().unwrap();
+        let copy = lib.version_for(&asset.id, Some("c0ffee")).unwrap().unwrap();
+        assert_eq!(lib.snapshots(&copy).unwrap().len(), 1, "nothing changed");
+    }
+
+    #[test]
+    fn the_first_save_of_a_photograph_new_to_the_library_keeps_its_sidecar_snapshots() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Snaps", Mode::Session).unwrap();
+        let day = lib.directory.join("Capture");
+        let carried = br#"{"version":1,"rating":2,"tags":[],"adjustments":{"exposure":1},
+            "snapshots":[{"id":"s1","name":"Warm","createdAt":"2026-10-20T10:00:00.000Z","adjustments":{"temperature":20}}]}"#;
+        // Not registered, and registered without its sidecar adopted.
+        let (a, b) = (day.join("A.ARW"), day.join("B.ARW"));
+        for photo in [&a, &b] {
+            fs::write(photo, b"library fixture").unwrap();
+            fs::write(
+                photo.with_file_name(format!(
+                    "{}.rrdata",
+                    photo.file_name().unwrap().to_string_lossy()
+                )),
+                carried,
+            )
+            .unwrap();
+        }
+        lib.add_asset(&b).unwrap();
+        for photo in [&a, &b] {
+            let sidecar = photo.with_file_name(format!(
+                "{}.rrdata",
+                photo.file_name().unwrap().to_string_lossy()
+            ));
+            save_recipe(&sidecar, json!({"exposure": 1.5}));
+            assert_eq!(sidecar_snapshots(&sidecar), ["Warm"], "{}", photo.display());
+            let asset = lib.asset_at(photo).unwrap().unwrap();
+            let version = lib.primary_version(&asset.id).unwrap();
+            assert_eq!(lib.snapshots(&version).unwrap()[0].name, "Warm");
+        }
+        // Once the library's, a later state carrying them adds nothing back
+        // after they are deleted.
+        let sidecar = day.join("A.ARW.rrdata");
+        let id = snapshots_after(&a.to_string_lossy(), None).unwrap()[0]
+            .id
+            .clone();
+        snapshots_after(&a.to_string_lossy(), Some(Change::Delete { id })).unwrap();
+        write_editor_sidecar(&sidecar, carried).unwrap();
+        assert!(sidecar_snapshots(&sidecar).is_empty());
     }
 
     #[test]

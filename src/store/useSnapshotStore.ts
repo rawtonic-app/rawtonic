@@ -62,6 +62,11 @@ async function developThumbnails() {
         if (url) URL.revokeObjectURL(url);
         continue;
       }
+      if (!useSnapshotStore.getState().snapshots.some((snapshot) => snapshot.id === next.id)) {
+        // Deleted meanwhile.
+        if (url) URL.revokeObjectURL(url);
+        continue;
+      }
       // A failed one stays empty (a placeholder) rather than being retried.
       useSnapshotStore.setState((current) => ({ thumbnails: { ...current.thumbnails, [next.id]: url } }));
     }
@@ -110,9 +115,10 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
   },
 
   create: async (path, name, adjustments) => {
-    const before = new Set(get().path === path ? get().snapshots.map((s) => s.id) : []);
-    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments })));
-    return get().path === path ? (get().snapshots.find((snapshot) => !before.has(snapshot.id)) ?? null) : null;
+    const answer = await inTurn(() => invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments }));
+    show(path, answer);
+    // A new snapshot is listed last (the order they were taken).
+    return Array.isArray(answer) && answer.length > 0 ? (answer[answer.length - 1] as Snapshot) : null;
   },
 
   rename: async (path, id, name) => {

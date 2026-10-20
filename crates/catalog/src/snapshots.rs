@@ -327,6 +327,21 @@ impl Library {
         Ok(snapshot)
     }
 
+    /// Takes over the `snapshots` a sidecar carries when `version` has none
+    /// (as adopting a sidecar does); returns whether it did.
+    pub fn adopt_snapshots(&self, version: &str, snapshots: &[Snapshot]) -> Result<bool> {
+        if snapshots.is_empty() {
+            return Ok(false);
+        }
+        let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
+        if any(&tx, version)? {
+            return Ok(false);
+        }
+        insert(&tx, &self.directory, version, snapshots)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
     /// Renames the snapshot `id` of `version`.
     pub fn rename_snapshot(&self, version: &str, id: &str, name: &str) -> Result<()> {
         let name = clean_name(name)?;

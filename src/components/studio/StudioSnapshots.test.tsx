@@ -233,3 +233,13 @@ it("shows the lists in the order the changes were made", async () => {
   expect(shown.name).toBe("Night");
   expect(shown.adjustments.exposure).toBe(2);
 });
+
+it("answers each of two quick snapshots with the one it took", async () => {
+  render(<StudioSnapshots />);
+  await waitFor(() => expect(useSnapshotStore.getState().path).toBe(PHOTO));
+  const store = useSnapshotStore.getState();
+  const [first, second] = await act(() =>
+    Promise.all([store.create(PHOTO, "One", recipe(1)), store.create(PHOTO, "Two", recipe(2))]),
+  );
+  expect([first?.name, second?.name]).toEqual(["One", "Two"]);
+});

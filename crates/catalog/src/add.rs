@@ -142,6 +142,16 @@ impl Contents {
     }
 }
 
+fn untouched(conn: &rusqlite::Connection, id: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT m.data='{}' AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
+         FROM metadata m JOIN versions v ON v.asset_id=m.asset_id AND v.is_primary=1
+         LEFT JOIN recipes p ON p.id=v.head WHERE m.asset_id=?",
+        [id],
+        |r| r.get(0),
+    )?)
+}
+
 /// A new photograph read and validated, ready for `insert_planned`.
 #[derive(Debug, Clone)]
 pub struct PlannedAsset {
@@ -493,6 +503,12 @@ impl Library {
         self.write_contents(id, contents, true)
     }
 
+    /// Whether a registered photograph was never edited nor had metadata
+    /// adopted: what its sidecars hold is not the library's yet.
+    pub fn is_untouched(&self, id: &str) -> Result<bool> {
+        untouched(&self.conn, id)
+    }
+
     /// Stores `contents` for a registered photograph (an import from another
     /// program's catalog), recipe and metadata in one transaction.
     pub fn apply_contents(&self, id: &str, contents: &Contents) -> Result<()> {
@@ -503,17 +519,8 @@ impl Library {
         let (recipe, metadata) = self.resolve_contents(contents, self.metadata(id)?)?;
         let version = self.primary_version(id)?;
         let tx = rusqlite::Transaction::new_unchecked(&self.conn, TransactionBehavior::Immediate)?;
-        if only_new {
-            let untouched: bool = tx.query_row(
-                "SELECT m.data='{}' AND (p.payload IS NULL OR json_type(p.payload,'$.editor_state') IS NULL)
-                 FROM metadata m JOIN versions v ON v.asset_id=m.asset_id AND v.is_primary=1
-                 LEFT JOIN recipes p ON p.id=v.head WHERE m.asset_id=?",
-                [id],
-                |r| r.get(0),
-            )?;
-            if !untouched {
-                return Ok(false);
-            }
+        if only_new && !untouched(&tx, id)? {
+            return Ok(false);
         }
         if let Some(recipe) = &recipe {
             write_recipe(&tx, &version, recipe)?;
