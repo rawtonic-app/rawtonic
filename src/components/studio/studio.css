@@ -904,9 +904,10 @@
   border: 1px solid #1d1e20;
   border-radius: 3px;
   background: #00000012;
-  /* About ten rows, then the list scrolls on its own: the selected layer's
-     settings below keep their place however many layers there are. */
-  max-height: min(330px, 36vh);
+  /* About six rows, then the list scrolls on its own: the selected layer's
+     settings and its adjustments below keep their place however many layers
+     there are (notes: reference/wp7-use-test-c1-lr.md T5). */
+  max-height: min(200px, 24vh);
   overflow-x: hidden;
   overflow-y: auto;
 }
