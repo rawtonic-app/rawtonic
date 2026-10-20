@@ -739,6 +739,7 @@
       "showMissing": "Afficher les photos manquantes"
     },
     "missingView": "Photos manquantes",
+    "missingViewNoDrop": "Photos manquantes montre les photos dont le fichier est introuvable ; on ne peut pas y ajouter de photos.",
     "missingViewTitle": "Photos dont le fichier est introuvable ou sur un disque déconnecté. Leurs retouches sont conservées ; localisez-les pour les relier.",
     "sessionCount_one": "{{count}} hors ligne",
     "sessionCount_many": "{{count}} hors ligne",
@@ -2368,6 +2369,7 @@
         "newGroupName": "Nom du nouveau groupe",
         "newTitle": "Nouvel album ou groupe",
         "previousImport": "Importation précédente",
+        "previousImportNoDrop": "Importation précédente montre la dernière importation ; on ne peut pas y ajouter de photos. Déposez-les sur un album.",
         "previousImportTitle": "Les photos ajoutées par la dernière importation, l’ajout, la synchronisation de dossier ou le dossier surveillé",
         "renameLabel": "Renommer {{name}}",
         "title": "Albums",

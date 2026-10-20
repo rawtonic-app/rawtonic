@@ -715,6 +715,7 @@
       "showMissing": "見つからない写真を表示"
     },
     "missingView": "見つからない写真",
+    "missingViewNoDrop": "見つからない写真はファイルが見つからない写真を表示します。ここには写真を追加できません。",
     "missingViewTitle": "ファイルが見つからないか、接続されていないドライブにある写真。編集は保持されます。探してリンクし直してください。",
     "sessionCount_other": "{{count}} 件オフライン",
     "sessionCountTitle": "ファイルが見つからないか、接続されていないドライブにある写真：ライブラリ › アルバム › 見つからない写真",
@@ -2253,6 +2254,7 @@
         "newGroupName": "新しいグループ名",
         "newTitle": "新規アルバムまたはグループ",
         "previousImport": "前回の読み込み",
+        "previousImportNoDrop": "前回の読み込みは最新の読み込みを表示します。ここには写真を追加できません。アルバムにドロップしてください。",
         "previousImportTitle": "最後の読み込み、追加、フォルダ同期、監視フォルダで加わった写真",
         "renameLabel": "{{name}} の名前を変更",
         "title": "アルバム",

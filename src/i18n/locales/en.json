@@ -718,6 +718,7 @@
       "showMissing": "Show Missing Photographs"
     },
     "missingView": "Missing Photographs",
+    "missingViewNoDrop": "Missing Photographs shows photos whose file is missing; photos cannot be added to it.",
     "missingViewTitle": "Photographs whose file is missing or on a disconnected drive. They keep their edits; locate them to relink.",
     "sessionCount_one": "{{count}} offline",
     "sessionCount_other": "{{count}} offline",
@@ -2300,6 +2301,7 @@
         "newGroupName": "New group name",
         "newTitle": "New album or group",
         "previousImport": "Previous Import",
+        "previousImportNoDrop": "Previous Import shows the latest import; photos cannot be added to it. Drop them on an album.",
         "previousImportTitle": "The photographs the latest ingest, Add, Synchronize Folder or hot folder added",
         "renameLabel": "Rename {{name}}",
         "title": "Albums",

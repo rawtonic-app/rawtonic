@@ -718,6 +718,7 @@
       "showMissing": "Fehlende Fotos anzeigen"
     },
     "missingView": "Fehlende Fotos",
+    "missingViewNoDrop": "„Fehlende Fotos“ zeigt Fotos, deren Datei fehlt; dort lassen sich keine Fotos hinzufügen.",
     "missingViewTitle": "Fotos, deren Datei fehlt oder auf einem nicht verbundenen Laufwerk liegt. Ihre Bearbeitungen bleiben; suchen Sie sie, um sie neu zu verknüpfen.",
     "sessionCount_one": "{{count}} offline",
     "sessionCount_other": "{{count}} offline",
@@ -2300,6 +2301,7 @@
         "newGroupName": "Name der neuen Gruppe",
         "newTitle": "Neues Album oder neue Gruppe",
         "previousImport": "Letzter Import",
+        "previousImportNoDrop": "„Letzter Import“ zeigt den letzten Import; dort lassen sich keine Fotos hinzufügen. Legen Sie sie auf einem Album ab.",
         "previousImportTitle": "Die Fotos, die der letzte Import, „Hinzufügen“, „Ordner synchronisieren“ oder der überwachte Ordner aufgenommen hat",
         "renameLabel": "{{name}} umbenennen",
         "title": "Alben",

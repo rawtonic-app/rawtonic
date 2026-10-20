@@ -739,6 +739,7 @@
       "showMissing": "Mostrar fotos que faltan"
     },
     "missingView": "Fotos que faltan",
+    "missingViewNoDrop": "Fotos que faltan muestra las fotos cuyo archivo falta; no se le pueden añadir fotos.",
     "missingViewTitle": "Fotos cuyo archivo falta o está en una unidad desconectada. Conservan sus ediciones; localízalas para volver a vincularlas.",
     "sessionCount_one": "{{count}} sin conexión",
     "sessionCount_many": "{{count}} sin conexión",
@@ -2368,6 +2369,7 @@
         "newGroupName": "Nombre del nuevo grupo",
         "newTitle": "Nuevo álbum o grupo",
         "previousImport": "Importación anterior",
+        "previousImportNoDrop": "Importación anterior muestra la última importación; no se le pueden añadir fotos. Suéltalas sobre un álbum.",
         "previousImportTitle": "Las fotos que añadió la última importación, Añadir, Sincronizar carpeta o la carpeta vigilada",
         "renameLabel": "Renombrar {{name}}",
         "title": "Álbumes",

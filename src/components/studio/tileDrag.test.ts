@@ -80,3 +80,23 @@ it("ignores modified presses and presses on the stars", () => {
   document.dispatchEvent(pointer("pointermove", 150, 10));
   expect(document.querySelector(".studio-drag-ghost")).toBeNull();
 });
+
+it("shows a refused drop on a row that takes no photographs and says why on the drop", async () => {
+  const { toast } = await import("react-toastify");
+  const info = vi.spyOn(toast, "info").mockImplementation(() => 0 as never);
+  const dropped = vi.fn();
+  album.removeAttribute("data-album-drop");
+  album.dataset.dropRefused = "Previous Import takes no photos";
+  album.addEventListener(TILE_DROP_EVENT, dropped);
+  press("/a.arw");
+  document.dispatchEvent(pointer("pointermove", 150, 10));
+  expect(album.classList.contains("is-drop-refused")).toBe(true);
+  expect(album.classList.contains("is-drop-target")).toBe(false);
+  expect(document.body.classList.contains("is-drop-refused")).toBe(true);
+  document.dispatchEvent(pointer("pointerup", 150, 10));
+  expect(info).toHaveBeenCalledWith("Previous Import takes no photos");
+  expect(dropped).not.toHaveBeenCalled();
+  expect(album.classList.contains("is-drop-refused")).toBe(false);
+  expect(document.body.classList.contains("is-drop-refused")).toBe(false);
+  info.mockRestore();
+});

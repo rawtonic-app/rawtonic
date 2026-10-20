@@ -715,6 +715,7 @@
       "showMissing": "显示缺失的照片"
     },
     "missingView": "缺失的照片",
+    "missingViewNoDrop": "“缺失的照片”显示文件缺失的照片，不能向其中添加照片。",
     "missingViewTitle": "文件缺失或位于未连接驱动器上的照片。它们保留编辑；查找它们以重新链接。",
     "sessionCount_other": "{{count}} 张离线",
     "sessionCountTitle": "文件缺失或位于未连接驱动器上的照片：图库 › 相册 › 缺失的照片",
@@ -2253,6 +2254,7 @@
         "newGroupName": "新组名称",
         "newTitle": "新建相册或组",
         "previousImport": "上次导入",
+        "previousImportNoDrop": "“上次导入”显示最近一次导入，不能向其中添加照片。请将照片拖放到相册上。",
         "previousImportTitle": "最近一次导入、添加、同步文件夹或监视文件夹所添加的照片",
         "renameLabel": "重命名 {{name}}",
         "title": "相册",

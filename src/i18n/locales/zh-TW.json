@@ -715,6 +715,7 @@
       "showMissing": "顯示遺失的照片"
     },
     "missingView": "遺失的照片",
+    "missingViewNoDrop": "「遺失的照片」顯示檔案遺失的照片，無法在其中加入照片。",
     "missingViewTitle": "檔案遺失或位於未連接磁碟上的照片。它們保留編輯；尋找它們以重新連結。",
     "sessionCount_other": "{{count}} 張離線",
     "sessionCountTitle": "檔案遺失或位於未連接磁碟上的照片：圖庫 › 相簿 › 遺失的照片",
@@ -2253,6 +2254,7 @@
         "newGroupName": "新群組名稱",
         "newTitle": "新增相簿或群組",
         "previousImport": "上次匯入",
+        "previousImportNoDrop": "「上次匯入」顯示最近一次匯入，無法在其中加入照片。請將照片拖放到相簿上。",
         "previousImportTitle": "最近一次匯入、加入、同步資料夾或監看資料夾所加入的照片",
         "renameLabel": "重新命名 {{name}}",
         "title": "相簿",

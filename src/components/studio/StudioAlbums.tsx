@@ -574,6 +574,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             className={`studio-preset studio-album is-smart ${activeAlbumId === PREVIOUS_IMPORT_VIEW_ID ? "is-applied" : ""}`}
             style={{ paddingLeft: 22 }}
             title={t("studio.library.albums.previousImportTitle")}
+            data-drop-refused={t("studio.library.albums.previousImportNoDrop")}
             onClick={() => void showImported().catch((e) => toast.error(String(e)))}
           >
             <History size={12} />
@@ -589,6 +590,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
             className={`studio-preset studio-album is-smart ${activeAlbumId === MISSING_VIEW_ID ? "is-applied" : ""}`}
             style={{ paddingLeft: 22 }}
             title={t("offline.missingViewTitle")}
+            data-drop-refused={t("offline.missingViewNoDrop")}
             onClick={() => void showMissing().catch((e) => toast.error(String(e)))}
           >
             <Unlink size={12} />

@@ -739,6 +739,7 @@
       "showMissing": "Mostra les fotos que falten"
     },
     "missingView": "Fotos que falten",
+    "missingViewNoDrop": "Fotos que falten mostra les fotos amb el fitxer absent; no s’hi poden afegir fotos.",
     "missingViewTitle": "Fotos amb el fitxer absent o en una unitat desconnectada. Conserven les edicions; localitza-les per tornar-les a vincular.",
     "sessionCount_one": "{{count}} fora de línia",
     "sessionCount_many": "{{count}} fora de línia",
@@ -2368,6 +2369,7 @@
         "newGroupName": "Nom del grup nou",
         "newTitle": "Àlbum o grup nou",
         "previousImport": "Importació anterior",
+        "previousImportNoDrop": "Importació anterior mostra la darrera importació; no s’hi poden afegir fotos. Deixa-les anar sobre un àlbum.",
         "previousImportTitle": "Les fotos que ha afegit l’última importació, Afegeix, Sincronitza la carpeta o la carpeta vigilada",
         "renameLabel": "Canvia el nom de {{name}}",
         "title": "Àlbums",

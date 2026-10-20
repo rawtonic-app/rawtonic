@@ -760,6 +760,7 @@
       "showMissing": "Pokaż brakujące zdjęcia"
     },
     "missingView": "Brakujące zdjęcia",
+    "missingViewNoDrop": "Brakujące zdjęcia pokazują zdjęcia, których plik zniknął; nie można do nich dodawać zdjęć.",
     "missingViewTitle": "Zdjęcia, których plik zniknął lub jest na odłączonym dysku. Zachowują edycje; znajdź je, aby je ponownie powiązać.",
     "sessionCount_one": "{{count}} offline",
     "sessionCount_few": "{{count}} offline",
@@ -2436,6 +2437,7 @@
         "newGroupName": "Nazwa nowej grupy",
         "newTitle": "Nowy album lub grupa",
         "previousImport": "Poprzedni import",
+        "previousImportNoDrop": "Poprzedni import pokazuje ostatni import; nie można do niego dodawać zdjęć. Upuść je na album.",
         "previousImportTitle": "Zdjęcia dodane przez ostatni import, Dodaj, Synchronizuj folder lub folder obserwowany",
         "renameLabel": "Zmień nazwę {{name}}",
         "title": "Albumy",

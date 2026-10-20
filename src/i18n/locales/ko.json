@@ -715,6 +715,7 @@
       "showMissing": "누락된 사진 보기"
     },
     "missingView": "누락된 사진",
+    "missingViewNoDrop": "누락된 사진은 파일이 없는 사진을 보여 줍니다. 여기에는 사진을 추가할 수 없습니다.",
     "missingViewTitle": "파일이 없거나 연결되지 않은 드라이브에 있는 사진입니다. 편집은 유지되며, 찾아서 다시 연결하세요.",
     "sessionCount_other": "{{count}}장 오프라인",
     "sessionCountTitle": "파일이 없거나 연결되지 않은 드라이브에 있는 사진: 라이브러리 › 앨범 › 누락된 사진",
@@ -2253,6 +2254,7 @@
         "newGroupName": "새 그룹 이름",
         "newTitle": "새 앨범 또는 그룹",
         "previousImport": "이전 가져오기",
+        "previousImportNoDrop": "이전 가져오기는 마지막 가져오기를 보여 줍니다. 여기에는 사진을 추가할 수 없습니다. 앨범에 놓으세요.",
         "previousImportTitle": "마지막 가져오기, 추가, 폴더 동기화 또는 감시 폴더로 추가된 사진",
         "renameLabel": "{{name}} 이름 변경",
         "title": "앨범",
