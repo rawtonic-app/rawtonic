@@ -10,6 +10,7 @@ import { createSubMask, DEFAULT_LUMA_RANGE } from "../../utils/maskUtils";
 import { MASK_VERSION } from "../../utils/adjustments";
 import { Mask } from "../panel/right/Masks";
 import { warnIfComponentStartsLayer } from "./layerLimitToast";
+import { keepWithinLayerLimit } from "../../utils/layerLimit";
 import {
   BRUSH_SIZE_MAX,
   BRUSH_SIZE_MIN,
@@ -56,7 +57,7 @@ export default function StudioLayerControls({
   const layerId = layer.id;
   type SubMasks = typeof layer.subMasks;
   const updateLayer = (subMasks: (subs: SubMasks) => SubMasks) =>
-    setAdjustments((prev) => ({
+    setAdjustments((prev) => keepWithinLayerLimit(prev, {
       ...prev,
       masks: prev.masks.map((m) => (m.id === layerId ? { ...m, subMasks: subMasks(m.subMasks) } : m)),
     }));

@@ -27,3 +27,12 @@ export function unrenderedLayerIds(masks: readonly LayerLike[]): Set<string> {
   }
   return ids;
 }
+
+/** `next`, unless it renders more layers than `prev` beyond the limit: then
+ * `prev` (the last guard of an action that adds one, on the state it
+ * actually changes). */
+export function keepWithinLayerLimit<T extends { masks: readonly LayerLike[] }>(prev: T, next: T): T {
+  const rendered = (masks: readonly LayerLike[]) => masks.filter(isRenderedLayer).length;
+  const after = rendered(next.masks);
+  return after > MAX_RENDERED_LAYERS && after > rendered(prev.masks) ? prev : next;
+}

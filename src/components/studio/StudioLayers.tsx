@@ -35,7 +35,7 @@ import MaskThumb from "./MaskThumb";
 import { useMaskThumbnailStore, useMaskThumbnailUpdates } from "../../hooks/useMaskThumbnails";
 import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
 import { AUTO_MASK_VERSION, canUpgradeAutoMask, layerAutoMaskVersions, upgradeLayerAutoMask } from "../../utils/autoMaskUpgrade";
-import { MAX_RENDERED_LAYERS, unrenderedLayerIds } from "../../utils/layerLimit";
+import { MAX_RENDERED_LAYERS, keepWithinLayerLimit, unrenderedLayerIds } from "../../utils/layerLimit";
 import { warnIfCopyRenders, warnIfShowingRenders } from "./layerLimitToast";
 
 /** Drop target id of the Background row in the layer list. */
@@ -268,7 +268,10 @@ export default function StudioLayers({
     setAdjustments((prev) => {
       const at = prev.masks.findIndex((m) => m.id === target.id);
       if (at < 0) return prev;
-      return { ...prev, masks: [...prev.masks.slice(0, at + 1), copy, ...prev.masks.slice(at + 1)] };
+      return keepWithinLayerLimit(prev, {
+        ...prev,
+        masks: [...prev.masks.slice(0, at + 1), copy, ...prev.masks.slice(at + 1)],
+      });
     });
     setEditor({
       activeMaskContainerId: copy.id,
@@ -556,10 +559,12 @@ export default function StudioLayers({
                     }
                     // Showing a layer again counts against the rendered limit.
                     if (warnIfShowingRenders(mask.id)) return;
-                    setAdjustments((prev) => ({
-                      ...prev,
-                      masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
-                    }));
+                    setAdjustments((prev) =>
+                      keepWithinLayerLimit(prev, {
+                        ...prev,
+                        masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
+                      }),
+                    );
                   }}
                 >
                   {mask.visible ? <Eye size={12} /> : <EyeOff size={12} />}

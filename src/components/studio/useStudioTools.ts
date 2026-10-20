@@ -11,6 +11,7 @@ import { createComponents, type MaskKind } from "../../utils/maskKinds";
 import { Panel } from "../ui/AppProperties";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 import { warnIfComponentStartsLayer, warnIfLayerLimit } from "./layerLimitToast";
+import { keepWithinLayerLimit } from "../../utils/layerLimit";
 
 /** Cursor tools of the viewer bar, after Capture One's cursor tools. */
 export type StudioTool =
@@ -125,7 +126,7 @@ export function useStudioTools() {
     // Capture One's "Draw Mask Inside" decides which side a new radial covers.
     if (maskKind === "radial") mask.invert = !radialDrawInside;
     const id = crypto.randomUUID();
-    setAdjustments((prev) => ({
+    setAdjustments((prev) => keepWithinLayerLimit(prev, {
       ...prev,
       masks: [
         ...prev.masks,
@@ -175,7 +176,7 @@ export function useStudioTools() {
       if (warnIfComponentStartsLayer(target.id)) return;
       const created = createSubMask(Mask.Brush, selectedImage, mode);
       brush = created;
-      setAdjustments((prev) => ({
+      setAdjustments((prev) => keepWithinLayerLimit(prev, {
         ...prev,
         masks: prev.masks.map((m) =>
           m.id === target.id
@@ -211,7 +212,7 @@ export function useStudioTools() {
       if (kind === "luminance") setEditor({ activeMaskContainerId: target.id, lumaPickerLayer: target.id });
       return;
     }
-    setAdjustments((prev) => ({
+    setAdjustments((prev) => keepWithinLayerLimit(prev, {
       ...prev,
       masks: prev.masks.map((m) =>
         m.id === target.id
