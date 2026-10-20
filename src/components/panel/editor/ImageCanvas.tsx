@@ -86,7 +86,7 @@ import {
   type LinearLine,
   type LinearParams,
 } from '../../../utils/linearMask';
-import { shapeFromDrag } from '../../../utils/shapeDraw';
+import { draftToCommit, shapeFromDrag, type ShapeDraft } from '../../../utils/shapeDraw';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -1354,7 +1354,8 @@ const ImageCanvas = memo(
 
     const [isCropViewVisible, setIsCropViewVisible] = useState(false);
     const cropImageRef = useRef<HTMLImageElement>(null);
-    const [localInitialDrawParams, setLocalInitialDrawParams] = useState<SubMask['parameters'] | null>(null);
+    // The gradient a drag is drawing: its component and its shape so far.
+    const [shapeDraft, setShapeDraft] = useState<ShapeDraft | null>(null);
     const [isMaskInteractionActive, setIsMaskInteractionActive] = useState(false);
     // Pressing a mask handle must never pan or click-zoom the view, even when
     // no hover preceded the press (pens, Sidecar, synthetic input). The editor
@@ -1397,7 +1398,7 @@ const ImageCanvas = memo(
       setIsStrokeActive(drawing);
     }, []);
     const drawingStageRef = useRef<Konva.Stage | null>(null);
-    const dragStartPointer = useRef<Coord | null>(null);
+    const dragStartPointer = useRef<(Coord & { id: string }) | null>(null);
     const lastBrushPoint = useRef<Coord | null>(null);
     const currentLine = useRef<DrawnLine | null>(null);
     // The positions the pointer passed since the last delivered move: the
@@ -1662,6 +1663,12 @@ const ImageCanvas = memo(
       !!activeSubMask &&
       shapeDrawTarget === activeSubMask.id &&
       (activeSubMask.type === Mask.Linear || activeSubMask.type === Mask.Radial);
+    // Another component or photograph ends a drag's draft.
+    const activeSubMaskId = activeSubMask?.id;
+    useEffect(() => {
+      setShapeDraft(null);
+      dragStartPointer.current = null;
+    }, [activeSubMaskId, selectedImage.path]);
 
     // Control+Option drags change the brush instead of painting (Capture One).
     const canvasRootRef = useRef<HTMLDivElement>(null);
@@ -1708,7 +1715,7 @@ const ImageCanvas = memo(
       lastBrushPoint.current = null;
       setPreviewBox(null);
       previewBoxRef.current = null;
-      setLocalInitialDrawParams(null);
+      setShapeDraft(null);
     }, [isToolActive, setDrawing]);
 
     useEffect(() => {
@@ -2153,9 +2160,9 @@ const ImageCanvas = memo(
           if (!pos) return;
 
           const { scale } = imageRenderSize;
-          dragStartPointer.current = { x: pos.x / scale + cropX, y: pos.y / scale + cropY };
+          dragStartPointer.current = { id: activeSubMask.id, x: pos.x / scale + cropX, y: pos.y / scale + cropY };
           // The shape changes once the press has moved far enough to draw.
-          setLocalInitialDrawParams(null);
+          setShapeDraft(null);
           return;
         }
 
@@ -2373,6 +2380,8 @@ const ImageCanvas = memo(
         }
 
         if (isInitialDrawing && dragStartPointer.current && activeSubMask) {
+          // A drag belongs to the component it started on.
+          if (dragStartPointer.current.id !== activeSubMask.id) return;
           const stage =
             drawingStageRef.current || (e && typeof e.target?.getStage === 'function' ? e.target.getStage() : null);
           if (!stage) return;
@@ -2386,14 +2395,15 @@ const ImageCanvas = memo(
             dragStartPointer.current,
             { x: pointerPos.x / scale + cropX, y: pointerPos.y / scale + cropY },
             {
-              scale,
+              // Image to screen pixels, viewer zoom included.
+              scale: screenPixelsPerImagePixel,
               handle: Math.min(effectiveImageDimensions.width, effectiveImageDimensions.height) * 0.2,
               snap: !!(e?.evt?.shiftKey ?? e?.shiftKey),
             },
           );
           if (!updatedParams) return;
 
-          setLocalInitialDrawParams(updatedParams);
+          setShapeDraft({ id: activeSubMask.id, params: updatedParams });
 
           if (onLiveMaskPreview && activeContainer && activeSubMask) {
             const previewSubMask = {
@@ -2497,6 +2507,7 @@ const ImageCanvas = memo(
         brushImageSpaceSize,
         getCanvasPointer,
         renderShapesLive,
+        screenPixelsPerImagePixel,
         cursorPreview.visible,
         brushGesture,
         uncroppedImageRenderSize?.width,
@@ -2614,11 +2625,15 @@ const ImageCanvas = memo(
 
       if (isInitialDrawing && activeSubMask) {
         setDrawing(false);
-        // A click without a drag keeps the shape the tool created.
-        if (localInitialDrawParams) updateSubMask(isMasking ? activeMaskId : null, { parameters: localInitialDrawParams });
-        setLocalInitialDrawParams(null);
+        // A click without a drag keeps the shape the tool created; a drag
+        // started on another component (the tool changed meanwhile) draws
+        // nothing and leaves this one waiting.
+        const drawn = draftToCommit(shapeDraft, activeSubMask.id);
+        const started = dragStartPointer.current?.id === activeSubMask.id;
+        if (drawn) updateSubMask(isMasking ? activeMaskId : null, { parameters: drawn });
+        setShapeDraft(null);
         dragStartPointer.current = null;
-        useEditorStore.getState().setEditor({ shapeDrawTarget: null });
+        if (started) useEditorStore.getState().setEditor({ shapeDrawTarget: null });
         return;
       }
 
@@ -2755,7 +2770,7 @@ const ImageCanvas = memo(
       onGenerateAiMask,
       updateSubMask,
       effectiveImageDimensions,
-      localInitialDrawParams,
+      shapeDraft,
       brushImageSpaceSize,
       setDrawing,
       isAiSubjectActive,
@@ -3345,8 +3360,8 @@ const ImageCanvas = memo(
                         sortedSubMasks.map((subMask: SubMask) => {
                           const activeId = activeMaskId;
                           const renderSubMask =
-                            subMask.id === activeId && localInitialDrawParams
-                              ? { ...subMask, parameters: localInitialDrawParams }
+                            subMask.id === activeId && shapeDraft?.id === subMask.id
+                              ? { ...subMask, parameters: shapeDraft.params }
                               : subMask;
 
                           if (

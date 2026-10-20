@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Mask } from '../components/panel/right/Masks';
 import { createSubMask } from './maskUtils';
-import { SHAPE_DRAG_THRESHOLD, shapeFromDrag } from './shapeDraw';
+import { SHAPE_DRAG_THRESHOLD, draftToCommit, shapeFromDrag } from './shapeDraw';
 import { linearFrame, linearLineOffsets, type LinearParams } from './linearMask';
 
 const image = { width: 6000, height: 4000 };
@@ -31,5 +31,24 @@ describe('drawing a new gradient by a drag', () => {
     expect(middle.y).toBeCloseTo(1000);
     expect(middle.y + normal.y * offsets.start).toBeCloseTo(500);
     expect(middle.y + normal.y * offsets.end).toBeCloseTo(1500);
+  });
+});
+
+describe('releasing a gradient drag', () => {
+  it('commits the draft only to the component the drag started on', () => {
+    const radial = createSubMask(Mask.Radial, image);
+    const linear = createSubMask(Mask.Linear, image);
+    const draft = { id: radial.id, params: { ...radial.parameters, centerX: 10 } };
+    expect(draftToCommit(draft, radial.id)).toEqual(draft.params);
+    // L pressed mid-drag made a new linear active: its shape stays its own.
+    expect(draftToCommit(draft, linear.id)).toBeNull();
+    expect(draftToCommit(null, radial.id)).toBeNull();
+  });
+
+  it('measures the click threshold in screen pixels, zoom included', () => {
+    const { parameters } = createSubMask(Mask.Radial, image);
+    // `scale` is screen pixels per image pixel (fit 0.25 at 4x zoom = 1).
+    expect(shapeFromDrag(Mask.Radial, parameters, { x: 0, y: 0 }, { x: 10, y: 0 }, { scale: 1, handle: 1 })).toBeNull();
+    expect(shapeFromDrag(Mask.Radial, parameters, { x: 0, y: 0 }, { x: 16, y: 0 }, { scale: 1, handle: 1 })).not.toBeNull();
   });
 });

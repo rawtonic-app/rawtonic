@@ -36,3 +36,17 @@ export function shapeFromDrag(
   if (type === Mask.Linear) return linearFromDrag(params as LinearParams, from, to, handle, snap);
   return null;
 }
+
+/** A gradient being drawn: the component the drag started on and its shape
+ * so far (no draft until the drag passes the threshold). */
+export interface ShapeDraft {
+  id: string;
+  params: SubMask['parameters'];
+}
+
+/** What the release commits to the active component `activeId`: only its own
+ * draft, never one a drag drew for a component active before (a tool key
+ * pressed mid-drag). Null: nothing changes. */
+export function draftToCommit(draft: ShapeDraft | null, activeId: string): SubMask['parameters'] | null {
+  return draft && draft.id === activeId ? draft.params : null;
+}
