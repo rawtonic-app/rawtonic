@@ -676,8 +676,10 @@ impl IngestedFile {
 /// The RAW test an ingest pairs RAW+JPEG with (`batch::pair_sources`);
 /// none when the user imports such JPEGs as photographs of their own.
 fn pair_raw(separate_jpeg: Option<bool>) -> Option<fn(&Path) -> bool> {
-    (!separate_jpeg.unwrap_or(false))
-        .then_some(crate::formats::is_raw_file::<&Path> as fn(&Path) -> bool)
+    fn is_raw(path: &Path) -> bool {
+        crate::formats::is_raw_file(path)
+    }
+    (!separate_jpeg.unwrap_or(false)).then_some(is_raw as fn(&Path) -> bool)
 }
 
 /// How an ingest brings photographs in.

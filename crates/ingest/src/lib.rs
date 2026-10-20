@@ -823,10 +823,8 @@ pub(crate) fn import_pair(
                     companion_of: Some(owner.path),
                     ..Default::default()
                 },
-                companion: match companion {
-                    Some(companion) => Some(import_alone(library, companion, options, cancel)),
-                    None => None,
-                },
+                companion: companion
+                    .map(|companion| import_alone(library, companion, options, cancel)),
             });
         }
         None => None,
@@ -837,10 +835,8 @@ pub(crate) fn import_pair(
         // already (skipped), else it comes in as a photograph of its own
         // (the RAW came in alone before, or with another JPEG) rather than
         // being left out.
-        let companion = match companion {
-            Some(companion) => Some(import_alone(library, companion, options, cancel)),
-            None => None,
-        };
+        let companion =
+            companion.map(|companion| import_alone(library, companion, options, cancel));
         return Ok(PairResult {
             photo: ImportResult {
                 source: source.into(),
