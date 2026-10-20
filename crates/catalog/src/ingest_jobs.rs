@@ -429,21 +429,6 @@ impl Library {
         }
     }
 
-    /// Stores `value` as the option `key` of job `id` (as the caller keeps
-    /// its options: a JSON object).
-    pub fn set_ingest_job_option(&self, id: &str, key: &str, value: &Value) -> Result<()> {
-        let mut options = self.ingest_job(id)?.options;
-        options
-            .as_object_mut()
-            .context("Ingest job options are not an object")?
-            .insert(key.into(), value.clone());
-        self.conn.execute(
-            "UPDATE tasks SET payload=? WHERE id=? AND kind='ingest'",
-            params![serde_json::to_string(&options)?, id],
-        )?;
-        Ok(())
-    }
-
     pub fn set_ingest_job_state(&self, id: &str, state: JobState) -> Result<()> {
         let changed = self.conn.execute(
             "UPDATE tasks SET state=? WHERE id=? AND kind='ingest'",

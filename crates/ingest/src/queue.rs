@@ -36,10 +36,6 @@ pub struct JobOptions {
     /// The album the photographs go into.
     #[serde(default)]
     pub album: Option<String>,
-    /// The import batch its photographs joined (Previous Import), once the
-    /// first was added: a resumed run adds the rest to it.
-    #[serde(default)]
-    pub batch: Option<i64>,
 }
 
 impl JobOptions {
@@ -54,7 +50,6 @@ impl JobOptions {
                 .transpose()?,
             roots: options.roots.to_vec(),
             album: options.album.map(Into::into),
-            batch: None,
         })
     }
 }
@@ -138,21 +133,7 @@ pub fn run_job(
         }
     };
     library.set_ingest_job_state(id, JobState::Running)?;
-    // The batch its first run started: kept with the job, or (cut off
-    // before it was kept) the one its photographs recorded so far are in.
-    let mut batch = options.batch;
-    if batch.is_none() {
-        for item in &job.items {
-            if let Some(destination) = &item.destination
-                && let Some(asset) = library.asset_at(destination)?
-                && let Some(found) = library.asset_import_batch(&asset.id)?
-            {
-                batch = Some(found);
-                break;
-            }
-        }
-    }
-    let _batch = library.continue_import_batch(rawtonic_catalog::ImportKind::Ingest, batch)?;
+    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
     let items: Vec<_> = job.open_items().cloned().collect();
     let total = items
         .iter()
@@ -271,14 +252,6 @@ pub fn run_job(
             && let Some(album) = &options.album
         {
             add_to_album(library, album, &done)?;
-        }
-        // The batch the job's photographs join, kept before the first of
-        // them counts as done.
-        if let Some(current) = library.current_import_batch()
-            && batch != Some(current)
-        {
-            library.set_ingest_job_option(id, "batch", &serde_json::json!(current))?;
-            batch = Some(current);
         }
         let photo = &done[0];
         // A JPEG copied but not recorded (the library busy): the item stays
@@ -839,50 +812,5 @@ mod tests {
         run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
         assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 1);
         assert_eq!(lib.ingest_job(&id).unwrap().state, JobState::Done);
-    }
-
-    /// A resumed job's photographs join the batch its first run started:
-    /// Previous Import is the whole ingest, also after another import.
-    #[test]
-    fn a_resumed_job_is_one_previous_import() {
-        let d = tempfile::tempdir().unwrap();
-        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
-        let sources = card(d.path());
-        let id = create_job(&lib, &sources, &options("{orig}")).unwrap();
-        let killed = catch_unwind(AssertUnwindSafe(|| {
-            run_job(&lib, &id, &AtomicBool::new(false), |done| {
-                if done.index == 2 {
-                    panic!("killed");
-                }
-            })
-        }));
-        assert!(killed.is_err());
-        let lib = Library::open(&lib.directory).unwrap();
-        let first = lib.previous_import().unwrap().unwrap();
-        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
-        let after = lib.previous_import().unwrap().unwrap();
-        assert_eq!(after.id, first.id);
-        assert_eq!(after.count, 4);
-    }
-
-    /// Cut off after the first photograph was recorded but before the job
-    /// kept its batch: the resumed run finds the batch from that photograph.
-    #[test]
-    fn a_batch_not_yet_kept_is_found_from_the_recorded_photographs() {
-        let d = tempfile::tempdir().unwrap();
-        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
-        let sources = card(d.path());
-        let id = create_job(&lib, &sources, &options("{orig}")).unwrap();
-        let killed = catch_unwind(AssertUnwindSafe(|| {
-            run_job(&lib, &id, &AtomicBool::new(false), |_| panic!("killed"))
-        }));
-        assert!(killed.is_err());
-        // As if the run died before it kept the batch with the job.
-        lib.set_ingest_job_option(&id, "batch", &serde_json::Value::Null)
-            .unwrap();
-        let first = lib.previous_import().unwrap().unwrap();
-        run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
-        let after = lib.previous_import().unwrap().unwrap();
-        assert_eq!((after.id, after.count), (first.id, 4));
     }
 }
