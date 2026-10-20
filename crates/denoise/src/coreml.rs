@@ -326,7 +326,8 @@ fn file_url(path: &Path) -> Result<Retained<NSURL>> {
     Ok(NSURL::fileURLWithPath(&NSString::from_str(s)))
 }
 
-/// Compiles into a temporary folder and moves the result into place.
+/// Compiles into a temporary folder of its own (the app and the CLI may
+/// compile at once) and moves the result into place.
 fn compile(package: &Path, compiled: &Path) -> Result<()> {
     ensure!(
         package.exists(),
@@ -342,14 +343,24 @@ fn compile(package: &Path, compiled: &Path) -> Result<()> {
             .context("compiled model without a path")?
             .to_string(),
     );
-    let staging = compiled.with_extension("mlmodelc.partial");
-    let _ = std::fs::remove_dir_all(&staging);
+    let parent = compiled
+        .parent()
+        .context("compiled model without a folder")?;
+    let staging_dir = tempfile::Builder::new()
+        .prefix(".mlmodelc-")
+        .tempdir_in(parent)?;
+    let staging = staging_dir.path().join("model.mlmodelc");
     if std::fs::rename(&out_path, &staging).is_err() {
         copy_dir(&out_path, &staging)?;
         let _ = std::fs::remove_dir_all(&out_path);
     }
     let _ = std::fs::remove_dir_all(compiled);
-    std::fs::rename(&staging, compiled)?;
+    if let Err(e) = std::fs::rename(&staging, compiled) {
+        // Another process put its compiled model there in between.
+        if !compiled.join("coremldata.bin").exists() {
+            return Err(e.into());
+        }
+    }
     Ok(())
 }
 

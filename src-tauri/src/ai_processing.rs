@@ -8,7 +8,7 @@ pub use relight::{
     run_relight_model,
 };
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -572,6 +572,9 @@ fn get_models_dir(app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(models_dir)
 }
 
+/// Writes a verified download to `dest`: a temporary file of its own
+/// renamed over the old one (never deleted first, never a name another
+/// load or the CLI writes at the same time).
 fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
     if bytes.is_empty() {
         return Err(anyhow::anyhow!(
@@ -579,7 +582,6 @@ fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
             dest.display()
         ));
     }
-
     let parent = dest.parent().ok_or_else(|| {
         anyhow::anyhow!(
             "Cannot determine parent directory for downloaded asset {}",
@@ -587,29 +589,7 @@ fn persist_downloaded_asset(dest: &Path, bytes: &[u8]) -> Result<()> {
         )
     })?;
     fs::create_dir_all(parent)?;
-
-    let file_name = dest
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| anyhow::anyhow!("Invalid downloaded asset path {}", dest.display()))?;
-    let tmp_path = dest.with_file_name(format!(".{}.download", file_name));
-
-    {
-        let mut file = fs::File::create(&tmp_path)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-
-    fs::rename(&tmp_path, dest).or_else(|rename_error| -> std::io::Result<()> {
-        if dest.exists() {
-            fs::remove_file(dest)?;
-            fs::rename(&tmp_path, dest)?;
-            Ok(())
-        } else {
-            Err(rename_error)
-        }
-    })?;
-    Ok(())
+    rawtonic_metadata::atomic_write(dest, bytes)
 }
 
 /// The download URL of a file of the model pack.
@@ -4059,5 +4039,28 @@ mod relight_tests {
                 start.elapsed().as_secs_f64() * 1000.
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod download_tests {
+    use super::persist_downloaded_asset;
+
+    /// A download replaces the installed file by a rename, without deleting
+    /// it first, through a temporary file of its own: the fixed
+    /// `.NAME.download` another load or the CLI may be writing is left alone.
+    #[test]
+    fn a_download_replaces_the_model_without_touching_other_writers_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let model = dir.path().join("model.onnx");
+        std::fs::write(&model, b"old model").unwrap();
+        let other = dir.path().join(".model.onnx.download");
+        std::fs::write(&other, b"another load").unwrap();
+        persist_downloaded_asset(&model, b"new model").unwrap();
+        assert_eq!(std::fs::read(&model).unwrap(), b"new model");
+        assert_eq!(std::fs::read(&other).unwrap(), b"another load");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 2);
+        assert!(persist_downloaded_asset(&model, b"").is_err());
+        assert_eq!(std::fs::read(&model).unwrap(), b"new model");
     }
 }

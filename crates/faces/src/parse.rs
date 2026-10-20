@@ -114,6 +114,14 @@ pub fn softmax_u8(logits: &[f32]) -> Vec<u8> {
     out
 }
 
+/// Per-pixel class probabilities (`softmax_u8`); non-finite logits (a GPU
+/// fault) are an error, so `Model::run` repeats the run on the CPU instead
+/// of returning empty masks.
+fn probabilities(logits: &[f32]) -> Result<Vec<u8>> {
+    rawtonic_onnx::ensure_finite(logits)?;
+    Ok(softmax_u8(logits))
+}
+
 /// Runs the network on the crop `to_photo` describes.
 pub fn parse(session: &mut Session, image: &RgbImage, to_photo: Affine) -> Result<ParseCrop> {
     let crop = sample_crop(image, &to_photo, INPUT);
@@ -130,7 +138,7 @@ pub fn parse(session: &mut Session, image: &RgbImage, to_photo: Affine) -> Resul
         .iter()
         .copied()
         .collect();
-    Ok(ParseCrop::new(to_photo, softmax_u8(&logits)))
+    Ok(ParseCrop::new(to_photo, probabilities(&logits)?))
 }
 
 /// The whole photo, centred in a square crop.
@@ -146,6 +154,16 @@ pub fn whole_photo(width: u32, height: u32) -> Affine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn non_finite_logits_are_an_error_for_the_cpu_fallback() {
+        let mut logits = vec![0.5; CLASSES * 4];
+        assert_eq!(probabilities(&logits).unwrap().len(), CLASSES * 4);
+        logits[7] = f32::NAN;
+        assert!(probabilities(&logits).is_err());
+        logits[7] = f32::INFINITY;
+        assert!(probabilities(&logits).is_err());
+    }
 
     #[test]
     fn softmax_sums_to_one() {

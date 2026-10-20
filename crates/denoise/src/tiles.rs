@@ -2,7 +2,7 @@
 //! Packing a Bayer mosaic into R, G, B, G planes and running the network on
 //! overlapping tiles.
 
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 
 use crate::Backend;
 use crate::noise::NoiseProfile;
@@ -131,6 +131,9 @@ pub fn run(
                 "network returned {} values",
                 result.len()
             );
+            // A GPU fault can return NaN without an error (Core ML): an
+            // error, never a NaN tile in the photo or the cache.
+            rawtonic_onnx::ensure_finite(&result).context("AI Denoise tile")?;
             let (hh, ww) = (core.min(ph - ty), core.min(pw - tx));
             for c in 0..4 {
                 for y in 0..hh {
