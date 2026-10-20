@@ -16,7 +16,6 @@ use crate::ai_processing::{
 };
 use crate::app_state::{AiTaskGuard, AiTaskToken, AppState};
 use crate::cache_utils::GEOMETRY_KEYS;
-use crate::editor_preview::get_cached_full_warped_image;
 
 #[tauri::command]
 pub fn cancel_ai_task(task_id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
@@ -166,7 +165,7 @@ pub async fn generate_ai_depth_mask(
     let _running = LIFECYCLE.run();
     // Keyed by the photo actually loaded, taken before the model loads: a
     // photo switch meanwhile cannot file one photo's depth under another.
-    let loaded = crate::image_loader::wait_for_original_image(&state)?;
+    let loaded = crate::image_loader::original_image(&state).await?;
     ensure_photo(&loaded.path, &path)?;
     let path_hash = geometry_key(&loaded.path, &js_adjustments);
     let depth_model = get_or_init_depth_model(&app_handle, &state.ai_state, &state.ai_init_lock)
@@ -187,16 +186,26 @@ pub async fn generate_ai_depth_mask(
     let cached_depth = match cached {
         Some(cached) => cached,
         None => {
-            let warped_image =
-                get_cached_full_warped_image(&state, &loaded.image, loaded.is_raw, &js_adjustments);
+            let warped_image = crate::editor_preview::cached_full_warped_image(
+                &app_handle,
+                loaded.image.clone(),
+                loaded.is_raw,
+                js_adjustments.clone(),
+            )
+            .await?;
 
             if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
                 return Err("Task cancelled".to_string());
             }
 
-            let depth_img =
-                run_depth_anything_model(warped_image.as_ref(), &depth_model, loaded.is_raw)
-                    .map_err(|e| e.to_string())?;
+            let is_raw = loaded.is_raw;
+            let model_input = warped_image.clone();
+            let depth_img = tokio::task::spawn_blocking(move || {
+                run_depth_anything_model(model_input.as_ref(), &depth_model, is_raw)
+                    .map_err(|e| e.to_string())
+            })
+            .await
+            .map_err(|e| e.to_string())??;
 
             let new_cache = CachedDepthMap {
                 path_hash,
@@ -218,14 +227,17 @@ pub async fn generate_ai_depth_mask(
         return Err("Task cancelled".to_string());
     }
 
-    let raw_depth_fullres = image::imageops::resize(
-        &cached_depth.depth_image,
-        cached_depth.original_size.0,
-        cached_depth.original_size.1,
-        image::imageops::FilterType::Triangle,
-    );
-
-    let base64_data = encode_to_base64_png(&raw_depth_fullres)?;
+    let base64_data = tokio::task::spawn_blocking(move || {
+        let raw_depth_fullres = image::imageops::resize(
+            &cached_depth.depth_image,
+            cached_depth.original_size.0,
+            cached_depth.original_size.1,
+            image::imageops::FilterType::Triangle,
+        );
+        encode_to_base64_png(&raw_depth_fullres)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
     Ok(AiDepthMaskParameters {
         min_depth,
@@ -278,8 +290,15 @@ pub async fn generate_ai_subject_mask(
         return Err("Task cancelled".to_string());
     }
 
-    let (embeddings, warped_image, source_is_raw) =
-        sam_embeddings(&state, &models, &js_adjustments, generation, cancel_flag).await?;
+    let (embeddings, warped_image, source_is_raw) = sam_embeddings(
+        &state,
+        &app_handle,
+        &models,
+        &js_adjustments,
+        generation,
+        cancel_flag,
+    )
+    .await?;
     let ready = started.elapsed().as_millis();
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
@@ -437,6 +456,7 @@ async fn wait_turn<'a>(
 /// the encoder's ONNX Runtime run.
 async fn sam_embeddings(
     state: &tauri::State<'_, AppState>,
+    app_handle: &tauri::AppHandle,
     models: &Arc<SamModels>,
     js_adjustments: &serde_json::Value,
     generation: u64,
@@ -446,7 +466,7 @@ async fn sam_embeddings(
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one.
-    let loaded = crate::image_loader::wait_for_original_image(state)?;
+    let loaded = crate::image_loader::original_image(state).await?;
     let (mask_source, source_is_raw) = (loaded.image, loaded.is_raw);
     let path_hash = geometry_key(&loaded.path, js_adjustments);
     let cached = || {
@@ -458,8 +478,13 @@ async fn sam_embeddings(
             .and_then(|ai| ai.embeddings.clone())
             .filter(|e| e.path_hash == path_hash)
     };
-    let warped_image =
-        get_cached_full_warped_image(state, &mask_source, source_is_raw, js_adjustments);
+    let warped_image = crate::editor_preview::cached_full_warped_image(
+        app_handle,
+        mask_source,
+        source_is_raw,
+        js_adjustments.clone(),
+    )
+    .await?;
     if let Some(embeddings) = cached() {
         return Ok((embeddings, warped_image, source_is_raw));
     }
@@ -549,7 +574,8 @@ pub async fn precompute_ai_subject_mask(
         .await
         .map_err(|e| e.to_string())?;
     // A request for a photo that is no longer open is dropped.
-    let current = crate::image_loader::wait_for_original_image(&state)
+    let current = crate::image_loader::original_image(&state)
+        .await
         .ok()
         .map(|l| l.path);
     if current.as_deref() != Some(path.as_str()) || cancelled() {
@@ -557,7 +583,16 @@ pub async fn precompute_ai_subject_mask(
     }
     let start = std::time::Instant::now();
     let cancel = _guard.as_ref().map(|g| &g.token);
-    match sam_embeddings(&state, &models, &js_adjustments, generation, cancel).await {
+    match sam_embeddings(
+        &state,
+        &app_handle,
+        &models,
+        &js_adjustments,
+        generation,
+        cancel,
+    )
+    .await
+    {
         Ok(_) => log::info!(
             "AI object mask: background embedding of {path} ready after {} ms",
             start.elapsed().as_millis()
@@ -701,7 +736,7 @@ async fn auto_mask(
     let _run = kind.lock().lock().await;
     // Keyed by the photo actually loaded, not the caller's path: a run that
     // outlives a photo switch cannot file one photo's mask under another.
-    let loaded = crate::image_loader::wait_for_original_image(state)?;
+    let loaded = crate::image_loader::original_image(state).await?;
     if let Some(asked) = asked {
         ensure_photo(&loaded.path, asked)?;
     }
@@ -716,18 +751,22 @@ async fn auto_mask(
     // loads (Core ML loads on a worker thread): a first click waits for the
     // longer of the two instead of both. Only when the model will be there:
     // asked for, or installed.
-    let warp = || {
+    let warp = || async {
         let start = std::time::Instant::now();
-        let image =
-            get_cached_full_warped_image(state, &loaded.image, loaded.is_raw, js_adjustments);
-        (image, start.elapsed().as_millis())
+        let image = crate::editor_preview::cached_full_warped_image(
+            app_handle,
+            loaded.image.clone(),
+            loaded.is_raw,
+            js_adjustments.clone(),
+        )
+        .await?;
+        Ok::<_, String>((image, start.elapsed().as_millis()))
     };
     let (network, warped) = if !model_loaded(state, kind)
         && (download || mask_model_installed(app_handle, kind == AutoMask::Sky))
     {
-        let (network, warped) =
-            tokio::join!(network(state, app_handle, kind, download), async { warp() });
-        (network?, Some(warped))
+        let (network, warped) = tokio::join!(network(state, app_handle, kind, download), warp());
+        (network?, Some(warped?))
     } else {
         (network(state, app_handle, kind, download).await?, None)
     };
@@ -743,7 +782,10 @@ async fn auto_mask(
         return Err("Task cancelled".to_string());
     }
     let start = std::time::Instant::now();
-    let (warped_image, warped_ms) = warped.unwrap_or_else(warp);
+    let (warped_image, warped_ms) = match warped {
+        Some(warped) => warped,
+        None => warp().await?,
+    };
     let (width, height) = (warped_image.width(), warped_image.height());
     // Only an ONNX Runtime run can be stopped; Core ML needs no ONNX Runtime
     // at all (without one, creating run options would fail).
@@ -859,7 +901,8 @@ async fn precompute(
         .as_ref()
         .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
     let cancel = _guard.as_ref().map(|g| &g.token);
-    let current = crate::image_loader::wait_for_original_image(&state)
+    let current = crate::image_loader::original_image(&state)
+        .await
         .ok()
         .map(|l| l.path);
     if current.as_deref() != Some(path.as_str()) {
@@ -981,7 +1024,7 @@ pub async fn generate_relight_depth(
     app_handle: tauri::AppHandle,
 ) -> Result<serde_json::Value, String> {
     // Capture the source before awaiting model initialization.
-    let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
+    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     LIFECYCLE.touch();
     let running = LIFECYCLE.run();
     let model = crate::ai_processing::get_or_init_relight_model(

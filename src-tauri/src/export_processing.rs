@@ -1112,8 +1112,33 @@ pub fn cancel_export(
     Ok(())
 }
 
+/// Renders the estimate on a blocking worker, not an async runtime thread.
 #[tauri::command]
 pub async fn estimate_export_sizes(
+    paths: Vec<String>,
+    export_settings: ExportSettings,
+    output_format: String,
+    current_edit_path: Option<String>,
+    current_edit_adjustments: Option<Value>,
+    app_handle: tauri::AppHandle,
+) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let app = app_handle.clone();
+        estimate_sizes(
+            paths,
+            export_settings,
+            output_format,
+            current_edit_path,
+            current_edit_adjustments,
+            app.state::<AppState>(),
+            app_handle,
+        )
+    })
+    .await
+    .map_err(|e| format!("Export size estimate failed: {e}"))?
+}
+
+fn estimate_sizes(
     paths: Vec<String>,
     export_settings: ExportSettings,
     output_format: String,

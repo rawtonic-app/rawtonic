@@ -18,7 +18,7 @@ pub async fn find_spot_source(
     js_adjustments: Value,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<(f64, f64), String> {
-    let (source, _) = crate::editor_preview::get_original_image(&state)?;
+    let (source, _) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
         let base = crate::image_loader::composite_patches_on_image(&source, &js_adjustments)
             .map_err(|e| e.to_string())?;
@@ -43,7 +43,7 @@ pub async fn visualize_spots(
     js_adjustments: Value,
     state: tauri::State<'_, crate::app_state::AppState>,
 ) -> Result<tauri::ipc::Response, String> {
-    let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
+    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     let key = {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();

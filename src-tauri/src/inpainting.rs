@@ -288,7 +288,7 @@ pub async fn invoke_generative_replace_with_mask_def(
         sub_masks: patch_definition.sub_masks.clone(),
     };
 
-    let (mask_source, source_is_raw) = crate::editor_preview::get_original_image(&state)?;
+    let (mask_source, source_is_raw) = crate::editor_preview::original_source(&state).await?;
     let warped_image = resolve_warped_image_for_masks(
         &state,
         &mask_source,
