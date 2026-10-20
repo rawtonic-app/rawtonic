@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -28,7 +28,6 @@ pub enum Request {
         staging: PathBuf,
         /// Only this body (its serial number): another one is closed again
         /// before anything of it is read or downloaded.
-        #[serde(default)]
         serial: Option<String>,
     },
     Disconnect,
@@ -100,12 +99,12 @@ pub struct CameraStatus {
     /// also writes a card copy is the camera's setting: a Fujifilm GFX 50R
     /// in USB tether mode writes none, so the app frees a photo only after
     /// its verified commit, and the user can turn freeing off.
-    #[serde(default)]
     pub transfer_queue: bool,
     /// The body's serial number, when it reports one: a reconnect takes
     /// only the same body (two of one model may be attached).
-    #[serde(default)]
     pub serial: Option<String>,
+    /// The body's firmware version, when it reports one.
+    pub firmware: Option<String>,
 }
 
 /// A camera setting the interface shows (`key` is ours; `camera_key` the
@@ -221,6 +220,12 @@ pub enum Reply {
     },
     Settings {
         settings: Vec<Setting>,
+    },
+    /// The answer to `Release`: whether the photo was freed from the
+    /// camera's transfer queue (false: the camera keeps none, or the photo
+    /// is not the one to free any more).
+    Released {
+        freed: bool,
     },
 }
 

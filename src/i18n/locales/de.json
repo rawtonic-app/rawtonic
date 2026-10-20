@@ -1033,6 +1033,12 @@
       "lastFailed": "{{file}} konnte nicht übernommen werden",
       "lastIn": "{{file}} ist in der Bibliothek",
       "lastTiming": "{{file}} {{ms}} ms nach der Aufnahme in der Bibliothek",
+      "level": {
+        "notSupported": "Diese Kamera wird noch nicht unterstützt.",
+        "reported": "Laut Berichten von Nutzern dieses Kameramodells funktioniert es.",
+        "tested": "Mit diesem Kameramodell getestet unter {{systems}} ({{date}}).",
+        "unlisted": "Mit diesem Kameramodell noch nicht getestet. Sobald sie verbunden ist, erstellt der Kameratest einen Bericht, den du teilen kannst."
+      },
       "liveView": "Live-View",
       "looking": "Suche Kameras …",
       "nextCapture": "Nächste Aufnahme",
@@ -1041,8 +1047,54 @@
       "reconnecting": "Rawtonic verbindet die Kamera wieder, sobald sie zurück ist.",
       "refresh": "Erneut nach Kameras suchen",
       "setOnBody": "Am Kameragehäuse eingestellt",
+      "test": {
+        "bursting": "{{shots}} Aufnahmen direkt hintereinander…",
+        "button": "Kameratest…",
+        "buttonTitle": "Diese Kamera Schritt für Schritt testen und einen anonymen Bericht erstellen",
+        "close": "Kameratest schließen",
+        "copied": "Kopiert",
+        "copy": "Bericht kopieren",
+        "how": {
+          "autofocus": "Fokussiert einmal. Überspringe es mit einem manuellen Objektiv oder MF an der Kamera.",
+          "bodyShot": "Ausführen, dann innerhalb von 30 Sekunden den Auslöser an der Kamera drücken.",
+          "burst": "Löst {{shots}} Aufnahmen so schnell aus, wie die Kamera sie annimmt.",
+          "release": "Prüft, dass jedes Foto auf der Kamera erst freigegeben wurde, nachdem es in der Bibliothek geprüft war (Kameras mit Übertragungswarteschlange).",
+          "replug": "Ausführen, das USB-Kabel abziehen und wieder einstecken. Rawtonic sollte sich von selbst wieder verbinden.",
+          "setSetting": "Stellt eine Einstellung (etwa ISO) auf den nächsten Wert, liest sie zurück und stellt sie zurück.",
+          "settings": "Liest die Einstellungen der Kamera.",
+          "shots": "Löst die gewählte Anzahl Aufnahmen aus, jede, sobald die vorige da ist."
+        },
+        "intro": "Führe jeden Schritt mit deiner Kamera aus; Rawtonic misst ihn. Öffne vorher ein Foto in Entwickeln: Neue Fotos erscheinen dort, so wird die Zeit bis zum Foto auf dem Bildschirm gemessen. Es wird nichts gesendet: Am Ende kannst du den Bericht unten kopieren.",
+        "openIssue": "Kamerabericht auf GitHub öffnen",
+        "plugBack": "Steck das Kabel wieder ein (schalte die Kamera wieder ein, falls sie ausgegangen ist).",
+        "pressShutter": "Drücke jetzt den Auslöser an der Kamera.",
+        "pullCable": "Zieh jetzt das USB-Kabel ab.",
+        "report": "Bericht (genau das wird kopiert)",
+        "reportHint": "Nur Kameramodell und Firmware, System, App-Version, Kameratreiber und die Ergebnisse der Schritte: keine Seriennummer, Dateinamen, Ordner, Benutzernamen oder Fotos.",
+        "run": "Ausführen",
+        "shotAfterReplug": "Wieder verbunden; noch eine Aufnahme…",
+        "shotCount": "Anzahl der Aufnahmen",
+        "shotOf": "Aufnahme {{n}} von {{total}}…",
+        "skip": "Überspringen",
+        "state": {
+          "failed": "Fehlgeschlagen",
+          "passed": "Bestanden",
+          "skipped": "Übersprungen"
+        },
+        "steps": {
+          "autofocus": "Autofokus",
+          "bodyShot": "Aufnahme an der Kamera",
+          "burst": "Serie",
+          "connect": "Verbinden",
+          "release": "Übertragungswarteschlange",
+          "replug": "Kabel ab und wieder an",
+          "setSetting": "Eine Einstellung ändern",
+          "settings": "Einstellungen lesen",
+          "shots": "Aufnahmen"
+        },
+        "title": "Kameratest"
+      },
       "title": "Tethered fotografieren",
-      "untested": "Unterstützt, aber mit diesem Kameramodell noch nicht getestet.",
       "usbHint": "Den USB-Modus der Kamera auf Fernsteuerung stellen (Sony: PC-Fernbedienung; Fujifilm: USB-Tether-Aufnahme)."
     },
     "toasts": {

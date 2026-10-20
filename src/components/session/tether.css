@@ -120,3 +120,75 @@
   color: var(--app-text-secondary, #aab0b5);
   line-height: 1.35;
 }
+.tether-test {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tether-test-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.tether-test-head h3 {
+  font-size: 12px;
+  font-weight: 550;
+}
+.tether-test-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tether-test-steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tether-test-steps small {
+  color: var(--app-text-secondary, #aab0b5);
+  line-height: 1.35;
+  padding-left: 18px;
+}
+.tether-test-step {
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.tether-test-step > span:last-child {
+  color: var(--app-text-secondary, #aab0b5);
+}
+.tether-test-steps li[data-state="failed"] .tether-test-step > span:last-child {
+  color: #f1abab;
+}
+.tether-test-steps li[data-state="pending"] strong {
+  color: var(--app-text-secondary, #aab0b5);
+  font-weight: 450;
+}
+.tether-test-run {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tether-test-run .tether-actions {
+  padding-left: 18px;
+}
+.tether-test-run select {
+  padding: 4px 6px;
+  border: 1px solid #53565a;
+  border-radius: 4px;
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+}
+.tether-test-report textarea {
+  width: 100%;
+  padding: 6px;
+  border: 1px solid #53565a;
+  border-radius: 4px;
+  background: var(--app-bg-primary);
+  color: var(--app-text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  line-height: 1.4;
+  resize: vertical;
+}

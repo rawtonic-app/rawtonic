@@ -1,0 +1,32 @@
+# Tethering: camera compatibility
+
+Which cameras tethered shooting was tried with and how well it works. The list's data is `src/components/session/tetherCameras.json`; the tether panel shows its entry for the connected camera. Keep this page and the file in step (a test checks that every entry is listed here with its level).
+
+Support levels:
+
+- **tested** — measured on a body by the Rawtonic project (method: screen recording of the shutter request to the new photo shown in Develop, series of shots, settings, autofocus, shots fired on the body, cable pulled and plugged in again).
+- **reported** — a user's camera test report says it works; not measured by the project.
+- **not supported** — Rawtonic does not connect it.
+
+A camera that is not listed has not been tried yet. Every camera is handled the same way; the list only says what is known.
+
+| Camera | Level | USB mode | Tested on | Photo on screen, median / p95 | Shots | Notes |
+|---|---|---|---|---|---|---|
+| Sony α7 III | tested | PC Remote | macOS 26, 2026-10-19 | 1487 / 1510 ms | 100/100 | Live view, autofocus, settings, body shots and reconnect work. In AF-S a shot that finds no focus is not exposed; the camera reports nothing for it. |
+| Sony α7 IV | tested | PC Remote | macOS 26, 2026-10-19 | 1140 / 1214 ms | 100/100 | Live view, autofocus, settings, body shots and reconnect work. The ISO list shows the extended values as "Multi Frame Noise Reduction"; choosing one changes nothing. |
+| Fujifilm X-H2S | tested | USB tether shooting | macOS 26, 2026-10-19 | 1140 / 1281 ms | 50/50 | Transfer queue freed after each verified commit; keeps its card copy. Live view shows about 3 frames a second and stops after a shot. With image review set to Continuous the camera refuses the next remote shot until the review is dismissed. |
+| Fujifilm GFX 50R | tested | USB tether shooting | macOS 26, 2026-10-19 | 2409 / 2585 ms | 50/50 | Transfer queue freed after each verified commit. No live view. Refuses shots as busy for about 3 seconds after connecting. Writes no card copy in USB tether mode: the library copy is the only one. |
+| Canon EOS cameras | not supported | — | — | — | — | Not offered yet: no Canon body has been tested, and the camera library can lose the report of a photo on these bodies. |
+
+No body has been tried on Linux or Windows yet.
+
+## Report your camera
+
+1. Connect the camera in the tether panel (session bar → Tether) and open a photo in Develop.
+2. Click **Camera test…** and run each step (skip what your camera cannot do).
+3. The report at the end shows exactly what will be copied: the camera model and firmware, the system, the Rawtonic version, the camera driver and each step's result and timings. It holds no serial number, file names, folders, user name or photos. Rawtonic sends nothing; you copy the text yourself.
+4. Open a [camera report](https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml) on GitHub and paste it.
+
+A report that a camera works adds it as **reported**; a body the project measures becomes **tested**.
+
+Camera makers and models are named here only to say what Rawtonic works with ([TRADEMARKS.md](../TRADEMARKS.md)).

@@ -1076,6 +1076,12 @@
       "lastFailed": "No s’ha pogut afegir {{file}}",
       "lastIn": "{{file}} és a la biblioteca",
       "lastTiming": "{{file}} a la biblioteca {{ms}} ms després del tret",
+      "level": {
+        "notSupported": "Aquesta càmera encara no és compatible.",
+        "reported": "Funciona segons els usuaris d'aquest model de càmera.",
+        "tested": "Provat amb aquest model de càmera a {{systems}} ({{date}}).",
+        "unlisted": "Encara no provat amb aquest model de càmera. Un cop connectada, la prova de càmera crea un informe que pots compartir."
+      },
       "liveView": "Visió en directe",
       "looking": "Cercant càmeres…",
       "nextCapture": "Propera captura",
@@ -1084,8 +1090,54 @@
       "reconnecting": "Rawtonic torna a connectar la càmera quan torni.",
       "refresh": "Torna a cercar càmeres",
       "setOnBody": "Es configura a la càmera",
+      "test": {
+        "bursting": "{{shots}} trets seguits…",
+        "button": "Prova de càmera…",
+        "buttonTitle": "Prova aquesta càmera pas a pas i crea un informe anònim",
+        "close": "Tanca la prova de càmera",
+        "copied": "Copiat",
+        "copy": "Copia l'informe",
+        "how": {
+          "autofocus": "Enfoca una vegada. Omet-ho amb un objectiu manual o amb MF a la càmera.",
+          "bodyShot": "Executa i prem el disparador de la càmera en 30 segons.",
+          "burst": "Dispara {{shots}} trets tan ràpid com la càmera els accepti.",
+          "release": "Comprova que cada foto s'ha alliberat a la càmera només després de verificar-la a la biblioteca (càmeres amb cua de transferència).",
+          "replug": "Executa, desconnecta el cable USB i torna'l a connectar. Rawtonic s'hauria de tornar a connectar sol.",
+          "setSetting": "Canvia un ajust (com l'ISO) al valor següent, el torna a llegir i el restableix.",
+          "settings": "Llegeix els ajustos de la càmera.",
+          "shots": "Dispara el nombre de trets triat, cadascun quan ha arribat l'anterior."
+        },
+        "intro": "Fes cada pas amb la teva càmera; Rawtonic el mesura. Obre abans una foto a Revelatge: les fotos noves hi apareixen, i així es mesura el temps fins a la foto a la pantalla. No s'envia res: al final pots copiar l'informe de sota.",
+        "openIssue": "Obre un informe de càmera a GitHub",
+        "plugBack": "Torna a connectar el cable (torna a engegar la càmera si s'ha apagat).",
+        "pressShutter": "Prem ara el disparador de la càmera.",
+        "pullCable": "Desconnecta ara el cable USB.",
+        "report": "Informe (exactament el que es copia)",
+        "reportHint": "Només model i microprogramari de la càmera, sistema, versió de l'app, controlador de la càmera i resultats dels passos: cap número de sèrie, nom de fitxer, carpeta, nom d'usuari ni foto.",
+        "run": "Executa",
+        "shotAfterReplug": "Connectada de nou; un tret més…",
+        "shotCount": "Nombre de trets",
+        "shotOf": "Tret {{n}} de {{total}}…",
+        "skip": "Omet",
+        "state": {
+          "failed": "Fallat",
+          "passed": "Superat",
+          "skipped": "Omès"
+        },
+        "steps": {
+          "autofocus": "Enfocament automàtic",
+          "bodyShot": "Tret a la càmera",
+          "burst": "Ràfega",
+          "connect": "Connexió",
+          "release": "Cua de transferència",
+          "replug": "Cable fora i dins",
+          "setSetting": "Canvia un ajust",
+          "settings": "Llegeix els ajustos",
+          "shots": "Trets"
+        },
+        "title": "Prova de càmera"
+      },
       "title": "Captura connectada",
-      "untested": "Compatible, però encara no provada amb aquest model de càmera.",
       "usbHint": "Posa el mode USB de la càmera en captura remota (Sony: PC Remote; Fujifilm: captura USB connectada)."
     },
     "toasts": {

@@ -344,11 +344,11 @@ impl<W: Write> Server<W> {
                 // name), and so does one whose name stands for a newer photo.
                 if open.connection != connection || open.downloads.get(&file) != Some(&download) {
                     log::info!("{} is not the photo to release any more; kept", file.name);
-                    return Ok(Reply::Ok);
+                    return Ok(Reply::Released { freed: false });
                 }
-                open.camera.release(&file)?;
+                let freed = open.camera.release(&file)?;
                 open.downloads.remove(&file);
-                Ok(Reply::Ok)
+                Ok(Reply::Released { freed })
             }
             Request::Shutdown => {
                 self.open = None;

@@ -1076,6 +1076,12 @@
       "lastFailed": "Impossibile aggiungere {{file}}",
       "lastIn": "{{file}} è nella libreria",
       "lastTiming": "{{file}} nella libreria {{ms}} ms dopo lo scatto",
+      "level": {
+        "notSupported": "Questa fotocamera non è ancora supportata.",
+        "reported": "Funziona secondo gli utenti di questo modello di fotocamera.",
+        "tested": "Testato con questo modello di fotocamera su {{systems}} ({{date}}).",
+        "unlisted": "Non ancora testato con questo modello di fotocamera. Una volta collegata, il test della fotocamera crea un rapporto da condividere."
+      },
       "liveView": "Live view",
       "looking": "Ricerca fotocamere…",
       "nextCapture": "Prossimo scatto",
@@ -1084,8 +1090,54 @@
       "reconnecting": "Rawtonic ricollega la fotocamera appena torna disponibile.",
       "refresh": "Cerca di nuovo le fotocamere",
       "setOnBody": "Impostato sul corpo macchina",
+      "test": {
+        "bursting": "{{shots}} scatti di fila…",
+        "button": "Test della fotocamera…",
+        "buttonTitle": "Testa questa fotocamera passo dopo passo e crea un rapporto anonimo",
+        "close": "Chiudi il test della fotocamera",
+        "copied": "Copiato",
+        "copy": "Copia il rapporto",
+        "how": {
+          "autofocus": "Mette a fuoco una volta. Saltalo con un obiettivo manuale o in MF.",
+          "bodyShot": "Esegui, poi premi il pulsante di scatto della fotocamera entro 30 secondi.",
+          "burst": "Esegue {{shots}} scatti alla massima velocità accettata dalla fotocamera.",
+          "release": "Verifica che ogni foto sia stata liberata sulla fotocamera solo dopo la verifica nella libreria (fotocamere con coda di trasferimento).",
+          "replug": "Esegui, scollega il cavo USB e ricollegalo. Rawtonic dovrebbe ricollegarsi da solo.",
+          "setSetting": "Porta un'impostazione (come l'ISO) al valore successivo, la rilegge e la ripristina.",
+          "settings": "Legge le impostazioni della fotocamera.",
+          "shots": "Esegue il numero di scatti scelto, ognuno quando il precedente è arrivato."
+        },
+        "intro": "Esegui ogni passo con la tua fotocamera; Rawtonic lo misura. Apri prima una foto in Sviluppo: le nuove foto compaiono lì, così si misura il tempo fino alla foto sullo schermo. Non viene inviato nulla: alla fine puoi copiare il rapporto qui sotto.",
+        "openIssue": "Apri un rapporto fotocamera su GitHub",
+        "plugBack": "Ricollega il cavo (riaccendi la fotocamera se si è spenta).",
+        "pressShutter": "Premi ora il pulsante di scatto della fotocamera.",
+        "pullCable": "Scollega ora il cavo USB.",
+        "report": "Rapporto (esattamente ciò che viene copiato)",
+        "reportHint": "Solo modello e firmware della fotocamera, sistema, versione dell'app, driver della fotocamera e risultati dei passi: nessun numero di serie, nome di file, cartella, nome utente o foto.",
+        "run": "Esegui",
+        "shotAfterReplug": "Di nuovo collegata; ancora uno scatto…",
+        "shotCount": "Numero di scatti",
+        "shotOf": "Scatto {{n}} di {{total}}…",
+        "skip": "Salta",
+        "state": {
+          "failed": "Non riuscito",
+          "passed": "Superato",
+          "skipped": "Saltato"
+        },
+        "steps": {
+          "autofocus": "Autofocus",
+          "bodyShot": "Scatto dalla fotocamera",
+          "burst": "Raffica",
+          "connect": "Collegamento",
+          "release": "Coda di trasferimento",
+          "replug": "Cavo scollegato e ricollegato",
+          "setSetting": "Cambia un'impostazione",
+          "settings": "Leggi le impostazioni",
+          "shots": "Scatti"
+        },
+        "title": "Test della fotocamera"
+      },
       "title": "Scatto collegato",
-      "untested": "Supportata, ma non ancora provata con questo modello di fotocamera.",
       "usbHint": "Imposta la modalità USB della fotocamera su scatto remoto (Sony: PC Remote; Fujifilm: scatto USB collegato)."
     },
     "toasts": {

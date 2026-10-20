@@ -210,7 +210,10 @@ fn a_full_transfer_queue_fires_again_once_photos_are_released() {
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
-    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: true }
+    );
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
 }
@@ -278,12 +281,12 @@ fn a_release_from_an_earlier_connection_does_not_reach_the_camera_now_open() {
     assert_eq!(first.camera_name, second.camera_name);
     assert_eq!(
         helper.client.request(release(&first), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: false }
     );
     assert!(helper.client.request(Request::Capture, WAIT).is_err());
     assert_eq!(
         helper.client.request(release(&second), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: true }
     );
     helper.capture();
     assert_eq!(helper.photos(1).0.len(), 1);
@@ -364,7 +367,7 @@ fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
     // The first one's release comes after the second photo took its name.
     assert_eq!(
         helper.client.request(release(&photos[0]), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: false }
     );
     assert!(
         helper.client.request(Request::Capture, WAIT).is_err(),
@@ -372,7 +375,7 @@ fn a_late_release_never_frees_a_newer_photo_under_the_same_name() {
     );
     assert_eq!(
         helper.client.request(release(&photos[1]), WAIT).unwrap(),
-        Reply::Ok
+        Reply::Released { freed: true }
     );
     helper.capture();
 }
@@ -967,9 +970,38 @@ fn a_held_camera_delivers_nothing_more_and_still_frees_its_photos() {
         camera_folder: photos[0].camera_folder.clone(),
         camera_name: photos[0].camera_name.clone(),
     };
-    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: true }
+    );
     assert_eq!(
         helper.client.request(Request::Disconnect, WAIT).unwrap(),
         Reply::Ok
+    );
+}
+
+/// What the camera test's report and its transfer queue step rest on: the
+/// body's firmware comes with the status, and a release says whether a
+/// photo was freed — never on a camera without a transfer queue.
+#[test]
+fn the_status_names_the_firmware_and_a_release_says_whether_it_freed() {
+    let dir = tempfile::tempdir().unwrap();
+    let helper = start(&MockSpec::default(), dir.path());
+    let Reply::Connected { status } = helper.connect().unwrap() else {
+        panic!("not connected");
+    };
+    assert_eq!(status.firmware.as_deref(), Some("1.00"));
+    assert!(!status.transfer_queue);
+    helper.capture();
+    let photo = helper.photos(1).0.remove(0);
+    let release = Request::Release {
+        connection: photo.connection,
+        download: photo.download,
+        camera_folder: photo.camera_folder.clone(),
+        camera_name: photo.camera_name.clone(),
+    };
+    assert_eq!(
+        helper.client.request(release, WAIT).unwrap(),
+        Reply::Released { freed: false }
     );
 }

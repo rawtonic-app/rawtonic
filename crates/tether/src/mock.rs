@@ -56,6 +56,8 @@ pub struct MockSpec {
     pub preview: bool,
     /// The body's serial number.
     pub serial: Option<String>,
+    /// Its firmware version.
+    pub firmware: Option<String>,
     /// No memory card in (a camera that then keeps photos in its memory).
     pub no_card: bool,
     /// The card is taken out this long after the connect.
@@ -100,6 +102,7 @@ impl Default for MockSpec {
             report_twice: false,
             preview: true,
             serial: Some("MOCK0001".into()),
+            firmware: Some("1.00".into()),
             capture_target: None,
             raw_and_jpeg: false,
             no_card: false,
@@ -321,6 +324,7 @@ impl Camera for MockCamera {
             can_preview: self.spec.preview,
             transfer_queue: self.spec.queue_limit.is_some(),
             serial: self.spec.serial.clone(),
+            firmware: self.spec.firmware.clone(),
         }
     }
 
@@ -443,9 +447,12 @@ impl Camera for MockCamera {
             || crate::camera::memory_only(self.status().capture_target.as_deref()))
     }
 
-    fn release(&mut self, _file: &CameraFile) -> Result<(), TetherError> {
+    fn release(&mut self, _file: &CameraFile) -> Result<bool, TetherError> {
+        if self.spec.queue_limit.is_none() {
+            return Ok(false);
+        }
         self.queued = self.queued.saturating_sub(1);
-        Ok(())
+        Ok(true)
     }
 
     fn autofocus(&mut self) -> Result<(), TetherError> {

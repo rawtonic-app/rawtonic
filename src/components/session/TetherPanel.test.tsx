@@ -5,11 +5,19 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import TetherPanel, { ramOnly, type TetherStatus } from "./TetherPanel";
 import { TETHER_CAPTURE_EVENT, isTetherConnected } from "./tether";
 
-const callbacks = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
+type Callback = (event: { payload: unknown }) => void;
+// Every listener of an event hears it (the panel and its camera test).
+const callbacks = vi.hoisted(() => new Map<string, Callback>());
+const listeners = vi.hoisted(() => new Map<string, Set<Callback>>());
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn((name: string, callback: (event: { payload: unknown }) => void) => {
-    callbacks.set(name, callback);
-    return Promise.resolve(() => callbacks.delete(name));
+  listen: vi.fn((name: string, callback: Callback) => {
+    const all = listeners.get(name) ?? new Set<Callback>();
+    listeners.set(name, all.add(callback));
+    callbacks.set(name, (event) => [...all].forEach((heard) => heard(event)));
+    return Promise.resolve(() => {
+      all.delete(callback);
+      if (all.size === 0) callbacks.delete(name);
+    });
   }),
 }));
 const invoke = vi.hoisted(() => vi.fn());
@@ -44,6 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   callbacks.clear();
+  listeners.clear();
   invoke.mockReset();
 });
 
@@ -225,14 +234,38 @@ it("stops a live view whose start was still on its way when the panel went away"
   answer(null);
 });
 
-it("says when a camera model has not been tested yet", async () => {
+it("shows what the compatibility list says of the connected camera model", async () => {
   render(<Harness initial={STATUS} />);
   await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  expect(screen.getByText(/not yet tested with this camera model/)).toBeTruthy();
+  expect(screen.getByText(/Not tested with this camera model yet/)).toBeTruthy();
   cleanup();
   render(<Harness initial={{ ...STATUS, camera: { ...STATUS.camera, model: "Fuji Fujifilm X-H2S" } }} />);
   await waitFor(() => expect(screen.getByLabelText("ISO")).toBeTruthy());
-  expect(screen.queryByText(/not yet tested with this camera model/)).toBeNull();
+  expect(screen.queryByText(/Not tested with this camera model yet/)).toBeNull();
+  expect(screen.getByText(/Tested with this camera model on macOS 26 \(2026-10-19\)/)).toBeTruthy();
+});
+
+it("says before connecting that a camera is not supported yet", async () => {
+  const base = invoke.getMockImplementation()!;
+  invoke.mockImplementation((command: string, args?: unknown) =>
+    command === "tether_cameras"
+      ? Promise.resolve({ library: "2.5.34", cameras: [{ model: "Canon EOS R5", port: "usb:020,007" }] })
+      : base(command, args),
+  );
+  render(<Harness />);
+  expect(await screen.findByText(/This camera is not supported yet/)).toBeTruthy();
+});
+
+it("opens the camera test for the connected camera and keeps it through a cable pull", async () => {
+  const onStatus = vi.fn();
+  render(<Harness initial={STATUS} onStatus={onStatus} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Camera test…" }));
+  expect(screen.getByRole("region", { name: "Camera test" })).toBeTruthy();
+  act(() => callbacks.get("tether-state")?.({ payload: { connected: false, error: { kind: "disconnected", message: "gone" } } }));
+  expect(onStatus).toHaveBeenCalledWith(null);
+  expect(screen.getByRole("region", { name: "Camera test" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Close the camera test" }));
+  expect(screen.queryByRole("region", { name: "Camera test" })).toBeNull();
 });
 
 it("says a failed shot from the shortcut while the panel is closed", async () => {
