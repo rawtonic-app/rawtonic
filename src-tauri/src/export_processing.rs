@@ -710,7 +710,6 @@ pub(crate) async fn export_images_impl(
                         ensure_export_not_cancelled(&cancellation_token_clone)?;
                         crate::session_bridge::write_new_output(&output_path, cube_bytes)
                             .map_err(|e| e.to_string())?;
-                        ensure_export_not_cancelled(&cancellation_token_clone)?;
                         return Ok(());
                     }
 
@@ -805,12 +804,15 @@ pub(crate) async fn export_images_impl(
                         },
                         &|| ensure_export_not_cancelled(&cancellation_token_clone),
                     )?;
-                    ensure_export_not_cancelled(&cancellation_token_clone)?;
 
+                    // The photo's file is published: its other outputs are
+                    // finished too, cancelled or not, so the photo is either
+                    // complete or not exported (a resume would otherwise
+                    // export it again under a new name or miss its masks).
+                    let finish_photo = AtomicBool::new(false);
                     if export_settings.preserve_timestamps {
                         set_timestamps_from_exif(Path::new(&source_path_str), &output_path);
                     }
-                    ensure_export_not_cancelled(&cancellation_token_clone)?;
 
                     if let Some(source) = mask_source.as_ref() {
                         export_masks_for_image(
@@ -824,7 +826,7 @@ pub(crate) async fn export_images_impl(
                             &state,
                             is_raw,
                             &app_handle_clone,
-                            &cancellation_token_clone,
+                            &finish_photo,
                         )?;
                     }
 
@@ -845,12 +847,17 @@ pub(crate) async fn export_images_impl(
                 }
 
                 drop(permit);
-                if cancellation_token_clone.load(Ordering::SeqCst) {
+                let cancelled = cancellation_token_clone.load(Ordering::SeqCst);
+                // A photo completed before the cancel is recorded as done;
+                // an unfinished one stays for a resume.
+                if let Some(tracking) = &tracking_clone
+                    && (result.is_ok() || !cancelled)
+                {
+                    tracking.finished(global_index, &result);
+                }
+                if cancelled {
                     Err("Export cancelled".to_string())
                 } else {
-                    if let Some(tracking) = &tracking_clone {
-                        tracking.finished(global_index, &result);
-                    }
                     result
                 }
             });

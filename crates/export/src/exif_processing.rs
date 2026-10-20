@@ -1088,6 +1088,29 @@ pub const SOFTWARE: &str = concat!("Rawtonic ", env!("CARGO_PKG_VERSION"));
 pub struct ExportMetadata {
     pub exif: Metadata,
     pub xmp: Option<String>,
+    /// The XMP carries the AI marking (IPTC Digital Source Type): an export
+    /// must not be written without it.
+    pub generated: bool,
+}
+
+impl ExportMetadata {
+    /// Only the AI marking and the creating tool (EXIF Software and the XMP
+    /// marking), for a photo with generated areas.
+    pub fn marking_only() -> Result<Self, String> {
+        let mut exif = Metadata::new();
+        exif.set_tag(ExifTag::Software(SOFTWARE.to_string()));
+        let xmp = rawtonic_metadata::export_xmp_with_source(
+            &rawtonic_metadata::Metadata::default(),
+            SOFTWARE,
+            Some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI),
+        )
+        .map_err(|e| format!("The AI marking could not be made: {e}"))?;
+        Ok(Self {
+            exif,
+            xmp: Some(xmp),
+            generated: true,
+        })
+    }
 }
 
 /// The EXIF and XMP an export carries. `exif_sidecar` returns the source's
@@ -1115,25 +1138,20 @@ pub fn export_metadata_with(
         return None;
     }
     let digital_source_type = generated.then_some(rawtonic_metadata::DIGITAL_SOURCE_COMPOSITE_AI);
+    // Without the source's metadata (not kept, or the original is gone) a
+    // photo with generated areas still carries the marking.
+    let marking_only = || {
+        generated
+            .then(ExportMetadata::marking_only)
+            .and_then(|made| made.map_err(|e| log::warn!("{e}")).ok())
+    };
     if !keep_metadata {
-        if !generated {
-            return None;
-        }
-        let mut exif = Metadata::new();
-        exif.set_tag(ExifTag::Software(SOFTWARE.to_string()));
-        let xmp = rawtonic_metadata::export_xmp_with_source(
-            &rawtonic_metadata::Metadata::default(),
-            SOFTWARE,
-            digital_source_type,
-        )
-        .map_err(|e| log::warn!("Export XMP not written: {e}"))
-        .ok();
-        return Some(ExportMetadata { exif, xmp });
+        return marking_only();
     }
 
     let original_path = Path::new(original_path_str);
     if !original_path.exists() {
-        return None;
+        return marking_only();
     }
 
     // A TIFF source's IFD0 describes its own strips and sample layout, which
@@ -1457,9 +1475,13 @@ pub fn export_metadata_with(
     let xmp = rawtonic_metadata::export_xmp_with_source(&catalog, SOFTWARE, digital_source_type)
         .map_err(|e| log::warn!("Export XMP not written: {e}"))
         .ok();
+    if generated && xmp.is_none() {
+        return marking_only();
+    }
     Some(ExportMetadata {
         exif: metadata,
         xmp,
+        generated,
     })
 }
 
