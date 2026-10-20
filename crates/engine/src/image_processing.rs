@@ -7342,13 +7342,23 @@ mod region_tests {
         }))
     }
 
+    /// A diagonal bright edge whose blue is blurred wider (axial chromatic
+    /// aberration): version 4's first stage corrects it along the edge.
+    fn axial_frame(width: u32, height: u32) -> DynamicImage {
+        DynamicImage::ImageRgb32F(image::ImageBuffer::from_fn(width, height, |x, y| {
+            let d = (x as f32 * 0.83 + y as f32 * 0.56) - 0.5 * width as f32;
+            let step = |s: f32| 0.02 + 0.78 / (1.0 + (-d / s).exp());
+            image::Rgb([step(0.7), step(0.7), step(2.2)])
+        }))
+    }
+
     #[test]
     fn a_region_with_fringe_suppression_is_the_same_pixels_given_the_plan() {
         let (w, h) = (301u32, 211u32);
         let lens = json!({"k1": -0.12, "k2": 0.03, "k3": 0.0, "model": 0,
             "tca_vr": 1.0012, "tca_vb": 0.9991, "tca_vr2": 0.0004});
         let mut radii = std::collections::BTreeSet::new();
-        for image in [frame(w, h), fringed_frame(w, h)] {
+        for image in [frame(w, h), fringed_frame(w, h), axial_frame(w, h)] {
             let rgb = image.as_rgb32f().unwrap();
             let raw = rgb.as_raw().clone();
             for adjustments in [
@@ -7360,9 +7370,13 @@ mod region_tests {
                 json!({"fringeVersion": 3}),
                 json!({"fringeVersion": 3, "lensDistortionParams": lens, "rotation": 2.0,
                     "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
+                json!({"fringeVersion": 4}),
+                json!({"fringeVersion": 4, "lensDistortionParams": lens, "rotation": 2.0,
+                    "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
             ] {
                 let measures = RegionMeasures::of(rgb, &adjustments);
-                radii.insert(measures.fringe.expect("a fringe plan"));
+                let fringe = measures.fringe.expect("a fringe plan");
+                radii.insert((fringe.radius, fringe.colour_lines, fringe.axial.is_some()));
                 assert!(RegionMeasures::inputs_key(&adjustments).is_some());
                 let warped = apply_geometry_warp(&image, &adjustments);
                 let plain = apply_spatial_transformations(warped.clone(), &adjustments)
@@ -7401,15 +7415,18 @@ mod region_tests {
                 }
             }
         }
-        // Both radii occur (noisy texture, smooth photograph), and the colour
-        // lines of version 3 on the smooth one.
-        let plan = |radius, colour_lines| crate::edge_fringe::Plan {
-            radius,
-            colour_lines,
-        };
+        // Both radii occur (noisy texture, smooth photograph), the colour
+        // lines of version 3 on the smooth one, and version 4's
+        // chromatic-aberration stage on both.
         assert_eq!(
             radii.into_iter().collect::<Vec<_>>(),
-            vec![plan(2, false), plan(3, false), plan(3, true)]
+            vec![
+                (2, false, false),
+                (2, false, true),
+                (3, false, false),
+                (3, true, false),
+                (3, true, true)
+            ]
         );
     }
 

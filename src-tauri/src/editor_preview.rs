@@ -476,15 +476,24 @@ pub(crate) fn prepare_interactive_preview(
     )))
 }
 
+/// The key of the patched and warped full-resolution image of
+/// `adjustments`: a fringe draft's (`edge_fringe::DRAFT_KEY`, built while a
+/// control is dragged) never the key of the finished image.
+fn patched_warped_key(adjustments: &serde_json::Value) -> u64 {
+    let key = crate::cache_utils::calculate_patched_warped_hash(adjustments);
+    if rawtonic_engine::edge_fringe::is_draft(adjustments) {
+        preview_cache::fringe_draft_key(key)
+    } else {
+        key
+    }
+}
+
 pub(crate) fn compute_full_transformed_res(
     state: &tauri::State<AppState>,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, (f32, f32)), String> {
-    let geo_hash = source_transform_hash(
-        &loaded_image.image,
-        crate::cache_utils::calculate_patched_warped_hash(adjustments),
-    );
+    let geo_hash = source_transform_hash(&loaded_image.image, patched_warped_key(adjustments));
 
     let warped_arc = {
         let mut cache_lock = state
@@ -1133,58 +1142,82 @@ pub(crate) fn process_preview_job(
         && rawtonic_engine::face_retouch::is_active(&adjustments_clone))
     .then(|| (preview_dim / 2).max(256));
     let build_dim = draft_dim.unwrap_or(preview_dim);
+    // The edge-fringe pass's chromatic-aberration stage (20–110 ms at
+    // preview sizes) waits for the drag's end too: a base rebuilt during a
+    // drag (a geometry control) is built without it, and the frame after
+    // the drag builds it again with it.
+    let fringe_draft =
+        is_interactive && rawtonic_engine::edge_fringe::has_draft(&adjustments_clone);
     let interim = interim_source(&state, &loaded_image, source_scale);
     let base_valid = cached_preview_lock.as_ref().is_some_and(|c| {
-        c.serves(&loaded_image.image, new_transform_hash, interim)
-            && (c.preview_dim == preview_dim || Some(c.preview_dim) == draft_dim)
+        c.serves(
+            &loaded_image.image,
+            new_transform_hash,
+            interim,
+            is_interactive,
+        ) && (c.preview_dim == preview_dim || Some(c.preview_dim) == draft_dim)
     });
     let small_valid = base_valid
         && cached_preview_lock.as_ref().is_some_and(|c| {
             c.interactive_divisor == interactive_divisor && c.small_image.is_some()
         });
 
-    let (final_preview_base, scale_for_gpu, unscaled_crop_offset, base_dim) = if base_valid {
-        let cached = cached_preview_lock.as_ref().unwrap();
-        (
-            Arc::clone(&cached.image),
-            cached.scale,
-            cached.unscaled_crop_offset,
-            cached.preview_dim,
-        )
-    } else {
-        *state
-            .gpu_image_cache
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
-
-        let preparation_key = preview_cache::preparation_key(&adjustments_clone);
-        // The quick preview heals crowded blemishes once (draft).
-        let draft_adjustments;
-        let base_adjustments = if draft_dim.is_some() {
-            let mut draft = adjustments_clone.clone();
-            draft["faceRetouch"]["draft"] = serde_json::json!(true);
-            draft_adjustments = draft;
-            &draft_adjustments
+    let (final_preview_base, scale_for_gpu, unscaled_crop_offset, base_dim, base_fringe_draft) =
+        if base_valid {
+            let cached = cached_preview_lock.as_ref().unwrap();
+            (
+                Arc::clone(&cached.image),
+                cached.scale,
+                cached.unscaled_crop_offset,
+                cached.preview_dim,
+                cached.fringe_draft,
+            )
         } else {
-            &adjustments_clone
+            *state
+                .gpu_image_cache
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+
+            let preparation_key = preview_cache::preparation_key(&adjustments_clone);
+            let preparation_key = if fringe_draft {
+                preview_cache::fringe_draft_key(preparation_key)
+            } else {
+                preparation_key
+            };
+            // The quick preview heals crowded blemishes once (draft), and
+            // leaves out the fringe pass's chromatic-aberration stage.
+            let draft_adjustments;
+            let base_adjustments = if draft_dim.is_some() || fringe_draft {
+                let mut draft = adjustments_clone.clone();
+                if draft_dim.is_some() {
+                    draft["faceRetouch"]["draft"] = serde_json::json!(true);
+                }
+                if fringe_draft {
+                    draft[rawtonic_engine::edge_fringe::DRAFT_KEY] = serde_json::json!(true);
+                }
+                draft_adjustments = draft;
+                &draft_adjustments
+            } else {
+                &adjustments_clone
+            };
+            let preview = preview_base(
+                &state,
+                &loaded_image,
+                source_scale,
+                full_dims,
+                &adjustments_clone,
+                base_adjustments,
+                build_dim,
+                preparation_key,
+            )?;
+            (
+                preview.image,
+                preview.scale,
+                preview.unscaled_crop_offset,
+                build_dim,
+                fringe_draft,
+            )
         };
-        let preview = preview_base(
-            &state,
-            &loaded_image,
-            source_scale,
-            full_dims,
-            &adjustments_clone,
-            base_adjustments,
-            build_dim,
-            preparation_key,
-        )?;
-        (
-            preview.image,
-            preview.scale,
-            preview.unscaled_crop_offset,
-            build_dim,
-        )
-    };
 
     let small_preview_base = prepare_interactive_preview(
         &final_preview_base,
@@ -1207,6 +1240,7 @@ pub(crate) fn process_preview_job(
         preview_dim: base_dim,
         interactive_divisor,
         interim,
+        fringe_draft: base_fringe_draft,
     });
 
     drop(cached_preview_lock);
@@ -1933,7 +1967,8 @@ fn render_split_before_blocking(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|c| {
-            c.serves(&loaded_image.image, transform_hash, interim) && c.preview_dim == preview_dim
+            c.serves(&loaded_image.image, transform_hash, interim, false)
+                && c.preview_dim == preview_dim
         })
         .map(|c| (Arc::clone(&c.image), c.scale));
     let (base, scale) = match cached {
@@ -2451,6 +2486,28 @@ mod split_view_tests {
         let mut perspective = before.clone();
         perspective["transformVertical"] = json!(-10);
         assert_ne!(key, split_frame_key("/a.NEF", &perspective));
+    }
+}
+
+#[cfg(test)]
+mod fringe_draft_tests {
+    use super::patched_warped_key;
+    use serde_json::json;
+
+    #[test]
+    fn a_fringe_draft_never_shares_the_finished_full_resolution_image() {
+        // A geometry drag at full resolution builds the warped image without
+        // the fringe pass's chromatic-aberration stage; the frame after the
+        // drag must not take it from the cache.
+        let settled = json!({"fringeVersion": 4, "rotation": 1.5});
+        let mut draft = settled.clone();
+        draft[rawtonic_engine::edge_fringe::DRAFT_KEY] = json!(true);
+        assert_ne!(patched_warped_key(&draft), patched_warped_key(&settled));
+        // Finished images keep the key they had.
+        assert_eq!(
+            patched_warped_key(&settled),
+            crate::cache_utils::calculate_patched_warped_hash(&settled)
+        );
     }
 }
 

@@ -25,6 +25,16 @@ pub(crate) fn interim_key(preparation_key: u64) -> u64 {
     hash.finish()
 }
 
+/// The key of a base built while a control is dragged without the edge-
+/// fringe pass's chromatic-aberration stage (`edge_fringe::DRAFT_KEY`):
+/// never the key of the finished base.
+pub(crate) fn fringe_draft_key(preparation_key: u64) -> u64 {
+    let mut hash = DefaultHasher::new();
+    preparation_key.hash(&mut hash);
+    "fringe draft".hash(&mut hash);
+    hash.finish()
+}
+
 #[derive(Clone)]
 pub(crate) struct PreviewBase {
     pub image: Arc<DynamicImage>,
