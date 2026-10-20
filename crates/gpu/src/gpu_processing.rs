@@ -5357,7 +5357,11 @@ impl GpuProcessor {
 
     /// CPU output preserves the general curve arithmetic, including identity
     /// interpolation rounding. Only absent effects with exact early returns are
-    /// specialized away. Compile synchronously because exports need this result.
+    /// specialized away. Not bit-equal to the general pipeline: on Metal the
+    /// three public bench RAWs differ by one code in about 0.001 % of pixels
+    /// (8- and 16-bit, measured 2026-10-20), so switching an export between
+    /// the two changes its bytes. Compile synchronously because exports need
+    /// this result.
     fn export_pipeline(
         &self,
         adjustments: &AllAdjustments,
