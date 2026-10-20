@@ -229,6 +229,7 @@ pub fn run() {
 
             let app_handle = app.handle().clone();
 
+            library_search::announce_facts_to(app_handle.clone());
             if let Ok(cache_dir) = app_handle.path().app_cache_dir() {
                 preview_proxy::set_outside_sessions_dir(cache_dir.join("previews"));
                 crate::exif_processing::initialize_cache_dir(cache_dir);

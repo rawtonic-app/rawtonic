@@ -2715,6 +2715,7 @@
         "folderPlaceholder": "Percorso della cartella",
         "fromFilter": "Salva come album smart…",
         "fromFilterTitle": "Un album smart con ciò che la Libreria filtra ora (cartella o album mostrato, ricerca, metadati, valutazione, etichetta, contrassegno)",
+        "fromFilterUnsupported": "Un album smart non può includere il filtro modificate/non modificate né i tag di ricerca; rimuovili per salvare il resto",
         "incomplete": "Completa le regole per vedere quali foto corrispondono",
         "match": "Corrisponde a",
         "matches_one": "Ora corrisponde a {{n}} foto",

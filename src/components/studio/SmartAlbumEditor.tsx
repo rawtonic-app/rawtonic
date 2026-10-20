@@ -399,7 +399,8 @@ function ValueEditor({
 export function incomplete(rule: Rule): boolean {
   if (isGroup(rule)) return rule.rules.some(incomplete);
   const kind = kindOf(rule.field);
-  if (kind === "choice") return !Array.isArray(rule.value) || rule.value.length === 0;
+  if (kind === "choice")
+    return Array.isArray(rule.value) ? rule.value.length === 0 : typeof rule.value !== "string" || !rule.value;
   if (kind === "album" || kind === "folder") return !rule.value;
   if (rule.op === "between" && Array.isArray(rule.value)) return rule.value.some((v) => v === "" || v === undefined);
   return false;

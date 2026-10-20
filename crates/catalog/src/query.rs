@@ -132,14 +132,21 @@ const MAX_DEPTH: usize = 16;
 const MAX_RULES: usize = 500;
 
 /// File extensions of each file type category; any other extension is a
-/// RAW (the library only registers photographs).
+/// RAW (the library only registers photographs; the app's format lists are
+/// checked against this in `src-tauri/src/library_search.rs`).
 const FILE_TYPES: &[(&str, &[&str])] = &[
     ("dng", &["dng"]),
     ("jpeg", &["jpg", "jpeg", "jpe"]),
     ("heif", &["heic", "heif", "hif", "avif"]),
     ("tiff", &["tif", "tiff"]),
     ("png", &["png"]),
-    ("other", &["webp", "jxl", "psd", "bmp", "gif"]),
+    (
+        "other",
+        &[
+            "webp", "jxl", "psd", "bmp", "gif", "exr", "hdr", "tga", "ico", "dds", "qoi", "ff",
+            "pnm", "pbm", "pgm", "ppm", "pam",
+        ],
+    ),
 ];
 
 /// The file type category of an extension (lower case).
@@ -214,6 +221,9 @@ struct Compiler<'a> {
     /// The condition reads `metadata m` / `roots r`.
     metadata: bool,
     roots: bool,
+    /// The separator of the stored paths (`rel_path`, `roots.path`): the
+    /// platform's, as `Path` gives them when photographs are registered.
+    sep: char,
 }
 
 fn words(value: &Value) -> Result<Vec<String>> {
@@ -287,9 +297,10 @@ fn since(value: &Value, today: chrono::NaiveDate) -> Result<chrono::NaiveDate> {
     })
 }
 
-/// SQL text for a `LIKE`-free substring test: `instr(lower(col), lower(?))`.
+/// SQL text for a `LIKE`-free substring test ignoring case
+/// (`crate::FOLD`, the same folding as the text index).
 fn contains_sql(column: &str) -> String {
-    format!("instr(lower({column}), lower(?)) > 0")
+    format!("instr(rawtonic_fold({column}), rawtonic_fold(?)) > 0")
 }
 
 impl<'a> Compiler<'a> {
@@ -302,6 +313,7 @@ impl<'a> Compiler<'a> {
             today: chrono::Local::now().date_naive(),
             metadata: false,
             roots: false,
+            sep: std::path::MAIN_SEPARATOR,
         }
     }
 
@@ -327,11 +339,15 @@ impl<'a> Compiler<'a> {
     fn affix(&mut self, column: &str, op: Op, text: String) -> Result<String> {
         if op == Op::StartsWith {
             self.push(text);
-            Ok(format!("instr(lower({column}), lower(?)) = 1"))
+            Ok(format!(
+                "instr(rawtonic_fold({column}), rawtonic_fold(?)) = 1"
+            ))
         } else {
             self.push(text.chars().count() as i64);
             self.push(text);
-            Ok(format!("lower(substr({column}, -?)) = lower(?)"))
+            Ok(format!(
+                "rawtonic_fold(substr({column}, -?)) = rawtonic_fold(?)"
+            ))
         }
     }
 
@@ -378,8 +394,9 @@ impl<'a> Compiler<'a> {
 
     /// Words in any searchable text: a word of three or more characters
     /// through the trigram index (its subquery runs once), a shorter or a
-    /// common one by a scan of the same text in each row. The index folds
-    /// case beyond ASCII, the scan only ASCII.
+    /// common one by a scan of the same text in each row; both fold case
+    /// the same way (`crate::FOLD`), so which one runs never changes what
+    /// is found.
     fn text_any(&mut self, op: Op, value: &Value) -> Result<String> {
         let words = words(value)?;
         if words.is_empty() {
@@ -401,8 +418,8 @@ impl<'a> Compiler<'a> {
                 // photograph's own row.
                 self.push(word);
                 parts.push(
-                    "instr(lower(a.rel_path || ' ' || a.search_text || ' ' || a.make || ' ' || \
-                     a.camera || ' ' || a.lens), lower(?)) > 0"
+                    "instr(rawtonic_fold(a.rel_path || ' ' || a.search_text || ' ' || a.make || ' ' || \
+                     a.camera || ' ' || a.lens), rawtonic_fold(?)) > 0"
                         .to_string(),
                 );
             }
@@ -423,7 +440,7 @@ impl<'a> Compiler<'a> {
             }
             Op::Is | Op::IsNot => {
                 self.push(text_value(value)?);
-                let test = format!("lower(trim({coalesced})) = lower(?)");
+                let test = format!("rawtonic_fold(trim({coalesced})) = rawtonic_fold(?)");
                 if op == Op::Is {
                     test
                 } else {
@@ -443,7 +460,24 @@ impl<'a> Compiler<'a> {
         })
     }
 
+    /// `number_column_inner`, false (not NULL) for a photograph without the
+    /// value: "none of [ISO ≥ 800]" keeps the photographs without an ISO,
+    /// as "no rule holds" says. (Other columns are never NULL; wrapping
+    /// every condition would keep SQLite from using the text index.)
     fn number_column(
+        &mut self,
+        column: &str,
+        op: Op,
+        value: &Value,
+        tolerance: Tolerance,
+    ) -> Result<String> {
+        Ok(format!(
+            "coalesce({}, 0)",
+            self.number_column_inner(column, op, value, tolerance)?
+        ))
+    }
+
+    fn number_column_inner(
         &mut self,
         column: &str,
         op: Op,
@@ -492,7 +526,16 @@ impl<'a> Compiler<'a> {
     }
 
     /// A date column holding `YYYY-MM-DD HH:MM:SS` text (local time).
+    /// `date_column_inner`, false for a photograph without the date (as
+    /// `number_column`).
     fn date_column(&mut self, column: &str, op: Op, value: &Value) -> Result<String> {
+        Ok(format!(
+            "coalesce({}, 0)",
+            self.date_column_inner(column, op, value)?
+        ))
+    }
+
+    fn date_column_inner(&mut self, column: &str, op: Op, value: &Value) -> Result<String> {
         let day_of = format!("substr({column},1,10)");
         let text = |d: chrono::NaiveDate| d.format("%Y-%m-%d").to_string();
         Ok(match op {
@@ -558,8 +601,11 @@ impl<'a> Compiler<'a> {
             },
             Field::Filename => {
                 // The name after the last `/` of the path in its root.
+                let sep = self.sep;
                 self.text_column(
-                    "replace(a.rel_path, rtrim(a.rel_path, replace(a.rel_path, '/', '')), '')",
+                    &format!(
+                        "replace(a.rel_path, rtrim(a.rel_path, replace(a.rel_path, '{sep}', '')), '')"
+                    ),
                     op,
                     value,
                 )
@@ -570,7 +616,8 @@ impl<'a> Compiler<'a> {
             Field::Keyword => match op {
                 Op::Is | Op::IsNot => {
                     self.push(text_value(value)?);
-                    let test = "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id AND k.keyword=?)";
+                    let test = "EXISTS(SELECT 1 FROM asset_keywords k WHERE k.asset_id=a.id \
+                                AND rawtonic_fold(k.keyword)=rawtonic_fold(?))";
                     Ok(if op == Op::Is {
                         test.into()
                     } else {
@@ -680,7 +727,8 @@ impl<'a> Compiler<'a> {
                         ),
                         _ => ensure!(number(value).is_ok_and(check), "Ratings are 0–5"),
                     }
-                    self.number_column("m.rating", op, value, Tolerance::Absolute(0.0))
+                    // Never NULL (0 is unrated).
+                    self.number_column_inner("m.rating", op, value, Tolerance::Absolute(0.0))
                 }
             },
             Field::Flag => {
@@ -830,12 +878,13 @@ impl<'a> Compiler<'a> {
     /// the library's own root by their path in it, those of external roots
     /// by the root's folder.
     fn folder(&mut self, folder: &Path, below: bool) -> Result<String> {
-        let text = |p: &Path| p.to_string_lossy().into_owned();
+        let sep = self.sep;
+        let text = |p: &Path| p.to_string_lossy().trim_end_matches(sep).to_string();
         // Library root: the folder relative to the library directory.
         let own = match folder.strip_prefix(self.directory) {
             Ok(relative) => {
                 let relative = text(relative);
-                let directory_of = "rtrim(a.rel_path, replace(a.rel_path, '/', ''))";
+                let directory_of = format!("rtrim(a.rel_path, replace(a.rel_path, '{sep}', ''))");
                 if relative.is_empty() {
                     if below {
                         "a.root_id='session'".to_string()
@@ -843,10 +892,10 @@ impl<'a> Compiler<'a> {
                         format!("(a.root_id='session' AND {directory_of} = '')")
                     }
                 } else if below {
-                    self.push(format!("{relative}/"));
+                    self.push(format!("{relative}{sep}"));
                     "(a.root_id='session' AND instr(a.rel_path, ?) = 1)".to_string()
                 } else {
-                    self.push(format!("{relative}/"));
+                    self.push(format!("{relative}{sep}"));
                     format!("(a.root_id='session' AND {directory_of} = ?)")
                 }
             }
@@ -856,7 +905,7 @@ impl<'a> Compiler<'a> {
         let folder = text(folder);
         let external = if below {
             self.push(folder.clone());
-            self.push(format!("{}/", folder.trim_end_matches('/')));
+            self.push(format!("{folder}{sep}"));
             "(r.external=1 AND (r.path = ? OR instr(r.path, ?) = 1))".to_string()
         } else {
             self.push(folder);
@@ -1172,4 +1221,68 @@ impl Library {
 fn trim_number(value: f64) -> String {
     let text = format!("{value:.1}");
     text.strip_suffix(".0").unwrap_or(&text).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Mode;
+
+    /// Folder and file name rules read the stored paths with the platform's
+    /// separator: as a Windows library stores them (`Capture\Day 2\…`).
+    #[test]
+    fn folders_and_file_names_follow_the_stored_separator() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let capture = lib.directory.join("Capture");
+        for name in ["A.ARW", "B.ARW"] {
+            std::fs::write(capture.join(name), name).unwrap();
+            lib.add_asset(&capture.join(name)).unwrap();
+        }
+        lib.conn
+            .execute_batch(
+                "UPDATE assets SET rel_path='Capture\\A.ARW' WHERE rel_path='Capture/A.ARW';
+                 UPDATE assets SET rel_path='Capture\\Day 2\\B.ARW' WHERE rel_path='Capture/B.ARW';",
+            )
+            .unwrap();
+        let count = |rule: serde_json::Value| -> i64 {
+            let rule: Rule = serde_json::from_value(rule).unwrap();
+            let mut compiler = Compiler::new(&lib.directory, Some(&lib));
+            compiler.sep = '\\';
+            let condition = compiler.rule(&rule).unwrap();
+            let params: Vec<&dyn ToSql> = compiler.params.iter().map(|p| p as &dyn ToSql).collect();
+            lib.conn
+                .query_row(
+                    &format!("SELECT count(*) FROM assets a JOIN metadata m ON m.asset_id=a.id JOIN roots r ON r.id=a.root_id WHERE {condition}"),
+                    params.as_slice(),
+                    |r| r.get(0),
+                )
+                .unwrap()
+        };
+        // On Windows the folder comes as `…\Job\Capture`; here the library
+        // directory is joined with the stored relative form.
+        let folder = lib.directory.join("Capture");
+        let value = folder.to_string_lossy();
+        assert_eq!(
+            count(serde_json::json!({"field":"folder","op":"is","value":value})),
+            1
+        );
+        assert_eq!(
+            count(serde_json::json!({"field":"folder","op":"contains","value":value})),
+            2
+        );
+        let day = format!("{value}\\Day 2");
+        assert_eq!(
+            count(serde_json::json!({"field":"folder","op":"is","value":day})),
+            1
+        );
+        assert_eq!(
+            count(serde_json::json!({"field":"filename","op":"is","value":"b.arw"})),
+            1
+        );
+        assert_eq!(
+            count(serde_json::json!({"field":"filename","op":"startsWith","value":"Capture"})),
+            0
+        );
+    }
 }

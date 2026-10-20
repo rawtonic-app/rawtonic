@@ -7,13 +7,14 @@ use rawtonic_catalog::{Collection, Field, Library, Rule, query::FacetValue};
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
 };
+use tauri::Emitter;
 
 /// Paths of the photographs `rule` matches, in path order.
 #[tauri::command]
@@ -96,15 +97,61 @@ pub async fn session_set_smart_album_rules(
 /// The running capture-facts pass: its library and its stop switch.
 static FACTS_PASS: Mutex<Option<(PathBuf, Arc<AtomicBool>)>> = Mutex::new(None);
 
+/// Where the pass announces facts it recorded (the app: `FACTS_RECORDED`).
+static FACTS_ANNOUNCED: OnceLock<tauri::AppHandle> = OnceLock::new();
+
+/// Emitted with the library's directory after the pass recorded facts, so
+/// the Library searches, counts its lists and smart albums again.
+pub const FACTS_RECORDED: &str = "library-facts-recorded";
+
+/// The app hears of facts the background pass records from now on.
+pub fn announce_facts_to(app: tauri::AppHandle) {
+    let _ = FACTS_ANNOUNCED.set(app);
+}
+
 /// How long a pass waits before reading files (opening the library and its
 /// first previews come first), and between two files.
 const PASS_DELAY: Duration = Duration::from_secs(3);
 const PASS_PAUSE: Duration = Duration::from_millis(2);
+/// Photographs read between two announcements.
+const PASS_BATCH: usize = 256;
 
-/// Starts reading the capture facts of every photograph of the library at
-/// `directory` not read yet, in the background (the header of each file,
-/// once; rawtonic_ingest::capture::capture_facts). A pass for another
-/// library is stopped; one already running for this library goes on.
+/// Reads the capture facts of every photograph of the library at
+/// `directory` not read yet (`rawtonic_ingest::capture::capture_facts`, the
+/// header of each file, once), `PASS_BATCH` at a time, calling `recorded`
+/// after each batch that recorded any, until done or `cancel` is set.
+/// Returns how many were recorded.
+fn read_facts(
+    directory: &Path,
+    pause: Duration,
+    cancel: &AtomicBool,
+    recorded: &dyn Fn(usize),
+) -> anyhow::Result<usize> {
+    let mut cursor = 0;
+    let mut total = 0;
+    while !cancel.load(Ordering::Acquire) {
+        let lib = Library::open(directory)?;
+        let (looked, done) = lib.fill_facts(
+            &mut cursor,
+            PASS_BATCH,
+            pause,
+            cancel,
+            &rawtonic_ingest::capture::capture_facts,
+        )?;
+        if done > 0 {
+            total += done;
+            recorded(done);
+        }
+        if looked == 0 {
+            break;
+        }
+    }
+    Ok(total)
+}
+
+/// Starts `read_facts` for the library at `directory` in the background,
+/// after a delay. A pass for another library is stopped; one already
+/// running for this library goes on.
 pub fn start_facts_pass(directory: PathBuf) {
     let cancel = Arc::new(AtomicBool::new(false));
     {
@@ -124,35 +171,21 @@ pub fn start_facts_pass(directory: PathBuf) {
         .spawn(move || {
             let started = Instant::now();
             std::thread::sleep(PASS_DELAY);
-            let mut cursor = 0;
-            let mut recorded = 0;
-            while !cancel.load(Ordering::Acquire) {
-                let Ok(lib) = Library::open(&directory) else {
-                    break;
-                };
-                match lib.fill_facts(
-                    &mut cursor,
-                    256,
-                    PASS_PAUSE,
-                    &cancel,
-                    &rawtonic_ingest::capture::capture_facts,
-                ) {
-                    Ok((0, _)) => break,
-                    Ok((_, done)) => recorded += done,
-                    Err(e) => {
-                        log::warn!("Capture facts paused: {e:#}");
-                        break;
-                    }
+            let announce = |_: usize| {
+                if let Some(app) = FACTS_ANNOUNCED.get() {
+                    let _ = app.emit(FACTS_RECORDED, &directory);
                 }
+            };
+            match read_facts(&directory, PASS_PAUSE, &cancel, &announce) {
+                Ok(0) => {}
+                Ok(recorded) => log::info!(
+                    "Read the capture facts of {recorded} photographs in {:.1} s",
+                    started.elapsed().as_secs_f64()
+                ),
+                Err(e) => log::warn!("Capture facts paused: {e:#}"),
             }
             // Done (or stopped): a later start begins a new pass.
             cancel.store(true, Ordering::Release);
-            if recorded > 0 {
-                log::info!(
-                    "Read the capture facts of {recorded} photographs in {:.1} s",
-                    started.elapsed().as_secs_f64()
-                );
-            }
         });
     if let Err(e) = spawned {
         log::warn!("Capture facts not read: {e}");
@@ -247,5 +280,53 @@ mod tests {
                 .unwrap_err()
                 .contains("0–5")
         );
+    }
+
+    /// The pass reads every photograph not read yet and says so after each
+    /// batch it recorded, so the Library searches again.
+    #[test]
+    fn the_facts_pass_announces_what_it_recorded() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Facts", Mode::Session).unwrap();
+        let capture = lib.directory.join("Capture");
+        for i in 0..(PASS_BATCH + 3) {
+            let path = capture.join(format!("{i}.ARW"));
+            std::fs::write(&path, b"no exif").unwrap();
+            lib.add_asset(&path).unwrap();
+        }
+        let announced = std::sync::Mutex::new(Vec::new());
+        let recorded = read_facts(
+            &lib.directory,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            &|n| announced.lock().unwrap().push(n),
+        )
+        .unwrap();
+        assert_eq!(recorded, PASS_BATCH + 3);
+        assert_eq!(*announced.lock().unwrap(), [PASS_BATCH, 3]);
+        assert_eq!(lib.facts_backlog().unwrap(), 0);
+        // Nothing left: nothing announced.
+        read_facts(
+            &lib.directory,
+            Duration::ZERO,
+            &AtomicBool::new(false),
+            &|_| panic!("nothing to say"),
+        )
+        .unwrap();
+    }
+
+    /// The catalog's file types say RAW exactly where the grid does.
+    #[test]
+    fn file_types_agree_with_the_formats_the_app_reads() {
+        use rawtonic_catalog::query::file_type;
+        for (extension, _) in rawtonic_engine::formats::RAW_EXTENSIONS {
+            assert!(matches!(file_type(extension), "raw" | "dng"), "{extension}");
+        }
+        for extension in rawtonic_engine::formats::NON_RAW_EXTENSIONS {
+            assert!(
+                !matches!(file_type(extension), "raw" | "dng"),
+                "{extension}"
+            );
+        }
     }
 }

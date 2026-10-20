@@ -49,6 +49,13 @@ export default function StudioFilters({
   const viewMode = useSettingsStore((s) => s.appSettings?.libraryViewMode);
   const openSmartAlbum = useSmartAlbumEditor((s) => s.open);
   const chosen = selectionCount(filter.metadata);
+  const asSmartAlbum = filterAsRule(
+    scopeRule(folder, albumId, viewMode),
+    search.text,
+    filter.metadata,
+    filter,
+    search.tags,
+  );
   const active =
     (filter.flag ?? "all") !== "all" ||
     filter.rating !== 0 ||
@@ -130,12 +137,18 @@ export default function StudioFilters({
         <button
           className="studio-clear-filters"
           hidden={!active}
-          title={t("studio.library.smartAlbums.fromFilterTitle")}
+          disabled={!asSmartAlbum}
+          title={
+            asSmartAlbum
+              ? t("studio.library.smartAlbums.fromFilterTitle")
+              : t("studio.library.smartAlbums.fromFilterUnsupported")
+          }
           onClick={() =>
+            asSmartAlbum &&
             openSmartAlbum({
               name: t("studio.library.smartAlbums.defaultName"),
               parent: null,
-              rules: filterAsRule(scopeRule(folder, albumId, viewMode), search.text, filter.metadata, filter),
+              rules: asSmartAlbum,
             })
           }
         >

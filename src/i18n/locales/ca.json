@@ -2715,6 +2715,7 @@
         "folderPlaceholder": "Camí de la carpeta",
         "fromFilter": "Desa com a àlbum intel·ligent…",
         "fromFilterTitle": "Un àlbum intel·ligent amb el que filtra ara la Biblioteca (la carpeta o l'àlbum mostrat, la cerca, les metadades, la valoració, l'etiqueta i la marca)",
+        "fromFilterUnsupported": "Un àlbum intel·ligent no pot incloure el filtre editat/sense editar ni les etiquetes de cerca; elimineu-los per desar la resta",
         "incomplete": "Completa les regles per veure quines fotos hi coincideixen",
         "match": "Coincideix amb",
         "matches_one": "Ara coincideix amb {{n}} foto",

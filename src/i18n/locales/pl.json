@@ -2796,6 +2796,7 @@
         "folderPlaceholder": "Ścieżka folderu",
         "fromFilter": "Zapisz jako album inteligentny…",
         "fromFilterTitle": "Album inteligentny z tym, według czego Biblioteka teraz filtruje (pokazany folder lub album, wyszukiwanie, metadane, ocena, etykieta, flaga)",
+        "fromFilterUnsupported": "Album inteligentny nie może zawierać filtra edytowane/nieedytowane ani tagów wyszukiwania; usuń je, aby zapisać resztę",
         "incomplete": "Uzupełnij reguły, aby zobaczyć, które zdjęcia do nich pasują",
         "match": "Pasuje do",
         "matches_one": "Pasuje teraz {{n}} zdjęcie",

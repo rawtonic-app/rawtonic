@@ -86,6 +86,8 @@ pub struct Collection {
 pub const ALBUM: &str = "album";
 pub const GROUP: &str = "group";
 pub const SMART: &str = "smart";
+/// The SQL function the search folds case with (`Library::configure`).
+pub(crate) const FOLD: &str = "rawtonic_fold";
 
 /// Lightweight startup read model. Recipe payloads stay in SQLite; opening a
 /// library does not need to deserialize every existing photo's editor history.
@@ -361,6 +363,25 @@ impl Library {
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+        )?;
+        // The search's case folding (`query`): Unicode lower case, as the
+        // trigram index folds (`École` is found by `éco` either way). Only
+        // queries use it; nothing stored depends on it.
+        conn.create_scalar_function(
+            FOLD,
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        Some(String::from_utf8_lossy(text).to_lowercase())
+                    }
+                    rusqlite::types::ValueRef::Integer(n) => Some(n.to_string()),
+                    rusqlite::types::ValueRef::Real(n) => Some(n.to_string()),
+                    _ => None,
+                })
+            },
         )?;
         Ok(())
     }

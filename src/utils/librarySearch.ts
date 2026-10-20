@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { Invokes, LibraryViewMode, type FilterCriteria } from '../components/ui/AppProperties';
+import { EditedStatus, Invokes, LibraryViewMode, RawStatus, type FilterCriteria } from '../components/ui/AppProperties';
 import { MISSING_VIEW_ID } from './offline';
 import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
 
@@ -145,17 +145,37 @@ export function searchRule(text: string, selection: MetadataSelection | undefine
   return rules.length ? all(rules) : null;
 }
 
+/** File types the grid counts as RAW (`is_raw`: the RAW formats, DNG among them). */
+const RAW_TYPES = ['raw', 'dng'];
+
 /** Everything the Library filters by now, for a new smart album: the shown
- * album or folder, the search box, the chosen values and the culling filters. */
+ * album or folder, the search box, the chosen values, the culling filters
+ * and RAW / not RAW. Null when it also filters by what rules cannot say
+ * (edited or not, search tags), so a smart album never silently shows more
+ * than the filter did. */
 export function filterAsRule(
   scope: Rule | null,
   text: string,
   selection: MetadataSelection | undefined,
   filter: FilterCriteria,
-): Group {
+  tags: string[] = [],
+): Group | null {
+  if ((filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All || tags.length > 0) return null;
+  const raw: Rule[] =
+    filter.rawStatus === RawStatus.RawOnly
+      ? [{ field: 'fileType', op: 'is', value: RAW_TYPES }]
+      : filter.rawStatus === RawStatus.NonRawOnly
+        ? [{ field: 'fileType', op: 'isNot', value: RAW_TYPES }]
+        : [];
   return {
     combine: 'all',
-    rules: [...(scope ? [scope] : []), ...textRules(text), ...selectionRules(selection), ...cullingRules(filter)],
+    rules: [
+      ...(scope ? [scope] : []),
+      ...textRules(text),
+      ...selectionRules(selection),
+      ...cullingRules(filter),
+      ...raw,
+    ],
   };
 }
 

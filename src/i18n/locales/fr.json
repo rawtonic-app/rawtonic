@@ -2715,6 +2715,7 @@
         "folderPlaceholder": "Chemin du dossier",
         "fromFilter": "Enregistrer comme album intelligent…",
         "fromFilterTitle": "Un album intelligent avec ce que filtre actuellement la Bibliothèque (dossier ou album affiché, recherche, métadonnées, note, étiquette, marque)",
+        "fromFilterUnsupported": "Un album intelligent ne peut pas reprendre le filtre modifié/non modifié ni les tags de recherche ; supprimez-les pour enregistrer le reste",
         "incomplete": "Complétez les règles pour voir les photos correspondantes",
         "match": "Correspond à",
         "matches_one": "Correspond actuellement à {{n}} photo",

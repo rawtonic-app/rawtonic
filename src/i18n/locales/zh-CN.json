@@ -2574,6 +2574,7 @@
         "folderPlaceholder": "文件夹路径",
         "fromFilter": "存储为智能相册…",
         "fromFilterTitle": "用图库当前的筛选条件（显示的文件夹或相册、搜索、元数据、星级、标签、旗标）创建智能相册",
+        "fromFilterUnsupported": "智能相册无法包含“已编辑/未编辑”筛选和搜索标签；清除它们后即可保存其余条件",
         "incomplete": "完成规则后即可查看匹配的照片",
         "match": "照片须",
         "matches_other": "当前匹配 {{n}} 张照片",

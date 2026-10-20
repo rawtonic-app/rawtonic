@@ -2634,6 +2634,7 @@
         "folderPlaceholder": "Folder path",
         "fromFilter": "Save as smart album…",
         "fromFilterTitle": "A smart album with what the Library filters by now (the shown folder or album, search, metadata, rating, label, flag)",
+        "fromFilterUnsupported": "A smart album cannot hold the edited/unedited filter or search tags; clear them to save the rest",
         "incomplete": "Complete the rules to see what they match",
         "match": "Match",
         "matches_one": "Matches {{n}} photograph now",

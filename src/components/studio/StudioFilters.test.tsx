@@ -177,4 +177,7 @@ it("toggles the metadata lists and saves what filters as a smart album", async (
     ],
   });
   useSmartAlbumEditor.getState().close();
+  // Edited / unedited has no rule: saving is refused, not silently widened.
+  useLibraryStore.getState().setFilterCriteria({ editedStatus: EditedStatus.EditedOnly });
+  expect(((await screen.findByText("Save as smart album…")) as HTMLButtonElement).disabled).toBe(true);
 });

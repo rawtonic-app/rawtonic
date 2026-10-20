@@ -2715,6 +2715,7 @@
         "folderPlaceholder": "Ruta de la carpeta",
         "fromFilter": "Guardar como álbum inteligente…",
         "fromFilterTitle": "Un álbum inteligente con lo que filtra ahora la Biblioteca (la carpeta o el álbum mostrado, la búsqueda, los metadatos, la valoración, la etiqueta y la marca)",
+        "fromFilterUnsupported": "Un álbum inteligente no puede incluir el filtro editado/sin editar ni las etiquetas de búsqueda; quítalos para guardar el resto",
         "incomplete": "Completa las reglas para ver qué fotos coinciden",
         "match": "Coincide con",
         "matches_one": "Coincide ahora con {{n}} foto",

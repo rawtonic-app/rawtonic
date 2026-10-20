@@ -2574,6 +2574,7 @@
         "folderPlaceholder": "폴더 경로",
         "fromFilter": "스마트 앨범으로 저장…",
         "fromFilterTitle": "라이브러리의 현재 필터 조건(표시된 폴더 또는 앨범, 검색, 메타데이터, 별점, 레이블, 플래그)으로 만드는 스마트 앨범",
+        "fromFilterUnsupported": "스마트 앨범에는 편집됨/편집 안 됨 필터와 검색 태그를 넣을 수 없습니다. 나머지를 저장하려면 해제하세요",
         "incomplete": "규칙을 완성하면 일치하는 사진을 볼 수 있습니다",
         "match": "다음 규칙",
         "matches_other": "현재 사진 {{n}}장과 일치",

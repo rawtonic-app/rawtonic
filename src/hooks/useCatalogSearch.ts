@@ -1,10 +1,13 @@
 import { useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { useLibraryStore } from '../store/useLibraryStore';
-import { CATALOG_CHANGED } from '../utils/catalogWrites';
+import { CATALOG_CHANGED, catalogChanged } from '../utils/catalogWrites';
 import { photographPath, searchLibrary, searchRule } from '../utils/librarySearch';
 
 /** How long typing pauses before the catalog is asked. */
 export const SEARCH_DELAY_MS = 80;
+/** The background pass recorded capture facts (`library_search::FACTS_RECORDED`). */
+export const FACTS_RECORDED = 'library-facts-recorded';
 
 /**
  * Keeps `catalogMatches` to what the library's catalog finds for the search
@@ -17,6 +20,22 @@ export function useCatalogSearch() {
   const directory = useLibraryStore((s) => s.sessionDirectory);
   const text = useLibraryStore((s) => s.searchCriteria.text);
   const selection = useLibraryStore((s) => s.filterCriteria.metadata);
+
+  // Facts the background pass recorded (a library opened after an update,
+  // photographs added by an edit) are catalog changes too: searches, lists
+  // and smart albums follow them.
+  useEffect(() => {
+    if (!directory) return;
+    let stop: (() => void) | undefined;
+    let gone = false;
+    listen(FACTS_RECORDED, () => catalogChanged())
+      .then((unlisten) => (gone ? unlisten() : (stop = unlisten)))
+      .catch(() => {});
+    return () => {
+      gone = true;
+      stop?.();
+    };
+  }, [directory]);
 
   useEffect(() => {
     const rule = directory ? searchRule(text, selection) : null;

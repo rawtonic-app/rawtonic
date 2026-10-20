@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { LibraryViewMode, RawStatus } from '../components/ui/AppProperties';
+import { EditedStatus, LibraryViewMode, RawStatus } from '../components/ui/AppProperties';
 import {
   cullingRules,
   filterAsRule,
@@ -98,6 +98,18 @@ describe('library search rules', () => {
         { field: 'rating', op: 'ge', value: 4 },
       ],
     });
+  });
+
+  it('saves RAW / not RAW and refuses filters rules cannot say', () => {
+    const filter = { colors: [], rating: 0, rawStatus: RawStatus.RawOnly };
+    expect(filterAsRule(null, '', undefined, filter)?.rules).toEqual([
+      { field: 'fileType', op: 'is', value: ['raw', 'dng'] },
+    ]);
+    expect(filterAsRule(null, '', undefined, { ...filter, rawStatus: RawStatus.NonRawOnly })?.rules).toEqual([
+      { field: 'fileType', op: 'isNot', value: ['raw', 'dng'] },
+    ]);
+    expect(filterAsRule(null, '', undefined, { ...filter, editedStatus: EditedStatus.EditedOnly })).toBeNull();
+    expect(filterAsRule(null, '', undefined, filter, ['iso>800'])).toBeNull();
   });
 
   it('finds a virtual copy by its photograph', () => {

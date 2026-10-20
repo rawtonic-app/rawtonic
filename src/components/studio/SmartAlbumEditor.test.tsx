@@ -171,6 +171,10 @@ describe("rule values", () => {
 
   it("finds incomplete rules", () => {
     expect(incomplete({ field: "flag", op: "is", value: [] })).toBe(true);
+    // What the filter bar saves: one value, not a list.
+    expect(incomplete({ field: "flag", op: "is", value: "picked" })).toBe(false);
+    expect(incomplete({ field: "fileType", op: "is", value: "jpeg" })).toBe(false);
+    expect(incomplete({ field: "fileType", op: "is", value: "" })).toBe(true);
     expect(incomplete({ field: "album", op: "is", value: "" })).toBe(true);
     expect(incomplete({ field: "captureDate", op: "between", value: ["2026-01-01", ""] })).toBe(true);
     expect(incomplete({ combine: "all", rules: [{ field: "rating", op: "ge", value: 1 }] })).toBe(false);

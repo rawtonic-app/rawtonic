@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { act, renderHook } from '@testing-library/react';
+import { act, cleanup, renderHook } from '@testing-library/react';
 import { invoke } from '@tauri-apps/api/core';
 import { useCatalogSearch, SEARCH_DELAY_MS } from './useCatalogSearch';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -7,6 +7,13 @@ import { catalogChanged } from '../utils/catalogWrites';
 import { RawStatus } from '../components/ui/AppProperties';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
+const listeners = new Map<string, () => void>();
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn(async (name: string, handler: () => void) => {
+    listeners.set(name, handler);
+    return () => listeners.delete(name);
+  }),
+}));
 const mockInvoke = vi.mocked(invoke);
 
 beforeEach(() => {
@@ -20,7 +27,10 @@ beforeEach(() => {
     catalogMatches: null,
   });
 });
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const settle = async () => {
   await act(async () => {
@@ -78,4 +88,16 @@ it('drops an answer for a library closed meanwhile', async () => {
   act(() => useLibraryStore.setState({ sessionDirectory: '/other' }));
   await act(async () => answer(['/job/Capture/a.arw']));
   expect(useLibraryStore.getState().catalogMatches).toBeNull();
+});
+
+it('searches again when the background pass recorded capture facts', async () => {
+  useLibraryStore.setState({ searchCriteria: { text: 'X-T4', tags: [], mode: 'OR' } });
+  const { unmount } = renderHook(() => useCatalogSearch());
+  await settle();
+  expect(mockInvoke).toHaveBeenCalledTimes(1);
+  act(() => listeners.get('library-facts-recorded')?.());
+  await settle();
+  expect(mockInvoke).toHaveBeenCalledTimes(2);
+  unmount();
+  expect(listeners.has('library-facts-recorded')).toBe(false);
 });

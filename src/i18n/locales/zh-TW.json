@@ -2574,6 +2574,7 @@
         "folderPlaceholder": "資料夾路徑",
         "fromFilter": "儲存為智慧型相簿…",
         "fromFilterTitle": "以圖庫目前的篩選條件（顯示的資料夾或相簿、搜尋、後設資料、星級、標籤、旗標）建立智慧型相簿",
+        "fromFilterUnsupported": "智慧型相簿無法包含「已編輯/未編輯」篩選與搜尋標籤；清除後即可儲存其餘條件",
         "incomplete": "完成規則後即可查看符合的照片",
         "match": "照片須",
         "matches_other": "目前符合 {{n}} 張照片",

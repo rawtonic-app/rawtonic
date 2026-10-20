@@ -2715,6 +2715,7 @@
         "folderPlaceholder": "Caminho da pasta",
         "fromFilter": "Salvar como álbum inteligente…",
         "fromFilterTitle": "Um álbum inteligente com o que a Biblioteca filtra agora (pasta ou álbum exibido, pesquisa, metadados, classificação, rótulo, marcação)",
+        "fromFilterUnsupported": "Um álbum inteligente não pode incluir o filtro editado/não editado nem as etiquetas de pesquisa; remova-os para guardar o resto",
         "incomplete": "Complete as regras para ver quais fotos correspondem",
         "match": "Corresponde a",
         "matches_one": "Corresponde agora a {{n}} foto",

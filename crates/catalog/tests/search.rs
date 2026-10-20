@@ -755,3 +755,76 @@ fn a_schema_10_library_gets_its_keywords_search_and_albums_migrated() {
         .unwrap();
     assert!(broken.is_empty(), "{broken:?}");
 }
+
+#[test]
+fn a_none_group_keeps_photographs_without_the_value() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, _) = library(d.path());
+    // scan.jpg has no ISO, no capture date and no lens: none of these rules
+    // holds for it.
+    assert_eq!(
+        found(
+            &lib,
+            json!({"combine":"none","rules":[{"field":"iso","op":"ge","value":800}]})
+        ),
+        ["DSC00123.ARW", "scan.jpg"]
+    );
+    assert_eq!(
+        found(
+            &lib,
+            json!({"combine":"none","rules":[{"field":"captureDate","op":"lt","value":"2026-10-01"}]})
+        ),
+        ["DSC00123.ARW", "DSC00124.ARW", "scan.jpg"]
+    );
+    assert_eq!(
+        found(
+            &lib,
+            json!({"combine":"none","rules":[{"field":"lens","op":"startsWith","value":"FE"}]})
+        ),
+        ["IMG_0001.CR3", "scan.jpg"]
+    );
+}
+
+#[test]
+fn case_is_folded_beyond_ascii_whichever_way_a_word_is_found() {
+    let d = tempfile::tempdir().unwrap();
+    let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+    let capture = lib.directory.join("Capture");
+    for name in ["École 1.jpg", "École 2.jpg", "Hafen.jpg"] {
+        fs::write(capture.join(name), name).unwrap();
+        lib.add_asset(&capture.join(name)).unwrap();
+    }
+    let search = |lib: &Library, text: &str| {
+        found(lib, json!({"field":"text","op":"contains","value":text}))
+    };
+    // "éco": two of three photographs (checked row by row) …
+    assert_eq!(search(&lib, "éco"), ["École 1.jpg", "École 2.jpg"]);
+    assert_eq!(search(&lib, "ÉC"), ["École 1.jpg", "École 2.jpg"]);
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"filename","op":"startsWith","value":"écol"})
+        )
+        .len(),
+        2
+    );
+    // … and the same once they are few (through the index).
+    for i in 0..6 {
+        let name = format!("Other {i}.jpg");
+        fs::write(capture.join(&name), &name).unwrap();
+        lib.add_asset(&capture.join(&name)).unwrap();
+    }
+    assert_eq!(search(&lib, "éco"), ["École 1.jpg", "École 2.jpg"]);
+    let id = lib
+        .asset_at(&capture.join("Hafen.jpg"))
+        .unwrap()
+        .unwrap()
+        .id;
+    let mut meta = lib.metadata(&id).unwrap();
+    meta.keywords = vec!["Ärger".into()];
+    lib.set_metadata(&id, &meta).unwrap();
+    assert_eq!(
+        found(&lib, json!({"field":"keyword","op":"is","value":"ärger"})),
+        ["Hafen.jpg"]
+    );
+}
