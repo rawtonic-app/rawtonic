@@ -487,9 +487,44 @@ fn spawn(
         include_subfolders: config.include_subfolders,
     };
     let status = watch.status();
-    *WATCH.lock().map_err(|e| e.to_string())? = Some(watch);
+    // A watch installed meanwhile stops too (never left running untracked).
+    if let Some(displaced) = WATCH.lock().map_err(|e| e.to_string())?.replace(watch) {
+        displaced.stop.store(true, Ordering::Release);
+    }
     Ok(status)
 }
+
+/// Orders the hot folder commands that start a watch or end one (start,
+/// resume, stop): they run one at a time, and a resume asked for before a
+/// later one of them does nothing, so a library left while its hot folder
+/// was resuming cannot take the watch from the one opened after it.
+struct Lifecycle {
+    asked: std::sync::atomic::AtomicU64,
+    running: Mutex<()>,
+}
+
+impl Lifecycle {
+    const fn new() -> Self {
+        Self {
+            asked: std::sync::atomic::AtomicU64::new(0),
+            running: Mutex::new(()),
+        }
+    }
+
+    /// The ticket of a command, taken when it is asked for.
+    fn ask(&self) -> u64 {
+        self.asked.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Runs `transition` alone, told whether no command was asked for
+    /// after `ticket`.
+    fn run<R>(&self, ticket: u64, transition: impl FnOnce(bool) -> R) -> R {
+        let _alone = self.running.lock().unwrap_or_else(|e| e.into_inner());
+        transition(self.asked.load(Ordering::SeqCst) == ticket)
+    }
+}
+
+static LIFECYCLE: Lifecycle = Lifecycle::new();
 
 /// Starts watching `folder` for the library in `directory` and keeps it
 /// there, so watching resumes when the library is opened again. The hot
@@ -506,16 +541,19 @@ pub async fn hot_folder_start(
     include_subfolders: Option<bool>,
     app: AppHandle,
 ) -> Result<HotFolderStatus, String> {
+    let ticket = LIFECYCLE.ask();
     crate::file_management::blocking(move || {
-        start(
-            directory,
-            folder,
-            template,
-            next_capture,
-            metadata,
-            include_subfolders,
-            app,
-        )
+        LIFECYCLE.run(ticket, |_| {
+            start(
+                directory,
+                folder,
+                template,
+                next_capture,
+                metadata,
+                include_subfolders,
+                app,
+            )
+        })
     })
     .await?
 }
@@ -561,7 +599,18 @@ pub async fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
-    crate::file_management::blocking(move || resume(directory, app)).await?
+    let ticket = LIFECYCLE.ask();
+    crate::file_management::blocking(move || {
+        LIFECYCLE.run(ticket, |latest| {
+            // Superseded: the library asked for later decides.
+            if latest {
+                resume(directory, app)
+            } else {
+                Ok(None)
+            }
+        })
+    })
+    .await?
 }
 
 fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
@@ -612,7 +661,8 @@ pub fn hot_folder_suspend(directory: Option<String>) {
 /// watch's library, else the one in `directory`).
 #[tauri::command]
 pub async fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
-    crate::file_management::blocking(move || stop(directory)).await?
+    let ticket = LIFECYCLE.ask();
+    crate::file_management::blocking(move || LIFECYCLE.run(ticket, |_| stop(directory))).await?
 }
 
 fn stop(directory: Option<String>) -> Result<(), String> {
@@ -636,6 +686,34 @@ mod tests {
     use super::*;
     use rawtonic_catalog::Mode;
     use std::fs;
+
+    #[test]
+    fn lifecycle_commands_run_alone_and_a_superseded_resume_does_nothing() {
+        let lifecycle = Arc::new(Lifecycle::new());
+        // Resume for A asked for, then for B; B runs first.
+        let a = lifecycle.ask();
+        let b = lifecycle.ask();
+        assert!(lifecycle.run(b, |latest| latest));
+        assert!(!lifecycle.run(a, |latest| latest));
+        // Overlapping commands never run at once.
+        let inside = Arc::new(AtomicBool::new(false));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (lifecycle, inside) = (lifecycle.clone(), inside.clone());
+                std::thread::spawn(move || {
+                    let ticket = lifecycle.ask();
+                    lifecycle.run(ticket, |_| {
+                        assert!(!inside.swap(true, Ordering::SeqCst));
+                        std::thread::sleep(Duration::from_millis(5));
+                        inside.store(false, Ordering::SeqCst);
+                    })
+                })
+            })
+            .collect();
+        for thread in threads {
+            thread.join().unwrap();
+        }
+    }
 
     fn session(root: &Path) -> Library {
         Library::create(&root.join("Job"), "Job", Mode::Session).unwrap()
