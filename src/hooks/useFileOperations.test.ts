@@ -7,6 +7,7 @@ import {
   describeEmptyTrash,
   describeFileOperation,
   FileOperationSummary,
+  undoHint,
   type TrashContents,
   useFileOperations,
 } from './useFileOperations';
@@ -36,13 +37,13 @@ const summary = (part: Partial<FileOperationSummary>): FileOperationSummary => (
 });
 
 it('says where deleted photos went and how to undo it', () => {
-  expect(describeFileOperation(summary({ sessionTrash: 2 }), '⌘Z')).toBe(
+  expect(describeFileOperation(summary({ sessionTrash: 2 }), '⌘Z undoes it.')).toBe(
     "Moved 2 items to the session's Trash folder. ⌘Z undoes it.",
   );
-  expect(describeFileOperation(summary({ items: 1, systemTrash: 1 }), 'Ctrl+Z')).toBe(
+  expect(describeFileOperation(summary({ items: 1, systemTrash: 1 }), 'Ctrl+Z undoes it.')).toBe(
     'Moved 1 item to the Trash. Ctrl+Z undoes it.',
   );
-  expect(describeFileOperation(summary({ sessionTrash: 1, systemTrash: 1 }), '⌘Z')).toContain(
+  expect(describeFileOperation(summary({ sessionTrash: 1, systemTrash: 1 }), '')).toContain(
     "the session's Trash folder and the Trash",
   );
 });
@@ -51,12 +52,32 @@ it('names the folder photos were moved to, and other operations by their label',
   expect(
     describeFileOperation(
       summary({ kind: 'move', label: 'Move 2 photos to Selects', newPaths: ['/job/Selects/A.RAF', '/job/Selects/B.RAF'] }),
-      '⌘Z',
+      '⌘Z undoes it.',
     ),
   ).toBe('Moved 2 photos to Selects. ⌘Z undoes it.');
-  expect(describeFileOperation(summary({ kind: 'renameFolder', label: 'Rename folder Day 1' }), '⌘Z')).toBe(
+  expect(describeFileOperation(summary({ kind: 'renameFolder', label: 'Rename folder Day 1' }), '⌘Z undoes it.')).toBe(
     'Rename folder Day 1. ⌘Z undoes it.',
   );
+});
+
+it('names the Library for undoing in Develop, where ⌘Z undoes edits', () => {
+  useSettingsStore.setState({ osPlatform: 'macos' });
+  useUIStore.setState({ activeView: 'library' });
+  expect(undoHint()).toBe('⌘Z undoes it.');
+  expect(describeFileOperation(summary({ items: 1, systemTrash: 1 }))).toBe('Moved 1 item to the Trash. ⌘Z undoes it.');
+  useUIStore.setState({ activeView: 'editor' });
+  expect(undoHint()).toBe('⌘Z in the Library undoes it.');
+  expect(describeFileOperation(summary({ items: 1, systemTrash: 1 }))).toBe(
+    'Moved 1 item to the Trash. ⌘Z in the Library undoes it.',
+  );
+  // The Delete dialog in Develop says so too.
+  useLibraryStore.setState({ multiSelectedPaths: ['/job/Capture/A.RAF'], imageList: [] });
+  const { result } = renderHook(() =>
+    useFileOperations(vi.fn(() => Promise.resolve()), vi.fn(() => Promise.resolve()), vi.fn(), vi.fn(), []),
+  );
+  result.current.handleDeleteSelected();
+  expect(useUIStore.getState().confirmModalState.message).toContain('⌘Z in the Library undoes it.');
+  useUIStore.setState({ activeView: 'library' });
 });
 
 it('renaming the selected photo in the Library stays in the Library and keeps it open', async () => {
@@ -385,5 +406,12 @@ describe('moving to the Trash', () => {
     await useUIStore.getState().confirmModalState.onConfirm?.();
     expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeGreaterThanOrEqual(0);
     expect(calls().indexOf(Invokes.SaveMetadataAndUpdateThumbnail)).toBeLessThan(calls().indexOf(Invokes.DeleteFolder));
+  });
+
+  it('leaves a trashed Windows folder shown below it too', async () => {
+    useLibraryStore.setState({ currentFolderPath: 'C:\\job\\Day 1\\Picks' });
+    hook().handleTrashFolder('C:\\job\\Day 1');
+    await useUIStore.getState().confirmModalState.onConfirm?.();
+    expect(useLibraryStore.getState().currentFolderPath).toBeNull();
   });
 });
