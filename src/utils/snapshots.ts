@@ -7,13 +7,13 @@ import { normalizeLoadedAdjustments, type Adjustments, type AiPatch, type MaskCo
 import type { SubMask } from '../components/panel/right/Masks';
 
 /** `adjustments` with a new id for each AI bitmap (mask component, AI
- * patch) whose id the native side holds a bitmap under (`sent`): that may
- * be another one (the mask computed again since the snapshot was taken),
- * and the preview leaves out bitmaps it has sent under an id, so the
- * restored one must arrive under an id of its own. */
-export function withOwnBitmapIds(adjustments: Adjustments, sent: Set<string>): Adjustments {
+ * patch): the native side keeps bitmaps by id and the preview leaves out
+ * one it has sent (or is sending) under an id, so a bitmap computed again
+ * since the snapshot was taken would be shown instead of the restored one.
+ * Under ids of their own the restored bitmaps always arrive. */
+export function withOwnBitmapIds(adjustments: Adjustments): Adjustments {
   const own = <T extends { id: string }>(item: T, hasBitmap: boolean): T =>
-    hasBitmap && sent.has(item.id) ? { ...item, id: crypto.randomUUID() } : item;
+    hasBitmap ? { ...item, id: crypto.randomUUID() } : item;
   const subMasks = (list: SubMask[] | undefined) =>
     list?.map((sub) => {
       const parameters = sub.parameters as Record<string, unknown> | undefined;
@@ -35,10 +35,7 @@ export function withOwnBitmapIds(adjustments: Adjustments, sent: Set<string>): A
 export function restoreSnapshot(snapshot: Snapshot): boolean {
   const image = useEditorStore.getState().selectedImage;
   if (!image?.isReady || useSnapshotStore.getState().path !== image.path) return false;
-  const restored = withOwnBitmapIds(
-    normalizeLoadedAdjustments(snapshot.adjustments, image.isRaw),
-    useEditorStore.getState().patchesSentToBackend,
-  );
+  const restored = withOwnBitmapIds(normalizeLoadedAdjustments(snapshot.adjustments, image.isRaw));
   // An edit still settling is its own step, before the restore.
   debouncedSetHistory.flush();
   updateAdjustments(() => restored);
