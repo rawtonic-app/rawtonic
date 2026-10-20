@@ -1121,6 +1121,7 @@
         "skip": "Omet",
         "state": {
           "failed": "Fallat",
+          "inconclusive": "No concloent",
           "passed": "Superat",
           "skipped": "Omès"
         },

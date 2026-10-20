@@ -1078,6 +1078,7 @@
         "skip": "Überspringen",
         "state": {
           "failed": "Fehlgeschlagen",
+          "inconclusive": "Nicht eindeutig",
           "passed": "Bestanden",
           "skipped": "Übersprungen"
         },

@@ -51,7 +51,9 @@ export const STEPS: StepId[] = [
   "release",
 ];
 
-export type StepState = "passed" | "failed" | "skipped";
+/** `inconclusive`: the step's photos could not be counted for sure (a
+ * reused camera file name); neither pass nor fail. */
+export type StepState = "passed" | "failed" | "skipped" | "inconclusive";
 
 /** A finished step: what it measured (numbers in ms unless named
  * otherwise). The report takes only values the test made itself, never a
@@ -178,7 +180,7 @@ export const buildReport = (info: ReportInfo, results: Partial<Record<StepId, St
   ];
   for (const id of STEPS) {
     const result = results[id];
-    const state = result ? { passed: "pass", failed: "FAIL", skipped: "skipped" }[result.state] : "not run";
+    const state = result ? { passed: "pass", failed: "FAIL", skipped: "skipped", inconclusive: "inconclusive" }[result.state] : "not run";
     const measured = result ? describe(result).replace(/\|/g, "/") : "";
     lines.push(`| ${STEP_NAMES[id]} | ${state} | ${measured} |`);
   }

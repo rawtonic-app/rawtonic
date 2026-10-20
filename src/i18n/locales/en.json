@@ -1078,6 +1078,7 @@
         "skip": "Skip",
         "state": {
           "failed": "Failed",
+          "inconclusive": "Inconclusive",
           "passed": "Passed",
           "skipped": "Skipped"
         },

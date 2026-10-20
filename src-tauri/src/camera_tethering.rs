@@ -765,6 +765,8 @@ pub struct TetherCaptured {
     /// one exposure share them); none for a photo left from an earlier run.
     pub connection: Option<u64>,
     pub exposure: Option<u64>,
+    /// The exposure cannot be told for sure (a reused camera file name).
+    pub ambiguous: bool,
     /// From the app's request (or the camera's report) to: the camera's
     /// report, the complete download, the photo in the library.
     pub ms_to_event: Option<u64>,
@@ -890,6 +892,7 @@ impl Ingest<'_> {
             requested: timing.is_some_and(|(c, _)| c.requested),
             connection: timing.map(|(c, _)| c.connection),
             exposure: timing.map(|(c, _)| c.exposure),
+            ambiguous: timing.is_some_and(|(c, _)| c.ambiguous),
             ms_to_event: timing.and_then(|(c, _)| c.ms_to_event),
             ms_to_downloaded: timing.map(|(c, _)| c.ms_to_downloaded),
             ms_to_ingested: timing
@@ -1293,6 +1296,7 @@ mod tests {
                 connection: 1,
                 download: n,
                 exposure: n,
+                ambiguous: false,
                 camera_folder: "/store_10000001".into(),
                 camera_name: format!("DSCF{n:04}.RAF"),
                 size: 7,
@@ -1342,6 +1346,7 @@ mod tests {
                 connection: 1,
                 download: n,
                 exposure: n,
+                ambiguous: false,
                 camera_folder: "/store_00010001".into(),
                 camera_name: format!("DSC{n:05}.ARW"),
                 size: 7,
@@ -2136,6 +2141,7 @@ mod tests {
                     connection: 1,
                     download: 1,
                     exposure: 1,
+                    ambiguous: false,
                     camera_folder: "/".into(),
                     camera_name: "DSC00001.ARW".into(),
                     size: 1,

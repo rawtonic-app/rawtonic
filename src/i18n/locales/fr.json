@@ -1121,6 +1121,7 @@
         "skip": "Passer",
         "state": {
           "failed": "Échoué",
+          "inconclusive": "Non concluant",
           "passed": "Réussi",
           "skipped": "Passé"
         },

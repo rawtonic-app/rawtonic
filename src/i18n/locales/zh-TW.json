@@ -1053,6 +1053,7 @@
         "skip": "略過",
         "state": {
           "failed": "失敗",
+          "inconclusive": "無法判定",
           "passed": "通過",
           "skipped": "已略過"
         },

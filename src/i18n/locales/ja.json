@@ -1053,6 +1053,7 @@
         "skip": "スキップ",
         "state": {
           "failed": "不合格",
+          "inconclusive": "判定不能",
           "passed": "合格",
           "skipped": "スキップ"
         },

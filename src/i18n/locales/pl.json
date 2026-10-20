@@ -1164,6 +1164,7 @@
         "skip": "Pomiń",
         "state": {
           "failed": "Niezaliczony",
+          "inconclusive": "Nierozstrzygnięty",
           "passed": "Zaliczony",
           "skipped": "Pominięty"
         },

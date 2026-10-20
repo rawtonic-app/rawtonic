@@ -466,6 +466,8 @@ fn interleaved_raw_and_jpeg_files_keep_their_exposure_and_request() {
     let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
     let numbers: Vec<u64> = (1..=10).chain(1..=10).collect();
     assert_eq!(exposures, numbers);
+    // Distinct names: never ambiguous.
+    assert!(photos.iter().all(|p| !p.ambiguous));
     // The JPEGs did not take the open requests: both time out.
     let deadline = Instant::now() + WAIT;
     while Instant::now() < deadline
@@ -516,8 +518,11 @@ fn interleaved_raw_and_jpeg_under_one_reused_name_keep_their_exposures() {
         ]
     );
     let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
-    // Ambiguous under one name: three exposures, each with one JPEG.
+    // Ambiguous under one name: three exposures, each with one JPEG; each
+    // JPEG is marked so.
     assert_eq!(exposures, [1, 2, 3, 3, 2, 1]);
+    let ambiguous: Vec<bool> = photos.iter().map(|p| p.ambiguous).collect();
+    assert_eq!(ambiguous, [false, false, false, true, true, true]);
     let deadline = Instant::now() + WAIT;
     let timeouts = |other: &[Option<Event>]| {
         other
@@ -1191,4 +1196,7 @@ fn a_change_from_raw_to_raw_and_jpeg_under_a_reused_name_keeps_the_jpeg_with_its
             ("DSC00001.JPG", 2)
         ]
     );
+    // Exposure 1 may have been RAW+JPEG with this JPEG: marked.
+    let ambiguous: Vec<bool> = photos.iter().map(|p| p.ambiguous).collect();
+    assert_eq!(ambiguous, [false, false, true]);
 }

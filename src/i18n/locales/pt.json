@@ -1121,6 +1121,7 @@
         "skip": "Pular",
         "state": {
           "failed": "Falhou",
+          "inconclusive": "Inconclusivo",
           "passed": "Aprovado",
           "skipped": "Pulado"
         },

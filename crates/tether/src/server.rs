@@ -501,12 +501,28 @@ impl<W: Write> Server<W> {
         };
         // Another file of an exposure of the name (the newest that has not
         // given this kind yet): the same request, not the next one, however
-        // late it comes. Otherwise a new exposure. With reused names this is
-        // ambiguous (A.RAW, A.RAW, A.JPG, A.JPG may pair either way); the
-        // newest keeps the number of exposures and their requests right
-        // also when the format changes (RAW only, then RAW+JPEG) or a file
-        // is never reported, only which of them a file is labelled with can
-        // differ.
+        // late it comes. Otherwise a new exposure. With a reused name (the
+        // camera's numbering wrapped or was reset) this can be ambiguous:
+        // libgphoto2 gives no exposure identity, and A.RAW, A.RAW, A.JPG,
+        // A.JPG may be two RAW+JPEG exposures or two RAW-only and two
+        // JPEG-only ones (likewise A.RAW; A.RAW+A.JPG; A.JPG). Such a file
+        // is marked `ambiguous` (the camera test then reports its step as
+        // inconclusive). notes: reference/tether.md
+        let ambiguous = matches!(shot_of, Shot::Waiting)
+            && open.exposures_by_stem.get(&stem).is_some_and(|exposures| {
+                let open_ones = exposures
+                    .iter()
+                    .filter(|e| !e.kinds.contains(&extension))
+                    .count();
+                // Another exposure of the name could have taken it: more
+                // than one open, or one open that is not the newest (then
+                // a newer exposure of the name already has this kind).
+                open_ones > 1
+                    || (open_ones == 1
+                        && exposures
+                            .back()
+                            .is_some_and(|e| e.kinds.contains(&extension)))
+            });
         let companion = match shot_of {
             Shot::Waiting => open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
                 exposures
@@ -586,6 +602,7 @@ impl<W: Write> Server<W> {
             connection: open.connection,
             download: shot,
             exposure,
+            ambiguous,
             camera_folder: file.folder,
             camera_name: file.name,
             size: expected,

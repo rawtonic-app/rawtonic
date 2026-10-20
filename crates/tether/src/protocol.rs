@@ -136,6 +136,9 @@ pub struct Captured {
     /// Its exposure's number in that connection: the RAW and JPEG of one
     /// exposure share it.
     pub exposure: u64,
+    /// Which exposure it belongs to cannot be told (a reused file name;
+    /// `server` explains): counts built on `exposure` are not certain.
+    pub ambiguous: bool,
     /// Where it was on the camera.
     pub camera_folder: String,
     pub camera_name: String,

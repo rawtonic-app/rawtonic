@@ -24,7 +24,7 @@ No body has been tried on Linux or Windows yet.
 
 1. Connect the camera in the tether panel (session bar → Tether) and open a photo in Develop.
 2. Click **Camera test…** and run each step (skip what your camera cannot do).
-3. The report at the end shows exactly what will be copied: the camera model and firmware, the system, the Rawtonic version, the camera driver and each step's result and timings. It holds no serial number, file names, folders, user name or photos. Rawtonic sends nothing; you copy the text yourself.
+3. Each step ends as pass, fail, skipped or inconclusive (the camera reused a file name, so its RAW and JPEG files could not be matched to shots for sure). The report at the end shows exactly what will be copied: the camera model and firmware, the system, the Rawtonic version, the camera driver and each step's result and timings. It holds no serial number, file names, folders, user name or photos. Rawtonic sends nothing; you copy the text yourself.
 4. Open a [camera report](https://github.com/rawtonic-app/rawtonic/issues/new?template=camera-report.yml) on GitHub and paste it.
 
 A report that a camera works adds it as **reported**; a body the project measures becomes **tested**.

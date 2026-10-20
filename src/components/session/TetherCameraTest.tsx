@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getVersion } from "@tauri-apps/api/app";
 import { arch, platform, version } from "@tauri-apps/plugin-os";
 import { open } from "@tauri-apps/plugin-shell";
-import { Check, ClipboardCopy, ExternalLink, LoaderCircle, Minus, X } from "lucide-react";
+import { Check, CircleHelp, ClipboardCopy, ExternalLink, LoaderCircle, Minus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Invokes } from "../ui/AppProperties";
 import {
@@ -39,6 +39,8 @@ interface Captured {
   cameraName: string;
   connection?: number | null;
   exposure?: number | null;
+  /** Its exposure cannot be told for sure (a reused camera file name). */
+  ambiguous?: boolean;
   destination: string | null;
   assetId: string | null;
   skipped: boolean;
@@ -102,6 +104,14 @@ const SETTLE_MS = 1000;
 const isFailure = (h: Heard) =>
   (h.name === "tether-captured" && Boolean(captured(h).error)) || h.name === "tether-capture-failed";
 const LATE_FAILURE = "a file of its photos failed after the step";
+/** A photo step whose counts cannot be trusted: the camera reused a file
+ * name and its RAW and JPEG files could not be told apart by exposure (the
+ * camera library gives no exposure identity). Never pass or fail then. */
+const inconclusive = (result: StepResult): StepResult => ({
+  ...result,
+  state: "inconclusive",
+  reason: "the camera reused a file name, so its RAW and JPEG files could not be matched to shots",
+});
 /** A failure that ends a shot of the step running: a shot that never came
  * (no exposure) or the first file of a new exposure failing. A failed
  * second file of an exposure already in ends none (it is still recorded). */
@@ -160,6 +170,8 @@ export default function TetherCameraTest({
   const exposures = useRef(new Map<string, StepId | null>());
   // Each photo step's failures, wherever they were heard.
   const failuresOf = useRef(new Map<StepId, Heard[]>());
+  // Photo steps with a photo whose exposure cannot be told (reused names).
+  const ambiguousSteps = useRef(new Set<StepId>());
   // Committed photos waiting for their release, and what the releases said.
   // (`releasedEarly`: released before their commit was heard.)
   const releases = useRef({
@@ -193,6 +205,17 @@ export default function TetherCameraTest({
       else if (name === "tether-capture-failed" && owner === null) owner = lastPhotoStep.current;
       h.foreign = owner !== running;
       heard.current.push(h);
+      if (name === "tether-captured" && (payload as Captured).ambiguous && owner) {
+        ambiguousSteps.current.add(owner);
+        // A step that has ended cannot be told any more.
+        if (owner !== runningStep.current) {
+          const step = owner;
+          setResults((current) => {
+            const result = current[step];
+            return result ? { ...current, [step]: inconclusive(result) } : current;
+          });
+        }
+      }
       if (isFailure(h)) {
         setFailures((n) => n + 1);
         if (owner) failuresOf.current.set(owner, [...(failuresOf.current.get(owner) ?? []), h]);
@@ -201,7 +224,7 @@ export default function TetherCameraTest({
         if (late)
           setResults((current) => {
             const result = current[late];
-            if (!result || result.state === "failed") return current;
+            if (!result || result.state !== "passed") return current;
             return { ...current, [late]: { ...result, state: "failed", reason: LATE_FAILURE } };
           });
       }
@@ -222,6 +245,14 @@ export default function TetherCameraTest({
         if (r.error) releases.current.errors.push(r.error);
         else if (r.freed) releases.current.freed += 1;
         else releases.current.notFreed += 1;
+        // A release after the step (a late RAW or JPEG) that went wrong
+        // fails it.
+        if (at < 0 || r.error || !r.freed)
+          setResults((current) =>
+            current.release?.state === "passed"
+              ? { ...current, release: { ...current.release, state: "failed", reason: "a later release failed" } }
+              : current,
+          );
       }
       for (const waiter of [...waiters.current]) if (waiter(h)) waiters.current.delete(waiter);
     };
@@ -403,7 +434,10 @@ export default function TetherCameraTest({
       const after = seq.current;
       setPrompt(t("session.tether.test.pressShutter"));
       const photo = await next(
-        (h) => h.name === "tether-captured" && !captured(h).requested && h.exposure === true,
+        // A photo of this connection (one left from an earlier run has no
+        // exposure and is no shot of now).
+        (h) =>
+          h.name === "tether-captured" && !captured(h).requested && h.exposure === true && captured(h).exposure != null,
         BODY_SHOT_WAIT_MS,
         after,
       );
@@ -488,6 +522,7 @@ export default function TetherCameraTest({
         };
       }
     }
+    if (ambiguousSteps.current.has(id)) result = inconclusive(result);
     if (PHOTO_STEPS.includes(id)) lastPhotoStep.current = id;
     runningStep.current = null;
     setResults((current) => ({ ...current, [id]: result }));
@@ -533,6 +568,7 @@ export default function TetherCameraTest({
     release: t("session.tether.test.how.release"),
   };
   const states: Record<StepResult["state"], string> = {
+    inconclusive: t("session.tether.test.state.inconclusive"),
     passed: t("session.tether.test.state.passed"),
     failed: t("session.tether.test.state.failed"),
     skipped: t("session.tether.test.state.skipped"),
@@ -569,6 +605,8 @@ export default function TetherCameraTest({
                     <LoaderCircle size={12} className="animate-spin" />
                   ) : result?.state === "passed" ? (
                     <Check size={12} />
+                  ) : result?.state === "inconclusive" ? (
+                    <CircleHelp size={12} />
                   ) : result?.state === "failed" ? (
                     <X size={12} />
                   ) : result ? (

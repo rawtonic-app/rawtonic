@@ -104,8 +104,24 @@ it("runs the steps with the camera and reports them without serial number, paths
   // A shot on the body.
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await screen.findByText("Press the shutter button on the camera now.");
+  // A photo left from an earlier run is no shot on the body.
+  emit("tether-captured", {
+    cameraName: "DSCF98.RAF",
+    destination: "/x/DSCF98.RAF",
+    assetId: "c",
+    skipped: false,
+    error: null,
+    requested: false,
+    connection: null,
+    exposure: null,
+  });
+  emit("tether-released", { cameraName: "DSCF98.RAF", freed: true, error: null });
+  await new Promise((done) => setTimeout(done, 50));
+  expect(report()).not.toContain("| Shot on the camera | pass");
   emit("tether-captured", {
     cameraName: "DSCF99.RAF",
+    connection: 1,
+    exposure: 99,
     destination: "/x/DSCF99.RAF",
     assetId: "b",
     skipped: false,
@@ -123,7 +139,11 @@ it("runs the steps with the camera and reports them without serial number, paths
   await waitFor(() => expect(report()).toMatch(/\| Cable out and back in \| pass \| 1\/1 in the library; \d+ ms;/), {
     timeout: 4000,
   });
-  await runStep(/\| Transfer queue freed after commit \| pass \| 12 freed \|/);
+  await runStep(/\| Transfer queue freed after commit \| pass \| 13 freed \|/);
+  // A late companion's release goes wrong: the step fails.
+  emit("tether-captured", { cameraName: "DSCF99.JPG", connection: 1, exposure: 99, destination: null, assetId: "j", skipped: false, error: null, requested: false });
+  emit("tether-released", { cameraName: "DSCF99.JPG", freed: false, error: "the camera refused" });
+  expect(report()).toContain("| Transfer queue freed after commit | FAIL | 13 freed; a later release failed |");
   const text = report();
   expect(text).toContain("- Firmware: 4.10");
   expect(text).toContain("- Transfer queue: yes (freeing on)");
@@ -393,4 +413,54 @@ it("a companion's failure ends no other shot's wait", async () => {
   for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   await runStep(/\| Burst from Rawtonic \| FAIL \| 5\/5 in the library; \d+ ms; 4 files not added or shots not delivered \|/);
   expect(shot).toBe(5);
+}, 20_000);
+
+it("a step with a photo whose exposure cannot be told is inconclusive, never pass or fail", async () => {
+  // The camera reuses one name: its later JPEGs come marked ambiguous.
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      emit("tether-captured", {
+        cameraName: "DSC00001.ARW",
+        connection: 1,
+        exposure: n,
+        ambiguous: false,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+      if (n === 2)
+        emit("tether-captured", {
+          cameraName: "DSC00001.JPG",
+          connection: 1,
+          exposure: 2,
+          ambiguous: true,
+          destination: null,
+          assetId: "j",
+          skipped: false,
+          error: null,
+          requested: true,
+        });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
+  await runStep(
+    /\| Shots from Rawtonic \| inconclusive \| 5\/5 in the library; .*; the camera reused a file name, so its RAW and JPEG files could not be matched to shots \|/,
+  );
+  // A late ambiguous file of a passed step makes it inconclusive too.
+  await runStep(/\| Burst from Rawtonic \| pass \|/);
+  emit("tether-captured", {
+    cameraName: "DSC00001.JPG",
+    connection: 1,
+    exposure: 7,
+    ambiguous: true,
+    destination: null,
+    assetId: "k",
+    skipped: false,
+    error: null,
+    requested: true,
+  });
+  expect(report()).toMatch(/\| Burst from Rawtonic \| inconclusive \|/);
 }, 20_000);
