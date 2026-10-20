@@ -23,7 +23,8 @@ export function invokeInOrder<T>(command: string, args: InvokeArgs): Promise<T> 
 export const CATALOG_CHANGED = 'rawtonic:catalog-changed';
 
 export function catalogChanged() {
-  window.dispatchEvent(new Event(CATALOG_CHANGED));
+  // A write may settle after the page (or a test's document) is gone.
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CATALOG_CHANGED));
 }
 
 /** Fired after the photographs' context menu changed a session album, so
