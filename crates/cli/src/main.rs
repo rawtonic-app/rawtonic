@@ -10,6 +10,7 @@ use rawtonic_catalog::{Library, Mode};
 use std::{path::PathBuf, sync::atomic::AtomicBool, time::Instant};
 
 mod fingerprint;
+mod search_bench;
 
 #[derive(Parser)]
 #[command(
@@ -33,11 +34,28 @@ enum Command {
     },
     /// Inspect a session/catalog, or fingerprint a source file read-only.
     Inspect { path: PathBuf },
-    /// List assets, optionally matching an FTS phrase.
+    /// List assets, optionally those whose searchable text holds every
+    /// word of `--search` (the Library's search box).
     List {
         library: PathBuf,
         #[arg(long)]
         search: Option<String>,
+    },
+    /// Paths of the photographs a search rule matches (JSON, as smart
+    /// albums store it: `{"field":"iso","op":"ge","value":3200}`, groups
+    /// `{"combine":"all"|"any"|"none","rules":[…]}`). Reads the library only.
+    Search { library: PathBuf, rule: String },
+    /// Read the capture facts (camera, lens, exposure, capture time) of
+    /// every photograph not read yet, for the search. Reads the photographs'
+    /// headers only.
+    Facts { library: PathBuf },
+    /// Time the library search on a synthetic library of `--photos`
+    /// photographs (tiny files in a temporary folder, removed afterwards).
+    SearchBench {
+        #[arg(long, default_value_t = 50_000)]
+        photos: u32,
+        #[arg(long, default_value_t = 20)]
+        iterations: u32,
     },
     /// Copy and SHA-256 verify files into Capture. Originals remain untouched.
     Ingest {
@@ -396,7 +414,7 @@ fn ai_denoiser(
     Ok(std::sync::Arc::new(filter))
 }
 
-fn print(value: impl serde::Serialize) -> Result<()> {
+pub(crate) fn print(value: impl serde::Serialize) -> Result<()> {
     println!("{}", serde_json::to_string_pretty(&value)?);
     Ok(())
 }
@@ -589,6 +607,20 @@ fn run() -> Result<()> {
             let applied = l.apply_folder_sync(&actions)?;
             print(serde_json::json!({ "plan": plan, "applied": applied }))
         }
+        Command::Search { library, rule } => {
+            let rule: rawtonic_catalog::Rule =
+                serde_json::from_str(&rule).context("The rule is not valid JSON")?;
+            print(Library::open(&library)?.search(&rule)?)
+        }
+        Command::Facts { library } => {
+            let l = Library::open(&library)?;
+            let recorded = l.fill_all_facts(
+                &AtomicBool::new(false),
+                &rawtonic_ingest::capture::capture_facts,
+            )?;
+            print(serde_json::json!({ "recorded": recorded, "unread": l.facts_backlog()? }))
+        }
+        Command::SearchBench { photos, iterations } => search_bench::run(photos, iterations),
         Command::Checksums { library } => {
             let l = Library::open(&library)?;
             let recorded = l.fill_all_checksums(&AtomicBool::new(false))?;

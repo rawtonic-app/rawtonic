@@ -136,6 +136,7 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     // Turn the database back into schema 1 (no kind/position columns, no
     // volume columns of schema 3, no import batches of schema 4).
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
+    db.execute_batch(include_str!("undo_0011.sql")).unwrap();
     db.execute_batch(
         "ALTER TABLE assets DROP COLUMN sha256; DROP TABLE asset_imports; DROP TABLE import_batches;
          ALTER TABLE assets DROP COLUMN companion_size; ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256;
@@ -160,8 +161,8 @@ fn version_one_databases_are_migrated_once_and_newer_ones_refused() {
     // Opening again does not migrate twice.
     Library::open(temp.path()).unwrap();
     let db = rusqlite::Connection::open(temp.path().join("session.sqlite")).unwrap();
-    db.execute_batch("PRAGMA user_version=11;").unwrap();
+    db.execute_batch("PRAGMA user_version=12;").unwrap();
     drop(db);
     let error = Library::open(temp.path()).err().unwrap().to_string();
-    assert!(error.contains("Unsupported database schema 11"), "{error}");
+    assert!(error.contains("Unsupported database schema 12"), "{error}");
 }

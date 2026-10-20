@@ -49,7 +49,10 @@ export default function SessionAlbumSubMenu({
   };
   const rows = (parent: string | null, depth: number): React.ReactNode[] =>
     childrenOf(albums ?? [], parent).flatMap((album) =>
-      album.kind === "group"
+      // Smart albums show what their rules match; nothing is added to them.
+      album.kind === "smart"
+        ? []
+        : album.kind === "group"
         ? [
             <div
               key={album.id}
@@ -82,7 +85,7 @@ export default function SessionAlbumSubMenu({
     <div className="rawtonic-menu-list w-56" role="menu" aria-label={t("studio.library.albumMenu.label")}>
       {albums === null ? (
         <div className="rawtonic-menu-heading">{t("studio.library.albumMenu.reading")}</div>
-      ) : albums.some((album) => album.kind !== "group") ? (
+      ) : albums.some((album) => album.kind !== "group" && album.kind !== "smart") ? (
         rows(null, 0)
       ) : (
         <div className="rawtonic-menu-heading">{t("studio.library.albumMenu.empty")}</div>

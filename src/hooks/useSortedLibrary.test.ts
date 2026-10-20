@@ -52,6 +52,63 @@ describe('live culling filters', () => {
   });
 });
 
+describe('catalog search', () => {
+  it('shows what the library found, virtual copies with their photograph, culling filters on top', () => {
+    const input = {
+      ...state(),
+      imageList: [...files, file('/shoot/a.ARW?vc=copy', 5)],
+      // The catalog matched a keyword the grid does not know (no text match).
+      searchCriteria: { text: 'wedding', tags: [], mode: 'OR' as const },
+      catalogMatches: new Set(['/shoot/a.ARW', '/shoot/b.ARW']),
+    };
+    const shown = computeGroupedLibrary(input, {});
+    expect(shown.displayList.map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/a.ARW?vc=copy', '/shoot/b.ARW']);
+    expect(shown.flagCounts.all).toBe(3);
+    input.filterCriteria = { ...input.filterCriteria, rating: 5 };
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/a.ARW?vc=copy']);
+    // An empty answer shows nothing; before the first answer names match here.
+    expect(computeSortedLibrary({ ...input, catalogMatches: new Set() }, {})).toEqual([]);
+    expect(computeSortedLibrary({ ...state(), searchCriteria: { text: 'c.ARW', tags: [], mode: 'OR' }, catalogMatches: null }, {})
+      .map((f) => f.path)).toEqual(['/shoot/c.ARW']);
+  });
+
+  it('finds a virtual copy as its photograph (its own keywords are not indexed: G37)', () => {
+    const copy = { ...file('/shoot/a.ARW?vc=c1', 0, ['user:client']), is_virtual_copy: true };
+    const input = {
+      ...state(),
+      imageList: [file('/shoot/a.ARW', 0, ['user:client']), copy, file('/shoot/b.ARW')],
+      searchCriteria: { text: 'client', tags: [], mode: 'OR' as const },
+      catalogMatches: new Set(['/shoot/a.ARW']),
+      catalogKnown: new Set(['/shoot/a.ARW', '/shoot/b.ARW']),
+    };
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/a.ARW?vc=c1']);
+  });
+
+  it('matches files the catalog does not hold by name and tags', () => {
+    const input = {
+      ...state(),
+      imageList: [file('/shoot/a.ARW'), file('/shoot/Output/DSC00123.JPG')],
+      searchCriteria: { text: '00123', tags: [], mode: 'OR' as const },
+      catalogMatches: new Set<string>(),
+      catalogKnown: new Set(['/shoot/a.ARW']),
+    };
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/Output/DSC00123.JPG']);
+    // It has no camera, lens, …: a metadata choice leaves it out.
+    expect(
+      computeSortedLibrary({ ...input, filterCriteria: { ...input.filterCriteria, metadata: { camera: ['X-T4'] } } }, {}),
+    ).toEqual([]);
+  });
+
+  it('keeps grouped photographs together when one of them is found', () => {
+    const grouped = computeGroupedLibrary({
+      ...state(),
+      imageList: [{ ...file('/shoot/a.ARW'), group_id: 'a' }, { ...file('/shoot/a.jpg'), is_raw: false, group_id: 'a' }],
+      catalogMatches: new Set(['/shoot/a.jpg']),
+    }, { appSettings: { grouping: 'raw' } });
+    expect(grouped.displayList).toHaveLength(1);
+  });
+});
+
 describe('filename sorting', () => {
   it('preserves locale ordering, Windows paths, direction and ascending ties', () => {
     const input = { ...state(), imageList: ['z.ARW', 'ä.ARW', 'A.ARW', 'IMG_10.ARW', 'IMG_2.ARW'].map((name) => file(`C:\\shoot\\${name}`)) };

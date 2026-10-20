@@ -5351,6 +5351,7 @@ name = "rawtonic-catalog"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "libc",
  "log",
  "proptest",
@@ -5369,6 +5370,7 @@ name = "rawtonic-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "image",
  "libc",

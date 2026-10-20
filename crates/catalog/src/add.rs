@@ -151,6 +151,9 @@ pub struct PlannedAsset {
     xmp_digest: Option<String>,
     /// The companion file beside it (`Library::companion`).
     companion: Option<(String, crate::companion::Identity)>,
+    /// What its EXIF says (`PlannedAsset::with_facts`); none: the
+    /// background pass reads it.
+    facts: Option<crate::CaptureFacts>,
 }
 
 impl PlannedAsset {
@@ -162,6 +165,12 @@ impl PlannedAsset {
         let identity = crate::companion::Identity::read(&self.path.with_file_name(name))?;
         self.companion = Some((name.to_string(), identity));
         Ok(self)
+    }
+
+    /// Records `facts` (read from its file) with the photograph.
+    pub fn with_facts(mut self, facts: crate::CaptureFacts) -> Self {
+        self.facts = Some(facts);
+        self
     }
 }
 
@@ -277,6 +286,7 @@ impl Library {
             metadata,
             xmp_digest: contents.xmp_digest,
             companion: None,
+            facts: None,
         })
     }
 
@@ -370,6 +380,9 @@ impl Library {
             )?;
             if let Some(recipe) = &asset.recipe {
                 write_recipe(&tx, &version, recipe)?;
+            }
+            if let Some(facts) = &asset.facts {
+                crate::facts::write_facts(&tx, &id, facts)?;
             }
             if let Some((kind, batch_id)) = &mut batch {
                 if matches!(kind, ImportKind::HotFolder | ImportKind::Tether)
@@ -751,6 +764,9 @@ mod tests {
         }
         let before = lib.previous_import().unwrap().unwrap();
         // Back to schema 5: batches limited to ingest, add and sync.
+        lib.conn
+            .execute_batch(include_str!("../tests/undo_0011.sql"))
+            .unwrap();
         lib.conn
             .execute_batch(
                 "CREATE TABLE b5(id INTEGER PRIMARY KEY,

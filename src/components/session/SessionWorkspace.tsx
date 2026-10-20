@@ -71,6 +71,7 @@ import { throttleAsync } from "../../utils/throttle";
 import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
+import { catalogChanged } from "../../utils/catalogWrites";
 import "./session.css";
 
 export interface SessionSummary {
@@ -843,6 +844,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             paths,
             flag,
           });
+          catalogChanged();
           if (useLibraryStore.getState().sessionDirectory !== session.directory) return;
           useLibraryStore.getState().setLibrary((state) => ({
             imageFlags: { ...state.imageFlags, ...changed },

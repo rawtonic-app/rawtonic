@@ -2342,6 +2342,7 @@
           "delete": "Löschen",
           "deleteAlbum": "„{{name}}“ löschen? Die Fotos bleiben erhalten.",
           "deleteGroup": "„{{name}}“ und die enthaltenen Alben löschen? Die Fotos bleiben erhalten.",
+          "deleteSmartAlbum": "Das Smart-Album „{{name}}“ löschen? Die Fotos bleiben erhalten.",
           "label": "Album löschen"
         },
         "empty": "Wählen Sie Fotos aus und drücken Sie +, um sie in einem Album zusammenzufassen.",
@@ -2352,12 +2353,16 @@
           "addSelectedCount_other": "{{count}} ausgewählte Fotos hinzufügen",
           "deleteAlbum": "Album löschen…",
           "deleteGroup": "Gruppe löschen…",
+          "deleteSmartAlbum": "Smart-Album löschen…",
+          "editSmartAlbum": "Smart-Album bearbeiten…",
           "newAlbum": "Neues Album",
           "newAlbumFromSelected_one": "Neues Album aus {{count}} ausgewähltem Foto",
           "newAlbumFromSelected_other": "Neues Album aus {{count}} ausgewählten Fotos",
           "newAlbumInGroup": "Neues Album in dieser Gruppe",
           "newGroup": "Neue Gruppe",
           "newGroupInGroup": "Neue Gruppe in dieser Gruppe",
+          "newSmartAlbum": "Neues Smart-Album…",
+          "newSmartAlbumInGroup": "Neues Smart-Album in dieser Gruppe…",
           "removeSelected": "Ausgewählte Fotos entfernen",
           "rename": "Umbenennen"
         },
@@ -2368,6 +2373,8 @@
         "previousImportNoDrop": "„Letzter Import“ zeigt den letzten Import; dort lassen sich keine Fotos hinzufügen. Legen Sie sie auf einem Album ab.",
         "previousImportTitle": "Die Fotos, die der letzte Import, „Hinzufügen“, „Ordner synchronisieren“ oder der überwachte Ordner aufgenommen hat",
         "renameLabel": "{{name}} umbenennen",
+        "smartHint": "Zeigt die Fotos, auf die seine Regeln zutreffen – immer aktuell",
+        "smartNoDrop": "Ein Smart-Album zeigt die Fotos, auf die seine Regeln zutreffen; Fotos lassen sich nicht hinzufügen. Ändern Sie seine Regeln oder legen Sie die Fotos auf einem Album ab.",
         "title": "Alben",
         "toasts": {
           "addFailed": "Fotos konnten nicht hinzugefügt werden: {{error}}",
@@ -2519,9 +2526,196 @@
           "showFailed": "Der Ordner konnte nicht angezeigt werden: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_one": "Alle ({{count}} Wert)",
+        "all_other": "Alle ({{count}} Werte)",
+        "apertureValue": "f/{{value}}",
+        "button": "Metadaten",
+        "fields": {
+          "aperture": "Blende",
+          "camera": "Kamera",
+          "captureDate": "Aufnahmedatum",
+          "fileType": "Dateityp",
+          "focalLength": "Brennweite",
+          "iso": "ISO",
+          "keyword": "Stichwort",
+          "lens": "Objektiv"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "Andere",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "Metadatenfilter",
+        "none": {
+          "aperture": "Unbekannte Blende",
+          "camera": "Unbekannte Kamera",
+          "captureDate": "Kein Datum",
+          "fileType": "Andere",
+          "focalLength": "Unbekannte Brennweite",
+          "iso": "Unbekannter ISO-Wert",
+          "keyword": "Kein Stichwort",
+          "lens": "Unbekanntes Objektiv"
+        },
+        "toggle": "Metadatenlisten ein- oder ausblenden (Aufnahmedatum, Kamera, Objektiv, Stichwort, Dateityp, ISO, Brennweite, Blende)"
+      },
       "navigator": {
         "empty": "Foto auswählen",
         "title": "Navigator"
+      },
+      "searchFailed": "Die Bibliothek konnte nicht durchsucht werden: {{error}}",
+      "smartAlbums": {
+        "addGroup": "Regelgruppe",
+        "addRule": "Regel",
+        "amountLabel": "Anzahl",
+        "and": "und",
+        "cancel": "Abbrechen",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "Andere",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "Markiert",
+            "rejected": "Abgelehnt",
+            "unflagged": "Unmarkiert"
+          },
+          "label": {
+            "blue": "Blau",
+            "green": "Grün",
+            "none": "Keine Farbmarkierung",
+            "purple": "Lila",
+            "red": "Rot",
+            "yellow": "Gelb"
+          }
+        },
+        "combine": {
+          "all": "allen",
+          "any": "einer",
+          "none": "keiner"
+        },
+        "combineLabel": "Wie die Regeln verknüpft werden",
+        "create": "Erstellen",
+        "defaultName": "Smart-Album",
+        "editTitle": "Smart-Album bearbeiten",
+        "fieldLabel": "Feld",
+        "fields": {
+          "album": "Album",
+          "aperture": "Blende (Blendenzahl)",
+          "camera": "Kamera",
+          "captureDate": "Aufnahmedatum",
+          "details": "Beliebiger Text außer Stichwörtern",
+          "exposure": "Belichtungszeit (s)",
+          "filename": "Dateiname",
+          "fileType": "Dateityp",
+          "flag": "Markierung",
+          "focalLength": "Brennweite (mm)",
+          "folder": "Ordner",
+          "importDate": "Importdatum",
+          "iso": "ISO",
+          "keyword": "Stichwort",
+          "label": "Farbmarkierung",
+          "lens": "Objektiv",
+          "make": "Kamerahersteller",
+          "offline": "Fehlendes Foto",
+          "previousImport": "Im letzten Import",
+          "rating": "Bewertung",
+          "text": "Beliebiger durchsuchbarer Text"
+        },
+        "folderPlaceholder": "Ordnerpfad",
+        "fromFilter": "Als Smart-Album speichern…",
+        "fromFilterTitle": "Ein Smart-Album mit dem, wonach die Bibliothek gerade filtert (angezeigter Ordner oder angezeigtes Album, Suche, Metadaten, Bewertung, Farbmarkierung, Markierung)",
+        "fromFilterUnsupported": "Ein Smart-Album kann den Filter „bearbeitet/unbearbeitet“ und Such-Tags nicht übernehmen; heben Sie sie auf, um den Rest zu speichern",
+        "incomplete": "Vervollständigen Sie die Regeln, um zu sehen, welche Fotos sie erfassen",
+        "match": "Entspricht",
+        "matches_one": "Erfasst derzeit {{n}} Foto",
+        "matches_other": "Erfasst derzeit {{n}} Fotos",
+        "name": "Name",
+        "newTitle": "Neues Smart-Album",
+        "no": "nein",
+        "ofTheseRules": "dieser Regeln",
+        "opLabel": "Vergleich",
+        "ops": {
+          "album": {
+            "is": "ist in",
+            "isNot": "ist nicht in"
+          },
+          "bool": {
+            "is": "ist"
+          },
+          "choice": {
+            "is": "ist",
+            "isNot": "ist nicht"
+          },
+          "date": {
+            "between": "liegt zwischen",
+            "empty": "ist unbekannt",
+            "gt": "ist nach dem",
+            "inLast": "liegt in den letzten",
+            "is": "ist am",
+            "isNot": "ist nicht am",
+            "lt": "ist vor dem",
+            "notEmpty": "ist bekannt",
+            "notInLast": "liegt nicht in den letzten"
+          },
+          "folder": {
+            "contains": "ist in oder unter",
+            "is": "ist direkt in",
+            "isNot": "ist nicht direkt in",
+            "notContains": "ist nicht in oder unter"
+          },
+          "number": {
+            "between": "liegt zwischen",
+            "empty": "hat keinen Wert",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "hat einen Wert"
+          },
+          "search": {
+            "contains": "enthält alle Wörter",
+            "containsAny": "enthält eines der Wörter",
+            "notContains": "enthält keines der Wörter"
+          },
+          "text": {
+            "contains": "enthält alle Wörter",
+            "containsAny": "enthält eines der Wörter",
+            "empty": "ist leer",
+            "endsWith": "endet mit",
+            "is": "ist",
+            "isNot": "ist nicht",
+            "notContains": "enthält keines der Wörter",
+            "notEmpty": "ist nicht leer",
+            "startsWith": "beginnt mit"
+          }
+        },
+        "removeGroup": "Diese Gruppe entfernen",
+        "removeRule": "Regel „{{field}}“ entfernen",
+        "save": "Speichern",
+        "saveFailed": "Das Smart-Album konnte nicht gespeichert werden: {{error}}",
+        "unitLabel": "Einheit",
+        "units": {
+          "days": "Tagen",
+          "months": "Monaten",
+          "weeks": "Wochen",
+          "years": "Jahren"
+        },
+        "valueLabel": "Wert",
+        "yes": "ja"
       },
       "trash": {
         "alreadyEmpty": "Der Papierkorb-Ordner der Session ist leer.",

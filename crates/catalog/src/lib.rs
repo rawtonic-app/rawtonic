@@ -17,19 +17,23 @@ use uuid::Uuid;
 pub mod add;
 pub mod checksum;
 pub mod companion;
+pub mod facts;
 pub mod folder_sync;
 pub mod folders;
 pub mod hot_folder;
 pub mod ingest_jobs;
+pub mod query;
 pub mod volume;
 pub use add::{AddReport, Contents, ImportBatchInfo, ImportKind, PlannedAsset};
+pub use facts::CaptureFacts;
 pub use hot_folder::{HotFolderConfig, HotFolderFile};
+pub use query::{Combine, Field, Op, Rule};
 pub use volume::Volume;
 
 /// Version of the session/catalog manifest (`session.json`).
 pub const SCHEMA_VERSION: u32 = 1;
 /// Version of the SQLite schema; older databases are migrated when opened.
-pub const DB_SCHEMA_VERSION: u32 = 10;
+pub const DB_SCHEMA_VERSION: u32 = 11;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
@@ -73,10 +77,22 @@ pub struct Collection {
     pub kind: String,
     /// Place among the albums of the same parent.
     pub position: i64,
+    /// A smart album's rules (kind "smart"): which photographs it shows,
+    /// evaluated whenever it is shown or counted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rules: Option<Rule>,
 }
 
 pub const ALBUM: &str = "album";
 pub const GROUP: &str = "group";
+pub const SMART: &str = "smart";
+/// The SQL function the search folds case with (`Library::configure`).
+pub(crate) const FOLD: &str = "rawtonic_fold";
+
+/// How the search folds case: Unicode lower case (`École` → `école`).
+pub(crate) fn fold(text: &str) -> String {
+    text.to_lowercase()
+}
 
 /// Lightweight startup read model. Recipe payloads stay in SQLite; opening a
 /// library does not need to deserialize every existing photo's editor history.
@@ -231,6 +247,7 @@ impl Library {
         conn.execute_batch(include_str!("../migrations/0008.sql"))?;
         conn.execute_batch(include_str!("../migrations/0009.sql"))?;
         conn.execute_batch(include_str!("../migrations/0010.sql"))?;
+        conn.execute_batch(include_str!("../migrations/0011.sql"))?;
         conn.execute(
             "INSERT INTO roots(id,path,external) VALUES('session','.',0)",
             [],
@@ -340,6 +357,9 @@ impl Library {
         if version < 10 {
             tx.execute_batch(include_str!("../migrations/0010.sql"))?;
         }
+        if version < 11 {
+            tx.execute_batch(include_str!("../migrations/0011.sql"))?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -348,6 +368,41 @@ impl Library {
         conn.busy_timeout(Duration::from_secs(5))?;
         conn.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+        )?;
+        // The search's case folding (`query`, `fold`): the text index holds
+        // folded text (its triggers call it), and every search that scans
+        // rows folds with it too, so both find the same.
+        conn.create_scalar_function(
+            FOLD,
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        Some(fold(&String::from_utf8_lossy(text)))
+                    }
+                    rusqlite::types::ValueRef::Integer(n) => Some(n.to_string()),
+                    rusqlite::types::ValueRef::Real(n) => Some(n.to_string()),
+                    _ => None,
+                })
+            },
+        )?;
+        // Keywords are indexed trimmed as rules trim their values (Unicode
+        // whitespace, `str::trim`), by the keyword triggers.
+        conn.create_scalar_function(
+            "rawtonic_trim",
+            1,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |ctx| {
+                Ok(match ctx.get_raw(0) {
+                    rusqlite::types::ValueRef::Text(text) => {
+                        Some(String::from_utf8_lossy(text).trim().to_string())
+                    }
+                    _ => None,
+                })
+            },
         )?;
         Ok(())
     }
@@ -411,16 +466,11 @@ impl Library {
         id.map(|id| self.asset(&id)).transpose()
     }
 
+    /// Every asset, or those whose searchable text holds every word of
+    /// `query` (the Library's search box, `Rule::text`).
     pub fn assets(&self, query: Option<&str>) -> Result<Vec<Asset>> {
         let ids: Vec<String> = if let Some(q) = query.filter(|s| !s.trim().is_empty()) {
-            // Literal phrase avoids treating user input as an FTS expression.
-            let literal = format!("\"{}\"", q.replace('"', "\"\""));
-            self.conn
-                .prepare(
-                    "SELECT asset_id FROM asset_search WHERE asset_search MATCH ? ORDER BY rank",
-                )?
-                .query_map([literal], |r| r.get(0))?
-                .collect::<rusqlite::Result<_>>()?
+            self.search_ids(&Rule::text(q))?
         } else {
             self.conn
                 .prepare("SELECT id FROM assets ORDER BY rel_path")?
@@ -551,13 +601,15 @@ impl Library {
         .collect()
     }
 
-    /// Albums by name, with how many assets each holds.
+    /// Albums by name, with how many assets each holds (a smart album:
+    /// how many its rules match now; damaged rules: none).
     pub fn collections(&self) -> Result<Vec<Collection>> {
         let mut query = self.conn.prepare(
-            "SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca WHERE ca.collection_id=c.id),c.kind,c.position \
+            "SELECT c.id,c.name,c.parent,(SELECT COUNT(*) FROM collection_assets ca WHERE ca.collection_id=c.id),c.kind,c.position,c.rules \
              FROM collections c ORDER BY c.position, c.name COLLATE NOCASE, c.id",
         )?;
         let rows = query.query_map([], |r| {
+            let rules: Option<String> = r.get(6)?;
             Ok(Collection {
                 id: r.get(0)?,
                 name: r.get(1)?,
@@ -565,9 +617,72 @@ impl Library {
                 count: r.get(3)?,
                 kind: r.get(4)?,
                 position: r.get(5)?,
+                rules: rules.and_then(|rules| serde_json::from_str(&rules).ok()),
             })
         })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        let mut collections = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        for album in &mut collections {
+            if album.kind == SMART {
+                album.count = self.search_count(&Rule::album(&album.id)).unwrap_or(0) as u32;
+            }
+        }
+        Ok(collections)
+    }
+
+    /// A new smart album with `rules` at the end of `parent` (a group or
+    /// the top level). Folders inside the library are kept relative to it
+    /// (`Rule::relative_to`), so the album moves with a session.
+    pub fn create_smart_collection(
+        &self,
+        name: &str,
+        parent: Option<&str>,
+        rules: &Rule,
+    ) -> Result<Collection> {
+        let name = Self::collection_name(name)?;
+        let rules = &rules.relative_to(&self.directory);
+        rules.validate()?;
+        self.ensure_group(parent)?;
+        let id = Uuid::new_v4().to_string();
+        let position: i64 = self.conn.query_row(
+            "SELECT COALESCE(MAX(position)+1,0) FROM collections WHERE parent IS ?",
+            [parent],
+            |r| r.get(0),
+        )?;
+        self.conn.execute(
+            "INSERT INTO collections(id,name,parent,kind,position,rules) VALUES(?,?,?,?,?,?)",
+            params![
+                id,
+                name,
+                parent,
+                SMART,
+                position,
+                serde_json::to_string(rules)?
+            ],
+        )?;
+        Ok(Collection {
+            id: id.clone(),
+            name,
+            parent: parent.map(str::to_string),
+            count: self.search_count(&Rule::album(&id))? as u32,
+            kind: SMART.to_string(),
+            position,
+            rules: Some(rules.clone()),
+        })
+    }
+
+    /// Replaces a smart album's rules (folders inside the library kept
+    /// relative to it, as `create_smart_collection` does).
+    pub fn set_collection_rules(&self, id: &str, rules: &Rule) -> Result<()> {
+        let rules = &rules.relative_to(&self.directory);
+        rules.validate()?;
+        ensure!(
+            self.conn.execute(
+                "UPDATE collections SET rules=? WHERE id=? AND kind=?",
+                params![serde_json::to_string(rules)?, id, SMART]
+            )? == 1,
+            "Unknown smart album"
+        );
+        Ok(())
     }
 
     fn collection_name(name: &str) -> Result<String> {
@@ -595,7 +710,10 @@ impl Library {
         kind: &str,
     ) -> Result<Collection> {
         let name = Self::collection_name(name)?;
-        ensure!(kind == ALBUM || kind == GROUP, "Unknown album kind");
+        ensure!(
+            kind == ALBUM || kind == GROUP,
+            "Unknown album kind (smart albums are made with their rules)"
+        );
         self.ensure_group(parent)?;
         let id = Uuid::new_v4().to_string();
         let position: i64 = self.conn.query_row(
@@ -614,6 +732,7 @@ impl Library {
             count: 0,
             kind: kind.to_string(),
             position,
+            rules: None,
         })
     }
 
@@ -721,7 +840,7 @@ impl Library {
         ensure!(kind.is_some(), "Unknown album");
         ensure!(
             kind.as_deref() == Some(ALBUM),
-            "Groups hold albums, not photographs"
+            "Only albums hold photographs (groups hold albums, smart albums rules)"
         );
         for asset in assets {
             tx.execute(
@@ -735,6 +854,15 @@ impl Library {
 
     pub fn remove_from_collection(&self, id: &str, assets: &[String]) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
+        let kind: Option<String> = tx
+            .query_row("SELECT kind FROM collections WHERE id=?", [id], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        ensure!(
+            kind.as_deref() != Some(SMART),
+            "A smart album shows the photographs its rules match; change its rules to leave them out"
+        );
         for asset in assets {
             tx.execute(
                 "DELETE FROM collection_assets WHERE collection_id=? AND asset_id=?",
@@ -745,17 +873,17 @@ impl Library {
         Ok(())
     }
 
-    /// The album's assets in path order.
+    /// The album's assets in path order; a smart album's are those its
+    /// rules match now, a group's those of the albums in it.
     pub fn collection_assets(&self, id: &str) -> Result<Vec<Asset>> {
-        let ids: Vec<String> = self
-            .conn
-            .prepare(
-                "SELECT a.id FROM collection_assets ca JOIN assets a ON a.id=ca.asset_id \
-                 WHERE ca.collection_id=? ORDER BY a.rel_path",
-            )?
-            .query_map([id], |r| r.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
+        let ids = self.search_ids(&Rule::album(id))?;
         ids.iter().map(|id| self.asset(id)).collect()
+    }
+
+    /// Paths of the album's photographs (as `collection_assets`), in one
+    /// query.
+    pub fn collection_paths(&self, id: &str) -> Result<Vec<PathBuf>> {
+        self.search(&Rule::album(id))
     }
 
     pub fn primary_version(&self, asset: &str) -> Result<String> {

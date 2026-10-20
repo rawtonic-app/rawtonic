@@ -33,33 +33,25 @@ const WHOLE_FILE_LIMIT: u64 = 512 << 20;
 /// Capture facts of `path` read from its header; never fails (a file
 /// without metadata gets its modification time as date).
 pub fn read_capture(path: &Path) -> Capture {
-    let mut capture = Capture::default();
-    if let Ok(mut file) = fs::File::open(path)
-        && let Ok(meta) = file.metadata()
-        && meta.is_file()
-    {
-        let len = meta.len();
-        let mut buffer = Vec::new();
-        for limit in READ_STEPS
-            .into_iter()
-            .chain([WHOLE_FILE_LIMIT])
-            .map(|step| step.min(len))
-        {
-            if limit <= buffer.len() as u64 && !buffer.is_empty() {
-                continue;
+    read_capture_within(path, WHOLE_FILE_LIMIT)
+}
+
+/// How much of a file the library's capture facts are read from: the
+/// header steps only, never the rest of a large file without a date (the
+/// naming of an ingest reads further for its date).
+const FACTS_LIMIT: u64 = READ_STEPS[READ_STEPS.len() - 1];
+
+/// `read_capture` reading at most `most` bytes of the file.
+fn read_capture_within(path: &Path, most: u64) -> Capture {
+    let mut capture = fs::File::open(path)
+        .and_then(|file| {
+            let meta = file.metadata()?;
+            if !meta.is_file() {
+                return Err(std::io::Error::other("not a file"));
             }
-            let wanted = limit - buffer.len() as u64;
-            if (&mut file).take(wanted).read_to_end(&mut buffer).is_err() {
-                break;
-            }
-            let read = from_bytes(&buffer);
-            let done = read.captured.is_some() || buffer.len() as u64 >= len;
-            capture = read;
-            if done {
-                break;
-            }
-        }
-    }
+            Ok(read_header(file, meta.len(), most).0)
+        })
+        .unwrap_or_default();
     if capture.captured.is_none() {
         let modified = fs::metadata(path).and_then(|m| m.modified());
         (capture.captured, capture.date_source) = match modified {
@@ -70,6 +62,68 @@ pub fn read_capture(path: &Path) -> Capture {
         capture.offset = None;
     }
     capture
+}
+
+/// The capture facts in the first `most` bytes of `file` (`len` long), read
+/// step by step until a capture date is found. A read error gives what was
+/// read before it with the error: the caller decides whether a part will do.
+fn read_header(mut file: impl Read, len: u64, most: u64) -> (Capture, Option<std::io::Error>) {
+    let mut capture = Capture::default();
+    let mut buffer = Vec::new();
+    for limit in READ_STEPS
+        .into_iter()
+        .chain([WHOLE_FILE_LIMIT])
+        .map(|step| step.min(most).min(len))
+    {
+        if limit <= buffer.len() as u64 && !buffer.is_empty() {
+            continue;
+        }
+        let wanted = limit - buffer.len() as u64;
+        if let Err(error) = (&mut file).take(wanted).read_to_end(&mut buffer) {
+            return (capture, Some(error));
+        }
+        let read = from_bytes(&buffer);
+        let done = read.captured.is_some() || buffer.len() as u64 >= len.min(most);
+        capture = read;
+        if done {
+            break;
+        }
+    }
+    (capture, None)
+}
+
+/// What `path`'s EXIF says for the library's search (`rawtonic_catalog::
+/// CaptureFacts`), from at most its first 16 MiB; `None` when the file
+/// cannot be read now (gone, its drive disconnected, a read error), so it
+/// is tried again later. A capture time only from the file's own metadata,
+/// never its modification time.
+pub fn capture_facts(path: &Path) -> Option<rawtonic_catalog::CaptureFacts> {
+    let file = fs::File::open(path).ok()?;
+    let meta = file.metadata().ok().filter(|m| m.is_file())?;
+    match read_header(file, meta.len(), FACTS_LIMIT) {
+        (capture, None) => facts_of(capture),
+        (_, Some(_)) => None,
+    }
+}
+
+fn facts_of(capture: Capture) -> Option<rawtonic_catalog::CaptureFacts> {
+    let dated = matches!(
+        capture.date_source,
+        DateSource::Original | DateSource::Digitized | DateSource::FileDate
+    ) && capture.captured.is_some();
+    Some(rawtonic_catalog::CaptureFacts {
+        captured: capture
+            .captured
+            .filter(|_| dated)
+            .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string()),
+        make: capture.make,
+        model: capture.model,
+        lens: capture.lens,
+        focal_length: capture.focal_length,
+        aperture: capture.aperture,
+        iso: capture.iso,
+        exposure: capture.exposure.map(|(n, d)| f64::from(n) / f64::from(d)),
+    })
 }
 
 fn local(time: std::time::SystemTime) -> chrono::NaiveDateTime {
@@ -690,6 +744,51 @@ pub(crate) mod tests {
             capture.captured.map(|d| d.to_string()).as_deref(),
             Some("2024-05-06 07:08:09")
         );
+    }
+
+    /// The library's facts come from the header steps only: a date past
+    /// them is not looked for (the ingest's naming reads on for it).
+    #[test]
+    fn capture_facts_never_read_past_the_header_steps() {
+        let d = tempfile::tempdir().unwrap();
+        let photo = d.path().join("very-late.jpg");
+        let mut bytes = vec![0xFF, 0xD8];
+        // About 18 MB of APP2 segments, then the EXIF.
+        for _ in 0..300 {
+            bytes.extend([0xFF, 0xE2]);
+            bytes.extend(60_000u16.to_be_bytes());
+            bytes.extend(vec![0u8; 59_998]);
+        }
+        bytes.extend(&jpeg_with_exif(&tiff_exif("2024:05:06 07:08:09"))[2..]);
+        assert!(bytes.len() as u64 > FACTS_LIMIT);
+        fs::write(&photo, &bytes).unwrap();
+        assert_eq!(read_capture(&photo).date_source, DateSource::Original);
+        let facts = capture_facts(&photo).unwrap();
+        assert_eq!(facts.captured, None);
+        assert_eq!(facts.model, None);
+    }
+
+    /// A read that fails (a card or drive gone mid-read) gives no facts,
+    /// so the photograph is read again later instead of kept as read.
+    #[test]
+    fn a_failed_read_gives_no_facts() {
+        struct Breaks(usize);
+        impl Read for Breaks {
+            fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+                if self.0 == 0 {
+                    return Err(std::io::Error::other("device gone"));
+                }
+                let n = out.len().min(self.0);
+                out[..n].fill(0);
+                self.0 -= n;
+                Ok(n)
+            }
+        }
+        assert!(read_header(Breaks(4096), 8 << 20, FACTS_LIMIT).1.is_some());
+        assert!(read_header(&b"short file"[..], 10, FACTS_LIMIT).1.is_none());
+        let d = tempfile::tempdir().unwrap();
+        assert_eq!(capture_facts(d.path()), None);
+        assert_eq!(capture_facts(&d.path().join("gone.ARW")), None);
     }
 
     /// A CIFF heap with one TimeStamp record: the CRW's capture time.

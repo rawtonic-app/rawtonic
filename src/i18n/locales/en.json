@@ -2342,6 +2342,7 @@
           "delete": "Delete",
           "deleteAlbum": "Delete “{{name}}”? Its photographs stay.",
           "deleteGroup": "Delete “{{name}}” and the albums in it? Their photographs stay.",
+          "deleteSmartAlbum": "Delete the smart album “{{name}}”? Its photographs stay.",
           "label": "Delete album"
         },
         "empty": "Select photographs and press + to keep them together in an album.",
@@ -2352,12 +2353,16 @@
           "addSelectedCount_other": "Add {{count}} selected photographs",
           "deleteAlbum": "Delete album…",
           "deleteGroup": "Delete group…",
+          "deleteSmartAlbum": "Delete smart album…",
+          "editSmartAlbum": "Edit smart album…",
           "newAlbum": "New album",
           "newAlbumFromSelected_one": "New album from {{count}} selected photograph",
           "newAlbumFromSelected_other": "New album from {{count}} selected photographs",
           "newAlbumInGroup": "New album in this group",
           "newGroup": "New group",
           "newGroupInGroup": "New group in this group",
+          "newSmartAlbum": "New smart album…",
+          "newSmartAlbumInGroup": "New smart album in this group…",
           "removeSelected": "Remove selected photographs",
           "rename": "Rename"
         },
@@ -2368,6 +2373,8 @@
         "previousImportNoDrop": "Previous Import shows the latest import; photos cannot be added to it. Drop them on an album.",
         "previousImportTitle": "The photographs the latest ingest, Add, Synchronize Folder or hot folder added",
         "renameLabel": "Rename {{name}}",
+        "smartHint": "Shows the photographs its rules match, always up to date",
+        "smartNoDrop": "A smart album shows the photographs its rules match; photos cannot be added to it. Change its rules or drop them on an album.",
         "title": "Albums",
         "toasts": {
           "addFailed": "Photographs could not be added: {{error}}",
@@ -2519,9 +2526,196 @@
           "showFailed": "Could not show the folder: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_one": "All ({{count}} value)",
+        "all_other": "All ({{count}} values)",
+        "apertureValue": "f/{{value}}",
+        "button": "Metadata",
+        "fields": {
+          "aperture": "Aperture",
+          "camera": "Camera",
+          "captureDate": "Capture date",
+          "fileType": "File type",
+          "focalLength": "Focal length",
+          "iso": "ISO",
+          "keyword": "Keyword",
+          "lens": "Lens"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "Other",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "Metadata filter",
+        "none": {
+          "aperture": "Unknown aperture",
+          "camera": "Unknown camera",
+          "captureDate": "No date",
+          "fileType": "Other",
+          "focalLength": "Unknown focal length",
+          "iso": "Unknown ISO",
+          "keyword": "No keyword",
+          "lens": "Unknown lens"
+        },
+        "toggle": "Show or hide the metadata lists (capture date, camera, lens, keyword, file type, ISO, focal length, aperture)"
+      },
       "navigator": {
         "empty": "Select a photograph",
         "title": "Navigator"
+      },
+      "searchFailed": "The library could not be searched: {{error}}",
+      "smartAlbums": {
+        "addGroup": "Group of rules",
+        "addRule": "Rule",
+        "amountLabel": "Amount",
+        "and": "and",
+        "cancel": "Cancel",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "Other",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "Picked",
+            "rejected": "Rejected",
+            "unflagged": "Unflagged"
+          },
+          "label": {
+            "blue": "Blue",
+            "green": "Green",
+            "none": "No label",
+            "purple": "Purple",
+            "red": "Red",
+            "yellow": "Yellow"
+          }
+        },
+        "combine": {
+          "all": "all",
+          "any": "any",
+          "none": "none"
+        },
+        "combineLabel": "How the rules combine",
+        "create": "Create",
+        "defaultName": "Smart album",
+        "editTitle": "Edit smart album",
+        "fieldLabel": "Field",
+        "fields": {
+          "album": "Album",
+          "aperture": "Aperture (f-number)",
+          "camera": "Camera",
+          "captureDate": "Capture date",
+          "details": "Any text but keywords",
+          "exposure": "Shutter speed (s)",
+          "filename": "File name",
+          "fileType": "File type",
+          "flag": "Flag",
+          "focalLength": "Focal length (mm)",
+          "folder": "Folder",
+          "importDate": "Import date",
+          "iso": "ISO",
+          "keyword": "Keyword",
+          "label": "Color label",
+          "lens": "Lens",
+          "make": "Camera maker",
+          "offline": "Missing photograph",
+          "previousImport": "In the previous import",
+          "rating": "Rating",
+          "text": "Any searchable text"
+        },
+        "folderPlaceholder": "Folder path",
+        "fromFilter": "Save as smart album…",
+        "fromFilterTitle": "A smart album with what the Library filters by now (the shown folder or album, search, metadata, rating, label, flag)",
+        "fromFilterUnsupported": "A smart album cannot hold the edited/unedited filter or search tags; clear them to save the rest",
+        "incomplete": "Complete the rules to see what they match",
+        "match": "Match",
+        "matches_one": "Matches {{n}} photograph now",
+        "matches_other": "Matches {{n}} photographs now",
+        "name": "Name",
+        "newTitle": "New smart album",
+        "no": "no",
+        "ofTheseRules": "of these rules",
+        "opLabel": "Comparison",
+        "ops": {
+          "album": {
+            "is": "is in",
+            "isNot": "is not in"
+          },
+          "bool": {
+            "is": "is"
+          },
+          "choice": {
+            "is": "is",
+            "isNot": "is not"
+          },
+          "date": {
+            "between": "is between",
+            "empty": "is unknown",
+            "gt": "is after",
+            "inLast": "is in the last",
+            "is": "is on",
+            "isNot": "is not on",
+            "lt": "is before",
+            "notEmpty": "is known",
+            "notInLast": "is not in the last"
+          },
+          "folder": {
+            "contains": "is in or below",
+            "is": "is directly in",
+            "isNot": "is not directly in",
+            "notContains": "is not in or below"
+          },
+          "number": {
+            "between": "is between",
+            "empty": "has no value",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "has a value"
+          },
+          "search": {
+            "contains": "contains all of",
+            "containsAny": "contains any of",
+            "notContains": "contains none of"
+          },
+          "text": {
+            "contains": "contains all of",
+            "containsAny": "contains any of",
+            "empty": "is empty",
+            "endsWith": "ends with",
+            "is": "is",
+            "isNot": "is not",
+            "notContains": "contains none of",
+            "notEmpty": "is not empty",
+            "startsWith": "starts with"
+          }
+        },
+        "removeGroup": "Remove this group",
+        "removeRule": "Remove the {{field}} rule",
+        "save": "Save",
+        "saveFailed": "The smart album could not be saved: {{error}}",
+        "unitLabel": "Unit",
+        "units": {
+          "days": "days",
+          "months": "months",
+          "weeks": "weeks",
+          "years": "years"
+        },
+        "valueLabel": "Value",
+        "yes": "yes"
       },
       "trash": {
         "alreadyEmpty": "The session's Trash folder is empty.",

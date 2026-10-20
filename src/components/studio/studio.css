@@ -4159,3 +4159,188 @@ img.relight-pattern-preview { object-fit: cover; }
 
 .relight-overlay > svg > .relight-direction { stroke-dasharray: none; }
 .studio-workspace .relight-handle:hover, .studio-workspace .relight-handle[aria-pressed="true"] { background: #242424ed; }
+
+/* The Library's metadata lists (StudioMetadataFilter): one column per field
+   below the filter bar, each value with its count; chosen values pressed. */
+.studio-metadata-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.studio-metadata-toggle[aria-pressed="true"] {
+  background: #464c53;
+  color: #e0e1e3;
+}
+.studio-metadata-filter {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(130px, 1fr);
+  gap: 1px;
+  max-height: 168px;
+  overflow-x: auto;
+  background: var(--studio-line);
+  border-bottom: 1px solid var(--studio-line);
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.studio-metadata-column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #2a2b2d;
+}
+.studio-metadata-column-title {
+  padding: 4px 8px;
+  color: var(--studio-muted);
+  background: #303133;
+  border-bottom: 1px solid var(--studio-line);
+}
+.studio-metadata-values {
+  overflow-y: auto;
+  min-height: 0;
+}
+.studio-metadata-values button {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px;
+  text-align: left;
+  color: #c7cacf;
+}
+.studio-metadata-values button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-metadata-values button small {
+  color: var(--studio-muted);
+  font-variant-numeric: tabular-nums;
+}
+.studio-metadata-values button.is-none span {
+  font-style: italic;
+}
+.studio-metadata-values button[aria-pressed="true"] {
+  background: #464c53;
+  color: #e0e1e3;
+}
+.studio-metadata-values button:hover {
+  background: #383a3d;
+}
+
+/* The smart album editor: rules in groups, each nested group indented. */
+.studio-smart-album-backdrop {
+  position: fixed;
+}
+.studio-smart-album {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(760px, 100%);
+  max-height: min(640px, 100%);
+  padding: 16px;
+  background: #292a2c;
+  border: 1px solid #45484c;
+  border-radius: 6px;
+  box-shadow: 0 18px 80px #0008;
+  font-size: 12px;
+  color: var(--studio-text);
+}
+.studio-smart-album:focus {
+  outline: none;
+}
+.studio-smart-album h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.studio-smart-album-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio-smart-album-name input {
+  max-width: 320px;
+}
+.studio-smart-album-rules {
+  overflow-y: auto;
+  min-height: 0;
+}
+.studio-rule-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.studio-rule-group.is-nested {
+  margin-left: 16px;
+  padding: 6px 8px;
+  border-left: 2px solid #4a5058;
+  background: #2e2f31;
+}
+.studio-rule-group-head,
+.studio-rule-group-head label,
+.studio-rule,
+.studio-rule-value,
+.studio-rule-add {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.studio-rule-group-head {
+  justify-content: space-between;
+}
+.studio-rule select,
+.studio-rule-group-head select {
+  background: #1f2022;
+  border: 1px solid #44484e;
+  border-radius: 2px;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+.studio-rule .studio-metadata-input {
+  width: 120px;
+}
+.studio-rule .studio-rule-text {
+  width: 220px;
+}
+.studio-rule-choices {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.studio-rule-choices label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.studio-rule-remove {
+  margin-left: auto;
+  color: var(--studio-muted);
+}
+.studio-rule-add button {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--studio-accent);
+}
+.studio-smart-album footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.studio-smart-album-count {
+  margin-right: auto;
+  color: var(--studio-muted);
+}
+.studio-smart-album footer button {
+  padding: 4px 12px;
+  border: 1px solid #45484c;
+  border-radius: 3px;
+}
+.studio-smart-album footer button.is-primary {
+  background: #46607a;
+  border-color: #56728e;
+  color: #fff;
+}
+.studio-smart-album footer button:disabled {
+  opacity: 0.5;
+}

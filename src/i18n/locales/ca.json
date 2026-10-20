@@ -2408,6 +2408,7 @@
           "delete": "Suprimeix",
           "deleteAlbum": "Vols suprimir «{{name}}»? Les fotos es conserven.",
           "deleteGroup": "Vols suprimir «{{name}}» i els àlbums que conté? Les fotos es conserven.",
+          "deleteSmartAlbum": "Vols suprimir l'àlbum intel·ligent «{{name}}»? Les fotos es conserven.",
           "label": "Suprimeix l'àlbum"
         },
         "empty": "Selecciona fotos i prem + per reunir-les en un àlbum.",
@@ -2419,6 +2420,8 @@
           "addSelectedCount_other": "Afegeix {{count}} fotos seleccionades",
           "deleteAlbum": "Suprimeix l'àlbum…",
           "deleteGroup": "Suprimeix el grup…",
+          "deleteSmartAlbum": "Suprimeix l'àlbum intel·ligent…",
+          "editSmartAlbum": "Edita l'àlbum intel·ligent…",
           "newAlbum": "Àlbum nou",
           "newAlbumFromSelected_one": "Àlbum nou amb {{count}} foto seleccionada",
           "newAlbumFromSelected_many": "Àlbum nou amb {{count}} fotos seleccionades",
@@ -2426,6 +2429,8 @@
           "newAlbumInGroup": "Àlbum nou en aquest grup",
           "newGroup": "Grup nou",
           "newGroupInGroup": "Grup nou en aquest grup",
+          "newSmartAlbum": "Àlbum intel·ligent nou…",
+          "newSmartAlbumInGroup": "Àlbum intel·ligent nou en aquest grup…",
           "removeSelected": "Treu les fotos seleccionades",
           "rename": "Canvia el nom"
         },
@@ -2436,6 +2441,8 @@
         "previousImportNoDrop": "Importació anterior mostra la darrera importació; no s’hi poden afegir fotos. Deixa-les anar sobre un àlbum.",
         "previousImportTitle": "Les fotos que ha afegit l’última importació, Afegeix, Sincronitza la carpeta o la carpeta vigilada",
         "renameLabel": "Canvia el nom de {{name}}",
+        "smartHint": "Mostra les fotos que coincideixen amb les seves regles, sempre al dia",
+        "smartNoDrop": "Un àlbum intel·ligent mostra les fotos que coincideixen amb les seves regles; no s’hi poden afegir fotos. Canvia les seves regles o deixa-les anar sobre un àlbum.",
         "title": "Àlbums",
         "toasts": {
           "addFailed": "No s'han pogut afegir les fotos: {{error}}",
@@ -2599,9 +2606,198 @@
           "showFailed": "No s'ha pogut mostrar la carpeta: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_one": "Tots ({{count}} valor)",
+        "all_many": "Tots ({{count}} valors)",
+        "all_other": "Tots ({{count}} valors)",
+        "apertureValue": "f/{{value}}",
+        "button": "Metadades",
+        "fields": {
+          "aperture": "Obertura",
+          "camera": "Càmera",
+          "captureDate": "Data de captura",
+          "fileType": "Tipus de fitxer",
+          "focalLength": "Distància focal",
+          "iso": "ISO",
+          "keyword": "Paraula clau",
+          "lens": "Objectiu"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "Altres",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "Filtre de metadades",
+        "none": {
+          "aperture": "Obertura desconeguda",
+          "camera": "Càmera desconeguda",
+          "captureDate": "Sense data",
+          "fileType": "Altres",
+          "focalLength": "Distància focal desconeguda",
+          "iso": "ISO desconeguda",
+          "keyword": "Sense paraula clau",
+          "lens": "Objectiu desconegut"
+        },
+        "toggle": "Mostra o amaga les llistes de metadades (data de captura, càmera, objectiu, paraula clau, tipus de fitxer, ISO, distància focal, obertura)"
+      },
       "navigator": {
         "empty": "Selecciona una foto",
         "title": "Navegador"
+      },
+      "searchFailed": "No s'ha pogut cercar a la biblioteca: {{error}}",
+      "smartAlbums": {
+        "addGroup": "Grup de regles",
+        "addRule": "Regla",
+        "amountLabel": "Quantitat",
+        "and": "i",
+        "cancel": "Cancel·la",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "Altres",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "Triades",
+            "rejected": "Rebutjades",
+            "unflagged": "Sense marca"
+          },
+          "label": {
+            "blue": "Blau",
+            "green": "Verd",
+            "none": "Sense etiqueta",
+            "purple": "Púrpura",
+            "red": "Vermell",
+            "yellow": "Groc"
+          }
+        },
+        "combine": {
+          "all": "totes les",
+          "any": "alguna de les",
+          "none": "cap de les"
+        },
+        "combineLabel": "Com es combinen les regles",
+        "create": "Crear",
+        "defaultName": "Àlbum intel·ligent",
+        "editTitle": "Edita l'àlbum intel·ligent",
+        "fieldLabel": "Camp",
+        "fields": {
+          "album": "Àlbum",
+          "aperture": "Obertura (nombre f)",
+          "camera": "Càmera",
+          "captureDate": "Data de captura",
+          "details": "Qualsevol text excepte paraules clau",
+          "exposure": "Velocitat d’obturació (s)",
+          "filename": "Nom del fitxer",
+          "fileType": "Tipus de fitxer",
+          "flag": "Marca",
+          "focalLength": "Distància focal (mm)",
+          "folder": "Carpeta",
+          "importDate": "Data d’importació",
+          "iso": "ISO",
+          "keyword": "Paraula clau",
+          "label": "Etiqueta de color",
+          "lens": "Objectiu",
+          "make": "Fabricant de la càmera",
+          "offline": "Foto que falta",
+          "previousImport": "A la importació anterior",
+          "rating": "Valoració",
+          "text": "Qualsevol text cercable"
+        },
+        "folderPlaceholder": "Camí de la carpeta",
+        "fromFilter": "Desa com a àlbum intel·ligent…",
+        "fromFilterTitle": "Un àlbum intel·ligent amb el que filtra ara la Biblioteca (la carpeta o l'àlbum mostrat, la cerca, les metadades, la valoració, l'etiqueta i la marca)",
+        "fromFilterUnsupported": "Un àlbum intel·ligent no pot incloure el filtre editat/sense editar ni les etiquetes de cerca; elimineu-los per desar la resta",
+        "incomplete": "Completa les regles per veure quines fotos hi coincideixen",
+        "match": "Coincideix amb",
+        "matches_one": "Ara coincideix amb {{n}} foto",
+        "matches_many": "Ara coincideix amb {{n}} fotos",
+        "matches_other": "Ara coincideix amb {{n}} fotos",
+        "name": "Nom",
+        "newTitle": "Àlbum intel·ligent nou",
+        "no": "no",
+        "ofTheseRules": "regles següents",
+        "opLabel": "Comparació",
+        "ops": {
+          "album": {
+            "is": "és a",
+            "isNot": "no és a"
+          },
+          "bool": {
+            "is": "és"
+          },
+          "choice": {
+            "is": "és",
+            "isNot": "no és"
+          },
+          "date": {
+            "between": "és entre",
+            "empty": "és desconeguda",
+            "gt": "és posterior al",
+            "inLast": "és de fa menys de",
+            "is": "és el",
+            "isNot": "no és el",
+            "lt": "és anterior al",
+            "notEmpty": "és coneguda",
+            "notInLast": "és de fa més de"
+          },
+          "folder": {
+            "contains": "és a dins o a sota de",
+            "is": "és directament a",
+            "isNot": "no és directament a",
+            "notContains": "no és a dins ni a sota de"
+          },
+          "number": {
+            "between": "és entre",
+            "empty": "no té valor",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "té valor"
+          },
+          "search": {
+            "contains": "conté totes les paraules",
+            "containsAny": "conté alguna de les paraules",
+            "notContains": "no conté cap de les paraules"
+          },
+          "text": {
+            "contains": "conté totes les paraules",
+            "containsAny": "conté alguna de les paraules",
+            "empty": "és buit",
+            "endsWith": "acaba en",
+            "is": "és",
+            "isNot": "no és",
+            "notContains": "no conté cap de les paraules",
+            "notEmpty": "no és buit",
+            "startsWith": "comença per"
+          }
+        },
+        "removeGroup": "Treu aquest grup",
+        "removeRule": "Treu la regla «{{field}}»",
+        "save": "Desar",
+        "saveFailed": "No s'ha pogut desar l'àlbum intel·ligent: {{error}}",
+        "unitLabel": "Unitat",
+        "units": {
+          "days": "dies",
+          "months": "mesos",
+          "weeks": "setmanes",
+          "years": "anys"
+        },
+        "valueLabel": "Valor",
+        "yes": "sí"
       },
       "trash": {
         "alreadyEmpty": "La carpeta Paperera de la sessió és buida.",

@@ -2297,6 +2297,7 @@
           "delete": "削除",
           "deleteAlbum": "「{{name}}」を削除しますか？写真は残ります。",
           "deleteGroup": "「{{name}}」とその中のアルバムを削除しますか？写真は残ります。",
+          "deleteSmartAlbum": "スマートアルバム「{{name}}」を削除しますか？写真は残ります。",
           "label": "アルバムを削除"
         },
         "empty": "写真を選択して + を押すと、アルバムにまとめられます。",
@@ -2306,11 +2307,15 @@
           "addSelectedCount_other": "選択した写真 {{count}} 枚を追加",
           "deleteAlbum": "アルバムを削除…",
           "deleteGroup": "グループを削除…",
+          "deleteSmartAlbum": "スマートアルバムを削除…",
+          "editSmartAlbum": "スマートアルバムを編集…",
           "newAlbum": "新規アルバム",
           "newAlbumFromSelected_other": "選択した写真 {{count}} 枚で新規アルバム",
           "newAlbumInGroup": "このグループに新規アルバム",
           "newGroup": "新規グループ",
           "newGroupInGroup": "このグループに新規グループ",
+          "newSmartAlbum": "新規スマートアルバム…",
+          "newSmartAlbumInGroup": "このグループに新規スマートアルバム…",
           "removeSelected": "選択した写真を削除",
           "rename": "名前を変更"
         },
@@ -2321,6 +2326,8 @@
         "previousImportNoDrop": "前回の読み込みは最新の読み込みを表示します。ここには写真を追加できません。アルバムにドロップしてください。",
         "previousImportTitle": "最後の読み込み、追加、フォルダ同期、監視フォルダで加わった写真",
         "renameLabel": "{{name}} の名前を変更",
+        "smartHint": "ルールに一致する写真を常に最新の状態で表示します",
+        "smartNoDrop": "スマートアルバムはルールに一致する写真を表示します。ここには写真を追加できません。ルールを変更するか、アルバムにドロップしてください。",
         "title": "アルバム",
         "toasts": {
           "addFailed": "写真を追加できませんでした: {{error}}",
@@ -2460,9 +2467,194 @@
           "showFailed": "フォルダを表示できませんでした: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_other": "すべて（{{count}} 件の値）",
+        "apertureValue": "f/{{value}}",
+        "button": "メタデータ",
+        "fields": {
+          "aperture": "絞り",
+          "camera": "カメラ",
+          "captureDate": "撮影日",
+          "fileType": "ファイルの種類",
+          "focalLength": "焦点距離",
+          "iso": "ISO",
+          "keyword": "キーワード",
+          "lens": "レンズ"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "その他",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "メタデータフィルター",
+        "none": {
+          "aperture": "絞り不明",
+          "camera": "カメラ不明",
+          "captureDate": "日付なし",
+          "fileType": "その他",
+          "focalLength": "焦点距離不明",
+          "iso": "ISO 不明",
+          "keyword": "キーワードなし",
+          "lens": "レンズ不明"
+        },
+        "toggle": "メタデータの一覧を表示/非表示（撮影日、カメラ、レンズ、キーワード、ファイルの種類、ISO、焦点距離、絞り）"
+      },
       "navigator": {
         "empty": "写真を選択してください",
         "title": "ナビゲーター"
+      },
+      "searchFailed": "ライブラリを検索できませんでした: {{error}}",
+      "smartAlbums": {
+        "addGroup": "ルールのグループ",
+        "addRule": "ルール",
+        "amountLabel": "数量",
+        "and": "～",
+        "cancel": "キャンセル",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "その他",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "採用",
+            "rejected": "不採用",
+            "unflagged": "フラグなし"
+          },
+          "label": {
+            "blue": "ブルー",
+            "green": "グリーン",
+            "none": "ラベルなし",
+            "purple": "パープル",
+            "red": "レッド",
+            "yellow": "イエロー"
+          }
+        },
+        "combine": {
+          "all": "すべてに一致する",
+          "any": "いずれかに一致する",
+          "none": "いずれにも一致しない"
+        },
+        "combineLabel": "ルールの組み合わせ方",
+        "create": "作成",
+        "defaultName": "スマートアルバム",
+        "editTitle": "スマートアルバムを編集",
+        "fieldLabel": "項目",
+        "fields": {
+          "album": "アルバム",
+          "aperture": "絞り（F 値）",
+          "camera": "カメラ",
+          "captureDate": "撮影日",
+          "details": "キーワード以外の任意のテキスト",
+          "exposure": "シャッタースピード（秒）",
+          "filename": "ファイル名",
+          "fileType": "ファイルの種類",
+          "flag": "フラグ",
+          "focalLength": "焦点距離（mm）",
+          "folder": "フォルダ",
+          "importDate": "読み込み日",
+          "iso": "ISO",
+          "keyword": "キーワード",
+          "label": "カラーラベル",
+          "lens": "レンズ",
+          "make": "カメラメーカー",
+          "offline": "見つからない写真",
+          "previousImport": "前回の読み込みに含まれる",
+          "rating": "レーティング",
+          "text": "検索可能なすべてのテキスト"
+        },
+        "folderPlaceholder": "フォルダのパス",
+        "fromFilter": "スマートアルバムとして保存…",
+        "fromFilterTitle": "ライブラリの現在の絞り込み条件（表示中のフォルダまたはアルバム、検索、メタデータ、レーティング、ラベル、フラグ）でスマートアルバムを作成",
+        "fromFilterUnsupported": "スマートアルバムには編集済み/未編集フィルターと検索タグを含められません。残りを保存するには解除してください",
+        "incomplete": "ルールを完成させると一致する写真が表示されます",
+        "match": "以下のルールの",
+        "matches_other": "現在 {{n}} 枚の写真が一致",
+        "name": "名前",
+        "newTitle": "新規スマートアルバム",
+        "no": "いいえ",
+        "ofTheseRules": "写真",
+        "opLabel": "比較",
+        "ops": {
+          "album": {
+            "is": "次に含まれる",
+            "isNot": "次に含まれない"
+          },
+          "bool": {
+            "is": "次と等しい"
+          },
+          "choice": {
+            "is": "次と等しい",
+            "isNot": "次と等しくない"
+          },
+          "date": {
+            "between": "次の範囲内",
+            "empty": "不明",
+            "gt": "次より後",
+            "inLast": "直近",
+            "is": "次の日付",
+            "isNot": "次の日付以外",
+            "lt": "次より前",
+            "notEmpty": "判明している",
+            "notInLast": "直近以外"
+          },
+          "folder": {
+            "contains": "次またはその下にある",
+            "is": "次の直下にある",
+            "isNot": "次の直下にない",
+            "notContains": "次にもその下にもない"
+          },
+          "number": {
+            "between": "次の範囲内",
+            "empty": "値なし",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "値あり"
+          },
+          "search": {
+            "contains": "次のすべてを含む",
+            "containsAny": "次のいずれかを含む",
+            "notContains": "次のいずれも含まない"
+          },
+          "text": {
+            "contains": "次のすべてを含む",
+            "containsAny": "次のいずれかを含む",
+            "empty": "空",
+            "endsWith": "次で終わる",
+            "is": "次と等しい",
+            "isNot": "次と等しくない",
+            "notContains": "次のいずれも含まない",
+            "notEmpty": "空でない",
+            "startsWith": "次で始まる"
+          }
+        },
+        "removeGroup": "このグループを削除",
+        "removeRule": "「{{field}}」のルールを削除",
+        "save": "保存",
+        "saveFailed": "スマートアルバムを保存できませんでした: {{error}}",
+        "unitLabel": "単位",
+        "units": {
+          "days": "日間",
+          "months": "か月間",
+          "weeks": "週間",
+          "years": "年間"
+        },
+        "valueLabel": "値",
+        "yes": "はい"
       },
       "trash": {
         "alreadyEmpty": "セッションのゴミ箱フォルダは空です。",

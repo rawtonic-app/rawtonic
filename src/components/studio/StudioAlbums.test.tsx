@@ -7,6 +7,8 @@ import { flattenAlbumTree, withDeleted, withMoved, withNewItem } from "./library
 import { useLibraryStore } from "../../store/useLibraryStore";
 import type { AlbumItem } from "../ui/AppProperties";
 import { ContextMenuProvider } from "../../context/ContextMenuContext";
+import { useSmartAlbumEditor } from "./SmartAlbumEditor";
+import { CATALOG_CHANGED, catalogChanged } from "../../utils/catalogWrites";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 vi.mock("react-toastify", () => ({ toast: { error: vi.fn() } }));
@@ -389,5 +391,158 @@ describe("switching sessions", () => {
     expect(screen.queryByText("Previous Import")).toBeNull();
     expect(screen.queryByText("Missing Photographs")).toBeNull();
     expect(screen.getByText("Picks")).toBeTruthy();
+  });
+});
+
+describe("Smart albums in the Albums tool", () => {
+  const smart: SessionAlbum = {
+    id: "s",
+    name: "Five stars",
+    parent: null,
+    count: 1,
+    kind: "smart",
+    rules: { field: "rating", op: "is", value: 5 },
+  };
+
+  it("lists a smart album with its count, opens it, refuses drops and edits its rules", async () => {
+    albums = [...albums, smart];
+    const select = await renderTool();
+    const row = screen.getByText("Five stars").closest("button")!;
+    expect(row.getAttribute("data-album-drop")).toBeNull();
+    expect(row.getAttribute("data-drop-refused")).toContain("rules");
+    await act(async () => {
+      fireEvent.click(row);
+    });
+    expect(select).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), false);
+    fireEvent.contextMenu(row);
+    expect(screen.queryByText("Add selected photographs")).toBeNull();
+    fireEvent.click(await screen.findByText("Edit smart album…"));
+    expect(useSmartAlbumEditor.getState().draft).toEqual({
+      id: "s",
+      name: "Five stars",
+      parent: null,
+      rules: { combine: "all", rules: [{ field: "rating", op: "is", value: 5 }] },
+    });
+    act(() => useSmartAlbumEditor.getState().close());
+  });
+
+  it("refreshes the shown smart album although the parent rendered meanwhile", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      useLibraryStore.setState({ activeAlbumId: "session-album:s" });
+      const first = vi.fn();
+      const view = render(
+        <ContextMenuProvider>
+          <StudioAlbums onSelectAlbum={first} />
+        </ContextMenuProvider>,
+      );
+      await act(async () => {});
+      act(() => catalogChanged());
+      // The parent renders with a new callback before the refresh runs.
+      const second = vi.fn();
+      view.rerender(
+        <ContextMenuProvider>
+          <StudioAlbums onSelectAlbum={second} />
+        </ContextMenuProvider>,
+      );
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(second).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts smart albums again when the grid gets a new list (a rename)", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      await renderTool();
+      albums = albums.map((a) => (a.id === "s" ? { ...a, count: 0 } : a));
+      act(() => useLibraryStore.setState({ imageList: [] }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(screen.getByText("Five stars").closest("button")!.textContent).toContain("0");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops a refresh that answers after the grid moved on", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      useLibraryStore.setState({ activeAlbumId: "session-album:s" });
+      let answer: (paths: string[]) => void = () => {};
+      const select = await renderTool();
+      mockInvoke.mockImplementation(async (command) => {
+        if (command === "session_albums") return albums;
+        if (command === "session_album_paths") return new Promise((resolve) => (answer = resolve));
+        return undefined;
+      });
+      act(() => catalogChanged());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      // The user opens a folder before the smart album's paths arrive.
+      useLibraryStore.setState({ activeAlbumId: null });
+      await act(async () => answer(["/job/Capture/a.arw"]));
+      expect(select).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tells searches and smart albums when album membership changes", async () => {
+    const changed = vi.fn();
+    window.addEventListener(CATALOG_CHANGED, changed);
+    await renderTool();
+    fireEvent.contextMenu(screen.getByText("Picks"));
+    await act(async () => {
+      fireEvent.click(await screen.findByText("Add 1 selected photograph"));
+    });
+    expect(changed).toHaveBeenCalled();
+    window.removeEventListener(CATALOG_CHANGED, changed);
+  });
+
+  it("offers a new smart album in a session, in a group too", async () => {
+    await renderTool();
+    fireEvent.click(screen.getByLabelText("New album"));
+    fireEvent.click(await screen.findByText("New smart album…"));
+    expect(useSmartAlbumEditor.getState().draft?.parent).toBeNull();
+    act(() => useSmartAlbumEditor.getState().close());
+  });
+
+  it("follows catalog writes: new counts, and the shown smart album shows its matches now", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      useLibraryStore.setState({ activeAlbumId: "session-album:s" });
+      const select = await renderTool();
+      albums = albums.map((a) => (a.id === "s" ? { ...a, count: 3 } : a));
+      act(() => {
+        catalogChanged();
+        catalogChanged();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(screen.getByText("Five stars").closest("button")!.textContent).toContain("3");
+      // Two writes in a row: one refresh.
+      expect(select).toHaveBeenCalledTimes(1);
+      expect(select).toHaveBeenCalledWith("session-album:s", "Five stars", expect.any(Array), true);
+      // A plain album shown is not reloaded on every write.
+      useLibraryStore.setState({ activeAlbumId: "session-album:p" });
+      act(() => catalogChanged());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(select).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

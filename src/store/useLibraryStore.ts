@@ -55,6 +55,14 @@ interface LibraryState {
   sortCriteria: SortCriteria;
   filterCriteria: FilterCriteria;
   searchCriteria: SearchCriteria;
+  /** In a library: the photographs (paths without a virtual copy's suffix)
+   * its catalog finds for the search box and the chosen metadata values;
+   * null when neither filters (or outside a library). */
+  catalogMatches: Set<string> | null;
+  /** With `catalogMatches`: the shown folder's or album's photographs the
+   * catalog holds; others (files it does not register) are matched by
+   * name and tags in the grid. */
+  catalogKnown: Set<string> | null;
 
   // UI State specific to the Library View
   isTreeLoading: boolean;
@@ -98,6 +106,8 @@ export const useLibraryStore = create<LibraryState>((set) => ({
   sortCriteria: { key: 'name', order: SortDirection.Ascending },
   filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All },
   searchCriteria: { tags: [], text: '', mode: 'OR' },
+  catalogMatches: null,
+  catalogKnown: null,
 
   isTreeLoading: false,
   isViewLoading: false,

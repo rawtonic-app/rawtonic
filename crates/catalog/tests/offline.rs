@@ -278,6 +278,7 @@ fn an_older_database_is_migrated_with_its_photographs() {
     let db = tmp.path().join("Main.catalog/catalog.sqlite");
     let conn = rusqlite::Connection::open(&db).unwrap();
     // Back to schema 2 (no volume columns, no import batches).
+    conn.execute_batch(include_str!("undo_0011.sql")).unwrap();
     conn.execute_batch(
         "ALTER TABLE assets DROP COLUMN sha256; DROP TABLE asset_imports; DROP TABLE import_batches; ALTER TABLE assets DROP COLUMN companion_size; ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256; DROP TABLE ingest_items; ALTER TABLE roots DROP COLUMN volume_name; ALTER TABLE roots DROP COLUMN volume_path; PRAGMA user_version=2;",
     )

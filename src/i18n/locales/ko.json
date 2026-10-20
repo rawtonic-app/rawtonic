@@ -2297,6 +2297,7 @@
           "delete": "삭제",
           "deleteAlbum": "“{{name}}”을(를) 삭제할까요? 사진은 그대로 유지됩니다.",
           "deleteGroup": "“{{name}}” 및 그 안의 앨범을 삭제할까요? 사진은 그대로 유지됩니다.",
+          "deleteSmartAlbum": "스마트 앨범 “{{name}}”을(를) 삭제할까요? 사진은 그대로 유지됩니다.",
           "label": "앨범 삭제"
         },
         "empty": "사진을 선택하고 +를 눌러 앨범으로 묶으세요.",
@@ -2306,11 +2307,15 @@
           "addSelectedCount_other": "선택한 사진 {{count}}장 추가",
           "deleteAlbum": "앨범 삭제…",
           "deleteGroup": "그룹 삭제…",
+          "deleteSmartAlbum": "스마트 앨범 삭제…",
+          "editSmartAlbum": "스마트 앨범 편집…",
           "newAlbum": "새 앨범",
           "newAlbumFromSelected_other": "선택한 사진 {{count}}장으로 새 앨범",
           "newAlbumInGroup": "이 그룹에 새 앨범",
           "newGroup": "새 그룹",
           "newGroupInGroup": "이 그룹에 새 그룹",
+          "newSmartAlbum": "새 스마트 앨범…",
+          "newSmartAlbumInGroup": "이 그룹에 새 스마트 앨범…",
           "removeSelected": "선택한 사진 제거",
           "rename": "이름 변경"
         },
@@ -2321,6 +2326,8 @@
         "previousImportNoDrop": "이전 가져오기는 마지막 가져오기를 보여 줍니다. 여기에는 사진을 추가할 수 없습니다. 앨범에 놓으세요.",
         "previousImportTitle": "마지막 가져오기, 추가, 폴더 동기화 또는 감시 폴더로 추가된 사진",
         "renameLabel": "{{name}} 이름 변경",
+        "smartHint": "규칙과 일치하는 사진을 항상 최신 상태로 보여 줍니다",
+        "smartNoDrop": "스마트 앨범은 규칙과 일치하는 사진을 보여 줍니다. 여기에는 사진을 추가할 수 없습니다. 규칙을 변경하거나 앨범에 놓으세요.",
         "title": "앨범",
         "toasts": {
           "addFailed": "사진을 추가할 수 없습니다: {{error}}",
@@ -2460,9 +2467,194 @@
           "showFailed": "폴더를 표시할 수 없습니다: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_other": "전체 (값 {{count}}개)",
+        "apertureValue": "f/{{value}}",
+        "button": "메타데이터",
+        "fields": {
+          "aperture": "조리개",
+          "camera": "카메라",
+          "captureDate": "촬영 날짜",
+          "fileType": "파일 형식",
+          "focalLength": "초점 거리",
+          "iso": "ISO",
+          "keyword": "키워드",
+          "lens": "렌즈"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "기타",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}}mm",
+        "isoValue": "ISO {{value}}",
+        "label": "메타데이터 필터",
+        "none": {
+          "aperture": "알 수 없는 조리개",
+          "camera": "알 수 없는 카메라",
+          "captureDate": "날짜 없음",
+          "fileType": "기타",
+          "focalLength": "알 수 없는 초점 거리",
+          "iso": "알 수 없는 ISO",
+          "keyword": "키워드 없음",
+          "lens": "알 수 없는 렌즈"
+        },
+        "toggle": "메타데이터 목록 표시 또는 숨기기 (촬영 날짜, 카메라, 렌즈, 키워드, 파일 형식, ISO, 초점 거리, 조리개)"
+      },
       "navigator": {
         "empty": "사진을 선택하세요",
         "title": "탐색기"
+      },
+      "searchFailed": "라이브러리를 검색할 수 없습니다: {{error}}",
+      "smartAlbums": {
+        "addGroup": "규칙 그룹",
+        "addRule": "규칙",
+        "amountLabel": "수량",
+        "and": "~",
+        "cancel": "취소",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "기타",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "선택",
+            "rejected": "거부",
+            "unflagged": "플래그 없음"
+          },
+          "label": {
+            "blue": "파랑",
+            "green": "초록",
+            "none": "레이블 없음",
+            "purple": "보라",
+            "red": "빨강",
+            "yellow": "노랑"
+          }
+        },
+        "combine": {
+          "all": "모두와 일치하는",
+          "any": "중 하나와 일치하는",
+          "none": "중 어느 것과도 일치하지 않는"
+        },
+        "combineLabel": "규칙 결합 방식",
+        "create": "만들기",
+        "defaultName": "스마트 앨범",
+        "editTitle": "스마트 앨범 편집",
+        "fieldLabel": "항목",
+        "fields": {
+          "album": "앨범",
+          "aperture": "조리개 (F 값)",
+          "camera": "카메라",
+          "captureDate": "촬영 날짜",
+          "details": "키워드를 제외한 모든 텍스트",
+          "exposure": "셔터 속도 (초)",
+          "filename": "파일 이름",
+          "fileType": "파일 형식",
+          "flag": "플래그",
+          "focalLength": "초점 거리 (mm)",
+          "folder": "폴더",
+          "importDate": "가져온 날짜",
+          "iso": "ISO",
+          "keyword": "키워드",
+          "label": "색상 레이블",
+          "lens": "렌즈",
+          "make": "카메라 제조사",
+          "offline": "누락된 사진",
+          "previousImport": "이전 가져오기에 포함",
+          "rating": "별점",
+          "text": "검색 가능한 모든 텍스트"
+        },
+        "folderPlaceholder": "폴더 경로",
+        "fromFilter": "스마트 앨범으로 저장…",
+        "fromFilterTitle": "라이브러리의 현재 필터 조건(표시된 폴더 또는 앨범, 검색, 메타데이터, 별점, 레이블, 플래그)으로 만드는 스마트 앨범",
+        "fromFilterUnsupported": "스마트 앨범에는 편집됨/편집 안 됨 필터와 검색 태그를 넣을 수 없습니다. 나머지를 저장하려면 해제하세요",
+        "incomplete": "규칙을 완성하면 일치하는 사진을 볼 수 있습니다",
+        "match": "다음 규칙",
+        "matches_other": "현재 사진 {{n}}장과 일치",
+        "name": "이름",
+        "newTitle": "새 스마트 앨범",
+        "no": "아니요",
+        "ofTheseRules": "사진",
+        "opLabel": "비교",
+        "ops": {
+          "album": {
+            "is": "다음에 포함됨",
+            "isNot": "다음에 포함되지 않음"
+          },
+          "bool": {
+            "is": "다음과 같음"
+          },
+          "choice": {
+            "is": "다음과 같음",
+            "isNot": "다음과 같지 않음"
+          },
+          "date": {
+            "between": "다음 범위 내",
+            "empty": "알 수 없음",
+            "gt": "다음 이후",
+            "inLast": "최근",
+            "is": "다음 날짜",
+            "isNot": "다음 날짜 아님",
+            "lt": "다음 이전",
+            "notEmpty": "알려짐",
+            "notInLast": "최근 기간 외"
+          },
+          "folder": {
+            "contains": "다음 폴더 또는 하위 폴더에 있음",
+            "is": "바로 다음 폴더에 있음",
+            "isNot": "바로 다음 폴더에 없음",
+            "notContains": "다음 폴더 및 하위 폴더에 없음"
+          },
+          "number": {
+            "between": "다음 범위 내",
+            "empty": "값 없음",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "값 있음"
+          },
+          "search": {
+            "contains": "다음을 모두 포함",
+            "containsAny": "다음 중 하나 포함",
+            "notContains": "다음을 하나도 포함하지 않음"
+          },
+          "text": {
+            "contains": "다음을 모두 포함",
+            "containsAny": "다음 중 하나 포함",
+            "empty": "비어 있음",
+            "endsWith": "다음으로 끝남",
+            "is": "다음과 같음",
+            "isNot": "다음과 같지 않음",
+            "notContains": "다음을 하나도 포함하지 않음",
+            "notEmpty": "비어 있지 않음",
+            "startsWith": "다음으로 시작"
+          }
+        },
+        "removeGroup": "이 그룹 제거",
+        "removeRule": "“{{field}}” 규칙 제거",
+        "save": "저장",
+        "saveFailed": "스마트 앨범을 저장할 수 없습니다: {{error}}",
+        "unitLabel": "단위",
+        "units": {
+          "days": "일",
+          "months": "개월",
+          "weeks": "주",
+          "years": "년"
+        },
+        "valueLabel": "값",
+        "yes": "예"
       },
       "trash": {
         "alreadyEmpty": "세션의 휴지통 폴더가 비어 있습니다.",

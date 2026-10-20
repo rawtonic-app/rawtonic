@@ -2408,6 +2408,7 @@
           "delete": "Elimina",
           "deleteAlbum": "Eliminare «{{name}}»? Le foto restano.",
           "deleteGroup": "Eliminare «{{name}}» e gli album che contiene? Le foto restano.",
+          "deleteSmartAlbum": "Eliminare l’album smart «{{name}}»? Le foto restano.",
           "label": "Elimina album"
         },
         "empty": "Seleziona delle foto e premi + per raccoglierle in un album.",
@@ -2419,6 +2420,8 @@
           "addSelectedCount_other": "Aggiungi {{count}} foto selezionate",
           "deleteAlbum": "Elimina album…",
           "deleteGroup": "Elimina gruppo…",
+          "deleteSmartAlbum": "Elimina album smart…",
+          "editSmartAlbum": "Modifica album smart…",
           "newAlbum": "Nuovo album",
           "newAlbumFromSelected_one": "Nuovo album da {{count}} foto selezionata",
           "newAlbumFromSelected_many": "Nuovo album da {{count}} foto selezionate",
@@ -2426,6 +2429,8 @@
           "newAlbumInGroup": "Nuovo album in questo gruppo",
           "newGroup": "Nuovo gruppo",
           "newGroupInGroup": "Nuovo gruppo in questo gruppo",
+          "newSmartAlbum": "Nuovo album smart…",
+          "newSmartAlbumInGroup": "Nuovo album smart in questo gruppo…",
           "removeSelected": "Rimuovi le foto selezionate",
           "rename": "Rinomina"
         },
@@ -2436,6 +2441,8 @@
         "previousImportNoDrop": "Importazione precedente mostra l’ultima importazione; non vi si possono aggiungere foto. Rilasciale su un album.",
         "previousImportTitle": "Le foto aggiunte dall’ultima importazione, Aggiungi, Sincronizza cartella o cartella monitorata",
         "renameLabel": "Rinomina {{name}}",
+        "smartHint": "Mostra le foto che corrispondono alle sue regole, sempre aggiornato",
+        "smartNoDrop": "Un album smart mostra le foto che corrispondono alle sue regole; non vi si possono aggiungere foto. Cambia le sue regole o rilasciale su un album.",
         "title": "Album",
         "toasts": {
           "addFailed": "Impossibile aggiungere le foto: {{error}}",
@@ -2599,9 +2606,198 @@
           "showFailed": "Impossibile mostrare la cartella: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_one": "Tutti ({{count}} valore)",
+        "all_many": "Tutti ({{count}} valori)",
+        "all_other": "Tutti ({{count}} valori)",
+        "apertureValue": "f/{{value}}",
+        "button": "Metadati",
+        "fields": {
+          "aperture": "Diaframma",
+          "camera": "Fotocamera",
+          "captureDate": "Data di scatto",
+          "fileType": "Tipo di file",
+          "focalLength": "Lunghezza focale",
+          "iso": "ISO",
+          "keyword": "Parola chiave",
+          "lens": "Obiettivo"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "Altro",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "Filtro metadati",
+        "none": {
+          "aperture": "Diaframma sconosciuto",
+          "camera": "Fotocamera sconosciuta",
+          "captureDate": "Nessuna data",
+          "fileType": "Altro",
+          "focalLength": "Lunghezza focale sconosciuta",
+          "iso": "ISO sconosciuto",
+          "keyword": "Nessuna parola chiave",
+          "lens": "Obiettivo sconosciuto"
+        },
+        "toggle": "Mostra o nascondi gli elenchi dei metadati (data di scatto, fotocamera, obiettivo, parola chiave, tipo di file, ISO, lunghezza focale, diaframma)"
+      },
       "navigator": {
         "empty": "Seleziona una foto",
         "title": "Navigatore"
+      },
+      "searchFailed": "Impossibile cercare nella libreria: {{error}}",
+      "smartAlbums": {
+        "addGroup": "Gruppo di regole",
+        "addRule": "Regola",
+        "amountLabel": "Quantità",
+        "and": "e",
+        "cancel": "Annulla",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "Altro",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "Scelte",
+            "rejected": "Scartate",
+            "unflagged": "Senza contrassegno"
+          },
+          "label": {
+            "blue": "Blu",
+            "green": "Verde",
+            "none": "Nessuna etichetta",
+            "purple": "Viola",
+            "red": "Rosso",
+            "yellow": "Giallo"
+          }
+        },
+        "combine": {
+          "all": "tutte le",
+          "any": "una delle",
+          "none": "nessuna delle"
+        },
+        "combineLabel": "Come si combinano le regole",
+        "create": "Crea",
+        "defaultName": "Album smart",
+        "editTitle": "Modifica album smart",
+        "fieldLabel": "Campo",
+        "fields": {
+          "album": "Album",
+          "aperture": "Diaframma (numero f)",
+          "camera": "Fotocamera",
+          "captureDate": "Data di scatto",
+          "details": "Qualsiasi testo tranne le parole chiave",
+          "exposure": "Tempo di posa (s)",
+          "filename": "Nome file",
+          "fileType": "Tipo di file",
+          "flag": "Contrassegno",
+          "focalLength": "Lunghezza focale (mm)",
+          "folder": "Cartella",
+          "importDate": "Data di importazione",
+          "iso": "ISO",
+          "keyword": "Parola chiave",
+          "label": "Etichetta colore",
+          "lens": "Obiettivo",
+          "make": "Produttore della fotocamera",
+          "offline": "Foto mancante",
+          "previousImport": "Nell’importazione precedente",
+          "rating": "Valutazione",
+          "text": "Qualsiasi testo ricercabile"
+        },
+        "folderPlaceholder": "Percorso della cartella",
+        "fromFilter": "Salva come album smart…",
+        "fromFilterTitle": "Un album smart con ciò che la Libreria filtra ora (cartella o album mostrato, ricerca, metadati, valutazione, etichetta, contrassegno)",
+        "fromFilterUnsupported": "Un album smart non può includere il filtro modificate/non modificate né i tag di ricerca; rimuovili per salvare il resto",
+        "incomplete": "Completa le regole per vedere quali foto corrispondono",
+        "match": "Corrisponde a",
+        "matches_one": "Ora corrisponde a {{n}} foto",
+        "matches_many": "Ora corrisponde a {{n}} foto",
+        "matches_other": "Ora corrisponde a {{n}} foto",
+        "name": "Nome",
+        "newTitle": "Nuovo album smart",
+        "no": "no",
+        "ofTheseRules": "regole seguenti",
+        "opLabel": "Confronto",
+        "ops": {
+          "album": {
+            "is": "è in",
+            "isNot": "non è in"
+          },
+          "bool": {
+            "is": "è"
+          },
+          "choice": {
+            "is": "è",
+            "isNot": "non è"
+          },
+          "date": {
+            "between": "è tra",
+            "empty": "è sconosciuta",
+            "gt": "è dopo il",
+            "inLast": "risale a meno di",
+            "is": "è il",
+            "isNot": "non è il",
+            "lt": "è prima del",
+            "notEmpty": "è nota",
+            "notInLast": "risale a più di"
+          },
+          "folder": {
+            "contains": "è in o sotto",
+            "is": "è direttamente in",
+            "isNot": "non è direttamente in",
+            "notContains": "non è in né sotto"
+          },
+          "number": {
+            "between": "è tra",
+            "empty": "non ha un valore",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "ha un valore"
+          },
+          "search": {
+            "contains": "contiene tutte le parole",
+            "containsAny": "contiene una delle parole",
+            "notContains": "non contiene nessuna delle parole"
+          },
+          "text": {
+            "contains": "contiene tutte le parole",
+            "containsAny": "contiene una delle parole",
+            "empty": "è vuoto",
+            "endsWith": "finisce con",
+            "is": "è",
+            "isNot": "non è",
+            "notContains": "non contiene nessuna delle parole",
+            "notEmpty": "non è vuoto",
+            "startsWith": "inizia con"
+          }
+        },
+        "removeGroup": "Rimuovi questo gruppo",
+        "removeRule": "Rimuovi la regola «{{field}}»",
+        "save": "Salva",
+        "saveFailed": "Impossibile salvare l’album smart: {{error}}",
+        "unitLabel": "Unità",
+        "units": {
+          "days": "giorni",
+          "months": "mesi",
+          "weeks": "settimane",
+          "years": "anni"
+        },
+        "valueLabel": "Valore",
+        "yes": "sì"
       },
       "trash": {
         "alreadyEmpty": "La cartella Cestino della sessione è vuota.",

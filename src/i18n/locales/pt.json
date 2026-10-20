@@ -2408,6 +2408,7 @@
           "delete": "Excluir",
           "deleteAlbum": "Excluir “{{name}}”? As fotos permanecem.",
           "deleteGroup": "Excluir “{{name}}” e os álbuns dentro dele? As fotos permanecem.",
+          "deleteSmartAlbum": "Excluir o álbum inteligente “{{name}}”? As fotos permanecem.",
           "label": "Excluir álbum"
         },
         "empty": "Selecione fotos e pressione + para reuni-las em um álbum.",
@@ -2419,6 +2420,8 @@
           "addSelectedCount_other": "Adicionar {{count}} fotos selecionadas",
           "deleteAlbum": "Excluir álbum…",
           "deleteGroup": "Excluir grupo…",
+          "deleteSmartAlbum": "Excluir álbum inteligente…",
+          "editSmartAlbum": "Editar álbum inteligente…",
           "newAlbum": "Novo álbum",
           "newAlbumFromSelected_one": "Novo álbum com {{count}} foto selecionada",
           "newAlbumFromSelected_many": "Novo álbum com {{count}} fotos selecionadas",
@@ -2426,6 +2429,8 @@
           "newAlbumInGroup": "Novo álbum neste grupo",
           "newGroup": "Novo grupo",
           "newGroupInGroup": "Novo grupo neste grupo",
+          "newSmartAlbum": "Novo álbum inteligente…",
+          "newSmartAlbumInGroup": "Novo álbum inteligente neste grupo…",
           "removeSelected": "Remover as fotos selecionadas",
           "rename": "Renomear"
         },
@@ -2436,6 +2441,8 @@
         "previousImportNoDrop": "Importação anterior mostra a última importação; não é possível adicionar fotos a ela. Solte-as num álbum.",
         "previousImportTitle": "As fotos que a última importação, Adicionar, Sincronizar pasta ou a pasta monitorada adicionou",
         "renameLabel": "Renomear {{name}}",
+        "smartHint": "Mostra as fotos que correspondem às suas regras, sempre atualizado",
+        "smartNoDrop": "Um álbum inteligente mostra as fotos que correspondem às suas regras; não é possível adicionar fotos a ele. Altere as regras ou solte as fotos num álbum.",
         "title": "Álbuns",
         "toasts": {
           "addFailed": "Não foi possível adicionar as fotos: {{error}}",
@@ -2599,9 +2606,198 @@
           "showFailed": "Não foi possível mostrar a pasta: {{error}}"
         }
       },
+      "metadataFilter": {
+        "all_one": "Todos ({{count}} valor)",
+        "all_many": "Todos ({{count}} valores)",
+        "all_other": "Todos ({{count}} valores)",
+        "apertureValue": "f/{{value}}",
+        "button": "Metadados",
+        "fields": {
+          "aperture": "Abertura",
+          "camera": "Câmera",
+          "captureDate": "Data de captura",
+          "fileType": "Tipo de arquivo",
+          "focalLength": "Distância focal",
+          "iso": "ISO",
+          "keyword": "Palavra-chave",
+          "lens": "Lente"
+        },
+        "fileTypes": {
+          "dng": "DNG",
+          "heif": "HEIF",
+          "jpeg": "JPEG",
+          "other": "Outro",
+          "png": "PNG",
+          "raw": "RAW",
+          "tiff": "TIFF"
+        },
+        "focalValue": "{{value}} mm",
+        "isoValue": "ISO {{value}}",
+        "label": "Filtro de metadados",
+        "none": {
+          "aperture": "Abertura desconhecida",
+          "camera": "Câmera desconhecida",
+          "captureDate": "Sem data",
+          "fileType": "Outro",
+          "focalLength": "Distância focal desconhecida",
+          "iso": "ISO desconhecido",
+          "keyword": "Sem palavra-chave",
+          "lens": "Lente desconhecida"
+        },
+        "toggle": "Mostrar ou ocultar as listas de metadados (data de captura, câmera, lente, palavra-chave, tipo de arquivo, ISO, distância focal, abertura)"
+      },
       "navigator": {
         "empty": "Selecione uma foto",
         "title": "Navegador"
+      },
+      "searchFailed": "Não foi possível pesquisar na biblioteca: {{error}}",
+      "smartAlbums": {
+        "addGroup": "Grupo de regras",
+        "addRule": "Regra",
+        "amountLabel": "Quantidade",
+        "and": "e",
+        "cancel": "Cancelar",
+        "choices": {
+          "fileType": {
+            "dng": "DNG",
+            "heif": "HEIF",
+            "jpeg": "JPEG",
+            "other": "Outro",
+            "png": "PNG",
+            "raw": "RAW",
+            "tiff": "TIFF"
+          },
+          "flag": {
+            "picked": "Escolhidas",
+            "rejected": "Rejeitadas",
+            "unflagged": "Sem marcação"
+          },
+          "label": {
+            "blue": "Azul",
+            "green": "Verde",
+            "none": "Sem rótulo",
+            "purple": "Roxo",
+            "red": "Vermelho",
+            "yellow": "Amarelo"
+          }
+        },
+        "combine": {
+          "all": "todas as",
+          "any": "alguma das",
+          "none": "nenhuma das"
+        },
+        "combineLabel": "Como as regras se combinam",
+        "create": "Criar",
+        "defaultName": "Álbum inteligente",
+        "editTitle": "Editar álbum inteligente",
+        "fieldLabel": "Campo",
+        "fields": {
+          "album": "Álbum",
+          "aperture": "Abertura (número f)",
+          "camera": "Câmera",
+          "captureDate": "Data de captura",
+          "details": "Qualquer texto exceto palavras-chave",
+          "exposure": "Velocidade do obturador (s)",
+          "filename": "Nome do arquivo",
+          "fileType": "Tipo de arquivo",
+          "flag": "Marcação",
+          "focalLength": "Distância focal (mm)",
+          "folder": "Pasta",
+          "importDate": "Data de importação",
+          "iso": "ISO",
+          "keyword": "Palavra-chave",
+          "label": "Rótulo de cor",
+          "lens": "Lente",
+          "make": "Fabricante da câmera",
+          "offline": "Foto ausente",
+          "previousImport": "Na importação anterior",
+          "rating": "Classificação",
+          "text": "Qualquer texto pesquisável"
+        },
+        "folderPlaceholder": "Caminho da pasta",
+        "fromFilter": "Salvar como álbum inteligente…",
+        "fromFilterTitle": "Um álbum inteligente com o que a Biblioteca filtra agora (pasta ou álbum exibido, pesquisa, metadados, classificação, rótulo, marcação)",
+        "fromFilterUnsupported": "Um álbum inteligente não pode incluir o filtro editado/não editado nem as etiquetas de pesquisa; remova-os para guardar o resto",
+        "incomplete": "Complete as regras para ver quais fotos correspondem",
+        "match": "Corresponde a",
+        "matches_one": "Corresponde agora a {{n}} foto",
+        "matches_many": "Corresponde agora a {{n}} fotos",
+        "matches_other": "Corresponde agora a {{n}} fotos",
+        "name": "Nome",
+        "newTitle": "Novo álbum inteligente",
+        "no": "não",
+        "ofTheseRules": "regras seguintes",
+        "opLabel": "Comparação",
+        "ops": {
+          "album": {
+            "is": "está em",
+            "isNot": "não está em"
+          },
+          "bool": {
+            "is": "é"
+          },
+          "choice": {
+            "is": "é",
+            "isNot": "não é"
+          },
+          "date": {
+            "between": "está entre",
+            "empty": "é desconhecida",
+            "gt": "é depois de",
+            "inLast": "foi há menos de",
+            "is": "é em",
+            "isNot": "não é em",
+            "lt": "é antes de",
+            "notEmpty": "é conhecida",
+            "notInLast": "foi há mais de"
+          },
+          "folder": {
+            "contains": "está em ou abaixo de",
+            "is": "está diretamente em",
+            "isNot": "não está diretamente em",
+            "notContains": "não está em nem abaixo de"
+          },
+          "number": {
+            "between": "está entre",
+            "empty": "não tem valor",
+            "ge": "≥",
+            "gt": ">",
+            "is": "=",
+            "isNot": "≠",
+            "le": "≤",
+            "lt": "<",
+            "notEmpty": "tem valor"
+          },
+          "search": {
+            "contains": "contém todas as palavras",
+            "containsAny": "contém alguma das palavras",
+            "notContains": "não contém nenhuma das palavras"
+          },
+          "text": {
+            "contains": "contém todas as palavras",
+            "containsAny": "contém alguma das palavras",
+            "empty": "está vazio",
+            "endsWith": "termina com",
+            "is": "é",
+            "isNot": "não é",
+            "notContains": "não contém nenhuma das palavras",
+            "notEmpty": "não está vazio",
+            "startsWith": "começa com"
+          }
+        },
+        "removeGroup": "Remover este grupo",
+        "removeRule": "Remover a regra “{{field}}”",
+        "save": "Salvar",
+        "saveFailed": "Não foi possível salvar o álbum inteligente: {{error}}",
+        "unitLabel": "Unidade",
+        "units": {
+          "days": "dias",
+          "months": "meses",
+          "weeks": "semanas",
+          "years": "anos"
+        },
+        "valueLabel": "Valor",
+        "yes": "sim"
       },
       "trash": {
         "alreadyEmpty": "A pasta Lixeira da sessão está vazia.",

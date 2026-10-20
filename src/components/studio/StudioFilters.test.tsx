@@ -6,6 +6,7 @@ import StudioFilters from "./StudioFilters";
 import StudioBrowser from "./StudioBrowser";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { RawStatus, EditedStatus, type ImageFile } from "../ui/AppProperties";
+import { useSmartAlbumEditor } from "./SmartAlbumEditor";
 
 beforeEach(() => {
   useLibraryStore.setState({
@@ -56,6 +57,7 @@ it("applies flag and color filters and clears every hidden constraint", async ()
     colors: [],
     rawStatus: RawStatus.All,
     editedStatus: EditedStatus.All,
+    metadata: {},
   });
   expect(useLibraryStore.getState().searchCriteria).toEqual({
     text: "",
@@ -148,4 +150,34 @@ it("shows a virtual copy's file type without the internal copy id", () => {
     />,
   );
   expect(document.querySelector(".studio-photo-type")?.textContent).toBe("PNG");
+});
+
+it("toggles the metadata lists and saves what filters as a smart album", async () => {
+  const user = userEvent.setup();
+  const toggle = vi.fn();
+  useLibraryStore.setState({ currentFolderPath: "/job/Capture", activeAlbumId: null });
+  render(
+    <StudioFilters counts={{ all: 3, picked: 1, unflagged: 1, rejected: 1 }} metadataOpen={false} onToggleMetadata={toggle} />,
+  );
+  const metadata = screen.getByRole("button", { name: /Metadata/ });
+  expect(metadata.getAttribute("aria-pressed")).toBe("false");
+  await user.click(metadata);
+  expect(toggle).toHaveBeenCalled();
+  // Nothing filters: nothing to save.
+  expect(screen.getByText("Save as smart album…").hidden).toBe(true);
+  useLibraryStore.getState().setFilterCriteria({ metadata: { camera: ["X-T4"] }, rating: 4 });
+  expect((await screen.findByRole("button", { name: /Metadata/ })).textContent).toBe("Metadata1");
+  await user.click(screen.getByText("Save as smart album…"));
+  expect(useSmartAlbumEditor.getState().draft?.rules).toEqual({
+    combine: "all",
+    rules: [
+      { field: "folder", op: "is", value: "/job/Capture" },
+      { field: "camera", op: "is", value: "X-T4" },
+      { field: "rating", op: "ge", value: 4 },
+    ],
+  });
+  useSmartAlbumEditor.getState().close();
+  // Edited / unedited has no rule: saving is refused, not silently widened.
+  useLibraryStore.getState().setFilterCriteria({ editedStatus: EditedStatus.EditedOnly });
+  expect(((await screen.findByText("Save as smart album…")) as HTMLButtonElement).disabled).toBe(true);
 });
