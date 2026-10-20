@@ -250,6 +250,7 @@ pub async fn generate_ai_subject_mask(
 
     LIFECYCLE.touch();
     let _running = LIFECYCLE.run();
+    let generation = LIFECYCLE.generation();
     let started = std::time::Instant::now();
     let models = get_or_init_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
         .await
@@ -260,7 +261,7 @@ pub async fn generate_ai_subject_mask(
     }
 
     let (embeddings, warped_image, source_is_raw) =
-        sam_embeddings(&state, &models, &js_adjustments).await?;
+        sam_embeddings(&state, &models, &js_adjustments, generation, cancel_flag).await?;
     let ready = started.elapsed().as_millis();
 
     if cancel_flag.as_ref().is_some_and(|t| t.is_cancelled()) {
@@ -398,15 +399,32 @@ pub(crate) fn geometry_key(path: &str, js_adjustments: &serde_json::Value) -> St
 /// second one.
 static SAM_ENCODE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Waits for `lock`; a request cancelled while it waited does not start.
+async fn wait_turn<'a>(
+    lock: &'a tokio::sync::Mutex<()>,
+    cancel: Option<&Arc<AiTaskToken>>,
+) -> Result<tokio::sync::MutexGuard<'a, ()>, String> {
+    let turn = lock.lock().await;
+    if cancel.is_some_and(|t| t.is_cancelled()) {
+        return Err("Task cancelled".to_string());
+    }
+    Ok(turn)
+}
+
 /// SAM's embedding of the current photo with its geometry (cached per photo
 /// and geometry), the warped image it was computed from and whether that is
-/// a linear RAW decode.
+/// a linear RAW decode. `generation` is `LIFECYCLE.generation()` from the
+/// start of the request: an embedding whose request overlapped an unload
+/// is used once, not kept. Cancelling `cancel` stops a queued request and
+/// the encoder's ONNX Runtime run.
 async fn sam_embeddings(
     state: &tauri::State<'_, AppState>,
     models: &Arc<SamModels>,
     js_adjustments: &serde_json::Value,
+    generation: u64,
+    cancel: Option<&Arc<AiTaskToken>>,
 ) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), String> {
-    let _encode = SAM_ENCODE_LOCK.lock().await;
+    let _encode = wait_turn(&SAM_ENCODE_LOCK, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
     // photo's embedding under the old one.
@@ -427,21 +445,45 @@ async fn sam_embeddings(
     if let Some(embeddings) = cached() {
         return Ok((embeddings, warped_image, source_is_raw));
     }
+    if cancel.is_some_and(|t| t.is_cancelled()) {
+        return Err("Task cancelled".to_string());
+    }
+    let options = Arc::new(ort::session::RunOptions::new().map_err(|e| e.to_string())?);
+    let watcher = cancel.map(|token| {
+        let (token, options) = (token.clone(), options.clone());
+        tokio::spawn(async move {
+            token.wait_for_cancel().await;
+            let _ = options.terminate();
+        })
+    });
     let models = models.clone();
     let image = warped_image.clone();
-    let mut embeddings = tokio::task::spawn_blocking(move || {
-        generate_image_embeddings(image.as_ref(), &models.encoder, source_is_raw)
+    let run_options = options.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        generate_image_embeddings(
+            image.as_ref(),
+            &models.encoder,
+            source_is_raw,
+            Some(&run_options),
+        )
     })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(|e| e.to_string())?;
+    .await;
+    if let Some(watcher) = watcher {
+        watcher.abort();
+    }
+    if cancel.is_some_and(|t| t.is_cancelled()) {
+        return Err("Task cancelled".to_string());
+    }
+    let mut embeddings = result
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
     embeddings.path_hash = path_hash;
-    state
-        .ai_state
-        .lock()
-        .unwrap()
-        .get_or_insert_with(Default::default)
-        .embeddings = Some(embeddings.clone());
+    // An encoding whose request overlapped an unload is used once, not kept.
+    let mut ai = state.ai_state.lock().unwrap();
+    if LIFECYCLE.keep(generation) {
+        ai.get_or_insert_with(Default::default).embeddings = Some(embeddings.clone());
+    }
+    drop(ai);
     Ok((embeddings, warped_image, source_is_raw))
 }
 
@@ -450,13 +492,28 @@ pub async fn precompute_ai_subject_mask(
     js_adjustments: serde_json::Value,
     path: String,
     background: Option<bool>,
+    task_id: Option<String>,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let _running = LIFECYCLE.run();
+    let generation = LIFECYCLE.generation();
+    // `task_id` cancels it (a photo switch, the Library, memory pressure).
+    let _guard = task_id
+        .as_ref()
+        .map(|id| AiTaskGuard::new(&state.active_ai_tasks, id.clone()));
+    let cancelled = || _guard.as_ref().is_some_and(|g| g.token.is_cancelled());
     // `background`: asked for by opening a photo, not by the user: only
-    // with a model that is already installed (no download).
+    // with a model that is already installed (no download), and while the
+    // system is not short of memory (as `precompute`).
     if background == Some(true) {
+        if crate::memory_pressure::under_pressure() {
+            log::info!("AI object mask: not encoded ahead, the system is short of memory");
+            return Ok(());
+        }
+        if cancelled() {
+            return Ok(());
+        }
         crate::ai_processing::preload_sam_models(&app_handle, &state.ai_state, &state.ai_init_lock)
             .await
             .map_err(|e| e.to_string())?;
@@ -477,15 +534,22 @@ pub async fn precompute_ai_subject_mask(
     let current = crate::image_loader::wait_for_original_image(&state)
         .ok()
         .map(|l| l.path);
-    if current.as_deref() != Some(path.as_str()) {
+    if current.as_deref() != Some(path.as_str()) || cancelled() {
         return Ok(());
     }
     let start = std::time::Instant::now();
-    sam_embeddings(&state, &models, &js_adjustments).await?;
-    log::info!(
-        "AI object mask: background embedding of {path} ready after {} ms",
-        start.elapsed().as_millis()
-    );
+    let cancel = _guard.as_ref().map(|g| &g.token);
+    match sam_embeddings(&state, &models, &js_adjustments, generation, cancel).await {
+        Ok(_) => log::info!(
+            "AI object mask: background embedding of {path} ready after {} ms",
+            start.elapsed().as_millis()
+        ),
+        Err(_) if cancelled() => log::info!(
+            "AI object mask: background encoding of {path} cancelled after {} ms",
+            start.elapsed().as_millis()
+        ),
+        Err(e) => return Err(e),
+    }
     Ok(())
 }
 
@@ -1086,6 +1150,32 @@ pub async fn load_relight_pattern(path: String) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    /// A request cancelled while it waits for the encoder (another photo's
+    /// encoding runs) does not start; one that was not cancelled does.
+    #[tokio::test]
+    async fn a_request_cancelled_while_queued_does_not_start() {
+        let lock = tokio::sync::Mutex::new(());
+        let running = lock.lock().await;
+        let token = std::sync::Arc::new(crate::app_state::AiTaskToken::new());
+        let queued = {
+            let token = token.clone();
+            let lock = &lock;
+            async move { super::wait_turn(lock, Some(&token)).await.map(drop) }
+        };
+        let other = std::sync::Arc::new(crate::app_state::AiTaskToken::new());
+        let kept = {
+            let lock = &lock;
+            let other = other.clone();
+            async move { super::wait_turn(lock, Some(&other)).await.map(drop) }
+        };
+        let (queued, kept, ()) = tokio::join!(queued, kept, async {
+            token.cancel();
+            drop(running);
+        });
+        assert_eq!(queued, Err("Task cancelled".to_string()));
+        assert_eq!(kept, Ok(()));
+    }
+
     use super::*;
 
     #[test]

@@ -171,7 +171,8 @@ export function precomputeAiMasks() {
     // models' working memory added up (an app peak of about 10 GB on Core ML).
     .then(() => {
       if (run.cancelled) return;
-      return invoke(Invokes.PrecomputeAiSubjectMask, { jsAdjustments, path, background: true });
+      run.taskId = `sam-precompute-${crypto.randomUUID()}`;
+      return invoke(Invokes.PrecomputeAiSubjectMask, { jsAdjustments, path, background: true, taskId: run.taskId });
     })
     .catch((err) => console.error('Failed to precompute the object mask encoding:', err))
     .finally(() => {

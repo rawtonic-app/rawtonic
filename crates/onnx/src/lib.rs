@@ -319,6 +319,10 @@ pub struct Device {
     pub provider: Provider,
     /// Vendor and device as ONNX Runtime reports them.
     pub label: String,
+    /// What ONNX Runtime reports about the device and its provider (`k=v`,
+    /// sorted; e.g. the plugin's version and the PCI slot; on Linux with
+    /// the WebGPU plugin 0.4.0 no driver version).
+    pub identity: String,
     pub library: PathBuf,
     ep_device: EpDevice,
     environment: Arc<ort::environment::Environment>,
@@ -441,9 +445,18 @@ fn register(provider: Provider, library: &Path) -> Result<Device> {
                     description.map(|d| format!(" ({d})")).unwrap_or_default()
                 )
             };
+            let mut identity = key_values((api.EpDevice_EpMetadata)(device));
+            if !hardware.is_null() {
+                identity.extend(key_values((api.HardwareDevice_Metadata)(hardware)));
+            }
+            // Not where the plugin lies: an AppImage mounts it at a new path
+            // each launch (the check key has the plugin's name and size).
+            identity.retain(|pair| !pair.starts_with("library_path="));
+            identity.sort();
             return Ok(Device {
                 provider,
                 label,
+                identity: identity.join(" "),
                 library: library.to_path_buf(),
                 ep_device: EpDevice(device),
                 environment: env,
@@ -512,6 +525,25 @@ unsafe fn key_value(pairs: *const ort::sys::OrtKeyValuePairs, key: &str) -> Opti
     let key = CString::new(key).ok()?;
     let value = unsafe { (ort::api().GetKeyValue)(pairs, key.as_ptr()) };
     (!value.is_null()).then(|| unsafe { c_str(value) })
+}
+
+/// All pairs of `pairs` as `key=value`.
+unsafe fn key_values(pairs: *const ort::sys::OrtKeyValuePairs) -> Vec<String> {
+    if pairs.is_null() {
+        return Vec::new();
+    }
+    let mut keys: *const *const c_char = std::ptr::null();
+    let mut values: *const *const c_char = std::ptr::null();
+    let mut count = 0usize;
+    unsafe {
+        (ort::api().GetKeyValuePairs)(pairs, &mut keys, &mut values, &mut count);
+        if keys.is_null() || values.is_null() {
+            return Vec::new();
+        }
+        (0..count)
+            .map(|i| format!("{}={}", c_str(*keys.add(i)), c_str(*values.add(i))))
+            .collect()
+    }
 }
 
 #[cfg(windows)]

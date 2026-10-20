@@ -24,28 +24,55 @@ use crate::{Device, ModelKind};
 
 static VERDICTS: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
 
-/// What a verdict is about: the model file (name and size), the provider,
-/// the device, the plugin library (size) and the provider's options for the
-/// model, so a new driver-visible device, plugin or option is checked again.
+/// What a verdict is about: the model file (name, size and modification
+/// time, so a replaced file is checked again), the ONNX Runtime build, the
+/// provider, the device with what the runtime reports about it (the
+/// plugin's version; a driver version only where the runtime reports one,
+/// not on Linux), the plugin library (size) and the provider's options for
+/// the model.
 fn key(path: &Path, kind: ModelKind, device: &Device) -> String {
-    let size = |p: &Path| std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
     let options: String = kind
         .provider_options(device.provider)
         .iter()
         .map(|(k, v)| format!(" | {k}={v}"))
         .collect();
-    format!(
-        "{}:{} | {} | {} | {}:{}{options}",
-        path.file_name().unwrap_or_default().to_string_lossy(),
-        size(path),
+    let device_part = format!(
+        "{} | {} [{}] | {}:{}",
         device.provider,
         device.label,
+        device.identity,
         device
             .library
             .file_name()
             .unwrap_or_default()
             .to_string_lossy(),
-        size(&device.library)
+        file_size(&device.library)
+    );
+    key_of(path, runtime_build(ort::info()), &device_part, &options)
+}
+
+fn file_size(path: &Path) -> u64 {
+    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+}
+
+/// The version part of ONNX Runtime's build info (branch and commit, not
+/// the compiler flags).
+fn runtime_build(info: &str) -> &str {
+    let info = info.strip_prefix("ORT Build Info: ").unwrap_or(info);
+    info.split(", cmake").next().unwrap_or(info)
+}
+
+fn key_of(path: &Path, runtime: &str, device: &str, options: &str) -> String {
+    let meta = std::fs::metadata(path).ok();
+    let modified = meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_nanos());
+    format!(
+        "{}:{}:{modified} | {runtime} | {device}{options}",
+        path.file_name().unwrap_or_default().to_string_lossy(),
+        meta.map_or(0, |m| m.len()),
     )
 }
 
@@ -73,7 +100,8 @@ fn save_file(file: &Path, verdicts: &HashMap<String, bool>) -> std::io::Result<(
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let partial = file.with_extension("partial");
+    // The app and the CLI may save at once: a temporary name per process.
+    let partial = file.with_extension(format!("partial-{}", std::process::id()));
     std::fs::write(&partial, lines.join("\n") + "\n")?;
     std::fs::rename(&partial, file)
 }
@@ -143,6 +171,78 @@ pub(crate) fn check(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A replaced model file, another ONNX Runtime build or another plugin
+    /// version as the runtime reports it gets a check of its own.
+    #[test]
+    fn verdicts_are_per_model_file_runtime_and_plugin_version() {
+        let dir = tempfile_dir("key");
+        let model = dir.join("model.onnx");
+        std::fs::write(&model, b"weights").unwrap();
+        let device = "WebGpu |  GPU 10de:2216 [Discrete=1 pci_bus_id=0000:26:00.0 version=0.4.0] | plugin.so:7";
+        let first = key_of(
+            &model,
+            "git-branch=rel-1.30.0, git-commit-id=abc",
+            device,
+            "",
+        );
+        assert_eq!(
+            key_of(
+                &model,
+                "git-branch=rel-1.30.0, git-commit-id=abc",
+                device,
+                ""
+            ),
+            first
+        );
+        let other_runtime = key_of(
+            &model,
+            "git-branch=rel-1.31.0, git-commit-id=def",
+            device,
+            "",
+        );
+        assert_ne!(other_runtime, first);
+        let other_plugin = device.replace("version=0.4.0", "version=0.5.0");
+        assert_ne!(
+            key_of(
+                &model,
+                "git-branch=rel-1.30.0, git-commit-id=abc",
+                &other_plugin,
+                ""
+            ),
+            first
+        );
+        // The same size, written again (a new download or install).
+        let file = std::fs::File::options().write(true).open(&model).unwrap();
+        file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5))
+            .unwrap();
+        assert_ne!(
+            key_of(
+                &model,
+                "git-branch=rel-1.30.0, git-commit-id=abc",
+                device,
+                ""
+            ),
+            first
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_runtime_build_is_its_version_without_compiler_flags() {
+        assert_eq!(
+            runtime_build(
+                "ORT Build Info: git-branch=rel-1.19.0, git-commit-id=26250ae, build type=Release, cmake cxx flags: /DWIN32"
+            ),
+            "git-branch=rel-1.19.0, git-commit-id=26250ae, build type=Release"
+        );
+    }
+
+    fn tempfile_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rawtonic-onnx-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn verdicts_survive_a_save_and_load() {
