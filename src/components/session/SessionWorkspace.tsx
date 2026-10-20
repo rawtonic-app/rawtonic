@@ -198,7 +198,7 @@ export function restoreLastSession(
 ) {
   const notice = "session-restore";
   const slow = window.setTimeout(() => {
-    void invoke<string | null>("session_last_directory")
+    void invoke<string | null>(Invokes.SessionLastDirectory)
       .then((directory) => {
         if (!directory) return;
         toast.info(
@@ -212,7 +212,7 @@ export function restoreLastSession(
     window.clearTimeout(slow);
     toast.dismiss(notice);
   };
-  return invoke<SessionSummary | null>("session_last")
+  return invoke<SessionSummary | null>(Invokes.SessionLast)
     .then((last) => {
       done();
       if (last) void navigate(last).catch((e) => setError(String(e)));
@@ -287,7 +287,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       return;
     let current = true;
     const timer = window.setTimeout(() => {
-      invoke<NamePreview>("session_naming_preview", {
+      invoke<NamePreview>(Invokes.SessionNamingPreview, {
         source: previewSource,
         template,
         job: session?.manifest.name ?? "",
@@ -323,7 +323,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           expandedFolders: [root],
           showImageCounts: true,
         }),
-        invoke<Record<string, number>>("session_flags", { directory: root }),
+        invoke<Record<string, number>>(Invokes.SessionFlags, { directory: root }),
       ]);
       setSession(summary);
       useLibraryStore.getState().setLibrary({
@@ -471,7 +471,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   // pauses it (the library keeps it and resumes it when opened again).
   useEffect(() => {
     if (hotFolder && session && !hotFolder.session.startsWith(session.directory.replace(/\/$/, ""))) {
-      void hotFolderCommand("hot_folder_suspend", { directory: hotFolder.session }).catch(() => {});
+      void hotFolderCommand(Invokes.HotFolderSuspend, { directory: hotFolder.session }).catch(() => {});
       setHotFolder(null);
     }
   }, [session, hotFolder]);
@@ -523,12 +523,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     resumedFor.current = sessionDirectory;
     // Still the library shown when the answer comes.
     const current = () => openDirectory.current === sessionDirectory;
-    hotFolderCommand<HotFolderStatus | null>("hot_folder_resume", { directory: sessionDirectory })
+    hotFolderCommand<HotFolderStatus | null>(Invokes.HotFolderResume, { directory: sessionDirectory })
       .then((status) => {
         if (typeof status?.folder !== "string") return;
         // Resumed for a library left meanwhile: it must not feed the next one.
         if (!current()) {
-          void invoke("hot_folder_suspend", { directory: sessionDirectory });
+          void invoke(Invokes.HotFolderSuspend, { directory: sessionDirectory });
           return;
         }
         setHotFolder(status);
@@ -546,7 +546,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     if (!session) return;
     const { nextCapture, metadata } = nextCaptureOf(nextCaptureForm, presets);
     try {
-      const status = await hotFolderCommand<HotFolderStatus>("hot_folder_start", {
+      const status = await hotFolderCommand<HotFolderStatus>(Invokes.HotFolderStart, {
         directory: session.directory,
         folder: hotPath,
         template,
@@ -563,7 +563,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   };
   const stopHotFolder = async () => {
     try {
-      await hotFolderCommand("hot_folder_stop", { directory: session?.directory ?? null });
+      await hotFolderCommand(Invokes.HotFolderStop, { directory: session?.directory ?? null });
       setHotFolder(null);
     } catch (e) {
       setError(String(e));
@@ -595,7 +595,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setError("");
     try {
       setImportPreview(
-        await invoke<ImportPreview>("library_import_preview", {
+        await invoke<ImportPreview>(Invokes.LibraryImportPreview, {
           source: importSource.trim(),
           relinks: relinkList(),
         }),
@@ -610,7 +610,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setBusy(true);
     setError("");
     try {
-      const report = await invoke<ImportReport>("library_import", {
+      const report = await invoke<ImportReport>(Invokes.LibraryImport, {
         source: importSource.trim(),
         directory: session.directory,
         relinks: relinkList(),
@@ -645,7 +645,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const refresh = useCallback(async () => {
     if (!session) return;
     const request = ++summaryRequest.current;
-    const summary = await invoke<SessionSummary>("session_summary", {
+    const summary = await invoke<SessionSummary>(Invokes.SessionSummary, {
       directory: session.directory,
     });
     if (request === summaryRequest.current && useLibraryStore.getState().sessionDirectory === session.directory)
@@ -704,7 +704,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // acknowledged changes, and never paint a previous session's response.
       flagWriteQueue.current = flagWriteQueue.current.then(async () => {
         try {
-          const changed = await invoke<Record<string, number>>("session_set_flag", {
+          const changed = await invoke<Record<string, number>>(Invokes.SessionSetFlag, {
             directory: session.directory,
             paths,
             flag,
@@ -794,7 +794,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     setError("");
     try {
       await navigate(
-        await invoke<SessionSummary>("session_open", { directory }),
+        await invoke<SessionSummary>(Invokes.SessionOpen, { directory }),
       );
     } catch (e) {
       setError(String(e));
@@ -824,7 +824,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         parent,
         name.trim() + (asCatalog ? ".catalog" : ""),
       );
-      const summary = await invoke<SessionSummary>("session_create", {
+      const summary = await invoke<SessionSummary>(Invokes.SessionCreate, {
         directory,
         name: name.trim(),
         catalog: asCatalog,
@@ -857,7 +857,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     scansRunning.current++;
     setScanning(true);
     try {
-      const scan = await invoke<IngestScan>("session_ingest_scan", {
+      const scan = await invoke<IngestScan>(Invokes.SessionIngestScan, {
         directory: session?.directory ?? null,
         paths,
       });
@@ -987,7 +987,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       // Cancel pressed before the ingest started (the backend clears its
       // cancel flag when it starts): nothing is copied.
       if (cancelRequested.current) return;
-      const results = await invoke<ImportResult[]>("session_ingest", {
+      const results = await invoke<ImportResult[]>(Invokes.SessionIngest, {
         directory: session.directory,
         sources: files,
         mode: adding ? "add" : "copy",
@@ -1006,7 +1006,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         const paths = results.filter((r) => r.destination && !r.error).map((r) => r.destination as string);
         if (paths.length)
           try {
-            await invoke("session_album_add", { directory: session.directory, id: album.id, paths });
+            await invoke(Invokes.SessionAlbumAdd, { directory: session.directory, id: album.id, paths });
             window.dispatchEvent(new Event(SESSION_ALBUMS_CHANGED));
           } catch (e) {
             albumError = String(e);
@@ -1299,7 +1299,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
           <button
             onClick={() => {
               cancelRequested.current = true;
-              void invoke("session_cancel_ingest");
+              void invoke(Invokes.SessionCancelIngest);
             }}
           >
             {t("session.progress.cancel")}
@@ -1331,7 +1331,7 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       )}
       {transfer && <LibraryTransferDialog purpose={transfer} directory={session?.directory} name={session?.manifest.name}
         onClose={() => setTransfer(null)} onOpen={async (directory) => {
-          await navigate(await invoke<SessionSummary>("session_open", { directory }));
+          await navigate(await invoke<SessionSummary>(Invokes.SessionOpen, { directory }));
         }} />}
       <dialog
         ref={dialog}

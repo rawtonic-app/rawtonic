@@ -1,3 +1,4 @@
+import { Invokes } from '../ui/AppProperties';
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, ChevronLeft, ChevronRight, LoaderCircle, X } from "lucide-react";
@@ -38,8 +39,8 @@ const previewSize = () =>
  * file off the UI thread by the backend. */
 export async function loadIngestPreview(path: string): Promise<LargePreview> {
   const [bytes, info] = await Promise.all([
-    invoke<ArrayBuffer | number[]>("session_ingest_preview", { path, maxSize: previewSize() }),
-    invoke<CaptureInfo>("session_ingest_capture_info", { path }).catch(() => null),
+    invoke<ArrayBuffer | number[]>(Invokes.SessionIngestPreview, { path, maxSize: previewSize() }),
+    invoke<CaptureInfo>(Invokes.SessionIngestCaptureInfo, { path }).catch(() => null),
   ]);
   const data = bytes instanceof ArrayBuffer ? bytes : new Uint8Array(bytes ?? []).buffer;
   return {

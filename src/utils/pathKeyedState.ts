@@ -1,3 +1,4 @@
+import { Invokes } from '../components/ui/AppProperties';
 import { invoke } from '@tauri-apps/api/core';
 import { useEditorStore } from '../store/useEditorStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -127,7 +128,7 @@ export async function reloadSessionFlags() {
   const before = useLibraryStore.getState().imageFlags;
   let flags: Record<string, number> | null;
   try {
-    flags = await invoke<Record<string, number>>('session_flags', { directory });
+    flags = await invoke<Record<string, number>>(Invokes.SessionFlags, { directory });
   } catch (e) {
     console.error('Picks and rejects could not be read again:', e);
     return;

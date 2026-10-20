@@ -1,3 +1,4 @@
+import { Invokes } from '../ui/AppProperties';
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -35,7 +36,7 @@ export default function StudioLut({
 
   useEffect(() => {
     let active = true;
-    invoke<LutEntry[]>("list_luts")
+    invoke<LutEntry[]>(Invokes.ListLuts)
       .then((list) => active && setEntries(list ?? []))
       .catch((error) => console.error("Listing LUTs failed:", error));
     return () => {
@@ -62,7 +63,7 @@ export default function StudioLut({
       });
       const sourcePaths = Array.isArray(selected) ? selected : selected ? [selected] : [];
       if (sourcePaths.length === 0) return;
-      const list = await invoke<LutEntry[]>("import_luts", { sourcePaths });
+      const list = await invoke<LutEntry[]>(Invokes.ImportLuts, { sourcePaths });
       setEntries(list ?? []);
     } catch (error) {
       console.error("Importing LUTs failed:", error);
@@ -74,7 +75,7 @@ export default function StudioLut({
   // file it was imported from.
   const removeLut = async (path: string) => {
     try {
-      const list = await invoke<LutEntry[]>("remove_lut", { path });
+      const list = await invoke<LutEntry[]>(Invokes.RemoveLut, { path });
       setEntries(list ?? []);
       clear();
     } catch (error) {

@@ -86,7 +86,7 @@ export interface MaskStrokeLine {
  * and the patch parameters read in inpainting.rs), so every field is optional.
  */
 export interface SubMaskParameters {
-  /** Settings sliders address parameters by key (`SubMaskParameterControl.key`). */
+  /** Settings sliders address parameters by key. */
   [key: string]: unknown;
   // Radial
   centerX?: number;

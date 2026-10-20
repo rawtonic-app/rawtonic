@@ -1,7 +1,8 @@
+import type { Invokes } from '../components/ui/AppProperties';
 import { invoke } from '@tauri-apps/api/core';
 
 /** The hot folder commands the app sends (`hot_folder.rs`). */
-export type HotFolderCommand = 'hot_folder_start' | 'hot_folder_resume' | 'hot_folder_suspend' | 'hot_folder_stop';
+export type HotFolderCommand = `${Invokes.HotFolderStart | Invokes.HotFolderResume | Invokes.HotFolderSuspend | Invokes.HotFolderStop}`;
 
 let last: Promise<unknown> = Promise.resolve();
 

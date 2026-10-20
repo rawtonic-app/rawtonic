@@ -1776,7 +1776,7 @@ const ImageCanvas = memo(
                 adjustments.guidedPerspective.upright !== 'off' &&
                 adjustments.guidedPerspective.autoCrop !== false,
             );
-            const res: GuidedPerspectiveResult = await invoke('calculate_guided_perspective', { lines, width: Ow, height: Oh, fill });
+            const res: GuidedPerspectiveResult = await invoke(Invokes.CalculateGuidedPerspective, { lines, width: Ow, height: Oh, fill });
             if (res?.valid && (res?.forwardH || res?.forward_h)) {
               guidedH = res.forwardH || res.forward_h;
             }

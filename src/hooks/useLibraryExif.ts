@@ -1,3 +1,4 @@
+import { Invokes } from '../components/ui/AppProperties';
 import { useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useLibraryStore } from "../store/useLibraryStore";
@@ -23,7 +24,7 @@ export function useLibraryExif(required: boolean) {
         const chunk = paths.slice(i, i + 100);
         try {
           const data = await invoke<Record<string, Record<string, string>>>(
-            "read_exif_for_paths",
+            Invokes.ReadExifForPaths,
             { paths: chunk },
           );
           if (cancelled) return;
