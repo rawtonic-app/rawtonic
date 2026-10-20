@@ -70,6 +70,15 @@ async function developThumbnails() {
   }
 }
 
+/** Snapshot requests, one after another: each answers with the whole list,
+ * so an answer arriving after a later request's would show an older list. */
+let requests: Promise<unknown> = Promise.resolve();
+function inTurn<T>(request: () => Promise<T>): Promise<T> {
+  const next = requests.then(request, request);
+  requests = next.catch(() => undefined);
+  return next;
+}
+
 /** Shows the list the backend answered for `path` (an answer that is no
  * list shows none). */
 function show(path: string, answer: unknown) {
@@ -97,21 +106,21 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
       set({ path, snapshots: [], thumbnails: {} });
     }
     if (!path) return;
-    show(path, await invoke<unknown>(Invokes.SnapshotsList, { path }));
+    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotsList, { path })));
   },
 
   create: async (path, name, adjustments) => {
     const before = new Set(get().path === path ? get().snapshots.map((s) => s.id) : []);
-    show(path, await invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments }));
+    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotCreate, { path, name, adjustments })));
     return get().path === path ? (get().snapshots.find((snapshot) => !before.has(snapshot.id)) ?? null) : null;
   },
 
   rename: async (path, id, name) => {
-    show(path, await invoke<unknown>(Invokes.SnapshotRename, { path, id, name }));
+    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotRename, { path, id, name })));
   },
 
   update: async (path, id, adjustments) => {
-    const answer = await invoke<unknown>(Invokes.SnapshotUpdate, { path, id, adjustments });
+    const answer = await inTurn(() => invoke<unknown>(Invokes.SnapshotUpdate, { path, id, adjustments }));
     // Its thumbnail is developed again (one in progress is dropped).
     revisions.set(id, (revisions.get(id) ?? 0) + 1);
     const url = get().thumbnails[id];
@@ -124,6 +133,6 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
   },
 
   remove: async (path, id) => {
-    show(path, await invoke<unknown>(Invokes.SnapshotDelete, { path, id }));
+    show(path, await inTurn(() => invoke<unknown>(Invokes.SnapshotDelete, { path, id })));
   },
 }));

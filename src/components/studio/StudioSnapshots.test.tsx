@@ -14,6 +14,8 @@ let kept: Record<string, Snapshot[]> = {};
 let thumbnailCalls: string[] = [];
 /** When set, thumbnails wait for it (a slow render). */
 let thumbnailGate: Promise<void> | null = null;
+/** When set, renames wait for it (a slow answer). */
+let renameGate: Promise<void> | null = null;
 let nextId = 0;
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -25,6 +27,7 @@ beforeEach(() => {
   kept = {};
   thumbnailCalls = [];
   thumbnailGate = null;
+  renameGate = null;
   nextId = 0;
   vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => `blob:${++nextId}`), revokeObjectURL: vi.fn() }));
   vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
@@ -36,9 +39,13 @@ beforeEach(() => {
       case "snapshot_create":
         list.push({ id: `s${list.length + 1}`, name: a.name!.trim(), createdAt: "2026-10-20T10:00:00.000Z", adjustments: a.adjustments! });
         return structuredClone(list);
-      case "snapshot_rename":
+      case "snapshot_rename": {
         list.find((s) => s.id === a.id)!.name = a.name!;
-        return structuredClone(list);
+        // The list as it was when the rename ran, answered late.
+        const answer = structuredClone(list);
+        if (renameGate) await renameGate;
+        return answer;
+      }
       case "snapshot_update":
         list.find((s) => s.id === a.id)!.adjustments = a.adjustments!;
         return structuredClone(list);
@@ -204,4 +211,25 @@ it("renames from its own button without restoring the snapshot", async () => {
   expect(kept[PHOTO][0].name).toBe("Look");
   expect(useEditorStore.getState().adjustments.exposure).toBe(0);
   expect(useEditorStore.getState().history).toHaveLength(1);
+});
+
+it("shows the lists in the order the changes were made", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Look", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(1) }];
+  render(<StudioSnapshots />);
+  await screen.findByText("Look");
+  let release = () => {};
+  renameGate = new Promise<void>((resolve) => (release = resolve));
+  const store = useSnapshotStore.getState();
+  const renamed = store.rename(PHOTO, "a", "Night");
+  const updated = store.update(PHOTO, "a", recipe(2));
+  await act(async () => {
+    await Promise.resolve();
+  });
+  release();
+  await act(async () => {
+    await Promise.all([renamed, updated]);
+  });
+  const shown = useSnapshotStore.getState().snapshots[0];
+  expect(shown.name).toBe("Night");
+  expect(shown.adjustments.exposure).toBe(2);
 });
