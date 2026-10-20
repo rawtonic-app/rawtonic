@@ -358,7 +358,7 @@ fn publish_loaded_image(
     expected_generation: usize,
     loaded: LoadedImage,
 ) -> Result<(), String> {
-    let mut original = original_image.lock().unwrap();
+    let mut original = original_image.lock().unwrap_or_else(|e| e.into_inner());
     // A newer cache hit may finish while this request is waiting for the
     // source lock. Check after acquiring it so an old decode cannot replace it.
     if generation.load(Ordering::SeqCst) != expected_generation {
@@ -406,7 +406,7 @@ pub async fn load_image_proxy(
     if state
         .decoded_image_cache
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .get(&decoded_key)
         .is_some()
     {
@@ -623,7 +623,11 @@ pub async fn apply_ai_denoise(
     let my_generation = state.load_image_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let tracker = state.load_image_generation.clone();
     let key = decoded_cache_key(&source, denoise.as_ref(), multiscale);
-    let cached = state.decoded_image_cache.lock().unwrap().get(&key);
+    let cached = state
+        .decoded_image_cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key);
     let image = match cached {
         Some((image, _)) => image,
         None => {
@@ -655,7 +659,7 @@ pub async fn apply_ai_denoise(
             state
                 .decoded_image_cache
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(key, image.clone(), exif);
             image
         }
@@ -863,7 +867,10 @@ pub async fn load_image(
     let decode_denoise = denoise.clone();
 
     let cached_data = {
-        let mut cache = state.decoded_image_cache.lock().unwrap();
+        let mut cache = state
+            .decoded_image_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let cached = cache.get(&cache_key);
         if cached.is_none() {
             cache.make_room_for_next();
@@ -987,11 +994,11 @@ pub async fn load_image(
             cache_key = decoded_cache_key(&source_path_str, None, multiscale);
         }
 
-        state.decoded_image_cache.lock().unwrap().insert(
-            cache_key.clone(),
-            arc_img.clone(),
-            exif_data_loaded.clone(),
-        );
+        state
+            .decoded_image_cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(cache_key.clone(), arc_img.clone(), exif_data_loaded.clone());
 
         (arc_img, exif_data_loaded)
     };
@@ -1251,6 +1258,38 @@ mod activation_tests {
         assert_eq!(
             settled(None, false, false).unwrap().err().as_deref(),
             Some(NO_PHOTOGRAPH)
+        );
+    }
+
+    #[test]
+    fn publishing_a_source_recovers_a_poisoned_slot() {
+        let original = std::sync::Mutex::new(None);
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = original.lock().unwrap();
+            panic!("poison source slot");
+        });
+        let loaded = LoadedImage {
+            path: "a.raf".into(),
+            image: Arc::new(DynamicImage::new_rgb8(2, 1)),
+            is_raw: true,
+            multiscale: None,
+        };
+        publish_loaded_image(
+            &original,
+            &SourceSignal::default(),
+            &AtomicUsize::new(1),
+            1,
+            loaded,
+        )
+        .unwrap();
+        assert_eq!(
+            original
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_ref()
+                .unwrap()
+                .path,
+            "a.raf"
         );
     }
 

@@ -298,6 +298,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn camera_status_requires_the_current_protocol_fields() {
+        let status = CameraStatus::default();
+        let mut value = serde_json::to_value(&status).unwrap();
+        assert_eq!(
+            serde_json::from_value::<CameraStatus>(value.clone()).unwrap(),
+            status
+        );
+        value.as_object_mut().unwrap().remove("transferQueue");
+        assert!(serde_json::from_value::<CameraStatus>(value).is_err());
+    }
+
+    #[test]
     fn requests_and_messages_survive_json() {
         let request = Envelope {
             id: 7,

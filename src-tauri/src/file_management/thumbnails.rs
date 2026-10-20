@@ -836,6 +836,10 @@ pub(crate) fn encode_thumbnail(image: &DynamicImage, target_width: u32) -> Resul
     Ok(buf.into_inner())
 }
 
+fn cache_thumbnail(path: &Path, bytes: &[u8]) -> Result<()> {
+    rawtonic_metadata::atomic_write(path, bytes)
+}
+
 pub(crate) fn generate_single_thumbnail_and_cache(
     path_str: &str,
     thumb_cache_dir: &Path,
@@ -904,8 +908,8 @@ pub(crate) fn generate_single_thumbnail_and_cache(
             encode_thumbnail(&thumb_image, target_width_medium),
         )
     {
-        let _ = fs::write(&small_path, &small_data);
-        let _ = fs::write(&medium_path, &medium_data);
+        cache_thumbnail(&small_path, &small_data).ok()?;
+        cache_thumbnail(&medium_path, &medium_data).ok()?;
         return Some((
             small_path.to_string_lossy().into_owned(),
             medium_path.to_string_lossy().into_owned(),
@@ -1238,6 +1242,28 @@ pub fn get_cached_or_generate_thumbnail_image(
 
 #[cfg(test)]
 mod source_preview_tests {
+    #[test]
+    fn cached_thumbnail_can_be_replaced_without_changing_its_bytes() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("small.jpg");
+        super::cache_thumbnail(&path, b"first").unwrap();
+        super::cache_thumbnail(&path, b"second").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"second");
+        assert_eq!(std::fs::read_dir(directory.path()).unwrap().count(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_thumbnail_never_follows_a_symlink() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = directory.path().join("original.jpg");
+        std::fs::write(&original, b"original").unwrap();
+        let cache = directory.path().join("small.jpg");
+        std::os::unix::fs::symlink(&original, &cache).unwrap();
+        assert!(super::cache_thumbnail(&cache, b"thumbnail").is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+    }
+
     use super::*;
 
     /// The import dialog's preview of a photograph not yet in the library:

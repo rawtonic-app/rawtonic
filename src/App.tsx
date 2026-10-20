@@ -191,7 +191,6 @@ function App() {
 
   const navigationRefs = {
     transformWrapperRef,
-    preloadedDataRef,
     cachedEditStateRef,
     selectedImagePathRef,
     isBackendReadyRef,

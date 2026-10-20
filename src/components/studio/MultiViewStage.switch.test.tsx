@@ -48,7 +48,6 @@ const refs = () =>
   Object.fromEntries(
     [
       "transformWrapperRef",
-      "preloadedDataRef",
       "cachedEditStateRef",
       "selectedImagePathRef",
       "isBackendReadyRef",
