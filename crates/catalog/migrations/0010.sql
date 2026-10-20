@@ -5,8 +5,8 @@ ALTER TABLE assets ADD COLUMN companion_size INTEGER;
 ALTER TABLE assets ADD COLUMN companion_fingerprint TEXT;
 -- Ingest jobs (G66): the photographs of an ingest (job: `tasks`, kind
 -- 'ingest', its options in `payload`) in import order: each source with
--- its size and modification time (a card with other photographs of the
--- same names is not taken for it) and the copies planned before they are
+-- its size, modification time and content fingerprint (a card with other
+-- photographs of the same names is not taken for it) and the copies planned before they are
 -- made (relative to the library when inside it, so a closed session can be
 -- moved), so an ingest a quit, crash or card taken out cut off is finished
 -- later without a copy made twice or a file left out.
@@ -17,9 +17,11 @@ CREATE TABLE IF NOT EXISTS ingest_items(
  source TEXT NOT NULL,
  source_size INTEGER,
  source_mtime_ns INTEGER,
+ source_fingerprint TEXT,
  companion TEXT,
  companion_size INTEGER,
  companion_mtime_ns INTEGER,
+ companion_fingerprint TEXT,
  state TEXT NOT NULL CHECK(state IN ('pending','copying','done','failed')),
  destination TEXT,
  companion_destination TEXT,

@@ -328,13 +328,18 @@ pub fn copy_library(
             "Original has changed since registration: {}",
             from.display()
         );
-        // External originals bring their XMP, EXIF cache and all legacy virtual
-        // copies. Registered virtual copies are emitted from the snapshot below.
+        // External originals bring their XMP, EXIF cache, all legacy virtual
+        // copies and their companion JPEG (recorded by name beside them, so
+        // it stays theirs beside the copy). Registered virtual copies are
+        // emitted from the snapshot below.
         if !from.starts_with(&source) {
             let mut sidecars = external_sidecars.remove(from).unwrap_or_default();
             let xmp = from.with_extension("xmp");
             if xmp.try_exists()? {
                 sidecars.push(xmp);
+            }
+            if let Some(companion) = snapshot.companion(asset)? {
+                sidecars.push(companion);
             }
             for file in sidecars {
                 ensure!(

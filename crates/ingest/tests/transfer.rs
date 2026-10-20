@@ -326,3 +326,34 @@ fn project_layout_and_file_dates_survive_full_backup_restore() {
     assert_eq!(path, restored.directory.join("Capture/a.arw"));
     assert_eq!(fs::metadata(path).unwrap().modified().unwrap(), modified);
 }
+
+/// A RAW+JPEG pair added where it is: a backup carries the JPEG beside the
+/// RAW's copy, and the restored library still has it as the companion
+/// after the external files are gone.
+#[test]
+fn backups_carry_external_companions() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().canonicalize().unwrap();
+    let (lib, _) = catalog(&root);
+    let ext = root.join("external");
+    fs::create_dir(&ext).unwrap();
+    fs::write(ext.join("A.ARW"), b"external raw").unwrap();
+    fs::write(ext.join("A.JPG"), b"external jpeg").unwrap();
+    let planned = lib
+        .plan_add(&ext.join("A.ARW"), Default::default())
+        .unwrap()
+        .with_companion("A.JPG")
+        .unwrap();
+    let (id, _) = lib.insert_planned(vec![planned]).unwrap().pop().unwrap();
+    let backup = root.join("backup");
+    copy_library(&lib.directory, &backup, "backup", &cancel(), |_| {}).unwrap();
+    drop(lib);
+    fs::remove_dir_all(&ext).unwrap();
+    let restored = root.join("restored");
+    copy_library(&backup, &restored, "restore", &cancel(), |_| {}).unwrap();
+    let lib = Library::open(&restored).unwrap();
+    let asset = lib.asset(&id).unwrap();
+    let companion = lib.companion(&asset).unwrap().expect("companion restored");
+    assert_eq!(fs::read(&companion).unwrap(), b"external jpeg");
+    assert_eq!(companion.parent(), asset.path.parent());
+}

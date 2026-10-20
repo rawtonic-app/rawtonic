@@ -737,4 +737,31 @@ mod tests {
             ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"]
         );
     }
+
+    /// Different bytes of the same size with the same modification time
+    /// (fixed-size RAWs, a card's coarse timestamps) are not the source.
+    #[test]
+    fn same_size_and_time_with_other_content_is_not_the_source() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let source = write(&d.path().join("card/A.ARW"), &[1u8; 200_000]);
+        let id = create_job(&lib, std::slice::from_ref(&source), &options("{orig}")).unwrap();
+        let time = fs::metadata(&source).unwrap().modified().unwrap();
+        fs::write(&source, [2u8; 200_000]).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&source)
+            .unwrap()
+            .set_modified(time)
+            .unwrap();
+        assert_eq!(fs::metadata(&source).unwrap().modified().unwrap(), time);
+        let results = run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(
+            results[0]
+                .error
+                .as_deref()
+                .is_some_and(|e| e.contains("Another file"))
+        );
+        assert_eq!(lib.summary().unwrap().assets, 0);
+    }
 }

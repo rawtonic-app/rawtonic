@@ -94,14 +94,16 @@ impl ItemState {
 }
 
 /// A source file of an ingest job as it was when the job was made: its
-/// size and modification time, so another card with files of the same
-/// names (camera numbering starts again) is never taken for it.
+/// size, modification time and content fingerprint, so another card with
+/// files of the same names (camera numbering starts again) is never taken
+/// for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceFile {
     pub path: PathBuf,
     size: Option<u64>,
     mtime_ns: Option<i64>,
+    fingerprint: Option<String>,
 }
 
 /// Where a job's source file is now.
@@ -136,13 +138,20 @@ impl SourceFile {
             path: path.to_path_buf(),
             size: identity.map(|(size, _)| size),
             mtime_ns: identity.and_then(|(_, mtime)| mtime),
+            fingerprint: identity.and_then(|_| crate::fingerprint(path).ok()),
         }
     }
 
+    /// Size and modification time first; the content (two samples) only
+    /// when those are the same.
     pub fn state(&self) -> SourceState {
         match file_identity(&self.path) {
             None => SourceState::Missing,
-            Some((size, mtime)) if Some(size) == self.size && mtime == self.mtime_ns => {
+            Some((size, mtime))
+                if Some(size) == self.size
+                    && mtime == self.mtime_ns
+                    && crate::fingerprint(&self.path).ok() == self.fingerprint =>
+            {
                 SourceState::There
             }
             Some(_) => SourceState::Other,
@@ -220,8 +229,9 @@ impl Library {
         for (position, (source, companion)) in items.iter().enumerate() {
             tx.execute(
                 "INSERT INTO ingest_items(job_id,position,number,source,source_size,source_mtime_ns,
-                                          companion,companion_size,companion_mtime_ns,state)
-                 VALUES(?,?,?,?,?,?,?,?,?,'pending')",
+                     source_fingerprint,companion,companion_size,companion_mtime_ns,
+                     companion_fingerprint,state)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,'pending')",
                 params![
                     id,
                     position as i64,
@@ -229,9 +239,11 @@ impl Library {
                     text(&source.path)?,
                     size(source),
                     source.mtime_ns,
+                    source.fingerprint,
                     companion.as_ref().map(|c| text(&c.path)).transpose()?,
                     companion.as_ref().and_then(size),
-                    companion.as_ref().and_then(|c| c.mtime_ns)
+                    companion.as_ref().and_then(|c| c.mtime_ns),
+                    companion.as_ref().and_then(|c| c.fingerprint.as_deref())
                 ],
             )?;
         }
@@ -250,20 +262,21 @@ impl Library {
             .optional()?
             .with_context(|| format!("No ingest job {id}"))?;
         let mut query = self.conn.prepare(
-            "SELECT position,number,source,source_size,source_mtime_ns,companion,companion_size,
-                    companion_mtime_ns,state,destination,companion_destination,error
+            "SELECT position,number,source,source_size,source_mtime_ns,source_fingerprint,
+                    companion,companion_size,companion_mtime_ns,companion_fingerprint,
+                    state,destination,companion_destination,error
              FROM ingest_items WHERE job_id=? ORDER BY position",
         )?;
         let file = |r: &rusqlite::Row<'_>, at: usize| -> rusqlite::Result<Option<SourceFile>> {
-            Ok(r.get::<_, Option<String>>(at)?.map(|path| SourceFile {
-                path: path.into(),
-                size: r
-                    .get::<_, Option<i64>>(at + 1)
-                    .ok()
-                    .flatten()
-                    .map(|s| s as u64),
-                mtime_ns: r.get(at + 2).ok().flatten(),
-            }))
+            Ok(match r.get::<_, Option<String>>(at)? {
+                None => None,
+                Some(path) => Some(SourceFile {
+                    path: path.into(),
+                    size: r.get::<_, Option<i64>>(at + 1)?.map(|s| s as u64),
+                    mtime_ns: r.get(at + 2)?,
+                    fingerprint: r.get(at + 3)?,
+                }),
+            })
         };
         let items = query
             .query_map([id], |r| {
@@ -271,11 +284,11 @@ impl Library {
                     r.get::<_, i64>(0)?,
                     r.get::<_, i64>(1)?,
                     file(r, 2)?,
-                    file(r, 5)?,
-                    r.get::<_, String>(8)?,
-                    r.get::<_, Option<String>>(9)?,
-                    r.get::<_, Option<String>>(10)?,
+                    file(r, 6)?,
+                    r.get::<_, String>(10)?,
                     r.get::<_, Option<String>>(11)?,
+                    r.get::<_, Option<String>>(12)?,
+                    r.get::<_, Option<String>>(13)?,
                 ))
             })?
             .map(|row| {

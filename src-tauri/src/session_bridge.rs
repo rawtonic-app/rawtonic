@@ -788,8 +788,9 @@ fn ingest_reporter(app: &tauri::AppHandle) -> impl FnMut(rawtonic_ingest::batch:
 
 /// The ingests a quit, crash or card taken out left unfinished in the
 /// library at `directory` (`ingest::queue`), with how many photographs each
-/// has left and how many of those are there now. None while an ingest runs
-/// (it may be one of them). Reads only.
+/// has left and how many of those are there now; jobs cut off after their
+/// last photograph are marked done first. None while an ingest runs (it
+/// may be one of them).
 #[tauri::command]
 pub async fn session_ingest_jobs(
     directory: String,
@@ -799,6 +800,7 @@ pub async fn session_ingest_jobs(
     }
     tauri::async_runtime::spawn_blocking(move || {
         let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        lib.settle_ingest_jobs().map_err(|e| e.to_string())?;
         lib.unfinished_ingest_jobs()
             .map(|jobs| {
                 jobs.iter()
