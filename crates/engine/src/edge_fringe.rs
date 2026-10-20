@@ -40,6 +40,7 @@ use std::borrow::Cow;
 use image::DynamicImage;
 use rayon::prelude::*;
 
+mod axial;
 #[cfg(test)]
 mod reference;
 
@@ -47,9 +48,11 @@ mod reference;
 pub const VERSION_KEY: &str = "fringeVersion";
 /// The newest treatment: 1 (2026-10-16) removes edge fringes as described
 /// above in 5 × 5 windows; 2 (2026-10-17) in 7 × 7 windows; 3 (2026-10-20)
-/// adds the colour-line stage. Recipes without the key keep rendering
-/// without it, recipes with 1 or 2 as before.
-pub const VERSION: u64 = 3;
+/// adds the colour-line stage; 4 (2026-10-20) first corrects chromatic
+/// aberration across strong edges, noisy photos included (`axial`).
+/// Recipes without the key keep rendering without it, recipes with 1–3 as
+/// before.
+pub const VERSION: u64 = 4;
 
 /// Window radius at full resolution: version 1's 5 × 5 spans a fringe on
 /// both sides of a thin line. A lateral-CA rest of 1–2 px beside an edge
@@ -80,24 +83,60 @@ fn low_noise(version: u64, noise: f32) -> bool {
 /// and raised isolated colour specks after the colour noise reduction (EOS
 /// R10 ISO 32000 651 → 1213 per Mpx, K-7 310 → 502; notes:
 /// reference/edge-fringes.md "Version 3"), so they render as version 1.
+/// Version 4 adds the chromatic-aberration stage on every photo
+/// (`axial`), which scales its distances and its tolerance to noise.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Plan {
     pub radius: usize,
     pub colour_lines: bool,
+    pub axial: Option<AxialPlan>,
+}
+
+/// The chromatic-aberration stage's inputs: the image's own luminance
+/// noise and its scale of the full resolution (as `f32` bits, so plans
+/// compare and hash exactly).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct AxialPlan {
+    noise: u32,
+    scale: u32,
+}
+
+impl AxialPlan {
+    fn new(noise: f32, scale: f32) -> Self {
+        Self {
+            noise: noise.to_bits(),
+            scale: scale.to_bits(),
+        }
+    }
+
+    fn noise(self) -> f32 {
+        f32::from_bits(self.noise)
+    }
+
+    fn scale(self) -> f32 {
+        f32::from_bits(self.scale)
+    }
 }
 
 /// The plan for `version` on an image at `scale` of the full resolution
 /// whose full-resolution luminance noise is `noise`.
 fn plan_for(version: u64, noise: f32, scale: f32) -> Plan {
+    let scale = scale.min(1.0);
     Plan {
-        radius: ((radius_for(version, noise) * scale.min(1.0)).round() as usize).max(1),
+        radius: ((radius_for(version, noise) * scale).round() as usize).max(1),
         colour_lines: version >= 3 && low_noise(version, noise),
+        // A reduced image's own noise is about its scale of the full one.
+        axial: (version >= 4).then(|| AxialPlan::new(noise * scale, scale)),
     }
 }
 
 /// Runs the pass as `plan` says on `w × h` pixels of `stride` floats (RGB
-/// first): the luminance model, then the colour lines on its result.
+/// first): the chromatic-aberration stage, the luminance model, then the
+/// colour lines, each on the result of the one before.
 pub fn apply(data: &mut [f32], w: usize, h: usize, stride: usize, plan: Plan) {
+    if let Some(axial) = plan.axial {
+        axial::apply(data, w, h, stride, axial.noise(), axial.scale());
+    }
     suppress(data, w, h, stride, plan.radius);
     if plan.colour_lines {
         colour_lines(data, w, h, stride, plan.radius);
@@ -369,14 +408,16 @@ pub fn full_resolution_plan(
     Some(plan_for(version, noise, 1.0))
 }
 
-/// How far [`apply`] reads around a pixel (rows and columns): each stage
-/// reads twice its radius.
+/// How far [`apply`] reads around a pixel (rows and columns): the
+/// luminance and colour-line stages twice their radius each, the
+/// chromatic-aberration stage `axial::reach`.
 pub fn reach(plan: Plan) -> usize {
-    if plan.colour_lines {
+    let stages = if plan.colour_lines {
         4 * plan.radius
     } else {
         2 * plan.radius
-    }
+    };
+    stages + plan.axial.map_or(0, |axial| axial::reach(axial.scale()))
 }
 
 /// Removes edge fringes in place. `data` holds `w × h` pixels of `stride`
@@ -1572,12 +1613,14 @@ mod tests {
                 image::Rgb([0.8, 0.75 + 0.1 * v, 0.7])
             }
         });
-        let banded = run(&img, VERSION);
+        // Version 3's stages (the chromatic-aberration stage of version 4
+        // has its own test of tiles).
+        let banded = run(&img, 3);
         // Reference: the same per pixel computation with the whole image as
         // one band.
         let mut whole = img.clone();
         let (w, h) = (img.width() as usize, img.height() as usize);
-        let plan = plan_for(VERSION, luminance_noise(img.as_raw(), w, h, 3), 1.0);
+        let plan = plan_for(3, luminance_noise(img.as_raw(), w, h, 3), 1.0);
         assert!(plan.colour_lines);
         let changes = suppress_tile(img.as_raw(), w, h, 3, plan.radius, 0..h, 0..w);
         for (i, red, blue) in changes {

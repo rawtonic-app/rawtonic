@@ -7360,9 +7360,13 @@ mod region_tests {
                 json!({"fringeVersion": 3}),
                 json!({"fringeVersion": 3, "lensDistortionParams": lens, "rotation": 2.0,
                     "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
+                json!({"fringeVersion": 4}),
+                json!({"fringeVersion": 4, "lensDistortionParams": lens, "rotation": 2.0,
+                    "crop": {"x": 31.0, "y": 17.4, "width": 180.0, "height": 120.0}}),
             ] {
                 let measures = RegionMeasures::of(rgb, &adjustments);
-                radii.insert(measures.fringe.expect("a fringe plan"));
+                let fringe = measures.fringe.expect("a fringe plan");
+                radii.insert((fringe.radius, fringe.colour_lines, fringe.axial.is_some()));
                 assert!(RegionMeasures::inputs_key(&adjustments).is_some());
                 let warped = apply_geometry_warp(&image, &adjustments);
                 let plain = apply_spatial_transformations(warped.clone(), &adjustments)
@@ -7401,15 +7405,18 @@ mod region_tests {
                 }
             }
         }
-        // Both radii occur (noisy texture, smooth photograph), and the colour
-        // lines of version 3 on the smooth one.
-        let plan = |radius, colour_lines| crate::edge_fringe::Plan {
-            radius,
-            colour_lines,
-        };
+        // Both radii occur (noisy texture, smooth photograph), the colour
+        // lines of version 3 on the smooth one, and version 4's
+        // chromatic-aberration stage on both.
         assert_eq!(
             radii.into_iter().collect::<Vec<_>>(),
-            vec![plan(2, false), plan(3, false), plan(3, true)]
+            vec![
+                (2, false, false),
+                (2, false, true),
+                (3, false, false),
+                (3, true, false),
+                (3, true, true)
+            ]
         );
     }
 
