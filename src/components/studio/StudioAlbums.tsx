@@ -203,6 +203,24 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   useEffect(() => {
     void reload();
   }, [reload]);
+  // A refreshed list (a rename, a move, background tagging: they change
+  // the catalog without a catalog event) counts the smart albums again.
+  const imageList = useLibraryStore((s) => s.imageList);
+  useEffect(() => {
+    if (!session) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      invoke<SessionAlbum[]>(Invokes.SessionAlbums, { directory: session })
+        .then((list) => {
+          if (alive && stillShown(session) && list) setSessionAlbums(list);
+        })
+        .catch(() => {});
+    }, SMART_REFRESH_MS);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [session, imageList]);
   // The photographs' context menu adds to and removes from albums too.
   const activeAlbumRef = useRef(activeAlbumId);
   activeAlbumRef.current = activeAlbumId;

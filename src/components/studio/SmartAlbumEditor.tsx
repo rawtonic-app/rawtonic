@@ -74,8 +74,10 @@ const today = () => {
 /** Exposure as typed: `1/250`, `0.5`, `2`, `2s` → seconds (NaN if not). */
 export function parseExposure(text: string): number {
   const clean = text.trim().replace(/s$/i, "").trim();
-  const [n, d] = clean.split("/");
-  if (d !== undefined) return Number(n) / Number(d);
+  const parts = clean.split("/").map((part) => part.trim());
+  // One number, or exactly a numerator and a denominator.
+  if (parts.some((part) => part === "") || parts.length > 2) return NaN;
+  if (parts.length === 2) return Number(parts[0]) / Number(parts[1]);
   return Number(clean);
 }
 

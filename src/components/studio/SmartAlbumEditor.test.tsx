@@ -165,6 +165,7 @@ describe("rule values", () => {
     expect(parseExposure("2s")).toBe(2);
     expect(parseExposure("0.5")).toBe(0.5);
     expect(Number.isNaN(parseExposure("fast"))).toBe(true);
+    for (const malformed of ["1/250/2", "/250", "1/", ""]) expect(Number.isNaN(parseExposure(malformed))).toBe(true);
     expect(formatExposure(0.004)).toBe("1/250");
     expect(formatExposure(2)).toBe("2");
     // Round trip: what is shown is what is saved.

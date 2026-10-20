@@ -455,6 +455,22 @@ describe("Smart albums in the Albums tool", () => {
     }
   });
 
+  it("counts smart albums again when the grid gets a new list (a rename)", async () => {
+    vi.useFakeTimers();
+    try {
+      albums = [...albums, smart];
+      await renderTool();
+      albums = albums.map((a) => (a.id === "s" ? { ...a, count: 0 } : a));
+      act(() => useLibraryStore.setState({ imageList: [] }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400);
+      });
+      expect(screen.getByText("Five stars").closest("button")!.textContent).toContain("0");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drops a refresh that answers after the grid moved on", async () => {
     vi.useFakeTimers();
     try {
