@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import debounce from 'lodash.debounce';
 import { DEFAULT_BRUSH_SIZE } from '../utils/brushSize';
-import { Adjustments, INITIAL_ADJUSTMENTS, MaskContainer } from '../utils/adjustments';
+import { Adjustments, INITIAL_ADJUSTMENTS } from '../utils/adjustments';
 import { SelectedImage, WaveformData, BrushSettings, HistogramData } from '../components/ui/AppProperties';
 import { ImageDimensions } from '../hooks/useImageRenderSize';
 import { ToolType } from '../components/panel/right/Masks';
@@ -17,12 +17,6 @@ export interface InteractivePatch {
   normY: number;
   normW: number;
   normH: number;
-}
-
-/** One adjustments section copied from its context menu, pasted into the same section. */
-export interface CopiedSectionAdjustments {
-  section: string;
-  values: Partial<Adjustments>;
 }
 
 interface BaseRenderSize extends ImageDimensions {
@@ -138,7 +132,6 @@ interface EditorState {
    * is shown instead of hidden as for adjustment sliders (Capture One). */
   isMaskRangeDragging: boolean;
   isGeneratingAiMask: boolean;
-  isGeneratingAi: boolean;
   hasRenderedFirstFrame: boolean;
   /** While the next photograph opens, its predecessor's native frame stays
    * on screen (no placeholder) until the first new frame or a timeout. */
@@ -165,8 +158,6 @@ interface EditorState {
   patchesSentToBackend: Set<string>;
 
   // Clipboard
-  copiedSectionAdjustments: CopiedSectionAdjustments | null;
-  copiedMask: MaskContainer | null;
   copiedAdjustments: Adjustments | null;
 
   // Actions
@@ -250,13 +241,10 @@ export const useEditorStore = create<EditorState>((set) => ({
   liveRotation: null,
   autoStraightened: null,
 
-  copiedSectionAdjustments: null,
-  copiedMask: null,
   brushSettings: { size: DEFAULT_BRUSH_SIZE, feather: 50, tool: ToolType.Brush },
   copiedAdjustments: null,
 
   isGeneratingAiMask: false,
-  isGeneratingAi: false,
   isMaskControlHovered: false,
   isMaskRangeDragging: false,
   hasRenderedFirstFrame: false,

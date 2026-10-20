@@ -1,3 +1,4 @@
+import { swallowDragClick } from '../../utils/swallowClick';
 import {
   useCallback,
   useEffect,
@@ -419,9 +420,7 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       ghost?.remove();
       if (!state?.moved || ev.type !== "pointerup") return;
       // The press ended a drag, not a click on the row.
-      const swallow = (click: globalThis.MouseEvent) => click.stopPropagation();
-      window.addEventListener("click", swallow, { capture: true, once: true });
-      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      swallowDragClick(false);
       const at = zoneAt(ev.clientX, ev.clientY);
       const placement = at && dropPlacement(albums, state.id, at.target, at.zone);
       if (!placement) return;

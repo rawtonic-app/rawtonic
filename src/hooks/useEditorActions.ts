@@ -20,7 +20,6 @@ import {
   LensAdjustment,
   normalizeLoadedAdjustments,
   pastedAdjustments,
-  sameAdjustmentValue,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,

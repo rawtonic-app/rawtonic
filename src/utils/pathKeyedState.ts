@@ -92,7 +92,6 @@ export function followPathMoves(pathMoves: PathMove[]): { openPhoto: string | nu
   useProcessStore.getState().setProcess((state) => ({
     thumbnails: remapPathKeys(state.thumbnails, moves),
     mediumThumbnails: remapPathKeys(state.mediumThumbnails, moves),
-    previews: remapPathKeys(state.previews, moves),
   }));
   // Pinned and root folders are kept in the settings.
   const { appSettings, handleSettingsChange } = useSettingsStore.getState();

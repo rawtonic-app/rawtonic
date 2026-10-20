@@ -18,10 +18,6 @@ import {
   MopSparkles,
   type LucideIcon,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
-import { useTranslation } from 'react-i18next';
-import Text from '../../ui/Text';
-import { TextWeights } from '../../../types/typography';
 import i18n from 'i18next';
 import type { ShapeFrame } from '../../../utils/maskGeometry';
 
@@ -152,24 +148,6 @@ export interface SubMask {
   visible: boolean;
 }
 
-/** A slider for one numeric sub-mask parameter in the masks/AI settings panels. */
-export interface SubMaskParameterControl {
-  key: string;
-  min: number;
-  max: number;
-  step: number;
-  /** Factor between the stored parameter and the slider value (e.g. 100 for a 0–1 feather). */
-  multiplier?: number;
-  defaultValue: number;
-}
-
-/** Which controls the settings panels show for a sub-mask type. */
-export interface SubMaskConfig {
-  parameters?: Array<SubMaskParameterControl>;
-  showBrushTools?: boolean;
-  showFlowControl?: boolean;
-}
-
 export function formatMaskTypeName(type: string) {
   if (type === Mask.AiDepth) return i18n.t('masks.types.depth');
   if (type === Mask.AiSubject) return i18n.t('masks.types.subject');
@@ -216,19 +194,3 @@ export const MASK_ICON_MAP: Record<Mask, LucideIcon> = {
   [Mask.Liquify]: Spline,
   [Mask.Retouch]: MopSparkles,
 };
-
-export function NewMaskDropZone({ isOver, textKey }: { isOver: boolean; textKey: string }) {
-  const { t } = useTranslation();
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, height: 0, marginTop: 0 }}
-      animate={{ opacity: 1, height: 'auto', marginTop: '4px' }}
-      exit={{ opacity: 0, height: 0, marginTop: 0 }}
-      transition={{ duration: 0.2, ease: 'easeOut' }}
-      className={`p-3 rounded-lg text-center ${isOver ? 'border border-accent/80 bg-bg-tertiary/50' : ''}`}
-    >
-      <Text weight={TextWeights.medium}>{t(textKey, { defaultValue: textKey })}</Text>
-    </motion.div>
-  );
-}

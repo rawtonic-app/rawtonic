@@ -8,7 +8,6 @@ import {
   syncActions,
   unresolved,
   type ContestedChoice,
-  type SyncPlan,
 } from './folderSync';
 import { identity, samplePlan } from './folderSync.fixture';
 

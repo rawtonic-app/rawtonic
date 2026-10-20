@@ -1,3 +1,4 @@
+import { swallowDragClick } from '../../utils/swallowClick';
 import { Fragment, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -430,12 +431,7 @@ export default function StudioLayers({
       ghost.remove();
       setLayerDrag(null);
       // The press ended a drag, not a click that selects the layer.
-      const swallow = (click: globalThis.MouseEvent) => {
-        click.stopPropagation();
-        click.preventDefault();
-      };
-      window.addEventListener("click", swallow, { capture: true, once: true });
-      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      swallowDragClick();
       if (ev.type !== "pointerup" || !drop.target || drop.target === mask.id) return;
       // Rows show the top layer first: work in display order.
       const shown = masks

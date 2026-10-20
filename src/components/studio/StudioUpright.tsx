@@ -38,7 +38,6 @@ const AUTO_DONE = {
 export default function StudioUpright() {
   const { t } = useTranslation();
   const adjustments = useEditorStore((s) => s.adjustments);
-  const selectedImage = useEditorStore((s) => s.selectedImage);
   const drawing = useEditorStore((s) => s.isGuidedPerspectiveActive);
   const setEditor = useEditorStore((s) => s.setEditor);
   const activePanel = useUIStore((s) => s.activePanel);

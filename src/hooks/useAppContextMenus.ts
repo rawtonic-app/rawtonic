@@ -28,7 +28,6 @@ import {
   Users,
   Gauge,
   Layers,
-  Grip,
   Film,
   Plane,
   Mountain,
@@ -63,7 +62,7 @@ import {
   AlbumGroup,
   ImageMetadata,
 } from '../components/ui/AppProperties';
-import { Color, COLOR_LABELS, INITIAL_ADJUSTMENTS, initialAdjustmentsFor, normalizeLoadedAdjustments } from '../utils/adjustments';
+import { Color, COLOR_LABELS, initialAdjustmentsFor, normalizeLoadedAdjustments } from '../utils/adjustments';
 import TaggingSubMenu from '../context/TaggingSubMenu';
 import SessionAlbumSubMenu from '../components/studio/SessionAlbumSubMenu';
 import { SESSION_ALBUM_PREFIX, SESSION_ALBUMS_CHANGED } from '../components/studio/StudioAlbums';

@@ -844,7 +844,6 @@ export const useKeyboardShortcuts = ({
           else if (s.editor.isWbPickerActive) s.editor.setEditor({ isWbPickerActive: false });
           else if (s.editor.lumaPickerLayer) s.editor.setEditor({ lumaPickerLayer: null });
           else if (s.editor.tatTarget) s.editor.setEditor({ tatTarget: null });
-          else if (s.ui.customEscapeHandler) s.ui.customEscapeHandler();
           else if (s.editor.activeMaskId) s.editor.setEditor({ activeMaskId: null });
           else if (s.editor.activeMaskContainerId) s.editor.setEditor({ activeMaskContainerId: null });
           else if (s.ui.activePanel === Panel.Crop) {

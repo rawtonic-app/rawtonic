@@ -12,7 +12,6 @@ import {
   FRINGE_VERSION,
   CAMERA_CA_VERSION,
   AUTO_CA_VERSION,
-  INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   type Adjustments,

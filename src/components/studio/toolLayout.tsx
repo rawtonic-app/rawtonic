@@ -1,3 +1,4 @@
+import { swallowDragClick } from '../../utils/swallowClick';
 import {
   Children,
   createContext,
@@ -224,12 +225,7 @@ export function ToolColumn({
       ghost.remove();
       setDrag(null);
       // The press ended a drag, not a click that opens or closes the tool.
-      const swallow = (click: MouseEvent) => {
-        click.stopPropagation();
-        click.preventDefault();
-      };
-      window.addEventListener("click", swallow, { capture: true, once: true });
-      setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
+      swallowDragClick();
       if (ev.type !== "pointerup") return;
       const rest = order.filter((other) => other !== id);
       const at = before === null ? rest.length : rest.indexOf(before);

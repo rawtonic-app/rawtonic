@@ -43,7 +43,6 @@ import PreviewSettings from './PreviewSettings';
 import DevelopToolsSide from '../studio/DevelopToolsSide';
 import { TextColors, TextVariants, TextWeights } from '../../types/typography';
 import { useOsPlatform } from '../../hooks/useOsPlatform';
-import { open } from '@tauri-apps/plugin-shell';
 import { RotateCcw } from 'lucide-react';
 import { useUIStore } from '../../store/useUIStore';
 import {
