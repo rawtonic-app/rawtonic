@@ -48,8 +48,18 @@ pub fn calculate_geometry_hash(adjustments: &serde_json::Value) -> u64 {
             val.to_string().hash(&mut hasher);
         }
     }
+    hash_resampling(adjustments, &mut hasher);
 
     hasher.finish()
+}
+
+/// The warps' and straightening's resampling differs by render version
+/// (`GeometryParams::keep_negative`); version 1 leaves the hash as it was.
+fn hash_resampling(adjustments: &serde_json::Value, hasher: &mut DefaultHasher) {
+    let version = crate::image_processing::render_version(adjustments);
+    if version >= 2 {
+        ("renderVersion", version).hash(hasher);
+    }
 }
 
 pub fn calculate_patched_warped_hash(adjustments: &serde_json::Value) -> u64 {
@@ -191,6 +201,7 @@ pub fn calculate_transform_hash(adjustments: &serde_json::Value) -> u64 {
             val.to_string().hash(&mut hasher);
         }
     }
+    hash_resampling(adjustments, &mut hasher);
 
     if let Some(spots) = adjustments.get("spots") {
         spots.to_string().hash(&mut hasher);
@@ -346,6 +357,29 @@ impl DecodedImageCache {
             retained_bytes -= self.items.remove(0).1.as_bytes().len();
         }
         self.items.push((path, image, exif));
+    }
+}
+
+#[cfg(test)]
+mod resampling_hash_tests {
+    use super::*;
+
+    /// Warped and transformed pixels resample by render version: caches of
+    /// one are not the other's; version 1 (or no key) hashes as before.
+    #[test]
+    fn geometry_and_transform_hashes_tell_render_versions_apart() {
+        let recipe = |version: Option<u64>| {
+            let mut recipe = serde_json::json!({"rotation": 2.0,
+                "lensDistortionParams": {"k1": 0.01}, "lensCorrectionMode": "manual"});
+            if let Some(version) = version {
+                recipe["renderVersion"] = serde_json::json!(version);
+            }
+            recipe
+        };
+        for hash in [calculate_geometry_hash, calculate_transform_hash] {
+            assert_eq!(hash(&recipe(None)), hash(&recipe(Some(1))));
+            assert_ne!(hash(&recipe(Some(1))), hash(&recipe(Some(2))));
+        }
     }
 }
 
