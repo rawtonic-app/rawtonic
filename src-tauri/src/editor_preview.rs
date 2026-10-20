@@ -476,15 +476,24 @@ pub(crate) fn prepare_interactive_preview(
     )))
 }
 
+/// The key of the patched and warped full-resolution image of
+/// `adjustments`: a fringe draft's (`edge_fringe::DRAFT_KEY`, built while a
+/// control is dragged) never the key of the finished image.
+fn patched_warped_key(adjustments: &serde_json::Value) -> u64 {
+    let key = crate::cache_utils::calculate_patched_warped_hash(adjustments);
+    if rawtonic_engine::edge_fringe::is_draft(adjustments) {
+        preview_cache::fringe_draft_key(key)
+    } else {
+        key
+    }
+}
+
 pub(crate) fn compute_full_transformed_res(
     state: &tauri::State<AppState>,
     loaded_image: &LoadedImage,
     adjustments: &serde_json::Value,
 ) -> Result<(Arc<DynamicImage>, (f32, f32)), String> {
-    let geo_hash = source_transform_hash(
-        &loaded_image.image,
-        crate::cache_utils::calculate_patched_warped_hash(adjustments),
-    );
+    let geo_hash = source_transform_hash(&loaded_image.image, patched_warped_key(adjustments));
 
     let warped_arc = {
         let mut cache_lock = state
@@ -2477,6 +2486,28 @@ mod split_view_tests {
         let mut perspective = before.clone();
         perspective["transformVertical"] = json!(-10);
         assert_ne!(key, split_frame_key("/a.NEF", &perspective));
+    }
+}
+
+#[cfg(test)]
+mod fringe_draft_tests {
+    use super::patched_warped_key;
+    use serde_json::json;
+
+    #[test]
+    fn a_fringe_draft_never_shares_the_finished_full_resolution_image() {
+        // A geometry drag at full resolution builds the warped image without
+        // the fringe pass's chromatic-aberration stage; the frame after the
+        // drag must not take it from the cache.
+        let settled = json!({"fringeVersion": 4, "rotation": 1.5});
+        let mut draft = settled.clone();
+        draft[rawtonic_engine::edge_fringe::DRAFT_KEY] = json!(true);
+        assert_ne!(patched_warped_key(&draft), patched_warped_key(&settled));
+        // Finished images keep the key they had.
+        assert_eq!(
+            patched_warped_key(&settled),
+            crate::cache_utils::calculate_patched_warped_hash(&settled)
+        );
     }
 }
 

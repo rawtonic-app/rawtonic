@@ -188,6 +188,14 @@ pub fn has_draft(adjustments: &serde_json::Value) -> bool {
     version_of(adjustments) >= 4
 }
 
+/// Whether `adjustments` is such a draft.
+pub fn is_draft(adjustments: &serde_json::Value) -> bool {
+    adjustments
+        .get(DRAFT_KEY)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 /// The recipe's edge-fringe version: `fringeVersion`, 0 (none) when
 /// missing, never newer than this renderer knows.
 pub fn version_of(adjustments: &serde_json::Value) -> u64 {
@@ -232,10 +240,7 @@ pub fn apply_for_recipe<'a>(
     }
     let mut image = image;
     let (w, h) = (image.width() as usize, image.height() as usize);
-    let draft = adjustments
-        .get(DRAFT_KEY)
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(false);
+    let draft = is_draft(adjustments);
     // A reduced preview averages the noise down by about its scale.
     let plan = |data: &[f32], stride| {
         let noise = if version >= 2 {

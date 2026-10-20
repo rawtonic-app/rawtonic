@@ -411,6 +411,9 @@ fn apply_in_tiles(
 #[derive(Clone, Copy)]
 struct Move {
     weight: f32,
+    /// The weight without the test of channels beyond the sides: as far
+    /// as moving neighbours may take the pixel along.
+    cap: f32,
     target: [f32; 3],
 }
 
@@ -482,8 +485,9 @@ fn tile_changes(
             let Some(own) = moves[(y - ring_y0) * rw + x - ring_x0] else {
                 continue;
             };
-            // A fringe pixel the tests left out amid moved neighbours (a
-            // channel overshooting at the fringe's peak) moves with them.
+            // A fringe pixel left out amid moved neighbours because a
+            // channel overshoots both sides (at the fringe's peak) moves
+            // with them; the hue, contrast and two-step tests still hold.
             let mut near = [0.0f32; 9];
             let mut n = 0;
             for ny in y.saturating_sub(1)..(y + 2).min(height) {
@@ -494,7 +498,7 @@ fn tile_changes(
             }
             let near = &mut near[..n];
             near.sort_by(f32::total_cmp);
-            let weight = near[n / 2].max(own.weight);
+            let weight = own.weight.max(near[n / 2].min(own.cap));
             if weight <= 0.0 {
                 continue;
             }
@@ -620,8 +624,9 @@ fn pixel_move(
     };
     let family = in_hue(hue, PURPLE).max(in_hue(hue, GREEN)).max(small);
     let weight = edge * between * contrast * family;
+    let cap = edge * contrast * family;
     // The two-step test only where it can matter.
-    let single = if weight > 0.0 {
+    let single = if cap > 0.0 {
         let dip = two_steps(
             planes,
             (x, y, inside),
@@ -638,6 +643,7 @@ fn pixel_move(
     };
     Some(Move {
         weight: weight * single,
+        cap: cap * single,
         target,
     })
 }
@@ -845,6 +851,30 @@ mod tests {
             row_chroma(&data, w, h, span),
         );
         assert!(c1 > 0.9 * c0, "glow chroma {c0} -> {c1}");
+    }
+
+    #[test]
+    fn a_small_warm_patch_amid_a_corrected_fringe_keeps_its_colour() {
+        // A blue fringe on the dark side of a bright edge with a 2 × 2
+        // orange patch in it: the neighbours move, the patch (a hue outside
+        // the families, far above the noise) does not follow them.
+        let (w, h) = (64, 40);
+        let mut data = edge_image(w, h, [1.0, 1.0, 3.0], 0.0);
+        let patch = [(28, 19), (29, 19), (28, 20), (29, 20)];
+        for &(x, y) in &patch {
+            data[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&[0.09, 0.035, 0.01]);
+        }
+        let before = data.clone();
+        apply(&mut data, w, h, 3, 0.0, 1.0);
+        let fringe = |d: &[f32]| row_chroma(d, w, h, w / 2 - 8..w / 2 + 8);
+        assert!(
+            fringe(&data) < fringe(&before),
+            "the fringe around it moves"
+        );
+        for &(x, y) in &patch {
+            let i = (y * w + x) * 3;
+            assert_eq!(&data[i..i + 3], &before[i..i + 3], "patch pixel {x},{y}");
+        }
     }
 
     #[test]
