@@ -126,6 +126,15 @@ if [ "$DEPS" = 1 ]; then
     # (they often need an upstream release first) and block releases instead
     # (ADR 0005: the release workflows run the full check).
     run "dependencies: advisories (unmaintained warns)" cargo deny check -W unmaintained advisories
+    # Unused dependencies (reads the sources, under a second; CI installs it).
+    if command -v cargo-shear >/dev/null 2>&1; then
+      run "dependencies: unused (cargo-shear)" cargo shear
+    elif [ -n "${CI:-}" ]; then
+      echo "FAIL dependencies: unused — cargo-shear not installed in CI" >&2
+      exit 1
+    else
+      printf 'skip %-45s (cargo install --locked cargo-shear)\n' "dependencies: unused (cargo-shear)"
+    fi
   elif [ "$CHANGED" = 1 ]; then
     printf '\n== dependencies: skipped (cargo-deny not installed)\n'
   else

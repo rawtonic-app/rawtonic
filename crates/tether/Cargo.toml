@@ -12,7 +12,6 @@ default = []
 gphoto2 = ["dep:gphoto2"]
 
 [dependencies]
-anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true

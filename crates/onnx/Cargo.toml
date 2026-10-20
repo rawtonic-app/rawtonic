@@ -10,6 +10,3 @@ anyhow.workspace = true
 libloading = "0.8"
 log = "0.4"
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
-
-[dev-dependencies]
-ndarray = "0.17"

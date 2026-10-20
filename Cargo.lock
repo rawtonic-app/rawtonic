@@ -5226,7 +5226,6 @@ dependencies = [
 name = "rawler"
 version = "0.7.1"
 dependencies = [
- "anyhow",
  "approx",
  "backtrace",
  "bitstream-io",
@@ -5273,13 +5272,9 @@ dependencies = [
  "blake3",
  "bytemuck",
  "chrono",
- "crc32fast",
  "fern",
- "filetime",
  "flate2",
  "futures",
- "fuzzy-matcher",
- "glam 0.33.5",
  "gtk",
  "half",
  "hex",
@@ -5287,18 +5282,14 @@ dependencies = [
  "image_hasher",
  "imageproc",
  "imgref",
- "jxl-encoder",
  "jxl-oxide",
  "kamadak-exif",
  "libc",
- "libmimalloc-sys",
  "little_exif",
  "log",
  "memmap2",
  "mimalloc",
- "moxcms",
  "mozjpeg-rs",
- "nalgebra",
  "ndarray",
  "objc",
  "objc2",
@@ -5308,10 +5299,7 @@ dependencies = [
  "objc2-foundation",
  "once_cell",
  "ort",
- "png 0.18.1",
  "pollster",
- "quick-xml",
- "rand 0.10.2",
  "rawler",
  "rawtonic-catalog",
  "rawtonic-denoise",
@@ -5355,7 +5343,6 @@ dependencies = [
  "uuid",
  "walkdir",
  "webkit2gtk",
- "webp",
  "wgpu",
 ]
 
@@ -5364,7 +5351,6 @@ name = "rawtonic-catalog"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "chrono",
  "libc",
  "log",
  "proptest",
@@ -5395,7 +5381,6 @@ dependencies = [
  "rawtonic-ingest",
  "rawtonic-merge",
  "rawtonic-metadata",
- "rawtonic-naming",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
  "serde",
@@ -5417,7 +5402,6 @@ dependencies = [
  "ort",
  "rawtonic-onnx",
  "rawtonic-rawdecode",
- "rayon",
  "tempfile",
 ]
 
@@ -5472,13 +5456,11 @@ dependencies = [
  "fontdb",
  "half",
  "image",
- "imgref",
  "jxl-encoder",
  "jxl-oxide",
  "kamadak-exif",
  "little_exif",
  "log",
- "mozjpeg-rs",
  "png 0.18.1",
  "rawler",
  "rawtonic-engine",
@@ -5487,7 +5469,6 @@ dependencies = [
  "rawtonic-rawdecode",
  "rawtonic-runtime",
  "rayon",
- "rgb",
  "rusqlite",
  "serde",
  "serde_json",
@@ -5615,7 +5596,6 @@ dependencies = [
  "chrono",
  "proptest",
  "serde",
- "tempfile",
 ]
 
 [[package]]
@@ -5625,7 +5605,6 @@ dependencies = [
  "anyhow",
  "libloading 0.8.9",
  "log",
- "ndarray",
  "ort",
 ]
 
@@ -5662,7 +5641,6 @@ dependencies = [
 name = "rawtonic-tether"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "gphoto2",
  "log",
  "serde",

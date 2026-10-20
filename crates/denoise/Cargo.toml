@@ -8,7 +8,6 @@ description = "AI denoising of Bayer mosaics (Nonlocal MatchFilter) for Rawtonic
 [dependencies]
 anyhow.workspace = true
 half = "2.7.1"
-rayon = "1.12.0"
 rawtonic-rawdecode = { path = "../rawdecode", version = "0.1.0" }
 ort = { version = "=2.0.0-rc.12", default-features = false, features = ["std", "ndarray", "load-dynamic", "api-22"] }
 rawtonic-onnx = { path = "../onnx", version = "0.1.0" }

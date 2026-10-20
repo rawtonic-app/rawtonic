@@ -13,7 +13,6 @@ anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
-chrono.workspace = true
 rusqlite = { version = "0.40", features = ["bundled", "serde_json"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 rawtonic-metadata = { path = "../metadata", version = "0.1.0" }
