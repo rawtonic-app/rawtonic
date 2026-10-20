@@ -155,6 +155,12 @@ describe('mask thumbnails', () => {
     expect(layerThumbnailKey(layer('x', [subject]))).not.toBe(layerThumbnailKey(layer('x', [changed])));
   });
 
+  it('makes a component’s thumbnail again when its layer’s mask version changes', () => {
+    const subject = createSubMask(Mask.Linear, size);
+    expect(componentThumbnailKey(subject, 3)).not.toBe(componentThumbnailKey(subject));
+    expect(componentThumbnailKey(subject, 3)).not.toBe(componentThumbnailKey(subject, 4));
+  });
+
   it('makes a layer’s thumbnail again when its Refine edge or mask version changes', () => {
     const plain = layer('x');
     const refined = { ...plain, maskVersion: 3, refineEdge: 40 };
