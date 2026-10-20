@@ -204,51 +204,8 @@ fn resolve_lens_choice(
                     if exif_data.is_none() && !readable(source) {
                         return false;
                     }
-                    let mut focal_length = 50.0;
-                    let mut aperture = None;
-                    let mut distance = None;
-
-                    if let Some(exif) = exif_data {
-                        if let Some(fl_str) = exif
-                            .get("FocalLength")
-                            .or(exif.get("FocalLengthIn35mmFilm"))
-                            && let Ok(fl) = fl_str.replace(" mm", "").trim().parse::<f32>()
-                        {
-                            focal_length = fl;
-                        }
-                        if let Some(ap_str) = exif.get("ApertureValue").or(exif.get("FNumber"))
-                            && let Ok(ap) = ap_str.replace("f/", "").trim().parse::<f32>()
-                        {
-                            aperture = Some(ap);
-                        }
-                        if let Some(dist_str) = exif.get("SubjectDistance")
-                            && let Ok(dist) = dist_str.replace(" m", "").trim().parse::<f32>()
-                        {
-                            distance = Some(dist);
-                        }
-                    }
-
-                    // The body's crop factor from the 35 mm equivalent.
-                    let camera_crop = exif_data.as_ref().and_then(|exif| {
-                        let number = |key: &str| {
-                            exif.get(key)?
-                                .replace("mm", "")
-                                .trim()
-                                .parse::<f32>()
-                                .ok()
-                                .filter(|v| *v > 0.0)
-                        };
-                        Some(number("FocalLengthIn35mmFilm")? / number("FocalLength")?)
-                    });
-                    if let Some(params) = crate::lens_correction::resolve_lens_params(
-                        db,
-                        maker,
-                        model,
-                        focal_length,
-                        aperture,
-                        distance,
-                        camera_crop.filter(|c| (0.5..=8.0).contains(c)),
-                    ) {
+                    if let Some(params) = lens_params_for_shot(db, maker, model, exif_data.as_ref())
+                    {
                         map.insert(
                             "lensDistortionParams".to_string(),
                             serde_json::to_value(params).unwrap(),
@@ -282,6 +239,80 @@ fn resolve_lens_choice(
         return true;
     }
     false
+}
+
+/// The lens's profile for the photo whose EXIF map is `exif` (the Lens
+/// tool's choice and every save look it up so: `shot_facts`).
+pub fn lens_params_for_shot(
+    db: &crate::lens_correction::LensDatabase,
+    maker: &str,
+    model: &str,
+    exif: Option<&HashMap<String, String>>,
+) -> Option<crate::lens_correction::LensDistortionParams> {
+    let (focal_length, aperture, distance, camera_crop) = shot_facts(exif, db);
+    crate::lens_correction::resolve_lens_params(
+        db,
+        maker,
+        model,
+        focal_length,
+        aperture,
+        distance,
+        camera_crop,
+    )
+}
+
+/// The leading number of an EXIF value as the maps store it ("f/8",
+/// "75 mm", "6 EV", "50").
+fn exif_number(exif: &HashMap<String, String>, key: &str) -> Option<f32> {
+    let text = exif.get(key)?.trim();
+    let text = text.strip_prefix("f/").unwrap_or(text);
+    text.split(|c: char| c.is_whitespace() || c == 'm')
+        .next()?
+        .parse::<f32>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0)
+}
+
+/// The f-number from EXIF ApertureValue (APEX Av, f-number = 2^(Av/2); Av 0
+/// is f/1, negative values are wider).
+fn apex_aperture(exif: &HashMap<String, String>) -> Option<f32> {
+    let text = exif.get("ApertureValue")?.trim();
+    let text = text.strip_prefix("f/").unwrap_or(text);
+    let av = text.split_whitespace().next()?.parse::<f32>().ok()?;
+    Some(2f32.powf(av / 2.0)).filter(|f| f.is_finite() && (0.5..=128.0).contains(f))
+}
+
+/// What a lens profile is looked up at: focal length (50 mm without one),
+/// aperture, focus distance and the frame's crop factor. The aperture is
+/// the FNumber; ApertureValue is APEX (f-number = 2^(Av/2)) and stands in
+/// only without it. The crop factor is the frame's from the 35 mm
+/// equivalent focal length where the photo states one, else the body's
+/// (`lens_correction::body_crop_factor`). An equivalent equal to the focal
+/// length says nothing: EXIF maps read before 2026-10-20 (kept in caches
+/// and sidecars) copied the focal length into it, and a full-frame body's
+/// crop factor is the body's anyway.
+fn shot_facts(
+    exif: Option<&HashMap<String, String>>,
+    db: &crate::lens_correction::LensDatabase,
+) -> (f32, Option<f32>, Option<f32>, Option<f32>) {
+    let Some(exif) = exif else {
+        return (50.0, None, None, None);
+    };
+    let focal_length = exif_number(exif, "FocalLength")
+        .or_else(|| exif_number(exif, "FocalLengthIn35mmFilm"))
+        .unwrap_or(50.0);
+    let aperture = exif_number(exif, "FNumber").or_else(|| apex_aperture(exif));
+    let distance = exif
+        .get("SubjectDistance")
+        .and_then(|d| d.replace(" m", "").trim().parse::<f32>().ok());
+    let frame = exif_number(exif, "FocalLengthIn35mmFilm")
+        .zip(exif_number(exif, "FocalLength"))
+        .map(|(equivalent, focal)| equivalent / focal)
+        .filter(|crop| (crop - 1.0).abs() > 1e-3);
+    let field = |key: &str| exif.get(key).map(String::as_str).unwrap_or("");
+    let camera_crop =
+        crate::lens_correction::body_crop_factor(db, field("Make"), field("Model"), frame);
+    (focal_length, aperture, distance, camera_crop)
 }
 
 /// Whether the photo can be read now, so the camera facts read from it (or
@@ -361,6 +392,118 @@ mod tests {
         let lenses = lenses_for_maker(&db, "Canon");
         let zoom = lenses[0].get_display_name(&lenses);
         (db, zoom)
+    }
+
+    /// A lens with vignetting at f/1.4, f/4, f/5.6 and f/8 on an APS-C body.
+    fn apsc_db(dir: &Path) -> (crate::lens_correction::LensDatabase, String) {
+        std::fs::write(
+            dir.join("lenses.xml"),
+            r#"<lensdatabase><camera>
+                <maker>Canon</maker><model>Canon EOS M100</model><mount>Canon EF-M</mount>
+                <cropfactor>1.6</cropfactor>
+            </camera><lens>
+                <maker>Canon</maker><model>Canon EF 50mm f/1.8 STM</model><mount>Canon EF</mount>
+                <cropfactor>1.0</cropfactor>
+                <calibration>
+                    <distortion model="ptlens" focal="50" a="0.01" b="-0.02" c="0.01"/>
+                    <vignetting model="pa" focal="50" aperture="1.4" distance="10" k1="-0.9" k2="0.2" k3="0"/>
+                    <vignetting model="pa" focal="50" aperture="4" distance="10" k1="-0.6" k2="0.1" k3="0"/>
+                    <vignetting model="pa" focal="50" aperture="5.6" distance="10" k1="-0.5" k2="0.1" k3="0"/>
+                    <vignetting model="pa" focal="50" aperture="8" distance="10" k1="-0.2" k2="0.05" k3="0"/>
+                </calibration>
+            </lens></lensdatabase>"#,
+        )
+        .unwrap();
+        let db = load_lensfun_dir(dir);
+        let lenses = lenses_for_maker(&db, "Canon");
+        let lens = lenses[0].get_display_name(&lenses);
+        (db, lens)
+    }
+
+    fn resolved(
+        db: &crate::lens_correction::LensDatabase,
+        lens: &str,
+        exif: &[(&str, &str)],
+    ) -> serde_json::Value {
+        let mut recipe = serde_json::json!({
+            "lensCorrectionMode": "manual", "lensMaker": "Canon", "lensModel": lens,
+        });
+        let exif = exif
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<HashMap<_, _>>();
+        resolve_lens_params_in_adjustments(
+            &mut recipe,
+            LensLookup::Fresh,
+            &Some(exif),
+            Some(db),
+            Path::new("/photos/IMG_0001.CR2"),
+        );
+        recipe["lensDistortionParams"].clone()
+    }
+
+    /// The vignetting row is the FNumber's: ApertureValue is APEX (6 = f/8)
+    /// and stands in, converted, only without an FNumber.
+    #[test]
+    fn the_lens_profile_is_looked_up_at_the_f_number() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (db, lens) = apsc_db(tmp.path());
+        let at = |aperture| {
+            let params =
+                resolve_lens_params(&db, "Canon", &lens, 50.0, Some(aperture), None, Some(1.6));
+            serde_json::to_value(params.unwrap()).unwrap()
+        };
+        let base = [
+            ("Make", "Canon"),
+            ("Model", "Canon EOS M100"),
+            ("FocalLength", "50"),
+        ];
+        let both = [
+            base.as_slice(),
+            &[("FNumber", "f/8"), ("ApertureValue", "f/6")],
+        ]
+        .concat();
+        assert_eq!(resolved(&db, &lens, &both), at(8.0));
+        let apex = [base.as_slice(), &[("ApertureValue", "f/6")]].concat();
+        assert_eq!(resolved(&db, &lens, &apex), at(8.0));
+        // Av 0 is f/1, not a missing aperture (which looks up at f/3.5).
+        let wide = [base.as_slice(), &[("ApertureValue", "f/0")]].concat();
+        assert_eq!(resolved(&db, &lens, &wide), at(1.0));
+        assert_ne!(at(1.0), at(3.5));
+        assert_ne!(at(8.0), at(5.6));
+    }
+
+    /// The profile is scaled to the body's crop factor: from the camera list
+    /// when the EXIF map's 35 mm equivalent only repeats the focal length (as
+    /// maps read before 2026-10-20 do for every CR2, CR3, RAF, ORF and RW2),
+    /// from the equivalent where it states another frame.
+    #[test]
+    fn the_lens_profile_is_scaled_to_the_frames_crop_factor() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (db, lens) = apsc_db(tmp.path());
+        let at = |crop| {
+            let params =
+                resolve_lens_params(&db, "Canon", &lens, 50.0, Some(8.0), None, Some(crop));
+            serde_json::to_value(params.unwrap()).unwrap()
+        };
+        let base = [
+            ("Make", "Canon"),
+            ("Model", "Canon EOS M100"),
+            ("FNumber", "f/8"),
+        ];
+        let copied = [
+            base.as_slice(),
+            &[("FocalLength", "50"), ("FocalLengthIn35mmFilm", "50")],
+        ]
+        .concat();
+        assert_eq!(resolved(&db, &lens, &copied), at(1.6));
+        let stated = [
+            base.as_slice(),
+            &[("FocalLength", "50"), ("FocalLengthIn35mmFilm", "75 mm")],
+        ]
+        .concat();
+        assert_eq!(resolved(&db, &lens, &stated), at(1.5));
+        assert_ne!(at(1.6), at(1.0));
     }
 
     #[test]

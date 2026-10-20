@@ -1592,11 +1592,10 @@ fn lensfun_default_uncached(source: &Path) -> Option<(String, String, LensDistor
             _ => return None,
         };
         let width_mm = exif.exif_image_width? as f32 / resolution * unit_mm;
-        Some(36.0 / width_mm).filter(|crop| (0.5..=8.0).contains(crop))
+        Some(36.0 / width_mm)
     })();
-    let crop = frame_crop.or_else(|| {
-        crate::lens_correction::camera_crop_factor(&db, &metadata.make, &metadata.model)
-    });
+    let crop =
+        crate::lens_correction::body_crop_factor(&db, &metadata.make, &metadata.model, frame_crop);
     let params = lens.get_distortion_params(focal, aperture, distance, crop)?;
     let (maker, model) = crate::lens_correction::lens_result(&db, lens);
     Some((maker, model, params))

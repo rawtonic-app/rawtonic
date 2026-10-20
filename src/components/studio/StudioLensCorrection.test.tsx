@@ -54,7 +54,7 @@ const renderTool = async () => {
 };
 
 describe("Lens correction tool", () => {
-  it("enables the detected profile with the photo's focal length and aperture", async () => {
+  it("enables the detected profile looked up with the photo's EXIF", async () => {
     await renderTool();
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Enable profile corrections"));
@@ -67,9 +67,7 @@ describe("Lens correction tool", () => {
     expect(mockInvoke).toHaveBeenCalledWith("get_lens_distortion_params", {
       maker: "Sony",
       model: "FE 85mm F1.8",
-      focalLength: 85,
-      aperture: 2.5,
-      distance: 0,
+      exif: { Make: "SONY", Model: "ILCE-7M3", LensModel: "FE 85mm F1.8", FocalLength: "85.0 mm", FNumber: "2.5" },
     });
     expect(current).toMatchObject({
       lensMaker: "Sony",

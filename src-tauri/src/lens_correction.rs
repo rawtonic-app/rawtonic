@@ -70,24 +70,16 @@ pub fn autodetect_lens(
     }
 }
 
+/// The lens's profile for the photo whose EXIF map the editor holds, as a
+/// save resolves it (`lens_recipe::lens_params_for_shot`).
 #[tauri::command]
 pub fn get_lens_distortion_params(
     maker: String,
     model: String,
-    focal_length: f32,
-    aperture: Option<f32>,
-    distance: Option<f32>,
+    exif: Option<std::collections::HashMap<String, String>>,
 ) -> Result<Option<LensDistortionParams>, String> {
     let db_guard = global_lens_db();
-    if let Some(db) = db_guard.as_deref() {
-        let maker_lenses = lenses_for_maker(db, &maker);
-
-        if let Some(lens) = maker_lenses
-            .iter()
-            .find(|l| l.get_display_name(&maker_lenses) == model)
-        {
-            return Ok(lens.get_distortion_params(focal_length, aperture, distance, None));
-        }
-    }
-    Ok(None)
+    Ok(db_guard.as_deref().and_then(|db| {
+        rawtonic_engine::lens_recipe::lens_params_for_shot(db, &maker, &model, exif.as_ref())
+    }))
 }

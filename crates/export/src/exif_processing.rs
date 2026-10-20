@@ -461,7 +461,6 @@ pub fn extract_metadata(file_bytes: &[u8]) -> Option<HashMap<String, String>> {
                     {
                         let val = v[0].num as f32 / v[0].denom as f32;
                         map.insert("FocalLength".to_string(), val.to_string());
-                        map.insert("FocalLengthIn35mmFilm".to_string(), val.to_string());
                     }
                 }
                 exif::Tag::PhotographicSensitivity | exif::Tag::ISOSpeed => {
@@ -713,7 +712,6 @@ pub fn extract_metadata(file_bytes: &[u8]) -> Option<HashMap<String, String>> {
     if let Some(r) = exif.focal_length {
         let val = fmt_rat(&r);
         insert_if_present("FocalLength", val.to_string());
-        insert_if_present("FocalLengthIn35mmFilm", val.to_string());
     }
 
     if let Some(r) = exif.exposure_bias {
@@ -1741,6 +1739,50 @@ mod tests {
             plain.is_none(),
             "nothing without metadata or generated areas"
         );
+    }
+
+    /// A little-endian TIFF whose EXIF holds FocalLength 50 mm and, when
+    /// given, FocalLengthIn35mmFilm.
+    fn tiff_with_focal_length(equivalent: Option<u16>) -> Vec<u8> {
+        let entries = 1 + u16::from(equivalent.is_some());
+        let exif_ifd = 26u32;
+        let rational_at = exif_ifd + 2 + 12 * u32::from(entries) + 4;
+        let mut tiff = b"II\x2a\x00".to_vec();
+        tiff.extend(8u32.to_le_bytes());
+        tiff.extend(1u16.to_le_bytes());
+        tiff.extend(0x8769u16.to_le_bytes());
+        tiff.extend(4u16.to_le_bytes());
+        tiff.extend(1u32.to_le_bytes());
+        tiff.extend(exif_ifd.to_le_bytes());
+        tiff.extend(0u32.to_le_bytes());
+        tiff.extend(entries.to_le_bytes());
+        tiff.extend(0x920Au16.to_le_bytes());
+        tiff.extend(5u16.to_le_bytes());
+        tiff.extend(1u32.to_le_bytes());
+        tiff.extend(rational_at.to_le_bytes());
+        if let Some(equivalent) = equivalent {
+            tiff.extend(0xA405u16.to_le_bytes());
+            tiff.extend(3u16.to_le_bytes());
+            tiff.extend(1u32.to_le_bytes());
+            tiff.extend(u32::from(equivalent).to_le_bytes());
+        }
+        tiff.extend(0u32.to_le_bytes());
+        tiff.extend(50u32.to_le_bytes());
+        tiff.extend(1u32.to_le_bytes());
+        tiff
+    }
+
+    /// The 35 mm equivalent is the photo's own, never the focal length again
+    /// (which made lens profiles take every body for full frame).
+    #[test]
+    fn the_35mm_equivalent_is_read_not_copied_from_the_focal_length() {
+        let without = super::extract_metadata(&tiff_with_focal_length(None)).unwrap();
+        assert_eq!(without.get("FocalLength").map(String::as_str), Some("50"));
+        assert_eq!(without.get("FocalLengthIn35mmFilm"), None);
+        let with = super::extract_metadata(&tiff_with_focal_length(Some(80))).unwrap();
+        assert_eq!(with.get("FocalLength").map(String::as_str), Some("50"));
+        let equivalent = with.get("FocalLengthIn35mmFilm").unwrap();
+        assert!(equivalent.starts_with("80"), "{equivalent}");
     }
 
     #[test]

@@ -1584,7 +1584,7 @@ mod tests {
     }
 
     #[test]
-    fn previews_with_facts_from_before_the_diffraction_versions_are_remade() {
+    fn previews_with_facts_of_an_older_version_are_remade() {
         let dir = tempfile::tempdir().unwrap();
         let photo = session_with_photo(dir.path(), b"raw bytes");
         let settings = AppSettings::default();
@@ -1592,12 +1592,14 @@ mod tests {
         write_full(&photo, &gradient(80, 60), &settings, true).unwrap();
         assert!(stored_size(&photo, &settings).is_some());
         assert!(has_full(&photo, &settings));
-        // Facts of version 3 lack diffraction_sigma from the newer database.
+        // Facts of an older version lack what newer readers use (version 3:
+        // diffraction_sigma from the newer database; 4: lensfun defaults at
+        // the body's crop factor with their whole lateral CA).
         for kind in [ProxyKind::Standard, ProxyKind::Full] {
             let path = proxy_path_of(&photo, kind).unwrap();
             let bytes = fs::read(&path).unwrap();
             let (mut header, at) = parse_header(&bytes).unwrap();
-            header.facts.as_mut().unwrap().version = 3;
+            header.facts.as_mut().unwrap().version = source_facts::VERSION - 1;
             let json = serde_json::to_vec(&header).unwrap();
             let mut out = bytes[..8].to_vec();
             out.extend_from_slice(&(json.len() as u32).to_le_bytes());
