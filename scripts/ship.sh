@@ -142,7 +142,8 @@ else
   python3 -c '
 import json, sys
 v = json.load(open(sys.argv[1]))
-print("## Second-model review\n\nVerdict on %s: **%s**. %s" % (sys.argv[2], v["verdict"], v["summary"]))
+by = " by %s" % v["reviewer"] if v.get("reviewer") else ""
+print("## Second-model review\n\nVerdict on %s%s: **%s**. %s" % (sys.argv[2], by, v["verdict"], v["summary"]))
 for f in v["findings"]:
     print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
 ' "$VERDICT_FILE" "$HEAD_SHA" >"$NOTE"
