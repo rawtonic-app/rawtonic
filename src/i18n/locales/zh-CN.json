@@ -1717,6 +1717,7 @@
           "sky": "天空",
           "subject": "主体"
         },
+        "limitReached": "最多应用 {{limit}} 个可见图层。请先隐藏或删除一个图层。",
         "listAria": "图层",
         "menu": {
           "drawMask": "绘制蒙版",
@@ -1749,6 +1750,8 @@
         "newRadialOutside": "新建径向图层（外部）· 右键单击查看选项",
         "newTitle": "新建图层：绘制、选择或范围",
         "noneYet": "尚无图层。用 + 或在“图层”标签中添加。",
+        "notRendered": "未应用",
+        "notRenderedTitle": "仅应用前 {{limit}} 个可见图层；隐藏或删除其中一个即可应用此图层。",
         "quickAria": "一键新建图层",
         "select": "选择{{name}}",
         "soloEnd": "全部显示",

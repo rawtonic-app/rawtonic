@@ -10,6 +10,7 @@ import { Mask, SubMaskMode, ToolType } from "../panel/right/Masks";
 import { createComponents, type MaskKind } from "../../utils/maskKinds";
 import { Panel } from "../ui/AppProperties";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
+import { warnIfLayerLimit } from "./layerLimitToast";
 
 /** Cursor tools of the viewer bar, after Capture One's cursor tools. */
 export type StudioTool =
@@ -116,6 +117,7 @@ export function useStudioTools() {
    * range), selected with its first component active. */
   const addLayer = (kind: Mask | MaskKind) => {
     if (!selectedImage?.isReady) return;
+    if (warnIfLayerLimit(adjustments.masks)) return;
     const maskKind: MaskKind =
       kind === Mask.Brush ? "brush" : kind === Mask.Linear ? "linear" : kind === Mask.Radial ? "radial" : (kind as MaskKind);
     const components = createComponents(maskKind, selectedImage);

@@ -1812,6 +1812,7 @@
           "sky": "Cielo",
           "subject": "Sujeto"
         },
+        "limitReached": "Se aplican como máximo {{limit}} capas visibles. Oculta o elimina primero una capa.",
         "listAria": "Capas",
         "menu": {
           "drawMask": "Dibujar máscara",
@@ -1844,6 +1845,8 @@
         "newRadialOutside": "Nueva capa radial (fuera) · clic derecho para opciones",
         "newTitle": "Nueva capa: dibujar, seleccionar o rango",
         "noneYet": "Aún no hay capas. Añade una con + o en la pestaña Capas.",
+        "notRendered": "No aplicada",
+        "notRenderedTitle": "Solo se aplican las primeras {{limit}} capas visibles; oculta o elimina una de ellas para aplicar esta capa.",
         "quickAria": "Capa nueva con un clic",
         "select": "Seleccionar {{name}}",
         "soloEnd": "Mostrar todo",

@@ -1812,6 +1812,7 @@
           "sky": "Cel",
           "subject": "Subjecte"
         },
+        "limitReached": "S'apliquen com a màxim {{limit}} capes visibles. Amaga o elimina primer una capa.",
         "listAria": "Capes",
         "menu": {
           "drawMask": "Dibuixa la màscara",
@@ -1844,6 +1845,8 @@
         "newRadialOutside": "Nova capa radial (fora) · clic dret per a opcions",
         "newTitle": "Nova capa: dibuixa, selecciona o rang",
         "noneYet": "Encara no hi ha capes. Afegeix-ne una amb + o a la pestanya Capes.",
+        "notRendered": "No aplicada",
+        "notRenderedTitle": "Només s'apliquen les primeres {{limit}} capes visibles; amaga o elimina'n una perquè s'apliqui aquesta capa.",
         "quickAria": "Capa nova amb un clic",
         "select": "Selecciona {{name}}",
         "soloEnd": "Mostra-ho tot",

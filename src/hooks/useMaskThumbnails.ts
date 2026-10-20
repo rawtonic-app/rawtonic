@@ -5,6 +5,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { Invokes } from '../components/ui/AppProperties';
 import { Mask, type SubMask } from '../components/panel/right/Masks';
 import type { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
+import { GEOMETRY_KEYS, ORIENTATION_KEYS } from '../utils/geometryKeys';
 
 /**
  * Mask thumbnails in the layer list (Lightroom's Masks panel shows one per
@@ -39,34 +40,7 @@ export const useMaskThumbnailStore = create<MaskThumbnailState>(() => ({
 
 /** Recipe fields that move or reshape the photo under its masks (crop,
  * orientation, straightening, transform and lens geometry). */
-const GEOMETRY_FIELDS = [
-  'crop',
-  'rotation',
-  'flipHorizontal',
-  'flipVertical',
-  'orientationSteps',
-  'transformDistortion',
-  'transformVertical',
-  'transformHorizontal',
-  'transformRotate',
-  'transformAspect',
-  'transformScale',
-  'transformXOffset',
-  'transformYOffset',
-  'lensDistortionAmount',
-  'lensVignetteAmount',
-  'lensTcaAmount',
-  'lensDistortionParams',
-  'lensCorrectionMode',
-  'lensMaker',
-  'lensModel',
-  'lensDistortionEnabled',
-  'lensTcaEnabled',
-  'autoChromaticAberration',
-  'autoCaVersion',
-  'lensVignetteEnabled',
-  'guidedPerspective',
-] as const;
+const GEOMETRY_FIELDS = ['crop', ...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
 
 const MASK_DATA_KEYS = new Set(['maskDataBase64', 'mask_data_base64']);
 

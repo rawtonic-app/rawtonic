@@ -1717,6 +1717,7 @@
           "sky": "天空",
           "subject": "主體"
         },
+        "limitReached": "最多套用 {{limit}} 個可見圖層。請先隱藏或刪除一個圖層。",
         "listAria": "圖層",
         "menu": {
           "drawMask": "繪製遮色片",
@@ -1749,6 +1750,8 @@
         "newRadialOutside": "新增放射狀圖層（外部）· 按右鍵查看選項",
         "newTitle": "新增圖層：繪製、選取或範圍",
         "noneYet": "尚無圖層。用 + 或在「圖層」標籤中新增。",
+        "notRendered": "未套用",
+        "notRenderedTitle": "僅套用前 {{limit}} 個可見圖層；隱藏或刪除其中一個即可套用此圖層。",
         "quickAria": "一鍵新增圖層",
         "select": "選擇{{name}}",
         "soloEnd": "全部顯示",

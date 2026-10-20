@@ -35,6 +35,8 @@ import MaskThumb from "./MaskThumb";
 import { useMaskThumbnailStore, useMaskThumbnailUpdates } from "../../hooks/useMaskThumbnails";
 import { soloAfterSelect, toggleLayerSolo } from "../../utils/layerSolo";
 import { AUTO_MASK_VERSION, canUpgradeAutoMask, layerAutoMaskVersions, upgradeLayerAutoMask } from "../../utils/autoMaskUpgrade";
+import { MAX_RENDERED_LAYERS, isRenderedLayer, unrenderedLayerIds } from "../../utils/layerLimit";
+import { warnIfLayerLimit } from "./layerLimitToast";
 
 /** Drop target id of the Background row in the layer list. */
 const BACKGROUND_ROW = "background";
@@ -219,6 +221,8 @@ export default function StudioLayers({
 }) {
   const { t } = useTranslation();
   const masks = useEditorStore((s) => s.adjustments.masks);
+  // Older recipes may hold more rendered layers than the engine applies.
+  const unrenderedIds = unrenderedLayerIds(masks);
   const setEditor = useEditorStore((s) => s.setEditor);
   const layerSolo = useEditorStore((s) => s.layerSolo);
   const { setAdjustments } = useEditorActions();
@@ -251,6 +255,7 @@ export default function StudioLayers({
   // Lightroom's Duplicate and Duplicate and Invert: a copy above the layer,
   // with new ids for it and its components.
   const duplicateLayer = (target: MaskContainer, invert: boolean) => {
+    if (isRenderedLayer(target) && warnIfLayerLimit(masks)) return;
     const copy = {
       ...structuredClone(target),
       id: crypto.randomUUID(),
@@ -478,6 +483,7 @@ export default function StudioLayers({
       <div className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
         {[...masks].reverse().map((mask) => {
           const selected = layer?.id === mask.id;
+          const unrendered = unrenderedIds.has(mask.id);
           const Icon = componentIcon(mask.subMasks[0]) ?? Layers;
           return (
             <Fragment key={mask.id}>
@@ -513,6 +519,14 @@ export default function StudioLayers({
                     busy={mask.subMasks.some((sub) => Boolean(aiTasks[sub.id]))}
                   />
                   {renaming !== mask.id && <span className="studio-layer-label">{mask.name}</span>}
+                  {unrendered && (
+                    <span
+                      className="studio-layer-unrendered"
+                      title={t("studio.develop.layers.notRenderedTitle", { limit: MAX_RENDERED_LAYERS })}
+                    >
+                      {t("studio.develop.layers.notRendered")}
+                    </span>
+                  )}
                 </button>
                 {renaming === mask.id && (
                   <input
@@ -532,14 +546,18 @@ export default function StudioLayers({
                   className="studio-row-icon studio-layer-eye"
                   aria-label={t("studio.develop.layers.toggle", { name: mask.name })}
                   title={t("studio.develop.layers.eyeTitle", { alt: altKey })}
-                  onClick={(e) =>
-                    e.altKey
-                      ? soloLayer(mask)
-                      : setAdjustments((prev) => ({
-                          ...prev,
-                          masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
-                        }))
-                  }
+                  onClick={(e) => {
+                    if (e.altKey) {
+                      soloLayer(mask);
+                      return;
+                    }
+                    // Showing a layer again counts against the rendered limit.
+                    if (!mask.visible && isRenderedLayer({ ...mask, visible: true }) && warnIfLayerLimit(masks)) return;
+                    setAdjustments((prev) => ({
+                      ...prev,
+                      masks: prev.masks.map((m) => (m.id === mask.id ? { ...m, visible: !m.visible } : m)),
+                    }));
+                  }}
                 >
                   {mask.visible ? <Eye size={12} /> : <EyeOff size={12} />}
                 </button>

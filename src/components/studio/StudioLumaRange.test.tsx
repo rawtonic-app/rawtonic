@@ -11,6 +11,8 @@ import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { Panel } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("react-toastify", () => ({ toast: { error: toastError } }));
 const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adjustments)) => {
   const prev = useEditorStore.getState().adjustments;
   useEditorStore.setState({ adjustments: typeof update === "function" ? update(prev) : update });
@@ -157,5 +159,31 @@ describe("refine edge", () => {
     const masks = useEditorStore.getState().adjustments.masks;
     expect(masks[0].maskVersion).toBeUndefined();
     expect(masks[1].maskVersion).toBe(3);
+  });
+});
+
+describe("new layers", () => {
+  it("are refused with a message once 32 visible layers are rendered", () => {
+    const radial = () => createSubMask(Mask.Radial, size);
+    const masks = Array.from({ length: 31 }, (_, i) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: `m${i}`,
+      subMasks: [radial()],
+    }));
+    // An empty or hidden layer is not rendered, so it does not count.
+    masks.push({ ...masks[0], id: "empty", subMasks: [] }, { ...masks[0], id: "off", visible: false });
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, masks: [...state.adjustments.masks, ...masks] },
+    }));
+    let tools: ReturnType<typeof useStudioTools> | undefined;
+    const Probe = () => {
+      tools = useStudioTools();
+      return null;
+    };
+    render(<Probe />);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(34);
+    tools!.addLayer(Mask.Radial);
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(34);
   });
 });

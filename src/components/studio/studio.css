@@ -951,6 +951,17 @@
 .studio-layer.is-selected svg {
   color: #d8e8f4;
 }
+/* A layer past the engine's rendered limit (older recipes only). */
+.studio-layer-unrendered {
+  flex: none;
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid #a8743a;
+  border-radius: 3px;
+  color: #e0a560;
+  font-size: 10px;
+  white-space: nowrap;
+}
 .studio-layer.is-hidden .studio-layer-label {
   color: #868a90;
 }

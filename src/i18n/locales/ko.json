@@ -1717,6 +1717,7 @@
           "sky": "하늘",
           "subject": "피사체"
         },
+        "limitReached": "표시된 레이어는 최대 {{limit}}개까지 적용됩니다. 먼저 레이어를 숨기거나 삭제하세요.",
         "listAria": "레이어",
         "menu": {
           "drawMask": "마스크 그리기",
@@ -1749,6 +1750,8 @@
         "newRadialOutside": "새 원형 레이어(바깥쪽) · 옵션은 마우스 오른쪽 클릭",
         "newTitle": "새 레이어: 그리기, 선택 또는 범위",
         "noneYet": "아직 레이어가 없습니다. + 또는 레이어 탭에서 추가하세요.",
+        "notRendered": "적용 안 됨",
+        "notRenderedTitle": "처음 {{limit}}개의 표시된 레이어만 적용됩니다. 이 레이어를 적용하려면 그중 하나를 숨기거나 삭제하세요.",
         "quickAria": "한 번 클릭으로 새 레이어",
         "select": "{{name}} 선택",
         "soloEnd": "모두 표시",
