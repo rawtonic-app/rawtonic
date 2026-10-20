@@ -2258,9 +2258,16 @@ impl DabTip {
 /// Linear in both, like Capture One's Pen Pressure on size, so the full
 /// range from no dab to the set size and flow is reachable and the response
 /// is monotonic without steps (bar: plan M7; tablet test open).
-/// Dab centres, their (radius, flow) factors, and the share of a step
-/// after the last dab.
-type PenDabs = (Vec<(f32, f32)>, Vec<(f32, f32)>, f32);
+/// The dabs of a pen pressure stroke (`PenPressure::dabs`).
+struct PenDabs {
+    dabs: Vec<(f32, f32)>,
+    /// Each dab's (radius, flow) factor.
+    scales: Vec<(f32, f32)>,
+    /// Each dab's share of a regular dab (as the end dab's weight).
+    weights: Vec<f32>,
+    /// The share of a step the path covered after the last dab.
+    travelled: f32,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct PenPressure {
@@ -2294,12 +2301,18 @@ impl PenPressure {
         )
     }
 
-    /// The dabs of a pressure stroke with their factors, and the share of
-    /// a step the path covered after its last dab (for the end dab). Each
-    /// dab sits one step of its own radius after the one before (spacing as
-    /// a share of the dab's size, as the references space a smaller tip
-    /// closer); pressure is interpolated linearly between points. Lightroom
-    /// tips keep a dab at every point.
+    /// The dabs of a pressure stroke with their factors and weights, and
+    /// the share of a step the path covered after its last dab (for the end
+    /// dab). Each dab sits one step of its own radius after the one before
+    /// (spacing as a share of the dab's size, as the references space a
+    /// smaller tip closer); pressure is interpolated linearly between
+    /// points. A point where the pressure peaks above the last dab (the pen
+    /// pressed harder while barely moving) keeps that peak: within half a
+    /// step of the last dab that dab is raised to it (at most half a step
+    /// back, the density unchanged, and pen jitter only nudges it up);
+    /// farther on, a dab is added there, weighted like the end dab by the
+    /// share of a step since the dab before it, so the density along the
+    /// path stays even. Lightroom tips keep a dab at every point.
     fn dabs(
         self,
         points: &[Point],
@@ -2308,53 +2321,73 @@ impl PenPressure {
         lightroom: bool,
     ) -> PenDabs {
         if lightroom {
-            return (
-                points.iter().map(&local).collect(),
-                points.iter().map(|point| self.factors(point.p)).collect(),
-                0.0,
-            );
+            return PenDabs {
+                dabs: points.iter().map(&local).collect(),
+                scales: points.iter().map(|point| self.factors(point.p)).collect(),
+                weights: Vec::new(),
+                travelled: 0.0,
+            };
         }
+        let pressure = |point: &Point| self.factors(point.p);
+        let raised = |a: (f32, f32), b: (f32, f32)| b.0 > a.0 || b.1 > a.1;
         let spacing = |size: f32| (step * size).max(0.5);
-        let first = self.factors(points[0].p);
-        let (mut dabs, mut scales) = (vec![local(&points[0])], vec![first]);
+        let first = pressure(&points[0]);
+        let mut pen = PenDabs {
+            dabs: vec![local(&points[0])],
+            scales: vec![first],
+            weights: vec![1.0],
+            travelled: 0.0,
+        };
         let mut remaining = spacing(first.0);
         let mut last_step = remaining;
-        for pair in points.windows(2) {
+        for (k, pair) in points.windows(2).enumerate() {
             let (x1, y1) = local(&pair[0]);
             let (x2, y2) = local(&pair[1]);
             let length = (x2 - x1).hypot(y2 - y1);
-            if length <= 0.0 {
-                // Pressing harder where the pen stopped: the dab there takes
-                // the pressure reached. One already there is raised (no dabs
-                // pile up in place); elsewhere between dabs one is added.
-                let (from, to) = (self.factors(pair[0].p), self.factors(pair[1].p));
-                if remaining == last_step {
-                    let last = scales.len() - 1;
-                    scales[last] = (scales[last].0.max(to.0), scales[last].1.max(to.1));
-                } else if to.0 > from.0 || to.1 > from.1 {
-                    dabs.push((x2, y2));
-                    scales.push(to);
-                } else {
-                    continue;
+            if length > 0.0 {
+                let (p1, p2) = (pair[0].p.unwrap_or(1.0), pair[1].p.unwrap_or(1.0));
+                let mut at = 0.0;
+                while remaining <= length - at {
+                    at += remaining;
+                    let t = at / length;
+                    let factors = self.factors(Some(p1 + (p2 - p1) * t));
+                    pen.dabs.push((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
+                    pen.scales.push(factors);
+                    pen.weights.push(1.0);
+                    remaining = spacing(factors.0);
+                    last_step = remaining;
                 }
-                remaining = spacing(scales[scales.len() - 1].0);
-                last_step = remaining;
+                remaining -= length - at;
+            }
+            // A peak at this point above the last dab: the pressure falls
+            // after it (or the stroke ends here without having moved on).
+            let here = pressure(&pair[1]);
+            let last = pen.scales.len() - 1;
+            let share = 1.0 - remaining / last_step;
+            let peak = match points.get(k + 2) {
+                Some(next) => raised(pressure(next), here),
+                None => share <= 0.5,
+            };
+            if !peak || !raised(pen.scales[last], here) {
                 continue;
             }
-            let (p1, p2) = (pair[0].p.unwrap_or(1.0), pair[1].p.unwrap_or(1.0));
-            let mut at = 0.0;
-            while remaining <= length - at {
-                at += remaining;
-                let t = at / length;
-                let factors = self.factors(Some(p1 + (p2 - p1) * t));
-                dabs.push((x1 + (x2 - x1) * t, y1 + (y2 - y1) * t));
-                scales.push(factors);
-                remaining = spacing(factors.0);
+            if share > 0.5 {
+                pen.dabs.push((x2, y2));
+                pen.scales.push(here);
+                pen.weights.push(share.min(1.0));
+                remaining = spacing(here.0);
                 last_step = remaining;
+            } else {
+                // The spacing stays: the next dab comes a step after this
+                // one, as before it was raised.
+                pen.scales[last] = (
+                    pen.scales[last].0.max(here.0),
+                    pen.scales[last].1.max(here.1),
+                );
             }
-            remaining -= length - at;
         }
-        (dabs, scales, 1.0 - remaining / last_step)
+        pen.travelled = 1.0 - remaining / last_step;
+        pen
     }
 }
 
@@ -2407,12 +2440,14 @@ fn blend_stroke_dabs(
     // Pen pressure: each dab's (radius, flow) factor, with dabs spaced by
     // the step of their own radius (`PenPressure::dabs`). Empty without.
     let mut scales: Vec<(f32, f32)> = Vec::new();
+    let mut weights: Vec<f32> = Vec::new();
     // Lightroom stores its dabs: one at every point.
     if lightroom.is_some() {
         dabs = points.iter().map(local).collect();
     }
     if let Some(pen) = pressure {
-        (dabs, scales, travelled) = pen.dabs(points, local, step, lightroom.is_some());
+        let pen = pen.dabs(points, local, step, lightroom.is_some());
+        (dabs, scales, weights, travelled) = (pen.dabs, pen.scales, pen.weights, pen.travelled);
     }
     for pair in points
         .windows(2)
@@ -2441,6 +2476,7 @@ fn blend_stroke_dabs(
         end_weight = Some(match pressure {
             Some(pen) => {
                 scales.push(pen.factors(last.p));
+                weights.push(1.0);
                 travelled.min(1.0)
             }
             None => (travelled / step).min(1.0),
@@ -2449,11 +2485,13 @@ fn blend_stroke_dabs(
     // A dab's (radius, flow) factor: exactly 1 without pressure, so those
     // strokes compute what they did before.
     let scale_of = |dab: usize| scales.get(dab).copied().unwrap_or((1.0, 1.0));
+    // A pressure peak's dab counts for its share of a step (1 otherwise).
+    let weight_of = |dab: usize| weights.get(dab).copied().unwrap_or(1.0);
     // A dab's exponent on what it keeps (1 for every dab in version 1).
     let last_dab = dabs.len() - 1;
     let exponent = |dab: usize| match end_weight {
         Some(weight) if dab == last_dab => density * weight,
-        _ => density,
+        _ => density * weight_of(dab),
     };
 
     let feather_range = (outer - inner).max(0.01);
@@ -2503,7 +2541,7 @@ fn blend_stroke_dabs(
             mask,
             (min_x, min_y, bb_w, bb_h),
             &dabs,
-            &scales,
+            (&scales, &weights),
             end_weight,
             outer,
             tip_at,
@@ -2571,7 +2609,7 @@ fn blend_stroke_dabs(
             let table = kept_table
                 .as_deref()
                 .or_else(|| dab_tables.get(dab).and_then(Option::as_deref))
-                .filter(|_| end_weight.is_none() || dab != last_dab);
+                .filter(|_| (end_weight.is_none() || dab != last_dab) && weight_of(dab) == 1.0);
             for x in left..=right {
                 let offset_x = x as f32 - dx;
                 let dist_sq = offset_x * offset_x + offset_y * offset_y;
@@ -2635,7 +2673,7 @@ fn blend_stroke_auto_mask_v2(
     mask: &mut GrayImage,
     (min_x, min_y, bb_w, bb_h): (u32, u32, usize, usize),
     dabs: &[(f32, f32)],
-    scales: &[(f32, f32)],
+    (scales, weights): (&[(f32, f32)], &[f32]),
     end_weight: Option<f32>,
     outer: f32,
     tip_at: impl Fn(f32) -> f32 + Sync,
@@ -2703,11 +2741,15 @@ fn blend_stroke_auto_mask_v2(
                 let intensity = tip_at(dist_sq * tip_scale);
                 let x = x as usize;
                 // Version 2's end dab counts for its share of a step.
-                let (kept, intensity) = match end_weight {
-                    Some(weight) if dab == dabs.len() - 1 => {
-                        ((1.0 - flow * intensity).powf(weight), intensity * weight)
-                    }
-                    _ => (1.0 - flow * intensity, intensity),
+                // So does a pressure peak's dab (`PenPressure::dabs`).
+                let weight = match end_weight {
+                    Some(weight) if dab == dabs.len() - 1 => weight,
+                    _ => weights.get(dab).copied().unwrap_or(1.0),
+                };
+                let (kept, intensity) = if weight == 1.0 {
+                    (1.0 - flow * intensity, intensity)
+                } else {
+                    ((1.0 - flow * intensity).powf(weight), intensity * weight)
                 };
                 keep[x] *= kept;
                 // A dab weighs in by what it paints: under pen pressure on
@@ -9883,11 +9925,42 @@ mod pen_pressure_tests {
         let eased = paint(&[(200.0, 0.3), (202.0, 0.3), (202.0, 1.0), (202.0, 0.3)]);
         let full = paint(&[(202.0, 1.0)]);
         assert!(width_at(&eased, 202).abs_diff(width_at(&full, 202)) <= 1);
+        // The same with the pen still moving a little.
+        let wobbled = paint(&[(200.0, 0.3), (202.0, 0.3), (202.1, 1.0), (202.2, 0.3)]);
+        assert!(width_at(&wobbled, 202).abs_diff(width_at(&full, 202)) <= 1);
         // Easing off alone paints no wider (the end dab takes the release
         // pressure).
         let moved = paint(&[(200.0, 0.3), (202.0, 0.3)]);
         let eased_only = paint(&[(200.0, 0.3), (202.0, 0.3), (202.0, 0.2)]);
         assert!(width_at(&eased_only, 202) <= width_at(&moved, 202));
+    }
+
+    #[test]
+    fn pen_jitter_does_not_build_up_coverage() {
+        // Pressure alternating 0.50 / 0.53 every pixel (above the editor's
+        // 0.02 step, so every sample is kept) paints about what a steady
+        // 0.515 paints: the peaks raise dabs rather than add them.
+        let flow = serde_json::json!({"pressureFlow": true, "flow": 50.0});
+        let jitter: Vec<(f64, f64)> = (0..=300)
+            .map(|i| (50.0 + i as f64, if i % 2 == 0 { 0.5 } else { 0.53 }))
+            .collect();
+        let steady: Vec<(f64, f64)> = jitter.iter().map(|&(x, _)| (x, 0.515)).collect();
+        let mean = |points: &[(f64, f64)]| {
+            let mut mask = GrayImage::new(400, 120);
+            apply_brush_line(
+                &mut mask,
+                &through(points, flow.clone()),
+                1.0,
+                (0.0, 0.0),
+                None,
+            );
+            (100..300)
+                .map(|x| mask.get_pixel(x, 60)[0] as f32)
+                .sum::<f32>()
+                / 200.0
+        };
+        let (jittered, steady) = (mean(&jitter), mean(&steady));
+        assert!((jittered - steady).abs() < 4.0, "{jittered} vs {steady}");
     }
 
     #[test]

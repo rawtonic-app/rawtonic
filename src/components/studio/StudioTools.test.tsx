@@ -22,7 +22,7 @@ import {
 import { createSubMask } from "../../utils/maskUtils";
 import { registerSliderDraftRenderer } from "../../utils/sliderDraft";
 import { kindOf } from "../../utils/maskKinds";
-import { Mask, SubMaskMode } from "../panel/right/Masks";
+import { Mask, SubMaskMode, ToolType } from "../panel/right/Masks";
 import { Panel, type SelectedImage } from "../ui/AppProperties";
 
 // The viewer stands in for the canvas: a surface that reports right-clicks.
@@ -165,6 +165,16 @@ describe("cursor tool bar", () => {
     expect(editor().activeMaskContainerId).toBe("layer");
     expect(editor().activeMaskId).toBeNull();
     expect(pressed("Select")).toBe("true");
+  });
+
+  it("keeps the pen pressure settings when switching to the eraser", () => {
+    withLinearLayer();
+    useEditorStore.setState({
+      brushSettings: { size: 80, feather: 50, tool: ToolType.Brush, pressureSize: false, pressureFlow: true },
+    });
+    render(<StudioToolBar />);
+    fireEvent.click(screen.getByRole("button", { name: "Eraser" }));
+    expect(editor().brushSettings).toMatchObject({ pressureSize: false, pressureFlow: true });
   });
 
   it("switches to crop and back, and the picker works on the photograph", () => {
