@@ -213,7 +213,10 @@ fn companion_target(photo: &Path, companion: &Path) -> Result<PathBuf> {
 }
 
 pub fn sha256(path: &Path) -> Result<String> {
-    let mut f = fs::File::open(path)?;
+    sha256_of(&mut fs::File::open(path)?)
+}
+
+fn sha256_of(f: &mut impl Read) -> Result<String> {
     let mut h = Sha256::new();
     let mut buffer = vec![0; 1024 * 1024];
     loop {
@@ -277,14 +280,18 @@ pub fn verified_copy(
         "Source changed during verification"
     );
     ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
-    if rawtonic_metadata::no_clobber::persist(temp, destination)?
-        == rawtonic_metadata::no_clobber::Persisted::Copied
-        && sha256(destination)? != hash
+    if let rawtonic_metadata::no_clobber::Persisted::Copied(mut copy) =
+        rawtonic_metadata::no_clobber::persist(temp, destination)?
     {
-        // The volume had no exclusive rename; the copy this call just made
-        // (created exclusively, never a file that was there) is bad.
-        let _ = fs::remove_file(destination);
-        anyhow::bail!("Destination SHA-256 verification failed");
+        // The volume had no exclusive rename: check the copy through its
+        // handle (the name may already be another file's, so a bad copy
+        // is kept, never removed by name).
+        std::io::Seek::rewind(&mut copy)?;
+        ensure!(
+            sha256_of(&mut copy)? == hash,
+            "Destination SHA-256 verification failed (the bad copy is kept at {})",
+            destination.display()
+        );
     }
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
