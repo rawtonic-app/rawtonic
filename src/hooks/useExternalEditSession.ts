@@ -17,8 +17,12 @@ import { debouncedSave } from './useEditorActions';
 export function useExternalEditSession(handleImageSelect: (path: string) => void) {
   const initialFileToOpen = useProcessStore((state) => state.initialFileToOpen);
   const externalEditSession = useProcessStore((state) => state.externalEditSession);
-  const exportStatus = useProcessStore((state) => state.exportState.status);
+  const exportQueue = useProcessStore((state) => state.exportQueue);
   const [isFinishing, setIsFinishing] = useState(false);
+  /** The queued export of the finish (`export_images` returns its job id):
+   * the app quits when this job is done, not when any export completes (a
+   * batch queued before it may finish first). */
+  const [finishJob, setFinishJob] = useState<string | null>(null);
 
   const handleImageSelectRef = useRef(handleImageSelect);
   useEffect(() => {
@@ -38,13 +42,15 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
   }, [externalEditSession]);
 
   useEffect(() => {
-    if (!isFinishing) return;
-    if (exportStatus === Status.Success) {
+    if (!isFinishing || !finishJob) return;
+    const job = exportQueue.find((j) => j.id === finishJob);
+    if (job?.state === 'done') {
       exit(0);
-    } else if (exportStatus === Status.Error || exportStatus === Status.Cancelled) {
+    } else if (job && job.state !== 'queued' && job.state !== 'running') {
       setIsFinishing(false);
+      setFinishJob(null);
     }
-  }, [isFinishing, exportStatus]);
+  }, [isFinishing, finishJob, exportQueue]);
 
   const finishExternalEdit = useCallback(async () => {
     const session = useProcessStore.getState().externalEditSession;
@@ -71,6 +77,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     };
 
     setIsFinishing(true);
+    setFinishJob(null);
     useProcessStore.getState().setExportState({
       status: Status.Exporting,
       progress: { current: 0, total: 1 },
@@ -78,7 +85,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
     });
 
     try {
-      await invoke(Invokes.ExportImages, {
+      const job = await invoke<string>(Invokes.ExportImages, {
         paths: [session.source],
         outputFolderOrFile: session.output,
         isExplicitFilePath: true,
@@ -87,6 +94,7 @@ export function useExternalEditSession(handleImageSelect: (path: string) => void
         outputFormat: session.format,
         ...currentEditForExport(useEditorStore.getState()),
       });
+      setFinishJob(job);
     } catch (error) {
       setIsFinishing(false);
       useProcessStore.getState().setExportState({
