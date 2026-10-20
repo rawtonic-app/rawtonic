@@ -1093,6 +1093,7 @@
       "ingestForget": "忽略",
       "ingestResumed": "已完成中斷的匯入：{{n}} 張照片",
       "ingestResumeFailed": "無法完成中斷的匯入：{{error}}",
+      "ingestRetry": "立即匯入",
       "ingestWaiting": "中斷的匯入中有 {{n}} 張照片正在等待其記憶卡或磁碟機；連接後開啟圖庫即可繼續匯入。",
       "sidecarsCopied_other": "已複製 {{count}} 個 XMP 附屬檔案",
       "sidecarWarnings_other": "{{count}} 張照片複製時未帶附屬檔案。{{error}}",

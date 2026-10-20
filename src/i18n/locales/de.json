@@ -1125,6 +1125,7 @@
       "ingestForget": "Verwerfen",
       "ingestResumed": "Ein unterbrochener Import wurde abgeschlossen: {{n}} Fotos",
       "ingestResumeFailed": "Der unterbrochene Import konnte nicht abgeschlossen werden: {{error}}",
+      "ingestRetry": "Jetzt importieren",
       "ingestWaiting": "{{n}} Fotos eines unterbrochenen Imports warten auf ihre Karte oder ihr Laufwerk; der Import geht weiter, sobald die Bibliothek mit angeschlossenem Datenträger geöffnet wird.",
       "sidecarsCopied_one": "{{count}} XMP-Sidecar-Datei kopiert",
       "sidecarsCopied_other": "{{count}} XMP-Sidecar-Dateien kopiert",

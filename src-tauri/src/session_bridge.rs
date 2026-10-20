@@ -1374,7 +1374,7 @@ pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
     let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
         return HashSet::new();
     };
-    lib.companions()
+    lib.companions_in(Some(&canonical))
         .map(|companions| {
             companions
                 .into_keys()

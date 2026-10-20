@@ -1093,6 +1093,7 @@
       "ingestForget": "잊기",
       "ingestResumed": "중단된 가져오기를 완료했습니다: 사진 {{n}}장",
       "ingestResumeFailed": "중단된 가져오기를 완료할 수 없습니다: {{error}}",
+      "ingestRetry": "지금 가져오기",
       "ingestWaiting": "중단된 가져오기의 사진 {{n}}장이 카드나 드라이브를 기다립니다. 연결된 상태로 라이브러리를 열면 가져오기가 계속됩니다.",
       "sidecarsCopied_other": "XMP 사이드카 {{count}}개 복사됨",
       "sidecarWarnings_other": "사진 {{count}}장이 사이드카 없이 복사되었습니다. {{error}}",

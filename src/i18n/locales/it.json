@@ -1175,6 +1175,7 @@
       "ingestForget": "Dimenticale",
       "ingestResumed": "Un'importazione interrotta è stata completata: {{n}} foto",
       "ingestResumeFailed": "Impossibile completare l'importazione interrotta: {{error}}",
+      "ingestRetry": "Importa ora",
       "ingestWaiting": "{{n}} foto di un'importazione interrotta attendono la loro scheda o unità; l'importazione riprende quando la libreria viene aperta con essa collegata.",
       "sidecarsCopied_one": "{{count}} file XMP associato copiato",
       "sidecarsCopied_many": "{{count}} file XMP associati copiati",

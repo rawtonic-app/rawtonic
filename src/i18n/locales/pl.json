@@ -1225,6 +1225,7 @@
       "ingestForget": "Zapomnij",
       "ingestResumed": "Dokończono przerwany import, zdjęcia: {{n}}",
       "ingestResumeFailed": "Nie udało się dokończyć przerwanego importu: {{error}}",
+      "ingestRetry": "Importuj teraz",
       "ingestWaiting": "Zdjęcia przerwanego importu czekające na kartę lub dysk: {{n}}; import będzie kontynuowany po otwarciu biblioteki z podłączonym nośnikiem.",
       "sidecarsCopied_one": "skopiowano {{count}} plik XMP",
       "sidecarsCopied_few": "skopiowano {{count}} pliki XMP",

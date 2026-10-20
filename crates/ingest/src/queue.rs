@@ -245,6 +245,15 @@ pub fn run_job(
                 companion.skipped = false;
             }
         }
+        let mut done: Vec<ImportResult> = std::iter::once(photo).chain(companion).collect();
+        // Into the album before the photograph counts as done: a run cut
+        // off in between does it again (it is idempotent).
+        if done[0].error.is_none()
+            && let Some(album) = &options.album
+        {
+            add_to_album(library, album, &mut done)?;
+        }
+        let photo = &done[0];
         match &photo.error {
             None => library.set_ingest_item(
                 id,
@@ -269,7 +278,7 @@ pub fn run_job(
                 Some(error),
             )?,
         }
-        for result in std::iter::once(photo).chain(companion) {
+        for result in done {
             if cancel.load(Ordering::Acquire) && result.error.is_some() {
                 break;
             }
@@ -285,9 +294,6 @@ pub fn run_job(
             results.push(result);
         }
     }
-    if let Some(album) = &options.album {
-        add_to_album(library, id, album, &mut results)?;
-    }
     let state = if cancel.load(Ordering::Acquire) {
         JobState::Cancelled
     } else if left {
@@ -299,26 +305,16 @@ pub fn run_job(
     Ok(results)
 }
 
-/// Puts the photographs job `id` brought in (this run's and earlier ones',
-/// a run cut off before it got here included) into `album`. An album
-/// deleted meanwhile takes none; another failure is said on this run's
-/// results.
-fn add_to_album(
-    library: &Library,
-    id: &str,
-    album: &str,
-    results: &mut [ImportResult],
-) -> Result<()> {
-    let mut assets: Vec<String> = Vec::new();
-    for item in library.ingest_job(id)?.items {
-        if item.state == ItemState::Done
-            && let Some(destination) = &item.destination
-            && let Some(asset) = library.asset_at(destination)?
-            && !assets.contains(&asset.id)
-        {
-            assets.push(asset.id);
-        }
-    }
+/// Puts the photographs of `results` (one photograph's: the RAW, and its
+/// JPEG when it came in as a photograph of its own; duplicates the library
+/// held already included) into `album`. An album deleted meanwhile takes
+/// none; another failure is said on the results.
+fn add_to_album(library: &Library, album: &str, results: &mut [ImportResult]) -> Result<()> {
+    let assets: Vec<String> = results
+        .iter()
+        .filter(|r| r.error.is_none() && r.companion_of.is_none())
+        .filter_map(|r| r.asset_id.clone())
+        .collect();
     if assets.is_empty() {
         return Ok(());
     }
@@ -654,8 +650,87 @@ mod tests {
             })
         }));
         assert!(killed.is_err());
-        assert!(lib.collection_assets(&album.id).unwrap().is_empty());
+        // Each photograph went into the album as it came in.
+        assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 1);
         run_job(&lib, &id, &AtomicBool::new(false), |_| {}).unwrap();
         assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 4);
+    }
+
+    /// Killed at the very end (the last photograph done, nothing after):
+    /// every photograph is in the album already. A JPEG that came in as a
+    /// photograph of its own (its RAW was in the library) goes in too.
+    #[test]
+    fn album_membership_comes_with_each_photograph() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let album = lib.create_collection("Client picks", None).unwrap();
+        let sources = card(d.path());
+        let mut opts = options("{orig}");
+        opts.album = Some(&album.id);
+        // C0's RAW came in alone before (no album).
+        import_batch(
+            &lib,
+            &sources[..1],
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        let id = create_job(&lib, &sources, &opts).unwrap();
+        let total = sources.len();
+        let killed = catch_unwind(AssertUnwindSafe(|| {
+            run_job(&lib, &id, &AtomicBool::new(false), |done| {
+                if done.index + 1 == total {
+                    panic!("killed");
+                }
+            })
+        }));
+        assert!(killed.is_err());
+        // C0 (held already), C0.JPG (its own photograph now), C1, C2, C3.
+        assert_eq!(lib.collection_assets(&album.id).unwrap().len(), 5);
+        assert_eq!(lib.summary().unwrap().assets, 5);
+    }
+
+    /// A source reached through a symlink is read through it, as the copy
+    /// does: its job is not left waiting for it.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_source_is_imported() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let real = write(&d.path().join("drive/A.ARW"), b"raw");
+        let link = d.path().join("links/A.ARW");
+        fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let results = import_batch(
+            &lib,
+            &[link],
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert!(results[0].error.is_none(), "{results:?}");
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        assert!(lib.unfinished_ingest_jobs().unwrap().is_empty());
+    }
+
+    /// Cut off after its backup copy was published, before the library's:
+    /// the backup is kept, not made a second time.
+    #[test]
+    fn a_backup_a_cut_off_run_made_is_kept() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Job"), "Job", Mode::Session).unwrap();
+        let backup = d.path().join("backup");
+        let sources = card(d.path());
+        fs::create_dir_all(&backup).unwrap();
+        fs::copy(&sources[2], backup.join("C1.ARW")).unwrap();
+        let mut opts = options("{orig}");
+        opts.backup = Some(&backup);
+        import_batch(&lib, &sources, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+        assert_eq!(
+            names(&backup),
+            ["C0.ARW", "C0.JPG", "C1.ARW", "C2.ARW", "C2.JPG", "C3.ARW"]
+        );
     }
 }

@@ -118,9 +118,8 @@ pub enum SourceState {
 /// Size and modification time (nanoseconds since the epoch) of the file
 /// at `path`.
 fn file_identity(path: &Path) -> Option<(u64, Option<i64>)> {
-    let meta = std::fs::symlink_metadata(path)
-        .ok()
-        .filter(|m| m.is_file())?;
+    // Links followed, as the copy reads through them.
+    let meta = std::fs::metadata(path).ok().filter(|m| m.is_file())?;
     let mtime = meta
         .modified()
         .ok()

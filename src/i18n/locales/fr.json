@@ -1175,6 +1175,7 @@
       "ingestForget": "Les oublier",
       "ingestResumed": "Une importation interrompue a été terminée : {{n}} photos",
       "ingestResumeFailed": "L'importation interrompue n'a pas pu être terminée : {{error}}",
+      "ingestRetry": "Importer maintenant",
       "ingestWaiting": "{{n}} photos d'une importation interrompue attendent leur carte ou leur disque ; l'importation reprend à l'ouverture de la bibliothèque avec celui-ci connecté.",
       "sidecarsCopied_one": "{{count}} fichier annexe XMP copié",
       "sidecarsCopied_many": "{{count}} fichiers annexes XMP copiés",

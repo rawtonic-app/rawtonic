@@ -283,6 +283,27 @@ describe("Dropping photographs onto the window", () => {
     expect(invoke).toHaveBeenCalledWith("session_ingest_forget", { directory: "/jobs/Acme", id: "job-2" });
   });
 
+  it("the card connected later: Import now finishes the waiting ingest without opening the library again", async () => {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let jobs = [{ id: "job-2", total: 3, open: 3, available: 0 }];
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_jobs") return jobs;
+      if (command === "session_ingest_resume") {
+        jobs = [];
+        return [{ source: "/Volumes/CARD/DCIM/F.ARW", destination: "/jobs/Acme/Capture/F.ARW", skipped: false, error: null }];
+      }
+      return base(command, args);
+    });
+    await open();
+    await waitFor(() => expect(toast.info).toHaveBeenCalled());
+    expect(invoke).not.toHaveBeenCalledWith("session_ingest_resume", expect.anything());
+    render(<>{vi.mocked(toast.info).mock.calls[0][0] as React.ReactNode}</>);
+    jobs = [{ id: "job-2", total: 3, open: 3, available: 3 }];
+    await userEvent.setup().click(screen.getByRole("button", { name: "Import now" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("An interrupted import was finished: 1 photos"));
+  });
+
   it("a resumed ingest reports its failures as an ingest does", async () => {
     const base = vi.mocked(invoke).getMockImplementation()!;
     let jobs = [{ id: "job-1", total: 2, open: 2, available: 2 }];

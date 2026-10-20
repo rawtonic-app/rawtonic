@@ -1008,12 +1008,11 @@ pub(crate) fn import_pair(
             backup_folder.canonicalize()? != folder.canonicalize()?,
             "Backup must be a different directory"
         );
-        let kept = match &earlier {
-            Some(_) => identical_file(backup_folder, &name, source, companion, &|_| false, |_| {
-                Ok(true)
-            })?,
-            None => None,
-        };
+        // A backup an earlier, cut-off import made (also when it got no
+        // further than the backup) is kept rather than made again.
+        let kept = identical_file(backup_folder, &name, source, companion, &|_| false, |_| {
+            Ok(true)
+        })?;
         backup_result = Some(match kept {
             Some(kept) => kept,
             None => {

@@ -1175,6 +1175,7 @@
       "ingestForget": "Oblida-les",
       "ingestResumed": "S'ha acabat una importació interrompuda: {{n}} fotos",
       "ingestResumeFailed": "No s'ha pogut acabar la importació interrompuda: {{error}}",
+      "ingestRetry": "Importa ara",
       "ingestWaiting": "{{n}} fotos d'una importació interrompuda esperen la seva targeta o unitat; la importació continua quan s'obre la biblioteca amb la unitat connectada.",
       "sidecarsCopied_one": "{{count}} fitxer XMP complementari copiat",
       "sidecarsCopied_many": "{{count}} fitxers XMP complementaris copiats",
