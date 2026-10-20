@@ -3126,6 +3126,7 @@
         "buttonCount": "Exportar {{n}}",
         "close": "Cerrar herramientas",
         "progress": "Exportando {{current}} / {{total}}",
+        "progressDenoising": "Exportando {{current}} / {{total}} · reducción de ruido con IA…",
         "title": "Exportar fotos"
       },
       "flags": {

@@ -3037,6 +3037,7 @@
         "buttonCount": "Export {{n}}",
         "close": "Werkzeuge schließen",
         "progress": "Export {{current}} / {{total}}",
+        "progressDenoising": "Export {{current}} / {{total}} · KI-Entrauschen …",
         "title": "Fotos exportieren"
       },
       "flags": {

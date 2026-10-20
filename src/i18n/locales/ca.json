@@ -3126,6 +3126,7 @@
         "buttonCount": "Exporta {{n}}",
         "close": "Tanca les eines",
         "progress": "Exportant {{current}} / {{total}}",
+        "progressDenoising": "Exportant {{current}} / {{total}} · reducció de soroll amb IA…",
         "title": "Exporta les fotos"
       },
       "flags": {

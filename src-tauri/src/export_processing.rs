@@ -760,6 +760,14 @@ pub(crate) async fn export_images_impl(
                     let pristine_source = if let Some(source) = cached_source {
                         source
                     } else {
+                        // AI Denoise takes up to a minute per photo without a
+                        // GPU; the Export button says what it waits for.
+                        if is_raw
+                            && rawtonic_engine::image_loader::ai_denoise_settings(&js_adjustments)
+                                .is_some()
+                        {
+                            let _ = app_handle_clone.emit("export-denoising", &image_path_str);
+                        }
                         Arc::new(load_export_base_image(
                             &state,
                             &source_path_str,

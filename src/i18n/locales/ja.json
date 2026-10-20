@@ -2969,6 +2969,7 @@
         "buttonCount": "書き出し {{n}}",
         "close": "ツールを閉じる",
         "progress": "書き出し中 {{current}} / {{total}}",
+        "progressDenoising": "書き出し中 {{current}} / {{total}} · AI ノイズ除去…",
         "title": "写真を書き出し"
       },
       "flags": {

@@ -2969,6 +2969,7 @@
         "buttonCount": "匯出 {{n}}",
         "close": "關閉工具",
         "progress": "正在匯出 {{current}} / {{total}}",
+        "progressDenoising": "正在匯出 {{current}} / {{total}} · AI 降噪…",
         "title": "匯出照片"
       },
       "flags": {

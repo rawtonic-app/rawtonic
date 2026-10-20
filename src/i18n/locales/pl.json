@@ -3215,6 +3215,7 @@
         "buttonCount": "Eksport {{n}}",
         "close": "Zamknij narzędzia",
         "progress": "Eksport {{current}} / {{total}}",
+        "progressDenoising": "Eksport {{current}} / {{total}} · odszumianie AI…",
         "title": "Eksportuj zdjęcia"
       },
       "flags": {

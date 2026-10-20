@@ -2969,6 +2969,7 @@
         "buttonCount": "내보내기 {{n}}",
         "close": "도구 닫기",
         "progress": "내보내는 중 {{current}} / {{total}}",
+        "progressDenoising": "내보내는 중 {{current}} / {{total}} · AI 노이즈 제거…",
         "title": "사진 내보내기"
       },
       "flags": {

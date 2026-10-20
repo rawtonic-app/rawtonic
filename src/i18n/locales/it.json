@@ -3126,6 +3126,7 @@
         "buttonCount": "Esporta {{n}}",
         "close": "Chiudi strumenti",
         "progress": "Esportazione {{current}} / {{total}}",
+        "progressDenoising": "Esportazione {{current}} / {{total}} · riduzione rumore IA…",
         "title": "Esporta foto"
       },
       "flags": {

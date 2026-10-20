@@ -117,6 +117,7 @@ export const useProcessStore = create<ProcessState>((set, get) => ({
           exportState: {
             ...prev.exportState,
             status: Status.Idle,
+            denoising: [],
             errorMessage: '',
             progress: { current: 0, total: 0 },
           },

@@ -3215,6 +3215,7 @@
         "buttonCount": "Экспорт {{n}}",
         "close": "Закрыть инструменты",
         "progress": "Экспорт {{current}} / {{total}}",
+        "progressDenoising": "Экспорт {{current}} / {{total}} · ИИ-шумоподавление…",
         "title": "Экспорт фотографий"
       },
       "flags": {

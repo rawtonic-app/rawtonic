@@ -3037,6 +3037,7 @@
         "buttonCount": "Export {{n}}",
         "close": "Close tools",
         "progress": "Exporting {{current}} / {{total}}",
+        "progressDenoising": "Exporting {{current}} / {{total}} · AI Denoise…",
         "title": "Export photographs"
       },
       "flags": {
