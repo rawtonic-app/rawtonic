@@ -1870,6 +1870,7 @@
           "sky": "Niebo",
           "subject": "Obiekt główny"
         },
+        "limitReached": "Stosowanych jest najwyżej {{limit}} widocznych warstw. Najpierw ukryj lub usuń warstwę.",
         "listAria": "Warstwy",
         "menu": {
           "drawMask": "Rysuj maskę",
@@ -1902,6 +1903,8 @@
         "newRadialOutside": "Nowa warstwa radialna (na zewnątrz) · prawy przycisk – opcje",
         "newTitle": "Nowa warstwa: rysuj, zaznacz lub zakres",
         "noneYet": "Brak warstw. Dodaj je przyciskiem + lub w karcie Warstwy.",
+        "notRendered": "Niestosowana",
+        "notRenderedTitle": "Stosowanych jest tylko pierwszych {{limit}} widocznych warstw; ukryj lub usuń jedną z nich, aby zastosować tę warstwę.",
         "quickAria": "Nowa warstwa jednym kliknięciem",
         "select": "Wybierz: {{name}}",
         "soloEnd": "Pokaż wszystko",

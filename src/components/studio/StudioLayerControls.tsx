@@ -9,6 +9,8 @@ import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
 import { createSubMask, DEFAULT_LUMA_RANGE } from "../../utils/maskUtils";
 import { MASK_VERSION } from "../../utils/adjustments";
 import { Mask } from "../panel/right/Masks";
+import { warnIfComponentStartsLayer } from "./layerLimitToast";
+import { keepWithinLayerLimit } from "../../utils/layerLimit";
 import {
   BRUSH_SIZE_MAX,
   BRUSH_SIZE_MIN,
@@ -55,7 +57,7 @@ export default function StudioLayerControls({
   const layerId = layer.id;
   type SubMasks = typeof layer.subMasks;
   const updateLayer = (subMasks: (subs: SubMasks) => SubMasks) =>
-    setAdjustments((prev) => ({
+    setAdjustments((prev) => keepWithinLayerLimit(prev, {
       ...prev,
       masks: prev.masks.map((m) => (m.id === layerId ? { ...m, subMasks: subMasks(m.subMasks) } : m)),
     }));
@@ -335,7 +337,10 @@ export default function StudioLayerControls({
           <button
             className="studio-text-button"
             title={t("studio.layers.lumaRange.limitTitle")}
-            onClick={() => updateLayer((subs) => [...subs, createSubMask(Mask.LumaRange, { width: 0, height: 0 })])}
+            onClick={() => {
+              if (warnIfComponentStartsLayer(layer.id)) return;
+              updateLayer((subs) => [...subs, createSubMask(Mask.LumaRange, { width: 0, height: 0 })]);
+            }}
           >
             <Sun size={12} />
             {t("studio.layers.lumaRange.limit")}

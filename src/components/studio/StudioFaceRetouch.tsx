@@ -8,40 +8,14 @@ import { Invokes } from "../ui/AppProperties";
 import type { Adjustments, FaceRetouch, FaceRetouchSettings, RetouchFace } from "../../utils/adjustments";
 import { aiErrorMessage } from "../../utils/aiErrors";
 import AdjustmentControl from "./AdjustmentControl";
+import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../utils/geometryKeys";
 
 /** What decides the mask frame the faces are found in: orientation,
  * flips, straightening and the geometry keys of
  * crates/engine/src/cache_utils.rs (`GEOMETRY_KEYS`); the same set as the
  * engine's `face_retouch::frame_key`, so both agree when a geometry change
  * makes the stored faces stale. */
-export const FACE_FRAME_KEYS = [
-  'orientationSteps',
-  'flipHorizontal',
-  'flipVertical',
-  'rotation',
-  'transformDistortion',
-  'transformVertical',
-  'transformHorizontal',
-  'transformRotate',
-  'transformAspect',
-  'transformScale',
-  'transformXOffset',
-  'transformYOffset',
-  'lensDistortionAmount',
-  'lensVignetteAmount',
-  'lensTcaAmount',
-  'lensDistortionParams',
-  'lensCorrectionMode',
-  'lensMaker',
-  'lensModel',
-  'lensDistortionEnabled',
-  'lensTcaEnabled',
-  'autoChromaticAberration',
-  'autoCaVersion',
-  'fringeVersion',
-  'lensVignetteEnabled',
-  'guidedPerspective',
-] as const;
+export const FACE_FRAME_KEYS = [...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
 
 /** The geometry the faces are found in (the mask frame, without the crop). */
 export function faceRetouchGeometry(adjustments: Adjustments) {

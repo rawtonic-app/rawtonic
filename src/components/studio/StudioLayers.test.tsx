@@ -13,7 +13,12 @@ import type { Adjustments } from "../../utils/adjustments";
 import { Panel } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
-const { showContextMenu, setAdjustments } = vi.hoisted(() => ({ showContextMenu: vi.fn(), setAdjustments: vi.fn() }));
+const { showContextMenu, setAdjustments, toastError } = vi.hoisted(() => ({
+  showContextMenu: vi.fn(),
+  setAdjustments: vi.fn(),
+  toastError: vi.fn(),
+}));
+vi.mock("react-toastify", () => ({ toast: { error: toastError } }));
 vi.mock("../../context/ContextMenuContext", () => ({ useContextMenu: () => ({ showContextMenu }) }));
 vi.mock("../../hooks/useEditorActions", () => ({ useEditorActions: () => ({ setAdjustments }) }));
 // The rows only read the thumbnails (useMaskThumbnails.test.ts covers updates).
@@ -173,5 +178,73 @@ describe("Upgrade to current Auto Mask (D6)", () => {
     withStrokes(3);
     render(<StudioLayers />);
     expect(menuOf("l2").some((item) => item.label?.startsWith("Upgrade"))).toBe(false);
+  });
+});
+
+describe("rendered layer limit", () => {
+  /** `count` visible radial layers l1… plus a hidden one ("hidden"). */
+  const layers = (count: number) => {
+    const masks = Array.from({ length: count }, (_, i) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: `l${i + 1}`,
+      name: `Layer ${i + 1}`,
+      subMasks: [createSubMask(Mask.Radial, size)],
+    }));
+    masks.push({ ...masks[0], id: "hidden", name: "Hidden", visible: false });
+    useEditorStore.setState({ adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks } });
+  };
+
+  it("refuses Duplicate and showing a hidden layer beyond 32 with a message", () => {
+    layers(32);
+    render(<StudioLayers />);
+    menuOf("l1").find((item) => item.label === "Duplicate Layer")!.onClick!();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Hidden" }));
+    expect(setAdjustments).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(2);
+    expect(toastError.mock.calls[0][0]).toMatch(/Up to 32 visible layers/);
+    // Hiding a layer stays possible, and so does duplicating a hidden one.
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Layer 1" }));
+    menuOf("hidden").find((item) => item.label === "Duplicate Layer")!.onClick!();
+    expect(setAdjustments).toHaveBeenCalledTimes(2);
+  });
+
+  it("counts the layers as they are when a kept menu's Duplicate is chosen", () => {
+    layers(31);
+    render(<StudioLayers />);
+    const duplicate = menuOf("l1").find((item) => item.label === "Duplicate Layer")!;
+    layers(32);
+    duplicate.onClick!();
+    expect(setAdjustments).not.toHaveBeenCalled();
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("copies nothing when a kept menu's layer was deleted meanwhile", () => {
+    layers(32);
+    render(<StudioLayers />);
+    const duplicate = menuOf("l1").find((item) => item.label === "Duplicate Layer")!;
+    const { masks } = useEditorStore.getState().adjustments;
+    useEditorStore.setState({
+      adjustments: { ...useEditorStore.getState().adjustments, masks: [...masks.slice(1), { ...masks[1], id: "new" }] },
+    });
+    duplicate.onClick!();
+    expect(setAdjustments).not.toHaveBeenCalled();
+  });
+
+  it("allows them below the limit", () => {
+    layers(31);
+    render(<StudioLayers />);
+    menuOf("l1").find((item) => item.label === "Duplicate Layer")!.onClick!();
+    fireEvent.click(screen.getByRole("button", { name: "Toggle Hidden" }));
+    expect(setAdjustments).toHaveBeenCalledTimes(2);
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("marks the layers an older recipe holds beyond the limit as not applied", () => {
+    layers(34);
+    render(<StudioLayers />);
+    const marked = Array.from(document.querySelectorAll(".studio-layer-unrendered")).map(
+      (badge) => badge.closest("[data-layer-row]")!.getAttribute("data-layer-row"),
+    );
+    expect(marked.sort()).toEqual(["l33", "l34"]);
   });
 });

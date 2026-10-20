@@ -1812,6 +1812,7 @@
           "sky": "Cielo",
           "subject": "Soggetto"
         },
+        "limitReached": "Vengono applicati al massimo {{limit}} livelli visibili. Nascondi o elimina prima un livello.",
         "listAria": "Livelli",
         "menu": {
           "drawMask": "Disegna maschera",
@@ -1844,6 +1845,8 @@
         "newRadialOutside": "Nuovo livello radiale (esterno) · clic destro per le opzioni",
         "newTitle": "Nuovo livello: disegna, seleziona o gamma",
         "noneYet": "Ancora nessun livello. Aggiungine uno con + o nella scheda Livelli.",
+        "notRendered": "Non applicato",
+        "notRenderedTitle": "Vengono applicati solo i primi {{limit}} livelli visibili; nascondine o eliminane uno per applicare questo livello.",
         "quickAria": "Nuovo livello con un clic",
         "select": "Seleziona {{name}}",
         "soloEnd": "Mostra tutto",

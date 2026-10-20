@@ -1754,6 +1754,7 @@
           "sky": "Himmel",
           "subject": "Motiv"
         },
+        "limitReached": "Es werden höchstens {{limit}} sichtbare Ebenen angewendet. Blende zuerst eine Ebene aus oder lösche sie.",
         "listAria": "Ebenen",
         "menu": {
           "drawMask": "Maske zeichnen",
@@ -1786,6 +1787,8 @@
         "newRadialOutside": "Neue radiale Ebene (außen) · Rechtsklick für Optionen",
         "newTitle": "Neue Ebene: zeichnen, auswählen oder Bereich",
         "noneYet": "Noch keine Ebenen. Mit + oder im Tab Ebenen hinzufügen.",
+        "notRendered": "Nicht angewendet",
+        "notRenderedTitle": "Nur die ersten {{limit}} sichtbaren Ebenen werden angewendet; blende eine davon aus oder lösche sie, damit diese Ebene wirkt.",
         "quickAria": "Neue Ebene mit einem Klick",
         "select": "{{name}} auswählen",
         "soloEnd": "Alle zeigen",

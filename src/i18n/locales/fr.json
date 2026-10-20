@@ -1812,6 +1812,7 @@
           "sky": "Ciel",
           "subject": "Sujet"
         },
+        "limitReached": "Au plus {{limit}} calques visibles sont appliqués. Masquez ou supprimez d'abord un calque.",
         "listAria": "Calques",
         "menu": {
           "drawMask": "Dessiner le masque",
@@ -1844,6 +1845,8 @@
         "newRadialOutside": "Nouveau calque radial (extérieur) · clic droit pour les options",
         "newTitle": "Nouveau calque : dessiner, sélectionner ou plage",
         "noneYet": "Aucun calque. Ajoutez-en un avec + ou dans l'onglet Calques.",
+        "notRendered": "Non appliqué",
+        "notRenderedTitle": "Seuls les {{limit}} premiers calques visibles sont appliqués ; masquez ou supprimez-en un pour appliquer ce calque.",
         "quickAria": "Nouveau calque en un clic",
         "select": "Sélectionner {{name}}",
         "soloEnd": "Tout afficher",

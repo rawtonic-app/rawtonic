@@ -10,6 +10,8 @@ import { Mask, SubMaskMode, ToolType } from "../panel/right/Masks";
 import { createComponents, type MaskKind } from "../../utils/maskKinds";
 import { Panel } from "../ui/AppProperties";
 import { DEFAULT_BRUSH_SIZE } from "../../utils/brushSize";
+import { warnIfComponentStartsLayer, warnIfLayerLimit } from "./layerLimitToast";
+import { keepWithinLayerLimit } from "../../utils/layerLimit";
 
 /** Cursor tools of the viewer bar, after Capture One's cursor tools. */
 export type StudioTool =
@@ -116,6 +118,7 @@ export function useStudioTools() {
    * range), selected with its first component active. */
   const addLayer = (kind: Mask | MaskKind) => {
     if (!selectedImage?.isReady) return;
+    if (warnIfLayerLimit()) return;
     const maskKind: MaskKind =
       kind === Mask.Brush ? "brush" : kind === Mask.Linear ? "linear" : kind === Mask.Radial ? "radial" : (kind as MaskKind);
     const components = createComponents(maskKind, selectedImage);
@@ -123,7 +126,7 @@ export function useStudioTools() {
     // Capture One's "Draw Mask Inside" decides which side a new radial covers.
     if (maskKind === "radial") mask.invert = !radialDrawInside;
     const id = crypto.randomUUID();
-    setAdjustments((prev) => ({
+    setAdjustments((prev) => keepWithinLayerLimit(prev, {
       ...prev,
       masks: [
         ...prev.masks,
@@ -170,9 +173,10 @@ export function useStudioTools() {
       (m) => m.type === Mask.Brush && m.mode === mode,
     );
     if (!brush) {
+      if (warnIfComponentStartsLayer(target.id)) return;
       const created = createSubMask(Mask.Brush, selectedImage, mode);
       brush = created;
-      setAdjustments((prev) => ({
+      setAdjustments((prev) => keepWithinLayerLimit(prev, {
         ...prev,
         masks: prev.masks.map((m) =>
           m.id === target.id
@@ -202,12 +206,13 @@ export function useStudioTools() {
       kind === "luminance"
         ? components.filter((c) => c.type === Mask.LumaRange && !target.subMasks.some((m) => m.type === Mask.LumaRange))
         : components;
+    if (added.length > 0 && warnIfComponentStartsLayer(target.id)) return;
     if (added.length === 0) {
       // The layer has its luma range already: sample tones for it.
       if (kind === "luminance") setEditor({ activeMaskContainerId: target.id, lumaPickerLayer: target.id });
       return;
     }
-    setAdjustments((prev) => ({
+    setAdjustments((prev) => keepWithinLayerLimit(prev, {
       ...prev,
       masks: prev.masks.map((m) =>
         m.id === target.id

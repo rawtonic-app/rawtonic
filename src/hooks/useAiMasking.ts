@@ -9,34 +9,14 @@ import { useEditorActions } from './useEditorActions';
 import { Adjustments, MaskContainer, Coord } from '../utils/adjustments';
 import { SubMask } from '../components/panel/right/Masks';
 import { Invokes, Panel } from '../components/ui/AppProperties';
+import { GEOMETRY_KEYS } from '../utils/geometryKeys';
 
 /** The adjustments that warp the photo before its orientation (the engine's
  * `GEOMETRY_KEYS`): AI masks are computed in, and record, this frame. Upright
  * and guided perspective belong to it as much as the lens: without them the
  * masks were computed on the unrectified photo and sat off it. */
-export const getTransformAdjustments = (adj: Adjustments) => ({
-  guidedPerspective: adj.guidedPerspective,
-  lensCorrectionMode: adj.lensCorrectionMode,
-  autoChromaticAberration: adj.autoChromaticAberration,
-  autoCaVersion: adj.autoCaVersion,
-  transformDistortion: adj.transformDistortion,
-  transformVertical: adj.transformVertical,
-  transformHorizontal: adj.transformHorizontal,
-  transformRotate: adj.transformRotate,
-  transformAspect: adj.transformAspect,
-  transformScale: adj.transformScale,
-  transformXOffset: adj.transformXOffset,
-  transformYOffset: adj.transformYOffset,
-  lensDistortionAmount: adj.lensDistortionAmount,
-  lensVignetteAmount: adj.lensVignetteAmount,
-  lensTcaAmount: adj.lensTcaAmount,
-  lensDistortionParams: adj.lensDistortionParams,
-  lensMaker: adj.lensMaker,
-  lensModel: adj.lensModel,
-  lensDistortionEnabled: adj.lensDistortionEnabled,
-  lensTcaEnabled: adj.lensTcaEnabled,
-  lensVignetteEnabled: adj.lensVignetteEnabled,
-});
+export const getTransformAdjustments = (adj: Adjustments) =>
+  Object.fromEntries(GEOMETRY_KEYS.map((key) => [key, adj[key]])) as Pick<Adjustments, (typeof GEOMETRY_KEYS)[number]>;
 
 /** The Subject and Sky masks computed ahead (`precompute_ai_foreground_mask`,
  * then `precompute_ai_sky_mask`): the photo and geometry asked for, the task

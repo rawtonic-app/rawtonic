@@ -11,6 +11,8 @@ import { Mask, SubMaskMode } from "../panel/right/Masks";
 import { Panel } from "../ui/AppProperties";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => undefined) }));
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock("react-toastify", () => ({ toast: { error: toastError } }));
 const setAdjustments = vi.fn((update: Adjustments | ((prev: Adjustments) => Adjustments)) => {
   const prev = useEditorStore.getState().adjustments;
   useEditorStore.setState({ adjustments: typeof update === "function" ? update(prev) : update });
@@ -21,6 +23,7 @@ const size = { width: 1000, height: 800 };
 const layerOf = () => useEditorStore.getState().adjustments.masks[0];
 
 beforeEach(() => {
+  toastError.mockClear();
   const linear = createSubMask(Mask.Linear, size);
   useEditorStore.setState({
     selectedImage: { path: "/a.arw", isReady: true, ...size } as never,
@@ -157,5 +160,69 @@ describe("refine edge", () => {
     const masks = useEditorStore.getState().adjustments.masks;
     expect(masks[0].maskVersion).toBeUndefined();
     expect(masks[1].maskVersion).toBe(3);
+  });
+});
+
+describe("new layers", () => {
+  it("are counted as the layers are now, also from a menu kept open", () => {
+    const masks = Array.from({ length: 30 }, (_, i) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: `m${i}`,
+      subMasks: [createSubMask(Mask.Radial, size)],
+    }));
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, masks: [...state.adjustments.masks, ...masks] },
+    }));
+    let tools: ReturnType<typeof useStudioTools> | undefined;
+    const Probe = () => {
+      tools = useStudioTools();
+      return null;
+    };
+    render(<Probe />);
+    // An open menu keeps the callback of the render it was opened in.
+    const retained = tools!.addLayer;
+    retained(Mask.Radial);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(32);
+    retained(Mask.Radial);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(32);
+    expect(toastError).toHaveBeenCalledTimes(1);
+  });
+
+  it("are refused with a message once 32 visible layers are rendered", () => {
+    const radial = () => createSubMask(Mask.Radial, size);
+    const masks = Array.from({ length: 31 }, (_, i) => ({
+      ...structuredClone(INITIAL_MASK_CONTAINER),
+      id: `m${i}`,
+      subMasks: [radial()],
+    }));
+    // An empty or hidden layer is not rendered, so it does not count.
+    masks.push({ ...masks[0], id: "empty", subMasks: [] }, { ...masks[0], id: "off", visible: false });
+    useEditorStore.setState((state) => ({
+      adjustments: { ...state.adjustments, masks: [...state.adjustments.masks, ...masks] },
+    }));
+    let tools: ReturnType<typeof useStudioTools> | undefined;
+    const Probe = () => {
+      tools = useStudioTools();
+      return null;
+    };
+    render(<Probe />);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(34);
+    tools!.addLayer(Mask.Radial);
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(useEditorStore.getState().adjustments.masks).toHaveLength(34);
+    // A component added to the empty layer would make it the 33rd as well;
+    // the limit counts it whichever way it is added.
+    const empty = () => useEditorStore.getState().adjustments.masks.find((m) => m.id === "empty")!;
+    tools!.paintOnLayer(empty(), true);
+    tools!.addComponent(empty(), "radial", SubMaskMode.Additive);
+    useEditorStore.setState({ activeMaskContainerId: "empty" });
+    render(<StudioLayerControls />);
+    fireEvent.click(screen.getByText("Limit to a luma range…"));
+    expect(empty().subMasks).toHaveLength(0);
+    expect(toastError).toHaveBeenCalledTimes(4);
+    // A component on a layer that is rendered already is fine.
+    tools!.addComponent(layerOf(), "radial", SubMaskMode.Additive);
+    expect(layerOf().subMasks).toHaveLength(2);
+    expect(toastError).toHaveBeenCalledTimes(4);
   });
 });

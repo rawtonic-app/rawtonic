@@ -1812,6 +1812,7 @@
           "sky": "Céu",
           "subject": "Motivo"
         },
+        "limitReached": "São aplicadas no máximo {{limit}} camadas visíveis. Oculte ou exclua uma camada primeiro.",
         "listAria": "Camadas",
         "menu": {
           "drawMask": "Desenhar máscara",
@@ -1844,6 +1845,8 @@
         "newRadialOutside": "Nova camada radial (fora) · clique com o botão direito para opções",
         "newTitle": "Nova camada: desenhar, selecionar ou faixa",
         "noneYet": "Ainda não há camadas. Adicione com + ou na aba Camadas.",
+        "notRendered": "Não aplicada",
+        "notRenderedTitle": "Apenas as primeiras {{limit}} camadas visíveis são aplicadas; oculte ou exclua uma delas para aplicar esta camada.",
         "quickAria": "Nova camada com um clique",
         "select": "Selecionar {{name}}",
         "soloEnd": "Mostrar tudo",
