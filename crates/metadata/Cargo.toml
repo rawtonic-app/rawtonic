@@ -12,5 +12,8 @@ tempfile.workspace = true
 sha2.workspace = true
 roxmltree = "0.21"
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.189"
+
 [dev-dependencies]
 tempfile.workspace = true

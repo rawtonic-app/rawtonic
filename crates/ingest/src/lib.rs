@@ -213,7 +213,10 @@ fn companion_target(photo: &Path, companion: &Path) -> Result<PathBuf> {
 }
 
 pub fn sha256(path: &Path) -> Result<String> {
-    let mut f = fs::File::open(path)?;
+    sha256_of(&mut fs::File::open(path)?)
+}
+
+fn sha256_of(f: &mut impl Read) -> Result<String> {
     let mut h = Sha256::new();
     let mut buffer = vec![0; 1024 * 1024];
     loop {
@@ -226,7 +229,7 @@ pub fn sha256(path: &Path) -> Result<String> {
     Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
 }
 
-/// Destination parent must already exist. Atomic persist_noclobber closes the
+/// Destination parent must already exist. The no-clobber persist closes the
 /// existence-check race; a concurrent writer can never have its file replaced.
 pub fn verified_copy(
     source: &Path,
@@ -277,7 +280,19 @@ pub fn verified_copy(
         "Source changed during verification"
     );
     ensure!(!cancel.load(Ordering::Acquire), "Ingest cancelled");
-    temp.persist_noclobber(destination).map_err(|e| e.error)?;
+    if let rawtonic_metadata::no_clobber::Persisted::Copied(mut copy) =
+        rawtonic_metadata::no_clobber::persist(temp, destination)?
+    {
+        // The volume had no exclusive rename: check the copy through its
+        // handle (the name may already be another file's, so a bad copy
+        // is kept, never removed by name).
+        std::io::Seek::rewind(&mut copy)?;
+        ensure!(
+            sha256_of(&mut copy)? == hash,
+            "Destination SHA-256 verification failed (the bad copy is kept at {})",
+            destination.display()
+        );
+    }
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(CopyReceipt {

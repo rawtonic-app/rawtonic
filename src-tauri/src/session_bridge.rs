@@ -1679,7 +1679,7 @@ pub fn save_new_image(image: &image::DynamicImage, path: &Path) -> anyhow::Resul
     let mut temp = tempfile::NamedTempFile::new_in(parent)?;
     image.write_to(temp.as_file_mut(), image::ImageFormat::from_path(path)?)?;
     temp.as_file().sync_all()?;
-    temp.persist_noclobber(path).map_err(|e| e.error)?;
+    rawtonic_metadata::no_clobber::persist(temp, path)?;
     #[cfg(unix)]
     fs::File::open(parent)?.sync_all()?;
     Ok(())
