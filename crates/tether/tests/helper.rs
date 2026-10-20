@@ -30,6 +30,7 @@ fn start_with(spec: &MockSpec, session: &Path, shot_timeout_ms: u64) -> Helper {
             "RAWTONIC_TETHER_SHOT_TIMEOUT_MS".into(),
             shot_timeout_ms.to_string().into(),
         ),
+        ("RAWTONIC_TETHER_ONE_AT_A_TIME_MS".into(), "1500".into()),
     ];
     let (client, library) = Client::spawn(Path::new(HELPER), &["--mock".into()], &envs, move |i| {
         let _ = tx.send(i);
@@ -1355,4 +1356,27 @@ fn a_camera_that_takes_one_shot_at_a_time_gets_every_shot_of_a_burst() {
         photos.iter().map(|p| p.request).collect::<Vec<_>>(),
         requests.into_iter().map(Some).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn a_camera_still_busy_with_the_last_shot_is_not_fired_again() {
+    // A long exposure: the last shot's photo has not come when the wait
+    // ends, so the next is refused as busy, not fired into nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        event_delay_ms: 3000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let first = helper.capture();
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Busy);
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(first));
+    // Once it came, the camera is fired again.
+    let second = helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(second));
 }

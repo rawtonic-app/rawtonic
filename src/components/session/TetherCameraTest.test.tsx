@@ -718,8 +718,8 @@ it("names a photo that came after its shot was reported as not delivered", async
   await runStep(
     /\| Shots from Rawtonic \| FAIL \| 4\/5 in the library; .*no photo within 60 s of the shot \(not taken, or not handed over\); 1 photo came after shots were reported as not delivered \(late, or shot on the body\) \|/,
   );
-  // A photo while the test asks for one on the body is that shot, also when
-  // it could be a late one.
+  // A photo while the test asks for one on the body that could be a late
+  // one: it cannot be told, so the step is inconclusive.
   fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await screen.findByText("Press the shutter button on the camera now.");
@@ -735,6 +735,12 @@ it("names a photo that came after its shot was reported as not delivered", async
     request: null,
     lateRequest: 1,
   });
-  await waitFor(() => expect(report()).toContain("| Shot on the camera | pass | 1/1 in the library |"), { timeout: 4000 });
+  await waitFor(
+    () =>
+      expect(report()).toContain(
+        "| Shot on the camera | inconclusive | 1/1 in the library; the photo may be the late one of an earlier shot from Rawtonic; run the step again |",
+      ),
+    { timeout: 4000 },
+  );
   expect(report()).toMatch(/\| Shots from Rawtonic \| FAIL \| .*1 photo came after/);
 });

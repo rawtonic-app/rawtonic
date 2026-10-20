@@ -287,8 +287,14 @@ fn run(args: &[String]) -> i32 {
                 .and_then(|ms| ms.parse().ok())
                 .map(Duration::from_millis)
                 .unwrap_or(rawtonic_tether::server::SHOT_TIMEOUT);
+            let one_at_a_time = std::env::var("RAWTONIC_TETHER_ONE_AT_A_TIME_MS")
+                .ok()
+                .and_then(|ms| ms.parse().ok())
+                .map(Duration::from_millis)
+                .unwrap_or(rawtonic_tether::server::ONE_AT_A_TIME_WAIT);
             Server::new(d, std::io::stdout().lock())
                 .with_shot_timeout(timeout)
+                .with_one_at_a_time_wait(one_at_a_time)
                 .run(std::io::stdin())
                 .map_err(|e| e.to_string())
         }),

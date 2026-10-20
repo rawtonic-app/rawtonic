@@ -295,7 +295,8 @@ export default function TetherCameraTest({
       // A photo that may be one the helper had reported as not delivered:
       // its step says so (the failure stands: it came after the timeout).
       const late = (payload as { lateRequest?: number | null }).lateRequest;
-      // While the test asks for a shot on the body, it is that one.
+      // While the test asks for a shot on the body it may be that one (the
+      // step says it cannot be told).
       if (
         name === "tether-captured" &&
         h.exposure &&
@@ -600,9 +601,17 @@ export default function TetherCameraTest({
       );
       if (!photo) return { state: "failed", asked: 1, arrived: 0, reason: "no photo within 30 s" };
       const c = captured(photo);
-      return c.error
-        ? { state: "failed", asked: 1, arrived: 0, ...notAdded(c.error) }
-        : { state: "passed", asked: 1, arrived: 1 };
+      if (c.error) return { state: "failed", asked: 1, arrived: 0, ...notAdded(c.error) };
+      // It may be the late photo of a test shot reported as not delivered:
+      // that cannot be told, so neither pass nor fail.
+      if (requestSteps.current.has(c.lateRequest ?? -1))
+        return {
+          state: "inconclusive",
+          asked: 1,
+          arrived: 1,
+          reason: "the photo may be the late one of an earlier shot from Rawtonic; run the step again",
+        };
+      return { state: "passed", asked: 1, arrived: 1 };
     },
     replug: async () => {
       setPrompt(t("session.tether.test.pullCable"));

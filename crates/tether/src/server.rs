@@ -22,7 +22,7 @@ const READBACK: Duration = Duration::from_secs(3);
 const READBACK_EVERY: Duration = Duration::from_millis(250);
 /// How long a shot waits for the last one's photo on a camera that takes
 /// one at a time (`Server::wait_for_the_last_shot`).
-const ONE_AT_A_TIME_WAIT: Duration = Duration::from_secs(10);
+pub const ONE_AT_A_TIME_WAIT: Duration = Duration::from_secs(10);
 /// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
     /// The file kinds (extensions) it gave so far.
@@ -108,6 +108,8 @@ pub struct Server<W: Write> {
     out: W,
     open: Option<Open>,
     shot_timeout: Duration,
+    /// `ONE_AT_A_TIME_WAIT` (shorter in tests).
+    one_at_a_time_wait: Duration,
     /// Connections opened so far.
     connections: u64,
     /// App shot requests so far (`Asked::id`).
@@ -165,6 +167,7 @@ impl<W: Write> Server<W> {
             out,
             open: None,
             shot_timeout: SHOT_TIMEOUT,
+            one_at_a_time_wait: ONE_AT_A_TIME_WAIT,
             connections: 0,
             asked: 0,
         }
@@ -172,6 +175,11 @@ impl<W: Write> Server<W> {
 
     pub fn with_shot_timeout(mut self, timeout: Duration) -> Self {
         self.shot_timeout = timeout;
+        self
+    }
+
+    pub fn with_one_at_a_time_wait(mut self, wait: Duration) -> Self {
+        self.one_at_a_time_wait = wait;
         self
     }
 
@@ -222,15 +230,22 @@ impl<W: Write> Server<W> {
         // What the camera reported before this shot is taken in first: a
         // driver may drop events it collected when it fires (libgphoto2's
         // Canon EOS trigger clears its event list).
+        let mut ready = true;
         if request == Request::Capture {
             for _ in 0..64 {
                 if !self.read_events(Duration::ZERO)? {
                     break;
                 }
             }
-            self.wait_for_the_last_shot()?;
+            ready = self.wait_for_the_last_shot()?;
         }
         let result = match request {
+            // Not fired: the camera would take no shot now and say nothing.
+            Request::Capture if !ready => Err(TetherError::new(
+                ErrorKind::Busy,
+                "The camera has not delivered the last shot yet, so this one was not fired. Try \
+                 again in a moment.",
+            )),
             Request::SetSetting { key, value } => self.set_setting(&key, &value)?,
             request => self.answer(request, &mut fired),
         };
@@ -440,9 +455,11 @@ impl<W: Write> Server<W> {
 
     /// On a camera that takes one shot at a time
     /// (`Camera::one_shot_at_a_time`): waits, reading its events, until the
-    /// shots fired before have their photo, for `ONE_AT_A_TIME_WAIT` at
-    /// most (a shot that never comes is still reported by its timeout).
-    fn wait_for_the_last_shot(&mut self) -> io::Result<()> {
+    /// shots fired before have their photo, for `one_at_a_time_wait` at
+    /// most. Whether the next may be fired: not while one is still waiting
+    /// (the camera would take no shot and say nothing; a shot that never
+    /// comes is reported by its timeout, and then the camera can be fired).
+    fn wait_for_the_last_shot(&mut self) -> io::Result<bool> {
         let started = Instant::now();
         let mut said = false;
         while let Some(open) = self.open.as_ref()
@@ -450,12 +467,12 @@ impl<W: Write> Server<W> {
             && !open.held
             && let Some(last) = open.waiting.back().map(|asked| asked.id)
         {
-            if started.elapsed() >= ONE_AT_A_TIME_WAIT {
+            if started.elapsed() >= self.one_at_a_time_wait {
                 log::warn!(
-                    "request {last} still has no photo after {} ms; firing the next shot anyway",
+                    "request {last} still has no photo after {} ms; the next shot is not fired",
                     ms(started)
                 );
-                break;
+                return Ok(false);
             }
             if !said {
                 log::info!("the next shot waits for the photo of request {last}");
@@ -463,7 +480,7 @@ impl<W: Write> Server<W> {
             }
             self.read_events(EVENT_POLL)?;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Sets a setting, then reads it back until the camera reports the
