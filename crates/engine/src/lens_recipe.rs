@@ -273,6 +273,15 @@ fn exif_number(exif: &HashMap<String, String>, key: &str) -> Option<f32> {
         .filter(|v| v.is_finite() && *v > 0.0)
 }
 
+/// The f-number from EXIF ApertureValue (APEX Av, f-number = 2^(Av/2); Av 0
+/// is f/1, negative values are wider).
+fn apex_aperture(exif: &HashMap<String, String>) -> Option<f32> {
+    let text = exif.get("ApertureValue")?.trim();
+    let text = text.strip_prefix("f/").unwrap_or(text);
+    let av = text.split_whitespace().next()?.parse::<f32>().ok()?;
+    Some(2f32.powf(av / 2.0)).filter(|f| f.is_finite() && (0.5..=128.0).contains(f))
+}
+
 /// What a lens profile is looked up at: focal length (50 mm without one),
 /// aperture, focus distance and the frame's crop factor. The aperture is
 /// the FNumber; ApertureValue is APEX (f-number = 2^(Av/2)) and stands in
@@ -292,8 +301,7 @@ fn shot_facts(
     let focal_length = exif_number(exif, "FocalLength")
         .or_else(|| exif_number(exif, "FocalLengthIn35mmFilm"))
         .unwrap_or(50.0);
-    let aperture = exif_number(exif, "FNumber")
-        .or_else(|| exif_number(exif, "ApertureValue").map(|av| 2f32.powf(av / 2.0)));
+    let aperture = exif_number(exif, "FNumber").or_else(|| apex_aperture(exif));
     let distance = exif
         .get("SubjectDistance")
         .and_then(|d| d.replace(" m", "").trim().parse::<f32>().ok());
@@ -386,7 +394,7 @@ mod tests {
         (db, zoom)
     }
 
-    /// A lens with vignetting at f/5.6 and f/8 on an APS-C body.
+    /// A lens with vignetting at f/1.4, f/4, f/5.6 and f/8 on an APS-C body.
     fn apsc_db(dir: &Path) -> (crate::lens_correction::LensDatabase, String) {
         std::fs::write(
             dir.join("lenses.xml"),
@@ -398,6 +406,8 @@ mod tests {
                 <cropfactor>1.0</cropfactor>
                 <calibration>
                     <distortion model="ptlens" focal="50" a="0.01" b="-0.02" c="0.01"/>
+                    <vignetting model="pa" focal="50" aperture="1.4" distance="10" k1="-0.9" k2="0.2" k3="0"/>
+                    <vignetting model="pa" focal="50" aperture="4" distance="10" k1="-0.6" k2="0.1" k3="0"/>
                     <vignetting model="pa" focal="50" aperture="5.6" distance="10" k1="-0.5" k2="0.1" k3="0"/>
                     <vignetting model="pa" focal="50" aperture="8" distance="10" k1="-0.2" k2="0.05" k3="0"/>
                 </calibration>
@@ -456,6 +466,10 @@ mod tests {
         assert_eq!(resolved(&db, &lens, &both), at(8.0));
         let apex = [base.as_slice(), &[("ApertureValue", "f/6")]].concat();
         assert_eq!(resolved(&db, &lens, &apex), at(8.0));
+        // Av 0 is f/1, not a missing aperture (which looks up at f/3.5).
+        let wide = [base.as_slice(), &[("ApertureValue", "f/0")]].concat();
+        assert_eq!(resolved(&db, &lens, &wide), at(1.0));
+        assert_ne!(at(1.0), at(3.5));
         assert_ne!(at(8.0), at(5.6));
     }
 

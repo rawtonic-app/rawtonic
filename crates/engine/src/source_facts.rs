@@ -30,7 +30,9 @@ use crate::lens_correction::LensDistortionParams;
 /// carries Panasonic lateral CA data (`embedded_lens::CA_VERSION` 1).
 /// 4: `diffraction_sigma` from the 2026-10-18 lens database (bodies it newly
 /// covers) and `diffraction_sigma_v1` for recipes from before it.
-pub const VERSION: u32 = 4;
+/// 5: `lensfun_default` scaled to the body's crop factor (camera list
+/// fallback by loose name) and with the profile's whole lateral CA.
+pub const VERSION: u32 = 5;
 
 /// The file facts the rendering of one photograph uses.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
