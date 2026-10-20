@@ -262,13 +262,16 @@ pub fn verified_copy(
     })
 }
 
-/// Creates `folder` and its missing parents like `fs::create_dir_all`, and
-/// syncs the parent of each folder it makes: a power cut after an import
-/// committed cannot drop a new year or date folder (with the photo in it)
-/// after the photo's staging copy was removed and a camera that keeps no card
-/// copy let go of it. Folders already there are not synced again.
-fn create_dir_all_durable(folder: &Path) -> std::io::Result<()> {
-    create_dir_all_syncing(folder, |dir| {
+/// Creates `folder` and its missing parents like `fs::create_dir_all`, then
+/// syncs every folder from `folder`'s parent up to `base` (each holds the
+/// entry of the next): a power cut after an import committed cannot drop a
+/// new year or date folder (with the photo in it) after the photo's staging
+/// copy was removed and a camera that keeps no card copy let go of it.
+/// Synced on every call, not only by the call that made a folder: a sync
+/// that failed before, or a folder another import made a moment ago, is
+/// made durable here too.
+fn create_dir_all_durable(folder: &Path, base: &Path) -> std::io::Result<()> {
+    create_dir_all_syncing(folder, base, |dir| {
         #[cfg(unix)]
         fs::File::open(dir)?.sync_all()?;
         #[cfg(not(unix))]
@@ -278,30 +281,26 @@ fn create_dir_all_durable(folder: &Path) -> std::io::Result<()> {
 }
 
 /// `create_dir_all_durable` with the directory sync given (`sync`: called
-/// with the parent of each folder made, outermost first).
+/// for each folder from `folder`'s parent up to `base`, innermost first).
 fn create_dir_all_syncing(
     folder: &Path,
+    base: &Path,
     mut sync: impl FnMut(&Path) -> std::io::Result<()>,
 ) -> std::io::Result<()> {
-    let mut missing = Vec::new();
-    let mut at = folder;
-    while !at.is_dir() {
-        missing.push(at);
-        match at.parent() {
-            Some(parent) if !parent.as_os_str().is_empty() => at = parent,
-            _ => break,
-        }
+    fs::create_dir_all(folder)?;
+    if !folder.starts_with(base) {
+        return Err(std::io::Error::other(format!(
+            "{} is not inside {}",
+            folder.display(),
+            base.display()
+        )));
     }
-    for dir in missing.into_iter().rev() {
-        match fs::create_dir(dir) {
-            Ok(()) => {}
-            // Made meanwhile by another import: synced like ours.
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && dir.is_dir() => {}
-            Err(e) => return Err(e),
-        }
-        if let Some(parent) = dir.parent().filter(|p| !p.as_os_str().is_empty()) {
-            sync(parent)?;
-        }
+    let mut at = folder;
+    while at != base
+        && let Some(parent) = at.parent()
+    {
+        sync(parent)?;
+        at = parent;
     }
     Ok(())
 }
@@ -490,7 +489,7 @@ pub fn destination_folder(
     let folder = match folder {
         None => {
             let capture = library.directory.join(&library.manifest.capture);
-            create_dir_all_durable(&capture)?;
+            create_dir_all_durable(&capture, &library.directory)?;
             capture
         }
         Some(folder) => {
@@ -607,7 +606,7 @@ fn import_one_into_with(
         folder = folder
             .join(date.format("%Y").to_string())
             .join(date.format("%Y-%m-%d").to_string());
-        create_dir_all_durable(&folder)?;
+        create_dir_all_durable(&folder, destination.path())?;
     }
     ensure!(
         folder.is_dir(),
@@ -642,7 +641,10 @@ fn import_one_into_with(
     })?;
     let mut backup_result = None;
     if let Some(backup_folder) = backup {
-        create_dir_all_durable(backup_folder)?;
+        create_dir_all_durable(
+            backup_folder,
+            backup_folder.parent().unwrap_or(backup_folder),
+        )?;
         ensure!(
             backup_folder.canonicalize()? != folder.canonicalize()?,
             "Backup must be a different directory"
@@ -844,28 +846,31 @@ mod tests {
         let library = d.path().join("Library");
         fs::create_dir(&library).unwrap();
         let day = library.join("2026").join("2026-10-20");
-        let mut synced = Vec::new();
-        create_dir_all_syncing(&day, |dir| {
-            synced.push(dir.to_path_buf());
-            Ok(())
-        })
-        .unwrap();
-        assert!(day.is_dir());
-        // The library holds the new year, the year the new day.
-        assert_eq!(synced, [library.clone(), library.join("2026")]);
-        // A second import that day makes nothing and syncs nothing.
-        synced.clear();
-        create_dir_all_syncing(&day, |dir| {
-            synced.push(dir.to_path_buf());
-            Ok(())
-        })
-        .unwrap();
-        assert!(synced.is_empty());
-        // A failed sync fails the import.
-        let next = library.join("2026").join("2026-10-21");
-        assert!(create_dir_all_syncing(&next, |_| Err(std::io::Error::other("no sync"))).is_err());
+        let syncing = |folder: &Path, fail: bool| {
+            let mut synced = Vec::new();
+            let result = create_dir_all_syncing(folder, &library, |dir| {
+                synced.push(dir.to_path_buf());
+                if fail {
+                    Err(std::io::Error::other("no sync"))
+                } else {
+                    Ok(())
+                }
+            });
+            (result, synced)
+        };
+        // A failed sync fails the import, though the folders are there now.
+        let (result, _) = syncing(&day, true);
+        assert!(result.is_err() && day.is_dir());
+        // The next import that day syncs the chain again: the year holds the
+        // day, the library the year.
+        let (result, synced) = syncing(&day, false);
+        result.unwrap();
+        assert_eq!(synced, [library.join("2026"), library.clone()]);
+        // Every time, also when another import made the folders.
+        assert_eq!(syncing(&day, false).1.len(), 2);
+        assert!(syncing(&d.path().join("elsewhere"), false).0.is_err());
         // The real one, on this filesystem.
-        create_dir_all_durable(&library.join("2027").join("2027-01-01")).unwrap();
+        create_dir_all_durable(&library.join("2027").join("2027-01-01"), &library).unwrap();
     }
 
     #[test]

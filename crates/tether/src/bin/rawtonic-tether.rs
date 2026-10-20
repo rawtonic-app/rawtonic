@@ -31,7 +31,16 @@ impl log::Log for StderrLog {
 
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
-            eprintln!("{} {} {}", record.level(), record.target(), record.args());
+            // Never a panic when the app's end of the pipe is gone (eprintln!
+            // would panic): the helper must still be able to end itself.
+            use std::io::Write as _;
+            let _ = writeln!(
+                std::io::stderr().lock(),
+                "{} {} {}",
+                record.level(),
+                record.target(),
+                record.args()
+            );
         }
     }
 
@@ -188,7 +197,8 @@ fn end_with_the_app(grace: Duration) {
             std::thread::sleep(Duration::from_millis(250));
         }
         std::thread::sleep(grace);
-        log::warn!("The app is gone; the tether helper ends");
+        // Nothing that could fail before the end (the app's stderr pipe is
+        // usually closed by now).
         // SAFETY: _exit ends the process at once, without exit handlers that
         // could wait for the camera call still running on another thread.
         unsafe { libc::_exit(3) };
@@ -230,7 +240,8 @@ fn run(args: &[String]) -> i32 {
     match result {
         Ok(()) => 0,
         Err(e) => {
-            eprintln!("rawtonic-tether: {e}");
+            use std::io::Write as _;
+            let _ = writeln!(std::io::stderr(), "rawtonic-tether: {e}");
             1
         }
     }
