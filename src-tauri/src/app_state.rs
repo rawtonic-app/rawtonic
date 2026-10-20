@@ -164,10 +164,11 @@ pub struct LoadedProxy {
     pub is_raw: bool,
 }
 
-/// The decode the preview worker last rendered a frame from, so that work a
-/// decode leaves for later (its preview proxy and thumbnail) can wait until
-/// the photograph is on screen: started beside that frame, it took the cores
-/// the frame needed.
+/// The source the preview worker last rendered a frame from (a decode, its
+/// draft or a stored proxy), so that work can wait until the photograph is
+/// on screen: the work a decode leaves for later (its preview proxy and
+/// thumbnail) and the full development after its draft. Started beside that
+/// frame, it took the cores the frame needed.
 #[derive(Default)]
 pub struct RenderedSource {
     source: Mutex<std::sync::Weak<DynamicImage>>,
@@ -175,7 +176,7 @@ pub struct RenderedSource {
 }
 
 impl RenderedSource {
-    /// Call when a frame from `source` (a whole decode) is rendered.
+    /// Call when a frame from `source` is rendered.
     pub fn mark(&self, source: &Arc<DynamicImage>) {
         *self.source.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(source);
         self.rendered.notify_all();

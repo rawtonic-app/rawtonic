@@ -697,10 +697,17 @@ struct DraftInfo {
     is_raw: bool,
 }
 
+/// How long the full development waits for its draft's first frame (none
+/// comes while Develop is not shown).
+const DRAFT_FRAME_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
+
 /// The draft sink of the full decode of `path` (load request `generation`):
 /// the draft becomes the preview source while that photograph is still the
 /// one asked for and shows nothing else, and the editor is told. Never
-/// stored as a preview proxy.
+/// stored as a preview proxy. Returns once a frame of the draft is rendered
+/// (at most `DRAFT_FRAME_WAIT`): the full development starts then. Beside
+/// it, the frame's CPU work (colour noise pyramid) took three times as long:
+/// a 24 MP CR3's first frame came 0.5 s after the draft on a Ryzen 5 3600X.
 fn draft_sink(
     app_handle: &tauri::AppHandle,
     path: &str,
@@ -721,6 +728,8 @@ fn draft_sink(
             {
                 return;
             }
+            let image = Arc::new(image);
+            let draft = Arc::downgrade(&image);
             {
                 let mut proxy = state.proxy_image.lock().unwrap_or_else(|e| e.into_inner());
                 if proxy.as_ref().is_some_and(|p| p.path == path) {
@@ -728,7 +737,7 @@ fn draft_sink(
                 }
                 *proxy = Some(crate::app_state::LoadedProxy {
                     path: path.clone(),
-                    image: Arc::new(image),
+                    image,
                     full_width,
                     full_height,
                     is_raw: true,
@@ -748,6 +757,15 @@ fn draft_sink(
                     height: full_height,
                     is_raw: true,
                 },
+            );
+            #[cfg(feature = "performance-profiling")]
+            let waited = Instant::now();
+            let _rendered = state.rendered_source.wait(&draft, DRAFT_FRAME_WAIT);
+            #[cfg(feature = "performance-profiling")]
+            log::info!(
+                "[PERF] {}",
+                serde_json::json!({"stage": "draft_frame_wait", "ms": waited.elapsed().as_secs_f64() * 1000.0,
+                    "rendered": _rendered})
             );
         },
     )))
