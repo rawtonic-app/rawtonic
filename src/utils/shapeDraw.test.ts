@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Mask } from '../components/panel/right/Masks';
 import { createSubMask } from './maskUtils';
-import { SHAPE_DRAG_THRESHOLD, draftToCommit, shapeFromDrag } from './shapeDraw';
+import { SHAPE_DRAG_THRESHOLD, committedShapeLayer, draftToCommit, shapeFromDrag } from './shapeDraw';
 import { linearFrame, linearLineOffsets, type LinearParams } from './linearMask';
 
 const image = { width: 6000, height: 4000 };
@@ -50,5 +50,18 @@ describe('releasing a gradient drag', () => {
     // `scale` is screen pixels per image pixel (fit 0.25 at 4x zoom = 1).
     expect(shapeFromDrag(Mask.Radial, parameters, { x: 0, y: 0 }, { x: 10, y: 0 }, { scale: 1, handle: 1 })).toBeNull();
     expect(shapeFromDrag(Mask.Radial, parameters, { x: 0, y: 0 }, { x: 16, y: 0 }, { scale: 1, handle: 1 })).not.toBeNull();
+  });
+});
+
+describe('a cancelled gradient drag', () => {
+  it('shows the layer of the drawn component as the recipe has it', () => {
+    const radial = createSubMask(Mask.Radial, image);
+    const brush = createSubMask(Mask.Brush, image);
+    const layers = [
+      { id: 'a', subMasks: [brush] },
+      { id: 'b', subMasks: [brush, radial] },
+    ];
+    expect(committedShapeLayer(layers, radial.id)).toBe(layers[1]);
+    expect(committedShapeLayer(layers, 'gone')).toBeNull();
   });
 });

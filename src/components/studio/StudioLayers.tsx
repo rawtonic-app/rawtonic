@@ -213,6 +213,14 @@ function NewLayerGrid() {
  * the selected layer; with no layers, the new-layer grid. Below a divider the
  * selection's settings: the selected component's, then the layer's.
  */
+/** Pixels a layer drag scrolls the list per frame with the pointer at `y`:
+ * within 20 px of its top or bottom edge (or past it), towards that edge. */
+export function layerListEdgeStep(list: { top: number; bottom: number }, y: number): number {
+  if (y < list.top + 20) return -8;
+  if (y > list.bottom - 20) return 8;
+  return 0;
+}
+
 export default function StudioLayers({
   compact = false,
 }: {
@@ -424,25 +432,38 @@ export default function StudioLayers({
         above: !rect.height || y < rect.top + rect.height / 2,
       };
     };
+    // Held near the list's ends, the drag scrolls it to rows out of view,
+    // frame by frame until the pointer leaves the edge or the drag ends.
+    let pointer = start;
+    let scrollFrame = 0;
+    const edgeScroll = () => {
+      scrollFrame = 0;
+      const list = listRef.current;
+      if (!ghost || !list) return;
+      const step = layerListEdgeStep(list.getBoundingClientRect(), pointer.y);
+      if (!step) return;
+      list.scrollTop += step;
+      drop = rowAt(pointer.x, pointer.y);
+      setLayerDrag({ id: mask.id, ...drop });
+      scrollFrame = requestAnimationFrame(edgeScroll);
+    };
     const move = (ev: PointerEvent) => {
       if (!ghost) {
         if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 5) return;
         ghost = createDragGhost({ label: mask.name, kind: "layer" });
       }
+      pointer = { x: ev.clientX, y: ev.clientY };
       ghost.move(ev.clientX, ev.clientY);
-      // Near the list's ends the drag scrolls it to rows out of view.
-      const list = listRef.current?.getBoundingClientRect();
-      if (list && listRef.current) {
-        if (ev.clientY < list.top + 20) listRef.current.scrollTop -= 12;
-        else if (ev.clientY > list.bottom - 20) listRef.current.scrollTop += 12;
-      }
       drop = rowAt(ev.clientX, ev.clientY);
       setLayerDrag({ id: mask.id, ...drop });
+      if (!scrollFrame) scrollFrame = requestAnimationFrame(edgeScroll);
     };
     const end = (ev: PointerEvent) => {
       document.removeEventListener("pointermove", move, true);
       document.removeEventListener("pointerup", end, true);
       document.removeEventListener("pointercancel", end, true);
+      cancelAnimationFrame(scrollFrame);
+      scrollFrame = 0;
       if (!ghost) return;
       ghost.remove();
       setLayerDrag(null);

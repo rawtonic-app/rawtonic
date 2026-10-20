@@ -86,7 +86,7 @@ import {
   type LinearLine,
   type LinearParams,
 } from '../../../utils/linearMask';
-import { draftToCommit, shapeFromDrag, type ShapeDraft } from '../../../utils/shapeDraw';
+import { committedShapeLayer, draftToCommit, shapeFromDrag, type ShapeDraft } from '../../../utils/shapeDraw';
 
 /** Screen pixels outside the crop frame where a drag rotates the photo. */
 const CROP_ROTATE_BAND = 36;
@@ -1663,12 +1663,29 @@ const ImageCanvas = memo(
       !!activeSubMask &&
       shapeDrawTarget === activeSubMask.id &&
       (activeSubMask.type === Mask.Linear || activeSubMask.type === Mask.Radial);
-    // Another component or photograph ends a drag's draft.
+    // Another component or photograph ends a gradient drag: its draft is
+    // dropped, the drawing session ends and the preview shows the recipe's
+    // shape again.
     const activeSubMaskId = activeSubMask?.id;
+    const livePreviewRef = useRef(onLiveMaskPreview);
+    livePreviewRef.current = onLiveMaskPreview;
+    const renderShapesLiveRef = useRef(renderShapesLive);
+    renderShapesLiveRef.current = renderShapesLive;
+    const shownImagePath = useRef(selectedImage.path);
     useEffect(() => {
+      const samePhoto = shownImagePath.current === selectedImage.path;
+      shownImagePath.current = selectedImage.path;
+      const start = dragStartPointer.current;
       setShapeDraft(null);
+      if (!start || start.id === activeSubMaskId) return;
       dragStartPointer.current = null;
-    }, [activeSubMaskId, selectedImage.path]);
+      setDrawing(false);
+      drawingStageRef.current = null;
+      const committed = samePhoto
+        ? committedShapeLayer(useEditorStore.getState().adjustments.masks, start.id)
+        : null;
+      if (committed) livePreviewRef.current?.(committed, renderShapesLiveRef.current ? { renderLive: true } : undefined);
+    }, [activeSubMaskId, selectedImage.path, setDrawing]);
 
     // Control+Option drags change the brush instead of painting (Capture One).
     const canvasRootRef = useRef<HTMLDivElement>(null);

@@ -50,3 +50,9 @@ export interface ShapeDraft {
 export function draftToCommit(draft: ShapeDraft | null, activeId: string): SubMask['parameters'] | null {
   return draft && draft.id === activeId ? draft.params : null;
 }
+
+/** The layer holding component `id` as the recipe has it: what the preview
+ * shows again when a drag drawing that component is cancelled. */
+export function committedShapeLayer<T extends { subMasks: { id: string }[] }>(layers: T[], id: string): T | null {
+  return layers.find((layer) => layer.subMasks.some((sub) => sub.id === id)) ?? null;
+}
