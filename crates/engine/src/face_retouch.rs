@@ -166,9 +166,40 @@ pub struct FaceRetouch {
     pub draft: bool,
 }
 
-/// Identifies the mask frame: orientation, flips, straightening and the
-/// geometry corrections (cache_utils' geometry keys), as canonical JSON.
+/// Geometry keys (cache_utils) that correct colour, not where a pixel is:
+/// vignetting, lateral CA and edge fringes.
+const COLOUR_ONLY_KEYS: [&str; 7] = [
+    "lensVignetteAmount",
+    "lensVignetteEnabled",
+    "lensTcaAmount",
+    "lensTcaEnabled",
+    "autoChromaticAberration",
+    "autoCaVersion",
+    "fringeVersion",
+];
+
+/// The `frame` written since faces became stale only when they move.
+const FRAME_VERSION_2: &str = "2:";
+
+/// Identifies the mask frame the faces are found in: orientation, flips,
+/// straightening and the geometry corrections that move pixels (cache_utils'
+/// geometry keys without `COLOUR_ONLY_KEYS`), as canonical JSON after
+/// `FRAME_VERSION_2`.
 pub fn frame_key(adjustments: &Value) -> String {
+    let placement = crate::cache_utils::GEOMETRY_KEYS
+        .iter()
+        .filter(|key| !COLOUR_ONLY_KEYS.contains(key));
+    format!("{FRAME_VERSION_2}{}", keys_json(adjustments, placement))
+}
+
+/// The frame faces found before `FRAME_VERSION_2` carry: every geometry key,
+/// so a vignetting or CA change still makes them stale (their recipes render
+/// as before).
+fn first_frame_key(adjustments: &Value) -> String {
+    keys_json(adjustments, crate::cache_utils::GEOMETRY_KEYS.iter())
+}
+
+fn keys_json<'a>(adjustments: &Value, geometry: impl Iterator<Item = &'a &'a str>) -> String {
     let mut keys: std::collections::BTreeMap<&str, &Value> = std::collections::BTreeMap::new();
     for key in [
         "orientationSteps",
@@ -177,13 +208,22 @@ pub fn frame_key(adjustments: &Value) -> String {
         "rotation",
     ]
     .iter()
-    .chain(crate::cache_utils::GEOMETRY_KEYS)
+    .chain(geometry)
     {
         if let Some(v) = adjustments.get(*key).filter(|v| !v.is_null()) {
             keys.insert(key, v);
         }
     }
     serde_json::to_string(&keys).unwrap_or_default()
+}
+
+/// Whether faces found in `frame` belong to the geometry of `adjustments`.
+fn frame_matches(frame: &str, adjustments: &Value) -> bool {
+    if frame.starts_with(FRAME_VERSION_2) {
+        frame == frame_key(adjustments)
+    } else {
+        frame == first_frame_key(adjustments)
+    }
 }
 
 fn enabled() -> bool {
@@ -194,14 +234,14 @@ fn enabled() -> bool {
 pub fn from_adjustments(adjustments: &Value) -> Option<FaceRetouch> {
     let value = adjustments.get("faceRetouch")?;
     let retouch: FaceRetouch = serde_json::from_value(value.clone()).ok()?;
-    if let Some(frame) = &retouch.frame {
-        let current = frame_key(adjustments);
-        if *frame != current {
-            log::warn!(
-                "Face retouch skipped: its faces belong to another geometry ({frame} vs {current})"
-            );
-            return None;
-        }
+    if let Some(frame) = &retouch.frame
+        && !frame_matches(frame, adjustments)
+    {
+        log::warn!(
+            "Face retouch skipped: its faces belong to another geometry ({frame} vs {})",
+            frame_key(adjustments)
+        );
+        return None;
     }
     let active = retouch.enabled
         && retouch.faces.iter().any(|f| {
@@ -1373,6 +1413,34 @@ mod tests {
         r["rotation"] = json!(2.0);
         r["exposure"] = json!(1.0);
         assert!(is_active(&r));
+        // Nor are vignetting, CA and fringe corrections: the faces stay.
+        for (key, value) in [
+            ("lensVignetteAmount", json!(40)),
+            ("lensTcaAmount", json!(80)),
+            ("autoCaVersion", json!(3)),
+            ("fringeVersion", json!(1)),
+        ] {
+            let mut changed = r.clone();
+            changed[key] = value;
+            assert!(is_active(&changed), "{key}");
+        }
+        r["lensDistortionAmount"] = json!(60);
+        assert!(!is_active(&r));
+    }
+
+    #[test]
+    fn faces_found_before_frame_version_2_keep_their_rule() {
+        // Their frame lists every geometry key, colour corrections included:
+        // they render as before.
+        let mut r = recipe(
+            vec![face(vec![], Settings::default())],
+            json!({"evenSkin": 30}),
+        );
+        r["fringeVersion"] = json!(1);
+        r["faceRetouch"]["frame"] = json!(first_frame_key(&r));
+        assert!(is_active(&r));
+        r["fringeVersion"] = json!(2);
+        assert!(!is_active(&r));
     }
 
     #[test]

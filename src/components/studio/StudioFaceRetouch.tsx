@@ -10,12 +10,27 @@ import { aiErrorMessage } from "../../utils/aiErrors";
 import AdjustmentControl from "./AdjustmentControl";
 import { GEOMETRY_KEYS, ORIENTATION_KEYS } from "../../utils/geometryKeys";
 
+/** Geometry keys that correct colour, not where a pixel is (the engine's
+ * `face_retouch::COLOUR_ONLY_KEYS`): faces stay valid when they change. */
+const COLOUR_ONLY_KEYS: ReadonlySet<string> = new Set([
+  'lensVignetteAmount',
+  'lensVignetteEnabled',
+  'lensTcaAmount',
+  'lensTcaEnabled',
+  'autoChromaticAberration',
+  'autoCaVersion',
+  'fringeVersion',
+]);
+
 /** What decides the mask frame the faces are found in: orientation,
  * flips, straightening and the geometry keys of
- * crates/engine/src/cache_utils.rs (`GEOMETRY_KEYS`); the same set as the
- * engine's `face_retouch::frame_key`, so both agree when a geometry change
- * makes the stored faces stale. */
-export const FACE_FRAME_KEYS = [...ORIENTATION_KEYS, ...GEOMETRY_KEYS] as const;
+ * crates/engine/src/cache_utils.rs (`GEOMETRY_KEYS`) that move pixels; the
+ * same set as the engine's `face_retouch::frame_key`, so both agree when a
+ * geometry change makes the stored faces stale. */
+export const FACE_FRAME_KEYS = [
+  ...ORIENTATION_KEYS,
+  ...GEOMETRY_KEYS.filter((key) => !COLOUR_ONLY_KEYS.has(key)),
+] as const;
 
 /** The geometry the faces are found in (the mask frame, without the crop). */
 export function faceRetouchGeometry(adjustments: Adjustments) {
