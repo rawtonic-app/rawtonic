@@ -80,6 +80,12 @@ pub trait Camera {
     fn release(&mut self, _file: &CameraFile) -> Result<bool, TetherError> {
         Ok(false)
     }
+    /// Whether a shot may only be fired once the last one's photo came: the
+    /// camera takes no shot it is fired while it is still busy with the
+    /// last, and says nothing about it.
+    fn one_shot_at_a_time(&self) -> bool {
+        false
+    }
     /// Test hook: whether the helper should stop dead at `point` while
     /// handling the camera's `shot`-th file (1-based). Only the mock says yes.
     fn abort_at(&self, _point: AbortPoint, _shot: u64) -> bool {

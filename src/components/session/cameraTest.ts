@@ -73,11 +73,14 @@ export interface StepResult {
   inLibrary?: number[];
   /** Request → first Develop frame of the photo rendered. */
   onScreen?: number[];
+  /** Why photos on screen were not timed (or not all). */
+  screenNote?: string;
   /** Settings read / changeable. */
   settings?: number;
   changeable?: number;
-  /** The setting changed (its label). */
+  /** The setting changed (its label), and from which value to which. */
   setting?: string;
+  change?: { from: string; to: string };
   /** Photos freed from the camera's transfer queue after their commit. */
   freed?: number;
 }
@@ -143,10 +146,14 @@ export const describe = (result: StepResult) => {
   const parts: string[] = [];
   if (result.asked !== undefined) parts.push(`${result.arrived ?? 0}/${result.asked} in the library`);
   if (result.settings !== undefined) parts.push(`${result.settings} read, ${result.changeable ?? 0} changeable`);
-  if (result.setting) parts.push(`${result.setting} changed, read back and set back`);
+  if (result.setting)
+    parts.push(
+      `${result.setting} ${result.change ? `${result.change.from} → ${result.change.to} ` : ""}changed, read back and set back`,
+    );
   if (result.freed !== undefined) parts.push(`${result.freed} freed`);
   const screen = timings("photo on screen", result.onScreen);
   if (screen) parts.push(screen);
+  if (result.screenNote) parts.push(result.screenNote);
   const library = timings("in library", result.inLibrary);
   if (library) parts.push(library);
   if (result.ms !== undefined) parts.push(`${result.ms} ms`);
@@ -202,10 +209,37 @@ export const settingToChange = <S extends { key: string; value: string; choices:
   for (const key of SETTING_ORDER) {
     const setting = settings.find((s) => s.key === key && !s.readOnly && s.choices.length > 1);
     if (!setting) continue;
+    if (key === "iso") {
+      const other = otherIso(setting.value, setting.choices);
+      if (other !== undefined) return { setting, other };
+      continue;
+    }
     const at = setting.choices.indexOf(setting.value);
     const other = setting.choices[at >= 0 && at + 1 < setting.choices.length ? at + 1 : 0];
     if (other !== setting.value) return { setting, other };
     return { setting, other: setting.choices[1] };
   }
   return null;
+};
+
+/** A plain ISO number: not Auto ISO, nor an ISO with a mode attached (a
+ * Sony list has "100 Multi Frame Noise Reduction", which a body shooting
+ * RAW does not take). */
+const plainIso = (choice: string) => /^\d+$/.test(choice.trim());
+
+/** The ISO the test sets: a plain number, the next one up from the current
+ * value (or down at the top); from Auto ISO or another non-number the
+ * lowest one from ISO 100 up (a body's base, not an extended ISO below it;
+ * a Sony body steps through its list, ~0.85 s a value on an a7 III). None
+ * without two plain values. */
+const otherIso = (value: string, choices: string[]) => {
+  const numbers = choices.filter(plainIso);
+  if (!plainIso(value)) {
+    if (numbers.length === 0) return undefined;
+    const sorted = [...numbers].sort((a, b) => Number(a) - Number(b));
+    return sorted.find((choice) => Number(choice) >= 100) ?? sorted[sorted.length - 1];
+  }
+  const others = numbers.filter((choice) => choice !== value).sort((a, b) => Number(a) - Number(b));
+  if (others.length === 0) return undefined;
+  return others.find((choice) => Number(choice) > Number(value)) ?? others[others.length - 1];
 };

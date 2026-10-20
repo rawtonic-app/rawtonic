@@ -22,11 +22,28 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-struct StderrLog(log::Level);
+/// The helper's log on stderr (the app writes it into its own log): each
+/// line with the helper's clock in ms (the app's log has whole seconds),
+/// and a line repeated at once only once, with how often it came.
+/// libgphoto2's own messages come at most once a minute each: some come on
+/// every event poll (a read that timed out, a Sony property type), 50 times
+/// a second (an a7 III test wrote 4 MB in six minutes).
+struct StderrLog {
+    level: log::Level,
+    started: Instant,
+    /// The last line and how often it came again since.
+    last: std::sync::Mutex<(String, u64)>,
+    /// Each libgphoto2 message: when it was last written, and how often it
+    /// came since.
+    library: std::sync::Mutex<std::collections::HashMap<String, (Instant, u64)>>,
+}
+
+/// How often one libgphoto2 message is written at most.
+const LIBRARY_MESSAGE_EVERY: Duration = Duration::from_secs(60);
 
 impl log::Log for StderrLog {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= self.0
+        metadata.level() <= self.level
     }
 
     fn log(&self, record: &log::Record) {
@@ -34,13 +51,42 @@ impl log::Log for StderrLog {
             // Never a panic when the app's end of the pipe is gone (eprintln!
             // would panic): the helper must still be able to end itself.
             use std::io::Write as _;
-            let _ = writeln!(
-                std::io::stderr().lock(),
-                "{} {} {}",
-                record.level(),
-                record.target(),
-                record.args()
-            );
+            let mut line = format!("{} {} {}", record.level(), record.target(), record.args());
+            if record.target() == "gphoto2" {
+                let mut seen = self.library.lock().unwrap_or_else(|e| e.into_inner());
+                let now = Instant::now();
+                match seen.get_mut(&line) {
+                    Some((at, more)) if now.duration_since(*at) < LIBRARY_MESSAGE_EVERY => {
+                        *more += 1;
+                        return;
+                    }
+                    Some((at, more)) => {
+                        if *more > 0 {
+                            line = format!("{line} (and {more} times in the minute before)");
+                        }
+                        *at = now;
+                        *more = 0;
+                    }
+                    None => {
+                        // Bounded: messages naming objects or values differ.
+                        if seen.len() > 1000 {
+                            seen.clear();
+                        }
+                        seen.insert(line.clone(), (now, 0));
+                    }
+                }
+            }
+            let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
+            if last.0 == line {
+                last.1 += 1;
+                return;
+            }
+            let mut err = std::io::stderr().lock();
+            if last.1 > 0 {
+                let _ = writeln!(err, "(the line before came {} more times)", last.1);
+            }
+            let _ = writeln!(err, "+{}ms {line}", self.started.elapsed().as_millis());
+            *last = (line, 0);
         }
     }
 
@@ -117,12 +163,22 @@ fn main() {
     } else {
         log::Level::Info
     };
-    let logger: &'static StderrLog = Box::leak(Box::new(StderrLog(level)));
+    let logger: &'static StderrLog = Box::leak(Box::new(StderrLog {
+        level,
+        started: Instant::now(),
+        last: Default::default(),
+        library: Default::default(),
+    }));
     let _ = log::set_logger(logger).map(|()| log::set_max_level(level.to_level_filter()));
     #[cfg(all(feature = "gphoto2", any(target_os = "macos", target_os = "linux")))]
-    let _gphoto_log = debug
-        .then(|| gphoto2::log_bridge::forward_to_log(gphoto2::log_bridge::LogLevel::Debug).ok())
-        .flatten();
+    // libgphoto2's errors always (a camera that did not answer, an object
+    // not found); everything with RAWTONIC_TETHER_LOG=debug.
+    let _gphoto_log = gphoto2::log_bridge::forward_to_log(if debug {
+        gphoto2::log_bridge::LogLevel::Debug
+    } else {
+        gphoto2::log_bridge::LogLevel::Error
+    })
+    .ok();
     let args: Vec<String> = std::env::args().skip(1).collect();
     // macOS: libgphoto2 reaches cameras through ImageCaptureCore (the `icc`
     // port driver), which answers on the main thread's event loop. The work
@@ -231,8 +287,14 @@ fn run(args: &[String]) -> i32 {
                 .and_then(|ms| ms.parse().ok())
                 .map(Duration::from_millis)
                 .unwrap_or(rawtonic_tether::server::SHOT_TIMEOUT);
+            let one_at_a_time = std::env::var("RAWTONIC_TETHER_ONE_AT_A_TIME_MS")
+                .ok()
+                .and_then(|ms| ms.parse().ok())
+                .map(Duration::from_millis)
+                .unwrap_or(rawtonic_tether::server::ONE_AT_A_TIME_WAIT);
             Server::new(d, std::io::stdout().lock())
                 .with_shot_timeout(timeout)
+                .with_one_at_a_time_wait(one_at_a_time)
                 .run(std::io::stdin())
                 .map_err(|e| e.to_string())
         }),

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Bumped whenever a request, reply or event changes shape.
-pub const PROTOCOL: u32 = 4;
+pub const PROTOCOL: u32 = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(
@@ -39,6 +39,7 @@ pub enum Request {
     Hold,
     /// The camera's settings as they are now.
     Settings,
+    /// Sets a setting and reads it back (`Reply::SettingSet`).
     SetSetting {
         key: String,
         value: String,
@@ -235,6 +236,12 @@ pub enum Reply {
     /// (`Captured::request`, `Event::CaptureFailed::request`).
     Fired {
         request: u64,
+    },
+    /// The answer to `SetSetting`: the setting's value as the camera reports
+    /// it afterwards (`None`: it could not be read). It is the value asked
+    /// for unless the camera kept or chose another one.
+    SettingSet {
+        value: Option<String>,
     },
     /// The answer to `Release`: whether the photo was freed from the
     /// camera's transfer queue (false: the camera keeps none, or the photo

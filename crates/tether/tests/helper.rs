@@ -30,6 +30,7 @@ fn start_with(spec: &MockSpec, session: &Path, shot_timeout_ms: u64) -> Helper {
             "RAWTONIC_TETHER_SHOT_TIMEOUT_MS".into(),
             shot_timeout_ms.to_string().into(),
         ),
+        ("RAWTONIC_TETHER_ONE_AT_A_TIME_MS".into(), "1500".into()),
     ];
     let (client, library) = Client::spawn(Path::new(HELPER), &["--mock".into()], &envs, move |i| {
         let _ = tx.send(i);
@@ -791,7 +792,114 @@ fn settings_fixed_on_the_body_are_shown_and_refused() {
         ErrorKind::ReadOnly
     );
     assert_eq!(set("iso", "12").unwrap_err().kind, ErrorKind::BadValue);
-    assert_eq!(set("iso", "400").unwrap(), Reply::Ok);
+    assert_eq!(
+        set("iso", "400").unwrap(),
+        Reply::SettingSet {
+            value: Some("400".into())
+        }
+    );
+}
+
+fn set_iso(helper: &Helper, value: &str) -> Reply {
+    helper
+        .client
+        .request(
+            Request::SetSetting {
+                key: "iso".into(),
+                value: value.into(),
+            },
+            WAIT,
+        )
+        .unwrap()
+}
+
+fn iso_now(helper: &Helper) -> String {
+    let Reply::Settings { settings } = helper.client.request(Request::Settings, WAIT).unwrap()
+    else {
+        panic!()
+    };
+    settings.into_iter().find(|s| s.key == "iso").unwrap().value
+}
+
+#[test]
+fn a_set_setting_is_read_back_past_the_camera_library_s_stale_reading() {
+    // libgphoto2 answers a property from its last reading for 2 s: read
+    // right after the set, the camera seemed to keep its value (a7 III,
+    // 2026-10-20).
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        stale_readback_ms: 1000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        set_iso(&helper, "400"),
+        Reply::SettingSet {
+            value: Some("400".into())
+        }
+    );
+    assert!(started.elapsed() >= Duration::from_millis(900));
+    assert_eq!(iso_now(&helper), "400");
+}
+
+#[test]
+fn a_value_the_camera_kept_is_reported_with_the_value_it_has() {
+    // From Auto ISO a Sony body shooting RAW ignores a Multi Frame NR ISO.
+    let dir = tempfile::tempdir().unwrap();
+    let auto = "Auto ISO".to_string();
+    let mfnr = "100 Multi Frame Noise Reduction".to_string();
+    let spec = MockSpec {
+        iso: Some((
+            auto.clone(),
+            vec![auto.clone(), "100".into(), "200".into(), mfnr.clone()],
+        )),
+        kept_values: vec![mfnr.clone()],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    assert_eq!(
+        set_iso(&helper, &mfnr),
+        Reply::SettingSet {
+            value: Some(auto.clone())
+        }
+    );
+    assert_eq!(
+        set_iso(&helper, "200"),
+        Reply::SettingSet {
+            value: Some("200".into())
+        }
+    );
+}
+
+#[test]
+fn photos_keep_coming_while_a_setting_is_read_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        stale_readback_ms: 2000,
+        event_delay_ms: 300,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let request = helper.capture();
+    let (photo_at, set_at) = std::thread::scope(|scope| {
+        let client = &helper.client;
+        let set = scope.spawn(move || {
+            let set = Request::SetSetting {
+                key: "iso".into(),
+                value: "400".into(),
+            };
+            client.request(set, WAIT).unwrap();
+            Instant::now()
+        });
+        let (photos, _) = helper.photos(1);
+        assert_eq!(photos[0].request, Some(request));
+        (Instant::now(), set.join().unwrap())
+    });
+    assert!(photo_at < set_at, "the photo waited for the read-back");
 }
 
 #[test]
@@ -1224,4 +1332,130 @@ fn a_change_from_raw_to_raw_and_jpeg_under_a_reused_name_keeps_the_jpeg_with_its
     // Exposure 1 may have been RAW+JPEG with this JPEG: marked.
     let ambiguous: Vec<Vec<u64>> = photos.iter().map(|p| p.ambiguous.clone()).collect();
     assert_eq!(ambiguous, [vec![], vec![], vec![1, 2]]);
+}
+
+#[test]
+fn a_camera_that_takes_one_shot_at_a_time_gets_every_shot_of_a_burst() {
+    // A Sony a7 III in MF took one photo for five shots fired within 0.2 s:
+    // fired while busy with the last, it takes no shot and says nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        event_delay_ms: 200,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let requests: Vec<u64> = (0..5).map(|_| helper.capture()).collect();
+    let (photos, _) = helper.photos(5);
+    assert_eq!(
+        photos.iter().map(|p| p.request).collect::<Vec<_>>(),
+        requests.into_iter().map(Some).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn a_camera_still_busy_with_the_last_shot_is_not_fired_again() {
+    // A long exposure: the last shot's photo has not come when the wait
+    // ends, so the next is refused as busy, not fired into nothing.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        event_delay_ms: 3000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let first = helper.capture();
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Busy);
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(first));
+    // Once it came, the camera is fired again.
+    let second = helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].request, Some(second));
+}
+
+#[test]
+fn a_one_at_a_time_camera_is_fired_again_only_after_the_last_shot_s_jpeg() {
+    // RAW+JPEG: the camera is still busy until its JPEG is handed over.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        raw_and_jpeg: true,
+        jpeg_late_ms: 1000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    let requests: Vec<u64> = (0..3).map(|_| helper.capture()).collect();
+    let (photos, _) = helper.photos(6);
+    let mut answered: Vec<u64> = photos.iter().filter_map(|p| p.request).collect();
+    answered.dedup();
+    assert_eq!(answered, requests);
+}
+
+#[test]
+fn a_one_at_a_time_camera_is_not_fired_between_a_body_shot_s_raw_and_jpeg() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        raw_and_jpeg: true,
+        jpeg_late_ms: 800,
+        body_shots_ms: vec![100],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    // The body shot's RAW, then a shot from the app before its JPEG.
+    let (photos, _) = helper.photos(1);
+    assert!(!photos[0].requested);
+    let request = helper.capture();
+    let (photos, _) = helper.photos(3);
+    assert_eq!(
+        photos.iter().filter(|p| p.request == Some(request)).count(),
+        2,
+        "{photos:?}"
+    );
+}
+
+#[test]
+fn a_one_at_a_time_camera_still_transferring_is_not_fired() {
+    // The last shot's JPEG later than the wait: refused as busy, never
+    // fired into a camera that takes no shot.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        ignores_triggers_while_busy: true,
+        raw_and_jpeg: true,
+        jpeg_late_ms: 2500,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(photos[0].camera_name, "DSC00001.ARW");
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::Busy);
+}
+
+#[test]
+fn a_slow_set_is_read_back_after_it_returned() {
+    // The read-back window starts when the set returned: a Sony body's set
+    // steps for seconds, and the reading after it can still be stale.
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        set_delay_ms: 3500,
+        stale_readback_ms: 1000,
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    assert_eq!(
+        set_iso(&helper, "400"),
+        Reply::SettingSet {
+            value: Some("400".into())
+        }
+    );
 }

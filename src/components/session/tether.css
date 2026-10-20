@@ -46,6 +46,7 @@
 }
 .tether-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .tether-capture {
@@ -148,6 +149,7 @@
   color: var(--app-text-secondary, #aab0b5);
   line-height: 1.35;
   padding-left: 18px;
+  overflow-wrap: anywhere;
 }
 .tether-test-step {
   display: grid;
@@ -179,6 +181,20 @@
   border-radius: 4px;
   background: var(--app-bg-primary);
   color: var(--app-text-primary);
+}
+/* The report's buttons, one per line: their labels can be long in any
+   language, so they wrap inside the panel instead of widening it. */
+.tether-test-report-actions {
+  flex-direction: column;
+}
+.tether-test-report-actions .session-action {
+  justify-content: flex-start;
+  min-width: 0;
+  white-space: normal;
+  text-align: left;
+}
+.tether-test-report-actions .session-action svg {
+  flex-shrink: 0;
 }
 .tether-test-report textarea {
   width: 100%;
