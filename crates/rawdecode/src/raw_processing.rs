@@ -54,7 +54,8 @@ pub fn develop_raw_image_with(
 }
 
 /// Receives the draft of a full development (`develop_raw_image_with_draft`):
-/// the oriented image and the size the full development will have.
+/// the oriented image and the size the full development will have. The full
+/// development starts when it returns.
 pub struct DraftSink(pub Box<dyn Fn(DynamicImage, (u32, u32)) + Send + Sync>);
 
 impl std::fmt::Debug for DraftSink {
@@ -69,7 +70,7 @@ impl std::fmt::Debug for DraftSink {
 /// mosaic is decoded and its highlights rebuilt, then demosaics. One decode
 /// instead of a separate fast decode beside the full one, which competed
 /// with it for the cores and decoded the file twice. The full development
-/// is the same with or without a sink.
+/// is the same with or without a sink, and starts once the sink returns.
 pub fn develop_raw_image_with_draft(
     file_bytes: &[u8],
     fast_demosaic: bool,
