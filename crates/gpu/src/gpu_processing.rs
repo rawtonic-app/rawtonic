@@ -2391,6 +2391,8 @@ pub struct GpuProcessor {
     detail_compilation: std::sync::OnceLock<()>,
     preview_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
     preview_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
+    /// Display variants that failed validation (never set in `preview_pipelines`).
+    preview_failed: Arc<[std::sync::atomic::AtomicBool; PREVIEW_PIPELINE_COUNT]>,
     /// Display variants that read the layer sums (`LAYER_SUMS`), by features.
     layer_sum_pipelines: Arc<[std::sync::OnceLock<wgpu::ComputePipeline>; PREVIEW_PIPELINE_COUNT]>,
     layer_sum_compilation: [std::sync::OnceLock<()>; PREVIEW_PIPELINE_COUNT],
@@ -2441,6 +2443,9 @@ pub struct GpuProcessor {
     force_inline_detail: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_fallback_variant: std::sync::atomic::AtomicBool,
+    /// Display frames render as before any display variant is ready.
+    #[cfg(test)]
+    force_general_display: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     force_exact_curves: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -4328,6 +4333,7 @@ impl GpuProcessor {
             detail_compilation: std::sync::OnceLock::new(),
             preview_pipelines,
             preview_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
+            preview_failed: Arc::new(std::array::from_fn(|_| Default::default())),
             layer_sum_pipelines: Arc::new(std::array::from_fn(|_| std::sync::OnceLock::new())),
             layer_sum_compilation: std::array::from_fn(|_| std::sync::OnceLock::new()),
             preview_shader: shader_module,
@@ -4368,6 +4374,8 @@ impl GpuProcessor {
             force_inline_detail: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_fallback_variant: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            force_general_display: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             force_full_preparation: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -5199,7 +5207,11 @@ impl GpuProcessor {
         }
     }
 
-    fn preview_pipeline(&self, features: usize) -> Result<&wgpu::ComputePipeline, String> {
+    fn preview_pipeline(
+        &self,
+        adjustments: &AllAdjustments,
+    ) -> Result<&wgpu::ComputePipeline, String> {
+        let features = preview_features(adjustments);
         #[cfg(test)]
         if self
             .force_legacy_curves
@@ -5227,11 +5239,20 @@ impl GpuProcessor {
                 .get()
                 .expect("compile the all-features variant before comparing"));
         }
+        #[cfg(test)]
+        let general_display = self
+            .force_general_display
+            .load(std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(test))]
+        let general_display = false;
         // Even the all-enabled variant uses direct curve reads for display.
         // Until this variant is compiled, the all-enabled one (a superset,
         // compiled from processor creation) renders the frame; the general
-        // shader only before that, as it is far slower with many layers.
-        if self.preview_pipelines[features].get().is_none() {
+        // shader only before that, as it is far slower with many layers,
+        // and only one with the noise passes this recipe needs (the
+        // variants have them all): the first frame of a noisy photo must
+        // not differ from the next.
+        if !general_display && self.preview_pipelines[features].get().is_none() {
             self.compile_preview_variant(features);
             // Another photo than a default RAW: the compiles held back at
             // start may serve it sooner.
@@ -5241,20 +5262,50 @@ impl GpuProcessor {
         }
         // Right after start several may still compile: the first one ready
         // that covers these features renders (an idle feature changes no
-        // pixel). A variant that fails is never set, but the general
-        // pipeline always settles, so this ends.
+        // pixel). A variant that fails is never set: the general pipeline
+        // for the recipe renders then, so this ends.
         loop {
-            if let Some(pipeline) = self.preview_pipelines[features].get().or_else(|| {
-                (features..PREVIEW_PIPELINE_COUNT)
-                    .filter(|&superset| superset & features == features)
-                    .find_map(|superset| self.preview_pipelines[superset].get())
-            }) {
+            if let Some(pipeline) = self.preview_pipelines[features]
+                .get()
+                .or_else(|| {
+                    (features..PREVIEW_PIPELINE_COUNT)
+                        .filter(|&superset| superset & features == features)
+                        .find_map(|superset| self.preview_pipelines[superset].get())
+                })
+                .filter(|_| !general_display)
+            {
                 return Ok(pipeline);
             }
-            if let Some(general) = self.main_pipeline.get() {
+            if let Some(general) = self.compiled_general_pipeline(adjustments) {
                 return general;
             }
+            if self.preview_failed[features].load(std::sync::atomic::Ordering::Acquire) {
+                return self.general_pipeline(adjustments, false);
+            }
             std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    /// The 8-bit `general_pipeline` for `adjustments` if it is compiled
+    /// already (without waiting or compiling), else `None`.
+    fn compiled_general_pipeline(
+        &self,
+        adjustments: &AllAdjustments,
+    ) -> Option<Result<&wgpu::ComputePipeline, String>> {
+        let edge = edge_noise_reduction(adjustments);
+        let with_pass = if adjustments.global.luma_noise_profile[0][0] > 0.0 {
+            Some(&self.profile_pipelines[0][usize::from(edge)])
+        } else if edge {
+            Some(&self.edge_pipelines[0])
+        } else {
+            None
+        };
+        match with_pass.map(std::sync::OnceLock::get) {
+            Some(Some(Some(pipeline))) => Some(Ok(pipeline)),
+            // The plain pipeline would render without the pass.
+            Some(None) => None,
+            // It failed: `general_pipeline` uses the plain one too.
+            Some(Some(None)) | None => self.main_pipeline.get(),
         }
     }
 
@@ -5299,6 +5350,7 @@ impl GpuProcessor {
             // The RAW default variant opens the gate when it settles.
             let opens = (features == RAW_DEFAULT_PREVIEW_FEATURES).then(|| Arc::clone(&self.start_gate));
             let pipelines = Arc::clone(&self.preview_pipelines);
+            let failed = Arc::clone(&self.preview_failed);
             let device = Arc::clone(&self.context.device);
             let shader = self.preview_shader.clone();
             let layout = self.preview_layout.clone();
@@ -5312,9 +5364,12 @@ impl GpuProcessor {
                     Ok(pipeline) => {
                         let _ = pipelines[features].set(pipeline);
                     }
-                    Err(error) => log::error!(
-                        "Specialized preview variant {features} unavailable; using the general shader: {error}"
-                    ),
+                    Err(error) => {
+                        log::error!(
+                            "Specialized preview variant {features} unavailable; using the general shader: {error}"
+                        );
+                        failed[features].store(true, std::sync::atomic::Ordering::Release);
+                    }
                 }
                 if let Some(gate) = opens {
                     gate.open();
@@ -5662,19 +5717,6 @@ impl GpuProcessor {
             .load(std::sync::atomic::Ordering::Relaxed);
         #[cfg(not(test))]
         let force_general_pipeline = false;
-        let main_pipeline = if display_shader && !force_full_preparation && !force_general_pipeline
-        {
-            self.preview_pipeline(preview_features(&request.adjustments))?
-        } else if !output_to_display
-            && output_precision == RenderOutputPrecision::EightBit
-            && !force_full_preparation
-            && !force_general_pipeline
-        {
-            self.export_pipeline(&request.adjustments, false)?
-        } else {
-            self.general_pipeline(&request.adjustments, false)?
-        };
-
         if output_precision == RenderOutputPrecision::SixteenBit && output_to_display {
             return Err(
                 "High-precision GPU output is only supported for CPU-readback renders.".to_string(),
@@ -5705,8 +5747,16 @@ impl GpuProcessor {
                 16,
             )
         } else {
+            // A 16-bit render needs no 8-bit pipeline (nor waits for one).
+            let pipeline = if display_shader && !force_full_preparation && !force_general_pipeline {
+                self.preview_pipeline(&request.adjustments)?
+            } else if !output_to_display && !force_full_preparation && !force_general_pipeline {
+                self.export_pipeline(&request.adjustments, false)?
+            } else {
+                self.general_pipeline(&request.adjustments, false)?
+            };
             (
-                main_pipeline,
+                pipeline,
                 &self.main_bgl,
                 &self.tile_output_texture,
                 &self.tile_output_texture_view,
@@ -5777,6 +5827,7 @@ impl GpuProcessor {
                 &self.force_unprepared_layers,
                 &self.force_full_display_render,
                 &self.force_plain_noise_reduction,
+                &self.force_general_display,
             ]
             .iter()
             .any(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
@@ -5791,7 +5842,7 @@ impl GpuProcessor {
                     bounds,
                     adjustments: request.adjustments.uniforms,
                     lut: request.lut.as_ref().map(Arc::downgrade),
-                    pipeline: main_pipeline.clone(),
+                    pipeline: output_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),
                 });
         // Restrict this frame to the changed mask pixels when everything else
