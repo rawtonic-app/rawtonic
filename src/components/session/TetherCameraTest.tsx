@@ -105,6 +105,9 @@ interface Failure {
 const refused = (e: unknown): Failure => ({ reason: "refused by the camera or the helper", detail: String(e) });
 const notDelivered = (payload: unknown): Failure => {
   const { kind, message } = payload as { kind?: string; message?: string };
+  // The helper's timeout: no photo, which on a body is mostly a shot not
+  // taken (no focus with autofocus), sometimes one not handed over.
+  if (kind === "timeout") return { reason: "no photo within 60 s of the shot (not taken, or not handed over)", detail: message };
   return { reason: `shot not delivered (${/^[a-zA-Z]+$/.test(kind ?? "") ? kind : "other"})`, detail: message };
 };
 const notAdded = (error: string): Failure => ({ reason: "photo not added to the library", detail: error });

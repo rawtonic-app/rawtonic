@@ -529,7 +529,9 @@ impl<W: Write> Server<W> {
             self.event(Event::CaptureFailed {
                 error: TetherError::new(
                     ErrorKind::Timeout,
-                    "The camera did not deliver the photo. It was not fired again.",
+                    "No photo came within a minute of the shot: the camera may not have fired (with \
+                     autofocus, a shot that finds no focus is not taken) or did not hand it over. It \
+                     was not fired again.",
                 ),
                 request: asked.map(|asked| asked.id),
                 exposure: None,

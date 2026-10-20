@@ -178,7 +178,7 @@ it("fails a shot whose photo did not come in, its message kept out of the report
   expect(report()).toContain("| Connect | pass |  |");
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
-  await runStep(/\| Shots from Rawtonic \| FAIL \| 0\/5 in the library; shot not delivered \(timeout\) \|/);
+  await runStep(/\| Shots from Rawtonic \| FAIL \| 0\/5 in the library; no photo within 60 s of the shot \(not taken, or not handed over\) \|/);
   // The message is shown in the test, never copied.
   expect(screen.getByText("DSCF7.RAF from 93X1234567 not at /Users/someone/x")).toBeTruthy();
   expect(report()).not.toMatch(/DSCF7|93X1234567|someone/);
@@ -234,7 +234,7 @@ it("counts a RAW+JPEG exposure once, so missing exposures fail the burst", async
     }, 5);
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  await runStep(/\| Burst from Rawtonic \| FAIL \| 3\/5 in the library; \d+ ms; shot not delivered \(timeout\) \|/);
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 3\/5 in the library; \d+ ms; no photo within 60 s of the shot \(not taken, or not handed over\) \|/);
 });
 
 it("asks the camera for nothing more once the test is closed", async () => {
@@ -403,7 +403,7 @@ it("a RAW that fails first keeps its exposure: its JPEG in the next step is no n
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
   await runStep(/\| Shots from Rawtonic \| FAIL \| 4\/5 in the library;/);
-  await runStep(/\| Burst from Rawtonic \| FAIL \| 4\/5 in the library; \d+ ms; shot not delivered \(timeout\) \|/);
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 4\/5 in the library; \d+ ms; no photo within 60 s of the shot \(not taken, or not handed over\) \|/);
 }, 20_000);
 
 it("a companion's failure ends no other shot's wait", async () => {
@@ -716,6 +716,6 @@ it("names a photo that came after its shot was reported as not delivered", async
   for (const _ of [1, 2, 3]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
   await runStep(
-    /\| Shots from Rawtonic \| FAIL \| 4\/5 in the library; .*shot not delivered \(timeout\); 1 photo came after its shot was reported as not delivered \|/,
+    /\| Shots from Rawtonic \| FAIL \| 4\/5 in the library; .*no photo within 60 s of the shot \(not taken, or not handed over\); 1 photo came after its shot was reported as not delivered \|/,
   );
 });
