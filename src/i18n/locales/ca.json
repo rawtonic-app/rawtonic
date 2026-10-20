@@ -2696,6 +2696,7 @@
           "aperture": "Obertura (nombre f)",
           "camera": "Càmera",
           "captureDate": "Data de captura",
+          "details": "Qualsevol text excepte paraules clau",
           "exposure": "Velocitat d’obturació (s)",
           "filename": "Nom del fitxer",
           "fileType": "Tipus de fitxer",

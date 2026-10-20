@@ -2555,6 +2555,7 @@
           "aperture": "조리개 (F 값)",
           "camera": "카메라",
           "captureDate": "촬영 날짜",
+          "details": "키워드를 제외한 모든 텍스트",
           "exposure": "셔터 속도 (초)",
           "filename": "파일 이름",
           "fileType": "파일 형식",

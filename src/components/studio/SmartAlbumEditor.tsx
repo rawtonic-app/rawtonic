@@ -26,6 +26,7 @@ type Kind = "search" | "text" | "number" | "date" | "choice" | "album" | "folder
 
 const FIELDS: { field: Field; kind: Kind }[] = [
   { field: "text", kind: "search" },
+  { field: "details", kind: "search" },
   { field: "filename", kind: "text" },
   { field: "keyword", kind: "text" },
   { field: "rating", kind: "number" },

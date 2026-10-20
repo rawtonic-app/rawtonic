@@ -81,13 +81,29 @@ describe('catalog search', () => {
       searchCriteria: { text: 'client', tags: [], mode: 'OR' as const },
       // The catalog found b (its keyword); both photographs pass the rest.
       catalogMatches: new Set(['/shoot/b.ARW']),
-      catalogCopies: new Set(['/shoot/a.ARW', '/shoot/b.ARW']),
+      catalogCopies: { base: new Set(['/shoot/a.ARW', '/shoot/b.ARW']), details: [new Set<string>()] },
     };
     expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW?vc=c1', '/shoot/b.ARW']);
     // A copy whose photograph fails the rest (another camera) stays out.
     expect(
-      computeSortedLibrary({ ...input, catalogCopies: new Set(['/shoot/b.ARW']) }, {}).map((f) => f.path),
+      computeSortedLibrary({ ...input, catalogCopies: { base: new Set(['/shoot/b.ARW']), details: [new Set<string>()] } }, {})
+        .map((f) => f.path),
     ).toEqual(['/shoot/b.ARW']);
+  });
+
+  it('matches files the catalog does not hold by name and tags', () => {
+    const input = {
+      ...state(),
+      imageList: [file('/shoot/a.ARW'), file('/shoot/Output/DSC00123.JPG')],
+      searchCriteria: { text: '00123', tags: [], mode: 'OR' as const },
+      catalogMatches: new Set<string>(),
+      catalogKnown: new Set(['/shoot/a.ARW']),
+    };
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/Output/DSC00123.JPG']);
+    // It has no camera, lens, …: a metadata choice leaves it out.
+    expect(
+      computeSortedLibrary({ ...input, filterCriteria: { ...input.filterCriteria, metadata: { camera: ['X-T4'] } } }, {}),
+    ).toEqual([]);
   });
 
   it('keeps grouped photographs together when one of them is found', () => {

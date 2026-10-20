@@ -20,6 +20,11 @@ vi.mock('@tauri-apps/api/event', () => ({
   }),
 }));
 const mockInvoke = vi.mocked(invoke);
+/** Searches asked, leaving out the question which photographs the catalog
+ * knows (asked with each search, `catalogKnown`). */
+const searches = () =>
+  mockInvoke.mock.calls.filter(([, args]) => JSON.stringify((args as { rule: unknown }).rule) !== '{"combine":"all","rules":[]}')
+    .length;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -53,7 +58,7 @@ it('asks the catalog after typing pauses and again after a catalog write', async
   act(() => useLibraryStore.getState().setSearchCriteria({ text: 'we' }));
   act(() => useLibraryStore.getState().setSearchCriteria({ text: 'wedding' }));
   await settle();
-  expect(mockInvoke).toHaveBeenCalledTimes(1);
+  expect(searches()).toBe(1);
   expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
     rule: { field: 'text', op: 'contains', value: 'wedding' },
@@ -63,12 +68,12 @@ it('asks the catalog after typing pauses and again after a catalog write', async
   mockInvoke.mockResolvedValue([]);
   act(() => catalogChanged());
   await settle();
-  expect(mockInvoke).toHaveBeenCalledTimes(2);
+  expect(searches()).toBe(2);
   expect(useLibraryStore.getState().catalogMatches?.size).toBe(0);
 
   act(() => useLibraryStore.getState().setFilterCriteria({ metadata: { camera: ['X-T4'] } }));
   await settle();
-  expect(mockInvoke).toHaveBeenLastCalledWith('session_search', {
+  expect(mockInvoke).toHaveBeenCalledWith('session_search', {
     directory: '/job',
     rule: {
       combine: 'all',
@@ -99,10 +104,10 @@ it('searches again when the background pass recorded capture facts', async () =>
   useLibraryStore.setState({ searchCriteria: { text: 'X-T4', tags: [], mode: 'OR' } });
   const { unmount } = renderHook(() => useCatalogSearch());
   await settle();
-  expect(mockInvoke).toHaveBeenCalledTimes(1);
+  expect(searches()).toBe(1);
   act(() => listeners.get('library-facts-recorded')?.());
   await settle();
-  expect(mockInvoke).toHaveBeenCalledTimes(2);
+  expect(searches()).toBe(2);
   unmount();
   expect(listeners.has('library-facts-recorded')).toBe(false);
 });
@@ -115,9 +120,16 @@ it('keeps the newest answer when an older search answers late', async () => {
   await settle();
   act(() => catalogChanged());
   await settle();
-  expect(answers).toHaveLength(2);
-  await act(async () => answers[1](['/job/new.arw']));
-  await act(async () => answers[0](['/job/old.arw']));
+  // Two rounds of two questions (matches, known photographs).
+  expect(answers).toHaveLength(4);
+  await act(async () => {
+    answers[2](['/job/new.arw']);
+    answers[3](['/job/new.arw']);
+  });
+  await act(async () => {
+    answers[0](['/job/old.arw']);
+    answers[1](['/job/old.arw']);
+  });
   expect([...(useLibraryStore.getState().catalogMatches ?? [])]).toEqual(['/job/new.arw']);
 });
 
@@ -125,22 +137,22 @@ it('searches again after an import, a tethered capture or a relink', async () =>
   useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
   renderHook(() => useCatalogSearch());
   await settle();
-  const before = mockInvoke.mock.calls.length;
+  const before = searches();
   act(() => window.dispatchEvent(new Event(IMPORTS_CHANGED)));
   await settle();
   act(() => window.dispatchEvent(new Event(OFFLINE_CHANGED)));
   await settle();
-  expect(mockInvoke.mock.calls.length).toBe(before + 2);
+  expect(searches()).toBe(before + 2);
 });
 
 it('asks again when the grid gets a new list (a rename or a refresh)', async () => {
   useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
   renderHook(() => useCatalogSearch());
   await settle();
-  const before = mockInvoke.mock.calls.length;
+  const before = searches();
   act(() => useLibraryStore.setState({ imageList: [] }));
   await settle();
-  expect(mockInvoke.mock.calls.length).toBe(before + 1);
+  expect(searches()).toBe(before + 1);
 });
 
 it('also asks what the photographs of shown virtual copies pass besides text and keywords', async () => {
@@ -160,7 +172,12 @@ it('also asks what the photographs of shown virtual copies pass besides text and
     directory: '/job',
     rule: { field: 'camera', op: 'is', value: 'X-T4' },
   });
-  expect([...(useLibraryStore.getState().catalogCopies ?? [])]).toEqual(['/job/Capture/a.arw']);
+  expect([...(useLibraryStore.getState().catalogCopies?.base ?? [])]).toEqual(['/job/Capture/a.arw']);
+  // And per word, what the copies share with their photograph.
+  expect(mockInvoke).toHaveBeenCalledWith('session_search', {
+    directory: '/job',
+    rule: { field: 'details', op: 'contains', value: 'client' },
+  });
   useLibraryStore.setState({ imageList: [] });
 });
 

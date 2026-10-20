@@ -9,6 +9,7 @@ import {
   FACET_FIELDS,
   cullingRules,
   libraryFacets,
+  rawRules,
   scopeRule,
   textRules,
   type FacetField,
@@ -77,10 +78,10 @@ export default function StudioMetadataFilter() {
   const [facets, setFacets] = useState<Facets>({});
   const base = useMemo(() => {
     const scope = scopeRule(folder, albumId, viewMode);
-    return [...(scope ? [scope] : []), ...textRules(text), ...cullingRules(filter)];
+    return [...(scope ? [scope] : []), ...textRules(text), ...cullingRules(filter), ...rawRules(filter)];
     // The culling filters by value, not by object identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folder, albumId, viewMode, text, filter.rating, filter.colors, filter.flag]);
+  }, [folder, albumId, viewMode, text, filter.rating, filter.colors, filter.flag, filter.rawStatus]);
 
   useEffect(() => {
     if (!directory) return;

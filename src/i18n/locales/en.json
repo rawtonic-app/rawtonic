@@ -2615,6 +2615,7 @@
           "aperture": "Aperture (f-number)",
           "camera": "Camera",
           "captureDate": "Capture date",
+          "details": "Any text but keywords",
           "exposure": "Shutter speed (s)",
           "filename": "File name",
           "fileType": "File type",

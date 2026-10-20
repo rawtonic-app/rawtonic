@@ -2555,6 +2555,7 @@
           "aperture": "絞り（F 値）",
           "camera": "カメラ",
           "captureDate": "撮影日",
+          "details": "キーワード以外の任意のテキスト",
           "exposure": "シャッタースピード（秒）",
           "filename": "ファイル名",
           "fileType": "ファイルの種類",

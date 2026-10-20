@@ -2777,6 +2777,7 @@
           "aperture": "Przysłona (liczba f)",
           "camera": "Aparat",
           "captureDate": "Data wykonania",
+          "details": "Dowolny tekst poza słowami kluczowymi",
           "exposure": "Czas naświetlania (s)",
           "filename": "Nazwa pliku",
           "fileType": "Typ pliku",

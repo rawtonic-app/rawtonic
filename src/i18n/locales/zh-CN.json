@@ -2555,6 +2555,7 @@
           "aperture": "光圈（f 值）",
           "camera": "相机",
           "captureDate": "拍摄日期",
+          "details": "除关键词外的任意文本",
           "exposure": "快门速度（秒）",
           "filename": "文件名",
           "fileType": "文件类型",

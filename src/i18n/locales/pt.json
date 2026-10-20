@@ -2696,6 +2696,7 @@
           "aperture": "Abertura (número f)",
           "camera": "Câmera",
           "captureDate": "Data de captura",
+          "details": "Qualquer texto exceto palavras-chave",
           "exposure": "Velocidade do obturador (s)",
           "filename": "Nome do arquivo",
           "fileType": "Tipo de arquivo",

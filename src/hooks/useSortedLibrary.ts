@@ -7,7 +7,7 @@ import {
 } from '../components/ui/AppProperties';
 import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGrouping';
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
-import { copyMatches, photographPath } from '../utils/librarySearch';
+import { copyMatches, photographPath, selectionCount } from '../utils/librarySearch';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
 // Extract each basename once per immutable file record, not twice per comparison.
@@ -64,7 +64,8 @@ export type LibraryQueryState = Pick<ReturnType<typeof useLibraryStore.getState>
   'imageList' | 'imageRatings' | 'filterCriteria' | 'searchCriteria' | 'sortCriteria'> & {
     imageFlags?: Record<string, number>;
     catalogMatches?: Set<string> | null;
-    catalogCopies?: Set<string> | null;
+    catalogCopies?: { base: Set<string>; details: Set<string>[] } | null;
+    catalogKnown?: Set<string> | null;
   };
 interface QuerySettings {
   appSettings?: { grouping?: GroupingMode; groupEditedFiles?: boolean } | null;
@@ -146,7 +147,7 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
 export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsState: QuerySettings): GroupedLibrary {
   const {
     imageList, imageRatings, imageFlags = {}, filterCriteria, searchCriteria, sortCriteria, catalogMatches = null,
-    catalogCopies = null,
+    catalogCopies = null, catalogKnown = null,
   } = libraryState;
   const { appSettings } = settingsState;
 
@@ -249,14 +250,19 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     // In a library its catalog answered the search box and the metadata
     // lists (keywords, IPTC, camera, lens, … in one query); until its first
     // answer arrives, names and keywords are matched here.
-    if (catalogMatches !== null) {
+    // A file the catalog does not hold (a listing shows unregistered files
+    // too) is matched by name and tags below; it has no metadata values.
+    const photo = photographPath(image.path);
+    const unknown = catalogMatches !== null && catalogKnown !== null && !catalogKnown.has(photo);
+    if (unknown && selectionCount(filterCriteria.metadata) > 0) return false;
+    if (catalogMatches !== null && !unknown) {
       // A virtual copy has keywords of its own: the search box and the
-      // keyword list look at its own name and tags, the rest at its
-      // photograph (`copyBaseRule`).
+      // keyword list look at them and at what it shares with its
+      // photograph, the rest at its photograph (`copyBaseRule`).
       const found = image.is_virtual_copy && catalogCopies !== null
-        ? catalogCopies.has(photographPath(image.path))
-          && copyMatches(image.path, image.tags, searchText, filterCriteria.metadata)
-        : catalogMatches.has(photographPath(image.path));
+        ? catalogCopies.base.has(photo)
+          && copyMatches(image.path, image.tags, searchText, filterCriteria.metadata, catalogCopies.details)
+        : catalogMatches.has(photo);
       if (!found) return false;
       if (parsedTags.length === 0) return true;
     }
@@ -281,7 +287,7 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     }
 
     let textMatch = true;
-    if (lowerCaseSearchText !== '' && catalogMatches === null) {
+    if (lowerCaseSearchText !== '' && (catalogMatches === null || unknown)) {
       textMatch =
         lowerFilename.includes(lowerCaseSearchText) || lowerCaseImageTags.some((t) => t.includes(lowerCaseSearchText));
     }
@@ -350,6 +356,7 @@ export function useSortedLibrary() {
   const sortCriteria = useLibraryStore((state) => state.sortCriteria);
   const catalogMatches = useLibraryStore((state) => state.catalogMatches);
   const catalogCopies = useLibraryStore((state) => state.catalogCopies);
+  const catalogKnown = useLibraryStore((state) => state.catalogKnown);
 
   const appSettings = useSettingsStore((state) => state.appSettings);
   const grouping = appSettings?.grouping;
@@ -362,7 +369,8 @@ export function useSortedLibrary() {
   const result = useMemo(() => {
     const started = performanceDiagnosticsEnabled ? performance.now() : 0;
     const result = computeGroupedLibrary(
-      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches, catalogCopies },
+      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches, catalogCopies,
+        catalogKnown },
       { appSettings: { grouping, groupEditedFiles } },
     );
     if (performanceDiagnosticsEnabled) {
@@ -375,7 +383,7 @@ export function useSortedLibrary() {
     return result;
   }, [
     imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, catalogMatches, catalogCopies,
-    grouping, groupEditedFiles,
+    catalogKnown, grouping, groupEditedFiles,
   ]);
 
   return result;

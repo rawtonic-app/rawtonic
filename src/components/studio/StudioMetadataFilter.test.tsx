@@ -101,3 +101,20 @@ it("names months and photographic values", () => {
   expect(facetLabel("focalLength", "85", t)).toBe("85 mm");
   expect(facetLabel("keyword", "", t)).toBe("No keyword");
 });
+
+it("counts within the RAW / not RAW filter too", async () => {
+  useLibraryStore.setState({
+    filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.RawOnly },
+    searchCriteria: { text: "", tags: [], mode: "OR" },
+  });
+  render(<StudioMetadataFilter />);
+  await counted();
+  const args = mockInvoke.mock.calls.at(-1)?.[1] as { requests: { field: string; rule: unknown }[] };
+  expect(args.requests.find((r) => r.field === "camera")?.rule).toEqual({
+    combine: "all",
+    rules: [
+      { field: "folder", op: "contains", value: "/job/Capture" },
+      { field: "fileType", op: "is", value: ["raw", "dng"] },
+    ],
+  });
+});

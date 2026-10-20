@@ -56,6 +56,9 @@ pub enum Field {
     /// Any searchable text: path, keywords, title, caption, creator, IPTC
     /// fields, camera make and model, lens.
     Text,
+    /// The same text without the keywords: what a photograph's virtual
+    /// copies share with it (each copy keeps keywords of its own).
+    Details,
     /// The file's name.
     Filename,
     Keyword,
@@ -645,6 +648,23 @@ impl<'a> Compiler<'a> {
         match field {
             Field::Text => match op {
                 Op::Contains | Op::ContainsAny | Op::NotContains => self.text_any(op, value),
+                _ => bail!("Search text supports contains / contains any / does not contain"),
+            },
+            Field::Details => match op {
+                Op::Contains | Op::ContainsAny | Op::NotContains => {
+                    self.metadata = true;
+                    // The searchable text (`search_text`) but the keywords,
+                    // read from the stored metadata (a row scan).
+                    self.text_words(
+                        "(a.rel_path || ' ' || a.make || ' ' || a.camera || ' ' || a.lens || ' ' || \
+                          coalesce(json_extract(m.data, '$.title'), '') || ' ' || \
+                          coalesce(json_extract(m.data, '$.description'), '') || ' ' || \
+                          coalesce(json_extract(m.data, '$.creator'), '') || ' ' || \
+                          coalesce((SELECT group_concat(value, ' ') FROM json_each(m.data, '$.iptc')), ''))",
+                        op,
+                        value,
+                    )
+                }
                 _ => bail!("Search text supports contains / contains any / does not contain"),
             },
             Field::Filename => {

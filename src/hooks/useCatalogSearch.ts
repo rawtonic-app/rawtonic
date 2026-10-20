@@ -4,7 +4,15 @@ import i18n from 'i18next';
 import { toast } from 'react-toastify';
 import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
-import { copyBaseRule, photographPath, searchLibrary, searchRule } from '../utils/librarySearch';
+import { useSettingsStore } from '../store/useSettingsStore';
+import {
+  copyBaseRule,
+  detailRules,
+  photographPath,
+  scopeRule,
+  searchLibrary,
+  searchRule,
+} from '../utils/librarySearch';
 
 /** How long typing pauses before the catalog is asked. */
 export const SEARCH_DELAY_MS = 80;
@@ -47,10 +55,14 @@ export function useCatalogSearch() {
     const rule = directory ? searchRule(text, selection) : null;
     const { setLibrary } = useLibraryStore.getState();
     if (!directory || !rule) {
-      setLibrary({ catalogMatches: null, catalogCopies: null });
+      setLibrary({ catalogMatches: null, catalogKnown: null, catalogCopies: null });
       return;
     }
-    // Copies are matched on their own tags for the search box and keywords.
+    // Which shown photographs the catalog knows (a listing also shows files
+    // it does not hold, e.g. a session's Output; those are matched here).
+    const { currentFolderPath, activeAlbumId } = useLibraryStore.getState();
+    const scope = scopeRule(currentFolderPath, activeAlbumId, useSettingsStore.getState().appSettings?.libraryViewMode);
+    // Copies are matched on their own keywords (`copyMatches`).
     const copyRule = imageList.some((image) => image.is_virtual_copy) ? copyBaseRule(text, selection) : null;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -61,19 +73,27 @@ export function useCatalogSearch() {
       clearTimeout(timer);
       timer = setTimeout(() => {
         const mine = ++generation;
-        Promise.all([searchLibrary(directory, rule), copyRule ? searchLibrary(directory, copyRule) : null])
-          .then(([paths, copies]) => {
-            // A newer search, or another library, has taken over.
-            if (cancelled || mine !== generation || useLibraryStore.getState().sessionDirectory !== directory) return;
+        const current = () =>
+          !cancelled && mine === generation && useLibraryStore.getState().sessionDirectory === directory;
+        const paths = (asked: Promise<string[]>) => asked.then((list) => new Set(list.map(photographPath)));
+        Promise.all([
+          paths(searchLibrary(directory, rule)),
+          paths(searchLibrary(directory, scope ?? { combine: 'all', rules: [] })),
+          copyRule ? paths(searchLibrary(directory, copyRule)) : null,
+          copyRule ? Promise.all(detailRules(text).map((word) => paths(searchLibrary(directory, word)))) : null,
+        ])
+          .then(([matches, known, base, details]) => {
+            if (!current()) return;
             setLibrary({
-              catalogMatches: new Set(paths.map(photographPath)),
-              catalogCopies: copies ? new Set(copies.map(photographPath)) : null,
+              catalogMatches: matches,
+              catalogKnown: known,
+              catalogCopies: base && details ? { base, details } : null,
             });
           })
           .catch((e) => {
             // The old answer is not this filter's: show nothing and say why.
-            if (cancelled || mine !== generation || useLibraryStore.getState().sessionDirectory !== directory) return;
-            setLibrary({ catalogMatches: new Set(), catalogCopies: null });
+            if (!current()) return;
+            setLibrary({ catalogMatches: new Set(), catalogKnown: null, catalogCopies: null });
             toast.error(i18n.t('studio.library.searchFailed', { error: String(e) }));
           });
       }, delay);

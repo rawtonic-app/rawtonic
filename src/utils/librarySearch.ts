@@ -10,6 +10,7 @@ import { PREVIOUS_IMPORT_VIEW_ID } from './folderSync';
  */
 export type Field =
   | 'text'
+  | 'details'
   | 'filename'
   | 'keyword'
   | 'camera'
@@ -148,6 +149,13 @@ export function searchRule(text: string, selection: MetadataSelection | undefine
 /** File types the grid counts as RAW (`is_raw`: the RAW formats, DNG among them). */
 const RAW_TYPES = ['raw', 'dng'];
 
+/** RAW / not RAW as the grid filters it (`is_raw`), as a file type rule. */
+export function rawRules(filter: FilterCriteria): Rule[] {
+  if (filter.rawStatus === RawStatus.RawOnly) return [{ field: 'fileType', op: 'is', value: RAW_TYPES }];
+  if (filter.rawStatus === RawStatus.NonRawOnly) return [{ field: 'fileType', op: 'isNot', value: RAW_TYPES }];
+  return [];
+}
+
 /** Everything the Library filters by now, for a new smart album: the shown
  * album or folder, the search box, the chosen values, the culling filters
  * and RAW / not RAW. Null when it also filters by what rules cannot say
@@ -161,12 +169,7 @@ export function filterAsRule(
   tags: string[] = [],
 ): Group | null {
   if ((filter.editedStatus ?? EditedStatus.All) !== EditedStatus.All || tags.length > 0) return null;
-  const raw: Rule[] =
-    filter.rawStatus === RawStatus.RawOnly
-      ? [{ field: 'fileType', op: 'is', value: RAW_TYPES }]
-      : filter.rawStatus === RawStatus.NonRawOnly
-        ? [{ field: 'fileType', op: 'isNot', value: RAW_TYPES }]
-        : [];
+  const raw = rawRules(filter);
   return {
     combine: 'all',
     rules: [
@@ -198,19 +201,29 @@ export function copyBaseRule(text: string, selection: MetadataSelection | undefi
 const keywordsOf = (tags: string[] | null) =>
   (tags ?? []).filter((tag) => !tag.startsWith('color:')).map((tag) => tag.replace(/^user:/, ''));
 
-/** Whether a virtual copy's own name and tags hold every word of the search
- * box and one of the chosen keywords (case ignored, as the catalog does). */
+/** The words of the search box, as the catalog splits them. */
+export const searchWords = (text: string) => text.trim().split(/\s+/).filter(Boolean);
+
+/** Each word of the search box in what copies share with their photograph
+ * (`details`: path, title, caption, IPTC, camera, lens; not keywords). */
+export const detailRules = (text: string): Rule[] =>
+  searchWords(text).map((word) => ({ field: 'details', op: 'contains', value: word }));
+
+/** Whether a virtual copy holds every word of the search box (in its own
+ * keywords, or in what it shares with its photograph: `details[i]` holds
+ * the photographs whose details hold word i) and one of the chosen
+ * keywords among its own (case ignored, as the catalog does). */
 export function copyMatches(
   path: string,
   tags: string[] | null,
   text: string,
   selection: MetadataSelection | undefined,
+  details: Set<string>[],
 ): boolean {
   const keywords = keywordsOf(tags).map((k) => k.toLowerCase());
   const photo = photographPath(path);
-  const name = photo.slice(Math.max(photo.lastIndexOf('/'), photo.lastIndexOf('\\')) + 1).toLowerCase();
-  const words = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!words.every((word) => name.includes(word) || keywords.some((k) => k.includes(word)))) return false;
+  const words = searchWords(text).map((word) => word.toLowerCase());
+  if (!words.every((word, i) => details[i]?.has(photo) || keywords.some((k) => k.includes(word)))) return false;
   const chosen = selection?.keyword ?? [];
   if (!chosen.length) return true;
   return chosen.some((value) => (value === '' ? keywords.length === 0 : keywords.includes(value.toLowerCase())));

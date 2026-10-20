@@ -1061,3 +1061,30 @@ fn a_listed_focal_length_or_aperture_selects_what_it_counts() {
             .contains(&"DSC00123.ARW".to_string())
     );
 }
+
+#[test]
+fn details_are_the_searchable_text_without_keywords() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    let mut meta = lib.metadata(&ids[0]).unwrap();
+    meta.title = "Ceremony".into();
+    meta.iptc.insert("city".into(), "Ascona".into());
+    lib.set_metadata(&ids[0], &meta).unwrap();
+    let details = |text: &str| {
+        found(
+            &lib,
+            json!({"field":"details","op":"contains","value":text}),
+        )
+    };
+    assert_eq!(details("ceremony ascona"), ["DSC00123.ARW"]);
+    assert_eq!(details("sony 0123"), ["DSC00123.ARW"]);
+    // Its keyword "wedding" is no detail (the text search finds it).
+    assert!(details("wedding").is_empty());
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"text","op":"contains","value":"wedding ceremony"})
+        ),
+        ["DSC00123.ARW"]
+    );
+}

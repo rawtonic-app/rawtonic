@@ -2615,6 +2615,7 @@
           "aperture": "Blende (Blendenzahl)",
           "camera": "Kamera",
           "captureDate": "Aufnahmedatum",
+          "details": "Beliebiger Text außer Stichwörtern",
           "exposure": "Belichtungszeit (s)",
           "filename": "Dateiname",
           "fileType": "Dateityp",

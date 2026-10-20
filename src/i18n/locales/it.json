@@ -2696,6 +2696,7 @@
           "aperture": "Diaframma (numero f)",
           "camera": "Fotocamera",
           "captureDate": "Data di scatto",
+          "details": "Qualsiasi testo tranne le parole chiave",
           "exposure": "Tempo di posa (s)",
           "filename": "Nome file",
           "fileType": "Tipo di file",

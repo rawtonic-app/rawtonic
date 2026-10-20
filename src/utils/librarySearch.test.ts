@@ -124,11 +124,15 @@ describe('library search rules', () => {
     });
     expect(copyBaseRule('bride', undefined)).toEqual({ combine: 'all', rules: [] });
     const path = '/job/Capture/DSC00123.ARW?vc=1';
-    expect(copyMatches(path, ['user:Bride', 'color:red'], 'bride 0123', {})).toBe(true);
-    expect(copyMatches(path, ['user:Bride'], 'groom', {})).toBe(false);
-    expect(copyMatches(path, ['user:Bride'], '', { keyword: ['bride'] })).toBe(true);
-    expect(copyMatches(path, ['color:red'], '', { keyword: [''] })).toBe(true);
-    expect(copyMatches(path, ['user:x'], '', { keyword: [''] })).toBe(false);
+    const photo = '/job/Capture/DSC00123.ARW';
+    // "bride" in the copy's own keywords, "0123" in what it shares (details).
+    expect(copyMatches(path, ['user:Bride', 'color:red'], 'bride 0123', {}, [new Set(), new Set([photo])])).toBe(true);
+    expect(copyMatches(path, ['user:Bride'], 'groom', {}, [new Set()])).toBe(false);
+    // "SONY": the camera it shares with its photograph.
+    expect(copyMatches(path, [], 'sony', {}, [new Set([photo])])).toBe(true);
+    expect(copyMatches(path, ['user:Bride'], '', { keyword: ['bride'] }, [])).toBe(true);
+    expect(copyMatches(path, ['color:red'], '', { keyword: [''] }, [])).toBe(true);
+    expect(copyMatches(path, ['user:x'], '', { keyword: [''] }, [])).toBe(false);
   });
 
   it('finds a virtual copy by its photograph', () => {
