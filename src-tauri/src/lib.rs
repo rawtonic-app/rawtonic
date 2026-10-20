@@ -627,6 +627,7 @@ pub fn run() {
             proxy_memory: Mutex::new(Default::default()),
             offline_source: Mutex::new(None),
             source_signal: Default::default(),
+            rendered_source: Default::default(),
             current_source: Mutex::new(String::new()),
             last_preview_dim: std::sync::atomic::AtomicU32::new(0),
             cached_preview: Mutex::new(None),

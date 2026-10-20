@@ -164,6 +164,46 @@ pub struct LoadedProxy {
     pub is_raw: bool,
 }
 
+/// The decode the preview worker last rendered a frame from, so that work a
+/// decode leaves for later (its preview proxy and thumbnail) can wait until
+/// the photograph is on screen: started beside that frame, it took the cores
+/// the frame needed.
+#[derive(Default)]
+pub struct RenderedSource {
+    source: Mutex<std::sync::Weak<DynamicImage>>,
+    rendered: Condvar,
+}
+
+impl RenderedSource {
+    /// Call when a frame from `source` (a whole decode) is rendered.
+    pub fn mark(&self, source: &Arc<DynamicImage>) {
+        *self.source.lock().unwrap_or_else(|e| e.into_inner()) = Arc::downgrade(source);
+        self.rendered.notify_all();
+    }
+
+    /// Waits until a frame from `source` is rendered or `timeout` passed;
+    /// whether it was rendered.
+    pub fn wait(&self, source: &Arc<DynamicImage>, timeout: std::time::Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        let wanted = Arc::downgrade(source);
+        let mut last = self.source.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if last.ptr_eq(&wanted) {
+                return true;
+            }
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            last = self
+                .rendered
+                .wait_timeout(last, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+}
+
 /// Wakes the commands waiting for the open photograph's full decode
 /// (`image_loader::wait_for_original_image`) when its source slots change:
 /// a blocking worker waits on the condition variable, an async command on
@@ -367,6 +407,7 @@ pub struct AppState {
     /// Signalled when `original_image`, `proxy_image` or `offline_source`
     /// changes.
     pub source_signal: SourceSignal,
+    pub rendered_source: RenderedSource,
     /// The photograph the editor asked for last (load_image / load_image_proxy).
     pub current_source: Mutex<String>,
     /// Long edge of the viewer's last full preview, for the proxy size.
@@ -444,6 +485,40 @@ mod preview_job_order_tests {
         assert!(!preview_job_is_stale(Some(8), Some(8)));
         assert!(!preview_job_is_stale(None, Some(8)));
         assert!(!preview_job_is_stale(Some(1), None));
+    }
+}
+
+#[cfg(test)]
+mod rendered_source_tests {
+    use super::RenderedSource;
+    use image::DynamicImage;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn waits_for_a_frame_of_that_decode() {
+        let rendered = Arc::new(RenderedSource::default());
+        let decode = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let other = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        // No frame of it: the wait ends at its timeout.
+        rendered.mark(&other);
+        let start = Instant::now();
+        assert!(!rendered.wait(&decode, Duration::from_millis(50)));
+        assert!(start.elapsed() >= Duration::from_millis(50));
+        // A frame rendered meanwhile ends the wait at once.
+        let marker = {
+            let (rendered, decode) = (Arc::clone(&rendered), Arc::clone(&decode));
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                rendered.mark(&decode);
+            })
+        };
+        let start = Instant::now();
+        assert!(rendered.wait(&decode, Duration::from_secs(10)));
+        assert!(start.elapsed() < Duration::from_secs(5));
+        marker.join().unwrap();
+        // And one rendered before the wait.
+        assert!(rendered.wait(&decode, Duration::ZERO));
     }
 }
 

@@ -399,7 +399,17 @@ pub fn share_estimate(
 /// `share_estimate` gave it one that is still cached (the cache keeps the
 /// latest 16 photos).
 pub fn is_shared(reduced: &Rgb32FImage, version: u64, own: Option<CaModel>) -> bool {
-    version < 2 || cached(image_key(reduced, version, own.filter(|_| version >= 3))).is_some()
+    version < 2 || shared(reduced, version, own).is_some()
+}
+
+/// The estimate `share_estimate` gave `reduced` (still cached), without
+/// measuring it: None when there is none.
+pub fn shared(
+    reduced: &Rgb32FImage,
+    version: u64,
+    own: Option<CaModel>,
+) -> Option<Option<CaModel>> {
+    cached(image_key(reduced, version, own.filter(|_| version >= 3)))
 }
 
 /// The shift (pixels, outward positive) at which `plane` along the radius

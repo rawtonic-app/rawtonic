@@ -485,6 +485,10 @@ pub async fn load_image_proxy(
     Ok(Some(info))
 }
 
+/// How long the preview proxy written after a decode waits for the decode's
+/// first frame (none comes when Develop is left meanwhile).
+const DECODED_FRAME_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
 const NOT_BAYER: &str = "AI Denoise works on Bayer sensors only; this photograph's sensor (X-Trans, Foveon or a linear DNG) is not supported";
 
 /// The decoded-image cache key of a full decode of the source at `path`:
@@ -988,11 +992,18 @@ pub async fn load_image(
             {
                 return;
             }
+            use tauri::Manager;
+            // The decode's own frame first: written beside it, the proxy and
+            // its new thumbnail (developed again, with their own lateral CA
+            // estimate) took the cores that frame needed, 0.8 s later for a
+            // 26 MP RAF on a Ryzen 5 3600X.
+            app.state::<AppState>()
+                .rendered_source
+                .wait(&proxy_source, DECODED_FRAME_WAIT);
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("preview_proxy_write");
             match crate::preview_proxy::write(&source, &proxy_source, size, &settings, multiscale) {
                 Ok(proxy) => {
-                    use tauri::Manager;
                     app.state::<AppState>()
                         .proxy_memory
                         .lock()

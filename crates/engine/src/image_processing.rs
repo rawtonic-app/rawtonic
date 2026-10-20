@@ -1406,6 +1406,37 @@ pub fn geometry_valid_pixels(params: &GeometryParams, width: u32, height: u32) -
 }
 
 pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> DynamicImage {
+    warp_whole_image(image, &params, |src| {
+        MeasuredCa::of_params(&params, Some(src))
+    })
+}
+
+/// `warp_image_geometry` of a reduced copy shown only until the
+/// photograph's decode is in (its draft, or a stored preview proxy): the
+/// automatic lateral CA is not measured on the copy (`MeasuredCa::interim`).
+pub fn warp_image_geometry_interim(image: &DynamicImage, params: GeometryParams) -> DynamicImage {
+    warp_whole_image(image, &params, |src| MeasuredCa::interim(&params, src))
+}
+
+/// `apply_geometry_warp` with `warp_image_geometry_interim`.
+pub fn apply_geometry_warp_interim<'a>(
+    image: impl IntoCowImage<'a>,
+    adjustments: &serde_json::Value,
+) -> Cow<'a, DynamicImage> {
+    let image = image.into_cow();
+    let params = get_geometry_params_from_json(adjustments);
+    if !is_geometry_identity(&params) {
+        Cow::Owned(warp_image_geometry_interim(image.as_ref(), params))
+    } else {
+        image
+    }
+}
+
+fn warp_whole_image(
+    image: &DynamicImage,
+    params: &GeometryParams,
+    estimate: impl FnOnce(&Rgb32FImage) -> Option<MeasuredCa>,
+) -> DynamicImage {
     // RAW sources are float RGB already; converting would copy the whole
     // frame (about 1 GB at 80 MP) before the warp.
     let converted;
@@ -1418,7 +1449,7 @@ pub fn warp_image_geometry(image: &DynamicImage, params: GeometryParams) -> Dyna
     };
     let (width, height) = src_img.dimensions();
     let mut out_buffer = vec![0.0f32; (width * height * 3) as usize];
-    let kernel = WarpKernel::new(&params, width, height, Some(src_img));
+    let kernel = WarpKernel::with_estimate(params, width, height, estimate(src_img));
     let source = SourceRows::whole(src_img.as_raw(), width, height);
 
     out_buffer
@@ -2439,6 +2470,24 @@ impl MeasuredCa {
     /// decode; None when they warp without one.
     pub fn of(image: &Rgb32FImage, adjustments: &Value) -> Option<Self> {
         Self::of_params(&get_geometry_params_from_json(adjustments), Some(image))
+    }
+
+    /// The estimate for `reduced`, a copy shown only until the photograph's
+    /// decode is in (`warp_image_geometry_interim`): the whole decode's
+    /// estimate when `lateral_ca::share_estimate` gave it one, else the
+    /// result of an estimate that found nothing (the lens data's own lateral
+    /// CA correction, or none). From version 2 a reduced copy measures a
+    /// different, larger CA than the photograph, and the measurement took
+    /// longer than the rest of such a frame (0.4 s of a 2080 px draft on a
+    /// Ryzen 5 3600X). Version 1 measures each image itself, as before.
+    fn interim(params: &GeometryParams, reduced: &Rgb32FImage) -> Option<Self> {
+        if !params.auto_ca || params.auto_ca_version < 2 {
+            return Self::of_params(params, Some(reduced));
+        }
+        let own = params.auto_ca_versus_own.then(|| own_tca_model(params));
+        Some(MeasuredCa(
+            crate::lateral_ca::shared(reduced, params.auto_ca_version, own).flatten(),
+        ))
     }
 }
 

@@ -251,6 +251,29 @@ pub(crate) fn reduced_preview_base(
     preview_dim: u32,
     scale: f32,
 ) -> Result<preview_cache::PreviewBase, String> {
+    build_reduced_preview_base(
+        source,
+        source_scale,
+        (full_width, full_height),
+        adjustments,
+        preview_dim,
+        scale,
+        false,
+    )
+}
+
+/// `reduced_preview_base` with `interim`: `source` (a reduced copy) stands
+/// in only until the photograph's decode is in, so its warp does not
+/// measure the automatic lateral CA on it (`warp_image_geometry_interim`).
+fn build_reduced_preview_base(
+    source: &DynamicImage,
+    source_scale: f32,
+    (full_width, full_height): (u32, u32),
+    adjustments: &serde_json::Value,
+    preview_dim: u32,
+    scale: f32,
+    interim: bool,
+) -> Result<preview_cache::PreviewBase, String> {
     let scale = scale.min(source_scale);
     let width = ((full_width as f32 * scale).round() as u32).max(1);
     let height = ((full_height as f32 * scale).round() as u32).max(1);
@@ -278,10 +301,24 @@ pub(crate) fn reduced_preview_base(
         reduced
     };
     if source_scale >= 1.0 {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_base_ca_share");
         share_lateral_ca(source, &retouched, adjustments);
     }
-    let warped = apply_geometry_warp(retouched, &scaled);
-    let warped = rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale);
+    let warped = {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_base_warp");
+        if interim {
+            crate::image_processing::apply_geometry_warp_interim(retouched, &scaled)
+        } else {
+            apply_geometry_warp(retouched, &scaled)
+        }
+    };
+    let warped = {
+        #[cfg(feature = "performance-profiling")]
+        let _stage = crate::performance::PerformanceStage::new("preview_base_fringe");
+        rawtonic_engine::edge_fringe::apply_for_recipe(warped, adjustments, scale)
+    };
     let blurred = crate::lens_blur::apply_lens_blur(warped, adjustments);
     let (transformed, _) = crate::adjustment_utils::apply_spatial_transformations(blurred, &scaled);
     let transformed = transformed.into_owned();
@@ -954,14 +991,15 @@ fn preview_base(
         let _stage = crate::performance::PerformanceStage::new("preview_proxy_base");
         let scale = reduced_preview_scale(full_width, full_height, adjustments, build_dim)
             .unwrap_or(source_scale);
-        reduced_preview_base(
+        // Online, the draft or stored proxy is shown until the decode is in.
+        build_reduced_preview_base(
             &loaded_image.image,
             source_scale,
-            full_width,
-            full_height,
+            full_dims,
             base_adjustments,
             build_dim,
             scale,
+            !offline,
         )?
     } else {
         generate_shared_transformed_preview(
@@ -1310,6 +1348,9 @@ pub(crate) fn process_preview_job(
             return Err(format!("{PREVIEW_RENDER_FAILED}: {error}"));
         }
     };
+    if source_scale >= 1.0 {
+        state.rendered_source.mark(&loaded_image.image);
+    }
     if !is_interactive {
         rewarm_mask_source(app_handle, &state, &loaded_image, adjustments_clone);
     }
@@ -2740,6 +2781,31 @@ mod lateral_ca_sharing_tests {
         assert!(!lateral_ca_is_shared(&reduced, full_dims, &lens(1.0005)));
         // Not reduced: the warp measures the image the export measures.
         assert!(lateral_ca_is_shared(&reduced, reduced.dimensions(), &on));
+    }
+
+    #[test]
+    fn an_interim_preview_base_does_not_measure_its_reduced_copy() {
+        // A decode's draft at half size, shown until the decode is in.
+        let full = DynamicImage::ImageRgb32F(photo(3000, 2000));
+        let draft = downscale_f32_image(&full, 1500, 1000);
+        let on = json!({"autoCaVersion": 2, "autoChromaticAberration": true});
+        let off = json!({"autoCaVersion": 2, "autoChromaticAberration": false});
+        let base = |recipe: &serde_json::Value, interim: bool| {
+            build_reduced_preview_base(&draft, 0.5, (3000, 2000), recipe, 1500, 0.5, interim)
+                .unwrap()
+                .image
+                .to_rgb32f()
+        };
+        // Without the whole decode's estimate the draft warps as with an
+        // estimate that found nothing (here: no correction) ...
+        let interim = base(&on, true);
+        assert_eq!(interim, base(&off, true));
+        assert!(!lateral_ca_is_shared(&draft, (3000, 2000), &on));
+        // ... where measuring the draft itself would correct it.
+        assert_ne!(interim, base(&on, false));
+        // Once the decode shared its estimate, the draft warps with that.
+        share_lateral_ca(&full, &draft, &on);
+        assert_eq!(base(&on, true), base(&on, false));
     }
 }
 
