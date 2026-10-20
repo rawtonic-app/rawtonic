@@ -191,27 +191,49 @@ struct Planes {
 }
 
 impl Planes {
-    /// Bilinear read of `plane` at image position (`x`, `y`), clamped to
-    /// the image (`width × height`), which the planes cover there.
-    fn read(&self, plane: &[f32], width: usize, height: usize, x: f32, y: f32) -> f32 {
-        let x = x.clamp(0.0, (width - 1) as f32);
-        let y = y.clamp(0.0, (height - 1) as f32);
-        let (xa, ya) = (x.floor() as usize, y.floor() as usize);
-        let (xb, yb) = ((xa + 1).min(width - 1), (ya + 1).min(height - 1));
-        let (fx, fy) = (x - xa as f32, y - ya as f32);
+    /// Bilinear read of `plane` at the offset (`ox`, `oy`) from the pixel
+    /// (`x`, `y`), clamped to the image (`width × height`), which the
+    /// planes cover there. The interpolation weights come from the offset
+    /// alone, so a region of the image reads the same values as the whole
+    /// image (an absolute position would round differently at another
+    /// origin).
+    #[allow(clippy::too_many_arguments)]
+    fn read(
+        &self,
+        plane: &[f32],
+        width: usize,
+        height: usize,
+        (x, y): (usize, usize),
+        ox: f32,
+        oy: f32,
+    ) -> f32 {
+        let axis = |p: usize, o: f32, len: usize| -> (usize, usize, f32) {
+            let whole = o.floor();
+            let a = p as isize + whole as isize;
+            if a < 0 {
+                (0, 0, 0.0)
+            } else if a as usize >= len - 1 {
+                (len - 1, len - 1, 0.0)
+            } else {
+                (a as usize, a as usize + 1, o - whole)
+            }
+        };
+        let (xa, xb, fx) = axis(x, ox, width);
+        let (ya, yb, fy) = axis(y, oy, height);
         let at = |px: usize, py: usize| plane[(py - self.y0) * self.w + px - self.x0];
         let top = at(xa, ya) * (1.0 - fx) + at(xb, ya) * fx;
         let bottom = at(xa, yb) * (1.0 - fx) + at(xb, yb) * fx;
         top * (1.0 - fy) + bottom * fy
     }
 
-    /// [`Planes::read`] where the four pixels read lie inside the image
-    /// (0 <= x < width - 1, 0 <= y < height - 1): the same arithmetic
-    /// without the clamps.
+    /// [`Planes::read`] where the four pixels read lie inside the image:
+    /// the same arithmetic without the clamps.
     #[inline(always)]
-    fn read_inside(&self, plane: &[f32], x: f32, y: f32) -> f32 {
-        let (xa, ya) = (x as usize, y as usize);
-        let (fx, fy) = (x - xa as f32, y - ya as f32);
+    fn read_inside(&self, plane: &[f32], (x, y): (usize, usize), ox: f32, oy: f32) -> f32 {
+        let (wx, wy) = (ox.floor(), oy.floor());
+        let (fx, fy) = (ox - wx, oy - wy);
+        let xa = (x as isize + wx as isize) as usize;
+        let ya = (y as isize + wy as isize) as usize;
         let i = (ya - self.y0) * self.w + xa - self.x0;
         let top = plane[i] * (1.0 - fx) + plane[i + 1] * fx;
         let bottom = plane[i + self.w] * (1.0 - fx) + plane[i + self.w + 1] * fx;
@@ -534,11 +556,10 @@ fn pixel_move(
     let margin = geometry.search + geometry.push.ceil() as usize + 2;
     let inside = x >= margin && y >= margin && x + margin < width && y + margin < height;
     let lum_at = |plane: &[f32], dx: f32, dy: f32| {
-        let (sx, sy) = (x as f32 + dx, y as f32 + dy);
         if inside {
-            planes.read_inside(plane, sx, sy)
+            planes.read_inside(plane, (x, y), dx, dy)
         } else {
-            planes.read(plane, width, height, sx, sy)
+            planes.read(plane, width, height, (x, y), dx, dy)
         }
     };
     let dir = &planes.direction;
@@ -668,11 +689,10 @@ fn two_steps(
     let mut n = 0;
     for k in first..=last {
         let k = k as f32;
-        let (sx, sy) = (x as f32 + k * dx, y as f32 + k * dy);
         profile[n] = if inside {
-            planes.read_inside(&planes.profile, sx, sy)
+            planes.read_inside(&planes.profile, (x, y), k * dx, k * dy)
         } else {
-            planes.read(&planes.profile, width, height, sx, sy)
+            planes.read(&planes.profile, width, height, (x, y), k * dx, k * dy)
         };
         n += 1;
     }
