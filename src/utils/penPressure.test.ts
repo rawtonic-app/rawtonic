@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { pointPressure, pressureKeys, pressureMapping, withPressure } from './penPressure';
+import { act, renderHook } from '@testing-library/react';
+import { pointPressure, pressureChanged, pressureKeys, pressureMapping, usePenAvailable, withPressure } from './penPressure';
 
 const both = { size: true, flow: true };
 
@@ -21,5 +22,26 @@ describe('pen pressure', () => {
     const pen = [withPressure({ x: 1, y: 2 }, 0.4)];
     expect(pressureKeys(pen, pressureMapping(null))).toEqual({ pressureSize: true });
     expect(pressureKeys(pen, both)).toEqual({ pressureSize: true, pressureFlow: true });
+  });
+});
+
+describe('pen detection and in-place pressure', () => {
+  it('keeps a point whose pressure changed even without moving', () => {
+    expect(pressureChanged({ x: 0, y: 0, p: 0.3 }, { x: 0.5, y: 0, p: 0.31 })).toBe(false);
+    expect(pressureChanged({ x: 0, y: 0, p: 0.3 }, { x: 0.5, y: 0, p: 0.4 })).toBe(true);
+    expect(pressureChanged({ x: 0, y: 0 }, { x: 0.5, y: 0 })).toBe(false);
+  });
+
+  it('reports a pen only after the webview delivered one', () => {
+    const { result } = renderHook(() => usePenAvailable());
+    expect(result.current).toBe(false);
+    act(() => {
+      window.dispatchEvent(Object.assign(new MouseEvent('pointermove'), { pointerType: 'mouse' }));
+    });
+    expect(result.current).toBe(false);
+    act(() => {
+      window.dispatchEvent(Object.assign(new MouseEvent('pointerdown'), { pointerType: 'pen' }));
+    });
+    expect(result.current).toBe(true);
   });
 });

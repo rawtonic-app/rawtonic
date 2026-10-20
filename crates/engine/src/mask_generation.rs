@@ -2314,6 +2314,15 @@ impl PenPressure {
             let (x2, y2) = local(&pair[1]);
             let length = (x2 - x1).hypot(y2 - y1);
             if length <= 0.0 {
+                // Pressing harder before the pen moves on from a dab: that
+                // dab takes the pressure reached (no dabs pile up in place).
+                if remaining == last_step {
+                    let (size, flow) = self.factors(pair[1].p);
+                    let last = scales.len() - 1;
+                    scales[last] = (scales[last].0.max(size), scales[last].1.max(flow));
+                    remaining = spacing(scales[last].0);
+                    last_step = remaining;
+                }
                 continue;
             }
             let (p1, p2) = (pair[0].p.unwrap_or(1.0), pair[1].p.unwrap_or(1.0));
@@ -2679,6 +2688,9 @@ fn blend_stroke_auto_mask_v2(
                     _ => (1.0 - flow * intensity, intensity),
                 };
                 keep[x] *= kept;
+                // A dab weighs in by what it paints: under pen pressure on
+                // flow that is its flow factor too (1 otherwise, exactly).
+                let intensity = intensity * flow_factor;
                 let share = models[dab].weight_at(colours[y * bb_w + x], (offset_x, offset_y));
                 shares[x].0 += intensity * share;
                 shares[x].1 += intensity;
@@ -9758,6 +9770,76 @@ mod pen_pressure_tests {
             .max()
             .unwrap();
         assert!(most <= 1, "{most}");
+    }
+
+    /// A stroke along y = 60 through `points` (x, pressure) as a recipe line.
+    fn through(points: &[(f64, f64)], extra: Value) -> BrushLine {
+        let points: Vec<Value> = points
+            .iter()
+            .map(|&(x, p)| serde_json::json!({"x": x, "y": 60.0, "p": p}))
+            .collect();
+        let mut line = serde_json::json!({"tool": "brush", "brushSize": 60.0,
+            "points": points, "feather": 0.5, "hardness": 80.0, "dabVersion": 2});
+        for (key, value) in extra.as_object().unwrap() {
+            line[key] = value.clone();
+        }
+        serde_json::from_value(line).unwrap()
+    }
+
+    #[test]
+    fn auto_mask_dabs_without_flow_leave_the_matte_alone() {
+        // Red left of x = 200, blue right of it. A stroke on the red at full
+        // pressure whose tail goes on over the blue at zero pressure: the
+        // tail paints nothing, so it must not halve the red's coverage
+        // where its dabs (subject blue, share 0 on red) overlap.
+        let image = DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(400, 120, |x, _| {
+            if x < 200 {
+                Rgba([200, 40, 30, 255])
+            } else {
+                Rgba([30, 60, 190, 255])
+            }
+        }));
+        let source = ParametricMaskSource::new(Arc::new(image), (400.0, 120.0)).unwrap();
+        let sampler = SourceSampler::new(&source, 1.0, (0.0, 0.0));
+        for version in [2, 3] {
+            let extra = serde_json::json!({"pressureFlow": true, "autoMask": true,
+                "autoMaskVersion": version, "flow": 60.0});
+            let paint = |points: &[(f64, f64)]| {
+                let mut mask = GrayImage::new(400, 120);
+                let line = through(points, extra.clone());
+                apply_brush_line(&mut mask, &line, 1.0, (0.0, 0.0), Some(&sampler));
+                mask
+            };
+            // The same dabs up to x = 177 in both.
+            let red = paint(&[(60.0, 1.0), (176.0, 1.0), (177.0, 0.0)]);
+            let tail = paint(&[(60.0, 1.0), (176.0, 1.0), (177.0, 0.0), (330.0, 0.0)]);
+            for x in [160u32, 175, 185] {
+                let (a, b) = (red.get_pixel(x, 60)[0], tail.get_pixel(x, 60)[0]);
+                assert!(
+                    b + 3 >= a,
+                    "v{version} x {x}: {b} with the tail, {a} without"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn pressing_harder_in_place_widens_the_dab() {
+        // A press at x = 200 that grows from 0.3 to 1 before the pen moves
+        // paints the dab at the pressure it reached.
+        let size = serde_json::json!({"pressureSize": true});
+        let mut pressed = GrayImage::new(400, 120);
+        let line = through(&[(200.0, 0.3), (200.0, 0.6), (200.0, 1.0)], size.clone());
+        apply_brush_line(&mut pressed, &line, 1.0, (0.0, 0.0), None);
+        let mut full = GrayImage::new(400, 120);
+        apply_brush_line(
+            &mut full,
+            &through(&[(200.0, 1.0)], size),
+            1.0,
+            (0.0, 0.0),
+            None,
+        );
+        assert_eq!(width_at(&pressed, 200), width_at(&full, 200));
     }
 
     #[test]

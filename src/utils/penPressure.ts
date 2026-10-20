@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react';
 import type { Coord } from './adjustments';
 
 /** A stroke point; `p` is pen pressure 0–1 (absent: full pressure). */
@@ -40,4 +41,47 @@ export function pressureKeys(points: StrokePoint[], mapping: PressureMapping) {
     ...(mapping.size ? { pressureSize: true as const } : {}),
     ...(mapping.flow ? { pressureFlow: true as const } : {}),
   };
+}
+
+/** A point closer than the stroke's spacing threshold is still kept when the
+ * pen's pressure changed by this much (pressing harder in place). */
+export const PRESSURE_STEP = 0.02;
+
+export function pressureChanged(from: StrokePoint, to: StrokePoint) {
+  return from.p !== undefined && to.p !== undefined && Math.abs(to.p - from.p) >= PRESSURE_STEP;
+}
+
+// Whether the webview has reported a pen: WKWebView and WebKitGTK report
+// tablet pens as a mouse (pressure 0.5, WebKit's PointerEvent.cpp), so there
+// the pressure settings would do nothing and stay hidden.
+let penSeen = false;
+const penListeners = new Set<() => void>();
+function notePointer(event: PointerEvent) {
+  if (penSeen || event.pointerType !== 'pen') return;
+  penSeen = true;
+  for (const listener of penListeners) listener();
+}
+
+function subscribePen(listener: () => void) {
+  if (penListeners.size === 0 && !penSeen) {
+    window.addEventListener('pointerdown', notePointer, true);
+    window.addEventListener('pointermove', notePointer, true);
+  }
+  penListeners.add(listener);
+  return () => {
+    penListeners.delete(listener);
+    if (penListeners.size === 0) {
+      window.removeEventListener('pointerdown', notePointer, true);
+      window.removeEventListener('pointermove', notePointer, true);
+    }
+  };
+}
+
+/** True once a pen has been used in this window (it stays true). */
+export function usePenAvailable() {
+  return useSyncExternalStore(
+    subscribePen,
+    () => penSeen,
+    () => false,
+  );
 }

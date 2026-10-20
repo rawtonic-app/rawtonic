@@ -11,7 +11,14 @@ import { Adjustments, Coord, MaskContainer, GuideLine, GuideOrientation } from '
 import type { LiveStroke } from '../../../utils/liveMaskRender';
 import { AUTO_MASK_VERSION } from '../../../utils/autoMaskUpgrade';
 import { autoMaskPrewarmPath } from '../../../utils/autoMaskPrewarm';
-import { pointPressure, pressureKeys, pressureMapping, withPressure, type StrokePoint } from '../../../utils/penPressure';
+import {
+  pointPressure,
+  pressureChanged,
+  pressureKeys,
+  pressureMapping,
+  withPressure,
+  type StrokePoint,
+} from '../../../utils/penPressure';
 import { Mask, SubMask, SubMaskMode, ToolType } from '../right/Masks';
 import { AppSettings, BrushSettings, SelectedImage } from '../../ui/AppProperties';
 import { RenderSize } from '../../../hooks/useImageRenderSize';
@@ -2469,7 +2476,7 @@ const ImageCanvas = memo(
             if (lastPoint) {
               const dx = point.x - lastPoint.x;
               const dy = point.y - lastPoint.y;
-              if (dx * dx + dy * dy < 4) continue;
+              if (dx * dx + dy * dy < 4 && !pressureChanged(lastPoint, point)) continue;
             }
             added.push(point);
             lastPoint = point;
