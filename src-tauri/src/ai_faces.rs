@@ -134,7 +134,7 @@ async fn analysis(
 ) -> Result<(Arc<RgbImage>, Arc<FaceAnalysis>), String> {
     // Keyed by the photo actually loaded, taken before the models load: a
     // photo switch meanwhile cannot file one photo's faces under another.
-    let loaded = crate::image_loader::wait_for_original_image(state)?;
+    let loaded = crate::image_loader::original_image(state).await?;
     let key = crate::ai_commands::geometry_key(&loaded.path, js_adjustments);
     if let Some(c) = state.faces.lock().unwrap().cached.as_ref()
         && c.key == key
@@ -143,8 +143,10 @@ async fn analysis(
     }
     let models = models(app_handle, true).await?;
     let is_raw = loaded.is_raw;
-    let warped = get_cached_full_warped_image(state, &loaded.image, is_raw, js_adjustments);
+    let (app, adjustments) = (app_handle.clone(), js_adjustments.clone());
     let (image, analysis) = tokio::task::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let warped = get_cached_full_warped_image(&state, &loaded.image, is_raw, &adjustments);
         let image = rawtonic_faces::recipe::display_rgb8(&warped, is_raw);
         rawtonic_faces::analyze(&image, &models).map(|a| (Arc::new(image), Arc::new(a)))
     })
@@ -276,9 +278,10 @@ pub async fn analyze_face_retouch(
     // Opening the Retouch tab analyses with installed models only; the
     // download needs the user's click (`download`).
     let models = models(&app_handle, download.unwrap_or(false)).await?;
-    let (source, is_raw) = crate::editor_preview::get_original_image(&state)?;
-    let warped = get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments);
+    let (source, is_raw) = crate::editor_preview::original_source(&state).await?;
     tokio::task::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let warped = get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments);
         // The mask frame: the spatial transforms without the crop.
         let mut uncropped = js_adjustments.clone();
         uncropped["crop"] = serde_json::Value::Null;

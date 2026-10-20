@@ -500,3 +500,37 @@ it("keeps a tethered camera while the library is still restoring and disconnects
   expect(leavesTetheredLibrary("/jobs/Acme", "/jobs/Other")).toBe(true);
   expect(leavesTetheredLibrary(null, "/jobs/Other")).toBe(false);
 });
+
+it("suspends a hot folder resumed for a library that was left meanwhile", async () => {
+  const user = userEvent.setup();
+  const base = vi.mocked(invoke).getMockImplementation()!;
+  let answer: (status: unknown) => void = () => {};
+  const beta = { ...summary, directory: "/jobs/Beta", manifest: { ...summary.manifest, name: "Beta" } };
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    const directory = (args as { directory?: string } | undefined)?.directory;
+    if (command === "hot_folder_resume")
+      return directory === "/jobs/Acme" ? new Promise((resolve) => (answer = resolve)) : null;
+    if (command === "session_open") return beta;
+    if (command === "session_summary") return directory === "/jobs/Beta" ? beta : summary;
+    return base(command, args);
+  });
+  render(
+    <ContextMenuProvider>
+      <SessionWorkspace onNavigate={vi.fn(async () => {})} />
+    </ContextMenuProvider>,
+  );
+  await user.click(screen.getByRole("button", { name: "Create a project" }));
+  await user.type(screen.getByLabelText("Project name"), "Acme");
+  await user.click(screen.getByRole("button", { name: "Location" }));
+  await user.click(screen.getByRole("button", { name: "Create project" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("hot_folder_resume", { directory: "/jobs/Acme" }));
+  // Another library opens before Acme's hot folder has resumed.
+  await user.click(screen.getByTitle("/jobs/Acme"));
+  await user.click(await screen.findByRole("menuitem", { name: /^Open/ }));
+  await waitFor(() => expect(screen.getByTitle("/jobs/Beta")).toBeTruthy());
+  await act(async () =>
+    answer({ folder: "/Volumes/Tether/Hot", session: "/jobs/Acme", imported: 0, nextCapture: { mode: "defaults" } }),
+  );
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("hot_folder_suspend", { directory: "/jobs/Acme" }));
+  expect(screen.queryByRole("button", { name: /Hot folder ·/ })).toBeNull();
+});

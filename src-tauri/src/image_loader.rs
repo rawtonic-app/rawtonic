@@ -3,7 +3,7 @@
 pub use rawtonic_engine::image_loader::*;
 
 use crate::app_settings::{AppSettings, load_settings};
-use crate::app_state::{AppState, LoadedImage};
+use crate::app_state::{AppState, LoadedImage, SourceSignal};
 use crate::exif_processing;
 use crate::file_management::{parse_virtual_path, read_file_mapped};
 use crate::formats::is_raw_file;
@@ -20,6 +20,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+#[cfg(feature = "performance-profiling")]
 use std::time::Instant;
 
 #[derive(serde::Serialize)]
@@ -276,38 +277,55 @@ pub const OFFLINE_NEEDS_ORIGINAL: &str = "This photograph is offline and shown f
 /// Standard preview gets no decode: `OFFLINE_NEEDS_ORIGINAL` at once (on its
 /// 1:1 preview, that is the source and is returned).
 pub fn wait_for_original_image(state: &AppState) -> Result<LoadedImage, String> {
-    let deadline = Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        if let Some(loaded) = state
-            .original_image
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        {
-            return Ok(loaded);
-        }
-        if state
-            .offline_source
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some()
-        {
-            return Err(OFFLINE_NEEDS_ORIGINAL.to_string());
-        }
-        let decoding = state
-            .proxy_image
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some();
-        if !decoding || Instant::now() > deadline {
-            return Err("No photograph is loaded".to_string());
-        }
-        std::thread::sleep(std::time::Duration::from_millis(10));
+    state
+        .source_signal
+        .wait_for(DECODE_WAIT, || original_image_settled(state))
+        .unwrap_or_else(|| Err(NO_PHOTOGRAPH.to_string()))
+}
+
+/// `wait_for_original_image` for async commands: waits without holding
+/// the async runtime's worker thread.
+pub async fn original_image(state: &AppState) -> Result<LoadedImage, String> {
+    state
+        .source_signal
+        .wait_for_async(DECODE_WAIT, || original_image_settled(state))
+        .await
+        .unwrap_or_else(|| Err(NO_PHOTOGRAPH.to_string()))
+}
+
+const DECODE_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const NO_PHOTOGRAPH: &str = "No photograph is loaded";
+
+/// The answer for `wait_for_original_image` once there is one: the full
+/// decode, or why there will be none; `None` while it is still decoding.
+fn original_image_settled(state: &AppState) -> Option<Result<LoadedImage, String>> {
+    if let Some(loaded) = state
+        .original_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+    {
+        return Some(Ok(loaded));
     }
+    if state
+        .offline_source
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some()
+    {
+        return Some(Err(OFFLINE_NEEDS_ORIGINAL.to_string()));
+    }
+    let decoding = state
+        .proxy_image
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_some();
+    (!decoding).then(|| Err(NO_PHOTOGRAPH.to_string()))
 }
 
 fn publish_loaded_image(
     original_image: &std::sync::Mutex<Option<LoadedImage>>,
+    signal: &SourceSignal,
     generation: &AtomicUsize,
     expected_generation: usize,
     loaded: LoadedImage,
@@ -319,6 +337,8 @@ fn publish_loaded_image(
         return Err("Load cancelled".to_string());
     }
     *original = Some(loaded);
+    drop(original);
+    signal.changed();
     Ok(())
 }
 
@@ -600,6 +620,7 @@ pub async fn apply_ai_denoise(
     }
     publish_loaded_image(
         &state.original_image,
+        &state.source_signal,
         &state.load_image_generation,
         my_generation,
         LoadedImage {
@@ -707,6 +728,7 @@ pub async fn load_image(
             *proxy = None;
         }
     }
+    state.source_signal.changed();
 
     clear_source_caches(&state);
 
@@ -906,6 +928,7 @@ pub async fn load_image(
     let proxy_source = Arc::clone(&pristine_arc);
     publish_loaded_image(
         &state.original_image,
+        &state.source_signal,
         &state.load_image_generation,
         my_generation,
         LoadedImage {
@@ -919,6 +942,7 @@ pub async fn load_image(
     // for the next time, at the size the viewer needs (from an undenoised
     // decode only: the proxy stands for the photograph without AI Denoise).
     *state.proxy_image.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    state.source_signal.changed();
     // Proxies stand for the master recipe's colour noise filter: a virtual
     // copy developed for the other one leaves them as they are.
     if is_raw && denoise.is_none() && multiscale == stored_multiscale(&source_path_str) {
@@ -1028,8 +1052,10 @@ async fn open_offline(
             .offline_source
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
+        state.source_signal.changed();
         publish_loaded_image(
             &state.original_image,
+            &state.source_signal,
             &state.load_image_generation,
             generation,
             LoadedImage {
@@ -1088,6 +1114,7 @@ async fn open_offline(
         .offline_source
         .lock()
         .unwrap_or_else(|e| e.into_inner()) = Some(path.to_string());
+    state.source_signal.changed();
     Ok(Some(LoadImageResult {
         width,
         height,
@@ -1109,6 +1136,7 @@ mod activation_tests {
     #[test]
     fn obsolete_load_cannot_replace_a_newer_activated_source() {
         let original = std::sync::Mutex::new(None);
+        let signal = SourceSignal::default();
         let generation = AtomicUsize::new(1);
         let loaded = |path: &str| LoadedImage {
             path: path.to_owned(),
@@ -1116,11 +1144,13 @@ mod activation_tests {
             is_raw: true,
             multiscale: None,
         };
-        publish_loaded_image(&original, &generation, 1, loaded("first.raf")).unwrap();
+        publish_loaded_image(&original, &signal, &generation, 1, loaded("first.raf")).unwrap();
         generation.store(2, Ordering::SeqCst);
-        publish_loaded_image(&original, &generation, 2, loaded("cached.raf")).unwrap();
+        publish_loaded_image(&original, &signal, &generation, 2, loaded("cached.raf")).unwrap();
         let active_pixels = original.lock().unwrap().as_ref().unwrap().image.clone();
-        assert!(publish_loaded_image(&original, &generation, 1, loaded("first.raf")).is_err());
+        assert!(
+            publish_loaded_image(&original, &signal, &generation, 1, loaded("first.raf")).is_err()
+        );
         let active = original.lock().unwrap();
         let active = active.as_ref().unwrap();
         assert_eq!(active.path, "cached.raf");

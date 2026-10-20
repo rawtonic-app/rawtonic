@@ -130,6 +130,76 @@ pub struct LoadedProxy {
     pub is_raw: bool,
 }
 
+/// Wakes the commands waiting for the open photograph's full decode
+/// (`image_loader::wait_for_original_image`) when its source slots change:
+/// a blocking worker waits on the condition variable, an async command on
+/// the notification, so neither polls.
+#[derive(Default)]
+pub struct SourceSignal {
+    changes: Mutex<u64>,
+    changed: Condvar,
+    notify: Notify,
+}
+
+impl SourceSignal {
+    /// Call after a write that can settle a waiting command (a decode in
+    /// `original_image`, `offline_source` set, `proxy_image` cleared), with
+    /// their locks released.
+    pub fn changed(&self) {
+        *self.changes.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        self.changed.notify_all();
+        self.notify.notify_waiters();
+    }
+
+    /// `check`'s first `Some`, checked now and after each change until
+    /// `timeout`; then `None`. Blocks the calling thread.
+    pub fn wait_for<T>(
+        &self,
+        timeout: std::time::Duration,
+        mut check: impl FnMut() -> Option<T>,
+    ) -> Option<T> {
+        let deadline = std::time::Instant::now() + timeout;
+        // Held while checking: a change cannot slip between the check and
+        // the wait.
+        let mut changes = self.changes.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if let Some(value) = check() {
+                return Some(value);
+            }
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            changes = self
+                .changed
+                .wait_timeout(changes, left)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
+
+    /// `wait_for` without blocking the async runtime's thread.
+    pub async fn wait_for_async<T>(
+        &self,
+        timeout: std::time::Duration,
+        mut check: impl FnMut() -> Option<T>,
+    ) -> Option<T> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let notified = self.notify.notified();
+            tokio::pin!(notified);
+            // Registered before the check, so a change after it wakes us.
+            notified.as_mut().enable();
+            if let Some(value) = check() {
+                return Some(value);
+            }
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                return check();
+            }
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct CachedPreview {
     pub source: std::sync::Weak<DynamicImage>,
@@ -260,6 +330,9 @@ pub struct AppState {
     /// by exports), or its Standard proxy stays `proxy_image` and no full
     /// decode will come.
     pub offline_source: Mutex<Option<String>>,
+    /// Signalled when `original_image`, `proxy_image` or `offline_source`
+    /// changes.
+    pub source_signal: SourceSignal,
     /// The photograph the editor asked for last (load_image / load_image_proxy).
     pub current_source: Mutex<String>,
     /// Long edge of the viewer's last full preview, for the proxy size.
@@ -337,5 +410,80 @@ mod preview_job_order_tests {
         assert!(!preview_job_is_stale(Some(8), Some(8)));
         assert!(!preview_job_is_stale(None, Some(8)));
         assert!(!preview_job_is_stale(Some(1), None));
+    }
+}
+
+#[cfg(test)]
+mod source_signal_tests {
+    use super::SourceSignal;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_blocking_waiter_wakes_on_the_change_and_gives_up_at_the_deadline() {
+        let signal = Arc::new(SourceSignal::default());
+        let ready = Arc::new(AtomicBool::new(false));
+        let writer = {
+            let (signal, ready) = (signal.clone(), ready.clone());
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(30));
+                ready.store(true, Ordering::SeqCst);
+                signal.changed();
+            })
+        };
+        let started = Instant::now();
+        let woke = signal.wait_for(Duration::from_secs(20), || {
+            ready.load(Ordering::SeqCst).then_some(())
+        });
+        writer.join().unwrap();
+        assert!(woke.is_some());
+        assert!(started.elapsed() < Duration::from_secs(10));
+
+        let started = Instant::now();
+        assert!(
+            signal
+                .wait_for(Duration::from_millis(40), || None::<()>)
+                .is_none()
+        );
+        assert!(started.elapsed() >= Duration::from_millis(40));
+    }
+
+    /// The async wait yields its thread: on a single-threaded runtime the
+    /// task that publishes the source runs while the command waits (a sleep
+    /// loop there would hold the thread until its deadline).
+    #[test]
+    fn an_async_waiter_lets_the_runtime_publish_the_source() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap();
+        let signal = Arc::new(SourceSignal::default());
+        let ready = Arc::new(AtomicBool::new(false));
+        let started = Instant::now();
+        let woke = runtime.block_on(async {
+            let publisher = {
+                let (signal, ready) = (signal.clone(), ready.clone());
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(30)).await;
+                    ready.store(true, Ordering::SeqCst);
+                    signal.changed();
+                })
+            };
+            let woke = signal
+                .wait_for_async(Duration::from_secs(20), || {
+                    ready.load(Ordering::SeqCst).then_some(())
+                })
+                .await;
+            publisher.await.unwrap();
+            woke
+        });
+        assert!(woke.is_some());
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(
+            runtime
+                .block_on(signal.wait_for_async(Duration::from_millis(40), || None::<()>))
+                .is_none()
+        );
     }
 }

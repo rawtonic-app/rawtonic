@@ -34,14 +34,15 @@ pub fn resolve_tonemapper_override_from_handle(
     resolve_tonemapper_override(&settings, is_raw)
 }
 
+/// Off the main thread (the decode wait and the analysis would freeze the
+/// window).
 #[tauri::command]
-pub fn calculate_auto_adjustments(
-    state: tauri::State<AppState>,
+pub async fn calculate_auto_adjustments(
+    state: tauri::State<'_, AppState>,
     tone_mapper: Option<String>,
     base_curve: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let (original_image, path, is_raw) = match crate::image_loader::wait_for_original_image(&state)
-    {
+    let (original_image, path, is_raw) = match crate::image_loader::original_image(&state).await {
         Ok(loaded) => (loaded.image, loaded.path, loaded.is_raw),
         // An offline photograph on its Standard preview: Auto reads the
         // tones of the whole photograph, which the preview holds as well.
@@ -67,11 +68,15 @@ pub fn calculate_auto_adjustments(
         .0
         .to_string_lossy()
         .to_string();
-    Ok(auto_adjustments_json(
-        &original_image,
-        &source_path,
-        is_raw,
-        tone_mapper.as_deref(),
-        base_curve.as_deref(),
-    ))
+    tauri::async_runtime::spawn_blocking(move || {
+        auto_adjustments_json(
+            &original_image,
+            &source_path,
+            is_raw,
+            tone_mapper.as_deref(),
+            base_curve.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| format!("Auto adjustments failed: {e}"))
 }

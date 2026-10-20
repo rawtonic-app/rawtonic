@@ -219,11 +219,16 @@ pub(crate) fn sync_album_path_changes(
     }
 }
 
+/// Off the main thread: it stats every photograph and reads its sidecar.
 #[tauri::command]
-pub fn get_album_images(
+pub async fn get_album_images(
     paths: Vec<String>,
     app_handle: AppHandle,
 ) -> Result<Vec<ImageFile>, String> {
+    super::blocking(move || album_images(paths, app_handle)).await?
+}
+
+fn album_images(paths: Vec<String>, app_handle: AppHandle) -> Result<Vec<ImageFile>, String> {
     let settings = load_settings(app_handle.clone()).unwrap_or_default();
     let enable_xmp_sync = settings.enable_xmp_sync.unwrap_or(false);
 

@@ -519,6 +519,23 @@ pub fn get_cached_full_warped_image(
         .expect("only a prewarm skips the build")
 }
 
+/// `get_cached_full_warped_image` on a blocking worker, for async commands
+/// (a full-resolution warp must not hold an async runtime thread).
+pub async fn cached_full_warped_image(
+    app_handle: &tauri::AppHandle,
+    source: Arc<DynamicImage>,
+    is_raw: bool,
+    js_adjustments: serde_json::Value,
+) -> Result<Arc<DynamicImage>, String> {
+    let app_handle = app_handle.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        get_cached_full_warped_image(&state, &source, is_raw, &js_adjustments)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// `get_cached_full_warped_image`; a `prewarm` builds nothing for a photo that
 /// is not (or no longer) the editor photo and returns `None` then.
 fn full_warped_image(
@@ -2037,7 +2054,7 @@ pub(crate) async fn generate_uncropped_preview(
     let mut adjustments_clone = js_adjustments.clone();
     hydrate_adjustments(&state, &mut adjustments_clone);
 
-    let loaded_image = crate::image_loader::wait_for_original_image(&state)?;
+    let loaded_image = crate::image_loader::original_image(&state).await?;
 
     tokio::task::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
@@ -2196,6 +2213,14 @@ pub fn get_original_image(
     state: &tauri::State<AppState>,
 ) -> Result<(std::sync::Arc<image::DynamicImage>, bool), String> {
     let loaded_image = crate::image_loader::wait_for_original_image(state)?;
+    Ok((loaded_image.image, loaded_image.is_raw))
+}
+
+/// `get_original_image` for async commands (`image_loader::original_image`).
+pub async fn original_source(
+    state: &AppState,
+) -> Result<(std::sync::Arc<image::DynamicImage>, bool), String> {
+    let loaded_image = crate::image_loader::original_image(state).await?;
     Ok((loaded_image.image, loaded_image.is_raw))
 }
 

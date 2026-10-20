@@ -524,7 +524,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
     const current = () => openDirectory.current === sessionDirectory;
     invoke<HotFolderStatus | null>("hot_folder_resume", { directory: sessionDirectory })
       .then((status) => {
-        if (!current() || typeof status?.folder !== "string") return;
+        if (typeof status?.folder !== "string") return;
+        // Resumed for a library left meanwhile: it must not feed the next one.
+        if (!current()) {
+          void invoke("hot_folder_suspend", { directory: sessionDirectory });
+          return;
+        }
         setHotFolder(status);
         const folder = status.folder.split(/[\\/]/).pop();
         if (status.missing) toast.info(i18n.t("session.toasts.watchingMissing", { folder }));

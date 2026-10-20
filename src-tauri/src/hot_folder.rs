@@ -492,10 +492,35 @@ fn spawn(
 }
 
 /// Starts watching `folder` for the library in `directory` and keeps it
-/// there, so watching resumes when the library is opened again.
+/// there, so watching resumes when the library is opened again. The hot
+/// folder commands open the catalog on a blocking worker, not the main
+/// thread (a locked database would freeze the window).
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn hot_folder_start(
+pub async fn hot_folder_start(
+    directory: String,
+    folder: String,
+    template: String,
+    next_capture: NextCapture,
+    metadata: Option<NextCaptureMetadata>,
+    include_subfolders: Option<bool>,
+    app: AppHandle,
+) -> Result<HotFolderStatus, String> {
+    crate::file_management::blocking(move || {
+        start(
+            directory,
+            folder,
+            template,
+            next_capture,
+            metadata,
+            include_subfolders,
+            app,
+        )
+    })
+    .await?
+}
+
+fn start(
     directory: String,
     folder: String,
     template: String,
@@ -532,10 +557,14 @@ pub fn hot_folder_start(
 /// already running for it: its status). A watched folder that is gone is
 /// watched all the same and shown as missing.
 #[tauri::command]
-pub fn hot_folder_resume(
+pub async fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
+    crate::file_management::blocking(move || resume(directory, app)).await?
+}
+
+fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
     let session = Path::new(&directory)
         .canonicalize()
         .map_err(|e| e.to_string())?;
@@ -582,7 +611,11 @@ pub fn hot_folder_suspend(directory: Option<String>) {
 /// Stops watching, and the library forgets its hot folder (the running
 /// watch's library, else the one in `directory`).
 #[tauri::command]
-pub fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
+pub async fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
+    crate::file_management::blocking(move || stop(directory)).await?
+}
+
+fn stop(directory: Option<String>) -> Result<(), String> {
     let session = match (suspend(), directory) {
         (Some(watch), _) => watch.session,
         (None, Some(directory)) => PathBuf::from(directory),
