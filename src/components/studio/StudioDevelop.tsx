@@ -81,6 +81,7 @@ import {
   isNeutralRegionCurve,
   regionCurveValue,
 } from "../../utils/regionCurve";
+import { selectOnFocus } from "../../utils/selectOnFocus";
 
 export function ToolGroup({
   title,
@@ -347,6 +348,7 @@ function PointCurve({
           <label>
             {t("studio.develop.curve.input")}{" "}
             <input
+              {...selectOnFocus}
               type="number"
               min="0"
               max="255"
@@ -376,6 +378,7 @@ function PointCurve({
           <label>
             {t("studio.develop.curve.output")}{" "}
             <input
+              {...selectOnFocus}
               type="number"
               min="0"
               max="255"

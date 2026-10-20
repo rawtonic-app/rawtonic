@@ -36,6 +36,7 @@ import {
   COLOR_SPACES,
   COLOR_SPACE_NAMES,
 } from "../../utils/exportRecipes";
+import { selectOnFocus } from "../../utils/selectOnFocus";
 
 const CHECKED_KEY = "rawtonic.export.recipes";
 const readChecked = (): string[] => {
@@ -606,6 +607,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           <label>
             {t("studio.export.file.quality")}
             <input
+              {...selectOnFocus}
               aria-label={t("studio.export.file.qualityAria", {
                 format: formatName,
               })}
@@ -705,6 +707,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             <label>
               {resizeLabel}
               <input
+                {...selectOnFocus}
                 aria-label={resizeLabel}
                 type="number"
                 required
@@ -719,6 +722,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               <label>
                 × (px)
                 <input
+                  {...selectOnFocus}
                   aria-label={t("studio.export.sizing.otherSideAria")}
                   type="number"
                   required
@@ -777,6 +781,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             <label>
               {t("studio.export.sharpening.amount")}
               <input
+                {...selectOnFocus}
                 aria-label={t("studio.export.sharpening.amountAria")}
                 type="number"
                 min="0"
@@ -789,6 +794,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               <label>
                 {t("studio.export.sharpening.radius")}
                 <input
+                  {...selectOnFocus}
                   aria-label={t("studio.export.sharpening.radiusAria")}
                   type="number"
                   min="0.2"
@@ -805,6 +811,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 <label>
                   {t("studio.export.sharpening.distance")}
                   <input
+                    {...selectOnFocus}
                     aria-label={t("studio.export.sharpening.distance")}
                     type="number"
                     min="10"
@@ -818,6 +825,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 <label>
                   {t("studio.export.sharpening.ppi")}
                   <input
+                    {...selectOnFocus}
                     aria-label={t("studio.export.sharpening.ppi")}
                     type="number"
                     min="50"
@@ -831,6 +839,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             <label>
               {t("studio.export.sharpening.threshold")}
               <input
+                {...selectOnFocus}
                 aria-label={t("studio.export.sharpening.thresholdAria")}
                 type="number"
                 min="0"
@@ -1021,6 +1030,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             <label>
               {t("studio.export.watermark.width")}
               <input
+                {...selectOnFocus}
                 type="number"
                 min="1"
                 max="100"
@@ -1034,6 +1044,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             <label>
               {t("studio.export.watermark.inset")}
               <input
+                {...selectOnFocus}
                 type="number"
                 min="0"
                 max="25"
@@ -1047,6 +1058,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             <label>
               {t("studio.export.watermark.opacity")}
               <input
+                {...selectOnFocus}
                 type="number"
                 min="0"
                 max="100"
@@ -1098,6 +1110,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               <label>
                 {t("studio.export.border.leftRight")}
                 <input
+                  {...selectOnFocus}
                   type="number"
                   min="0"
                   max="100"
@@ -1112,6 +1125,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
               <label>
                 {t("studio.export.border.topBottom")}
                 <input
+                  {...selectOnFocus}
                   type="number"
                   min="0"
                   max="100"
@@ -1150,6 +1164,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                 {t("studio.export.canvas.ratio")}
                 <span className="studio-export-ratio">
                   <input
+                    {...selectOnFocus}
                     aria-label={t("studio.export.canvas.ratioWidth")}
                     type="number"
                     min="0.01"
@@ -1161,6 +1176,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
                   />
                   :
                   <input
+                    {...selectOnFocus}
                     aria-label={t("studio.export.canvas.ratioHeight")}
                     type="number"
                     min="0.01"
