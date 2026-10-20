@@ -267,7 +267,7 @@ it("a companion that fails to download, or fails after its step ended, fails tha
     }, 5);
   render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
   for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-  await runStep(/\| Burst from Rawtonic \| FAIL \| 5\/5 in the library; \d+ ms; shot not delivered \(storage\) \|/);
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 5\/5 in the library; \d+ ms; 5 files not added or shots not delivered \|/);
   // A body shot passes; its RAW fails later, after the step.
   fireEvent.click(screen.getByRole("button", { name: "Run" }));
   await screen.findByText("Press the shutter button on the camera now.");
@@ -367,4 +367,30 @@ it("a RAW that fails first keeps its exposure: its JPEG in the next step is no n
   fireEvent.change(screen.getByLabelText("Number of shots"), { target: { value: "5" } });
   await runStep(/\| Shots from Rawtonic \| FAIL \| 4\/5 in the library;/);
   await runStep(/\| Burst from Rawtonic \| FAIL \| 4\/5 in the library; \d+ ms; shot not delivered \(timeout\) \|/);
+}, 20_000);
+
+it("a companion's failure ends no other shot's wait", async () => {
+  // Every shot: RAW in; its JPEG's download times out (with its exposure)
+  // only after the next shot was asked for.
+  let pendingJpegFailure: (() => void) | null = null;
+  onCapture = (n) =>
+    window.setTimeout(() => {
+      pendingJpegFailure?.();
+      emit("tether-captured", {
+        cameraName: `DSCF${n}.RAF`,
+        connection: 1,
+        exposure: n,
+        destination: null,
+        assetId: `a${n}`,
+        skipped: false,
+        error: null,
+        requested: true,
+      });
+      pendingJpegFailure = () =>
+        emit("tether-capture-failed", { kind: "timeout", message: "JPG timed out", connection: 1, exposure: n });
+    }, 5);
+  render(<TetherCameraTest camera={CAMERA} connectMs={null} freeCameraCopies onClose={vi.fn()} />);
+  for (const _ of [1, 2, 3, 4]) fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+  await runStep(/\| Burst from Rawtonic \| FAIL \| 5\/5 in the library; \d+ ms; 4 files not added or shots not delivered \|/);
+  expect(shot).toBe(5);
 }, 20_000);

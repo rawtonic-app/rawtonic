@@ -72,6 +72,9 @@ pub struct MockSpec {
     /// The JPEG comes this much after its RAW (else right after it): later
     /// exposures' files can come in between.
     pub jpeg_late_ms: u64,
+    /// With `raw_and_jpeg`: JPEGs only from this shot on (the format
+    /// changed on the body).
+    pub jpeg_from_shot: Option<u64>,
     /// Its "Save to" (capturetarget: sdram or card+sdram), if it has one.
     pub capture_target: Option<String>,
     /// A real photo to hand out (each shot gets its number appended, so no
@@ -109,6 +112,7 @@ impl Default for MockSpec {
             capture_target: None,
             raw_and_jpeg: false,
             jpeg_late_ms: 0,
+            jpeg_from_shot: None,
             no_card: false,
             card_out_after_ms: None,
             target_read_fails: false,
@@ -237,7 +241,12 @@ impl MockCamera {
 
     /// The JPEG of an exposure that also gives one (`raw_and_jpeg`).
     fn jpeg_of(&mut self, (at, raw): &(Instant, CameraFile)) -> Option<(Instant, CameraFile)> {
-        if !self.spec.raw_and_jpeg {
+        if !self.spec.raw_and_jpeg
+            || self
+                .spec
+                .jpeg_from_shot
+                .is_some_and(|from| self.fired < from)
+        {
             return None;
         }
         let stem = raw

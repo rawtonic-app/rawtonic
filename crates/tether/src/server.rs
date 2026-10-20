@@ -499,15 +499,21 @@ impl<W: Write> Server<W> {
             Some((stem, extension)) => (stem.to_string(), extension.to_lowercase()),
             None => (file.name.clone(), String::new()),
         };
-        // Another file of an exposure of the name (the oldest that has not
-        // given this kind yet; cameras send files in exposure order): the
-        // same request, not the next one, however late it comes. Otherwise
-        // a new exposure.
+        // Another file of an exposure of the name (the newest that has not
+        // given this kind yet): the same request, not the next one, however
+        // late it comes. Otherwise a new exposure. With reused names this is
+        // ambiguous (A.RAW, A.RAW, A.JPG, A.JPG may pair either way); the
+        // newest keeps the number of exposures and their requests right
+        // also when the format changes (RAW only, then RAW+JPEG) or a file
+        // is never reported, only which of them a file is labelled with can
+        // differ.
         let companion = match shot_of {
-            Shot::Waiting => open
-                .exposures_by_stem
-                .get_mut(&stem)
-                .and_then(|exposures| exposures.iter_mut().find(|e| !e.kinds.contains(&extension))),
+            Shot::Waiting => open.exposures_by_stem.get_mut(&stem).and_then(|exposures| {
+                exposures
+                    .iter_mut()
+                    .rev()
+                    .find(|e| !e.kinds.contains(&extension))
+            }),
             Shot::At(_) => None,
         };
         let (requested, exposure) = match companion {

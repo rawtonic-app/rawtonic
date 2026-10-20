@@ -102,8 +102,10 @@ const SETTLE_MS = 1000;
 const isFailure = (h: Heard) =>
   (h.name === "tether-captured" && Boolean(captured(h).error)) || h.name === "tether-capture-failed";
 const LATE_FAILURE = "a file of its photos failed after the step";
-/** A shot reported as not delivered that belongs to the step running. */
-const ownFailure = (h: Heard) => h.name === "tether-capture-failed" && !h.foreign;
+/** A failure that ends a shot of the step running: a shot that never came
+ * (no exposure) or the first file of a new exposure failing. A failed
+ * second file of an exposure already in ends none (it is still recorded). */
+const ownFailure = (h: Heard) => h.name === "tether-capture-failed" && !h.foreign && h.exposure === true;
 
 const systemName = () => {
   try {
@@ -382,8 +384,7 @@ export default function TetherCameraTest({
         last = photo.at;
         if (photo.name === "tether-capture-failed") {
           errors.push(notDelivered(photo.payload));
-          // A shot that never came, or an exposure whose first file failed.
-          if ((photo.payload as { kind?: string }).kind === "timeout" || photo.exposure) ended += 1;
+          ended += 1;
         } else {
           ended += 1;
           if (captured(photo).error) errors.push(notAdded(captured(photo).error ?? ""));

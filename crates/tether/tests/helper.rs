@@ -516,7 +516,8 @@ fn interleaved_raw_and_jpeg_under_one_reused_name_keep_their_exposures() {
         ]
     );
     let exposures: Vec<u64> = photos.iter().map(|p| p.exposure).collect();
-    assert_eq!(exposures, [1, 2, 3, 1, 2, 3]);
+    // Ambiguous under one name: three exposures, each with one JPEG.
+    assert_eq!(exposures, [1, 2, 3, 3, 2, 1]);
     let deadline = Instant::now() + WAIT;
     let timeouts = |other: &[Option<Event>]| {
         other
@@ -1160,4 +1161,34 @@ fn a_companion_later_than_the_shot_timeout_keeps_its_exposure() {
         other.push(helper.next_event(Duration::from_millis(200)));
     }
     assert_eq!(timeouts(&other), 1, "request 2 never came: {other:?}");
+}
+
+/// Under a reused name, a RAW-only exposure and then a RAW+JPEG one: the
+/// JPEG belongs to the second.
+#[test]
+fn a_change_from_raw_to_raw_and_jpeg_under_a_reused_name_keeps_the_jpeg_with_its_raw() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        restart_numbering_every: Some(1),
+        raw_and_jpeg: true,
+        jpeg_from_shot: Some(2),
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    helper.capture();
+    let photos = helper.photos(3).0;
+    let exposures: Vec<(&str, u64)> = photos
+        .iter()
+        .map(|p| (p.camera_name.as_str(), p.exposure))
+        .collect();
+    assert_eq!(
+        exposures,
+        [
+            ("DSC00001.ARW", 1),
+            ("DSC00001.ARW", 2),
+            ("DSC00001.JPG", 2)
+        ]
+    );
 }
