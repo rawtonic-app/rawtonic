@@ -158,6 +158,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
   const activeMaskContainerId = useEditorStore((s) => s.activeMaskContainerId);
   const activeMaskId = useEditorStore((s) => s.activeMaskId);
   const lumaPickerLayer = useEditorStore((s) => s.lumaPickerLayer);
+  const shapeDrawTarget = useEditorStore((s) => s.shapeDrawTarget);
   const isMaskControlHovered = useEditorStore((s) => s.isMaskControlHovered);
   const hasRenderedFirstFrame = useEditorStore((s) => s.hasRenderedFirstFrame);
 
@@ -722,7 +723,7 @@ export default function Editor({ onContextMenu, transformWrapperRef }: EditorPro
         activeSubMask?.type === Mask.AiSubject ||
         activeSubMask?.type === Mask.Color ||
         activeSubMask?.type === Mask.Luminance ||
-        activeSubMask?.parameters?.isInitialDraw)) ||
+        (!!activeSubMask && activeSubMask.id === shapeDrawTarget))) ||
     // The luma range eyedropper takes clicks and (Shift+) drags as samples.
     (isMasking && lumaPickerLayer !== null && lumaPickerLayer === activeMaskContainerId) ||
     isWbPickerActive ||

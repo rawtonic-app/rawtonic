@@ -133,8 +133,6 @@ export interface SubMaskParameters {
   liquifyMode?: string;
   /** Radial and linear: the photo's geometry they were drawn in (`ShapeFrame`). */
   frame?: ShapeFrame;
-  /** Frontend only: set while a new radial/linear mask is being drawn. */
-  isInitialDraw?: boolean;
 }
 
 export interface SubMask {
