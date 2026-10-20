@@ -143,6 +143,7 @@ else
 import json, sys
 v = json.load(open(sys.argv[1]))
 by = " by %s" % v["reviewer"] if v.get("reviewer") else ""
+by += " (author: %s)" % v["author"] if v.get("author") else ""
 print("## Second-model review\n\nVerdict on %s%s: **%s**. %s" % (sys.argv[2], by, v["verdict"], v["summary"]))
 for f in v["findings"]:
     print("- [%s] `%s:%s` %s" % (f["severity"], f["file"], f["line"], f["issue"]))
