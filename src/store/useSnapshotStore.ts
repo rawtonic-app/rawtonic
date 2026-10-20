@@ -29,6 +29,9 @@ interface SnapshotState {
 
 /** The photograph whose thumbnails are being developed. */
 let developing: string | null = null;
+/** How often each snapshot was updated: a thumbnail developed from
+ * adjustments it no longer holds is dropped. */
+const revisions = new Map<string, number>();
 
 /** Develops the missing thumbnails of the shown list, one after another
  * (the open photograph's renders go first between them); snapshots taken
@@ -42,6 +45,7 @@ async function developThumbnails() {
       const state = useSnapshotStore.getState();
       const next = state.snapshots.find((snapshot) => !(snapshot.id in state.thumbnails));
       if (state.path !== path || !next) return;
+      const revision = revisions.get(next.id) ?? 0;
       let url = '';
       try {
         const bytes = await invoke<ArrayBuffer>(Invokes.SnapshotThumbnail, { path, adjustments: next.adjustments });
@@ -52,6 +56,11 @@ async function developThumbnails() {
       if (useSnapshotStore.getState().path !== path) {
         if (url) URL.revokeObjectURL(url);
         return;
+      }
+      if ((revisions.get(next.id) ?? 0) !== revision) {
+        // Updated meanwhile: developed again from its new adjustments.
+        if (url) URL.revokeObjectURL(url);
+        continue;
       }
       // A failed one stays empty (a placeholder) rather than being retried.
       useSnapshotStore.setState((current) => ({ thumbnails: { ...current.thumbnails, [next.id]: url } }));
@@ -103,7 +112,8 @@ export const useSnapshotStore = create<SnapshotState>((set, get) => ({
 
   update: async (path, id, adjustments) => {
     const answer = await invoke<unknown>(Invokes.SnapshotUpdate, { path, id, adjustments });
-    // Its thumbnail is developed again.
+    // Its thumbnail is developed again (one in progress is dropped).
+    revisions.set(id, (revisions.get(id) ?? 0) + 1);
     const url = get().thumbnails[id];
     if (get().path === path && url !== undefined) {
       if (url) URL.revokeObjectURL(url);

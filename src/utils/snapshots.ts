@@ -12,6 +12,8 @@ export function restoreSnapshot(snapshot: Snapshot): boolean {
   const image = useEditorStore.getState().selectedImage;
   if (!image?.isReady || useSnapshotStore.getState().path !== image.path) return false;
   const restored = normalizeLoadedAdjustments(snapshot.adjustments, image.isRaw);
+  // An edit still settling is its own step, before the restore.
+  debouncedSetHistory.flush();
   updateAdjustments(() => restored);
   debouncedSetHistory.flush();
   const { history, historyIndex } = useEditorStore.getState();

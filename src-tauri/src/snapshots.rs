@@ -47,10 +47,25 @@ fn in_library(
     let asset = match lib.asset_at(source)? {
         Some(asset) => asset,
         // A photograph of the library's folders not registered yet is
-        // registered as its first save would.
-        None if change.is_some() && source.is_file() => lib.add_asset(source)?,
+        // registered with what its sidecars hold, as the folder index does.
+        None if change.is_some() && source.is_file() => {
+            let report = lib.add_files(&[source.to_path_buf()])?;
+            if let Some((_, error)) = report.failed.first() {
+                anyhow::bail!("{error}");
+            }
+            lib.asset_at(source)?
+                .context("The photograph could not be added to the library")?
+        }
         None => return Ok(Vec::new()),
     };
+    if change.is_some() && source.is_file() {
+        // A registered photograph whose sidecar was never adopted (it is
+        // until the folder is indexed again) adopts it first: the sidecar
+        // derived after the change must not replace its edit. Nothing
+        // happens to one edited or adopted before.
+        let contents = rawtonic_catalog::Contents::read_sidecars(source)?;
+        lib.adopt_contents(&asset.id, &contents)?;
+    }
     let copy = copy_for_sidecar(sidecar).map(|(_, copy)| copy);
     let mut version = lib.version_for(&asset.id, copy.as_deref())?;
     if version.is_none() && change.is_some() && sidecar.is_file() {
@@ -423,6 +438,47 @@ mod tests {
             median(delete),
             fs::metadata(&sidecar).unwrap().len() / 1024
         );
+    }
+
+    #[test]
+    fn an_unadopted_sidecar_keeps_its_edit_when_its_photograph_is_snapshotted() {
+        let temp = tempfile::tempdir().unwrap();
+        let lib = Library::create(temp.path(), "Snaps", Mode::Session).unwrap();
+        let day = lib.directory.join("Capture");
+        let edited =
+            br#"{"version":1,"rating":4,"tags":["user:dog"],"adjustments":{"exposure":1.5}}"#;
+        // Not registered at all, and registered without its sidecar adopted.
+        let (a, b) = (day.join("A.ARW"), day.join("B.ARW"));
+        for photo in [&a, &b] {
+            fs::write(photo, b"library fixture").unwrap();
+            fs::write(
+                photo.with_file_name(format!(
+                    "{}.rrdata",
+                    photo.file_name().unwrap().to_string_lossy()
+                )),
+                edited,
+            )
+            .unwrap();
+        }
+        lib.add_asset(&b).unwrap();
+        for photo in [&a, &b] {
+            add(photo, "Look", json!({"exposure": 1.5}));
+            let sidecar = photo.with_file_name(format!(
+                "{}.rrdata",
+                photo.file_name().unwrap().to_string_lossy()
+            ));
+            let state = load_sidecar(&sidecar);
+            assert_eq!(
+                state.adjustments["exposure"],
+                json!(1.5),
+                "{}",
+                photo.display()
+            );
+            assert_eq!(state.rating, 4);
+            assert_eq!(sidecar_snapshots(&sidecar), ["Look"]);
+            let asset = lib.asset_at(photo).unwrap().unwrap();
+            assert_eq!(lib.metadata(&asset.id).unwrap().keywords, ["dog"]);
+        }
     }
 
     #[test]

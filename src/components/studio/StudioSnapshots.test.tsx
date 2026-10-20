@@ -12,6 +12,8 @@ import type { SelectedImage } from "../ui/AppProperties";
 /** The backend's snapshots, by photograph. */
 let kept: Record<string, Snapshot[]> = {};
 let thumbnailCalls: string[] = [];
+/** When set, thumbnails wait for it (a slow render). */
+let thumbnailGate: Promise<void> | null = null;
 let nextId = 0;
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -22,6 +24,7 @@ const PHOTO = "/qa/photo.dng";
 beforeEach(() => {
   kept = {};
   thumbnailCalls = [];
+  thumbnailGate = null;
   nextId = 0;
   vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => `blob:${++nextId}`), revokeObjectURL: vi.fn() }));
   vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
@@ -44,6 +47,7 @@ beforeEach(() => {
         return structuredClone(kept[a.path]);
       case "snapshot_thumbnail":
         thumbnailCalls.push(String(a.adjustments?.exposure));
+        if (thumbnailGate) await thumbnailGate;
         return new ArrayBuffer(4);
       default:
         return undefined;
@@ -154,5 +158,34 @@ it("updates a snapshot with the current edit and develops its thumbnail again", 
   await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBe("blob:2"));
   expect(kept[PHOTO][0].adjustments.exposure).toBe(-1);
   expect(thumbnailCalls).toEqual(["1", "-1"]);
+  expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
+});
+
+it("restores after an edit still settling, which stays its own step", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Bright", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(2) }];
+  render(<StudioSnapshots />);
+  await screen.findByText("Bright");
+  const edited = recipe(1);
+  useEditorStore.setState({ adjustments: edited });
+  debouncedSetHistory(edited);
+  fireEvent.click(screen.getByTitle("Restore Bright (a history step: Undo returns)"));
+  expect(useEditorStore.getState().history.map((step) => step.exposure)).toEqual([0, 1, 2]);
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments.exposure).toBe(1);
+});
+
+it("drops a thumbnail developed from adjustments the snapshot no longer holds", async () => {
+  kept[PHOTO] = [{ id: "a", name: "Look", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(1) }];
+  let release = () => {};
+  thumbnailGate = new Promise<void>((resolve) => (release = resolve));
+  render(<StudioSnapshots />);
+  await waitFor(() => expect(thumbnailCalls).toEqual(["1"]));
+  useEditorStore.setState({ adjustments: recipe(2) });
+  fireEvent.click(screen.getByRole("button", { name: "Update Look with the current edit" }));
+  await waitFor(() => expect(kept[PHOTO][0].adjustments.exposure).toBe(2));
+  thumbnailGate = null;
+  release();
+  await waitFor(() => expect(thumbnailCalls).toEqual(["1", "2"]));
+  await waitFor(() => expect(useSnapshotStore.getState().thumbnails.a).toBe("blob:2"));
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1");
 });
