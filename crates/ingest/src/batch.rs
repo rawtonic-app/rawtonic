@@ -3,11 +3,11 @@
 //! the library already holds, and the copy itself one file after the other,
 //! each reported as soon as it is in the library so the app shows it while
 //! the rest still copy.
-use crate::{ImportResult, destination_folder, import_one_into};
+use crate::{ImportResult, destination_folder};
 use anyhow::{Context, Result};
 use rawtonic_catalog::Library;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fs,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
@@ -119,6 +119,89 @@ pub fn known_in_library(library: &Library, sources: &[PathBuf]) -> Result<Vec<bo
         .collect())
 }
 
+/// Formats a camera writes beside a RAW of the same name (RAW+JPEG,
+/// RAW+HEIF): such a file comes in as the RAW's companion.
+const COMPANION_EXTENSIONS: &[&str] = &["jpg", "jpeg", "heic", "heif", "hif"];
+
+/// A photograph to import and the file that comes in with it as its
+/// companion (`pair_sources`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceGroup {
+    pub photo: PathBuf,
+    pub companion: Option<PathBuf>,
+}
+
+/// `sources` as photographs to import: a RAW (`is_raw`, the app's RAW
+/// formats) and a JPEG (or HEIF) of the same name in the same folder, both
+/// chosen, are one photograph, the RAW with the JPEG as its companion
+/// (Lightroom's default: one photograph, both files kept together; ADR
+/// 0013). Names compare ignoring ASCII case. Only exactly one RAW and one
+/// such image pair up: a name shared by more files (a RAW and a DNG, a
+/// JPEG and a HEIF) leaves all of them photographs of their own, as do
+/// files of the same name in different folders (cameras number each
+/// folder on their own). Each photograph takes the place of the first of
+/// its files, so `{seq}` follows the order of the files. Without `is_raw`
+/// every file is a photograph of its own.
+pub fn pair_sources(sources: &[PathBuf], is_raw: Option<fn(&Path) -> bool>) -> Vec<SourceGroup> {
+    let Some(raw) = is_raw else {
+        return sources
+            .iter()
+            .map(|photo| SourceGroup {
+                photo: photo.clone(),
+                companion: None,
+            })
+            .collect();
+    };
+    let companion_type = |path: &Path| {
+        path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            COMPANION_EXTENSIONS
+                .iter()
+                .any(|c| c.eq_ignore_ascii_case(e))
+        })
+    };
+    let mut by_name: HashMap<(&Path, String), Vec<usize>> = HashMap::new();
+    for (index, source) in sources.iter().enumerate() {
+        if let (Some(parent), Some(stem)) =
+            (source.parent(), source.file_stem().and_then(|s| s.to_str()))
+        {
+            by_name
+                .entry((parent, stem.to_ascii_lowercase()))
+                .or_default()
+                .push(index);
+        }
+    }
+    // The pairs by the place of their first file.
+    let mut pairs: HashMap<usize, (usize, usize)> = HashMap::new();
+    let mut paired = HashSet::new();
+    for members in by_name.values() {
+        let &[a, b] = members.as_slice() else {
+            continue;
+        };
+        let pair = if raw(&sources[a]) && companion_type(&sources[b]) {
+            (a, b)
+        } else if raw(&sources[b]) && companion_type(&sources[a]) {
+            (b, a)
+        } else {
+            continue;
+        };
+        pairs.insert(a.min(b), pair);
+        paired.extend([a, b]);
+    }
+    (0..sources.len())
+        .filter_map(|index| match pairs.get(&index) {
+            Some(&(photo, companion)) => Some(SourceGroup {
+                photo: sources[photo].clone(),
+                companion: Some(sources[companion].clone()),
+            }),
+            None if paired.contains(&index) => None,
+            None => Some(SourceGroup {
+                photo: sources[index].clone(),
+                companion: None,
+            }),
+        })
+        .collect()
+}
+
 /// How a batch names and places its copies.
 #[derive(Debug, Clone, Copy)]
 pub struct BatchOptions<'a> {
@@ -133,6 +216,13 @@ pub struct BatchOptions<'a> {
     /// The library's top-level folders as the app's folder list shows them
     /// (for a catalog, folders below them are destinations too).
     pub roots: &'a [PathBuf],
+    /// Which files are RAWs, to import RAW+JPEG pairs as one photograph
+    /// (`pair_sources`); `None`: JPEGs next to RAWs of the same name come
+    /// in as photographs of their own.
+    pub pair_raw: Option<fn(&Path) -> bool>,
+    /// The album (id) the photographs go into, also those a resumed run
+    /// brings in (`queue`).
+    pub album: Option<&'a str>,
 }
 
 /// One file of a batch finished: in the library (or skipped as a duplicate,
@@ -148,61 +238,25 @@ pub struct FileDone<'a> {
 }
 
 /// Imports `sources` one after the other (in their order, which `{seq}`
-/// numbers), calling `on_file` as soon as each is done, so it can be shown
-/// while the rest copy. A cancel stops before the next file; the file it
-/// interrupted is neither published nor reported (`verified_copy` never
-/// leaves a partial copy). Fails at once only when the destination folder
+/// numbers: a RAW+JPEG pair takes one number, `pair_sources`), calling
+/// `on_file` as soon as each is done, so it can be shown while the rest
+/// copy; a pair's JPEG is reported right after its RAW, with the RAW's
+/// asset. A cancel stops before the next file; the file it interrupted is
+/// neither published nor reported (`verified_copy` never leaves a partial
+/// copy). The batch is an ingest job kept in the library (`queue`): what a
+/// quit, crash or card taken out leaves undone is finished by
+/// `queue::run_job` later. Fails at once only when the destination folder
 /// is not one an import may copy into.
 pub fn import_batch(
     library: &Library,
     sources: &[PathBuf],
     options: &BatchOptions<'_>,
     cancel: &AtomicBool,
-    mut on_file: impl FnMut(FileDone<'_>),
+    on_file: impl FnMut(FileDone<'_>),
 ) -> Result<Vec<ImportResult>> {
-    let destination = destination_folder(library, options.folder, options.roots)?;
-    let _batch = library.import_batch(rawtonic_catalog::ImportKind::Ingest);
-    let total = sources.len();
-    let mut results = Vec::with_capacity(total);
-    let mut bytes = 0u64;
-    for (index, source) in sources.iter().enumerate() {
-        if cancel.load(Ordering::Acquire) {
-            break;
-        }
-        let result = import_one_into(
-            library,
-            source,
-            &destination,
-            options.template,
-            options.sequence_start + index as u64,
-            options.sequence_start,
-            options.backup,
-            cancel,
-        )
-        .unwrap_or_else(|error| ImportResult {
-            source: source.clone(),
-            destination: None,
-            backup: None,
-            asset_id: None,
-            error: Some(error.to_string()),
-            skipped: false,
-            ..Default::default()
-        });
-        if cancel.load(Ordering::Acquire) && result.error.is_some() {
-            break;
-        }
-        if !result.skipped && result.error.is_none() {
-            bytes += fs::metadata(source).map(|m| m.len()).unwrap_or(0);
-        }
-        on_file(FileDone {
-            index,
-            total,
-            result: &result,
-            bytes,
-        });
-        results.push(result);
-    }
-    Ok(results)
+    destination_folder(library, options.folder, options.roots)?;
+    let job = crate::queue::create_job(library, sources, options)?;
+    crate::queue::run_job(library, &job, cancel, on_file)
 }
 
 /// Where a source photograph is, which decides how an import into a
@@ -255,6 +309,7 @@ pub fn source_medium(path: &Path) -> Medium {
 pub fn add_batch(
     library: &Library,
     sources: &[PathBuf],
+    pair_raw: Option<fn(&Path) -> bool>,
     classify: impl Fn(&Path) -> Medium,
     cancel: &AtomicBool,
     mut on_file: impl FnMut(FileDone<'_>),
@@ -269,45 +324,101 @@ pub fn add_batch(
             card.display()
         );
     }
-    let mut known: std::collections::HashMap<(u64, String), Vec<PathBuf>> =
-        std::collections::HashMap::new();
+    let mut known: HashMap<(u64, String), Vec<PathBuf>> = HashMap::new();
     for asset in library.assets(None)? {
         known
             .entry((asset.size, asset.fingerprint))
             .or_default()
             .push(asset.path);
     }
+    let groups = pair_sources(sources, pair_raw);
     let _batch = library.import_batch(rawtonic_catalog::ImportKind::Add);
     let total = sources.len();
     let mut results = Vec::with_capacity(total);
-    for (index, source) in sources.iter().enumerate() {
+    let failed = |source: &Path, error: anyhow::Error| ImportResult {
+        source: source.to_path_buf(),
+        error: Some(error.to_string()),
+        ..Default::default()
+    };
+    for group in &groups {
         if cancel.load(Ordering::Acquire) {
             break;
         }
-        let result = add_one(library, source, &mut known).unwrap_or_else(|error| ImportResult {
-            source: source.clone(),
-            destination: None,
-            backup: None,
-            asset_id: None,
-            error: Some(error.to_string()),
-            skipped: false,
-            ..Default::default()
+        let mut photo =
+            add_one(library, &group.photo, &mut known).unwrap_or_else(|e| failed(&group.photo, e));
+        let companion = group.companion.as_deref().map(|companion| {
+            add_companion(library, &mut photo, companion, &mut known)
+                .unwrap_or_else(|e| failed(companion, e))
         });
-        on_file(FileDone {
-            index,
-            total,
-            result: &result,
-            bytes: 0,
-        });
-        results.push(result);
+        for result in std::iter::once(photo).chain(companion) {
+            on_file(FileDone {
+                index: results.len(),
+                total,
+                result: &result,
+                bytes: 0,
+            });
+            results.push(result);
+        }
     }
     Ok(results)
+}
+
+/// Adds the companion of `photo` (`add_one`'s result) where it is: recorded
+/// with `photo`'s asset when that is registered at the RAW's own place and
+/// has none yet (nothing is written beside the files), else added as a
+/// photograph of its own.
+fn add_companion(
+    library: &Library,
+    photo: &mut ImportResult,
+    companion: &Path,
+    known: &mut HashMap<(u64, String), Vec<PathBuf>>,
+) -> Result<ImportResult> {
+    let in_place = photo.error.is_none()
+        && photo
+            .destination
+            .as_deref()
+            .and_then(|d| d.canonicalize().ok())
+            == photo.source.canonicalize().ok();
+    let owner = match &photo.asset_id {
+        Some(id) if in_place => Some(library.asset(id)?),
+        _ => None,
+    };
+    // Only the file beside the RAW's own (a symlinked RAW resolves to
+    // another folder), not registered and no content the library holds.
+    let resolved = companion.canonicalize()?;
+    let beside = owner
+        .as_ref()
+        .is_some_and(|owner| resolved.parent() == owner.path.parent());
+    let free = beside
+        && library.asset_at(companion)?.is_none()
+        && library.companion_owner(companion)?.is_none()
+        && crate::library_copy(library, companion)?.is_none();
+    match owner {
+        // A photograph with a companion record (its file gone or changed
+        // too) keeps it: the record is what puts that JPEG back.
+        Some(owner) if free && library.companion_record(&owner)?.is_none() => {
+            let name = resolved
+                .file_name()
+                .and_then(|n| n.to_str())
+                .context("Invalid file name")?;
+            library.set_companion(&owner.id, Some(name))?;
+            photo.companion = Some(companion.to_path_buf());
+            Ok(ImportResult {
+                source: companion.into(),
+                destination: Some(companion.into()),
+                asset_id: Some(owner.id),
+                companion_of: Some(owner.path),
+                ..Default::default()
+            })
+        }
+        _ => add_one(library, companion, known),
+    }
 }
 
 fn add_one(
     library: &Library,
     source: &Path,
-    known: &mut std::collections::HashMap<(u64, String), Vec<PathBuf>>,
+    known: &mut HashMap<(u64, String), Vec<PathBuf>>,
 ) -> Result<ImportResult> {
     let skipped = |asset: rawtonic_catalog::Asset| ImportResult {
         source: source.into(),
@@ -321,6 +432,13 @@ fn add_one(
     anyhow::ensure!(source.is_file(), "Not a file: {}", source.display());
     if let Some(asset) = library.asset_at(source)? {
         return Ok(skipped(asset));
+    }
+    // A registered photograph's companion is part of it.
+    if let Some(asset) = library.companion_owner(source)? {
+        let mut result = skipped(asset);
+        result.companion_of = result.destination.take();
+        result.destination = Some(source.into());
+        return Ok(result);
     }
     let key = (
         fs::metadata(source)?.len(),
@@ -336,6 +454,12 @@ fn add_one(
                 return Ok(skipped(asset));
             }
         }
+    }
+    // The content of a photograph's companion: part of that photograph.
+    if let Some((owner, path)) = crate::held_companion(library, source)? {
+        let mut result = skipped(owner);
+        result.companion_of = result.destination.replace(path);
+        return Ok(result);
     }
     // Registered with what its sidecars hold (editor sidecar, else XMP
     // rating, label and keywords) in one transaction; they are read, never
@@ -387,7 +511,17 @@ mod tests {
             backup: None,
             folder: None,
             roots: &[],
+            pair_raw: Some(raw),
+            album: None,
         }
+    }
+    /// The RAW formats of these tests (the app passes its own).
+    fn raw(path: &Path) -> bool {
+        path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            ["arw", "cr3", "dng", "nef", "raf"]
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(e))
+        })
     }
     fn names(folder: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(folder)
@@ -669,6 +803,7 @@ mod tests {
         let results = add_batch(
             &lib,
             &sources,
+            Some(raw),
             |_| Medium::Disk,
             &AtomicBool::new(false),
             |done| events.push((done.index, done.result.skipped)),
@@ -698,6 +833,7 @@ mod tests {
         let results = add_batch(
             &lib,
             std::slice::from_ref(&c),
+            Some(raw),
             |_| Medium::Disk,
             &AtomicBool::new(false),
             |_| {},
@@ -752,6 +888,7 @@ mod tests {
             add_batch(
                 &session,
                 &sources,
+                Some(raw),
                 |_| Medium::Disk,
                 &AtomicBool::new(false),
                 no_files
@@ -763,6 +900,7 @@ mod tests {
             add_batch(
                 &catalog,
                 &sources,
+                Some(raw),
                 |_| Medium::Card,
                 &AtomicBool::new(false),
                 no_files
@@ -895,5 +1033,606 @@ mod tests {
         )
         .unwrap();
         assert_eq!(known_in_library(&lib, &sources).unwrap(), vec![true, false]);
+    }
+
+    fn write(path: &Path, bytes: &[u8]) -> PathBuf {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, bytes).unwrap();
+        path.to_path_buf()
+    }
+
+    /// Every file below `folder` with its bytes (the card, to prove it
+    /// unchanged).
+    fn snapshot(folder: &Path) -> Vec<(PathBuf, Vec<u8>, std::time::SystemTime)> {
+        let mut files = Vec::new();
+        let mut stack = vec![folder.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for entry in fs::read_dir(&dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    let meta = fs::metadata(&path).unwrap();
+                    files.push((
+                        path.clone(),
+                        fs::read(&path).unwrap(),
+                        meta.modified().unwrap(),
+                    ));
+                }
+            }
+        }
+        files.sort();
+        files
+    }
+
+    #[test]
+    fn a_raw_and_a_jpeg_of_one_name_in_one_folder_pair_up() {
+        let p = |s: &str| PathBuf::from(s);
+        let group = |photo: &str, companion: Option<&str>| SourceGroup {
+            photo: p(photo),
+            companion: companion.map(p),
+        };
+        let sources = [
+            p("/c/100/A.RAF"),
+            p("/c/100/a.jpg"),
+            p("/c/100/B.CR3"),
+            p("/c/100/B.DNG"),
+            p("/c/100/B.JPG"),
+            p("/c/100/C.JPG"),
+            p("/c/100/C.HEIF"),
+            p("/c/100/D.ARW"),
+            p("/c/101/D.JPG"),
+            p("/c/100/E.NEF"),
+            p("/c/100/E.HIF"),
+            p("/c/100/F.TIF"),
+            p("/c/100/F.JPG"),
+            p("/c/100/G.GIF"),
+            p("/c/100/G.JPG"),
+        ];
+        assert_eq!(
+            pair_sources(&sources, Some(raw)),
+            vec![
+                // Letter case aside; the RAW leads wherever it is listed.
+                group("/c/100/A.RAF", Some("/c/100/a.jpg")),
+                // Three files of one name: none pairs.
+                group("/c/100/B.CR3", None),
+                group("/c/100/B.DNG", None),
+                group("/c/100/B.JPG", None),
+                // No RAW.
+                group("/c/100/C.JPG", None),
+                group("/c/100/C.HEIF", None),
+                // Another folder: another photograph (cameras number
+                // each folder on their own).
+                group("/c/100/D.ARW", None),
+                group("/c/101/D.JPG", None),
+                group("/c/100/E.NEF", Some("/c/100/E.HIF")),
+                group("/c/100/F.TIF", None),
+                group("/c/100/F.JPG", None),
+                // Only the app's RAW formats are RAWs.
+                group("/c/100/G.GIF", None),
+                group("/c/100/G.JPG", None),
+            ]
+        );
+        // The JPEG listed first: the pair takes its place.
+        assert_eq!(
+            pair_sources(&[p("/c/Z.ARW"), p("/c/A.JPG"), p("/c/A.RAF")], Some(raw)),
+            vec![group("/c/Z.ARW", None), group("/c/A.RAF", Some("/c/A.JPG"))]
+        );
+    }
+
+    /// A RAW+JPEG pair is one photograph: the JPEG is copied beside the
+    /// RAW under its new name and recorded with its asset; the folder's
+    /// files are not registered again; the card is untouched.
+    #[test]
+    fn a_pair_is_imported_as_one_photograph_with_its_companion() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card/DCIM/100CAM");
+        let sources = vec![
+            write(&card.join("DSC_0001.ARW"), b"raw one"),
+            write(&card.join("DSC_0001.JPG"), b"jpeg one"),
+            write(&card.join("DSC_0002.ARW"), b"raw two"),
+        ];
+        write(&card.join("DSC_0001.xmp"), br#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="4"/></rdf:RDF></x:xmpmeta>"#);
+        let before = snapshot(&d.path().join("card"));
+        let mut reported = Vec::new();
+        let results = import_batch(
+            &lib,
+            &sources,
+            &options("Shoot_{seq:3}"),
+            &AtomicBool::new(false),
+            |done| reported.push((done.index, done.total, done.result.source.clone())),
+        )
+        .unwrap();
+        assert_eq!(
+            reported,
+            vec![
+                (0, 3, sources[0].clone()),
+                (1, 3, sources[1].clone()),
+                (2, 3, sources[2].clone()),
+            ]
+        );
+        let capture = lib.directory.join("Capture");
+        assert_eq!(
+            names(&capture),
+            [
+                "Shoot_001.ARW",
+                "Shoot_001.JPG",
+                "Shoot_001.xmp",
+                "Shoot_002.ARW"
+            ]
+        );
+        let raw = &results[0];
+        assert_eq!(
+            raw.companion.as_deref(),
+            Some(capture.join("Shoot_001.JPG").as_path())
+        );
+        let jpeg = &results[1];
+        assert_eq!(jpeg.asset_id, raw.asset_id);
+        assert_eq!(jpeg.companion_of, raw.destination);
+        assert!(!jpeg.skipped && jpeg.error.is_none());
+        assert_eq!(
+            fs::read(capture.join("Shoot_001.JPG")).unwrap(),
+            b"jpeg one"
+        );
+        let asset = lib.asset(raw.asset_id.as_ref().unwrap()).unwrap();
+        assert_eq!(asset.rating, 4, "the RAW owns the stem's sidecar");
+        assert_eq!(
+            lib.companion(&asset).unwrap(),
+            Some(capture.join("Shoot_001.JPG"))
+        );
+        assert_eq!(lib.summary().unwrap().assets, 2);
+        // The session's folder index finds nothing new.
+        let all: Vec<PathBuf> = names(&capture)
+            .iter()
+            .filter(|n| !n.ends_with(".xmp"))
+            .map(|n| capture.join(n))
+            .collect();
+        assert!(lib.add_files(&all).unwrap().added.is_empty());
+        assert_eq!(snapshot(&d.path().join("card")), before, "card untouched");
+
+        // Imported again: all skipped, nothing copied.
+        let again = import_batch(
+            &lib,
+            &sources,
+            &options("Shoot_{seq:3}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert!(again.iter().all(|r| r.skipped), "{again:?}");
+        assert_eq!(again[1].destination, raw.companion);
+        assert_eq!(names(&capture).len(), 4);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+    }
+
+    /// The pair keeps one name: a name taken for either file moves both on
+    /// to the next free one, and nothing there is replaced.
+    #[test]
+    fn a_pair_takes_a_name_free_for_both_files() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let capture = lib.directory.join("Capture");
+        write(&capture.join("IMG.JPG"), b"someone else's");
+        let card = d.path().join("card");
+        let sources = vec![
+            write(&card.join("IMG.CR3"), b"raw"),
+            write(&card.join("IMG.JPG"), b"jpeg"),
+        ];
+        let results = import_batch(
+            &lib,
+            &sources,
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(results[0].destination, Some(capture.join("IMG_1.CR3")));
+        assert_eq!(results[1].destination, Some(capture.join("IMG_1.JPG")));
+        assert_eq!(
+            fs::read(capture.join("IMG.JPG")).unwrap(),
+            b"someone else's"
+        );
+    }
+
+    /// With separate JPEGs both files are photographs of their own.
+    #[test]
+    fn jpegs_can_come_in_as_photographs_of_their_own() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card");
+        let sources = vec![
+            write(&card.join("A.NEF"), b"raw"),
+            write(&card.join("A.JPG"), b"jpeg"),
+        ];
+        let mut opts = options("{orig}");
+        opts.pair_raw = None;
+        let results = import_batch(&lib, &sources, &opts, &AtomicBool::new(false), |_| {}).unwrap();
+        assert!(
+            results
+                .iter()
+                .all(|r| r.companion.is_none() && r.companion_of.is_none())
+        );
+        assert_ne!(results[0].asset_id, results[1].asset_id);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+    }
+
+    /// A RAW imported alone before: its JPEG comes in as a photograph of
+    /// its own, not left out; a JPEG the library holds already stays that
+    /// photograph and the RAW comes in alone.
+    #[test]
+    fn a_pair_half_the_library_holds_already() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card");
+        let raw = write(&card.join("A.NEF"), b"raw");
+        let jpeg = write(&card.join("A.JPG"), b"jpeg");
+        let opts = options("{orig}");
+        let never = AtomicBool::new(false);
+        import_batch(&lib, std::slice::from_ref(&raw), &opts, &never, |_| {}).unwrap();
+        let results =
+            import_batch(&lib, &[raw.clone(), jpeg.clone()], &opts, &never, |_| {}).unwrap();
+        assert!(results[0].skipped);
+        assert!(
+            !results[1].skipped && results[1].error.is_none(),
+            "{:?}",
+            results[1]
+        );
+        assert_ne!(results[1].asset_id, results[0].asset_id);
+        assert_eq!(lib.summary().unwrap().assets, 2);
+
+        let other = library(&d.path().join("other"));
+        let b_raw = write(&card.join("B.NEF"), b"raw b");
+        let b_jpeg = write(&card.join("B.JPG"), b"jpeg b");
+        import_batch(&other, std::slice::from_ref(&b_jpeg), &opts, &never, |_| {}).unwrap();
+        let results = import_batch(&other, &[b_raw, b_jpeg], &opts, &never, |_| {}).unwrap();
+        assert!(
+            !results[0].skipped && results[0].companion.is_none(),
+            "{:?}",
+            results[0]
+        );
+        assert!(results[1].skipped && results[1].companion_of.is_none());
+        assert_eq!(other.summary().unwrap().assets, 2);
+        assert_eq!(names(&other.directory.join("Capture")), ["B.JPG", "B.NEF"]);
+    }
+
+    /// Killed between copy and commit (the copies are published, nothing is
+    /// recorded): an import again records those copies, the pair as one
+    /// photograph, and makes no second copy.
+    #[test]
+    fn an_import_killed_between_copy_and_commit_is_finished_without_copies() {
+        for copied in [&["A.ARW", "A.JPG"][..], &["A.ARW"][..]] {
+            let d = tempfile::tempdir().unwrap();
+            let lib = library(d.path());
+            let card = d.path().join("card");
+            let sources = vec![
+                write(&card.join("A.ARW"), b"raw"),
+                write(&card.join("A.JPG"), b"jpeg"),
+            ];
+            let capture = lib.directory.join("Capture");
+            for name in copied {
+                fs::copy(card.join(name), capture.join(name)).unwrap();
+            }
+            let results = import_batch(
+                &lib,
+                &sources,
+                &options("{orig}"),
+                &AtomicBool::new(false),
+                |_| {},
+            )
+            .unwrap();
+            assert!(results.iter().all(|r| r.error.is_none()), "{results:?}");
+            assert_eq!(names(&capture), ["A.ARW", "A.JPG"], "{copied:?}");
+            assert_eq!(lib.summary().unwrap().assets, 1);
+            let asset = lib.asset_at(&capture.join("A.ARW")).unwrap().unwrap();
+            assert_eq!(lib.companion(&asset).unwrap(), Some(capture.join("A.JPG")));
+        }
+    }
+
+    /// Adding where they are pairs too: the JPEG is recorded with the RAW,
+    /// nothing is written beside them.
+    #[test]
+    fn adding_a_pair_where_it_is_records_the_companion() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+        let shoot = d.path().join("Drive/Shoot");
+        let sources = vec![
+            write(&shoot.join("A.ARW"), b"raw"),
+            write(&shoot.join("A.JPG"), b"jpeg"),
+        ];
+        let before = snapshot(&shoot);
+        let results = add_batch(
+            &lib,
+            &sources,
+            Some(raw),
+            |_| Medium::Disk,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert_eq!(results.len(), 2);
+        let asset = lib.asset_at(&sources[0]).unwrap().unwrap();
+        assert_eq!(
+            lib.companion(&asset).unwrap(),
+            Some(sources[1].canonicalize().unwrap())
+        );
+        assert_eq!(results[1].companion_of, Some(asset.path.clone()));
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        // Adding the JPEG on its own again: it is the RAW's.
+        let again = add_batch(
+            &lib,
+            &sources[1..],
+            Some(raw),
+            |_| Medium::Disk,
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert!(again[0].skipped, "{again:?}");
+        assert_eq!(lib.summary().unwrap().assets, 1);
+        assert_eq!(snapshot(&shoot), before);
+    }
+
+    /// Property-style: random cards (pairs, singles, the same names in two
+    /// folders, files whose content repeats), imported with random cancels
+    /// and runs again until done, always end with each content in the
+    /// library exactly once (as a photograph or a companion), every copy
+    /// accounted for, and the card unchanged.
+    #[test]
+    fn interrupted_and_repeated_imports_never_duplicate_or_lose_a_file() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        for round in 0..100 {
+            let d = tempfile::tempdir().unwrap();
+            let lib = library(d.path());
+            let card = d.path().join("card/DCIM");
+            let mut sources = Vec::new();
+            for i in 0..(2 + next(6)) {
+                let folder = card.join(format!("10{}CAM", next(2)));
+                let stem = format!("DSC_{:04}", next(4) + i * 10);
+                // Contents repeat now and then (the same shot twice).
+                let (a, b) = (next(3), next(3));
+                let content = |kind: &str| {
+                    let variant = if kind == "raw" { a } else { b };
+                    format!("{kind} {variant}").into_bytes()
+                };
+                match next(4) {
+                    0 => sources.push(write(&folder.join(format!("{stem}.ARW")), &content("raw"))),
+                    1 => sources.push(write(&folder.join(format!("{stem}.JPG")), &content("jpeg"))),
+                    _ => {
+                        sources.push(write(&folder.join(format!("{stem}.ARW")), &content("raw")));
+                        sources.push(write(&folder.join(format!("{stem}.jpg")), &content("jpeg")));
+                    }
+                }
+            }
+            sources.sort();
+            sources.dedup();
+            let before = snapshot(&d.path().join("card"));
+            let template = ["{orig}", "R{seq:2}", "{orig_base}_{seq}"][next(3) as usize];
+            for run in 0..4 {
+                let cancel = AtomicBool::new(false);
+                let stop_after = if run < 3 {
+                    next(sources.len() as u64 + 1)
+                } else {
+                    u64::MAX
+                };
+                let mut seen = 0;
+                import_batch(&lib, &sources, &options(template), &cancel, |_| {
+                    seen += 1;
+                    if seen >= stop_after {
+                        cancel.store(true, Ordering::Release);
+                    }
+                })
+                .unwrap();
+            }
+            // Every distinct content of the card is in the library once.
+            let capture = lib.directory.join("Capture");
+            let companions = lib.companions().unwrap();
+            let assets = lib.assets(None).unwrap();
+            let mut held: Vec<Vec<u8>> = assets
+                .iter()
+                .map(|a| fs::read(&a.path).unwrap())
+                .chain(companions.keys().map(|c| fs::read(c).unwrap()))
+                .collect();
+            let copies = names(&capture);
+            assert_eq!(
+                held.len(),
+                copies.len(),
+                "round {round}: every copy accounted for: {copies:?}"
+            );
+            held.sort();
+            let before_len = held.len();
+            held.dedup();
+            assert_eq!(held.len(), before_len, "round {round}: a content twice");
+            let mut wanted: Vec<Vec<u8>> = sources.iter().map(|s| fs::read(s).unwrap()).collect();
+            wanted.sort();
+            wanted.dedup();
+            assert_eq!(
+                held,
+                wanted,
+                "round {round}: lost or extra content; card {:?}, library {copies:?}",
+                sources
+                    .iter()
+                    .map(|s| (s.clone(), String::from_utf8(fs::read(s).unwrap()).unwrap()))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(
+                snapshot(&d.path().join("card")),
+                before,
+                "round {round}: card changed"
+            );
+        }
+    }
+
+    /// The wire names the app reads (`SessionWorkspace.tsx` `ImportResult`).
+    #[test]
+    fn import_results_keep_their_field_names_on_the_wire() {
+        let result = ImportResult {
+            companion: Some("/l/A.JPG".into()),
+            companion_of: Some("/l/A.ARW".into()),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(&result).unwrap();
+        assert_eq!(value["companion"], "/l/A.JPG");
+        assert_eq!(value["companion_of"], "/l/A.ARW");
+    }
+
+    /// A pair's JPEG that is gone (or unreadable) when its turn comes: the
+    /// RAW comes in alone, the JPEG's result says why.
+    #[test]
+    fn a_vanished_companion_leaves_its_raw_imported() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card");
+        let raw = write(&card.join("A.ARW"), b"raw");
+        let gone = card.join("A.JPG");
+        let results = import_batch(
+            &lib,
+            &[raw, gone.clone()],
+            &options("{orig}"),
+            &AtomicBool::new(false),
+            |_| {},
+        )
+        .unwrap();
+        assert!(
+            results[0].error.is_none() && results[0].asset_id.is_some(),
+            "{results:?}"
+        );
+        assert_eq!(results[1].source, gone);
+        assert!(results[1].error.is_some());
+        assert_eq!(names(&lib.directory.join("Capture")), ["A.ARW"]);
+    }
+
+    /// Adding where they are: a RAW reached through a symlink to another
+    /// folder never takes that folder's JPEG of its name as its companion;
+    /// a JPEG whose content the catalog holds (as a photograph or as a
+    /// companion) is not recorded again.
+    #[cfg(unix)]
+    #[test]
+    fn adding_pairs_checks_the_folder_and_the_content() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+        let archive = d.path().join("Drive/Archive");
+        write(&archive.join("A.ARW"), b"raw a");
+        write(&archive.join("A.JPG"), b"someone else's jpeg");
+        let links = d.path().join("Drive/Links");
+        fs::create_dir_all(&links).unwrap();
+        std::os::unix::fs::symlink(archive.join("A.ARW"), links.join("A.ARW")).unwrap();
+        let jpeg = write(&links.join("A.JPG"), b"jpeg a");
+        let never = AtomicBool::new(false);
+        let results = add_batch(
+            &lib,
+            &[links.join("A.ARW"), jpeg.clone()],
+            Some(raw),
+            |_| Medium::Disk,
+            &never,
+            |_| {},
+        )
+        .unwrap();
+        let asset = lib.asset_at(&archive.join("A.ARW")).unwrap().unwrap();
+        assert_eq!(lib.companion(&asset).unwrap(), None, "{results:?}");
+        assert!(results[1].companion_of.is_none());
+
+        // B's JPEG has the content of a photograph the catalog holds.
+        let shoot = d.path().join("Drive/Shoot");
+        let b_raw = write(&shoot.join("B.ARW"), b"raw b");
+        let b_jpeg = write(&shoot.join("B.JPG"), b"jpeg a");
+        let results = add_batch(
+            &lib,
+            &[b_raw.clone(), b_jpeg],
+            Some(raw),
+            |_| Medium::Disk,
+            &never,
+            |_| {},
+        )
+        .unwrap();
+        assert!(results[1].skipped, "{results:?}");
+        let b = lib.asset_at(&b_raw).unwrap().unwrap();
+        assert_eq!(lib.companion(&b).unwrap(), None);
+
+        // C's pair is recorded; D.JPG, C's JPEG's content elsewhere, is
+        // part of C then, not another photograph.
+        let c_raw = write(&shoot.join("C.ARW"), b"raw c");
+        let c_jpeg = write(&shoot.join("C.JPG"), b"jpeg c");
+        add_batch(
+            &lib,
+            &[c_raw.clone(), c_jpeg],
+            Some(raw),
+            |_| Medium::Disk,
+            &never,
+            |_| {},
+        )
+        .unwrap();
+        let d_jpeg = write(&d.path().join("Drive/Other/D.JPG"), b"jpeg c");
+        let count = lib.summary().unwrap().assets;
+        let results =
+            add_batch(&lib, &[d_jpeg], Some(raw), |_| Medium::Disk, &never, |_| {}).unwrap();
+        assert!(
+            results[0].skipped && results[0].companion_of.is_some(),
+            "{results:?}"
+        );
+        assert_eq!(lib.summary().unwrap().assets, count);
+    }
+
+    /// The library's copy of a companion deleted: importing the pair (or
+    /// the JPEG alone) again puts it back as the companion, never as a
+    /// photograph of its own under the companion's name.
+    #[test]
+    fn a_lost_companion_is_put_back_not_imported_as_a_photograph() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = library(d.path());
+        let card = d.path().join("card");
+        let sources = vec![
+            write(&card.join("A.ARW"), b"raw"),
+            write(&card.join("A.JPG"), b"jpeg"),
+        ];
+        let never = AtomicBool::new(false);
+        import_batch(&lib, &sources, &options("{orig}"), &never, |_| {}).unwrap();
+        let capture = lib.directory.join("Capture");
+        let asset = lib.asset_at(&capture.join("A.ARW")).unwrap().unwrap();
+        for again in [&sources[..], &sources[1..]] {
+            fs::remove_file(capture.join("A.JPG")).unwrap();
+            let results = import_batch(&lib, again, &options("{orig}"), &never, |_| {}).unwrap();
+            let jpeg = results.last().unwrap();
+            assert_eq!(jpeg.companion_of.as_ref(), Some(&asset.path), "{results:?}");
+            assert_eq!(names(&capture), ["A.ARW", "A.JPG"]);
+            assert_eq!(lib.summary().unwrap().assets, 1);
+            assert_eq!(lib.companion(&asset).unwrap(), Some(capture.join("A.JPG")));
+        }
+        // Another JPEG of that name never takes the companion's place.
+        fs::remove_file(capture.join("A.JPG")).unwrap();
+        let other = write(&d.path().join("card2/A.JPG"), b"another jpeg");
+        let results = import_batch(&lib, &[other], &options("{orig}"), &never, |_| {}).unwrap();
+        assert_eq!(results[0].destination, Some(capture.join("A_1.JPG")));
+        assert_eq!(lib.companion(&asset).unwrap(), None);
+    }
+
+    /// Adding a RAW again whose recorded companion is gone, with another
+    /// JPEG of that name: the record stays (it puts the lost JPEG back), the
+    /// new JPEG is added as a photograph of its own.
+    #[test]
+    fn adding_never_replaces_a_companion_record() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+        let shoot = d.path().join("Drive/Shoot");
+        let sources = vec![
+            write(&shoot.join("A.ARW"), b"raw"),
+            write(&shoot.join("A.JPG"), b"jpeg"),
+        ];
+        let never = AtomicBool::new(false);
+        add_batch(&lib, &sources, Some(raw), |_| Medium::Disk, &never, |_| {}).unwrap();
+        let asset = lib.asset_at(&sources[0]).unwrap().unwrap();
+        let before = lib.companion_record(&asset).unwrap();
+        fs::write(&sources[1], b"another jpeg").unwrap();
+        let results =
+            add_batch(&lib, &sources, Some(raw), |_| Medium::Disk, &never, |_| {}).unwrap();
+        assert!(results[1].companion_of.is_none(), "{results:?}");
+        assert_eq!(lib.companion_record(&asset).unwrap(), before);
+        assert_eq!(lib.companion(&asset).unwrap(), None);
     }
 }

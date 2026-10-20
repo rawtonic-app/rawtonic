@@ -673,6 +673,15 @@ impl IngestedFile {
     }
 }
 
+/// The RAW test an ingest pairs RAW+JPEG with (`batch::pair_sources`);
+/// none when the user imports such JPEGs as photographs of their own.
+fn pair_raw(separate_jpeg: Option<bool>) -> Option<fn(&Path) -> bool> {
+    fn is_raw(path: &Path) -> bool {
+        crate::formats::is_raw_file(path)
+    }
+    (!separate_jpeg.unwrap_or(false)).then_some(is_raw as fn(&Path) -> bool)
+}
+
 /// How an ingest brings photographs in.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -700,6 +709,8 @@ pub async fn session_ingest(
     sequence_start: Option<u32>,
     folder: Option<String>,
     mode: Option<IngestMode>,
+    separate_jpeg: Option<bool>,
+    album: Option<String>,
     app: tauri::AppHandle,
 ) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
     if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
@@ -722,22 +733,10 @@ pub async fn session_ingest(
             backup: backup.as_deref().map(Path::new),
             folder: folder.as_deref().map(Path::new),
             roots: &roots,
+            pair_raw: pair_raw(separate_jpeg),
+            album: album.as_deref(),
         };
-        let started = std::time::Instant::now();
-        let report = |done: rawtonic_ingest::batch::FileDone<'_>| {
-            let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
-            let _ = app.emit(
-                "session-ingest-progress",
-                serde_json::json!({
-                    "current": done.index + 1,
-                    "total": done.total,
-                    "bytes": done.bytes,
-                    "mbps": done.bytes as f64
-                        / 1_000_000.0
-                        / started.elapsed().as_secs_f64().max(0.001),
-                }),
-            );
-        };
+        let report = ingest_reporter(&app);
         match mode.unwrap_or_default() {
             IngestMode::Copy => rawtonic_ingest::batch::import_batch(
                 &lib,
@@ -749,6 +748,7 @@ pub async fn session_ingest(
             IngestMode::Add => rawtonic_ingest::batch::add_batch(
                 &lib,
                 &sources,
+                pair_raw(separate_jpeg),
                 rawtonic_ingest::batch::source_medium,
                 &CANCEL_IMPORT,
                 report,
@@ -766,6 +766,108 @@ pub async fn session_ingest(
     }
     result?
 }
+/// Announces each photograph of an ingest (`session-ingest-imported`) and
+/// the count and speed (`session-ingest-progress`).
+fn ingest_reporter(app: &tauri::AppHandle) -> impl FnMut(rawtonic_ingest::batch::FileDone<'_>) {
+    let started = std::time::Instant::now();
+    move |done| {
+        let _ = app.emit("session-ingest-imported", IngestedFile::new(&done));
+        let _ = app.emit(
+            "session-ingest-progress",
+            serde_json::json!({
+                "current": done.index + 1,
+                "total": done.total,
+                "bytes": done.bytes,
+                "mbps": done.bytes as f64
+                    / 1_000_000.0
+                    / started.elapsed().as_secs_f64().max(0.001),
+            }),
+        );
+    }
+}
+
+/// The ingests a quit, crash or card taken out left unfinished in the
+/// library at `directory` (`ingest::queue`), with how many photographs each
+/// has left and how many of those are there now; jobs cut off after their
+/// last photograph are marked done first. None while an ingest runs (it
+/// may be one of them).
+#[tauri::command]
+pub async fn session_ingest_jobs(
+    directory: String,
+) -> Result<Vec<rawtonic_ingest::queue::JobSummary>, String> {
+    if IMPORT_RUNNING.load(Ordering::Acquire) {
+        return Ok(Vec::new());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        lib.settle_ingest_jobs().map_err(|e| e.to_string())?;
+        lib.unfinished_ingest_jobs()
+            .map(|jobs| {
+                jobs.iter()
+                    .map(rawtonic_ingest::queue::JobSummary::of)
+                    .collect()
+            })
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Finishes the unfinished ingests of the library at `directory` whose
+/// photographs are there now, as `session_ingest` copies (same events, same
+/// cancel); photographs whose card or drive is missing stay for later.
+#[tauri::command]
+pub async fn session_ingest_resume(
+    directory: String,
+    app: tauri::AppHandle,
+) -> Result<Vec<rawtonic_ingest::ImportResult>, String> {
+    if IMPORT_RUNNING.swap(true, Ordering::AcqRel) {
+        return Err("An ingest is already running".into());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        // No ingest runs: jobs cut off after their last photograph are done.
+        lib.settle_ingest_jobs().map_err(|e| e.to_string())?;
+        let mut results = Vec::new();
+        for job in lib.unfinished_ingest_jobs().map_err(|e| e.to_string())? {
+            if CANCEL_IMPORT.load(Ordering::Acquire) {
+                break;
+            }
+            if rawtonic_ingest::queue::JobSummary::of(&job).available == 0 {
+                continue;
+            }
+            let done = rawtonic_ingest::queue::run_job(
+                &lib,
+                &job.id,
+                &CANCEL_IMPORT,
+                ingest_reporter(&app),
+            )
+            .map_err(|e| e.to_string())?;
+            results.extend(done);
+        }
+        Ok(results)
+    })
+    .await
+    .map_err(|e| e.to_string());
+    CANCEL_IMPORT.store(false, Ordering::Release);
+    IMPORT_RUNNING.store(false, Ordering::Release);
+    result?
+}
+
+/// Gives up the unfinished ingest `id` of the library at `directory` (its
+/// card is gone for good): it is not resumed, and copies it made but did
+/// not record become photographs of their own when the folder is read.
+#[tauri::command]
+pub async fn session_ingest_forget(directory: String, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lib = Library::open(Path::new(&directory)).map_err(|e| e.to_string())?;
+        lib.set_ingest_job_state(&id, rawtonic_catalog::ingest_jobs::JobState::Cancelled)
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 pub fn session_cancel_ingest() {
     CANCEL_IMPORT.store(true, Ordering::Release);
@@ -1263,6 +1365,71 @@ pub(crate) fn offline_in_folder(folder: &Path, recursive: bool) -> Vec<OfflineEn
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// The companion files (a RAW's JPEG, `Library::companion`) a library
+/// records in `folder` or below it, under `folder` as it was given (not
+/// resolved), so a listing of it leaves them out: they are part of their
+/// RAW's photograph. A companion's samples are read once per file version
+/// (size and modification time), not on every listing (the grid lists the
+/// folder again up to four times a second during an import).
+pub(crate) fn companions_in_folder(folder: &Path) -> HashSet<PathBuf> {
+    /// Per companion file and photograph: the size and modification time
+    /// it was checked at, and whether it was the recorded one.
+    type Checked = HashMap<(PathBuf, String), (u64, std::time::SystemTime, bool)>;
+    static CHECKED: std::sync::LazyLock<Mutex<Checked>> =
+        std::sync::LazyLock::new(Default::default);
+    let Some(dir) = library_for(&folder.join("_")) else {
+        return HashSet::new();
+    };
+    let (Ok(lib), Ok(canonical)) = (Library::open(&dir), folder.canonicalize()) else {
+        return HashSet::new();
+    };
+    let Ok(records) = lib.companion_records_in(&canonical) else {
+        return HashSet::new();
+    };
+    let mut checked = CHECKED.lock().unwrap_or_else(|e| e.into_inner());
+    records
+        .into_iter()
+        .filter(|record| {
+            let Some(stamp) = fs::metadata(&record.path)
+                .ok()
+                .and_then(|m| Some((m.len(), m.modified().ok()?)))
+            else {
+                return false;
+            };
+            let key = (record.path.clone(), record.owner.clone());
+            match checked.get(&key) {
+                Some(&(size, modified, present)) if (size, modified) == stamp => present,
+                _ => {
+                    let present = record.present();
+                    checked.insert(key, (stamp.0, stamp.1, present));
+                    present
+                }
+            }
+        })
+        .filter_map(|record| {
+            record
+                .path
+                .strip_prefix(&canonical)
+                .ok()
+                .map(|below| folder.join(below))
+        })
+        .collect()
+}
+
+/// The companion file of the photograph at `photo` (it moves and goes to
+/// the Trash with it), if its library records one and it is there.
+pub(crate) fn companion_of(photo: &Path) -> Option<PathBuf> {
+    let lib = Library::open(&library_for(photo)?).ok()?;
+    let asset = lib.asset_at(photo).ok()??;
+    // Its whole content checked: only the recorded JPEG moves with it.
+    let verified = lib.companion_verified(&asset).ok()??;
+    // Under the photograph's path as given, as the caller's other files,
+    // and only when that is the verified file (a photograph reached
+    // through a link has its companion beside its target, not the link).
+    let companion = photo.with_file_name(verified.file_name()?);
+    (companion.canonicalize().ok()? == verified).then_some(companion)
 }
 
 /// Which of `paths` (whose files are gone) a library holds, with the

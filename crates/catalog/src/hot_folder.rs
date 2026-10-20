@@ -319,7 +319,10 @@ mod tests {
         let asset = lib.add_asset(&photo).unwrap();
         lib.conn
             .execute_batch(
-                "DROP TABLE hot_folder; DROP TABLE hot_folder_files; PRAGMA user_version=7;",
+                "DROP TABLE hot_folder; DROP TABLE hot_folder_files;
+                 ALTER TABLE assets DROP COLUMN companion_size;
+                 ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256; DROP TABLE ingest_items;
+                 PRAGMA user_version=7;",
             )
             .unwrap();
         drop(lib);

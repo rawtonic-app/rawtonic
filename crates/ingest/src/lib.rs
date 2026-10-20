@@ -2,6 +2,7 @@
 pub mod batch;
 pub mod capture;
 pub mod hot_folder;
+pub mod queue;
 pub mod transfer;
 
 use anyhow::{Context, Result, bail, ensure};
@@ -10,6 +11,7 @@ use rawtonic_naming::{Context as NamingContext, render};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::HashSet,
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
@@ -45,6 +47,14 @@ pub struct ImportResult {
     /// not be read or copied (the photograph is imported without it).
     #[serde(default)]
     pub warning: Option<String>,
+    /// RAW+JPEG (`batch::pair_sources`): on the RAW's result, its companion
+    /// JPEG copied beside `destination` and recorded with its asset
+    /// (`Library::companion`); on the JPEG's own result, the RAW's copy it
+    /// belongs to.
+    #[serde(default)]
+    pub companion: Option<PathBuf>,
+    #[serde(default)]
+    pub companion_of: Option<PathBuf>,
 }
 
 /// What a source brings to its import besides its bytes: its capture facts
@@ -64,8 +74,8 @@ pub fn source_facts(source: &Path) -> SourceFacts {
         capture: capture::read_capture(source),
         ..SourceFacts::default()
     };
-    if let Some(sidecar) = capture::card_sidecar(source) {
-        match read_sidecar(&sidecar) {
+    match capture::card_sidecar(source) {
+        Ok(Some(sidecar)) => match read_sidecar(&sidecar) {
             Ok(metadata) => {
                 capture::apply_sidecar(&mut facts.capture, &metadata);
                 facts.sidecar = Some(sidecar);
@@ -76,7 +86,9 @@ pub fn source_facts(source: &Path) -> SourceFacts {
                     sidecar.display()
                 ))
             }
-        }
+        },
+        Ok(None) => {}
+        Err(error) => facts.sidecar_error = Some(error),
     }
     facts
 }
@@ -170,21 +182,34 @@ pub fn preview_name(
 }
 
 /// Copies the card sidecar `sidecar` beside `photo` (a verified copy of its
-/// photograph) as `<photo stem>.xmp`, verified and never replacing a file:
-/// a file already there with the same bytes is taken as that copy (an
-/// earlier, interrupted import made it), a different one is an error.
+/// photograph) as `<photo stem>.xmp` (`copy_beside`).
 fn copy_sidecar(sidecar: &Path, photo: &Path, cancel: &AtomicBool) -> Result<PathBuf> {
-    let target = photo.with_extension("xmp");
-    if fs::symlink_metadata(&target).is_ok() {
+    copy_beside(sidecar, &photo.with_extension("xmp"), "sidecar", cancel)
+}
+
+/// Copies `source` to `target` (beside a verified copy of its photograph:
+/// its sidecar or companion JPEG), verified and never replacing a file: a
+/// file already there with the same bytes is taken as that copy (an
+/// earlier, interrupted import made it), a different one is an error.
+fn copy_beside(source: &Path, target: &Path, what: &str, cancel: &AtomicBool) -> Result<PathBuf> {
+    if fs::symlink_metadata(target).is_ok() {
         ensure!(
-            fs::symlink_metadata(&target)?.is_file() && sha256(&target)? == sha256(sidecar)?,
-            "A different sidecar is already at {}; the card's sidecar was not copied",
+            fs::symlink_metadata(target)?.is_file() && sha256(target)? == sha256(source)?,
+            "A different {what} is already at {}; the card's {what} was not copied",
             target.display()
         );
-        return Ok(target);
+        return Ok(target.to_path_buf());
     }
-    verified_copy(sidecar, &target, cancel, |_| {})?;
-    Ok(target)
+    verified_copy(source, target, cancel, |_| {})?;
+    Ok(target.to_path_buf())
+}
+
+/// `photo`'s companion name: its stem with `companion`'s extension.
+fn companion_target(photo: &Path, companion: &Path) -> Result<PathBuf> {
+    let extension = companion
+        .extension()
+        .context("A companion needs an extension")?;
+    Ok(photo.with_extension(extension))
 }
 
 pub fn sha256(path: &Path) -> Result<String> {
@@ -320,9 +345,31 @@ pub fn choose_destination(
     name: &str,
     policy: CollisionPolicy,
 ) -> Result<Option<PathBuf>> {
+    choose_destination_with(folder, name, None, &|_| false, policy)
+}
+
+/// `choose_destination` for a photograph with a companion (`companion`'s
+/// extension): a name free for both (`A.ARW` and `A.JPG`), so the pair
+/// keeps one name. Names `reserved` takes (a recorded companion whose file
+/// is gone) are not free either.
+fn choose_destination_with(
+    folder: &Path,
+    name: &str,
+    companion: Option<&Path>,
+    reserved: &dyn Fn(&Path) -> bool,
+    policy: CollisionPolicy,
+) -> Result<Option<PathBuf>> {
     rawtonic_naming::validate_component(name)?;
+    let taken = |path: &Path| path.exists() || reserved(path);
+    let free = |candidate: &Path| -> Result<bool> {
+        Ok(!taken(candidate)
+            && match companion {
+                Some(companion) => !taken(&companion_target(candidate, companion)?),
+                None => true,
+            })
+    };
     let target = folder.join(name);
-    if !target.exists() {
+    if free(&target)? {
         return Ok(Some(target));
     }
     match policy {
@@ -331,7 +378,7 @@ pub fn choose_destination(
         CollisionPolicy::Suffix => {
             for i in 1..=MAX_COLLISIONS {
                 let candidate = folder.join(collision_name(name, i)?);
-                if !candidate.exists() {
+                if free(&candidate)? {
                     return Ok(Some(candidate));
                 }
             }
@@ -364,6 +411,8 @@ fn identical_file(
     folder: &Path,
     name: &str,
     source: &Path,
+    companion: Option<&Path>,
+    reserved: &dyn Fn(&Path) -> bool,
     wanted: impl Fn(&Path) -> Result<bool>,
 ) -> Result<Option<PathBuf>> {
     let len = fs::metadata(source)?.len();
@@ -375,6 +424,19 @@ fn identical_file(
             folder.join(collision_name(name, i)?)
         };
         if !candidate.exists() {
+            // `choose_destination_with` skipped names reserved or taken
+            // for a pair's companion.
+            let skipped = reserved(&candidate)
+                || match companion {
+                    Some(companion) => {
+                        let target = companion_target(&candidate, companion)?;
+                        target.exists() || reserved(&target)
+                    }
+                    None => false,
+                };
+            if skipped {
+                continue;
+            }
             break;
         }
         let Ok(meta) = fs::symlink_metadata(&candidate) else {
@@ -596,6 +658,187 @@ fn import_one_into_with(
     contents: Option<&Contents>,
     cancel: &AtomicBool,
 ) -> Result<ImportResult> {
+    let options = ImportOptions {
+        destination,
+        template,
+        sequence,
+        sequence_start,
+        backup,
+        earlier: None,
+        before_copy: None,
+    };
+    Ok(import_pair(library, source, None, &options, contents, cancel)?.photo)
+}
+
+/// Called with the planned copies of a photograph and its companion right
+/// before they are made (an ingest job records them, `queue`); an error
+/// stops the import of that photograph.
+pub(crate) type BeforeCopy<'a> = &'a dyn Fn(&Path, Option<&Path>) -> Result<()>;
+
+/// How one photograph of an import is named and placed.
+#[derive(Clone, Copy)]
+pub(crate) struct ImportOptions<'a> {
+    pub destination: &'a Destination,
+    pub template: &'a str,
+    pub sequence: u64,
+    pub sequence_start: u64,
+    pub backup: Option<&'a Path>,
+    /// Where an earlier run planned the copy (`BeforeCopy`): a file with
+    /// the source's bytes there that the library does not hold is that
+    /// run's copy.
+    pub earlier: Option<&'a Path>,
+    pub before_copy: Option<BeforeCopy<'a>>,
+}
+
+/// What importing a photograph with a companion did: the photograph's
+/// result and, when it came with one, the companion's.
+#[derive(Debug)]
+pub(crate) struct PairResult {
+    pub photo: ImportResult,
+    pub companion: Option<ImportResult>,
+}
+
+/// A file of the library with the content of `source`.
+pub(crate) enum Held {
+    /// A photograph.
+    Photo(rawtonic_catalog::Asset),
+    /// A photograph's companion (the file at the path).
+    Companion(rawtonic_catalog::Asset, PathBuf),
+    /// A photograph's companion whose file is gone (the path where it
+    /// belongs).
+    LostCompanion(rawtonic_catalog::Asset, PathBuf),
+}
+
+/// The library's file with the content of `source` (same size and sampled
+/// fingerprint, then the same SHA-256; companions by size, then SHA-256),
+/// if any.
+pub(crate) fn library_copy(library: &Library, source: &Path) -> Result<Option<Held>> {
+    let fp = rawtonic_catalog::fingerprint(source)?;
+    let len = fs::metadata(source)?.len();
+    let mut source_hash = None;
+    let mut same = |path: &Path| -> Result<bool> {
+        let hash = match &source_hash {
+            Some(hash) => hash,
+            None => source_hash.insert(sha256(source)?),
+        };
+        Ok(sha256(path)? == *hash)
+    };
+    for asset in library
+        .assets(None)?
+        .into_iter()
+        .filter(|a| a.fingerprint == fp && a.path.is_file())
+    {
+        if same(&asset.path)? {
+            return Ok(Some(Held::Photo(asset)));
+        }
+    }
+    if let Some((owner, path)) = held_companion_with(library, len, &mut same)? {
+        return Ok(Some(Held::Companion(owner, path)));
+    }
+    for record in library.companion_records_of_size(len)? {
+        if !record.path.exists() && record.matches(source) {
+            return Ok(Some(Held::LostCompanion(
+                library.asset(&record.owner)?,
+                record.path,
+            )));
+        }
+    }
+    Ok(None)
+}
+
+/// The library's companion file (with its photograph) with the content of
+/// `source` (same size, then the same SHA-256), if any.
+pub(crate) fn held_companion(
+    library: &Library,
+    source: &Path,
+) -> Result<Option<(rawtonic_catalog::Asset, PathBuf)>> {
+    let len = fs::metadata(source)?.len();
+    let mut source_hash = None;
+    held_companion_with(library, len, &mut |path| {
+        let hash = match &source_hash {
+            Some(hash) => hash,
+            None => source_hash.insert(sha256(source)?),
+        };
+        Ok(sha256(path)? == *hash)
+    })
+}
+
+fn held_companion_with(
+    library: &Library,
+    len: u64,
+    same: &mut dyn FnMut(&Path) -> Result<bool>,
+) -> Result<Option<(rawtonic_catalog::Asset, PathBuf)>> {
+    // Only companions of the source's size are candidates (from the
+    // database: no other file is read).
+    for record in library.companion_records_of_size(len)? {
+        if record.sized() && same(&record.path)? && record.present() {
+            return Ok(Some((library.asset(&record.owner)?, record.path)));
+        }
+    }
+    Ok(None)
+}
+
+/// Puts `source`, the recorded companion of `owner` whose file is gone,
+/// back where it belongs (`place`), verified and never replacing a file.
+fn restore_companion(
+    source: &Path,
+    owner: &rawtonic_catalog::Asset,
+    place: &Path,
+    cancel: &AtomicBool,
+) -> ImportResult {
+    match copy_beside(source, place, "JPEG", cancel) {
+        Ok(copy) => ImportResult {
+            source: source.into(),
+            destination: Some(copy),
+            asset_id: Some(owner.id.clone()),
+            companion_of: Some(owner.path.clone()),
+            ..Default::default()
+        },
+        Err(error) => ImportResult {
+            source: source.into(),
+            error: Some(format!("{error:#}")),
+            ..Default::default()
+        },
+    }
+}
+
+/// `import_pair` of `source` without a companion, a failure reported in
+/// its result (a pair's JPEG brought in on its own must not fail its RAW).
+fn import_alone(
+    library: &Library,
+    source: &Path,
+    options: &ImportOptions<'_>,
+    cancel: &AtomicBool,
+) -> ImportResult {
+    // A photograph of its own: not the job item's planned copy.
+    let options = ImportOptions {
+        earlier: None,
+        before_copy: None,
+        ..*options
+    };
+    import_pair(library, source, None, &options, None, cancel)
+        .map(|pair| pair.photo)
+        .unwrap_or_else(|error| ImportResult {
+            source: source.into(),
+            error: Some(format!("{error:#}")),
+            ..Default::default()
+        })
+}
+
+/// Imports `source` (named from it) and, for a RAW+JPEG pair, its
+/// `companion`: copied verified beside the RAW's copy under the same name
+/// and recorded with the RAW's asset in the same transaction. A companion
+/// that cannot be copied leaves the RAW imported alone (its result says
+/// why); one whose content the library holds already as a photograph of
+/// its own stays that photograph (skipped).
+pub(crate) fn import_pair(
+    library: &Library,
+    source: &Path,
+    companion: Option<&Path>,
+    options: &ImportOptions<'_>,
+    contents: Option<&Contents>,
+    cancel: &AtomicBool,
+) -> Result<PairResult> {
     // One read of the source's header for its name, its date folder and
     // its card sidecar (the copy below reads the whole file).
     let facts = source_facts(source);
@@ -603,54 +846,167 @@ fn import_one_into_with(
         &library.manifest.name,
         source,
         &facts,
-        sequence,
-        sequence_start,
+        options.sequence,
+        options.sequence_start,
     )?;
-    let name = render_name(template, &context, source)?;
-    let mut folder = destination.path().to_path_buf();
+    let name = render_name(options.template, &context, source)?;
+    let mut folder = options.destination.path().to_path_buf();
     // Catalogs organize their managed originals by capture date. Explicit
     // folder drops retain the destination the user chose; old manifests keep
     // their existing capture folder. Projects retain the per-job layout.
-    if destination.sort_by_date {
+    if options.destination.sort_by_date {
         let date = context.captured.date();
         folder = folder
             .join(date.format("%Y").to_string())
             .join(date.format("%Y-%m-%d").to_string());
-        create_dir_all_durable(&folder, destination.path())?;
+        create_dir_all_durable(&folder, options.destination.path())?;
     }
     ensure!(
         folder.is_dir(),
         "The destination folder is gone: {}",
         folder.display()
     );
+    let companion_result = |destination: Option<PathBuf>,
+                            photo: Option<&PathBuf>,
+                            asset_id: Option<String>,
+                            skipped: bool,
+                            error: Option<String>| {
+        companion.map(|companion| ImportResult {
+            source: companion.into(),
+            destination,
+            asset_id,
+            skipped,
+            error,
+            companion_of: photo.cloned(),
+            ..Default::default()
+        })
+    };
     // Detect duplicates by sampled fingerprint then full SHA, never by sampled hash alone.
-    let fp = rawtonic_catalog::fingerprint(source)?;
-    for asset in library
-        .assets(None)?
-        .iter()
-        .filter(|a| a.fingerprint == fp && a.path.is_file())
-    {
-        if sha256(&asset.path)? == sha256(source)? {
-            return Ok(ImportResult {
-                source: source.into(),
-                destination: Some(asset.path.clone()),
-                backup: None,
-                asset_id: Some(asset.id.clone()),
-                error: None,
-                skipped: true,
-                ..Default::default()
+    let held = match library_copy(library, source)? {
+        Some(Held::Photo(asset)) => Some(asset),
+        Some(Held::LostCompanion(owner, path)) => {
+            return Ok(PairResult {
+                photo: restore_companion(source, &owner, &path, cancel),
+                companion: companion
+                    .map(|companion| import_alone(library, companion, options, cancel)),
             });
         }
+        Some(Held::Companion(owner, path)) => {
+            return Ok(PairResult {
+                photo: ImportResult {
+                    source: source.into(),
+                    destination: Some(path),
+                    asset_id: Some(owner.id),
+                    skipped: true,
+                    companion_of: Some(owner.path),
+                    ..Default::default()
+                },
+                companion: companion
+                    .map(|companion| import_alone(library, companion, options, cancel)),
+            });
+        }
+        None => None,
+    };
+    if let Some(asset) = held {
+        let record = library.companion_record(&asset)?;
+        let companion = companion.map(|companion| match &record {
+            // Its recorded companion is gone and this is it: put back.
+            Some(record) if !record.path.exists() && record.matches(companion) => {
+                restore_companion(companion, &asset, &record.path, cancel)
+            }
+            // Checked on its own: the companion the library holds already
+            // (skipped), else it comes in as a photograph of its own (the
+            // RAW came in alone before, or with another JPEG) rather than
+            // being left out.
+            _ => import_alone(library, companion, options, cancel),
+        });
+        let kept = library.companion(&asset)?;
+        return Ok(PairResult {
+            photo: ImportResult {
+                source: source.into(),
+                destination: Some(asset.path.clone()),
+                asset_id: Some(asset.id),
+                skipped: true,
+                companion: kept,
+                ..Default::default()
+            },
+            companion,
+        });
     }
+    // A companion the library holds as a photograph of its own stays one.
+    let (companion, known_companion) = match companion {
+        Some(path) => match library_copy(library, path) {
+            // Unreadable (gone meanwhile): the RAW comes in alone.
+            Err(error) => (
+                None,
+                Some(ImportResult {
+                    source: path.into(),
+                    error: Some(format!("{error:#}")),
+                    ..Default::default()
+                }),
+            ),
+            Ok(Some(Held::Photo(asset))) => (
+                None,
+                Some(ImportResult {
+                    source: path.into(),
+                    destination: Some(asset.path),
+                    asset_id: Some(asset.id),
+                    skipped: true,
+                    ..Default::default()
+                }),
+            ),
+            Ok(Some(Held::LostCompanion(owner, place))) => {
+                (None, Some(restore_companion(path, &owner, &place, cancel)))
+            }
+            Ok(Some(Held::Companion(owner, copy))) => (
+                None,
+                Some(ImportResult {
+                    source: path.into(),
+                    destination: Some(copy),
+                    asset_id: Some(owner.id),
+                    skipped: true,
+                    companion_of: Some(owner.path),
+                    ..Default::default()
+                }),
+            ),
+            Ok(None) => (Some(path), None),
+        },
+        None => (None, None),
+    };
+    // Names of recorded companions whose file is gone are not free: the
+    // companion may be put back there (a copy must never become another
+    // photograph's companion).
+    let records: HashSet<PathBuf> = library
+        .companion_records()?
+        .into_iter()
+        .map(|record| record.path)
+        .collect();
+    let reserved = |path: &Path| {
+        !records.is_empty()
+            && path
+                .parent()
+                .and_then(|folder| folder.canonicalize().ok())
+                .zip(path.file_name())
+                .is_some_and(|(folder, name)| records.contains(&folder.join(name)))
+    };
     // An earlier import of this file that copied and verified it but could
-    // not record it (say the database was locked) left the copy in the
-    // session under its name: record that copy instead of making another
-    // (and keep the backup that import made).
-    let earlier = identical_file(&folder, &name, source, |candidate| {
-        Ok(library.asset_at(candidate)?.is_none())
-    })?;
+    // not record it (a crash, the database locked) left the copy in the
+    // session, where it planned it (`ImportOptions::earlier`) or under its
+    // name: record that copy instead of making another (and keep the
+    // backup that import made).
+    let unrecorded = |candidate: &Path| Ok(library.asset_at(candidate)?.is_none());
+    let earlier = match options.earlier {
+        Some(planned)
+            if fs::symlink_metadata(planned).is_ok_and(|m| m.is_file())
+                && unrecorded(planned)?
+                && sha256(planned)? == sha256(source)? =>
+        {
+            Some(planned.to_path_buf())
+        }
+        _ => identical_file(&folder, &name, source, companion, &reserved, unrecorded)?,
+    };
     let mut backup_result = None;
-    if let Some(backup_folder) = backup {
+    if let Some(backup_folder) = options.backup {
         create_dir_all_durable(
             backup_folder,
             backup_folder.parent().unwrap_or(backup_folder),
@@ -659,66 +1015,140 @@ fn import_one_into_with(
             backup_folder.canonicalize()? != folder.canonicalize()?,
             "Backup must be a different directory"
         );
-        let kept = match &earlier {
-            Some(_) => identical_file(backup_folder, &name, source, |_| Ok(true))?,
-            None => None,
-        };
+        // A backup an earlier, cut-off import made (also when it got no
+        // further than the backup) is kept rather than made again.
+        let kept = identical_file(backup_folder, &name, source, companion, &|_| false, |_| {
+            Ok(true)
+        })?;
         backup_result = Some(match kept {
             Some(kept) => kept,
             None => {
-                let backup_path =
-                    choose_destination(backup_folder, &name, CollisionPolicy::Suffix)?
-                        .context("No backup destination")?;
+                let backup_path = choose_destination_with(
+                    backup_folder,
+                    &name,
+                    companion,
+                    &|_| false,
+                    CollisionPolicy::Suffix,
+                )?
+                .context("No backup destination")?;
                 verified_copy(source, &backup_path, cancel, |_| {})?;
                 backup_path
             }
         });
     }
-    // The backup gets the card sidecar too; a failure there only warns.
+    // The backup gets the card sidecar and the companion too; a failure
+    // there only warns.
     let mut warnings: Vec<String> = facts.sidecar_error.iter().cloned().collect();
     if let (Some(card), Some(backup)) = (&facts.sidecar, &backup_result)
         && let Err(error) = copy_sidecar(card, backup, &AtomicBool::new(false))
     {
         warnings.push(format!("Backup: {error:#}"));
     }
-    if let Some(earlier) = earlier {
-        return Ok(register_with_sidecar(
-            library,
-            source,
-            earlier,
-            backup_result,
-            None,
-            contents,
-            &facts,
-            warnings,
-        ));
+    if let (Some(companion), Some(backup)) = (companion, &backup_result)
+        && let Err(error) = companion_target(backup, companion)
+            .and_then(|target| copy_beside(companion, &target, "JPEG", cancel))
+    {
+        warnings.push(format!("Backup: {error:#}"));
     }
-    let destination =
-        choose_destination(&folder, &name, CollisionPolicy::Suffix)?.context("No destination")?;
-    let receipt = match verified_copy(source, &destination, cancel, |_| {}) {
-        Ok(receipt) => receipt,
-        Err(error) => {
-            return Ok(ImportResult {
-                source: source.into(),
-                destination: None,
-                backup: backup_result,
-                asset_id: None,
-                error: Some(error.to_string()),
-                skipped: false,
-                ..Default::default()
-            });
+    let photo = match earlier {
+        Some(earlier) => (earlier, None),
+        None => {
+            let destination = choose_destination_with(
+                &folder,
+                &name,
+                companion,
+                &reserved,
+                CollisionPolicy::Suffix,
+            )?
+            .context("No destination")?;
+            // Recorded before anything is copied (an ingest job's record).
+            let planned = match (options.before_copy, companion) {
+                (Some(before_copy), companion) => {
+                    let target = companion
+                        .map(|companion| companion_target(&destination, companion))
+                        .transpose()?;
+                    before_copy(&destination, target.as_deref())
+                }
+                (None, _) => Ok(()),
+            };
+            match planned.and_then(|()| verified_copy(source, &destination, cancel, |_| {})) {
+                Ok(receipt) => (receipt.destination, Some(receipt.sha256)),
+                Err(error) => {
+                    return Ok(PairResult {
+                        photo: ImportResult {
+                            source: source.into(),
+                            backup: backup_result,
+                            error: Some(error.to_string()),
+                            ..Default::default()
+                        },
+                        companion: companion_result(
+                            None,
+                            None,
+                            None,
+                            false,
+                            Some(error.to_string()),
+                        )
+                        .or(known_companion),
+                    });
+                }
+            }
         }
     };
-    Ok(register_with_sidecar(
+    let (photo, hash) = photo;
+    // The companion is copied before the photograph is recorded, so the
+    // record never names a file that is not there.
+    let copied_companion = companion.map(|companion| {
+        companion_target(&photo, companion)
+            .and_then(|target| copy_beside(companion, &target, "JPEG", cancel))
+    });
+    let companion_name = match &copied_companion {
+        Some(Ok(copy)) => copy.file_name().and_then(|n| n.to_str()),
+        _ => None,
+    };
+    let mut result = register_with_sidecar(
         library,
         source,
-        receipt.destination,
+        photo,
         backup_result,
-        Some(&receipt.sha256),
+        hash.as_deref(),
         contents,
+        companion_name,
         &facts,
         warnings,
-    ))
+    );
+    let companion = match copied_companion {
+        None => known_companion,
+        Some(Ok(copy)) if result.asset_id.is_some() => {
+            result.companion = Some(copy.clone());
+            companion_result(
+                Some(copy),
+                result.destination.as_ref(),
+                result.asset_id.clone(),
+                false,
+                None,
+            )
+        }
+        // Copied, but the photograph was not recorded: the copy stays
+        // beside the photograph's, which an import again records with it.
+        Some(Ok(copy)) => companion_result(
+            Some(copy),
+            result.destination.as_ref(),
+            None,
+            false,
+            result.error.clone(),
+        ),
+        Some(Err(error)) => companion_result(
+            None,
+            result.destination.as_ref(),
+            None,
+            false,
+            Some(format!("{error:#}")),
+        ),
+    };
+    Ok(PairResult {
+        photo: result,
+        companion,
+    })
 }
 
 /// `register` of `photo` after copying the card sidecar of `facts` beside
@@ -736,6 +1166,7 @@ fn register_with_sidecar(
     backup: Option<PathBuf>,
     sha256: Option<&str>,
     contents: Option<&Contents>,
+    companion: Option<&str>,
     facts: &SourceFacts,
     mut warnings: Vec<String>,
 ) -> ImportResult {
@@ -761,7 +1192,15 @@ fn register_with_sidecar(
             Err(error) => warnings.push(format!("{error:#}")),
         }
     }
-    let mut result = register(library, source, photo, backup, sha256, merged.as_ref());
+    let mut result = register(
+        library,
+        source,
+        photo,
+        backup,
+        sha256,
+        merged.as_ref(),
+        companion,
+    );
     result.sidecar = sidecar;
     result.warning = (!warnings.is_empty()).then(|| warnings.join("; "));
     result
@@ -796,12 +1235,14 @@ pub fn record_earlier_copy(
         None,
         None,
         contents,
+        None,
     )))
 }
 
 /// Records the verified copy `destination` of `source` in the library,
 /// with the content hash the copy was verified with (Synchronize Folder
-/// proves moves with it) and, in the same transaction, `contents`.
+/// proves moves with it) and, in the same transaction, `contents` and its
+/// `companion` (a file beside it).
 fn register(
     library: &Library,
     source: &Path,
@@ -809,17 +1250,19 @@ fn register(
     backup: Option<PathBuf>,
     sha256: Option<&str>,
     contents: Option<&Contents>,
+    companion: Option<&str>,
 ) -> ImportResult {
-    let registered = match contents {
-        None => library.add_asset(&destination),
-        Some(contents) => library
-            .plan_add(&destination, contents.clone())
-            .and_then(|planned| library.insert_planned(vec![planned]))
-            .and_then(|ids| {
-                let (id, _) = ids.into_iter().next().context("Nothing was registered")?;
-                library.asset(&id)
-            }),
-    };
+    let registered = library
+        .plan_add(&destination, contents.cloned().unwrap_or_default())
+        .and_then(|planned| match companion {
+            Some(name) => planned.with_companion(name),
+            None => Ok(planned),
+        })
+        .and_then(|planned| library.insert_planned(vec![planned]))
+        .and_then(|ids| {
+            let (id, _) = ids.into_iter().next().context("Nothing was registered")?;
+            library.asset(&id)
+        });
     let (asset_id, error) = match registered {
         Ok(asset) => {
             // Not recorded (the file changed meanwhile): the background

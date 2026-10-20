@@ -38,3 +38,32 @@ export function preselectIngestMode({
   if (files.some((file) => file.medium === "card")) return { mode: "copy", showSwitch: true, canAdd: false };
   return { mode: "copy", showSwitch: true, canAdd: true };
 }
+
+/** What a camera writes beside a RAW (`ingest::batch::COMPANION_EXTENSIONS`). */
+const COMPANIONS = new Set(["jpg", "jpeg", "heic", "heif", "hif"]);
+
+/** Whether `paths` hold a RAW+JPEG pair the ingest would import as one
+ * photograph (`ingest::batch::pair_sources`: exactly one RAW, by the app's
+ * `raw` extensions, and one JPEG or HEIF of one name, letter case aside,
+ * in one folder), so the dialog offers to import such JPEGs as
+ * photographs of their own. */
+export function hasRawJpegPairs(paths: string[], raw: string[]): boolean {
+  const raws = new Set(raw.map((e) => e.toLowerCase()));
+  const byName = new Map<string, string[]>();
+  for (const path of paths) {
+    const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    const name = path.slice(cut + 1);
+    const dot = name.lastIndexOf(".");
+    if (dot <= 0) continue;
+    const key = `${path.slice(0, cut)}\n${name.slice(0, dot).toLowerCase()}`;
+    const extensions = byName.get(key) ?? [];
+    extensions.push(name.slice(dot + 1).toLowerCase());
+    byName.set(key, extensions);
+  }
+  return [...byName.values()].some(
+    (extensions) =>
+      extensions.length === 2 &&
+      extensions.some((e) => raws.has(e)) &&
+      extensions.some((e) => COMPANIONS.has(e)),
+  );
+}

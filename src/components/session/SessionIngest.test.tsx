@@ -205,6 +205,125 @@ describe("Dropping photographs onto the window", () => {
     );
   });
 
+  it("a RAW+JPEG pair is one photograph: the JPEG is not counted, not added to the album, and can be imported separately", async () => {
+    const user = userEvent.setup();
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_scan")
+        return {
+          files: [
+            { path: "/Volumes/CARD/DCIM/A.ARW", size: 20_000_000, duplicate: false },
+            { path: "/Volumes/CARD/DCIM/A.JPG", size: 5_000_000, duplicate: false },
+            { path: "/Volumes/CARD/DCIM/C.ARW", size: 22_000_000, duplicate: false },
+          ],
+          truncated: false,
+        };
+      if (command === "session_ingest")
+        return [
+          { source: "/Volumes/CARD/DCIM/A.ARW", destination: "/jobs/Acme/Capture/A.ARW", skipped: false, error: null,
+            companion: "/jobs/Acme/Capture/A.JPG", companion_of: null },
+          { source: "/Volumes/CARD/DCIM/A.JPG", destination: "/jobs/Acme/Capture/A.JPG", skipped: false, error: null,
+            companion: null, companion_of: "/jobs/Acme/Capture/A.ARW" },
+          { source: "/Volumes/CARD/DCIM/C.ARW", destination: "/jobs/Acme/Capture/C.ARW", skipped: false, error: null },
+        ];
+      return base(command, args);
+    });
+    await open();
+    const row = document.createElement("button");
+    row.dataset.albumDrop = "album-7";
+    row.dataset.albumName = "Client picks";
+    document.body.append(row);
+    drop(["/Volumes/CARD/DCIM"], row);
+    const separate = await screen.findByLabelText("Import JPEGs next to RAW files as separate photos");
+    expect((separate as HTMLInputElement).checked).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Copy 3 photographs" }));
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("session_album_add", {
+        directory: "/jobs/Acme",
+        id: "album-7",
+        paths: ["/jobs/Acme/Capture/A.ARW", "/jobs/Acme/Capture/C.ARW"],
+      }),
+    );
+    expect(ingestCall()![1]).toMatchObject({ separateJpeg: false });
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const message = vi.mocked(toast.success).mock.calls[0][0] as string;
+    expect(message).toContain("2 photos copied");
+    expect(message).toContain("1 JPEGs kept with their RAWs");
+  });
+
+  it("opening a library finishes its interrupted ingest; photographs waiting for their card are said, not resumed", async () => {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let jobs = [
+      { id: "job-1", total: 5, open: 2, available: 2 },
+      { id: "job-2", total: 3, open: 3, available: 0 },
+    ];
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_jobs") return jobs;
+      if (command === "session_ingest_resume") {
+        jobs = [jobs[1]];
+        return [
+          { source: "/Volumes/CARD/DCIM/D.ARW", destination: "/jobs/Acme/Capture/D.ARW", skipped: false, error: null },
+          { source: "/Volumes/CARD/DCIM/D.JPG", destination: "/jobs/Acme/Capture/D.JPG", skipped: false, error: null,
+            companion_of: "/jobs/Acme/Capture/D.ARW" },
+        ];
+      }
+      return base(command, args);
+    });
+    await open();
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        "An interrupted import was finished: 1 photos · 1 JPEGs kept with their RAWs",
+      ),
+    );
+    await waitFor(() => expect(toast.info).toHaveBeenCalled());
+    render(<>{vi.mocked(toast.info).mock.calls[0][0] as React.ReactNode}</>);
+    expect(screen.getByText(/3 photos of an interrupted import wait for their card or drive/)).toBeTruthy();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Forget them" }));
+    expect(invoke).toHaveBeenCalledWith("session_ingest_forget", { directory: "/jobs/Acme", id: "job-2" });
+  });
+
+  it("the card connected later: Import now finishes the waiting ingest without opening the library again", async () => {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let jobs = [{ id: "job-2", total: 3, open: 3, available: 0 }];
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_jobs") return jobs;
+      if (command === "session_ingest_resume") {
+        jobs = [];
+        return [{ source: "/Volumes/CARD/DCIM/F.ARW", destination: "/jobs/Acme/Capture/F.ARW", skipped: false, error: null }];
+      }
+      return base(command, args);
+    });
+    await open();
+    await waitFor(() => expect(toast.info).toHaveBeenCalled());
+    expect(invoke).not.toHaveBeenCalledWith("session_ingest_resume", expect.anything());
+    render(<>{vi.mocked(toast.info).mock.calls[0][0] as React.ReactNode}</>);
+    jobs = [{ id: "job-2", total: 3, open: 3, available: 3 }];
+    await userEvent.setup().click(screen.getByRole("button", { name: "Import now" }));
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("session_ingest_resume", { directory: "/jobs/Acme" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("An interrupted import was finished: 1 photos"));
+  });
+
+  it("a resumed ingest reports its failures as an ingest does", async () => {
+    const base = vi.mocked(invoke).getMockImplementation()!;
+    let jobs = [{ id: "job-1", total: 2, open: 2, available: 2 }];
+    vi.mocked(invoke).mockImplementation(async (command, args) => {
+      if (command === "session_ingest_jobs") return jobs;
+      if (command === "session_ingest_resume") {
+        jobs = [];
+        return [
+          { source: "/Volumes/CARD/DCIM/D.ARW", destination: "/jobs/Acme/Capture/D.ARW", skipped: false, error: null },
+          { source: "/Volumes/CARD/DCIM/E.ARW", destination: null, skipped: false, error: "Cannot read source" },
+        ];
+      }
+      return base(command, args);
+    });
+    await open();
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(String(vi.mocked(toast.error).mock.calls[0][0])).toContain("Cannot read source");
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
   it("dropped onto a folder of the library: copies into that folder", async () => {
     const user = userEvent.setup();
     const navigate = await open();

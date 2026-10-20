@@ -149,6 +149,20 @@ pub struct PlannedAsset {
     recipe: Option<String>,
     metadata: Option<Metadata>,
     xmp_digest: Option<String>,
+    /// The companion file beside it (`Library::companion`).
+    companion: Option<(String, crate::companion::Identity)>,
+}
+
+impl PlannedAsset {
+    /// Registers the photograph with `name`, a file beside it, as its
+    /// companion (a RAW's JPEG; its size, fingerprint and SHA-256 read now),
+    /// in the same transaction.
+    pub fn with_companion(mut self, name: &str) -> Result<Self> {
+        crate::companion::validate_name(name)?;
+        let identity = crate::companion::Identity::read(&self.path.with_file_name(name))?;
+        self.companion = Some((name.to_string(), identity));
+        Ok(self)
+    }
 }
 
 /// What `add_files` did.
@@ -161,6 +175,9 @@ pub struct AddReport {
     /// Files not added and why (not a file, outside a session, an
     /// unreadable sidecar): nothing of them is in the library.
     pub failed: Vec<(PathBuf, String)>,
+    /// Files an unfinished ingest copied and will record itself (with
+    /// their companion), left to it (`Library::planned_ingest_copies`).
+    pub importing: Vec<PathBuf>,
 }
 
 /// While it lives, photographs the library adds join one import batch
@@ -259,6 +276,7 @@ impl Library {
             recipe,
             metadata,
             xmp_digest: contents.xmp_digest,
+            companion: None,
         })
     }
 
@@ -304,8 +322,9 @@ impl Library {
             }
             let id = Uuid::new_v4().to_string();
             tx.execute(
-                "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text)
-                 VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO assets(id,root_id,rel_path,size,mtime,fingerprint,kind,search_text,
+                                    raw_jpeg_pair,companion_size,companion_fingerprint,companion_sha256)
+                 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 params![
                     id,
                     asset.root,
@@ -314,7 +333,14 @@ impl Library {
                     asset.mtime,
                     asset.fingerprint,
                     asset.kind,
-                    asset.metadata.as_ref().map(search_text).unwrap_or_default()
+                    asset.metadata.as_ref().map(search_text).unwrap_or_default(),
+                    asset.companion.as_ref().map(|(name, _)| name),
+                    asset.companion.as_ref().map(|(_, id)| id.size as i64),
+                    asset
+                        .companion
+                        .as_ref()
+                        .map(|(_, id)| id.fingerprint.as_str()),
+                    asset.companion.as_ref().map(|(_, id)| id.sha256.as_str())
                 ],
             )?;
             match &asset.metadata {
@@ -382,11 +408,15 @@ impl Library {
     /// Adds an explicit list of files, each with what its sidecars hold
     /// (`Contents::read_sidecars`): first every file is read, then all new
     /// ones are inserted in one transaction. Files already registered are
-    /// left alone; files that cannot be added are reported, not added.
+    /// left alone, a photograph's companion (`Library::companion`) too (both
+    /// reported as `known`, the companion as its photograph); files that
+    /// cannot be added are reported, not added.
     pub fn add_files(&self, paths: &[PathBuf]) -> Result<AddReport> {
         let mut report = AddReport::default();
         let mut planned = Vec::new();
         let mut seen = HashSet::new();
+        let companions = self.companions()?;
+        let ingesting = self.planned_ingest_copies()?;
         for path in paths {
             let plan = (|| -> Result<Option<PlannedAsset>> {
                 let place = self.place(path)?;
@@ -395,6 +425,15 @@ impl Library {
                 }
                 if let Some(id) = self.registered_id(&place.root, &place.rel)? {
                     report.known.push(self.asset(&id)?);
+                    return Ok(None);
+                }
+                // A RAW's companion JPEG is part of that photograph.
+                if let Some(owner) = companions.get(&place.path) {
+                    report.known.push(self.asset(owner)?);
+                    return Ok(None);
+                }
+                if ingesting.contains(&place.path) {
+                    report.importing.push(place.path.clone());
                     return Ok(None);
                 }
                 let contents = Contents::read_sidecars(&place.path)?;
@@ -724,6 +763,8 @@ mod tests {
                  DROP TABLE asset_imports; DROP TABLE import_batches;
                  ALTER TABLE b5 RENAME TO import_batches; ALTER TABLE a5 RENAME TO asset_imports;
                  CREATE INDEX asset_imports_batch ON asset_imports(batch_id);
+                 ALTER TABLE assets DROP COLUMN companion_size;
+                 ALTER TABLE assets DROP COLUMN companion_fingerprint; ALTER TABLE assets DROP COLUMN companion_sha256; DROP TABLE ingest_items;
                  PRAGMA user_version=5;",
             )
             .unwrap();

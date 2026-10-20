@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -67,7 +68,7 @@ import {
   type OpenIngestDetail,
 } from "./fileDrop";
 import { throttleAsync } from "../../utils/throttle";
-import { preselectIngestMode, type IngestMode } from "./ingestMode";
+import { hasRawJpegPairs, preselectIngestMode, type IngestMode } from "./ingestMode";
 import { Trans, useTranslation } from "react-i18next";
 import i18n from "i18next";
 import "./session.css";
@@ -101,6 +102,76 @@ interface ImportResult {
   sidecar?: string | null;
   /** A problem that did not keep the photograph out (its sidecar). */
   warning?: string | null;
+  /** On a RAW's result: its companion JPEG copied beside it. */
+  companion?: string | null;
+  /** On a companion JPEG's result: the RAW's copy it belongs to (the
+   * backend's `ImportResult` keeps its snake_case field names). */
+  companion_of?: string | null;
+}
+/** Says what an ingest did (`session_ingest`, `session_ingest_resume`):
+ * photographs copied or added (a RAW+JPEG pair counts once), duplicates
+ * skipped, sidecars and companions kept, the album; failures and warnings
+ * stay on screen. */
+function reportIngest(
+  results: ImportResult[],
+  {
+    adding = false,
+    resumed = false,
+    cancelled = false,
+    album = null,
+    albumError = null,
+  }: { adding?: boolean; resumed?: boolean; cancelled?: boolean; album?: string | null; albumError?: string | null },
+) {
+  const failures = results.filter((r) => r.error);
+  // A companion JPEG is part of its RAW's photograph, not one of its own.
+  const photos = results.filter((r) => !r.companion_of);
+  const skipped = photos.filter((r) => r.skipped).length;
+  const copied = photos.filter((r) => !r.error).length - skipped;
+  const companions = results.filter((r) => r.companion_of && !r.error && !r.skipped).length;
+  const sidecars = results.filter((r) => r.sidecar && !r.error).length;
+  const warnings = results.filter((r) => r.warning);
+  if (failures.length)
+    toast.error(
+      i18n.t("session.toasts.ingestFailed", {
+        copied,
+        count: failures.length,
+        error: failures[0].error,
+      }),
+      { autoClose: false },
+    );
+  else if (results.length || !resumed)
+    toast.success(
+      [
+        resumed
+          ? i18n.t("session.toasts.ingestResumed", { n: copied })
+          : adding
+            ? i18n.t("session.toasts.added", { count: copied })
+            : i18n.t("session.toasts.ingested", { count: copied }),
+        skipped ? i18n.t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
+        sidecars ? i18n.t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
+        companions ? i18n.t("session.toasts.companionsKept", { n: companions }) : null,
+        album && !albumError ? i18n.t("session.toasts.addedToAlbum", { name: album }) : null,
+        cancelled ? i18n.t("session.toasts.ingestCancelled") : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
+  if (warnings.length)
+    toast.warning(
+      i18n.t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
+      { autoClose: false },
+    );
+  if (albumError)
+    toast.error(i18n.t("session.toasts.albumAddFailed", { name: album, error: albumError }), {
+      autoClose: false,
+    });
+}
+/** Mirrors `ingest::queue::JobSummary` (`session_ingest_jobs`). */
+interface IngestJobSummary {
+  id: string;
+  total: number;
+  open: number;
+  available: number;
 }
 /** Mirrors `session_bridge::IngestScan`. */
 interface IngestScan {
@@ -126,6 +197,7 @@ interface IngestTarget {
 const NO_TARGET: IngestTarget = { folder: null, album: null };
 /** The ingest dialog's file dialog filter when the app's list of formats
  * has not loaded (it normally comes from `get_supported_file_types`). */
+const FALLBACK_RAW = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf"];
 const FALLBACK_EXTENSIONS = ["arw", "dng", "cr3", "cr2", "nef", "raf", "rw2", "orf", "jpg", "jpeg", "png", "tif", "tiff", "heic", "heif", "webp", "avif", "jxl"];
 export interface HotFolderStatus {
   folder: string;
@@ -271,6 +343,8 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const scanList = useRef(0);
   const scansRunning = useRef(0);
   const [backup, setBackup] = useState<string | null>(null);
+  // RAW+JPEG pairs come in as one photograph unless this is set.
+  const [separateJpeg, setSeparateJpeg] = useState(false);
   const [template, setTemplate] = useState("{orig}");
   const [sequenceStart, setSequenceStart] = useState(1);
   // The ingest dialog's example name made by the backend from the first
@@ -539,6 +613,66 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
       .catch((e) => {
         if (current()) toast.error(i18n.t("session.toasts.hotFolderResumeFailed", { error: String(e) }));
       });
+  }, [sessionDirectory]);
+
+  // Opening a library (also at start-up) finishes the ingests a quit,
+  // crash or card taken out left unfinished in it (`ingest::queue`); what
+  // waits for a card or drive not connected is said, with Import now (the
+  // card connected meanwhile) and Forget.
+  const resumeIngests = useRef<(directory: string) => Promise<void>>(async () => {});
+  resumeIngests.current = async (directory: string) => {
+    const current = () => openDirectory.current === directory;
+    try {
+      const jobs = await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, { directory });
+      if (!current() || !jobs.length) return;
+      if (jobs.some((job) => job.available > 0)) {
+        setImporting(true);
+        setImportMode("copy");
+        try {
+          const results = await invoke<ImportResult[]>(Invokes.SessionIngestResume, { directory });
+          reportIngest(results, { resumed: true });
+        } finally {
+          setImporting(false);
+          window.dispatchEvent(new Event(IMPORTS_CHANGED));
+          if (current()) await refreshRef.current();
+        }
+      }
+      if (!current()) return;
+      const waiting = (await invoke<IngestJobSummary[]>(Invokes.SessionIngestJobs, { directory })).filter(
+        (job) => job.open > 0,
+      );
+      for (const job of waiting) {
+        const toastId = `ingest-waiting-${job.id}`;
+        const retry = () => {
+          toast.dismiss(toastId);
+          void resumeIngests.current(directory);
+        };
+        const forget = () => {
+          toast.dismiss(toastId);
+          void invoke(Invokes.SessionIngestForget, { directory, id: job.id }).catch((e) => toast.error(String(e)));
+        };
+        toast.info(
+          <span>
+            {i18n.t("session.toasts.ingestWaiting", { n: job.open })}{" "}
+            <button type="button" className="session-link-button" onClick={retry}>
+              {i18n.t("session.toasts.ingestRetry")}
+            </button>{" "}
+            <button type="button" className="session-link-button" onClick={forget}>
+              {i18n.t("session.toasts.ingestForget")}
+            </button>
+          </span>,
+          { autoClose: false, toastId },
+        );
+      }
+    } catch (e) {
+      if (current()) toast.error(i18n.t("session.toasts.ingestResumeFailed", { error: String(e) }));
+    }
+  };
+  const ingestResumedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sessionDirectory || !isTauri() || ingestResumedFor.current === sessionDirectory) return;
+    ingestResumedFor.current = sessionDirectory;
+    void resumeIngests.current(sessionDirectory);
   }, [sessionDirectory]);
 
   const startHotFolder = async (event: React.FormEvent) => {
@@ -962,6 +1096,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
   const preselected = modeChoice.mode;
   useEffect(() => setMode(preselected), [sources, target.folder, preselected]);
   const ingestMode: IngestMode = mode === "add" && modeChoice.canAdd ? "add" : "copy";
+  // The choice of separate JPEGs is offered only when there are pairs.
+  const supportedTypes = useSettingsStore((state) => state.supportedTypes);
+  const pairsChosen = useMemo(
+    () =>
+      hasRawJpegPairs(
+        sources.filter((file) => chosen.has(file.path)).map((file) => file.path),
+        supportedTypes?.raw ?? FALLBACK_RAW,
+      ),
+    [sources, chosen, supportedTypes],
+  );
 
   const ingest = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -995,15 +1139,16 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
         sequenceStart,
         backup,
         folder,
+        separateJpeg,
+        // Kept with the ingest job, so a resumed import fills the album too.
+        album: album?.id ?? null,
       });
-      const failures = results.filter((r) => r.error);
-      const skipped = results.filter((r) => r.skipped).length;
-      const copied = results.length - failures.length - skipped;
-      const sidecars = results.filter((r) => r.sidecar && !r.error).length;
-      const warnings = results.filter((r) => r.warning);
       let albumError: string | null = null;
       if (album) {
-        const paths = results.filter((r) => r.destination && !r.error).map((r) => r.destination as string);
+        // Photographs only: a companion JPEG is no photograph of the library.
+        const paths = results
+          .filter((r) => r.destination && !r.error && !r.companion_of)
+          .map((r) => r.destination as string);
         if (paths.length)
           try {
             await invoke(Invokes.SessionAlbumAdd, { directory: session.directory, id: album.id, paths });
@@ -1012,38 +1157,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
             albumError = String(e);
           }
       }
-      if (failures.length)
-        toast.error(
-          t("session.toasts.ingestFailed", {
-            copied,
-            count: failures.length,
-            error: failures[0].error,
-          }),
-          { autoClose: false },
-        );
-      else
-        toast.success(
-          [
-            adding
-              ? t("session.toasts.added", { count: copied })
-              : t("session.toasts.ingested", { count: copied }),
-            skipped ? t("session.toasts.duplicatesSkipped", { count: skipped }) : null,
-            sidecars ? t("session.toasts.sidecarsCopied", { count: sidecars }) : null,
-            album && !albumError ? t("session.toasts.addedToAlbum", { name: album.name }) : null,
-            results.length < files.length ? t("session.toasts.ingestCancelled") : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-        );
-      if (warnings.length)
-        toast.warning(
-          t("session.toasts.sidecarWarnings", { count: warnings.length, error: warnings[0].warning }),
-          { autoClose: false },
-        );
-      if (albumError)
-        toast.error(t("session.toasts.albumAddFailed", { name: album?.name, error: albumError }), {
-          autoClose: false,
-        });
+      reportIngest(results, {
+        adding,
+        cancelled: results.length < files.length,
+        album: album?.name ?? null,
+        albumError,
+      });
       await refresh();
     } catch (e) {
       toast.error(String(e), { autoClose: false });
@@ -1769,6 +1888,12 @@ export default function SessionWorkspace({ onNavigate, nativeTitlebar = false, w
                     {t("session.ingest.addToAlbum", { name: target.album.name })}
                   </label>
                 )
+              )}
+              {pairsChosen && (
+                <label className="session-ingest-album">
+                  <input type="checkbox" checked={separateJpeg} onChange={(e) => setSeparateJpeg(e.target.checked)} />
+                  {t("session.ingest.separateJpeg")}
+                </label>
               )}
             </section>
             {ingestMode === "copy" && (

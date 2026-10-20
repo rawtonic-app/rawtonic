@@ -14,9 +14,12 @@
 //! modification time → the time of the import.
 use rawtonic_naming::{Capture, DateSource};
 use std::{
+    collections::HashMap,
     fs,
     io::Read,
     path::{Path, PathBuf},
+    sync::{Arc, LazyLock, Mutex},
+    time::SystemTime,
 };
 
 /// How much of a file is read for its metadata, step by step: the first
@@ -373,47 +376,128 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 /// The XMP sidecar of `photo` on its card: `NAME.EXT.xmp` (unambiguous),
 /// else `NAME.xmp` (Lightroom's and most tools' form). A developed image
 /// (JPEG, HEIF, …) takes `NAME.xmp` only when no other file shares its
-/// name, since in a RAW+JPEG pair that sidecar is the RAW's. Either case of
-/// the `.xmp` extension; only regular files count.
-pub fn card_sidecar(photo: &Path) -> Option<PathBuf> {
-    let name = photo.file_name()?.to_str()?;
-    let stem = photo.file_stem()?.to_str()?;
-    let extension = photo.extension().and_then(|e| e.to_str());
-    let file = |candidate: PathBuf| {
-        fs::symlink_metadata(&candidate)
-            .is_ok_and(|m| m.is_file())
-            .then_some(candidate)
+/// name, since in a RAW+JPEG pair that sidecar is the RAW's. Names compare
+/// ignoring ASCII case (`.XMP`, `name.arw.xmp`: cards, cameras and other
+/// programs mix them, and case-insensitive volumes do not tell them apart);
+/// only regular files count. Two files that differ only in case for the
+/// same form (`A.xmp` and `A.XMP` on a case-sensitive volume) are an error:
+/// which one holds the photographer's metadata cannot be told.
+pub fn card_sidecar(photo: &Path) -> Result<Option<PathBuf>, String> {
+    let (Some(name), Some(stem), Some(parent)) = (
+        photo.file_name().and_then(|n| n.to_str()),
+        photo.file_stem().and_then(|s| s.to_str()),
+        photo.parent(),
+    ) else {
+        return Ok(None);
     };
-    let full = ["xmp", "XMP"]
-        .into_iter()
-        .find_map(|x| file(photo.with_file_name(format!("{name}.{x}"))));
+    let extension = photo.extension().and_then(|e| e.to_str());
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    let Some(folder) = folder_files(parent) else {
+        return Ok(None);
+    };
+    let one = |wanted: &str| -> Result<Option<PathBuf>, String> {
+        match folder
+            .by_name
+            .get(&wanted.to_ascii_lowercase())
+            .map(Vec::as_slice)
+        {
+            None | Some([]) => Ok(None),
+            Some([file]) => Ok(Some(photo.with_file_name(file))),
+            Some([a, b, ..]) => Err(format!(
+                "Two sidecars that differ only in letter case, {} and {}: neither was copied",
+                photo.with_file_name(a).display(),
+                photo.with_file_name(b).display()
+            )),
+        }
+    };
+    let full = one(&format!("{name}.xmp"))?;
     if full.is_some() || extension.is_none() {
-        return full;
+        return Ok(full);
     }
-    let short = ["xmp", "XMP"]
-        .into_iter()
-        .find_map(|x| file(photo.with_file_name(format!("{stem}.{x}"))))?;
-    let image = extension.is_some_and(|e| {
-        IMAGE_EXTENSIONS
-            .iter()
-            .any(|known| e.eq_ignore_ascii_case(known))
-    });
-    if image {
-        let parent = photo.parent()?;
-        let paired = fs::read_dir(parent).ok()?.flatten().any(|entry| {
-            let path = entry.path();
-            path != photo
-                && path.file_stem().and_then(|s| s.to_str()) == Some(stem)
-                && !path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
-        });
-        if paired {
-            return None;
+    let Some(short) = one(&format!("{stem}.xmp"))? else {
+        return Ok(None);
+    };
+    if extension.is_some_and(is_developed_image) {
+        // Another file of its name (not a sidecar) besides itself.
+        let named = folder
+            .stems
+            .get(&stem.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(0);
+        let itself = usize::from(folder.by_name.contains_key(&name.to_ascii_lowercase()));
+        if named > itself {
+            return Ok(None);
         }
     }
-    Some(short)
+    Ok(Some(short))
+}
+
+/// A folder's regular files (links and folders left out), by name and by
+/// stem ignoring ASCII case.
+#[derive(Default)]
+struct FolderFiles {
+    /// Lower-cased name → the names of that spelling.
+    by_name: HashMap<String, Vec<String>>,
+    /// Lower-cased stem → how many files (not `.xmp`) have it.
+    stems: HashMap<String, usize>,
+}
+
+/// `folder`'s files (`FolderFiles`), listed once per version of the folder
+/// (its modification time): an import of a card folder's photographs reads
+/// it once, not once per photograph. `None` when it cannot be listed.
+fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
+    type Listed = HashMap<PathBuf, (SystemTime, Arc<FolderFiles>)>;
+    static LISTED: LazyLock<Mutex<Listed>> = LazyLock::new(Default::default);
+    let modified = fs::metadata(folder).ok()?.modified().ok();
+    let mut listed = LISTED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(modified) = modified
+        && let Some((at, files)) = listed.get(folder)
+        && *at == modified
+    {
+        return Some(files.clone());
+    }
+    let mut files = FolderFiles::default();
+    for entry in fs::read_dir(folder).ok()?.flatten() {
+        if !entry.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let path = Path::new(&name);
+        let sidecar = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+        if !sidecar && let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            *files.stems.entry(stem.to_ascii_lowercase()).or_default() += 1;
+        }
+        files
+            .by_name
+            .entry(name.to_ascii_lowercase())
+            .or_default()
+            .push(name);
+    }
+    let files = Arc::new(files);
+    if let Some(modified) = modified {
+        if listed.len() >= 64 {
+            listed.clear();
+        }
+        listed.insert(folder.to_path_buf(), (modified, files.clone()));
+    }
+    Some(files)
+}
+
+/// Whether `extension` is a developed image's (JPEG, HEIF, TIFF, …), not
+/// a RAW's.
+pub fn is_developed_image(extension: &str) -> bool {
+    IMAGE_EXTENSIONS
+        .iter()
+        .any(|known| extension.eq_ignore_ascii_case(known))
 }
 
 /// Fills the descriptive tokens from a card sidecar's metadata: rating,
@@ -641,32 +725,73 @@ pub(crate) mod tests {
         let touch = |name: &str| fs::write(card.join(name), b"x").unwrap();
         touch("A.ARW");
         touch("A.xmp");
-        assert_eq!(card_sidecar(&card.join("A.ARW")), Some(card.join("A.xmp")));
+        assert_eq!(
+            card_sidecar(&card.join("A.ARW")).unwrap(),
+            Some(card.join("A.xmp"))
+        );
         touch("B.NEF");
         touch("B.NEF.xmp");
         touch("B.xmp");
         assert_eq!(
-            card_sidecar(&card.join("B.NEF")),
+            card_sidecar(&card.join("B.NEF")).unwrap(),
             Some(card.join("B.NEF.xmp"))
         );
         // RAW+JPEG: the stem's sidecar is the RAW's, not the JPEG's.
         touch("C.CR3");
         touch("C.JPG");
         touch("C.xmp");
-        assert_eq!(card_sidecar(&card.join("C.CR3")), Some(card.join("C.xmp")));
-        assert_eq!(card_sidecar(&card.join("C.JPG")), None);
+        assert_eq!(
+            card_sidecar(&card.join("C.CR3")).unwrap(),
+            Some(card.join("C.xmp"))
+        );
+        assert_eq!(card_sidecar(&card.join("C.JPG")).unwrap(), None);
         // A JPEG alone owns its stem's sidecar.
         touch("D.JPG");
         touch("D.xmp");
-        assert_eq!(card_sidecar(&card.join("D.JPG")), Some(card.join("D.xmp")));
+        assert_eq!(
+            card_sidecar(&card.join("D.JPG")).unwrap(),
+            Some(card.join("D.xmp"))
+        );
         touch("E.ARW");
-        assert_eq!(card_sidecar(&card.join("E.ARW")), None);
+        assert_eq!(card_sidecar(&card.join("E.ARW")).unwrap(), None);
         fs::create_dir(card.join("F.xmp")).unwrap();
         touch("F.ARW");
         assert_eq!(
-            card_sidecar(&card.join("F.ARW")),
+            card_sidecar(&card.join("F.ARW")).unwrap(),
             None,
             "a folder is no sidecar"
         );
+    }
+
+    #[test]
+    fn card_sidecars_are_found_in_any_letter_case() {
+        let d = tempfile::tempdir().unwrap();
+        let card = d.path();
+        let touch = |name: &str| fs::write(card.join(name), b"x").unwrap();
+        let found = |photo: &str| card_sidecar(&card.join(photo)).unwrap();
+        touch("G.ARW");
+        touch("g.arw.XMP");
+        assert_eq!(found("G.ARW"), Some(card.join("g.arw.XMP")));
+        touch("H.ARW");
+        touch("H.XMP");
+        assert_eq!(found("H.ARW"), Some(card.join("H.XMP")));
+        touch("i.arw");
+        touch("I.Xmp");
+        assert_eq!(found("i.arw"), Some(card.join("I.Xmp")));
+        // RAW+JPEG whose names differ in case: still the RAW's sidecar.
+        touch("K.CR3");
+        touch("k.jpg");
+        touch("K.xmp");
+        assert_eq!(found("K.CR3"), Some(card.join("K.xmp")));
+        assert_eq!(found("k.jpg"), None);
+        // Two that differ only in case (a case-sensitive volume): neither.
+        touch("J.ARW");
+        touch("J.xmp");
+        touch("J.XMP");
+        let error = card_sidecar(&card.join("J.ARW")).unwrap_err();
+        assert!(error.contains("letter case"), "{error}");
+        // The full form wins over an ambiguous short one.
+        touch("J.ARW.xmp");
+        assert_eq!(found("J.ARW"), Some(card.join("J.ARW.xmp")));
     }
 }
