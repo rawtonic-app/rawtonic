@@ -924,3 +924,39 @@ fn a_helper_whose_app_is_gone_ends_itself() {
         "ended by its grace, not its input"
     );
 }
+
+/// A held camera (a library switch or disconnect is under way) delivers
+/// nothing more and fires nothing, but still frees what was delivered.
+#[test]
+fn a_held_camera_delivers_nothing_more_and_still_frees_its_photos() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        queue_limit: Some(10),
+        body_shots_ms: vec![300],
+        ..MockSpec::default()
+    };
+    let helper = start(&spec, dir.path());
+    helper.connect().unwrap();
+    helper.capture();
+    let (photos, _) = helper.photos(1);
+    assert_eq!(
+        helper.client.request(Request::Hold, WAIT).unwrap(),
+        Reply::Ok
+    );
+    let refused = helper.client.request(Request::Capture, WAIT).unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::NotConnected);
+    // The body shot after the hold is not downloaded.
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(helper.photos(1).0.is_empty());
+    let release = Request::Release {
+        connection: photos[0].connection,
+        download: photos[0].download,
+        camera_folder: photos[0].camera_folder.clone(),
+        camera_name: photos[0].camera_name.clone(),
+    };
+    assert_eq!(helper.client.request(release, WAIT).unwrap(), Reply::Ok);
+    assert_eq!(
+        helper.client.request(Request::Disconnect, WAIT).unwrap(),
+        Reply::Ok
+    );
+}

@@ -925,6 +925,18 @@ pub async fn tether_connect(
     .await
 }
 
+/// Asks the helper to take no more photos from the camera but keep it open
+/// (`Request::Hold`), before the connection's ingest ends: every photo it
+/// downloaded is then delivered to that ingest, and the ingest's releases
+/// still reach the camera. Err only when the helper does not answer (no
+/// camera open: nothing to hold).
+fn hold(client: &Client) -> Result<(), rawtonic_tether::protocol::TetherError> {
+    match client.request(Request::Hold, QUICK) {
+        Err(e) if e.kind == ErrorKind::Unresponsive => Err(e),
+        _ => Ok(()),
+    }
+}
+
 /// Forgets the connection here and waits for its ingest to finish the
 /// photos it has (one ingest per transfer folder).
 fn finish_ingest(state: &Mutex<Option<Helper>>) {
@@ -966,11 +978,14 @@ fn open_session(
 ) -> Result<CameraStatus, String> {
     let _turn = transition.lock().unwrap();
     let attempt = connect_attempt();
+    // The earlier camera delivers what it downloaded to its own library and
+    // takes no more; its photos are freed on it before it is closed.
+    let held = hold(&client);
     finish_ingest(state);
     // The transfer folder is read only once the helper has confirmed that
     // no camera is open (a download in progress would still write there);
     // a helper that does not confirm is ended first.
-    if let Err(e) = client.request(Request::Disconnect, QUICK) {
+    if let Err(e) = held.and_then(|()| client.request(Request::Disconnect, QUICK).map(drop)) {
         client.kill();
         let started = Instant::now();
         while client.alive() && started.elapsed() < QUICK {
@@ -1052,10 +1067,14 @@ pub async fn tether_disconnect(app: AppHandle) -> Result<(), String> {
     blocking(move || {
         let _turn = TRANSITION.lock().unwrap();
         let running = HELPER.lock().unwrap().is_some();
+        // Its last photos go in and are freed on the camera before it closes.
+        if running {
+            let _ = request(&app, Request::Hold, QUICK);
+        }
+        finish_ingest(&HELPER);
         if running {
             let _ = request(&app, Request::Disconnect, QUICK);
         }
-        finish_ingest(&HELPER);
         // Said like any other end of a connection (the shortcut follows it
         // also when no panel is mounted).
         let _ = app.emit("tether-state", json!({ "connected": false }));
@@ -1845,6 +1864,64 @@ mod tests {
         finish_ingest(&state);
         assert_eq!(photos_in_capture(&session), 2, "each once");
         assert_eq!(incoming_left(&session), 0);
+    }
+
+    #[test]
+    fn a_library_switch_during_a_burst_takes_every_delivered_photo_in_and_frees_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::create_dir_all(tmp.path().join("a")).unwrap();
+        fs::create_dir_all(tmp.path().join("b")).unwrap();
+        let (a, b) = (
+            session(&tmp.path().join("a")),
+            session(&tmp.path().join("b")),
+        );
+        // A burst fired on the body, one shot every 3 ms for 0.6 s.
+        let spec = MockSpec {
+            file_size: 4 * 1024,
+            event_delay_ms: 0,
+            body_shots_ms: (0..600).step_by(3).collect(),
+            queue_limit: Some(1000),
+            ..MockSpec::default()
+        };
+        let (state, client) = mock_helper(&spec);
+        let config = || {
+            Arc::new(Mutex::new(CaptureConfig {
+                template: "{orig}".into(),
+                settings: settings(0, "switch"),
+                free_camera_copies: true,
+            }))
+        };
+        let (notify, seen) = collector();
+        let transition = Mutex::new(());
+        let open = |session: &Path| {
+            open_session(
+                &state,
+                &transition,
+                client.clone(),
+                notify.clone(),
+                Opening {
+                    session: session.to_path_buf(),
+                    port: None,
+                    config: config(),
+                },
+                || {},
+            )
+            .unwrap()
+        };
+        open(&a);
+        // Some of the burst is in, some is still coming.
+        let first = captured(&seen, 20);
+        assert!(first.iter().all(|c| c.error.is_none()), "{first:?}");
+        open(&b);
+        // Disconnected as `tether_disconnect` does.
+        hold(&client).unwrap();
+        finish_ingest(&state);
+        // Nothing of A's camera connection is left behind in A's transfer
+        // folder for a later connect: what was delivered went in.
+        assert_eq!(incoming_left(&a), 0, "photos stranded in the old library");
+        let in_a = photos_in_capture(&a);
+        assert!(in_a >= 20, "{in_a}");
+        assert_eq!(incoming_left(&b), 0);
     }
 
     #[test]
