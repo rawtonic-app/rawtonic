@@ -182,13 +182,16 @@ impl RenderedSource {
     }
 
     /// Waits until a frame from `source` is rendered or `timeout` passed;
-    /// whether it was rendered.
-    pub fn wait(&self, source: &Arc<DynamicImage>, timeout: std::time::Duration) -> bool {
+    /// whether it was rendered. Holds no strong reference to the source.
+    pub fn wait(
+        &self,
+        source: &std::sync::Weak<DynamicImage>,
+        timeout: std::time::Duration,
+    ) -> bool {
         let deadline = std::time::Instant::now() + timeout;
-        let wanted = Arc::downgrade(source);
         let mut last = self.source.lock().unwrap_or_else(|e| e.into_inner());
         loop {
-            if last.ptr_eq(&wanted) {
+            if last.ptr_eq(source) {
                 return true;
             }
             let left = deadline.saturating_duration_since(std::time::Instant::now());
@@ -546,7 +549,7 @@ mod rendered_source_tests {
         // No frame of it: the wait ends at its timeout.
         rendered.mark(&other);
         let start = Instant::now();
-        assert!(!rendered.wait(&decode, Duration::from_millis(50)));
+        assert!(!rendered.wait(&Arc::downgrade(&decode), Duration::from_millis(50)));
         assert!(start.elapsed() >= Duration::from_millis(50));
         // A frame rendered meanwhile ends the wait at once.
         let marker = {
@@ -557,11 +560,11 @@ mod rendered_source_tests {
             })
         };
         let start = Instant::now();
-        assert!(rendered.wait(&decode, Duration::from_secs(10)));
+        assert!(rendered.wait(&Arc::downgrade(&decode), Duration::from_secs(10)));
         assert!(start.elapsed() < Duration::from_secs(5));
         marker.join().unwrap();
         // And one rendered before the wait.
-        assert!(rendered.wait(&decode, Duration::ZERO));
+        assert!(rendered.wait(&Arc::downgrade(&decode), Duration::ZERO));
     }
 }
 

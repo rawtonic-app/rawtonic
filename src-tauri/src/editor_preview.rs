@@ -112,6 +112,27 @@ const SPLIT_FRAMING_KEYS: &[&str] = &[
 
 /// The photograph and framing of a frame: a split before is drawn only
 /// beside frames with its key, never beside another crop or photograph.
+/// What a rendered split before shows: its frame key, source, load,
+/// size, recipe and whether the source was interim (its base then has no
+/// measured lateral CA, `interim_source`).
+fn split_render_key(
+    frame_key: u64,
+    source: &Arc<DynamicImage>,
+    load_generation: usize,
+    preview_dim: u32,
+    adjustments: &serde_json::Value,
+    interim: bool,
+) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    frame_key.hash(&mut hasher);
+    (Arc::as_ptr(source) as usize).hash(&mut hasher);
+    load_generation.hash(&mut hasher);
+    preview_dim.hash(&mut hasher);
+    adjustments.to_string().hash(&mut hasher);
+    interim.hash(&mut hasher);
+    hasher.finish()
+}
+
 pub(crate) fn split_frame_key(path: &str, adjustments: &serde_json::Value) -> u64 {
     let mut hasher = DefaultHasher::new();
     path.hash(&mut hasher);
@@ -1892,15 +1913,15 @@ fn render_split_before_blocking(
         context.limits.max_texture_dimension_2d,
     );
     let frame_key = split_frame_key(path, &adjustments);
-    let render_key = {
-        let mut hasher = DefaultHasher::new();
-        frame_key.hash(&mut hasher);
-        (Arc::as_ptr(&loaded_image.image) as usize).hash(&mut hasher);
-        load_generation.hash(&mut hasher);
-        preview_dim.hash(&mut hasher);
-        adjustments.to_string().hash(&mut hasher);
-        hasher.finish()
-    };
+    let interim = interim_source(&state, &loaded_image, source_scale);
+    let render_key = split_render_key(
+        frame_key,
+        &loaded_image.image,
+        load_generation,
+        preview_dim,
+        &adjustments,
+        interim,
+    );
     if current_key == Some(render_key) {
         return Ok(true);
     }
@@ -1914,11 +1935,7 @@ fn render_split_before_blocking(
         .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .filter(|c| {
-            c.serves(
-                &loaded_image.image,
-                transform_hash,
-                interim_source(&state, &loaded_image, source_scale),
-            ) && c.preview_dim == preview_dim
+            c.serves(&loaded_image.image, transform_hash, interim) && c.preview_dim == preview_dim
         })
         .map(|c| (Arc::clone(&c.image), c.scale));
     let (base, scale) = match cached {
@@ -2407,8 +2424,19 @@ pub(crate) async fn generate_preview_for_path(
 
 #[cfg(test)]
 mod split_view_tests {
-    use super::split_frame_key;
+    use super::{split_frame_key, split_render_key};
     use serde_json::json;
+
+    #[test]
+    fn a_split_before_of_an_interim_source_is_rendered_again_once_it_lasts() {
+        // The same proxy, load and recipe: only the photograph turned out
+        // offline (its before then needs the measured lateral CA).
+        let proxy = std::sync::Arc::new(image::DynamicImage::new_rgb32f(4, 4));
+        let recipe = json!({"autoCaVersion": 3});
+        let key = |interim| split_render_key(1, &proxy, 2, 3, &recipe, interim);
+        assert_ne!(key(true), key(false));
+        assert_eq!(key(false), key(false));
+    }
 
     #[test]
     fn the_split_before_matches_frames_of_the_same_photograph_and_framing() {
