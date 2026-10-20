@@ -1122,3 +1122,42 @@ fn a_file_that_cannot_be_saved_names_its_exposure() {
         other => panic!("{other:?}"),
     }
 }
+
+/// A JPEG later than the shot timeout still belongs to its RAW's exposure:
+/// it does not take a newer open request.
+#[test]
+fn a_companion_later_than_the_shot_timeout_keeps_its_exposure() {
+    let dir = tempfile::tempdir().unwrap();
+    let spec = MockSpec {
+        raw_and_jpeg: true,
+        jpeg_late_ms: 800,
+        lost_shots: vec![2],
+        ..MockSpec::default()
+    };
+    let helper = start_with(&spec, dir.path(), 600);
+    helper.connect().unwrap();
+    helper.capture();
+    std::thread::sleep(Duration::from_millis(300));
+    helper.capture();
+    let (photos, mut other) = helper.photos(2);
+    let exposures: Vec<(&str, u64)> = photos
+        .iter()
+        .map(|p| (p.camera_name.as_str(), p.exposure))
+        .collect();
+    assert_eq!(
+        exposures,
+        [("DSC00001.ARW", 1), ("DSC00001.JPG", 1)],
+        "{other:?}"
+    );
+    let deadline = Instant::now() + WAIT;
+    let timeouts = |other: &[Option<Event>]| {
+        other
+            .iter()
+            .filter(|e| matches!(e, Some(Event::CaptureFailed { error, .. }) if error.kind == ErrorKind::Timeout))
+            .count()
+    };
+    while Instant::now() < deadline && timeouts(&other) < 1 {
+        other.push(helper.next_event(Duration::from_millis(200)));
+    }
+    assert_eq!(timeouts(&other), 1, "request 2 never came: {other:?}");
+}

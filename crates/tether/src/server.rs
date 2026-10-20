@@ -18,8 +18,6 @@ use std::time::{Duration, Instant};
 const EVENT_POLL: Duration = Duration::from_millis(20);
 /// An exposure of a file name (`Open::exposures_by_stem`).
 struct Exposure {
-    /// When its first file came.
-    at: Instant,
     /// The file kinds (extensions) it gave so far.
     kinds: Vec<String>,
     /// Its app request, if any.
@@ -63,8 +61,8 @@ struct Open {
     published: std::collections::HashMap<CameraFile, (usize, u64)>,
     /// The download each camera file stands for now.
     downloads: std::collections::HashMap<CameraFile, u64>,
-    /// The exposures of each file name (without the extension) of the last
-    /// `SHOT_TIMEOUT`, oldest first: RAW and JPEG of one exposure share the
+    /// The exposures of each file name (without the extension) in this
+    /// connection, oldest first (a few bytes each): RAW and JPEG of one exposure share the
     /// name and answer one request, and may come interleaved with other
     /// exposures' files, under other names or the same one (A.RAW, B.RAW,
     /// A.JPG; A.RAW, A.RAW, A.JPG, A.JPG with reused names).
@@ -503,12 +501,8 @@ impl<W: Write> Server<W> {
         };
         // Another file of an exposure of the name (the oldest that has not
         // given this kind yet; cameras send files in exposure order): the
-        // same request, not the next one. Otherwise a new exposure. An
-        // exposure older than a shot may take is not waited on any more.
-        open.exposures_by_stem.retain(|_, exposures| {
-            exposures.retain(|e| reported.duration_since(e.at) < SHOT_TIMEOUT);
-            !exposures.is_empty()
-        });
+        // same request, not the next one, however late it comes. Otherwise
+        // a new exposure.
         let companion = match shot_of {
             Shot::Waiting => open
                 .exposures_by_stem
@@ -529,7 +523,6 @@ impl<W: Write> Server<W> {
                 };
                 open.exposures += 1;
                 let exposure = Exposure {
-                    at: reported,
                     kinds: vec![extension],
                     request,
                     number: open.exposures,
