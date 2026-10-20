@@ -1,10 +1,13 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
 import i18n from "i18next";
+import { toast } from "react-toastify";
 import { useLibraryStore } from "../../store/useLibraryStore";
 import { createDragGhost } from "./dragGhost";
 
 /** Event a drop target (`data-album-drop="<id>"`) receives when photographs
- * are dropped on it. */
+ * are dropped on it. A row that takes no photographs (an automatic view such
+ * as Previous Import) says why in `data-drop-refused="<message>"`: it shows
+ * the refused cursor under the drag and that message on the drop. */
 export const TILE_DROP_EVENT = "studio-tile-drop";
 export type TileDropDetail = { target: string; paths: string[] };
 
@@ -12,7 +15,8 @@ export type TileDropDetail = { target: string; paths: string[] };
 const DRAG_THRESHOLD = 6;
 
 const dropTargetAt = (x: number, y: number) =>
-  document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-album-drop]") ?? null;
+  document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-album-drop],[data-drop-refused]") ?? null;
+const REFUSED_CLASS = "is-drop-refused";
 
 /** Drags photographs from the grid onto albums (pointer events; HTML5 drag and
  * drop is left to the window's file drops). A press on a selected tile drags
@@ -30,8 +34,9 @@ export function startTileDrag(event: ReactPointerEvent<HTMLElement>, path: strin
 
   const setTarget = (next: HTMLElement | null) => {
     if (next === target) return;
-    target?.classList.remove("is-drop-target");
-    next?.classList.add("is-drop-target");
+    target?.classList.remove("is-drop-target", REFUSED_CLASS);
+    next?.classList.add(next.dataset.dropRefused ? REFUSED_CLASS : "is-drop-target");
+    document.body.classList.toggle(REFUSED_CLASS, !!next?.dataset.dropRefused);
     target = next;
   };
   const move = (e: PointerEvent) => {
@@ -79,7 +84,8 @@ export function startTileDrag(event: ReactPointerEvent<HTMLElement>, path: strin
     };
     window.addEventListener("click", swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener("click", swallow, { capture: true }), 0);
-    if (drop?.dataset.albumDrop)
+    if (drop?.dataset.dropRefused) toast.info(drop.dataset.dropRefused);
+    else if (drop?.dataset.albumDrop)
       drop.dispatchEvent(
         new CustomEvent<TileDropDetail>(TILE_DROP_EVENT, {
           bubbles: true,

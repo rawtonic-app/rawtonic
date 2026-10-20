@@ -16,6 +16,12 @@ export function isAiRuntimeError(error: unknown): boolean {
   return String(error).includes(AI_RUNTIME_UNAVAILABLE);
 }
 
+/** The backend had another photo loaded than the mask was asked for
+ * (`ai_commands::PHOTO_CHANGED`): the request is dropped, not failed. */
+export function isPhotoChanged(error: unknown): boolean {
+  return String(error).includes('The photo changed while its mask was asked for');
+}
+
 export function isAiTaskCancelled(error: unknown): boolean {
   return String(error).includes('cancelled');
 }

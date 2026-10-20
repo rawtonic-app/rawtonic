@@ -73,8 +73,10 @@ export function useLibraryActions(handleImageSelect?: (path: string, openInEdito
     const { multiSelectedPaths, libraryActivePath, imageList, setLibrary } = useLibraryStore.getState();
     const { selectedImage } = useEditorStore.getState();
 
+    // As for ratings: the open photograph only in Develop.
+    const openInDevelop = useUIStore.getState().activeView === 'editor' ? selectedImage : null;
     const selectedPaths =
-      paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
+      paths || (multiSelectedPaths.length > 0 ? multiSelectedPaths : openInDevelop ? [openInDevelop.path] : []);
     if (selectedPaths.length === 0) return;
 
     const groupingMode = useSettingsStore.getState().appSettings?.grouping ?? 'off';

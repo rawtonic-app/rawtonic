@@ -110,6 +110,8 @@ interface WatermarkSettings {
 }
 
 export interface ExportState {
+  /** Photos of the running export waiting for AI Denoise. */
+  denoising?: string[];
   errorMessage: string;
   progress: Progress;
   status: Status;

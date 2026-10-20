@@ -382,11 +382,22 @@ export function useTauriListeners({
         }
       }),
       listen<PathProgressPayload>('batch-export-progress', (event) => {
-        if (isEffectActive) useProcessStore.getState().setExportState({ progress: event.payload });
+        if (isEffectActive)
+          useProcessStore.getState().setExportState((state) => ({
+            denoising: state.denoising?.filter((path) => path !== event.payload.path),
+            progress: event.payload,
+          }));
+      }),
+      listen<string>('export-denoising', (event) => {
+        if (isEffectActive)
+          useProcessStore.getState().setExportState((state) => ({
+            denoising: [...(state.denoising ?? []), event.payload],
+          }));
       }),
       listen<{ current: number; total: number }>('export-job-started', (event) => {
         if (isEffectActive)
           useProcessStore.getState().setExportState({
+            denoising: [],
             status: Status.Exporting,
             errorMessage: '',
             progress: { current: event.payload.current, total: event.payload.total },

@@ -422,15 +422,25 @@ fn move_files_blocking(
 
 #[tauri::command]
 pub async fn clear_all_sidecars(root_path: String) -> Result<usize, String> {
-    crate::file_management::blocking(move || clear_all_sidecars_blocking(root_path)).await?
+    crate::file_management::blocking(move || {
+        clear_all_sidecars_blocking(root_path, &crate::file_operations::PlatformTrash)
+    })
+    .await?
 }
 
-fn clear_all_sidecars_blocking(root_path: String) -> Result<usize, String> {
+/// Moves the editor sidecars and EXIF caches below `root_path` to the system
+/// Trash (never deletes them): the edits can be put back from there. A file
+/// the Trash refuses stays where it is and the error names it.
+fn clear_all_sidecars_blocking(
+    root_path: String,
+    trash: &impl rawtonic_fileops::SystemTrash,
+) -> Result<usize, String> {
     if !Path::new(&root_path).exists() {
         return Err(format!("Root path does not exist: {}", root_path));
     }
 
-    let mut deleted_count = 0;
+    let mut trashed = 0;
+    let mut failed = Vec::new();
     let walker = WalkDir::new(root_path).into_iter();
     let mut libraries = HashMap::new();
 
@@ -443,15 +453,22 @@ fn clear_all_sidecars_blocking(root_path: String) -> Result<usize, String> {
             if extension == "rrdata" && registered_sidecar(path, &mut libraries) {
                 continue;
             }
-            if fs::remove_file(path).is_ok() {
-                deleted_count += 1;
-            } else {
-                eprintln!("Failed to delete sidecar file: {:?}", path);
+            match trash.trash(path) {
+                Ok(_) => trashed += 1,
+                Err(e) => failed.push(format!("{}: {e:#}", path.display())),
             }
         }
     }
 
-    Ok(deleted_count)
+    if failed.is_empty() {
+        Ok(trashed)
+    } else {
+        Err(format!(
+            "{trashed} sidecar files moved to the Trash; {} could not be moved and were kept: {}",
+            failed.len(),
+            failed.join("; ")
+        ))
+    }
 }
 
 /// Whether a `.rrdata` sidecar belongs to a photo (or a virtual copy of one)
@@ -677,16 +694,46 @@ pub async fn create_virtual_copy(
     .await?
 }
 
+/// A new virtual copy's path (`<photo>?vc=<id>`) and sidecar, with an id
+/// (from `new_id`) no copy of the photograph has yet: writing a taken one
+/// would replace that copy's edit. `taken`: whether a copy's sidecar is in use.
+fn new_copy_path(
+    source: &Path,
+    taken: impl Fn(&Path) -> bool,
+    mut new_id: impl FnMut() -> String,
+) -> Result<(String, PathBuf), String> {
+    for _ in 0..16 {
+        let path = format!("{}?vc={}", source.to_string_lossy(), new_id());
+        let (_, sidecar) = parse_virtual_path(&path);
+        if !taken(&sidecar) {
+            return Ok((path, sidecar));
+        }
+    }
+    Err("Could not find a free id for the virtual copy".to_string())
+}
+
+/// Picks a free copy id and writes the new copy (`write`: its path and
+/// sidecar) as one step: two copies made at the same moment never take the
+/// same id (the check would see neither written yet).
+fn create_copy(
+    source: &Path,
+    taken: impl Fn(&Path) -> bool,
+    new_id: impl FnMut() -> String,
+    write: impl FnOnce(&Path) -> Result<(), String>,
+) -> Result<String, String> {
+    static CREATING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = CREATING.lock().unwrap_or_else(|e| e.into_inner());
+    let (path, sidecar) = new_copy_path(source, taken, new_id)?;
+    write(&sidecar)?;
+    Ok(path)
+}
+
 fn create_virtual_copy_blocking(
     source_virtual_path: String,
     target_album_id: Option<String>,
     app_handle: AppHandle,
 ) -> Result<String, String> {
     let (source_path, source_sidecar_path) = parse_virtual_path(&source_virtual_path);
-
-    let new_copy_id = Uuid::new_v4().to_string()[..6].to_string();
-    let new_virtual_path = format!("{}?vc={}", source_path.to_string_lossy(), new_copy_id);
-    let (_, new_sidecar_path) = parse_virtual_path(&new_virtual_path);
 
     // The new copy starts from the photograph's state: its sidecar, or for an
     // offline photograph the library's. Written through the library, which
@@ -695,16 +742,19 @@ fn create_virtual_copy_blocking(
         crate::session_bridge::read_editor_sidecar(&source_sidecar_path)
             .and_then(|state| serde_json::to_vec_pretty(&state).ok())
     });
-    if let Some(bytes) = source_state {
-        crate::session_bridge::write_editor_sidecar(&new_sidecar_path, bytes)
-            .map_err(|e| format!("Failed to copy sidecar file: {}", e))?;
-    } else {
-        let default_metadata = ImageMetadata::default();
-        let json_string =
-            serde_json::to_string_pretty(&default_metadata).map_err(|e| e.to_string())?;
-        crate::session_bridge::write_editor_sidecar(new_sidecar_path, json_string)
-            .map_err(|e| e.to_string())?;
-    }
+    let bytes = match source_state {
+        Some(bytes) => bytes,
+        None => serde_json::to_vec_pretty(&ImageMetadata::default()).map_err(|e| e.to_string())?,
+    };
+    let new_virtual_path = create_copy(
+        &source_path,
+        crate::session_bridge::copy_exists,
+        || Uuid::new_v4().to_string()[..6].to_string(),
+        |sidecar| {
+            crate::session_bridge::write_editor_sidecar(sidecar, &bytes)
+                .map_err(|e| format!("Failed to copy sidecar file: {}", e))
+        },
+    )?;
 
     if let Some(album_id) = target_album_id {
         let _ = add_to_album(album_id, vec![new_virtual_path.clone()], app_handle);
@@ -724,6 +774,129 @@ mod tests {
 
     fn read(path: &Path) -> String {
         fs::read_to_string(path).unwrap()
+    }
+
+    /// A Trash folder that records what it was given (and refuses `refuse`).
+    struct FakeTrash {
+        dir: PathBuf,
+        got: std::sync::Mutex<Vec<PathBuf>>,
+        refuse: Option<PathBuf>,
+    }
+    impl FakeTrash {
+        fn new(dir: PathBuf, refuse: Option<PathBuf>) -> Self {
+            fs::create_dir_all(&dir).unwrap();
+            Self {
+                dir,
+                got: Default::default(),
+                refuse,
+            }
+        }
+    }
+    impl rawtonic_fileops::SystemTrash for FakeTrash {
+        fn trash(&self, path: &Path) -> anyhow::Result<String> {
+            if self.refuse.as_deref() == Some(path) {
+                anyhow::bail!("Trash full");
+            }
+            let mut got = self.got.lock().unwrap();
+            let item = self.dir.join(got.len().to_string());
+            fs::rename(path, &item)?;
+            got.push(path.to_path_buf());
+            Ok(item.display().to_string())
+        }
+        fn restore(&self, _: &str, _: &Path) -> anyhow::Result<()> {
+            Ok(())
+        }
+        fn contains(&self, _: &str) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn clearing_sidecars_moves_them_to_the_trash_and_names_any_it_could_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().canonicalize().unwrap();
+        for name in [
+            "a.jpg",
+            "a.jpg.rrdata",
+            "b.jpg",
+            "b.jpg.rrexif",
+            "c.jpg.rrdata",
+        ] {
+            write(&root.join(name), name);
+        }
+        let trash = FakeTrash::new(tmp.path().join("Trash"), Some(root.join("c.jpg.rrdata")));
+        let error =
+            clear_all_sidecars_blocking(root.to_string_lossy().into_owned(), &trash).unwrap_err();
+        assert!(error.contains("2 sidecar files moved"), "{error}");
+        assert!(error.contains("c.jpg.rrdata: Trash full"), "{error}");
+        let mut got = trash.got.into_inner().unwrap();
+        got.sort();
+        assert_eq!(got, [root.join("a.jpg.rrdata"), root.join("b.jpg.rrexif")]);
+        // In the Trash, not deleted; the refused one stays where it was.
+        assert_eq!(fs::read_dir(tmp.path().join("Trash")).unwrap().count(), 2);
+        assert!(root.join("c.jpg.rrdata").is_file());
+        // The photos themselves are never touched.
+        assert!(root.join("a.jpg").is_file() && root.join("b.jpg").is_file());
+
+        let trash = FakeTrash::new(tmp.path().join("Trash2"), None);
+        assert_eq!(
+            clear_all_sidecars_blocking(root.to_string_lossy().into_owned(), &trash),
+            Ok(1)
+        );
+    }
+
+    #[test]
+    fn a_new_virtual_copy_never_takes_an_existing_copys_id() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = tmp.path().join("photo.raf");
+        write(&photo, "raw");
+        let (_, taken) = parse_virtual_path(&format!("{}?vc=aaaaaa", photo.display()));
+        write(&taken, "the existing copy's edit");
+        let mut ids = ["aaaaaa", "bbbbbb"].into_iter().map(String::from);
+        let (path, sidecar) =
+            new_copy_path(&photo, |p| p.exists(), || ids.next().unwrap()).unwrap();
+        assert!(path.ends_with("?vc=bbbbbb"));
+        assert_ne!(sidecar, taken);
+        assert_eq!(read(&taken), "the existing copy's edit");
+        // Only taken ids: an error, nothing replaced.
+        assert!(new_copy_path(&photo, |_| true, || "aaaaaa".to_string()).is_err());
+    }
+
+    #[test]
+    fn copies_made_at_the_same_moment_with_the_same_id_both_keep_their_edit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let photo = tmp.path().join("photo.raf");
+        write(&photo, "raw");
+        // Both draw the same id first; the check and the write are one step.
+        let made: Vec<_> = (0..2)
+            .map(|n| {
+                let photo = photo.clone();
+                std::thread::spawn(move || {
+                    let mut ids = ["cccccc", "dddddd"].into_iter().map(String::from);
+                    create_copy(
+                        &photo,
+                        |p| p.exists(),
+                        || ids.next().unwrap(),
+                        |sidecar| {
+                            // Slow enough for the other to look meanwhile.
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                            fs::write(sidecar, format!("edit {n}")).map_err(|e| e.to_string())
+                        },
+                    )
+                    .unwrap()
+                })
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|t| t.join().unwrap())
+            .collect();
+        assert_ne!(made[0], made[1]);
+        let mut edits: Vec<_> = made
+            .iter()
+            .map(|path| read(&parse_virtual_path(path).1))
+            .collect();
+        edits.sort();
+        assert_eq!(edits, ["edit 0", "edit 1"]);
     }
 
     #[test]
@@ -802,7 +975,9 @@ mod tests {
         write(&root.join("Folder/B.jpg"), "b");
         write(&root.join("Folder/B.jpg.rrdata"), "{}");
 
-        let deleted = clear_all_sidecars_blocking(root.to_string_lossy().into_owned()).unwrap();
+        let trash = FakeTrash::new(tmp.path().join("Trash"), None);
+        let deleted =
+            clear_all_sidecars_blocking(root.to_string_lossy().into_owned(), &trash).unwrap();
         // The session keeps the edits (its database is what counts); the
         // folder's sidecar and the EXIF cache go.
         assert_eq!(deleted, 2);

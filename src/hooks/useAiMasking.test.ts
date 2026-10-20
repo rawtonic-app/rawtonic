@@ -282,6 +282,31 @@ describe("automatic AI masks from imported presets", () => {
     await waitFor(() => expect(pending).toHaveLength(2));
   });
 
+  it("asks again, without a toast, when the backend had another photo loaded (A, B, back to A)", async () => {
+    const asked: { path?: string; reject: (error: unknown) => void; resolve: (value: unknown) => void }[] = [];
+    invoke.mockImplementation((command: string, args?: { path?: string }) =>
+      String(command).startsWith("generate_")
+        ? new Promise((resolve, reject) => asked.push({ path: args?.path, resolve, reject }))
+        : Promise.resolve(null),
+    );
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, grow: 0, feather: 0 })] as never,
+      },
+    });
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(asked).toHaveLength(1));
+    expect(asked[0].path).toBe("/s/a.NEF");
+    // Meanwhile B was opened and A again; the backend computed on B.
+    await act(async () => asked[0].reject("The photo changed while its mask was asked for"));
+    await waitFor(() => expect(asked).toHaveLength(2));
+    expect(toast.error).not.toHaveBeenCalled();
+    await act(async () => asked[1].resolve({ maskDataBase64: "data:image/png;base64,DDDD" }));
+    expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,DDDD" });
+  });
+
   it("stays busy until the last of two requests under one component id ends", () => {
     const { registerAiTask, unregisterAiTask, isAiTaskRunning } = useProcessStore.getState();
     useProcessStore.setState({ activeAiTasks: {} });

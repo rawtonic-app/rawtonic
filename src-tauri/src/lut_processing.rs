@@ -164,16 +164,42 @@ pub fn convert_image_to_cube_lut(image: &DynamicImage, size: u32) -> Result<Vec<
     Ok(out.into_bytes())
 }
 
-pub fn get_or_load_lut(state: &State<AppState>, path: &str) -> Result<Arc<Lut>, String> {
-    let mut cache = state.lut_cache.lock().unwrap();
-    if let Some(lut) = cache.get(path) {
-        return Ok(lut.clone());
+/// The file's modification time and length, which a cached LUT must match.
+type FileStamp = Option<(std::time::SystemTime, u64)>;
+
+fn stamp(path: &str) -> FileStamp {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len()))
+}
+
+/// Parsed LUTs by path, each with the file stamp it was read at: a file
+/// replaced since (a LUT removed and imported again under its name, a
+/// linked LUT edited) is read again, never served from the cache.
+#[derive(Default)]
+pub struct LutCache(std::collections::HashMap<String, (FileStamp, Arc<Lut>)>);
+
+impl LutCache {
+    pub fn get_or_load(&mut self, path: &str) -> Result<Arc<Lut>, String> {
+        let now = stamp(path);
+        if let Some((read, lut)) = self.0.get(path)
+            && now.is_some()
+            && *read == now
+        {
+            return Ok(lut.clone());
+        }
+        let lut = parse_lut_file(path).map_err(|e| e.to_string())?;
+        Ok(self.insert(path.to_string(), now, lut))
     }
 
-    let lut = parse_lut_file(path).map_err(|e| e.to_string())?;
-    let arc_lut = Arc::new(lut);
-    cache.insert(path.to_string(), arc_lut.clone());
-    Ok(arc_lut)
+    fn insert(&mut self, path: String, read: FileStamp, lut: Lut) -> Arc<Lut> {
+        let lut = Arc::new(lut);
+        self.0.insert(path, (read, lut.clone()));
+        lut
+    }
+}
+
+pub fn get_or_load_lut(state: &State<AppState>, path: &str) -> Result<Arc<Lut>, String> {
+    state.lut_cache.lock().unwrap().get_or_load(path)
 }
 
 #[tauri::command]
@@ -260,18 +286,49 @@ fn user_lut_file(luts_dir: &Path, path: &Path) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn load_and_parse_lut(path: String, state: State<AppState>) -> Result<LutParseResult, String> {
+    let read = stamp(&path);
     let lut = parse_lut_file(&path).map_err(|e| e.to_string())?;
     let lut_size = lut.size;
 
-    let mut cache = state.lut_cache.lock().unwrap();
-    cache.insert(path, Arc::new(lut));
+    state.lut_cache.lock().unwrap().insert(path, read, lut);
 
     Ok(LutParseResult { size: lut_size })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::user_lut_file;
+    use super::{LutCache, user_lut_file};
+
+    fn cube(value: f32) -> String {
+        let mut text = "LUT_3D_SIZE 2\n".to_string();
+        for _ in 0..8 {
+            text.push_str(&format!("{value} {value} {value}\n"));
+        }
+        text
+    }
+
+    #[test]
+    fn a_lut_file_replaced_under_its_name_is_read_again() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("Warm.cube");
+        std::fs::write(&path, cube(0.25)).unwrap();
+        let path = path.to_str().unwrap();
+        let mut cache = LutCache::default();
+        let first = cache.get_or_load(path).unwrap();
+        assert_eq!(first.data[0], 0.25);
+        assert!(std::sync::Arc::ptr_eq(
+            &first,
+            &cache.get_or_load(path).unwrap()
+        ));
+        // Removed and imported again (another file, other values).
+        std::fs::remove_file(path).unwrap();
+        std::fs::write(path, cube(0.5) + "\n").unwrap();
+        let second = cache.get_or_load(path).unwrap();
+        assert_eq!(second.data[0], 0.5);
+        // Gone: an error, not the old LUT.
+        std::fs::remove_file(path).unwrap();
+        assert!(cache.get_or_load(path).is_err());
+    }
 
     #[test]
     fn only_files_inside_the_user_lut_folder_may_be_removed() {

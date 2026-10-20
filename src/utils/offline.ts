@@ -41,7 +41,11 @@ const counted = new Set<string>();
 /** The session's offline photographs (the files are checked first). Views
  * count again when the set changed, or always with `announce`. */
 export async function offlinePhotographs(directory: string, announce = false): Promise<OfflineEntry[]> {
+  const asked = useLibraryStore.getState().sessionDirectory;
   const entries = (await invoke<OfflineEntry[]>(Invokes.SessionOffline, { directory })) ?? [];
+  // Another library was opened meanwhile: this answer is not about the one
+  // the views show, so it neither replaces their count nor is announced.
+  if (useLibraryStore.getState().sessionDirectory !== asked) return entries;
   const paths = new Set(entries.map((entry) => entry.path));
   const changed = paths.size !== counted.size || [...paths].some((path) => !counted.has(path));
   counted.clear();
@@ -127,7 +131,9 @@ export async function openMissingView(
   select: SelectView,
   preserveEditor = false,
 ): Promise<number> {
+  const asked = useLibraryStore.getState().sessionDirectory;
   const entries = await offlinePhotographs(directory);
+  if (useLibraryStore.getState().sessionDirectory !== asked) return entries.length;
   select(MISSING_VIEW_ID, name, offlinePaths(entries), preserveEditor);
   return entries.length;
 }

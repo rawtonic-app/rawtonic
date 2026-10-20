@@ -120,3 +120,39 @@ it("has one Before/After button: it toggles the split and names both keys", () =
   fireEvent.click(button);
   expect(useEditorStore.getState().splitView).toBe(false);
 });
+
+it("shows the export turning and naming AI Denoise while a photo waits for it", async () => {
+  const { useProcessStore } = await import("../../store/useProcessStore");
+  const { Status } = await import("../ui/ExportImportProperties");
+  useProcessStore.setState({
+    exportState: { status: Status.Exporting, errorMessage: "", progress: { current: 0, total: 1 }, denoising: ["/qa/current.dng"] },
+  });
+  const noop = vi.fn();
+  render(
+    <StudioWorkspace
+      files={[]}
+      flagCounts={{ all: 0, picked: 0, rejected: 0, unflagged: 0 }}
+      transformWrapperRef={{ current: null }}
+      onSelect={noop}
+      onFilmSelect={noop}
+      onOpen={noop}
+      onNavigate={noop}
+      onBack={noop}
+      onRate={noop}
+      onContextMenu={noop}
+      onEditorContextMenu={noop}
+      onCopy={noop}
+      onPaste={noop}
+      onReset={noop}
+      onZoom={noop}
+      requestThumbnails={noop}
+      settings={null}
+      onSettings={noop}
+    />,
+  );
+  const button = screen.getByRole("button", { name: "Exporting 0 / 1 · AI Denoise…" });
+  expect(button.querySelector(".animate-spin")).not.toBeNull();
+  act(() => useProcessStore.setState((s) => ({ exportState: { ...s.exportState, denoising: [], progress: { current: 1, total: 1 } } })));
+  expect(screen.getByRole("button", { name: "Exporting 1 / 1" })).toBe(button);
+  act(() => useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } }));
+});

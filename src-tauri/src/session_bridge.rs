@@ -81,6 +81,24 @@ pub fn catalog_metadata(source: &Path) -> Option<rawtonic_metadata::Metadata> {
     lib.metadata(&asset.id).ok()
 }
 
+/// Whether a virtual copy's sidecar (`<photo>.<copy>.rrdata`) is taken: its
+/// file is there, or the library keeps that copy (an offline photograph's).
+pub(crate) fn copy_exists(sidecar: &Path) -> bool {
+    if sidecar.exists() {
+        return true;
+    }
+    let Some((source, copy)) = copy_for_sidecar(sidecar) else {
+        return false;
+    };
+    let Some(lib) = library_for(&source).and_then(|dir| Library::open(&dir).ok()) else {
+        return false;
+    };
+    lib.asset_at(&source)
+        .ok()
+        .flatten()
+        .is_some_and(|asset| matches!(lib.copy_state(&asset.id, &copy), Ok(Some(_))))
+}
+
 pub fn read_editor_sidecar(sidecar: &Path) -> Option<Value> {
     if let Some((source, copy)) = copy_for_sidecar(sidecar) {
         // A virtual copy: its sidecar file decides while the photograph is

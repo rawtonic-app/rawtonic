@@ -216,6 +216,27 @@ it("loads the export queue at start and points to interrupted exports", async ()
   exportQueue = [];
 });
 
+it("names AI Denoise on the export progress while a photo waits for it", async () => {
+  renderHook(() => useTauriListeners({
+    refreshAllFolderTrees: vi.fn(), handleSelectSubfolder: vi.fn(),
+    refreshImageList: vi.fn(), markGenerated: vi.fn(),
+  }));
+  await vi.waitFor(() => expect(callbacks.has("export-denoising")).toBe(true));
+  const send = (name: string, payload: unknown) => act(() => callbacks.get(name)!({ payload }));
+  send("export-job-started", { current: 0, total: 2 });
+  send("export-denoising", "/a.RAF");
+  send("export-denoising", "/b.RAF?vc=1");
+  expect(useProcessStore.getState().exportState.denoising).toEqual(["/a.RAF", "/b.RAF?vc=1"]);
+  send("batch-export-progress", { current: 1, total: 2, path: "/a.RAF" });
+  expect(useProcessStore.getState().exportState.denoising).toEqual(["/b.RAF?vc=1"]);
+  send("batch-export-progress", { current: 2, total: 2, path: "/b.RAF?vc=1" });
+  expect(useProcessStore.getState().exportState.denoising).toEqual([]);
+  // A new export starts with none, whatever the last one left.
+  send("export-denoising", "/c.RAF");
+  send("export-job-started", { current: 0, total: 1 });
+  expect(useProcessStore.getState().exportState.denoising).toEqual([]);
+});
+
 it("reads the list again and recounts offline photographs when the catalog caught up on a failed sync", async () => {
   const { invoke } = await import("@tauri-apps/api/core");
   const refreshImageList = vi.fn();

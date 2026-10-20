@@ -562,3 +562,34 @@ it("leaves keys to a focused select or editable text, like to a text field", () 
   press("Enter");
   expect(props.handleImageSelect).toHaveBeenCalledWith("/session/Capture/A.RAF", true);
 });
+
+describe("arrow keys in the Library grid", () => {
+  it("move a row with Up/Down, one with Left/Right", async () => {
+    const { gridStep } = await import("./useKeyboardShortcuts");
+    // 10 photos, 4 per row: rows 0-3, 4-7, 8-9.
+    expect(gridStep(1, 10, "ArrowDown", 4)).toBe(5);
+    expect(gridStep(5, 10, "ArrowDown", 4)).toBe(9);
+    expect(gridStep(7, 10, "ArrowDown", 4)).toBe(9);
+    expect(gridStep(9, 10, "ArrowDown", 4)).toBe(9);
+    expect(gridStep(5, 10, "ArrowUp", 4)).toBe(1);
+    expect(gridStep(2, 10, "ArrowUp", 4)).toBe(2);
+    expect(gridStep(3, 10, "ArrowRight", 4)).toBe(4);
+    expect(gridStep(9, 10, "ArrowRight", 4)).toBe(0);
+    expect(gridStep(0, 10, "ArrowLeft", 4)).toBe(9);
+    // No grid shown: Up/Down step one as before.
+    expect(gridStep(1, 10, "ArrowDown", 0)).toBe(2);
+    expect(gridStep(0, 10, "ArrowUp", 0)).toBe(9);
+  });
+
+  it("selects the photo a row below with Down", () => {
+    const list = Array.from({ length: 10 }, (_, n) => ({ path: `/p${n}.jpg` })) as never[];
+    cleanup();
+    renderHook(() => useKeyboardShortcuts({ ...props, sortedImageList: list }));
+    useUIStore.setState({ activeView: "library", gridColumns: 4 });
+    useLibraryStore.setState({ libraryActivePath: "/p1.jpg", multiSelectedPaths: ["/p1.jpg"] });
+    press("ArrowDown");
+    expect(useLibraryStore.getState().libraryActivePath).toBe("/p5.jpg");
+    expect(props.handleImageSelect).toHaveBeenCalledWith("/p5.jpg", false);
+    useUIStore.setState({ gridColumns: 0 });
+  });
+});

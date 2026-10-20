@@ -3006,6 +3006,10 @@ body.is-dragging,
 body.is-dragging * {
   cursor: grabbing !important;
 }
+body.is-dragging.is-drop-refused,
+body.is-dragging.is-drop-refused * {
+  cursor: not-allowed !important;
+}
 .studio-subheading {
   margin: 10px 0 2px;
   color: #9ca0a5;

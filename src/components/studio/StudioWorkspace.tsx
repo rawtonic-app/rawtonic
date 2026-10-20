@@ -28,6 +28,7 @@ import {
   PanelRight,
   Settings,
   Upload,
+  LoaderCircle,
   X,
   Search,
   Star,
@@ -541,12 +542,23 @@ export default function StudioWorkspace(props: Props) {
         title={withShortcut(t("studio.workspace.export.title"), "⇧⌘E")}
         onClick={() => openTools(Panel.Export)}
       >
-        <Upload size={13} />
+        {/* A long photo (AI Denoise: up to a minute without a GPU) must not
+            look stuck: the icon turns and the button names the stage. */}
+        {exporting ? (
+          <LoaderCircle size={13} className="animate-spin" aria-hidden />
+        ) : (
+          <Upload size={13} />
+        )}
         {exporting
-          ? t("studio.workspace.export.progress", {
-              current: exportState.progress.current,
-              total: exportState.progress.total,
-            })
+          ? t(
+              exportState.denoising?.length
+                ? "studio.workspace.export.progressDenoising"
+                : "studio.workspace.export.progress",
+              {
+                current: exportState.progress.current,
+                total: exportState.progress.total,
+              },
+            )
           : multiSelectedPaths.length > 1
             ? t("studio.workspace.export.buttonCount", { n: multiSelectedPaths.length })
             : t("studio.workspace.export.button")}

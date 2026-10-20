@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
+import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
@@ -327,7 +327,9 @@ export function useAiMasking() {
   };
 
   // Depth, Foreground and Sky resolve to whether their result was dropped
-  // because the photo changed meanwhile (it may then be asked for again).
+  // because the photo changed meanwhile (it may then be asked for again):
+  // here, or in the backend, which had another photo loaded by then
+  // (`PHOTO_CHANGED`: an A→B→A switch must not give A the mask of B).
   const handleGenerateAiDepthMask = async (subMaskId: string, parameters: AiDepthMaskSettings): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
     if (!selectedImage?.path) return false;
@@ -352,6 +354,7 @@ export function useAiMasking() {
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters, DEPTH_LIMITS);
     } catch (error) {
+      if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Depth Mask Failed: ${error}`);
       return false;
     } finally {
@@ -369,6 +372,7 @@ export function useAiMasking() {
       const transformAdjustments = getTransformAdjustments(adjustments);
       const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiForegroundMask, {
         jsAdjustments: transformAdjustments,
+        path: selectedImage.path,
         flipHorizontal: adjustments.flipHorizontal,
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
@@ -378,6 +382,7 @@ export function useAiMasking() {
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
+      if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Foreground Mask Failed: ${error}`);
       return false;
     } finally {
@@ -395,6 +400,7 @@ export function useAiMasking() {
       const transformAdjustments = getTransformAdjustments(adjustments);
       const newParameters = await invoke<Record<string, unknown>>(Invokes.GenerateAiSkyMask, {
         jsAdjustments: transformAdjustments,
+        path: selectedImage.path,
         flipHorizontal: adjustments.flipHorizontal,
         flipVertical: adjustments.flipVertical,
         orientationSteps: adjustments.orientationSteps,
@@ -404,6 +410,7 @@ export function useAiMasking() {
 
       return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
+      if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Sky Mask Failed: ${error}`);
       return false;
     } finally {
@@ -460,6 +467,7 @@ export function useAiMasking() {
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
   const requestedAutoMasks = useRef(new Set<string>());
+  const [askAgain, setAskAgain] = useState(0);
   const requestedPlacements = useRef(new Set<string>());
   useEffect(() => {
     if (!selectedImageReady) return;
@@ -527,13 +535,17 @@ export function useAiMasking() {
             ? handleGenerateAiSkyMask(sub.id)
             : handleGenerateAiForegroundMask(sub.id);
       // A result dropped because the photo changed is asked for again when
-      // the photo opens again.
+      // the photo opens again, or now when it is open again already.
+      const asked = selectedImage?.path;
       void run.then((dropped) => {
-        if (dropped) requestedAutoMasks.current.delete(key);
+        if (!dropped) return;
+        requestedAutoMasks.current.delete(key);
+        const now = useEditorStore.getState().selectedImage;
+        if (now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedImageReady, masksKey]);
+  }, [selectedImageReady, masksKey, askAgain]);
 
   // Lightroom Heal/Clone spots imported from a sidecar or catalog stay
   // normalised until the photo they belong to is shown.

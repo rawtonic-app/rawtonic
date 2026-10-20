@@ -111,3 +111,12 @@ it('keeps the last edit in the history when going back to the Library', () => {
   expect(history.flush).toHaveBeenCalled();
   expect(history.cancel).not.toHaveBeenCalled();
 });
+
+it('finds the root folder a path is in, not one that merely shares its name prefix', async () => {
+  const { rootContaining } = await import('./useAppNavigation');
+  expect(rootContaining('/photos/2024-old/a', ['/photos/2024', '/photos/2024-old'])).toBe('/photos/2024-old');
+  expect(rootContaining('/photos/2024-old/a', ['/photos/2024'])).toBeUndefined();
+  expect(rootContaining('/photos/2024/a', ['/photos', '/photos/2024'])).toBe('/photos/2024');
+  expect(rootContaining('/photos/2024', ['/photos/2024'])).toBe('/photos/2024');
+  expect(rootContaining('D:\\Shoots\\Day 1', ['D:\\Shoots'])).toBe('D:\\Shoots');
+});

@@ -63,6 +63,49 @@ async function saveEditsFirst(moving: string[] = [], sameName = false): Promise<
 export const undoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⌘Z' : 'Ctrl+Z');
 export const redoKey = () => (useSettingsStore.getState().osPlatform === 'macos' ? '⇧⌘Z' : 'Ctrl+Y');
 
+type FileOperationText =
+  | 'alreadyInSelects'
+  | 'copyFilesFailed'
+  | 'createFolderFailed'
+  | 'deleteFailed'
+  | 'moveFailed'
+  | 'moveFilesFailed'
+  | 'nothingToUndo'
+  | 'renameFilesFailed'
+  | 'renameFolderFailed'
+  | 'renamed'
+  | 'selectForSelects'
+  | 'selectsNeedSession'
+  | 'trashConfirm'
+  | 'trashCopiesConfirm'
+  | 'trashCopiesMessage'
+  | 'trashCopiesTitle'
+  | 'trashFolderFailed'
+  | 'trashFolderMessage'
+  | 'trashFolderTitle'
+  | 'trashOneMessage'
+  | 'trashSelectedOnly'
+  | 'trashTitle'
+  | 'undoFailed'
+  | 'undoHint'
+  | 'undoHintFromDevelop';
+
+const ops = (key: FileOperationText, options: Record<string, unknown> = {}) =>
+  i18next.t(`studio.library.fileOperations.${key}`, options);
+/** The texts with a number (plural forms). */
+type FileOperationCount = 'movedTo' | 'trashManyMessage' | 'trashedBoth' | 'trashedSession' | 'trashedSystem';
+const opsCount = (key: FileOperationCount, count: number, options: Record<string, unknown> = {}) =>
+  i18next.t(`studio.library.fileOperations.${key}`, { ...options, count });
+
+/** How to undo a file operation from where the user is: in Develop ⌘Z
+ * undoes edits (the edit history), so the hint names the Library. */
+export function undoHint(): string {
+  const key = undoKey();
+  return useUIStore.getState().activeView === 'editor'
+    ? ops('undoHintFromDevelop', { key })
+    : ops('undoHint', { key });
+}
+
 /** Mirrors `TrashContents` in src-tauri/src/file_operations.rs. */
 export interface TrashContents {
   /** Photographs and virtual copies. */
@@ -87,24 +130,18 @@ export function describeEmptyTrash(contents: TrashContents): string {
   return `${what} ${t('studio.library.trash.cannotUndo')}`;
 }
 
-/** What a finished file operation did, with how to undo it. */
-export function describeFileOperation(summary: FileOperationSummary, key: string): string {
+/** What a finished file operation did, with how to undo it (`hint`). */
+export function describeFileOperation(summary: FileOperationSummary, hint = undoHint()): string {
   if (summary.kind === 'trash') {
     const where =
-      summary.systemTrash === 0
-        ? "the session's Trash folder"
-        : summary.sessionTrash === 0
-          ? 'the Trash'
-          : "the session's Trash folder and the Trash";
-    const what = summary.items === 1 ? '1 item' : `${summary.items} items`;
-    return `Moved ${what} to ${where}. ${key} undoes it.`;
+      summary.systemTrash === 0 ? 'trashedSession' : summary.sessionTrash === 0 ? 'trashedSystem' : 'trashedBoth';
+    return `${opsCount(where, summary.items)} ${hint}`;
   }
   if (summary.kind === 'move' && summary.newPaths.length) {
     const folder = summary.newPaths[0].split(/[\\/]/).slice(-2, -1)[0];
-    const what = summary.newPaths.length === 1 ? '1 photo' : `${summary.newPaths.length} photos`;
-    return `Moved ${what} to ${folder}. ${key} undoes it.`;
+    return `${opsCount('movedTo', summary.newPaths.length, { folder })} ${hint}`;
   }
-  return `${summary.label}. ${key} undoes it.`;
+  return `${summary.label}. ${hint}`;
 }
 
 export function useFileOperations(
@@ -184,7 +221,7 @@ export function useFileOperations(
         if (!(await saveEditsFirst(pathsToDelete, options.includeAssociated))) return;
         const command = options.includeAssociated ? 'delete_files_with_associated' : 'delete_files_from_disk';
         const summary = await invoke<FileOperationSummary>(command, { paths: pathsToDelete });
-        if (summary) toast.success(describeFileOperation(summary, undoKey()));
+        if (summary) toast.success(describeFileOperation(summary));
         await refreshImageList();
         await refreshAllFolderTrees();
         void recountAfterFileOperation();
@@ -216,7 +253,7 @@ export function useFileOperations(
         }
       } catch (err) {
         console.error('Failed to delete files:', err);
-        toast.error(`Failed to delete files: ${err}`);
+        toast.error(ops('deleteFailed', { error: String(err) }));
       }
     },
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, sortedImageList, handleImageSelect],
@@ -227,7 +264,7 @@ export function useFileOperations(
       await saveEditsFirst();
       const summary = await invoke<FileOperationSummary | null>(Invokes.UndoFileOperation);
       if (!summary) {
-        toast.info('There is no file operation to undo.');
+        toast.info(ops('nothingToUndo'));
         return;
       }
       // Renamed and moved photographs and folders are back at their old
@@ -240,7 +277,7 @@ export function useFileOperations(
       reopen();
       void recountAfterFileOperation();
     } catch (err) {
-      toast.error(`Could not undo: ${err}`);
+      toast.error(ops('undoFailed', { error: String(err) }));
     }
   }, [refreshImageList, refreshAllFolderTrees, followMoves]);
 
@@ -346,7 +383,7 @@ export function useFileOperations(
           sourcePaths: paths,
           destinationFolder: destination,
         });
-        if (summary) toast.success(describeFileOperation(summary, undoKey()));
+        if (summary) toast.success(describeFileOperation(summary));
         const { selectedImage } = useEditorStore.getState();
         if (selectedImage && paths.some((p) => p.split('?vc=')[0] === selectedImage.path.split('?vc=')[0])) {
           if (useUIStore.getState().activeView === 'editor') handleBackToLibrary();
@@ -360,7 +397,7 @@ export function useFileOperations(
         await refreshAllFolderTrees();
         void recountAfterFileOperation();
       } catch (err) {
-        toast.error(`Could not move: ${err}`);
+        toast.error(ops('moveFailed', { error: String(err) }));
       }
     },
     [refreshImageList, refreshAllFolderTrees, handleBackToLibrary, followMoves],
@@ -372,7 +409,7 @@ export function useFileOperations(
     const { selectedImage } = useEditorStore.getState();
     const { activeView } = useUIStore.getState();
     if (!sessionDirectory) {
-      toast.info('Move to Selects works in sessions.');
+      toast.info(ops('selectsNeedSession'));
       return;
     }
     const paths =
@@ -387,7 +424,7 @@ export function useFileOperations(
     const selects = `${sessionDirectory}${separator}Selects`;
     const outside = paths.filter((p) => getParentDir(p.split('?vc=')[0]) !== selects);
     if (outside.length === 0) {
-      toast.info(paths.length ? 'Already in Selects.' : 'Select photographs to move to Selects.');
+      toast.info(ops(paths.length ? 'alreadyInSelects' : 'selectForSelects'));
       return;
     }
     await handleMoveToFolder(outside, selects);
@@ -399,28 +436,28 @@ export function useFileOperations(
       const name = path.split(/[\\/]/).pop();
       useUIStore.getState().setUI({
         confirmModalState: {
-          confirmText: 'Move to Trash',
+          confirmText: ops('trashConfirm'),
           // Undoable, so not destructive; only Empty Trash is.
           confirmVariant: 'primary',
           isOpen: true,
-          message: `Move the folder "${name}" and everything in it to the Trash? In a session it goes to its Trash folder. ${undoKey()} undoes it.`,
+          message: ops('trashFolderMessage', { name, hint: undoHint() }),
           onConfirm: async () => {
             try {
               if (!(await saveEditsFirst([path]))) return;
               const summary = await invoke<FileOperationSummary>(Invokes.DeleteFolder, { path });
-              if (summary) toast.success(describeFileOperation(summary, undoKey()));
+              if (summary) toast.success(describeFileOperation(summary));
               const { currentFolderPath, setLibrary } = useLibraryStore.getState();
-              if (currentFolderPath === path || currentFolderPath?.startsWith(path + '/')) {
+              if (currentFolderPath && (currentFolderPath === path || isBelow(currentFolderPath, path))) {
                 setLibrary({ currentFolderPath: null, imageList: [], multiSelectedPaths: [], libraryActivePath: null });
               }
               await refreshAllFolderTrees();
               await refreshImageList();
               void recountAfterFileOperation();
             } catch (err) {
-              toast.error(`Could not move the folder to the Trash: ${err}`);
+              toast.error(ops('trashFolderFailed', { error: String(err) }));
             }
           },
-          title: 'Move Folder to Trash',
+          title: ops('trashFolderTitle'),
         },
       });
     },
@@ -443,20 +480,21 @@ export function useFileOperations(
       !pathsToDelete[0].includes('?vc=') &&
       imageList.some((image) => image.path.startsWith(`${pathsToDelete[0]}?vc=`));
 
-    let modalTitle = 'Move to Trash';
+    const hint = undoHint();
+    let modalTitle = ops('trashTitle');
     let modalMessage: string;
     let confirmText: string;
 
     if (selectionHasVirtualCopies) {
-      modalTitle = 'Move Image and All Virtual Copies to the Trash?';
-      modalMessage = `Move this image and all of its virtual copies to the Trash? In a session they go to its Trash folder. ${undoKey()} undoes it.`;
-      confirmText = 'Move All';
+      modalTitle = ops('trashCopiesTitle');
+      modalMessage = ops('trashCopiesMessage', { hint });
+      confirmText = ops('trashCopiesConfirm');
     } else if (isSingle) {
-      modalMessage = `Move this image to the Trash? In a session it goes to its Trash folder. ${undoKey()} undoes it. Right-click for more options (e.g., deleting associated files).`;
-      confirmText = 'Move Selected Only';
+      modalMessage = ops('trashOneMessage', { hint });
+      confirmText = ops('trashSelectedOnly');
     } else {
-      modalMessage = `Move these ${pathsToDelete.length} images to the Trash? In a session they go to its Trash folder. ${undoKey()} undoes it. Right-click for more options (e.g., deleting associated files).`;
-      confirmText = 'Move Selected Only';
+      modalMessage = opsCount('trashManyMessage', pathsToDelete.length, { hint });
+      confirmText = ops('trashSelectedOnly');
     }
 
     setUI({
@@ -481,7 +519,7 @@ export function useFileOperations(
           await invoke(Invokes.CreateFolder, { path: `${folderActionTarget}/${folderName.trim()}` });
           await refreshAllFolderTrees();
         } catch (err) {
-          toast.error(`Failed to create folder: ${err}`);
+          toast.error(ops('createFolderFailed', { error: String(err) }));
         }
       }
     },
@@ -502,7 +540,7 @@ export function useFileOperations(
             path: oldPath,
             newName: trimmedNewName,
           });
-          if (summary) toast.success(describeFileOperation(summary, undoKey()));
+          if (summary) toast.success(describeFileOperation(summary));
 
           const parentDir = getParentDir(oldPath);
           const separator = oldPath.includes('/') ? '/' : '\\';
@@ -517,7 +555,7 @@ export function useFileOperations(
           reopen();
           void recountAfterFileOperation();
         } catch (err) {
-          toast.error(`Failed to rename folder: ${err}`);
+          toast.error(ops('renameFolderFailed', { error: String(err) }));
         }
       }
     },
@@ -539,14 +577,14 @@ export function useFileOperations(
           // thumbnails stay with the renamed photos (as on undo).
           const moves = renameTargetPaths.flatMap((from, i) => (newPaths[i] ? [{ from, to: newPaths[i] }] : []));
           const reopen = followMoves(moves);
-          toast.success(`Renamed. ${undoKey()} undoes it.`);
+          toast.success(ops('renamed', { hint: undoHint() }));
           useLibraryStore.getState().setLibrary({ multiSelectedPaths: newPaths });
 
           await refreshImageList();
           reopen();
           void recountAfterFileOperation();
         } catch (err) {
-          toast.error(`Failed to rename files: ${err}`);
+          toast.error(ops('renameFilesFailed', { error: String(err) }));
         }
       }
       setUI({ renameTargetPaths: [] });
@@ -579,7 +617,7 @@ export function useFileOperations(
             sourcePaths: copiedFilePaths,
             destinationFolder: target,
           });
-          if (summary) toast.success(describeFileOperation(summary, undoKey()));
+          if (summary) toast.success(describeFileOperation(summary));
           setProcess({ copiedFilePaths: [] });
           setLibrary({ multiSelectedPaths: [] });
           const reopen = followMoves(summary?.moves ?? []);
@@ -591,7 +629,7 @@ export function useFileOperations(
         }
         await refreshImageList();
       } catch (err) {
-        toast.error(`Failed to ${mode} files: ${err}`);
+        toast.error(ops(mode === 'copy' ? 'copyFilesFailed' : 'moveFilesFailed', { error: String(err) }));
       }
     },
     [refreshImageList, refreshAllFolderTrees, followMoves],
