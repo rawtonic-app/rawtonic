@@ -120,9 +120,25 @@ struct Watch {
     session: PathBuf,
     settings: CaptureSettings,
     include_subfolders: bool,
+    /// Its thread, joined when the watch stops.
+    worker: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Watch {
+    /// Stops the watch and waits for its thread: nothing of it is written
+    /// after this (a watch replacing it must not have the old one record its
+    /// files and last capture against the new folder). The thread checks the
+    /// stop between files and while copying, so this is short.
+    fn stop(mut self) -> Self {
+        self.stop.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take()
+            && worker.join().is_err()
+        {
+            log::warn!("Hot folder: its watch ended with a panic");
+        }
+        self
+    }
+
     fn status(&self) -> HotFolderStatus {
         HotFolderStatus {
             folder: self.folder.clone(),
@@ -422,8 +438,7 @@ impl<'a> Watcher<'a> {
 /// Stops the running watch (the library keeps its hot folder).
 fn suspend() -> Option<Watch> {
     let watch = WATCH.lock().ok()?.take()?;
-    watch.stop.store(true, Ordering::Release);
-    Some(watch)
+    Some(watch.stop())
 }
 
 /// Starts watching the hot folder `session` keeps, in place of any other.
@@ -441,7 +456,7 @@ fn spawn(
     let missing = Arc::new(AtomicBool::new(!config.folder.is_dir()));
     let settings: CaptureSettings =
         serde_json::from_value(config.settings.clone()).unwrap_or_default();
-    {
+    let worker = {
         let (stop, imported, missing, session, config) = (
             stop.clone(),
             imported.clone(),
@@ -475,8 +490,8 @@ fn spawn(
                     std::thread::sleep(POLL);
                 }
             })
-            .map_err(|e| e.to_string())?;
-    }
+            .map_err(|e| e.to_string())?
+    };
     let watch = Watch {
         stop,
         imported,
@@ -485,6 +500,7 @@ fn spawn(
         session,
         settings,
         include_subfolders: config.include_subfolders,
+        worker: Some(worker),
     };
     let status = watch.status();
     *WATCH.lock().map_err(|e| e.to_string())? = Some(watch);
@@ -574,8 +590,10 @@ pub fn hot_folder_suspend(directory: Option<String>) {
                 .is_ok_and(|directory| directory == running.session)
         })
     });
-    if matches && let Some(running) = watch.take() {
-        running.stop.store(true, Ordering::Release);
+    let running = if matches { watch.take() } else { None };
+    drop(watch);
+    if let Some(running) = running {
+        running.stop();
     }
 }
 
@@ -606,6 +624,36 @@ mod tests {
 
     fn session(root: &Path) -> Library {
         Library::create(&root.join("Job"), "Job", Mode::Session).unwrap()
+    }
+
+    #[test]
+    fn a_stopped_watch_has_finished_writing() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let done = Arc::new(AtomicBool::new(false));
+        let worker = {
+            let (stop, done) = (stop.clone(), done.clone());
+            std::thread::spawn(move || {
+                while !stop.load(Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                // The file it was taking in when it was stopped.
+                std::thread::sleep(Duration::from_millis(200));
+                done.store(true, Ordering::Release);
+            })
+        };
+        let watch = Watch {
+            stop,
+            imported: Default::default(),
+            missing: Default::default(),
+            folder: PathBuf::from("/hot"),
+            session: PathBuf::from("/job"),
+            settings: CaptureSettings::default(),
+            include_subfolders: false,
+            worker: Some(worker),
+        };
+        let stopped = watch.stop();
+        assert!(done.load(Ordering::Acquire), "joined before returning");
+        assert!(stopped.worker.is_none());
     }
 
     #[test]

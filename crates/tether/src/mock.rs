@@ -33,6 +33,8 @@ pub struct MockSpec {
     pub body_shots_ms: Vec<u64>,
     /// Another program holds the camera.
     pub busy: bool,
+    /// Listing the cameras takes this long (a driver call that hangs).
+    pub list_delay_ms: u64,
     /// The cable comes out after this many downloaded files.
     pub unplug_after: Option<u64>,
     /// The unplug shows only in requests, not in the event poll.
@@ -87,6 +89,7 @@ impl Default for MockSpec {
             late_ms: 0,
             body_shots_ms: vec![],
             busy: false,
+            list_delay_ms: 0,
             unplug_after: None,
             quiet_unplug: false,
             read_only: vec![],
@@ -118,6 +121,7 @@ impl Driver for MockDriver {
     }
 
     fn list(&mut self) -> Result<Vec<CameraInfo>, TetherError> {
+        std::thread::sleep(Duration::from_millis(self.spec.list_delay_ms));
         Ok(vec![CameraInfo {
             model: self.spec.model.clone(),
             port: self.spec.port.clone(),

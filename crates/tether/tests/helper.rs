@@ -887,3 +887,40 @@ fn a_short_request_behind_a_long_capture_is_not_taken_for_a_hung_helper() {
     assert_eq!(capture.join().unwrap().unwrap(), Reply::Ok);
     assert!(client.alive());
 }
+
+/// The app is gone while the helper cannot read the end of its requests (a
+/// camera call that hangs keeps it from reading; here its input is simply
+/// kept open by another process): it ends itself after its grace time.
+#[cfg(unix)]
+#[test]
+fn a_helper_whose_app_is_gone_ends_itself() {
+    // `sh` starts the helper with an input that stays open and exits a
+    // second later, as an app that quit or crashed.
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(r#"sleep 30 </dev/null 2>/dev/null | "$0" --mock >/dev/null 2>&1 & echo $!; sleep 1"#)
+        .arg(HELPER)
+        .env("RAWTONIC_TETHER_PARENT_GRACE_MS", "200")
+        .env("RAWTONIC_TETHER_MOCK", "{}")
+        .output()
+        .unwrap();
+    let pid = String::from_utf8(out.stdout).unwrap().trim().to_string();
+    // `sh` returned after its own second, not when the helper's input ends.
+    let started = Instant::now();
+    assert!(!pid.is_empty());
+    let alive = || {
+        std::process::Command::new("kill")
+            .args(["-0", &pid])
+            .status()
+            .unwrap()
+            .success()
+    };
+    while alive() && started.elapsed() < WAIT {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(!alive(), "the helper outlived its app");
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "ended by its grace, not its input"
+    );
+}
