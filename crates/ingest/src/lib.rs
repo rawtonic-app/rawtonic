@@ -280,6 +280,16 @@ fn create_dir_all_durable(folder: &Path, base: &Path) -> std::io::Result<()> {
     })
 }
 
+/// `parent` as a directory to open: a relative path of one component
+/// (`--backup backup`) has the empty parent, the current directory.
+fn containing_dir(parent: &Path) -> &Path {
+    if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    }
+}
+
 /// `create_dir_all_durable` with the directory sync given (`sync`: called
 /// for each folder from `folder`'s parent up to `base`, innermost first).
 fn create_dir_all_syncing(
@@ -299,7 +309,7 @@ fn create_dir_all_syncing(
     while at != base
         && let Some(parent) = at.parent()
     {
-        sync(parent)?;
+        sync(containing_dir(parent))?;
         at = parent;
     }
     Ok(())
@@ -869,6 +879,13 @@ mod tests {
         // Every time, also when another import made the folders.
         assert_eq!(syncing(&day, false).1.len(), 2);
         assert!(syncing(&d.path().join("elsewhere"), false).0.is_err());
+        // A backup folder given relative, of one component (`--backup
+        // backup`): its parent is the current directory.
+        let backup = Path::new("backup");
+        assert_eq!(containing_dir(backup.parent().unwrap()), Path::new("."));
+        assert_eq!(containing_dir(Path::new("/a")), Path::new("/a"));
+        // `.` is a directory a sync can open.
+        fs::File::open(containing_dir(Path::new(""))).unwrap();
         // The real one, on this filesystem.
         create_dir_all_durable(&library.join("2027").join("2027-01-01"), &library).unwrap();
     }

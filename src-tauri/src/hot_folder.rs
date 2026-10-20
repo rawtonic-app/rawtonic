@@ -507,11 +507,48 @@ fn spawn(
     Ok(status)
 }
 
+/// Runs a change of the watch in a blocking worker, one at a time: stopping
+/// a watch waits for its thread, which may be hashing a large file or
+/// reading a slow drive, and must not hold up the app's main thread.
+async fn changing<R: Send + 'static>(
+    work: impl FnOnce() -> R + Send + 'static,
+) -> Result<R, String> {
+    static CHANGING: Mutex<()> = Mutex::new(());
+    crate::file_management::blocking(move || {
+        let _one = CHANGING.lock().unwrap_or_else(|e| e.into_inner());
+        work()
+    })
+    .await
+}
+
 /// Starts watching `folder` for the library in `directory` and keeps it
 /// there, so watching resumes when the library is opened again.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn hot_folder_start(
+pub async fn hot_folder_start(
+    directory: String,
+    folder: String,
+    template: String,
+    next_capture: NextCapture,
+    metadata: Option<NextCaptureMetadata>,
+    include_subfolders: Option<bool>,
+    app: AppHandle,
+) -> Result<HotFolderStatus, String> {
+    changing(move || {
+        start(
+            directory,
+            folder,
+            template,
+            next_capture,
+            metadata,
+            include_subfolders,
+            app,
+        )
+    })
+    .await?
+}
+
+fn start(
     directory: String,
     folder: String,
     template: String,
@@ -548,10 +585,14 @@ pub fn hot_folder_start(
 /// already running for it: its status). A watched folder that is gone is
 /// watched all the same and shown as missing.
 #[tauri::command]
-pub fn hot_folder_resume(
+pub async fn hot_folder_resume(
     directory: String,
     app: AppHandle,
 ) -> Result<Option<HotFolderStatus>, String> {
+    changing(move || resume(directory, app)).await?
+}
+
+fn resume(directory: String, app: AppHandle) -> Result<Option<HotFolderStatus>, String> {
     let session = Path::new(&directory)
         .canonicalize()
         .map_err(|e| e.to_string())?;
@@ -581,7 +622,11 @@ pub fn hot_folder_resume(
 /// its hot folder, which resumes when it is opened again. With `directory`,
 /// only the watch of that library (not one resumed for another meanwhile).
 #[tauri::command]
-pub fn hot_folder_suspend(directory: Option<String>) {
+pub async fn hot_folder_suspend(directory: Option<String>) -> Result<(), String> {
+    changing(move || suspend_for(directory)).await
+}
+
+fn suspend_for(directory: Option<String>) {
     let Ok(mut watch) = WATCH.lock() else { return };
     let matches = watch.as_ref().is_some_and(|running| {
         directory.is_none_or(|directory| {
@@ -600,7 +645,11 @@ pub fn hot_folder_suspend(directory: Option<String>) {
 /// Stops watching, and the library forgets its hot folder (the running
 /// watch's library, else the one in `directory`).
 #[tauri::command]
-pub fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
+pub async fn hot_folder_stop(directory: Option<String>) -> Result<(), String> {
+    changing(move || stop_and_forget(directory)).await?
+}
+
+fn stop_and_forget(directory: Option<String>) -> Result<(), String> {
     let session = match (suspend(), directory) {
         (Some(watch), _) => watch.session,
         (None, Some(directory)) => PathBuf::from(directory),
