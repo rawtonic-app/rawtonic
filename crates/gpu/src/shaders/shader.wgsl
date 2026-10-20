@@ -14,6 +14,10 @@ override ENABLE_RELIGHT: bool = true;
 // exports of quieter photos use pipelines without it (gpu_processing.rs
 // `LUMA_NR_EDGE_NOISE_START`).
 override EDGE_NR: bool = true;
+// The refined copy of the noise reduction (other than default Detail,
+// Contrast, Color Detail or Smoothness); display variants of default
+// refinements leave it out (gpu_processing.rs `REFINED_NR_PREVIEW_FEATURE`).
+override NR_REFINED: bool = true;
 // The luminance noise reduction's brightness noise profile and even residual
 // (recipes of the multi-scale colour noise reduction); exports of earlier
 // recipes use pipelines without it, so Metal compiles their arithmetic as
@@ -4354,7 +4358,7 @@ fn apply_noise_reduction(
     is_raw: u32
 ) -> vec3<f32> {
     let r = adjustments.global.noise_detail;
-    if (r.x == 0.5 && r.y == 0.0 && r.z == 0.5 && r.w == 0.5) {
+    if (!NR_REFINED || (r.x == 0.5 && r.y == 0.0 && r.z == 0.5 && r.w == 0.5)) {
         return apply_noise_reduction_default(center_linear, coords_i, luma_amount, color_amount, scale, is_raw);
     }
     return apply_noise_reduction_refined(center_linear, coords_i, luma_amount, color_amount, scale, is_raw);

@@ -360,6 +360,10 @@ fn custom_curve() -> serde_json::Value {
 #[test]
 fn preview_features_preserve_global_and_local_effects() {
     for expected in 0..PREVIEW_PIPELINE_COUNT {
+        // Refinements matter only with noise reduction.
+        if expected & REFINED_NR_PREVIEW_FEATURE != 0 && expected & 16 == 0 {
+            continue;
+        }
         let mut effects = json!({});
         if expected & 1 != 0 {
             effects["sharpness"] = json!(-25);
@@ -381,9 +385,12 @@ fn preview_features_preserve_global_and_local_effects() {
         } else {
             effects
         };
-        // Relight is photo-wide only.
+        // Relight and the noise refinements are photo-wide only.
         if expected & RELIGHT_PREVIEW_FEATURE != 0 {
             profile["relightLights"] = json!([{"intensity":65}]);
+        }
+        if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
+            profile["lumaNoiseDetail"] = json!(70);
         }
         let mut adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
         assert_eq!(preview_features(&adjustments), expected, "{profile}");
@@ -393,6 +400,15 @@ fn preview_features_preserve_global_and_local_effects() {
             assert_eq!(
                 preview_features(&adjustments),
                 expected & RELIGHT_PREVIEW_FEATURE
+            );
+            continue;
+        }
+        if expected & REFINED_NR_PREVIEW_FEATURE != 0 {
+            // Without noise reduction the refinements change nothing.
+            adjustments.global.color_noise_reduction = 0.0;
+            assert_eq!(
+                preview_features(&adjustments),
+                expected & !(16 | REFINED_NR_PREVIEW_FEATURE)
             );
         }
     }
@@ -5727,7 +5743,9 @@ fn pipeline_compilation_probe() {
         json!({"probe":"compilation","stage":"detail_pipeline","ms":start.elapsed().as_secs_f64()*1000.0})
     );
     // Every preview variant, compiled one after another on this thread.
-    for features in 1..PREVIEW_PIPELINE_COUNT {
+    for features in
+        (1..PREVIEW_PIPELINE_COUNT).filter(|f| f & REFINED_NR_PREVIEW_FEATURE == 0 || f & 16 != 0)
+    {
         let start = Instant::now();
         create_preview_pipeline(
             &context.device,
@@ -5850,6 +5868,8 @@ fn fallback_variant_matches_specialized_display() {
         json!({}),
         json!({"sharpness":40,"colorNoiseReduction":25}),
         json!({"highlights":-40,"curves":custom_curve(),"lumaNoiseReduction":20}),
+        json!({"sharpness":40,"lumaNoiseReduction":20,"colorNoiseReduction":25,
+            "lumaNoiseDetail":70,"colorNoiseSmoothness":20}),
         curve_mask_stack(6, false),
         json!({"sharpness":53,"vibrance":72,"saturation":27,"brightness":0.25,
             "masks":(0..4).map(|i| local_mask(&format!("m{i}"), json!({"curves":custom_curve(),"highlights":30})))
@@ -5906,7 +5926,7 @@ fn fallback_variant_matches_specialized_display() {
         assert!(max_delta <= 1, "{profile}: fallback delta {max_delta}");
         checked += 1;
     }
-    assert_eq!(checked, 5);
+    assert_eq!(checked, 6);
 }
 
 #[test]
