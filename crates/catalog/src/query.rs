@@ -133,6 +133,9 @@ pub enum Op {
 /// SQLite rejects).
 const MAX_DEPTH: usize = 16;
 const MAX_RULES: usize = 500;
+/// Albums, groups and smart albums one rule may expand in all (smart
+/// albums naming groups and each other).
+const MAX_EXPANSIONS: usize = 256;
 
 /// File extensions of each file type category; any other extension is a
 /// RAW (the library only registers photographs; the app's format lists are
@@ -255,6 +258,8 @@ struct Compiler<'a> {
     /// Smart albums being expanded (one that refers to itself, directly or
     /// through others, matches nothing there).
     expanding: HashSet<String>,
+    /// Groups and smart albums expanded so far (`expand`).
+    expansions: usize,
     today: chrono::NaiveDate,
     /// The condition reads `metadata m` / `roots r`.
     metadata: bool,
@@ -348,6 +353,7 @@ impl<'a> Compiler<'a> {
             library,
             params: Vec::new(),
             expanding: HashSet::new(),
+            expansions: 0,
             today: chrono::Local::now().date_naive(),
             metadata: false,
             roots: false,
@@ -929,6 +935,11 @@ impl<'a> Compiler<'a> {
                 "a.id IN (SELECT asset_id FROM collection_assets WHERE collection_id=?)".into()
             }
             Some((kind, _)) if kind == crate::GROUP => {
+                // A group being expanded (a smart album in it naming it)
+                // adds nothing more there.
+                if !self.expand(id)? {
+                    return Ok("0".into());
+                }
                 // Every album and smart album below the group.
                 let children: Vec<String> = library
                     .conn
@@ -943,6 +954,7 @@ impl<'a> Compiler<'a> {
                     .iter()
                     .map(|child| self.album(child))
                     .collect::<Result<Vec<_>>>()?;
+                self.expanding.remove(id);
                 if parts.is_empty() {
                     "0".into()
                 } else {
@@ -950,11 +962,7 @@ impl<'a> Compiler<'a> {
                 }
             }
             Some((_, rules)) => {
-                ensure!(
-                    self.expanding.len() < MAX_DEPTH,
-                    "Smart albums refer to each other too deeply"
-                );
-                if !self.expanding.insert(id.to_string()) {
+                if !self.expand(id)? {
                     return Ok("0".into());
                 }
                 let rule: Rule = serde_json::from_str(rules.as_deref().unwrap_or("{}"))
@@ -964,6 +972,23 @@ impl<'a> Compiler<'a> {
                 sql
             }
         })
+    }
+
+    /// Starts expanding group or smart album `id`: false when it is being
+    /// expanded already (a loop). Refuses nesting deeper than `MAX_DEPTH`
+    /// and more than `MAX_EXPANSIONS` expansions in one rule, so smart
+    /// albums naming each other can never build an unbounded query.
+    fn expand(&mut self, id: &str) -> Result<bool> {
+        ensure!(
+            self.expanding.len() < MAX_DEPTH,
+            "Smart albums refer to each other too deeply"
+        );
+        self.expansions += 1;
+        ensure!(
+            self.expansions <= MAX_EXPANSIONS,
+            "Smart albums refer to each other too often"
+        );
+        Ok(self.expanding.insert(id.to_string()))
     }
 
     /// Photographs in `folder` (and its subfolders when `below`): those of

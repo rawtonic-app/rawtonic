@@ -19,7 +19,7 @@ CREATE INDEX IF NOT EXISTS metadata_rating ON metadata(rating);
 
 -- Keywords one row each (kept by triggers from the metadata JSON, whatever
 -- writes it), so a keyword search does not parse every photograph's
--- metadata.
+-- metadata; without surrounding spaces, as rules compare them.
 CREATE TABLE IF NOT EXISTS asset_keywords(
  asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
  keyword TEXT NOT NULL COLLATE NOCASE,
@@ -27,18 +27,18 @@ CREATE TABLE IF NOT EXISTS asset_keywords(
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS asset_keywords_keyword ON asset_keywords(keyword);
 INSERT OR IGNORE INTO asset_keywords(asset_id, keyword)
- SELECT m.asset_id, j.value FROM metadata m, json_each(m.data, '$.keywords') j
- WHERE json_valid(m.data) AND j.type = 'text' AND j.value != '';
+ SELECT m.asset_id, trim(j.value) FROM metadata m, json_each(m.data, '$.keywords') j
+ WHERE json_valid(m.data) AND j.type = 'text' AND trim(j.value) != '';
 CREATE TRIGGER metadata_keywords_ai AFTER INSERT ON metadata BEGIN
  INSERT OR IGNORE INTO asset_keywords(asset_id, keyword)
-  SELECT new.asset_id, value FROM json_each(new.data, '$.keywords')
-  WHERE json_valid(new.data) AND type = 'text' AND value != '';
+  SELECT new.asset_id, trim(value) FROM json_each(new.data, '$.keywords')
+  WHERE json_valid(new.data) AND type = 'text' AND trim(value) != '';
 END;
 CREATE TRIGGER metadata_keywords_au AFTER UPDATE OF data ON metadata BEGIN
  DELETE FROM asset_keywords WHERE asset_id = old.asset_id;
  INSERT OR IGNORE INTO asset_keywords(asset_id, keyword)
-  SELECT new.asset_id, value FROM json_each(new.data, '$.keywords')
-  WHERE json_valid(new.data) AND type = 'text' AND value != '';
+  SELECT new.asset_id, trim(value) FROM json_each(new.data, '$.keywords')
+  WHERE json_valid(new.data) AND type = 'text' AND trim(value) != '';
 END;
 
 -- Text search finds a part of any word (`0123` in `DSC00123.ARW`, like

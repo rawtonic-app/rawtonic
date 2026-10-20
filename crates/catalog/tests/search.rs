@@ -1088,3 +1088,44 @@ fn details_are_the_searchable_text_without_keywords() {
         ["DSC00123.ARW"]
     );
 }
+
+#[test]
+fn smart_albums_naming_their_own_group_stay_small() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, _) = library(d.path());
+    let group = lib
+        .create_collection_of_kind("G", None, rawtonic_catalog::GROUP)
+        .unwrap();
+    let rules = rule(json!({"field":"album","op":"is","value":group.id}));
+    for i in 0..8 {
+        lib.create_smart_collection(&format!("S{i}"), Some(&group.id), &rules)
+            .unwrap();
+    }
+    let started = std::time::Instant::now();
+    let albums = lib.collections().unwrap();
+    assert!(albums.iter().all(|a| a.count == 0));
+    assert!(found(&lib, json!({"field":"album","op":"is","value":group.id})).is_empty());
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+}
+
+#[test]
+fn keywords_with_spaces_around_them_are_listed_as_they_select() {
+    let d = tempfile::tempdir().unwrap();
+    let (lib, ids) = library(d.path());
+    let mut meta = lib.metadata(&ids[3]).unwrap();
+    meta.keywords = vec![" harbour ".into()];
+    lib.set_metadata(&ids[3], &meta).unwrap();
+    let facets = lib.facets(&Rule::everything(), &[Field::Keyword]).unwrap();
+    let listed = facets[&Field::Keyword]
+        .iter()
+        .find(|v| v.value.contains("harbour"))
+        .unwrap();
+    assert_eq!((listed.value.as_str(), listed.count), ("harbour", 1));
+    assert_eq!(
+        found(
+            &lib,
+            json!({"field":"keyword","op":"is","value":listed.value})
+        ),
+        ["scan.jpg"]
+    );
+}
