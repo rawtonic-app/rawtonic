@@ -3648,6 +3648,23 @@ fn ms_guide(coords_i: vec2<i32>, c0: vec2<f32>, mode: f32, is_raw: u32) -> vec2<
     return c0;
 }
 
+// Version 9's range (color_noise.rs `rebuilt_range`): per component the
+// lowest (xy) and highest (zw) plain expansion of the rebuilt level 1 at the
+// 3 x 3 pixels around photo pixel `p` (clamped to the photo).
+fn ms_rebuilt_range(p: vec2<i32>) -> vec4<f32> {
+    let max_idx = vec2<i32>(input_dims()) - vec2<i32>(1);
+    var lo = vec2<f32>(3.0e38);
+    var hi = vec2<f32>(-3.0e38);
+    for (var dy: i32 = -1; dy <= 1; dy = dy + 1) {
+        for (var dx: i32 = -1; dx <= 1; dx = dx + 1) {
+            let e = ms_expand(clamp(p + vec2<i32>(dx, dy), vec2<i32>(0), max_idx)).zw;
+            lo = min(lo, e);
+            hi = max(hi, e);
+        }
+    }
+    return vec4<f32>(lo, hi);
+}
+
 // Version 7's detail chroma (color_noise.rs `speck_plane`): the 3 x 3
 // median chroma when the pixel's chroma `c0` lies more than `limit` from it
 // while its square-root luminance `lp0` lies within `luma_limit` (one noise
@@ -3767,6 +3784,26 @@ fn apply_color_noise_multiscale(
             g0 = max(g0, ms_gain(ms_level1_gradient2(coords_i), edge2, adjustments.global.color_noise.z));
         }
         ab = center_e.zw + g0 * (cd - center_e.xy);
+    }
+    // Version 9 (code bits 12-15): the filtered chroma stays within the
+    // range of the neighbourhood's plain reconstruction and the pixel's own,
+    // widened by T = ((code >> 12) & 15) / 4 noise σ (color_noise.rs
+    // `Tuning::range_clamp`, `keep_in_range`), fading with the filter like
+    // the speck swap and for chroma 4-8 σ beyond the range
+    // (`RANGE_CLAMP_FAR`: a coloured point that far keeps its colour).
+    // Chroma within the margin of the pixel's own reconstruction lies in the
+    // widened range already: unchanged, without reading the range.
+    let range_steps = (guide_code >> 12u) & 15u;
+    let sigma = sqrt(max(aware2, 0.0));
+    let margin = vec2<f32>(f32(range_steps) * 0.25 * sigma);
+    let off = abs(ab - center_e.zw);
+    if (range_steps != 0u && aware2 > 0.0 && speck > 0.0 && max(off.x, off.y) > margin.x) {
+        let span = ms_rebuilt_range(coords_i);
+        let lo = min(span.xy, center_e.zw);
+        let hi = max(span.zw, center_e.zw);
+        let beyond = max(max(lo - ab, ab - hi), vec2<f32>(0.0));
+        let share = speck * (1.0 - smoothstep(4.0, 8.0, max(beyond.x, beyond.y) / sigma));
+        ab = mix(ab, clamp(ab, lo - margin, hi + margin), share);
     }
     // A layer with less colour noise reduction than the photo's returns
     // part of the pixel's own colour.

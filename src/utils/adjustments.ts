@@ -556,8 +556,11 @@ export interface Adjustments {
   lumaNoiseContrast?: number;
   colorNoiseDetail?: number;
   colorNoiseSmoothness?: number;
-  /** Colour noise reduction filter: 8 = multi-scale, measured per photo
-   * (crates/engine/src/color_noise.rs), an isolated off-colour pixel's
+  /** Colour noise reduction filter: 9 = multi-scale, measured per photo
+   * (crates/engine/src/color_noise.rs), each pixel's filtered colour kept
+   * within its neighbourhood's filtered colours plus about the noise (fewer
+   * colour specks along edges); 8 = the same filter without that, an
+   * isolated off-colour pixel's
    * finest detail taken from its 3 × 3 median chroma unless the luminance
    * noise reduction keeps it brighter or darker than its neighbours (fewer
    * isolated colour specks); 7 = the same filter judging that brightness
@@ -1168,7 +1171,7 @@ export const RAW_DETAIL_DEFAULTS = {
 
 /** The colour noise reduction new edits start with (notes: reference/detail.md,
  * reference/color-noise-reference.md). */
-export const COLOR_NOISE_VERSION = 8;
+export const COLOR_NOISE_VERSION = 9;
 
 /** The first colour noise version that is the multi-scale filter; versions
  * from it on share its base image (no decode-time chroma clean-up). */
