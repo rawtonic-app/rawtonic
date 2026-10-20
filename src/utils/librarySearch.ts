@@ -182,57 +182,6 @@ export function filterAsRule(
   };
 }
 
-/**
- * Virtual copies keep keywords of their own (the catalog searches the
- * photograph's), so a copy is matched in two parts: everything but the
- * search box and the keyword list by its photograph (`copyBaseRule`, asked
- * of the catalog), the search box and keywords by the copy's own name and
- * tags (`copyMatches`). Null when neither filters: a copy then follows its
- * photograph's answer.
- */
-export function copyBaseRule(text: string, selection: MetadataSelection | undefined): Rule | null {
-  if (!text.trim() && !selection?.keyword?.length) return null;
-  const rules = selectionRules({ ...selection, keyword: [] });
-  return rules.length ? all(rules) : { combine: 'all', rules: [] };
-}
-
-/** The keywords a photograph's tags hold (`user:` typed ones and automatic
- * tags; colour labels are not keywords), as the catalog derives them. */
-const keywordsOf = (tags: string[] | null) =>
-  (tags ?? [])
-    .filter((tag) => !tag.startsWith('color:'))
-    // Trimmed and never empty, as the catalog indexes keywords.
-    .map((tag) => tag.replace(/^user:/, '').trim())
-    .filter(Boolean);
-
-/** The words of the search box, as the catalog splits them. */
-export const searchWords = (text: string) => text.trim().split(/\s+/).filter(Boolean);
-
-/** Each word of the search box in what copies share with their photograph
- * (`details`: path, title, caption, IPTC, camera, lens; not keywords). */
-export const detailRules = (text: string): Rule[] =>
-  searchWords(text).map((word) => ({ field: 'details', op: 'contains', value: word }));
-
-/** Whether a virtual copy holds every word of the search box (in its own
- * keywords, or in what it shares with its photograph: `details[i]` holds
- * the photographs whose details hold word i) and one of the chosen
- * keywords among its own (case ignored, as the catalog does). */
-export function copyMatches(
-  path: string,
-  tags: string[] | null,
-  text: string,
-  selection: MetadataSelection | undefined,
-  details: Set<string>[],
-): boolean {
-  const keywords = keywordsOf(tags).map((k) => k.toLowerCase());
-  const photo = photographPath(path);
-  const words = searchWords(text).map((word) => word.toLowerCase());
-  if (!words.every((word, i) => details[i]?.has(photo) || keywords.some((k) => k.includes(word)))) return false;
-  const chosen = selection?.keyword ?? [];
-  if (!chosen.length) return true;
-  return chosen.some((value) => (value === '' ? keywords.length === 0 : keywords.includes(value.toLowerCase())));
-}
-
 /** A library path without a virtual copy's `?vc=` suffix (the catalog finds
  * the photograph; its copies follow it). */
 export const photographPath = (path: string): string => {

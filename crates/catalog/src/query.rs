@@ -1000,7 +1000,14 @@ impl<'a> Compiler<'a> {
         let real = folder.canonicalize();
         let folder = real.as_deref().unwrap_or(folder);
         let sep = self.sep;
-        let text = |p: &Path| p.to_string_lossy().trim_end_matches(sep).to_string();
+        // Without trailing separators, but a root (`/`, `C:\`) as it is.
+        let text = |p: &Path| {
+            let full = p.to_string_lossy();
+            match full.trim_end_matches(sep) {
+                trimmed if trimmed.is_empty() || trimmed.ends_with(':') => full.into_owned(),
+                trimmed => trimmed.to_string(),
+            }
+        };
         // Library root: the folder relative to the library directory.
         let own = match folder.strip_prefix(self.directory) {
             Ok(relative) => {
@@ -1031,7 +1038,11 @@ impl<'a> Compiler<'a> {
         let folder = text(folder);
         let external = if below {
             self.push(folder.clone());
-            self.push(format!("{folder}{sep}"));
+            self.push(if folder.ends_with(sep) {
+                folder.clone()
+            } else {
+                format!("{folder}{sep}")
+            });
             "(r.external=1 AND (r.path = ? OR instr(r.path, ?) = 1))".to_string()
         } else {
             self.push(folder);
@@ -1391,6 +1402,31 @@ fn trim_number(value: f64) -> String {
 mod tests {
     use super::*;
     use crate::Mode;
+
+    /// A photograph directly in the file system's root is in "/" (the
+    /// root keeps its separator).
+    #[cfg(unix)]
+    #[test]
+    fn the_root_folder_holds_what_is_directly_in_it() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+        let photo = d.path().join("A.ARW");
+        std::fs::write(&photo, b"a").unwrap();
+        lib.add_asset(&photo).unwrap();
+        // As if it were registered at /A.ARW.
+        lib.conn
+            .execute("UPDATE roots SET path='/' WHERE external=1", [])
+            .unwrap();
+        let count = |op: &str| {
+            lib.search_count(
+                &serde_json::from_value(serde_json::json!({"field":"folder","op":op,"value":"/"}))
+                    .unwrap(),
+            )
+            .unwrap()
+        };
+        assert_eq!(count("is"), 1);
+        assert_eq!(count("contains"), 1);
+    }
 
     /// Folder and file name rules read the stored paths with the platform's
     /// separator: as a Windows library stores them (`Capture\Day 2\…`).

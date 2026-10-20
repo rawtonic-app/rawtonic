@@ -7,7 +7,7 @@ import {
 } from '../components/ui/AppProperties';
 import { buildImageGroups, GroupBadgeInfo, GroupId } from '../utils/imageGrouping';
 import { flagName, imageFlag, type FlagCounts } from '../utils/culling';
-import { copyMatches, photographPath, selectionCount } from '../utils/librarySearch';
+import { photographPath, selectionCount } from '../utils/librarySearch';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
 // Extract each basename once per immutable file record, not twice per comparison.
@@ -64,7 +64,6 @@ export type LibraryQueryState = Pick<ReturnType<typeof useLibraryStore.getState>
   'imageList' | 'imageRatings' | 'filterCriteria' | 'searchCriteria' | 'sortCriteria'> & {
     imageFlags?: Record<string, number>;
     catalogMatches?: Set<string> | null;
-    catalogCopies?: { base: Set<string>; details: Set<string>[] } | null;
     catalogKnown?: Set<string> | null;
   };
 interface QuerySettings {
@@ -147,7 +146,7 @@ function orderedImages(images: ImageFile[], imageRatings: Record<string, number>
 export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsState: QuerySettings): GroupedLibrary {
   const {
     imageList, imageRatings, imageFlags = {}, filterCriteria, searchCriteria, sortCriteria, catalogMatches = null,
-    catalogCopies = null, catalogKnown = null,
+    catalogKnown = null,
   } = libraryState;
   const { appSettings } = settingsState;
 
@@ -256,14 +255,9 @@ export function computeGroupedLibrary(libraryState: LibraryQueryState, settingsS
     const unknown = catalogMatches !== null && catalogKnown !== null && !catalogKnown.has(photo);
     if (unknown && selectionCount(filterCriteria.metadata) > 0) return false;
     if (catalogMatches !== null && !unknown) {
-      // A virtual copy has keywords of its own: the search box and the
-      // keyword list look at them and at what it shares with its
-      // photograph, the rest at its photograph (`copyBaseRule`).
-      const found = image.is_virtual_copy && catalogCopies !== null
-        ? catalogCopies.base.has(photo)
-          && copyMatches(image.path, image.tags, searchText, filterCriteria.metadata, catalogCopies.details)
-        : catalogMatches.has(photo);
-      if (!found) return false;
+      // A virtual copy is found as its photograph (its own keywords are
+      // not in the catalog's index: an open gap, G37).
+      if (!catalogMatches.has(photo)) return false;
       if (parsedTags.length === 0) return true;
     }
 
@@ -355,7 +349,6 @@ export function useSortedLibrary() {
   const searchCriteria = useLibraryStore((state) => state.searchCriteria);
   const sortCriteria = useLibraryStore((state) => state.sortCriteria);
   const catalogMatches = useLibraryStore((state) => state.catalogMatches);
-  const catalogCopies = useLibraryStore((state) => state.catalogCopies);
   const catalogKnown = useLibraryStore((state) => state.catalogKnown);
 
   const appSettings = useSettingsStore((state) => state.appSettings);
@@ -369,7 +362,7 @@ export function useSortedLibrary() {
   const result = useMemo(() => {
     const started = performanceDiagnosticsEnabled ? performance.now() : 0;
     const result = computeGroupedLibrary(
-      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches, catalogCopies,
+      { imageList, imageRatings, imageFlags, filterCriteria, searchCriteria, sortCriteria, catalogMatches,
         catalogKnown },
       { appSettings: { grouping, groupEditedFiles } },
     );
@@ -382,7 +375,7 @@ export function useSortedLibrary() {
     }
     return result;
   }, [
-    imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, catalogMatches, catalogCopies,
+    imageList, sortCriteria, imageRatings, imageFlags, filterCriteria, searchCriteria, catalogMatches,
     catalogKnown, grouping, groupEditedFiles,
   ]);
 

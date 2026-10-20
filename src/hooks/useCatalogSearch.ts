@@ -6,8 +6,6 @@ import { useLibraryStore } from '../store/useLibraryStore';
 import { catalogChanged, onCatalogChange } from '../utils/catalogWrites';
 import { useSettingsStore } from '../store/useSettingsStore';
 import {
-  copyBaseRule,
-  detailRules,
   photographPath,
   scopeRule,
   searchLibrary,
@@ -56,7 +54,7 @@ export function useCatalogSearch() {
     const rule = directory ? searchRule(text, selection) : null;
     const { setLibrary } = useLibraryStore.getState();
     if (!directory || !rule) {
-      setLibrary({ catalogMatches: null, catalogKnown: null, catalogCopies: null });
+      setLibrary({ catalogMatches: null, catalogKnown: null });
       return;
     }
     // Which shown photographs the catalog knows (a listing also shows files
@@ -66,8 +64,6 @@ export function useCatalogSearch() {
     // A folder the grid lists (not an album view): answers come in its form.
     const listed = activeAlbumId ? null : currentFolderPath;
     const search = (asked: Rule) => searchLibrary(directory, asked, listed);
-    // Copies are matched on their own keywords (`copyMatches`).
-    const copyRule = imageList.some((image) => image.is_virtual_copy) ? copyBaseRule(text, selection) : null;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     // Only the newest request publishes: an older one answering late (a
@@ -83,21 +79,15 @@ export function useCatalogSearch() {
         Promise.all([
           paths(search(rule)),
           paths(search(scope ?? { combine: 'all', rules: [] })),
-          copyRule ? paths(search(copyRule)) : null,
-          copyRule ? Promise.all(detailRules(text).map((word) => paths(search(word)))) : null,
         ])
-          .then(([matches, known, base, details]) => {
+          .then(([matches, known]) => {
             if (!current()) return;
-            setLibrary({
-              catalogMatches: matches,
-              catalogKnown: known,
-              catalogCopies: base && details ? { base, details } : null,
-            });
+            setLibrary({ catalogMatches: matches, catalogKnown: known });
           })
           .catch((e) => {
             // The old answer is not this filter's: show nothing and say why.
             if (!current()) return;
-            setLibrary({ catalogMatches: new Set(), catalogKnown: null, catalogCopies: null });
+            setLibrary({ catalogMatches: new Set(), catalogKnown: null });
             toast.error(i18n.t('studio.library.searchFailed', { error: String(e) }));
           });
       }, delay);

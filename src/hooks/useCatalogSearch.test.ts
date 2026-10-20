@@ -157,34 +157,6 @@ it('asks again when the grid gets a new list (a rename or a refresh)', async () 
   expect(searches()).toBe(before + 1);
 });
 
-it('also asks what the photographs of shown virtual copies pass besides text and keywords', async () => {
-  useLibraryStore.setState({
-    searchCriteria: { text: 'client', tags: [], mode: 'OR' },
-    filterCriteria: { colors: [], rating: 0, rawStatus: RawStatus.All, metadata: { camera: ['X-T4'] } },
-    imageList: [
-      {
-        path: '/job/Capture/a.arw?vc=1', is_edited: false, modified: 0, rating: 0, tags: ['user:client'], exif: null,
-        is_virtual_copy: true, is_cloud_placeholder: false, is_raw: true, group_id: null,
-      },
-    ],
-  });
-  renderHook(() => useCatalogSearch());
-  await settle();
-  expect(mockInvoke).toHaveBeenCalledWith('session_search', {
-    directory: '/job',
-    listed: null,
-    rule: { field: 'camera', op: 'is', value: 'X-T4' },
-  });
-  expect([...(useLibraryStore.getState().catalogCopies?.base ?? [])]).toEqual(['/job/Capture/a.arw']);
-  // And per word, what the copies share with their photograph.
-  expect(mockInvoke).toHaveBeenCalledWith('session_search', {
-    directory: '/job',
-    listed: null,
-    rule: { field: 'details', op: 'contains', value: 'client' },
-  });
-  useLibraryStore.setState({ imageList: [] });
-});
-
 it('shows nothing, and says so, when a search fails after an earlier one worked', async () => {
   useLibraryStore.setState({ searchCriteria: { text: 'bride', tags: [], mode: 'OR' } });
   renderHook(() => useCatalogSearch());

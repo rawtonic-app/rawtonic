@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { EditedStatus, LibraryViewMode, RawStatus } from '../components/ui/AppProperties';
 import {
-  copyBaseRule,
-  copyMatches,
   cullingRules,
   filterAsRule,
   photographPath,
@@ -112,30 +110,6 @@ describe('library search rules', () => {
     ]);
     expect(filterAsRule(null, '', undefined, { ...filter, editedStatus: EditedStatus.EditedOnly })).toBeNull();
     expect(filterAsRule(null, '', undefined, filter, ['iso>800'])).toBeNull();
-  });
-
-  it('matches a virtual copy on its own name and tags', () => {
-    expect(copyBaseRule('', {})).toBeNull();
-    expect(copyBaseRule('', { camera: ['X-T4'] })).toBeNull();
-    expect(copyBaseRule('bride', { camera: ['X-T4'], keyword: ['Wedding'] })).toEqual({
-      field: 'camera',
-      op: 'is',
-      value: 'X-T4',
-    });
-    expect(copyBaseRule('bride', undefined)).toEqual({ combine: 'all', rules: [] });
-    const path = '/job/Capture/DSC00123.ARW?vc=1';
-    const photo = '/job/Capture/DSC00123.ARW';
-    // "bride" in the copy's own keywords, "0123" in what it shares (details).
-    expect(copyMatches(path, ['user:Bride', 'color:red'], 'bride 0123', {}, [new Set(), new Set([photo])])).toBe(true);
-    expect(copyMatches(path, ['user:Bride'], 'groom', {}, [new Set()])).toBe(false);
-    // "SONY": the camera it shares with its photograph.
-    expect(copyMatches(path, [], 'sony', {}, [new Set([photo])])).toBe(true);
-    expect(copyMatches(path, ['user:Bride'], '', { keyword: ['bride'] }, [])).toBe(true);
-    expect(copyMatches(path, ['color:red'], '', { keyword: [''] }, [])).toBe(true);
-    expect(copyMatches(path, ['user:x'], '', { keyword: [''] }, [])).toBe(false);
-    // Keywords as the catalog indexes them: trimmed, never empty.
-    expect(copyMatches(path, ['user: harbour '], '', { keyword: ['harbour'] }, [])).toBe(true);
-    expect(copyMatches(path, ['user:  '], '', { keyword: [''] }, [])).toBe(true);
   });
 
   it('finds a virtual copy by its photograph', () => {

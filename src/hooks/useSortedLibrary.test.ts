@@ -72,23 +72,16 @@ describe('catalog search', () => {
       .map((f) => f.path)).toEqual(['/shoot/c.ARW']);
   });
 
-  it('matches a virtual copy on its own keywords and its photograph on the rest', () => {
+  it('finds a virtual copy as its photograph (its own keywords are not indexed: G37)', () => {
     const copy = { ...file('/shoot/a.ARW?vc=c1', 0, ['user:client']), is_virtual_copy: true };
-    const plainCopy = { ...file('/shoot/b.ARW?vc=c2', 0, []), is_virtual_copy: true };
     const input = {
       ...state(),
-      imageList: [file('/shoot/a.ARW'), copy, file('/shoot/b.ARW', 0, ['user:client']), plainCopy],
+      imageList: [file('/shoot/a.ARW', 0, ['user:client']), copy, file('/shoot/b.ARW')],
       searchCriteria: { text: 'client', tags: [], mode: 'OR' as const },
-      // The catalog found b (its keyword); both photographs pass the rest.
-      catalogMatches: new Set(['/shoot/b.ARW']),
-      catalogCopies: { base: new Set(['/shoot/a.ARW', '/shoot/b.ARW']), details: [new Set<string>()] },
+      catalogMatches: new Set(['/shoot/a.ARW']),
+      catalogKnown: new Set(['/shoot/a.ARW', '/shoot/b.ARW']),
     };
-    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW?vc=c1', '/shoot/b.ARW']);
-    // A copy whose photograph fails the rest (another camera) stays out.
-    expect(
-      computeSortedLibrary({ ...input, catalogCopies: { base: new Set(['/shoot/b.ARW']), details: [new Set<string>()] } }, {})
-        .map((f) => f.path),
-    ).toEqual(['/shoot/b.ARW']);
+    expect(computeSortedLibrary(input, {}).map((f) => f.path)).toEqual(['/shoot/a.ARW', '/shoot/a.ARW?vc=c1']);
   });
 
   it('matches files the catalog does not hold by name and tags', () => {
