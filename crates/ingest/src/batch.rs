@@ -394,7 +394,9 @@ fn add_companion(
         && library.companion_owner(companion)?.is_none()
         && crate::library_copy(library, companion)?.is_none();
     match owner {
-        Some(owner) if free && library.companion(&owner)?.is_none() => {
+        // A photograph with a companion record (its file gone or changed
+        // too) keeps it: the record is what puts that JPEG back.
+        Some(owner) if free && library.companion_record(&owner)?.is_none() => {
             let name = resolved
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -1607,6 +1609,30 @@ mod tests {
         let other = write(&d.path().join("card2/A.JPG"), b"another jpeg");
         let results = import_batch(&lib, &[other], &options("{orig}"), &never, |_| {}).unwrap();
         assert_eq!(results[0].destination, Some(capture.join("A_1.JPG")));
+        assert_eq!(lib.companion(&asset).unwrap(), None);
+    }
+
+    /// Adding a RAW again whose recorded companion is gone, with another
+    /// JPEG of that name: the record stays (it puts the lost JPEG back), the
+    /// new JPEG is added as a photograph of its own.
+    #[test]
+    fn adding_never_replaces_a_companion_record() {
+        let d = tempfile::tempdir().unwrap();
+        let lib = Library::create(&d.path().join("Main"), "Main", Mode::Catalog).unwrap();
+        let shoot = d.path().join("Drive/Shoot");
+        let sources = vec![
+            write(&shoot.join("A.ARW"), b"raw"),
+            write(&shoot.join("A.JPG"), b"jpeg"),
+        ];
+        let never = AtomicBool::new(false);
+        add_batch(&lib, &sources, Some(raw), |_| Medium::Disk, &never, |_| {}).unwrap();
+        let asset = lib.asset_at(&sources[0]).unwrap().unwrap();
+        let before = lib.companion_record(&asset).unwrap();
+        fs::write(&sources[1], b"another jpeg").unwrap();
+        let results =
+            add_batch(&lib, &sources, Some(raw), |_| Medium::Disk, &never, |_| {}).unwrap();
+        assert!(results[1].companion_of.is_none(), "{results:?}");
+        assert_eq!(lib.companion_record(&asset).unwrap(), before);
         assert_eq!(lib.companion(&asset).unwrap(), None);
     }
 }

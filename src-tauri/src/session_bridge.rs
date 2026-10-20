@@ -1424,10 +1424,12 @@ pub(crate) fn companion_of(photo: &Path) -> Option<PathBuf> {
     let lib = Library::open(&library_for(photo)?).ok()?;
     let asset = lib.asset_at(photo).ok()??;
     // Its whole content checked: only the recorded JPEG moves with it.
-    let companion = lib.companion_verified(&asset).ok()??;
-    // Under the photograph's path as given, as the caller's other files.
-    let companion = photo.with_file_name(companion.file_name()?);
-    companion.is_file().then_some(companion)
+    let verified = lib.companion_verified(&asset).ok()??;
+    // Under the photograph's path as given, as the caller's other files,
+    // and only when that is the verified file (a photograph reached
+    // through a link has its companion beside its target, not the link).
+    let companion = photo.with_file_name(verified.file_name()?);
+    (companion.canonicalize().ok()? == verified).then_some(companion)
 }
 
 /// Which of `paths` (whose files are gone) a library holds, with the

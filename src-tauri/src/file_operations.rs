@@ -1017,6 +1017,37 @@ mod tests {
         assert!(crate::session_bridge::companions_in_folder(&dir.join("Selects")).is_empty());
     }
 
+    /// A photograph reached through a link: the JPEG of its name beside
+    /// the link is not its companion (that is beside the link's target).
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_photo_never_takes_the_jpeg_beside_the_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = session(tmp.path());
+        let capture = dir.join("Capture");
+        let links = capture.join("Links");
+        fs::create_dir_all(&links).unwrap();
+        fs::write(capture.join("A.RAF"), "raw").unwrap();
+        fs::write(capture.join("A.JPG"), "jpeg").unwrap();
+        let lib = rawtonic_catalog::Library::open(&dir).unwrap();
+        let planned = lib
+            .plan_add(&capture.join("A.RAF"), Default::default())
+            .unwrap()
+            .with_companion("A.JPG")
+            .unwrap();
+        lib.insert_planned(vec![planned]).unwrap();
+        std::os::unix::fs::symlink(capture.join("A.RAF"), links.join("A.RAF")).unwrap();
+        fs::write(links.join("A.JPG"), "someone else's").unwrap();
+        assert_eq!(
+            crate::session_bridge::companion_of(&links.join("A.RAF")),
+            None
+        );
+        assert_eq!(
+            crate::session_bridge::companion_of(&capture.join("A.RAF")),
+            Some(capture.join("A.JPG"))
+        );
+    }
+
     #[test]
     fn associated_files_keep_a_shared_xmp_with_the_remaining_photo() {
         let tmp = tempfile::tempdir().unwrap();

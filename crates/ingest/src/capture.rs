@@ -14,9 +14,12 @@
 //! modification time → the time of the import.
 use rawtonic_naming::{Capture, DateSource};
 use std::{
+    collections::HashMap,
     fs,
     io::Read,
     path::{Path, PathBuf},
+    sync::{Arc, LazyLock, Mutex},
+    time::SystemTime,
 };
 
 /// How much of a file is read for its metadata, step by step: the first
@@ -388,35 +391,26 @@ pub fn card_sidecar(photo: &Path) -> Result<Option<PathBuf>, String> {
         return Ok(None);
     };
     let extension = photo.extension().and_then(|e| e.to_str());
-    let Ok(entries) = fs::read_dir(if parent.as_os_str().is_empty() {
+    let parent = if parent.as_os_str().is_empty() {
         Path::new(".")
     } else {
         parent
-    }) else {
+    };
+    let Some(folder) = folder_files(parent) else {
         return Ok(None);
     };
-    let files: Vec<(String, PathBuf)> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let file = entry.file_name().into_string().ok()?;
-            let path = photo.with_file_name(&file);
-            fs::symlink_metadata(&path)
-                .is_ok_and(|m| m.is_file())
-                .then_some((file, path))
-        })
-        .collect();
     let one = |wanted: &str| -> Result<Option<PathBuf>, String> {
-        let mut found = files
-            .iter()
-            .filter(|(file, _)| file.eq_ignore_ascii_case(wanted))
-            .map(|(_, path)| path);
-        match (found.next(), found.next()) {
-            (Some(path), None) => Ok(Some(path.clone())),
-            (None, _) => Ok(None),
-            (Some(a), Some(b)) => Err(format!(
+        match folder
+            .by_name
+            .get(&wanted.to_ascii_lowercase())
+            .map(Vec::as_slice)
+        {
+            None | Some([]) => Ok(None),
+            Some([file]) => Ok(Some(photo.with_file_name(file))),
+            Some([a, b, ..]) => Err(format!(
                 "Two sidecars that differ only in letter case, {} and {}: neither was copied",
-                a.display(),
-                b.display()
+                photo.with_file_name(a).display(),
+                photo.with_file_name(b).display()
             )),
         }
     };
@@ -428,22 +422,74 @@ pub fn card_sidecar(photo: &Path) -> Result<Option<PathBuf>, String> {
         return Ok(None);
     };
     if extension.is_some_and(is_developed_image) {
-        let paired = files.iter().any(|(file, path)| {
-            path != photo
-                && Path::new(file)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .is_some_and(|s| s.eq_ignore_ascii_case(stem))
-                && !Path::new(file)
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
-        });
-        if paired {
+        // Another file of its name (not a sidecar) besides itself.
+        let named = folder
+            .stems
+            .get(&stem.to_ascii_lowercase())
+            .copied()
+            .unwrap_or(0);
+        let itself = usize::from(folder.by_name.contains_key(&name.to_ascii_lowercase()));
+        if named > itself {
             return Ok(None);
         }
     }
     Ok(Some(short))
+}
+
+/// A folder's regular files (links and folders left out), by name and by
+/// stem ignoring ASCII case.
+#[derive(Default)]
+struct FolderFiles {
+    /// Lower-cased name → the names of that spelling.
+    by_name: HashMap<String, Vec<String>>,
+    /// Lower-cased stem → how many files (not `.xmp`) have it.
+    stems: HashMap<String, usize>,
+}
+
+/// `folder`'s files (`FolderFiles`), listed once per version of the folder
+/// (its modification time): an import of a card folder's photographs reads
+/// it once, not once per photograph. `None` when it cannot be listed.
+fn folder_files(folder: &Path) -> Option<Arc<FolderFiles>> {
+    type Listed = HashMap<PathBuf, (SystemTime, Arc<FolderFiles>)>;
+    static LISTED: LazyLock<Mutex<Listed>> = LazyLock::new(Default::default);
+    let modified = fs::metadata(folder).ok()?.modified().ok();
+    let mut listed = LISTED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(modified) = modified
+        && let Some((at, files)) = listed.get(folder)
+        && *at == modified
+    {
+        return Some(files.clone());
+    }
+    let mut files = FolderFiles::default();
+    for entry in fs::read_dir(folder).ok()?.flatten() {
+        if !entry.file_type().is_ok_and(|t| t.is_file()) {
+            continue;
+        }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let path = Path::new(&name);
+        let sidecar = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("xmp"));
+        if !sidecar && let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            *files.stems.entry(stem.to_ascii_lowercase()).or_default() += 1;
+        }
+        files
+            .by_name
+            .entry(name.to_ascii_lowercase())
+            .or_default()
+            .push(name);
+    }
+    let files = Arc::new(files);
+    if let Some(modified) = modified {
+        if listed.len() >= 64 {
+            listed.clear();
+        }
+        listed.insert(folder.to_path_buf(), (modified, files.clone()));
+    }
+    Some(files)
 }
 
 /// Whether `extension` is a developed image's (JPEG, HEIF, TIFF, …), not
