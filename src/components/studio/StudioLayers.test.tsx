@@ -248,3 +248,26 @@ describe("rendered layer limit", () => {
     expect(marked.sort()).toEqual(["l33", "l34"]);
   });
 });
+
+describe("long layer lists", () => {
+  it("keep the selected layer in view inside the list's own scroll area", () => {
+    const scrolled: string[] = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function () {
+      scrolled.push((this as HTMLElement).dataset.layerRow ?? "");
+    };
+    try {
+      render(<StudioLayers />);
+      // The list holds the rows; the settings follow it outside, so a long
+      // list scrolls within itself instead of pushing them down.
+      const list = screen.getByRole("list", { name: /layers/i });
+      expect(list.querySelector(".studio-layer-settings")).toBeNull();
+      expect(document.querySelector(".studio-layer-settings")).not.toBeNull();
+      expect(scrolled).toEqual(["l2"]);
+      fireEvent.click(document.querySelector('[data-layer-row="l1"] .studio-layer-name')!);
+      expect(scrolled).toEqual(["l2", "l1"]);
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+});

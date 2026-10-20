@@ -904,7 +904,11 @@
   border: 1px solid #1d1e20;
   border-radius: 3px;
   background: #00000012;
-  overflow: hidden;
+  /* About ten rows, then the list scrolls on its own: the selected layer's
+     settings below keep their place however many layers there are. */
+  max-height: min(330px, 36vh);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .studio-layer {
   display: flex;

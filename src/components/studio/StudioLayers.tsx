@@ -1,5 +1,5 @@
 import { swallowDragClick } from '../../utils/swallowClick';
-import { Fragment, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ArrowDown,
@@ -242,6 +242,16 @@ export default function StudioLayers({
     target: string | null;
     above: boolean;
   } | null>(null);
+  // The list scrolls within its own height, so the selected layer's
+  // settings below it stay in reach with many layers (notes:
+  // reference/wp7-use-test-c1-lr.md finding 3); the selection stays in view.
+  const listRef = useRef<HTMLDivElement>(null);
+  const selectedId = layer?.id ?? null;
+  useEffect(() => {
+    if (!selectedId) return;
+    const rows = listRef.current?.querySelectorAll<HTMLElement>("[data-layer-row]") ?? [];
+    [...rows].find((row) => row.dataset.layerRow === selectedId)?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedId]);
 
   const selectLayer = (mask: MaskContainer) => {
     setEditor({
@@ -420,6 +430,12 @@ export default function StudioLayers({
         ghost = createDragGhost({ label: mask.name, kind: "layer" });
       }
       ghost.move(ev.clientX, ev.clientY);
+      // Near the list's ends the drag scrolls it to rows out of view.
+      const list = listRef.current?.getBoundingClientRect();
+      if (list && listRef.current) {
+        if (ev.clientY < list.top + 20) listRef.current.scrollTop -= 12;
+        else if (ev.clientY > list.bottom - 20) listRef.current.scrollTop += 12;
+      }
       drop = rowAt(ev.clientX, ev.clientY);
       setLayerDrag({ id: mask.id, ...drop });
     };
@@ -482,7 +498,7 @@ export default function StudioLayers({
           <span className="studio-layer-solo-end">{t("studio.develop.layers.soloEnd")}</span>
         </button>
       )}
-      <div className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
+      <div ref={listRef} className="studio-layer-list" role="list" aria-label={t("studio.develop.layers.listAria")}>
         {[...masks].reverse().map((mask) => {
           const selected = layer?.id === mask.id;
           const unrendered = unrenderedIds.has(mask.id);
