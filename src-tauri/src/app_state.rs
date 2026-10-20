@@ -291,16 +291,27 @@ pub struct CachedPreview {
     /// Built from a reduced source shown only until the decode is in
     /// (`editor_preview::interim_source`).
     pub interim: bool,
+    /// Built while a control was dragged, without the edge-fringe pass's
+    /// chromatic-aberration stage (`edge_fringe::DRAFT_KEY`).
+    pub fringe_draft: bool,
 }
 
 impl CachedPreview {
     /// Whether this base serves a frame of `source` with `transform_hash`.
     /// An interim base never serves a lasting source: the same Standard
-    /// proxy may turn out to be an offline photograph's only source.
-    pub fn serves(&self, source: &Arc<DynamicImage>, transform_hash: u64, interim: bool) -> bool {
+    /// proxy may turn out to be an offline photograph's only source. A
+    /// fringe draft serves only frames while a control is dragged.
+    pub fn serves(
+        &self,
+        source: &Arc<DynamicImage>,
+        transform_hash: u64,
+        interim: bool,
+        interactive: bool,
+    ) -> bool {
         self.source.ptr_eq(&Arc::downgrade(source))
             && self.transform_hash == transform_hash
             && self.interim == interim
+            && (interactive || !self.fringe_draft)
     }
 }
 
@@ -527,11 +538,37 @@ mod cached_preview_tests {
             preview_dim: 2,
             interactive_divisor: 1.0,
             interim: true,
+            fringe_draft: false,
         };
-        assert!(cached.serves(&proxy, 7, true));
-        assert!(!cached.serves(&proxy, 7, false));
-        assert!(!cached.serves(&proxy, 8, true));
-        assert!(!cached.serves(&Arc::new(DynamicImage::new_rgb32f(4, 4)), 7, true));
+        assert!(cached.serves(&proxy, 7, true, false));
+        assert!(!cached.serves(&proxy, 7, false, false));
+        assert!(!cached.serves(&proxy, 8, true, false));
+        assert!(!cached.serves(&Arc::new(DynamicImage::new_rgb32f(4, 4)), 7, true, false));
+    }
+
+    #[test]
+    fn a_fringe_draft_serves_only_frames_of_a_drag() {
+        let source = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let cached = CachedPreview {
+            source: Arc::downgrade(&source),
+            image: Arc::new(DynamicImage::new_rgb32f(2, 2)),
+            small_image: None,
+            transform_hash: 7,
+            scale: 0.5,
+            unscaled_crop_offset: (0.0, 0.0),
+            preview_dim: 2,
+            interactive_divisor: 1.0,
+            interim: false,
+            fringe_draft: true,
+        };
+        assert!(cached.serves(&source, 7, false, true));
+        assert!(!cached.serves(&source, 7, false, false));
+        let finished = CachedPreview {
+            fringe_draft: false,
+            ..cached
+        };
+        assert!(finished.serves(&source, 7, false, true));
+        assert!(finished.serves(&source, 7, false, false));
     }
 }
 

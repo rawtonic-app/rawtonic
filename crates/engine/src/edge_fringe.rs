@@ -176,6 +176,18 @@ const MIX_FULL: f32 = 0.1;
 const MIX_NONE: f32 = 0.25;
 const TWO_COLOUR_NONE: f32 = 0.15;
 
+/// A transient key (never saved) of the recipe a preview base is built
+/// from while a control is dragged: version 4's chromatic-aberration stage
+/// is left out there (it costs about 20–110 ms at preview sizes, on top of
+/// the rest of the pass) and runs on the frame after the drag.
+pub const DRAFT_KEY: &str = "fringeDraft";
+
+/// Whether a draft (`DRAFT_KEY`) renders differently from the recipe: it
+/// has the chromatic-aberration stage.
+pub fn has_draft(adjustments: &serde_json::Value) -> bool {
+    version_of(adjustments) >= 4
+}
+
 /// The recipe's edge-fringe version: `fringeVersion`, 0 (none) when
 /// missing, never newer than this renderer knows.
 pub fn version_of(adjustments: &serde_json::Value) -> u64 {
@@ -220,6 +232,10 @@ pub fn apply_for_recipe<'a>(
     }
     let mut image = image;
     let (w, h) = (image.width() as usize, image.height() as usize);
+    let draft = adjustments
+        .get(DRAFT_KEY)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
     // A reduced preview averages the noise down by about its scale.
     let plan = |data: &[f32], stride| {
         let noise = if version >= 2 {
@@ -227,7 +243,11 @@ pub fn apply_for_recipe<'a>(
         } else {
             0.0
         };
-        plan_for(version, noise, scale)
+        let plan = plan_for(version, noise, scale);
+        Plan {
+            axial: plan.axial.filter(|_| !draft),
+            ..plan
+        }
     };
     match image.to_mut() {
         DynamicImage::ImageRgb32F(img) => {
@@ -1643,6 +1663,29 @@ mod tests {
             whole.as_mut()[i * 3..i * 3 + 3].copy_from_slice(&px);
         }
         assert_eq!(banded, whole);
+    }
+
+    #[test]
+    fn a_draft_leaves_out_the_chromatic_aberration_stage_only() {
+        // A blue fringe on the dark side of a bright edge.
+        let fringed = Rgb32FImage::from_fn(40, 40, |x, _| match x {
+            0..=15 => image::Rgb([0.02, 0.02, 0.02]),
+            16..=19 => image::Rgb([0.03, 0.03, 0.03 + 0.06 * (x - 15) as f32]),
+            _ => image::Rgb([0.8, 0.8, 0.8]),
+        });
+        let draft = serde_json::json!({ VERSION_KEY: 4, DRAFT_KEY: true });
+        let drafted = apply_for_recipe(
+            Cow::Owned(DynamicImage::ImageRgb32F(fringed.clone())),
+            &draft,
+            1.0,
+        )
+        .into_owned()
+        .into_rgb32f();
+        // Version 3's stages with the same plan for them.
+        assert_eq!(drafted, run(&fringed, 3));
+        assert_ne!(run(&fringed, 4), drafted);
+        assert!(has_draft(&serde_json::json!({ VERSION_KEY: 4 })));
+        assert!(!has_draft(&serde_json::json!({ VERSION_KEY: 3 })));
     }
 
     #[test]
