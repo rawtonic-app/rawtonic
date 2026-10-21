@@ -318,8 +318,17 @@ pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
 /// (`same_photo` false: a virtual copy of the same photograph shares its
 /// pixels) the pasted layers' AI detections drop the source's bitmap and
 /// wait for their own (`DETECT_PENDING`), except People components without
-/// parts (nothing to detect).
-pub fn paste_layers(own: &Value, pasted: &Value, same_photo: bool, replace: bool) -> Value {
+/// parts (nothing to detect). Each waiting component gets an id of its own
+/// (`new_id`): the editor's renderer keeps bitmaps by component id, and its
+/// detection here must not take the place of a bitmap held under the id it
+/// had (the source's, or this photograph's before an earlier paste).
+pub fn paste_layers(
+    own: &Value,
+    pasted: &Value,
+    same_photo: bool,
+    replace: bool,
+    new_id: &mut dyn FnMut() -> String,
+) -> Value {
     let mut pasted: Vec<Value> = pasted.as_array().cloned().unwrap_or_default();
     if !same_photo {
         for layer in &mut pasted {
@@ -349,6 +358,7 @@ pub fn paste_layers(own: &Value, pasted: &Value, same_photo: bool, replace: bool
                 }
                 parameters.insert("maskDataBase64".into(), Value::Null);
                 parameters.insert(DETECT_PENDING.into(), Value::Bool(true));
+                sub["id"] = Value::String(new_id());
             }
         }
     }
@@ -373,6 +383,15 @@ pub fn paste_layers(own: &Value, pasted: &Value, same_photo: bool, replace: bool
 mod paste_tests {
     use super::*;
     use serde_json::json;
+
+    /// New component ids for the tests: `new-0`, `new-1`…
+    fn new_ids() -> impl FnMut() -> String {
+        let mut n = 0;
+        move || {
+            n += 1;
+            format!("new-{}", n - 1)
+        }
+    }
 
     fn layer(id: &str, sub: Value) -> Value {
         json!({"id": id, "name": id, "visible": true, "subMasks": [sub]})
@@ -400,7 +419,7 @@ mod paste_tests {
                 json!({"id": "r", "type": "radial", "visible": true, "parameters": {}})
             ),
         ]);
-        let merged = paste_layers(&own, &pasted, false, false);
+        let merged = paste_layers(&own, &pasted, false, false, &mut new_ids());
         let ids: Vec<&str> = merged
             .as_array()
             .unwrap()
@@ -410,9 +429,12 @@ mod paste_tests {
         assert_eq!(ids, ["dodge", "sky", "vignette"]);
         assert_eq!(merged[1]["subMasks"][0]["parameters"]["range"], 50);
         // Pasting again changes nothing more.
-        assert_eq!(paste_layers(&merged, &pasted, false, false), merged);
+        assert_eq!(
+            paste_layers(&merged, &pasted, false, false, &mut new_ids()),
+            merged
+        );
         // Edit all selected: the primary's layers, the photograph's own gone.
-        let mirrored = paste_layers(&own, &pasted, false, true);
+        let mirrored = paste_layers(&own, &pasted, false, true, &mut new_ids());
         assert_eq!(mirrored.as_array().unwrap().len(), 2);
         assert_eq!(mirrored[0]["id"], "sky");
     }
@@ -427,11 +449,16 @@ mod paste_tests {
         };
         let people = json!({"id": "p", "type": "ai-people", "visible": true, "parameters": {"parts": [], "maskDataBase64": null}});
         let pasted = json!([sky(json!("data:source")), layer("people", people)]);
-        let other = paste_layers(&json!([]), &pasted, false, false);
+        let other = paste_layers(&json!([]), &pasted, false, false, &mut new_ids());
         let parameters = &other[0]["subMasks"][0]["parameters"];
         assert_eq!(parameters["maskDataBase64"], Value::Null);
         assert_eq!(parameters[DETECT_PENDING], true);
         assert_eq!(parameters["grow"], 10, "its settings stay");
+        assert_eq!(other[0]["subMasks"][0]["id"], "new-0", "an id of its own");
+        assert_eq!(
+            other[1]["subMasks"][0]["id"], "p",
+            "nothing to detect: kept"
+        );
         assert!(
             other[1]["subMasks"][0]["parameters"]
                 .get(DETECT_PENDING)
@@ -445,7 +472,7 @@ mod paste_tests {
                 kind: "ai-sky".into()
             }]
         );
-        let same = paste_layers(&json!([]), &pasted, true, false);
+        let same = paste_layers(&json!([]), &pasted, true, false, &mut new_ids());
         assert_eq!(
             same[0]["subMasks"][0]["parameters"]["maskDataBase64"],
             "data:source"

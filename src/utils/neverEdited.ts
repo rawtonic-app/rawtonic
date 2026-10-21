@@ -19,13 +19,14 @@ export async function withNeverEditedDefaults(
   camera: () => Promise<CameraLens>,
 ): Promise<Adjustments> {
   if (!isRaw || !neverEdited(saved)) return recipe;
-  recipe.fringeVersion = FRINGE_VERSION;
-  recipe.autoCaVersion = AUTO_CA_VERSION;
+  // Versions it states (pasted with the processing versions) are its own.
+  recipe.fringeVersion ??= FRINGE_VERSION;
+  recipe.autoCaVersion ??= AUTO_CA_VERSION;
   const lens = await camera();
   if (lens?.params) {
     recipe.lensCorrectionMode = 'camera';
     recipe.lensDistortionParams = lens.params;
-    recipe.cameraCaVersion = CAMERA_CA_VERSION;
+    recipe.cameraCaVersion ??= CAMERA_CA_VERSION;
   }
   return recipe;
 }
