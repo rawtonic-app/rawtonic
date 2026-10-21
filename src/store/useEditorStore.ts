@@ -370,13 +370,20 @@ export const debouncedSetHistory = Object.assign(
   },
 );
 
+/** The photograph open last (`previousPhoto`). */
+let lastOpened: string | null = null;
+
 // View state that follows the edits (one place, so every way of editing a
 // layer counts: sliders, typed values, presets, undo).
 useEditorStore.subscribe((state, previous) => {
   const patch: Partial<EditorState> = {};
   if (state.selectedImage?.path !== previous.selectedImage?.path) {
     debouncedSetHistory.cancel();
-    if (previous.selectedImage?.path && state.selectedImage) patch.previousPhoto = previous.selectedImage.path;
+    // Previous: the photograph open last before this one, also across a
+    // closed editor (another folder or album shown in between).
+    const opened = state.selectedImage?.path;
+    if (opened && lastOpened && lastOpened !== opened) patch.previousPhoto = lastOpened;
+    if (opened) lastOpened = opened;
   } else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
     // The drag ended: its last edit becomes one step (a final value sent
     // just after the release still joins it).

@@ -211,3 +211,24 @@ it("takes the processing versions only when they are chosen", async () => {
   await act(() => result.current.handleCopyAdjustments());
   expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(true);
 });
+
+it("leaves the processing versions out of quick copies when preferences list them without the choice", async () => {
+  // Preferences from before the picker: every copyable key, versions too.
+  useSettingsStore.setState({
+    appSettings: {
+      copyPasteSettings: { mode: PasteMode.Merge, includedAdjustments: ["exposure", "toneVersion", "sharpenVersion"], knownAdjustments: [], autoSync: false },
+    } as unknown as AppSettings,
+  });
+  useEditorStore.setState({ adjustments: { ...structuredClone(source), toneVersion: 2 } as Adjustments });
+  const { result } = renderHook(useEditorActions);
+  await act(() => result.current.handleCopyAdjustments(undefined, { quick: true }));
+  expect(useEditorStore.getState().copiedAdjustments).toMatchObject({ exposure: 1 });
+  expect("toneVersion" in useEditorStore.getState().copiedAdjustments!).toBe(false);
+});
+
+it("remembers the previous photograph across a closed editor", () => {
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never }));
+  act(() => useEditorStore.setState({ selectedImage: null }));
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/C.ARW") as never }));
+  expect(useEditorStore.getState().previousPhoto).toBe("/s/B.ARW");
+});

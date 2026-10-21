@@ -28,7 +28,14 @@ import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
-import { chosenSettings, newEditResponses, pasteLayers, samePhotograph } from '../utils/settingsClipboard';
+import {
+  RESPONSES_CHOSEN,
+  RESPONSE_KEYS,
+  chosenSettings,
+  newEditResponses,
+  pasteLayers,
+  samePhotograph,
+} from '../utils/settingsClipboard';
 import { keepWithinLayerLimit } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
@@ -189,10 +196,15 @@ function rememberedKeys(): string[] {
   return useSettingsStore.getState().appSettings?.copyPasteSettings?.includedAdjustments ?? COPYABLE_ADJUSTMENT_KEYS;
 }
 
-/** The remembered choice for `adjustments`: its keys, and all its layers
- * when layers were chosen last time. */
+/** The remembered choice for `adjustments`: its keys (processing versions
+ * only when they were chosen, `RESPONSES_CHOSEN`: preferences from before
+ * the picker list them without it), and all its layers when layers were
+ * chosen last time. */
 function rememberedChoice(adjustments: Adjustments): SettingsChoice {
-  const keys = rememberedKeys();
+  const remembered = rememberedKeys();
+  const keys = remembered.includes(RESPONSES_CHOSEN)
+    ? remembered
+    : remembered.filter((key) => !RESPONSE_KEYS.includes(key));
   return { keys, layerIds: keys.includes('masks') ? (adjustments.masks ?? []).map((layer) => layer.id) : [] };
 }
 
