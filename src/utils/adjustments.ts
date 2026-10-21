@@ -768,12 +768,20 @@ export interface Coord {
 }
 
 export interface Curves {
-  [index: string]: Array<Coord>;
+  [index: string]: Array<Coord> | number | undefined;
   blue: Array<Coord>;
   green: Array<Coord>;
   luma: Array<Coord>;
   red: Array<Coord>;
+  /** crates/engine/src/point_curve.rs `CURVE_VERSION`: 2 = the photo's
+   * curves with more than 16 points render whole; missing on curves saved
+   * before, which render their first 16 points. Part of the curves, so it
+   * travels wherever they do; every curve edit writes the current one. */
+  version?: number;
 }
+
+/** Point curves render whole beyond 16 points (`Curves.version`). */
+export const CURVE_VERSION = 2;
 
 export interface HueSatLum {
   hue: number;
@@ -928,6 +936,7 @@ export const getDefaultCurves = (): Curves => ({
     { x: 0, y: 0 },
     { x: 255, y: 255 },
   ],
+  version: CURVE_VERSION,
 });
 
 export const DEFAULT_PARAMETRIC_CURVE = getDefaultParametricCurve();
@@ -1143,6 +1152,7 @@ const deepCloneCurves = (curves: Partial<Curves> | undefined): Curves => ({
     { x: 0, y: 0 },
     { x: 255, y: 255 },
   ],
+  ...(curves?.version !== undefined ? { version: curves.version } : {}),
 });
 
 const deepCloneParametric = (pCurve: Partial<ParametricCurve> | undefined): ParametricCurve => ({
@@ -1446,14 +1456,28 @@ export const colorNoiseMultiscale = (
 
 /** Deep equality of adjustment values regardless of object key order (stored
  * recipes come back with sorted keys, so JSON strings of equal values differ). */
+const CURVE_CHANNELS = ['luma', 'red', 'green', 'blue'];
+const isCurves = (value: Record<string, unknown>) => Array.isArray(value.luma) && 'red' in value;
+const versionMatters = (curves: Record<string, unknown>) =>
+  CURVE_CHANNELS.some((channel) => {
+    const points = curves[channel];
+    return Array.isArray(points) && points.length > MAX_CURVE_POINTS;
+  });
+
 export function sameAdjustmentValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a) && Array.isArray(b))
     return a.length === b.length && a.every((value, i) => sameAdjustmentValue(value, b[i]));
-  const left = a as Record<string, unknown>;
-  const right = b as Record<string, unknown>;
+  let left = a as Record<string, unknown>;
+  let right = b as Record<string, unknown>;
+  // A curves version matters only for channels beyond 16 points
+  // (`Curves.version`): neutral curves saved before it equal new ones.
+  if (isCurves(left) && isCurves(right) && !versionMatters(left) && !versionMatters(right)) {
+    left = { ...left, version: undefined };
+    right = { ...right, version: undefined };
+  }
   const keys = Object.keys(left).filter((key) => left[key] !== undefined);
   return (
     keys.length === Object.keys(right).filter((key) => right[key] !== undefined).length &&

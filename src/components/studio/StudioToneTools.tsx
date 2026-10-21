@@ -278,7 +278,10 @@ export function RegionCurveControls({
   disabled,
   onChange,
   onInteraction,
+  targeted,
 }: {
+  /** The Targeted Adjustment toggle for the regions. */
+  targeted?: React.ReactNode;
   value: RegionCurve;
   disabled: boolean;
   onChange(value: RegionCurve): void;
@@ -306,7 +309,10 @@ export function RegionCurveControls({
   );
   return (
     <>
-      <div className="studio-subheading">{t("studio.tone.regionCurve.region")}</div>
+      <div className="studio-subheading">
+        {t("studio.tone.regionCurve.region")}
+        {targeted}
+      </div>
       {slider("highlights")}
       {slider("lights")}
       {slider("darks")}

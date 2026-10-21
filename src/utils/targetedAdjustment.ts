@@ -1,19 +1,30 @@
 import {
+  CURVE_VERSION,
   INITIAL_GRAY_MIXER,
+  INITIAL_REGION_CURVE,
   MAX_CURVE_POINTS,
   type Adjustments,
   type Coord,
   type GrayMixer,
+  type RegionCurve,
 } from "./adjustments";
+import { pointCurveValue, renderedPoints } from "./pointCurve";
+import { regionAt, regionCurveValue } from "./regionCurve";
 
 /**
  * Lightroom's Targeted Adjustment Tool (Capture One's curve and colour
  * pickers): drag up or down in the photo and the sliders that act on the
  * colour or tone under the pointer move. Hue, Saturation and Luminance of
- * the colour mixer, the black & white mix and the luma tone curve.
+ * the colour mixer, the black & white mix, the luma tone curve and the
+ * region curve (the region of the tone under the pointer, as Lightroom's
+ * parametric curve).
  */
 export type TatTarget =
-  "hue" | "saturation" | "luminance" | "grayMixer" | "curve";
+  "hue" | "saturation" | "luminance" | "grayMixer" | "curve" | "regionCurve";
+
+/** Targets that act on the displayed tone rather than the photo's colour. */
+export const isToneTarget = (target: TatTarget) =>
+  target === "curve" || target === "regionCurve";
 
 export const HSL_CHANNELS = [
   "reds",
@@ -104,14 +115,54 @@ export function startTargetedAdjustment(
   linearRgb: [number, number, number] | null,
   displayRgb: [number, number, number] | null,
 ): TatStart | null {
-  if (target === "curve") {
-    if (!displayRgb) return null;
-    const displayed =
-      0.2126 * displayRgb[0] + 0.7152 * displayRgb[1] + 0.0722 * displayRgb[2];
+  if (isToneTarget(target)) {
+    // The displayed sample can be traced back through the photo's curves
+    // only: layer curves and a LUT after them would mislead it.
+    if (!displayRgb || hasToneAfterCurves(base)) return null;
+    // The curves as the renderer applies them (curve tool on, legacy
+    // recipes cut after the 16th point).
+    const shown = base.sectionVisibility?.curves !== false;
+    const region = shown ? regionOf(base) : INITIAL_REGION_CURVE;
+    const cut = (points: Coord[] | undefined) =>
+      !shown
+        ? undefined
+        : renderedPoints(points, (base.curves?.version ?? 1) >= CURVE_VERSION);
+    const curves = base.curves && {
+      luma: cut(base.curves.luma),
+      red: cut(base.curves.red),
+      green: cut(base.curves.green),
+      blue: cut(base.curves.blue),
+    };
+    const channelCurves = [curves?.red, curves?.green, curves?.blue];
+    // Each channel went through the region, luma and its own curve: recover
+    // its level before them, then weigh the channels into one tone.
+    const before = displayRgb.map((shown, c) =>
+      invertCurve(
+        (x) =>
+          pointCurveValue(
+            channelCurves[c],
+            pointCurveValue(
+              curves?.luma,
+              regionCurveValue(region, x / 255) * 255,
+            ),
+          ),
+        shown,
+      ),
+    );
+    if (before.some((x) => x === null)) return null;
+    const levels = before as number[];
+    const weights = [0.2126, 0.7152, 0.0722];
+    const tone = (levels: number[]) =>
+      levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
+    // The point curve acts on the region curve's output.
     return {
       target,
       base,
-      curveX: Math.round(invertCurve(base.curves?.luma, displayed)),
+      curveX: Math.round(
+        target === "regionCurve"
+          ? tone(levels)
+          : tone(levels.map((x) => regionCurveValue(region, x / 255) * 255)),
+      ),
     };
   }
   if (!linearRgb) return null;
@@ -129,7 +180,7 @@ export function dominantChannel(start: TatStart): string | null {
   if (
     !start.weights ||
     start.target === "grayMixer" ||
-    start.target === "curve"
+    isToneTarget(start.target)
   )
     return null;
   return HSL_CHANNELS[start.weights.indexOf(Math.max(...start.weights))];
@@ -145,11 +196,22 @@ export function targetedPatch(
   delta: number,
 ): Partial<Adjustments> {
   const { base, target } = start;
+  if (target === "regionCurve") {
+    const region = regionOf(base);
+    const key = regionAt(region, (start.curveX ?? 128) / 255);
+    return {
+      regionCurve: {
+        ...region,
+        [key]: Math.round(clamp(region[key] + delta, -100, 100)),
+      },
+    };
+  }
   if (target === "curve") {
     return {
       curves: {
         ...base.curves,
         luma: moveCurve(base.curves.luma, start.curveX ?? 128, delta),
+        version: CURVE_VERSION,
       },
       curveMode: "point",
     };
@@ -179,37 +241,75 @@ export function targetedPatch(
   return { hsl };
 }
 
-/** Curve value at `x` with the panel's piecewise-linear drawing. */
-export function curveValue(points: Coord[] | undefined, x: number): number {
-  const p =
-    points && points.length >= 2
-      ? points
-      : [
-          { x: 0, y: 0 },
-          { x: 255, y: 255 },
-        ];
-  if (x <= p[0].x) return p[0].y;
-  for (let i = 1; i < p.length; i += 1) {
-    if (x <= p[i].x) {
-      const t = (x - p[i - 1].x) / Math.max(p[i].x - p[i - 1].x, 1e-6);
-      return p[i - 1].y + t * (p[i].y - p[i - 1].y);
-    }
-  }
-  return p[p.length - 1].y;
+const isIdentity = (points: Coord[] | undefined) =>
+  !points ||
+  points.length < 2 ||
+  (points.every((p) => p.x === p.y) &&
+    points[0].x === 0 &&
+    points[points.length - 1].x === 255);
+
+/** A visible layer with curves, or a LUT: tones changed after the photo's
+ * curves, which the displayed sample cannot be traced back through. */
+function hasToneAfterCurves(a: Adjustments) {
+  const layerCurves = (a.masks ?? []).some((mask) => {
+    const adjustments = mask.adjustments as Partial<Adjustments> | undefined;
+    // Layers that cannot reach a pixel: hidden, empty or at zero opacity.
+    const inert =
+      mask.visible === false ||
+      !mask.subMasks?.length ||
+      (mask.opacity ?? 100) <= 0;
+    const curves =
+      inert || adjustments?.sectionVisibility?.curves === false
+        ? undefined
+        : adjustments?.curves;
+    return (
+      !!curves &&
+      [curves.luma, curves.red, curves.green, curves.blue].some(
+        (c) => !isIdentity(renderedPoints(c as Coord[] | undefined, false)),
+      )
+    );
+  });
+  // Scene-referred LUTs apply before the curves.
+  const lut =
+    !!a.lutPath &&
+    !a.lutIsSceneReferred &&
+    a.sectionVisibility?.effects !== false &&
+    (a.lutIntensity ?? 100) > 0;
+  return layerCurves || lut;
 }
 
-/** The input level the curve maps to `displayed` (nearest for flat parts). */
-function invertCurve(points: Coord[] | undefined, displayed: number): number {
-  let best = 0;
-  let error = Infinity;
-  for (let x = 0; x <= 255; x += 1) {
-    const e = Math.abs(curveValue(points, x) - displayed);
-    if (e < error) {
-      error = e;
-      best = x;
-    }
+const regionOf = (a: Adjustments): RegionCurve => ({
+  ...INITIAL_REGION_CURVE,
+  ...a.regionCurve,
+});
+
+/** The renderer's luma point curve at `x` (0–255). */
+export const curveValue = pointCurveValue;
+
+/**
+ * The input level `curve` maps to `displayed`, or null when the displayed
+ * tone does not say which input is under the pointer: the curve falls
+ * somewhere (checked every sixteenth of a level), or inputs more than a few
+ * levels apart show the tone alike (a flat stretch).
+ */
+function invertCurve(
+  curve: (x: number) => number,
+  displayed: number,
+): number | null {
+  let previous = curve(0);
+  for (let i = 1; i <= 255 * 16; i += 1) {
+    const value = curve(i / 16);
+    if (value < previous - 1e-6) return null;
+    previous = value;
   }
-  return best;
+  const errors = Array.from({ length: 256 }, (_, x) =>
+    Math.abs(curve(x) - displayed),
+  );
+  const best = errors.indexOf(Math.min(...errors));
+  const alike = errors.every(
+    (error, x) => error > errors[best] + 1 || Math.abs(x - best) <= 4,
+  );
+  return alike ? best : null;
 }
 
 /** Moves the curve at `x` by `delta`: the point there, or a new one. */
@@ -225,9 +325,13 @@ function moveCurve(
           { x: 0, y: 0 },
           { x: 255, y: 255 },
         ];
-  const near = p.findIndex(
-    (q, i) => i > 0 && i < p.length - 1 && Math.abs(q.x - x) <= 6,
-  );
+  // The nearest inner point within reach (imported curves can hold points
+  // a level apart).
+  let near = -1;
+  p.forEach((q, i) => {
+    if (i === 0 || i === p.length - 1 || Math.abs(q.x - x) > 6) return;
+    if (near === -1 || Math.abs(q.x - x) < Math.abs(p[near].x - x)) near = i;
+  });
   if (near !== -1) {
     p[near].y = clamp(Math.round(p[near].y + delta), 0, 255);
     return p;

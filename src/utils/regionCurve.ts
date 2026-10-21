@@ -159,3 +159,23 @@ export function regionCurveValue(c: RegionCurve, x: number) {
   }
   return Math.min(1, Math.max(0, y));
 }
+
+/** The region a display value x (0–1, before the region curve) belongs to. */
+export function regionAt(
+  c: RegionCurve,
+  x: number,
+): "shadows" | "darks" | "lights" | "highlights" {
+  const clamp = (v: number, lo: number, hi: number) =>
+    Math.min(hi, Math.max(lo, v));
+  const s1 = clamp(c.shadowSplit, 5, 45);
+  const s3 = clamp(c.highlightSplit, 55, 95);
+  const s2 = clamp(clamp(c.midtoneSplit, 25, 75), s1 + 5, s3 - 5);
+  const v = x * 100;
+  return v < s1
+    ? "shadows"
+    : v < s2
+      ? "darks"
+      : v < s3
+        ? "lights"
+        : "highlights";
+}

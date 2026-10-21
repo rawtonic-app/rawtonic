@@ -3233,7 +3233,9 @@ pub struct GlobalAdjustments {
     /// x: number of ranges.
     pub color_range_count: [u32; 4],
     /// Lightroom's region tone curve as 256 output values (region_curve.rs);
-    /// `region_curve_active` x = 1 when it is not identity.
+    /// `region_curve_active` x = 1 when it is not identity, y = 1 when the
+    /// point curves are read from `PreparedAdjustments::curve_table` (a
+    /// channel has more points than the uniforms hold, point_curve.rs).
     /// (Two halves of 32 vec4: serde and Default stop at 32 elements.)
     pub region_curve: [[[f32; 4]; 32]; 2],
     pub region_curve_active: [u32; 4],
@@ -3407,6 +3409,9 @@ pub struct PreparedAdjustments {
     /// The blurs read their whole radius at tile edges (`renderVersion` 2);
     /// before, the large blur stopped at the tiles' 128-pixel overlap.
     pub whole_blur_radius: bool,
+    /// The global point curves sampled (point_curve.rs) when a channel has
+    /// more than 16 points; `global.region_curve_active[1]` is 1 then.
+    pub curve_table: Option<std::sync::Arc<Vec<[f32; 4]>>>,
 }
 impl std::ops::Deref for PreparedAdjustments {
     type Target = AllAdjustments;
@@ -3429,6 +3434,7 @@ impl From<AllAdjustments> for PreparedAdjustments {
             relight_surface,
             relight_patterns,
             whole_blur_radius: false,
+            curve_table: None,
         }
     }
 }
@@ -4957,6 +4963,38 @@ fn get_mask_adjustments_from_json(
     mask
 }
 
+/// The photo's point curves as a table when one has more than 16 points
+/// (point_curve.rs) and the curves' `version` is 2 or more (curves saved
+/// before render their first 16 points); hidden curves count as none, as
+/// for the uniforms.
+fn global_curve_table(js_adjustments: &serde_json::Value) -> Option<std::sync::Arc<Vec<[f32; 4]>>> {
+    if js_adjustments["curves"]["version"].as_u64().unwrap_or(1) < crate::point_curve::CURVE_VERSION
+    {
+        return None;
+    }
+    let visible = js_adjustments
+        .get("sectionVisibility")
+        .and_then(|v| v.get("curves"))
+        .and_then(|s| s.as_bool())
+        .unwrap_or(true);
+    if !visible {
+        return None;
+    }
+    let curves = &js_adjustments["curves"];
+    let channel = |key: &str| match curves.get(key) {
+        Some(points) => {
+            crate::point_curve::curve_points(points.as_array().map_or(&[], Vec::as_slice))
+        }
+        None => vec![(0.0, 0.0), (255.0, 255.0)],
+    };
+    crate::point_curve::curve_table(&[
+        channel("luma"),
+        channel("red"),
+        channel("green"),
+        channel("blue"),
+    ])
+}
+
 pub fn get_all_adjustments_from_json(
     js_adjustments: &serde_json::Value,
     is_raw: bool,
@@ -5005,6 +5043,10 @@ pub fn get_all_adjustments_with_masks(
         1.0
     };
     global.exposure *= exposure_scale;
+    let curve_table = global_curve_table(js_adjustments);
+    if curve_table.is_some() {
+        global.region_curve_active[1] = 1;
+    }
     let version = render_version(js_adjustments);
     let mut mask_adjustments = [MaskAdjustments::default(); MAX_MASKS];
     let mut mask_count = 0;
@@ -5025,6 +5067,7 @@ pub fn get_all_adjustments_with_masks(
         relight_surface,
         relight_patterns,
         whole_blur_radius: version >= 2,
+        curve_table,
         uniforms: AllAdjustments {
             global,
             mask_adjustments,

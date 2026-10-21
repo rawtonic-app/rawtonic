@@ -2038,6 +2038,7 @@
         "hue": "Tono selectivo",
         "label": "Selectivo",
         "luminance": "Luminancia selectiva",
+        "regionCurve": "Curva de regiones dirigida",
         "saturation": "Saturación selectiva",
         "toneCurve": "Curva de tonos selectiva"
       },

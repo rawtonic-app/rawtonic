@@ -142,4 +142,23 @@ describe("targeted adjustment surface", () => {
       y: 110,
     });
   });
+
+  it("does not read tones through view overlays", async () => {
+    useEditorStore.setState({
+      tatTarget: "regionCurve",
+      clippingWarnings: true,
+    });
+    invoke.mockResolvedValue([255, 0, 0]);
+    const el = surface();
+    await act(async () => {
+      fireEvent.pointerDown(el, {
+        button: 0,
+        clientX: 10,
+        clientY: 100,
+        pointerId: 1,
+      });
+    });
+    expect(invoke).not.toHaveBeenCalled();
+    useEditorStore.setState({ clippingWarnings: false });
+  });
 });

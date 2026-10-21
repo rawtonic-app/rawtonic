@@ -209,6 +209,8 @@ fn curves(curves: [(&[Point; 16], u32); 4]) -> [PreparedCurve; 4] {
 
 /// Samples per channel in a layer's display curve table (1,024 intervals).
 pub(super) const CURVE_LUT_SAMPLES: usize = 1025;
+// The photo's curve table (point_curve.rs) shares the layout.
+const _: () = assert!(rawtonic_engine::point_curve::CURVE_TABLE_SAMPLES == CURVE_LUT_SAMPLES);
 /// Layer flag: the shader may read this layer's curves from its table.
 pub(super) const LAYER_CURVE_LUT: u32 = 8;
 // A quarter of one 8-bit level. Combined with output rounding, a table read

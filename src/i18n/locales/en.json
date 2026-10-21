@@ -1980,6 +1980,7 @@
         "hue": "Targeted hue",
         "label": "Targeted",
         "luminance": "Targeted luminance",
+        "regionCurve": "Targeted region curve",
         "saturation": "Targeted saturation",
         "toneCurve": "Targeted tone curve"
       },

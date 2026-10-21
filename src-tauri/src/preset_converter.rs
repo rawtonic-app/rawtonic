@@ -57,37 +57,113 @@ fn extract_tone_curve_points(xmp_str: &str, curve_name: &str) -> Option<Vec<Valu
         let x: u32 = point_cap.get(1)?.as_str().parse().ok()?;
         let y: u32 = point_cap.get(2)?.as_str().parse().ok()?;
 
-        let mut final_y = y;
-        if curve_name == "ToneCurvePV2012" {
-            const SHADOW_RANGE_END: f64 = 64.0;
-            const SHADOW_DAMPEN_START: f64 = 0.8;
-            const SHADOW_DAMPEN_END: f64 = 1.0;
-
-            let x_f64 = x as f64;
-            let y_f64 = y as f64;
-
-            if y_f64 > x_f64 && x_f64 < SHADOW_RANGE_END {
-                let lift_amount = y_f64 - x_f64;
-                let progress = x_f64 / SHADOW_RANGE_END;
-                let dampening_factor =
-                    SHADOW_DAMPEN_START + (SHADOW_DAMPEN_END - SHADOW_DAMPEN_START) * progress;
-
-                let new_y = x_f64 + (lift_amount * dampening_factor);
-                final_y = new_y.round().clamp(0.0, 255.0) as u32;
-            }
-        }
-
         let mut point = Map::new();
         point.insert("x".to_string(), Value::Number(x.into()));
-        point.insert("y".to_string(), Value::Number(final_y.into()));
+        point.insert("y".to_string(), Value::Number(y.into()));
         points.push(Value::Object(point));
     }
 
     if points.is_empty() {
         None
     } else {
-        Some(points)
+        Some(lightroom_curve(&points))
     }
+}
+
+/// Natural cubic spline through `knots` (sorted, distinct x), flat beyond
+/// the ends: Camera Raw's point curve on display values, measured
+/// 2026-10-21 (notes: reference/point-curve.md; 3-point curve 0.11 levels
+/// mean, overshooting curve 0.21, where the renderer's Hermite through the
+/// same points is 1.37 and 5.14 levels off).
+fn natural_spline(knots: &[(f64, f64)], x: f64) -> f64 {
+    let n = knots.len();
+    if x <= knots[0].0 {
+        return knots[0].1;
+    }
+    if x >= knots[n - 1].0 {
+        return knots[n - 1].1;
+    }
+    let h: Vec<f64> = knots.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    // Second derivatives (zero at both ends), tridiagonal solve.
+    let mut m = vec![0.0; n];
+    if n > 2 {
+        let mut diag = vec![0.0; n];
+        let mut rhs = vec![0.0; n];
+        for i in 1..n - 1 {
+            diag[i] = 2.0 * (h[i - 1] + h[i]);
+            rhs[i] = 6.0
+                * ((knots[i + 1].1 - knots[i].1) / h[i] - (knots[i].1 - knots[i - 1].1) / h[i - 1]);
+        }
+        for i in 2..n - 1 {
+            let f = h[i - 1] / diag[i - 1];
+            diag[i] -= f * h[i - 1];
+            rhs[i] -= f * rhs[i - 1];
+        }
+        for i in (1..n - 1).rev() {
+            m[i] = (rhs[i] - h[i] * m[i + 1]) / diag[i];
+        }
+    }
+    let i = knots.windows(2).position(|w| x <= w[1].0).unwrap_or(n - 2);
+    let (x0, y0) = knots[i];
+    let (x1, y1) = knots[i + 1];
+    let (a, b) = ((x1 - x) / h[i], (x - x0) / h[i]);
+    a * y0 + b * y1 + ((a * a * a - a) * m[i] + (b * b * b - b) * m[i + 1]) * h[i] * h[i] / 6.0
+}
+
+/// A Lightroom point curve as Rawtonic's: its points, plus knots on
+/// Lightroom's spline wherever the renderer's curve through the points
+/// would leave it by more than a quarter level (checked every eighth of an
+/// input level), on whole levels. Next to steep transitions (a rise of
+/// many levels within a few input levels) whole-level points cannot follow
+/// the spline closer — 2–12 levels left in the tests — and the remaining
+/// error is logged.
+fn lightroom_curve(points: &[Value]) -> Vec<Value> {
+    let mut knots: Vec<(f64, f64)> = points
+        .iter()
+        .filter_map(|p| Some((p["x"].as_f64()?, p["y"].as_f64()?)))
+        .collect();
+    knots.sort_by(|a, b| a.0.total_cmp(&b.0));
+    knots.dedup_by(|a, b| a.0 == b.0);
+    if knots.len() < 2 {
+        return points.to_vec();
+    }
+    let lightroom = knots.clone();
+    let target = |x: f64| natural_spline(&lightroom, x).clamp(0.0, 255.0);
+    // Errors every eighth of a level (the renderer's input is continuous),
+    // largest first; new knots sit on whole levels, at least one apart, as
+    // the curve editor keeps its points.
+    let errors = |knots: &[(f64, f64)]| {
+        let ours: Vec<(f32, f32)> = knots.iter().map(|&(x, y)| (x as f32, y as f32)).collect();
+        let mut errors: Vec<(f64, f64)> = (0..=255 * 8)
+            .map(|i| {
+                let x = i as f64 / 8.0;
+                let got = rawtonic_engine::point_curve::curve_value(&ours, (x / 255.0) as f32);
+                (x, (got as f64 * 255.0 - target(x)).abs())
+            })
+            .filter(|&(_, error)| error > 0.25)
+            .collect();
+        errors.sort_by(|a, b| b.1.total_cmp(&a.1));
+        errors
+    };
+    loop {
+        let free = |x: f64| knots.iter().all(|k| (k.0 - x).abs() >= 1.0);
+        let next = errors(&knots)
+            .into_iter()
+            .flat_map(|(x, _)| [x.round(), x.floor(), x.ceil()])
+            .find(|&x| free(x));
+        let Some(x) = next else { break };
+        let at = knots.partition_point(|k| k.0 < x);
+        knots.insert(at, (x, (target(x) * 100.0).round() / 100.0));
+    }
+    if let Some(&(x, error)) = errors(&knots).first() {
+        log::info!(
+            "Lightroom curve import: {error:.2} levels from Lightroom's curve at input {x} (no whole-level point left to add)"
+        );
+    }
+    knots
+        .into_iter()
+        .map(|(x, y)| json!({"x": x, "y": y}))
+        .collect()
 }
 
 /// Linear ProPhoto (D50) to linear sRGB (D65, Bradford).
@@ -630,6 +706,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         }
     }
     if !curves_map.is_empty() {
+        // Imported curves render whole, however many points they have.
+        curves_map.insert(
+            "version".to_string(),
+            json!(rawtonic_engine::point_curve::CURVE_VERSION),
+        );
         adjustments.insert("curves".to_string(), Value::Object(curves_map));
     }
 
@@ -1631,6 +1712,82 @@ mod tests {
             "profiles {:?}",
             profiles.iter().take(12).collect::<Vec<_>>()
         );
+    }
+
+    fn rendered(curve: &[serde_json::Value], x: f64) -> f64 {
+        let points: Vec<(f32, f32)> = curve
+            .iter()
+            .map(|p| {
+                (
+                    p["x"].as_f64().unwrap() as f32,
+                    p["y"].as_f64().unwrap() as f32,
+                )
+            })
+            .collect();
+        rawtonic_engine::point_curve::curve_value(&points, (x / 255.0) as f32) as f64 * 255.0
+    }
+
+    #[test]
+    fn lightroom_point_curves_follow_lightroom_spline() {
+        let seq = |pts: &[(u32, u32)]| {
+            let items: String = pts
+                .iter()
+                .map(|(x, y)| format!("<rdf:li>{x}, {y}</rdf:li>"))
+                .collect();
+            format!("<crs:ToneCurvePV2012><rdf:Seq>{items}</rdf:Seq></crs:ToneCurvePV2012>")
+        };
+        // Camera Raw, 2026-10-21 (neutral medians): 3-point 96 -> 125.3,
+        // overshoot past (64,128)-(128,128): 96 -> 135.2, flat beyond moved ends.
+        for (pts, x, camera_raw) in [
+            (vec![(0, 0), (128, 160), (255, 255)], 96.0, 125.3),
+            (vec![(0, 0), (64, 128), (128, 128), (255, 255)], 96.0, 135.2),
+            (vec![(32, 0), (128, 128), (224, 255)], 16.0, 0.0),
+            // A jump within one level: right at integers, off between them.
+            (vec![(0, 0), (127, 0), (128, 255), (255, 255)], 64.0, -1.0),
+            // Steep transitions over a few levels: no closer fit on whole
+            // levels (2.3 and 12.3 levels left, logged); still sorted.
+            (vec![(0, 0), (120, 30), (130, 200), (255, 255)], 64.0, -1.0),
+            (vec![(0, 0), (126, 0), (129, 255), (255, 255)], 64.0, -1.0),
+        ] {
+            let curve = super::extract_tone_curve_points(&seq(&pts), "ToneCurvePV2012").unwrap();
+            for &(px, py) in &pts {
+                assert!(
+                    curve
+                        .iter()
+                        .any(|p| p["x"] == px as f64 && p["y"] == py as f64),
+                    "{pts:?}"
+                );
+            }
+            // Whole-level knots, sorted and at least one level apart, as the
+            // curve editor keeps them.
+            let xs: Vec<f64> = curve.iter().map(|p| p["x"].as_f64().unwrap()).collect();
+            assert!(xs.iter().all(|x| x.fract() == 0.0), "{xs:?}");
+            assert!(xs.windows(2).all(|w| w[1] - w[0] >= 1.0), "{xs:?}");
+            if camera_raw < 0.0 {
+                continue; // a jump within one level: no closer fit exists
+            }
+            // Within a quarter level at every eighth input level.
+            for k in 0..=255 * 8 {
+                let x = k as f64 / 8.0;
+                let spline = super::natural_spline(
+                    &pts.iter()
+                        .map(|&(a, b)| (a as f64, b as f64))
+                        .collect::<Vec<_>>(),
+                    x,
+                )
+                .clamp(0.0, 255.0);
+                assert!(
+                    (rendered(&curve, x) - spline).abs() <= 0.26,
+                    "{pts:?} at {x}"
+                );
+            }
+            assert!(
+                (rendered(&curve, x) - camera_raw).abs() < 1.5,
+                "{pts:?}: {}",
+                rendered(&curve, x)
+            );
+            assert!(curve.len() <= 16, "{pts:?}: {} points", curve.len());
+        }
     }
 
     #[test]

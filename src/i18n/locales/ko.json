@@ -1943,6 +1943,7 @@
         "hue": "타깃 색조",
         "label": "타깃",
         "luminance": "타깃 휘도",
+        "regionCurve": "대상 영역 곡선",
         "saturation": "타깃 채도",
         "toneCurve": "타깃 톤 커브"
       },

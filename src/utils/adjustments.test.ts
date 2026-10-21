@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blendPreset } from './presetAmount';
 import {
+  CURVE_VERSION,
   ADJUSTMENT_GROUPS,
   COLOR_NOISE_VERSION,
   COPYABLE_ADJUSTMENT_KEYS,
@@ -269,6 +270,23 @@ describe('RAW detail defaults', () => {
     expect(load({}, false)).toBe(LUMA_NOISE_VERSION);
     expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 1 })).toBe(1);
     expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 2 })).toBe(2);
+  });
+
+  it('keep the curves version with the curves', () => {
+    // New edits render long curves whole; curves saved before keep no version.
+    expect(INITIAL_ADJUSTMENTS.curves.version).toBe(CURVE_VERSION);
+    const luma = Array.from({ length: 20 }, (_, i) => ({ x: i * 13, y: i * 13 }));
+    const legacy = normalizeLoadedAdjustments({ curves: { luma } } as unknown as Adjustments, true);
+    expect(legacy.curves.version).toBeUndefined();
+    const saved = normalizeLoadedAdjustments({ curves: { luma, version: 2 } } as unknown as Adjustments, true);
+    expect(saved.curves.version).toBe(2);
+    // Neutral curves from before the version are still the default; long
+    // curves differ by version.
+    const neutral = { ...INITIAL_ADJUSTMENTS.curves };
+    delete neutral.version;
+    expect('curves' in pastedAdjustments({ curves: neutral } as Adjustments, ['curves'], PasteMode.Merge)).toBe(false);
+    expect(sameAdjustmentValue(neutral, INITIAL_ADJUSTMENTS.curves)).toBe(true);
+    expect(sameAdjustmentValue(legacy.curves, saved.curves)).toBe(false);
   });
 
   it('carry the luminance noise reduction version with luminance values', () => {

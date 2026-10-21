@@ -2038,6 +2038,7 @@
         "hue": "Matiz direcionado",
         "label": "Direcionado",
         "luminance": "Luminância direcionada",
+        "regionCurve": "Curva de regiões direcionada",
         "saturation": "Saturação direcionada",
         "toneCurve": "Curva de tons direcionada"
       },
