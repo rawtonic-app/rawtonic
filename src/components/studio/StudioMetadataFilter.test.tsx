@@ -118,3 +118,54 @@ it("counts within the RAW / not RAW filter too", async () => {
     ],
   });
 });
+
+it("chooses a run of values with Shift-click (ISO 800 to 3200), not the photographs without one", async () => {
+  mockInvoke.mockResolvedValue({
+    iso: [
+      { value: "400", count: 3 },
+      { value: "800", count: 2 },
+      { value: "1600", count: 4 },
+      { value: "3200", count: 3 },
+      { value: "6400", count: 1 },
+      { value: "", count: 1 },
+    ],
+  });
+  render(<StudioMetadataFilter />);
+  await counted();
+  const iso = within(screen.getByRole("group", { name: "ISO" }));
+  fireEvent.click(iso.getByText("ISO 800"));
+  fireEvent.click(iso.getByText("ISO 3200"), { shiftKey: true });
+  expect(useLibraryStore.getState().filterCriteria.metadata).toEqual({ iso: ["800", "1600", "3200"] });
+  // Back down from there: the run joins what is chosen.
+  fireEvent.click(iso.getByText("Unknown ISO"), { shiftKey: true });
+  expect(useLibraryStore.getState().filterCriteria.metadata?.iso).toEqual(["800", "1600", "3200", "6400", ""]);
+});
+
+it("lists capture dates by year, a year chosen in one click, its months on demand", async () => {
+  mockInvoke.mockResolvedValue({
+    captureDate: [
+      { value: "2025-03", count: 2 },
+      { value: "2024-11", count: 5 },
+      { value: "2024-02", count: 4 },
+      { value: "2023-07", count: 1 },
+      { value: "", count: 3 },
+    ],
+  });
+  render(<StudioMetadataFilter />);
+  await counted();
+  const dates = within(screen.getByRole("group", { name: "Capture date" }));
+  // Years with the sum of their months; months hidden until asked for.
+  expect(dates.getByText("2024").closest("button")!.textContent).toContain("9");
+  expect(dates.queryByText("November 2024")).toBeNull();
+  fireEvent.click(dates.getByText("2024"));
+  expect(useLibraryStore.getState().filterCriteria.metadata).toEqual({ captureDate: ["2024"] });
+  fireEvent.click(dates.getByLabelText("Show the months of 2024"));
+  expect(dates.getByText("November 2024").closest("button")!.getAttribute("aria-pressed")).toBe("true");
+  // A month of the chosen year taken back: the year's other months stay.
+  fireEvent.click(dates.getByText("November 2024"));
+  expect(useLibraryStore.getState().filterCriteria.metadata).toEqual({ captureDate: ["2024-02"] });
+  // Shift-click over years chooses the years between.
+  fireEvent.click(dates.getByText("2025"));
+  fireEvent.click(dates.getByText("2023"), { shiftKey: true });
+  expect(useLibraryStore.getState().filterCriteria.metadata).toEqual({ captureDate: ["2025", "2024", "2023"] });
+});

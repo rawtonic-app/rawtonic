@@ -72,7 +72,8 @@ const isGroup = (album: SessionAlbum) => album.kind === "group";
 const isSmart = (album: SessionAlbum) => album.kind === "smart";
 /** A new smart album's first rule. */
 const NEW_SMART_RULES: Group = { combine: "all", rules: [{ field: "rating", op: "ge", value: 3 }] };
-/** How long catalog writes pause before smart albums are counted again. */
+/** How long after a new list (a rename, background tagging) smart albums
+ * are counted again. Catalog writes count them at once. */
 const SMART_REFRESH_MS = 250;
 
 /** Albums of a parent in their order (the session returns them ordered). */
@@ -249,11 +250,15 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
   selectRef.current = onSelectAlbum;
   useEffect(() => {
     if (!session) return;
-    let timer: ReturnType<typeof setTimeout> | undefined;
     // Only the newest refresh of this session may publish; navigating
     // away (another album, folder or session) meanwhile drops it.
     let generation = 0;
     let alive = true;
+    // A write counts at once (Lightroom's and Capture One's counts follow a
+    // rating in under 0.2 s); writes while a count runs are counted once
+    // more after it, so a burst of key presses asks twice, not per press.
+    let running = false;
+    let again = false;
     const refresh = async () => {
       const mine = ++generation;
       const current = () => alive && mine === generation && stillShown(session);
@@ -271,8 +276,18 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
       await openSessionAlbum(session, album, select, true).catch(() => {});
     };
     const changed = () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => void refresh(), SMART_REFRESH_MS);
+      if (running) {
+        again = true;
+        return;
+      }
+      running = true;
+      void refresh().finally(() => {
+        running = false;
+        if (again && alive) {
+          again = false;
+          changed();
+        }
+      });
     };
     // Album membership has its own refresh here (SESSION_ALBUMS_CHANGED).
     const stop = onCatalogChange(
@@ -281,7 +296,6 @@ export default function StudioAlbums({ onSelectAlbum }: { onSelectAlbum: SelectA
     );
     return () => {
       alive = false;
-      clearTimeout(timer);
       stop();
     };
   }, [session]);

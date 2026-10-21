@@ -2541,6 +2541,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}}mm",
+        "hideMonths": "{{year}}년의 월 숨기기",
         "isoValue": "ISO {{value}}",
         "label": "메타데이터 필터",
         "none": {
@@ -2553,6 +2554,8 @@
           "keyword": "키워드 없음",
           "lens": "알 수 없는 렌즈"
         },
+        "rangeHint": "클릭하면 값 하나, Shift-클릭하면 마지막으로 클릭한 값부터 모든 값을 선택",
+        "showMonths": "{{year}}년의 월 보기",
         "toggle": "메타데이터 목록 표시 또는 숨기기 (촬영 날짜, 카메라, 렌즈, 키워드, 파일 형식, ISO, 초점 거리, 조리개)"
       },
       "navigator": {

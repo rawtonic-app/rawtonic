@@ -2541,6 +2541,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "隐藏 {{year}} 年的月份",
         "isoValue": "ISO {{value}}",
         "label": "元数据筛选",
         "none": {
@@ -2553,6 +2554,8 @@
           "keyword": "无关键字",
           "lens": "未知镜头"
         },
+        "rangeHint": "单击选择一个值，Shift 单击选择从上次单击的值起的所有值",
+        "showMonths": "显示 {{year}} 年的月份",
         "toggle": "显示或隐藏元数据列表（拍摄日期、相机、镜头、关键字、文件类型、ISO、焦距、光圈）"
       },
       "navigator": {

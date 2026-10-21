@@ -2541,6 +2541,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "{{year}} 年の月を隠す",
         "isoValue": "ISO {{value}}",
         "label": "メタデータフィルター",
         "none": {
@@ -2553,6 +2554,8 @@
           "keyword": "キーワードなし",
           "lens": "レンズ不明"
         },
+        "rangeHint": "クリックで値を選択、Shift クリックで最後にクリックした値からすべて選択",
+        "showMonths": "{{year}} 年の月を表示",
         "toggle": "メタデータの一覧を表示/非表示（撮影日、カメラ、レンズ、キーワード、ファイルの種類、ISO、焦点距離、絞り）"
       },
       "navigator": {

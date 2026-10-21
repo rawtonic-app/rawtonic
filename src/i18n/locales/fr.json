@@ -2682,6 +2682,7 @@
           "tiff": "TIFF"
         },
         "focalValue": "{{value}} mm",
+        "hideMonths": "Masquer les mois de {{year}}",
         "isoValue": "ISO {{value}}",
         "label": "Filtre de métadonnées",
         "none": {
@@ -2694,6 +2695,8 @@
           "keyword": "Sans mot-clé",
           "lens": "Objectif inconnu"
         },
+        "rangeHint": "Cliquer choisit une valeur, Maj-clic choisit toutes les valeurs depuis la dernière cliquée",
+        "showMonths": "Afficher les mois de {{year}}",
         "toggle": "Afficher ou masquer les listes de métadonnées (date de prise de vue, appareil, objectif, mot-clé, type de fichier, ISO, focale, ouverture)"
       },
       "navigator": {
