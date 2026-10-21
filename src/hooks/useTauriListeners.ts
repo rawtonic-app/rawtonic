@@ -5,7 +5,13 @@ import { toast } from 'react-toastify';
 import i18n from 'i18next';
 import { CullingSuggestions, ImageFile, Invokes, Progress } from '../components/ui/AppProperties';
 import { Status } from '../components/ui/ExportImportProperties';
-import { ExportJob, ExternalEditSession, useProcessStore } from '../store/useProcessStore';
+import {
+  ExportItemProgress,
+  ExportQueueSnapshot,
+  ExternalEditSession,
+  useProcessStore,
+} from '../store/useProcessStore';
+import { followsExportItems, loadExportItems } from '../components/studio/StudioExportQueue';
 import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useLibraryStore } from '../store/useLibraryStore';
@@ -165,16 +171,16 @@ export function useTauriListeners({
 
   useEffect(() => {
     // Exports a quit or crash interrupted are kept for resuming.
-    invoke<ExportJob[]>(Invokes.ExportQueueJobs)
-      .then((jobs) => {
-        if (!Array.isArray(jobs)) return;
-        useProcessStore.getState().setProcess({ exportQueue: jobs });
-        const interrupted = jobs.filter((job) => job.state === 'interrupted');
+    invoke<ExportQueueSnapshot>(Invokes.ExportQueueJobs)
+      .then((snapshot) => {
+        if (!Array.isArray(snapshot?.jobs)) return;
+        useProcessStore.getState().setExportQueue(snapshot);
+        const interrupted = snapshot.jobs.filter((job) => job.state === 'interrupted');
         if (interrupted.length)
           toast.info(
             interrupted.length === 1
-              ? `An export was interrupted (${interrupted[0].done} of ${interrupted[0].total} done). Resume it in Export.`
-              : `${interrupted.length} exports were interrupted. Resume them in Export.`,
+              ? `An export was interrupted (${interrupted[0].done} of ${interrupted[0].total} done). Resume it in the export queue.`
+              : `${interrupted.length} exports were interrupted. Resume them in the export queue.`,
           );
       })
       .catch(() => {});
@@ -394,17 +400,41 @@ export function useTauriListeners({
             denoising: [...(state.denoising ?? []), event.payload],
           }));
       }),
-      listen<{ current: number; total: number }>('export-job-started', (event) => {
-        if (isEffectActive)
-          useProcessStore.getState().setExportState({
-            denoising: [],
-            status: Status.Exporting,
-            errorMessage: '',
-            progress: { current: event.payload.current, total: event.payload.total },
-          });
+      // `ids`: every job of the run (recipes sharing each photo's develop).
+      listen<{ id: string; ids?: string[]; current: number; total: number }>('export-job-started', (event) => {
+        if (!isEffectActive) return;
+        useProcessStore.getState().setExportState({
+          denoising: [],
+          status: Status.Exporting,
+          errorMessage: '',
+          progress: { current: event.payload.current, total: event.payload.total },
+        });
+        // The running jobs' photos, for their progress and time left.
+        for (const id of event.payload.ids ?? (event.payload.id ? [event.payload.id] : [])) void loadExportItems(id);
       }),
-      listen<ExportJob[]>('export-queue-changed', (event) => {
-        if (isEffectActive) useProcessStore.getState().setProcess({ exportQueue: event.payload });
+      listen<ExportQueueSnapshot>('export-queue-changed', (event) => {
+        if (!isEffectActive) return;
+        const followed = event.payload.jobs.filter((job) => job.state !== 'running' && followsExportItems(job.id));
+        useProcessStore.getState().setExportQueue(event.payload);
+        // A run that ended put its unfinished photos back to waiting (no
+        // photo event says so); also when the first read is still on its way.
+        for (const job of followed) void loadExportItems(job.id);
+      }),
+      listen<ExportItemProgress>('export-item-progress', (event) => {
+        if (isEffectActive) useProcessStore.getState().applyExportItemProgress(event.payload);
+      }),
+      // Only while the job still runs: a finished job never shows Pausing.
+      listen<string>('export-job-pausing', (event) => {
+        if (isEffectActive)
+          useProcessStore.getState().setProcess((state) =>
+            state.exportQueue.some((job) => job.id === event.payload && job.state === 'running')
+              ? { exportPausing: [...state.exportPausing, event.payload] }
+              : {},
+          );
+      }),
+      listen('export-paused', () => {
+        if (isEffectActive)
+          useProcessStore.getState().setExportState({ status: Status.Idle, denoising: [], progress: { current: 0, total: 0 } });
       }),
       listen<{ destination: string | null; skipped: boolean; error: string | null }>('hot-folder-imported', (event) => {
         if (isEffectActive) showCapture(event.payload, false);

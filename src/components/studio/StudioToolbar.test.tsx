@@ -156,3 +156,46 @@ it("shows the export turning and naming AI Denoise while a photo waits for it", 
   expect(screen.getByRole("button", { name: "Exporting 1 / 1" })).toBe(button);
   act(() => useProcessStore.setState({ exportState: { status: Status.Idle, errorMessage: "", progress: { current: 0, total: 0 } } }));
 });
+
+it("opens the export queue from the top bar beside the work, counting what is not finished", async () => {
+  const { useProcessStore } = await import("../../store/useProcessStore");
+  const job = { label: "2 photos as JPG", createdAt: "", total: 2, done: 0, failed: 0, failures: [] };
+  useProcessStore.setState({
+    exportQueue: [
+      { ...job, id: "a", state: "running" },
+      { ...job, id: "b", state: "done", done: 2 },
+    ],
+  });
+  const noop = vi.fn();
+  render(
+    <StudioWorkspace
+      files={[]}
+      flagCounts={{ all: 0, picked: 0, rejected: 0, unflagged: 0 }}
+      transformWrapperRef={{ current: null }}
+      onSelect={noop}
+      onFilmSelect={noop}
+      onOpen={noop}
+      onNavigate={noop}
+      onBack={noop}
+      onRate={noop}
+      onContextMenu={noop}
+      onEditorContextMenu={noop}
+      onCopy={noop}
+      onPaste={noop}
+      onReset={noop}
+      onZoom={noop}
+      requestThumbnails={noop}
+      settings={null}
+      onSettings={noop}
+    />,
+  );
+  const button = screen.getByRole("button", { name: "Queue (1)" });
+  fireEvent.click(button);
+  // Not a modal dialog: Develop stays usable while the panel is open.
+  const panel = screen.getByRole("complementary", { name: "Export queue" });
+  expect(panel.closest("dialog")).toBeNull();
+  expect(screen.getAllByRole("listitem", { hidden: false }).length).toBeGreaterThanOrEqual(2);
+  fireEvent.click(screen.getByRole("button", { name: "Close export queue" }));
+  expect(screen.queryByRole("complementary", { name: "Export queue" })).toBeNull();
+  act(() => useProcessStore.setState({ exportQueue: [] }));
+});

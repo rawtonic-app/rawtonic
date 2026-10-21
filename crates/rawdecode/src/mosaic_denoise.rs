@@ -39,7 +39,25 @@ pub trait MosaicDenoiser: Send + Sync {
         let _ = noise_scale;
         self.denoise(mosaic, width, height, pattern)
     }
+
+    /// `denoise_scaled` that reports `progress(done, total)` as it goes (AI
+    /// Denoise: once per tile). Denoisers without steps report nothing.
+    fn denoise_reporting(
+        &self,
+        mosaic: &[f32],
+        width: usize,
+        height: usize,
+        pattern: [u8; 4],
+        noise_scale: f32,
+        progress: &(dyn Fn(usize, usize) + Sync),
+    ) -> Result<Vec<f32>> {
+        let _ = progress;
+        self.denoise_scaled(mosaic, width, height, pattern, noise_scale)
+    }
 }
+
+/// Told `(done, total)` while a denoiser works, e.g. for an export's progress.
+pub type DenoiseProgress = Arc<dyn Fn(usize, usize) + Send + Sync>;
 
 /// A denoiser and how much of its result to keep (0 … 1).
 #[derive(Clone)]
@@ -51,6 +69,8 @@ pub struct MosaicDenoise {
     pub noise_scale: f32,
     /// Set once a development ran the denoiser (it skips non-Bayer sensors).
     pub applied: Arc<std::sync::atomic::AtomicBool>,
+    /// Where the denoiser reports how far it is, if anywhere.
+    pub progress: Option<DenoiseProgress>,
 }
 
 impl MosaicDenoise {
@@ -60,7 +80,13 @@ impl MosaicDenoise {
             amount,
             noise_scale: 1.0,
             applied: Arc::default(),
+            progress: None,
         }
+    }
+
+    pub fn with_progress(mut self, progress: DenoiseProgress) -> Self {
+        self.progress = Some(progress);
+        self
     }
 
     pub fn with_noise_scale(mut self, noise_scale: f32) -> Self {
@@ -110,7 +136,16 @@ pub(crate) fn apply<T: Copy>(
         let row = &data[y * width + left..y * width + left + aw];
         mosaic.extend(row.iter().map(|&v| level(v)));
     }
-    let denoised = if denoise.noise_scale == 1.0 {
+    let denoised = if let Some(progress) = &denoise.progress {
+        denoise.denoiser.denoise_reporting(
+            &mosaic,
+            aw,
+            ah,
+            pattern,
+            denoise.noise_scale,
+            progress.as_ref(),
+        )?
+    } else if denoise.noise_scale == 1.0 {
         denoise.denoiser.denoise(&mosaic, aw, ah, pattern)?
     } else {
         denoise
@@ -202,6 +237,54 @@ mod tests {
         assert_eq!(data[2 * 6 + 4], 350);
         assert_eq!(data[0], 100);
         assert_eq!(data[6 + 5], 100);
+    }
+
+    /// Reports two steps per call and returns a constant.
+    struct Stepped;
+
+    impl MosaicDenoiser for Stepped {
+        fn denoise(&self, m: &[f32], _: usize, _: usize, _: [u8; 4]) -> Result<Vec<f32>> {
+            Ok(vec![0.5; m.len()])
+        }
+        fn denoise_reporting(
+            &self,
+            m: &[f32],
+            w: usize,
+            h: usize,
+            p: [u8; 4],
+            _: f32,
+            progress: &(dyn Fn(usize, usize) + Sync),
+        ) -> Result<Vec<f32>> {
+            progress(1, 2);
+            progress(2, 2);
+            self.denoise(m, w, h, p)
+        }
+    }
+
+    #[test]
+    fn a_progress_hook_hears_the_denoiser_and_changes_no_sample() {
+        let develop = |denoise: &MosaicDenoise| {
+            let mut data: Vec<u16> = vec![100; 24];
+            apply(
+                denoise,
+                &mut data,
+                6,
+                (1, 1, 4, 2),
+                [0, 1, 1, 2],
+                |v: u16| (v as f32 - 100.0) / 1000.0,
+                |l: f32| (l * 1000.0 + 100.0).round() as u16,
+            )
+            .unwrap();
+            data
+        };
+        let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = Arc::clone(&heard);
+        let reporting = MosaicDenoise::new(Arc::new(Stepped), 0.5).with_progress(Arc::new(
+            move |done, total| sink.lock().unwrap().push((done, total)),
+        ));
+        let quiet = MosaicDenoise::new(Arc::new(Stepped), 0.5);
+        assert_eq!(develop(&reporting), develop(&quiet));
+        assert_eq!(*heard.lock().unwrap(), [(1, 2), (2, 2)]);
     }
 
     #[test]

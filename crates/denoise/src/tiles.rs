@@ -84,12 +84,14 @@ fn reflect(i: isize, n: usize) -> usize {
     i as usize
 }
 
-/// The network over all tiles; returns denoised planes.
+/// The network over all tiles; returns denoised planes. `progress` hears
+/// `(tiles done, tiles)` after each tile.
 pub fn run(
     planes: &Planes,
     noise: &NoiseProfile,
     backend: &dyn Backend,
     noise_scale: f32,
+    progress: &(dyn Fn(usize, usize) + Sync),
 ) -> Result<Planes> {
     let (pw, ph) = (planes.width, planes.height);
     let tile = backend.tile();
@@ -106,6 +108,8 @@ pub fn run(
                 .collect()
         })
         .collect();
+    let tiles = ph.div_ceil(core) * pw.div_ceil(core);
+    let mut tiles_done = 0;
     let mut out = vec![0.0; 4 * pw * ph];
     let mut input = vec![0.0f32; 8 * tile * tile];
     for ty in (0..ph).step_by(core) {
@@ -141,6 +145,8 @@ pub fn run(
                     out[c * pw * ph + (ty + y) * pw + tx..][..ww].copy_from_slice(src);
                 }
             }
+            tiles_done += 1;
+            progress(tiles_done, tiles);
         }
     }
     Ok(Planes {

@@ -60,6 +60,9 @@ beforeEach(() => {
   });
   useProcessStore.setState({
     exportQueue: [],
+    exportQueueHeld: false,
+    exportItems: {},
+    exportPausing: [],
     exportState: {
       status: Status.Idle,
       errorMessage: "",
@@ -228,7 +231,13 @@ it("stays open when no destination was chosen", async () => {
 it("starts a waiting export that a cancel held", () => {
   useProcessStore.setState({
     exportQueue: [job({ state: "queued", done: 0 })],
+    exportQueueHeld: false,
   });
+  const { unmount } = render(<StudioExport />);
+  // Not held: it starts by itself after the running one.
+  expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  unmount();
+  useProcessStore.setState({ exportQueueHeld: true });
   render(<StudioExport />);
   fireEvent.click(screen.getByRole("button", { name: "Start" }));
   expect(invoke).toHaveBeenCalledWith("export_queue_resume", { job: "j1" });
