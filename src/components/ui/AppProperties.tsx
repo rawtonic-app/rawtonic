@@ -101,6 +101,7 @@ export enum Invokes {
   DuplicateFile = 'duplicate_file',
   EstimateExportSizes = 'estimate_export_sizes',
   ExportImages = 'export_images',
+  ExportImagesBatch = 'export_images_batch',
   ExportQueueJobs = 'export_queue_jobs',
   ExportQueueResume = 'export_queue_resume',
   ExportQueueRemove = 'export_queue_remove',

@@ -190,17 +190,27 @@ impl ExportQueue {
 
     /// The oldest queued job, marked running.
     pub fn start_next(&self) -> Result<Option<Job>> {
-        let id: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT id FROM jobs WHERE state='queued' ORDER BY seq LIMIT 1",
-                [],
-                |r| r.get(0),
-            )
-            .optional()?;
-        let Some(id) = id else { return Ok(None) };
-        self.set_state(&id, JobState::Running)?;
-        self.job(&id).map(Some)
+        Ok(self.start_next_with(|_, _| false)?.into_iter().next())
+    }
+
+    /// The oldest queued job and the queued jobs right behind it that
+    /// `joins` it (the same photos with other recipes), marked running to
+    /// run together.
+    pub fn start_next_with(&self, joins: impl Fn(&Job, &Job) -> bool) -> Result<Vec<Job>> {
+        let queued = self.ids("SELECT id FROM jobs WHERE state='queued' ORDER BY seq")?;
+        let mut group: Vec<Job> = Vec::new();
+        for id in queued {
+            let job = self.job(&id)?;
+            if group.first().is_some_and(|first| !joins(first, &job)) {
+                break;
+            }
+            group.push(job);
+        }
+        for job in &mut group {
+            self.set_state(&job.id, JobState::Running)?;
+            job.state = JobState::Running;
+        }
+        Ok(group)
     }
 
     /// Records a photo's planned output before it is rendered.
@@ -466,6 +476,34 @@ mod tests {
         assert_eq!(items[1].attempts, 1);
         q.item_done(&second, 0).unwrap();
         assert_eq!(q.finish(&second, false).unwrap().state, JobState::Done);
+    }
+
+    #[test]
+    fn jobs_right_behind_the_next_one_that_join_it_start_with_it() {
+        let (_dir, q) = queue();
+        let same = |a: &Job, b: &Job| a.request["photos"] == b.request["photos"];
+        let web = q.enqueue("Web", &json!({"photos":"a"}), &paths(2)).unwrap();
+        let print = q
+            .enqueue("Print", &json!({"photos":"a"}), &paths(2))
+            .unwrap();
+        let other = q
+            .enqueue("Other", &json!({"photos":"b"}), &paths(1))
+            .unwrap();
+        let later = q
+            .enqueue("Later", &json!({"photos":"a"}), &paths(2))
+            .unwrap();
+        let group = q.start_next_with(same).unwrap();
+        assert_eq!(
+            group.iter().map(|j| &j.id).collect::<Vec<_>>(),
+            vec![&web, &print],
+            "a job behind another kind waits its turn"
+        );
+        assert!(group.iter().all(|j| j.state == JobState::Running));
+        assert_eq!(q.job(&print).unwrap().state, JobState::Running);
+        let ids = |g: Vec<Job>| g.into_iter().map(|j| j.id).collect::<Vec<_>>();
+        assert_eq!(ids(q.start_next_with(same).unwrap()), vec![other]);
+        assert_eq!(ids(q.start_next_with(same).unwrap()), vec![later]);
+        assert!(q.start_next_with(same).unwrap().is_empty());
     }
 
     #[test]

@@ -462,20 +462,42 @@ fn export_adjustments_as_lut(
     Ok(cube_lut)
 }
 
-#[allow(clippy::too_many_arguments)]
+/// Export workers at most. The GPU renders one photo at a time and is the
+/// slowest stage; four keep it busy while they load, upload and encode the
+/// other photos. Measured on 20 RAWs with two recipes (M5 Pro): 4 workers
+/// 23.5 s, 6 23.7 s, 8 26.1 s (notes: parity-gaps/G43, F10).
+const MAX_EXPORT_WORKERS: usize = 4;
+/// Memory an export worker takes, measured: four workers on 24–45 MP RAWs
+/// with two recipes peaked 7.8 GB above the app's footprint before the
+/// export.
+const EXPORT_WORKER_GB: f64 = 2.0;
+/// Free memory a batch export leaves: no further photo starts below it.
+const EXPORT_MEMORY_RESERVE: u64 = 2 << 30;
+
+/// One recipe of an export run: its settings, where its files go and the
+/// queued job that records its photos.
+#[derive(Clone)]
+pub(crate) struct ExportTarget {
+    pub output_folder_or_file: String,
+    pub is_explicit_file_path: bool,
+    pub base_origin_folders: Vec<String>,
+    pub export_settings: ExportSettings,
+    pub output_format: String,
+    pub tracking: Option<crate::export_queue::Tracking>,
+}
+
+/// Exports `paths` with every recipe in `targets`. Each photo is loaded,
+/// transformed and uploaded once and every recipe renders, sizes, sharpens
+/// and encodes its file from that (notes: parity-gaps/G43, F10); before, a
+/// photo exported with two recipes was decoded and developed twice.
 pub(crate) async fn export_images_impl(
     paths: Vec<String>,
-    output_folder_or_file: String,
-    is_explicit_file_path: bool,
-    base_origin_folders: Vec<String>,
-    export_settings: ExportSettings,
-    output_format: String,
+    targets: Vec<ExportTarget>,
     adjustments_mode: ExportAdjustmentsMode,
     state: tauri::State<'_, AppState>,
     app_handle: tauri::AppHandle,
     completion_tx: Option<tokio::sync::oneshot::Sender<Result<(), usize>>>,
     max_jobs: Option<usize>,
-    tracking: Option<crate::export_queue::Tracking>,
 ) -> Result<(), String> {
     let cancellation_token = register_export_task(&state.export_task_token)?;
     let task_guard = ExportTaskGuard::with_app_handle(
@@ -514,9 +536,16 @@ pub(crate) async fn export_images_impl(
         });
     }
     let context = Arc::new(context);
-    // A resumed job counts the photos an earlier run exported.
+    let total_paths = paths.len();
+    // Progress counts the files of every recipe; a resumed job counts the
+    // photos an earlier run exported.
+    let total_outputs = total_paths * targets.len();
     let progress_counter = Arc::new(AtomicUsize::new(
-        tracking.as_ref().map_or(0, |t| t.already_done),
+        targets
+            .iter()
+            .filter_map(|target| target.tracking.as_ref())
+            .map(|t| t.already_done)
+            .sum(),
     ));
 
     let available_cores = std::thread::available_parallelism()
@@ -527,22 +556,23 @@ pub(crate) async fn export_images_impl(
     sys.refresh_memory();
 
     let available_ram_gb = sys.available_memory() as f64 / 1024.0 / 1024.0 / 1024.0;
-    let ram_based_limit = (available_ram_gb / 4.0).floor() as usize;
+    let ram_based_limit = (available_ram_gb / EXPORT_WORKER_GB).floor() as usize;
 
     let num_threads = if paths.len() == 1 {
         1
     } else {
         available_cores
             .min(ram_based_limit)
-            .clamp(1, 4)
+            .clamp(1, MAX_EXPORT_WORKERS)
             .min(max_jobs.unwrap_or(usize::MAX))
     };
 
     log::info!(
-        "Batch Export: {} cores, {:.1} GB free RAM -> {} threads",
+        "Batch Export: {} cores, {:.1} GB free RAM -> {} threads, {} recipes",
         available_cores,
         available_ram_gb,
-        num_threads
+        num_threads,
+        targets.len()
     );
 
     let _export_task = tokio::spawn(async move {
@@ -554,9 +584,8 @@ pub(crate) async fn export_images_impl(
             }
         });
         prepare_ai_denoise(&app_handle, recipes).await;
-        let output_folder_path = std::path::Path::new(&output_folder_or_file);
-        let total_paths = paths.len();
         let settings = load_settings(app_handle.clone()).unwrap_or_default();
+        let targets = Arc::new(targets);
 
         let export_items = rawtonic_export::sidecars::plan_export_items(paths);
 
@@ -568,10 +597,30 @@ pub(crate) async fn export_images_impl(
             if cancellation_token.load(Ordering::SeqCst) {
                 break;
             }
-            if tracking.as_ref().is_some_and(|t| !t.wants(global_index)) {
+            // The recipes still to export this photo.
+            let wanted: Vec<usize> = (0..targets.len())
+                .filter(|&i| {
+                    targets[i]
+                        .tracking
+                        .as_ref()
+                        .is_none_or(|t| t.wants(global_index))
+                })
+                .collect();
+            if wanted.is_empty() {
                 continue;
             }
             let permit = semaphore.clone().acquire_owned().await.unwrap();
+            // Memory pressure: a photo starts only while the reserve is
+            // free, or when no other photo is in flight.
+            while semaphore.available_permits() + 1 < num_threads
+                && !cancellation_token.load(Ordering::SeqCst)
+                && {
+                    sys.refresh_memory();
+                    sys.available_memory() < EXPORT_MEMORY_RESERVE
+                }
+            {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
             if cancellation_token.load(Ordering::SeqCst) {
                 drop(permit);
                 break;
@@ -580,294 +629,65 @@ pub(crate) async fn export_images_impl(
             let app_handle_clone = app_handle.clone();
             let context_clone = Arc::clone(&context);
             let progress_counter_clone = Arc::clone(&progress_counter);
-            let output_folder_path = output_folder_path.to_path_buf();
-            let base_origin_folders = base_origin_folders.clone();
-            let export_settings = export_settings.clone();
-            let output_format = output_format.clone();
+            let targets = Arc::clone(&targets);
             let settings = settings.clone();
             let cancellation_token_clone = Arc::clone(&cancellation_token);
             let adjustments_mode = adjustments_mode.clone();
             let used_paths_clone = Arc::clone(&used_paths);
-            let tracking_clone = tracking.clone();
 
             let handle = tokio::task::spawn_blocking(move || {
-                ensure_export_not_cancelled(&cancellation_token_clone)?;
-
-                let state = app_handle_clone.state::<AppState>();
-                let (source_path, sidecar_path) = parse_virtual_path(&image_path_str);
-                let source_path_str = source_path.to_string_lossy().to_string();
-
-                let is_current_edit = match &adjustments_mode {
-                    ExportAdjustmentsMode::UseSidecars { active_path, .. } => {
-                        is_open_edit(&image_path_str, active_path.as_deref())
-                    }
-                    ExportAdjustmentsMode::GlobalOverride(_) => false,
-                };
-
-                let mut js_adjustments = match &adjustments_mode {
-                    ExportAdjustmentsMode::UseSidecars {
-                        active_adjustments, ..
-                    } => {
-                        if is_current_edit {
-                            if let Some(adj) = active_adjustments {
-                                adj.clone()
-                            } else {
-                                crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-                            }
-                        } else {
-                            crate::exif_processing::load_sidecar(&sidecar_path).adjustments
-                        }
-                    }
-                    ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
-                };
-
-                hydrate_adjustments(&state, &mut js_adjustments);
-                // A never-edited photo exports with the camera's lens data,
-                // as Develop shows it (profile corrections on by default).
-                rawtonic_export::exif_processing::prepare_recipe_lens(
-                    &mut js_adjustments,
-                    &source_path,
-                )?;
-                let is_raw = is_raw_file(&source_path_str);
-                let original_path = std::path::Path::new(&source_path_str);
-                let file_date = exif_processing::get_creation_date_from_path(original_path);
-
-                let filename_template = export_settings
-                    .filename_template
-                    .as_deref()
-                    .unwrap_or("{original_filename}_edited");
-
-                let (sequence, last_sequence) =
-                    export_settings.filename_counter(global_index, total_paths);
-                let new_stem = rawtonic_export::sidecars::export_stem(
-                    filename_template,
-                    original_path,
-                    sequence,
-                    last_sequence,
-                    &file_date,
-                    appearance_count,
-                    explicit_vc,
+                let results = export_photo(
+                    &app_handle_clone,
+                    &context_clone,
+                    &settings,
+                    &targets,
+                    &wanted,
+                    &adjustments_mode,
+                    &used_paths_clone,
+                    &cancellation_token_clone,
+                    PhotoItem {
+                        global_index,
+                        image_path_str: &image_path_str,
+                        appearance_count,
+                        explicit_vc,
+                        total_paths,
+                    },
                 );
 
-                let new_filename = format!("{}.{}", new_stem, output_format);
-
-                let beside_original =
-                    export_settings.destination_type.as_deref() == Some("originalFolder");
-                let mut output_path =
-                    if !beside_original && is_explicit_file_path && total_paths == 1 {
-                        output_folder_path.clone()
-                    } else {
-                        let dir = export_directory(
-                            source_path.as_path(),
-                            &output_folder_path,
-                            &export_settings,
-                            &base_origin_folders,
-                        )?;
-                        if dir != output_folder_path
-                            && let Err(e) = std::fs::create_dir_all(&dir)
-                        {
-                            return Err(format!(
-                                "Failed to create export subdirectory '{}': {}",
-                                dir.display(),
-                                e
-                            ));
-                        }
-                        dir.join(&new_filename)
-                    };
-
-                let extension = output_format.to_lowercase();
-
-                if !(is_explicit_file_path && total_paths == 1) {
-                    let mut used = used_paths_clone.lock().unwrap();
-                    let parent_dir = output_path
-                        .parent()
-                        .unwrap_or(std::path::Path::new(""))
-                        .to_path_buf();
-                    let mut counter = 1;
-
-                    while output_path.exists() || used.contains(&output_path) {
-                        let incremented_filename =
-                            format!("{}_{}.{}", new_stem, counter, extension);
-                        output_path = parent_dir.join(&incremented_filename);
-                        counter += 1;
+                let cancelled = cancellation_token_clone.load(Ordering::SeqCst);
+                if !cancelled {
+                    for _ in &results {
+                        let current_progress =
+                            progress_counter_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                        let _ = app_handle_clone.emit(
+                            "batch-export-progress",
+                            serde_json::json!({
+                                "current": current_progress,
+                                "total": total_outputs,
+                                "path": &image_path_str
+                            }),
+                        );
                     }
-                    used.insert(output_path.clone());
-                }
-                if let Some(tracking) = &tracking_clone {
-                    tracking.started(global_index, &output_path);
-                }
-
-                let result: Result<(), String> = (|| {
-                    if extension == "cube" {
-                        let cube_bytes = export_adjustments_as_lut(
-                            &js_adjustments,
-                            &source_path_str,
-                            &context_clone,
-                            &state,
-                            &app_handle_clone,
-                            &cancellation_token_clone,
-                        )?;
-                        ensure_export_not_cancelled(&cancellation_token_clone)?;
-                        crate::session_bridge::write_new_output(&output_path, cube_bytes)
-                            .map_err(|e| e.to_string())?;
-                        return Ok(());
-                    }
-
-                    // An offline RAW is shown from its preview proxy; exports
-                    // are made from the RAW only, never from preview data.
-                    // (A cloud file not downloaded yet is read, which
-                    // downloads it.)
-                    if is_raw && !crate::preview_proxy::source_readable(&source_path) {
-                        return Err(format!(
-                            "{} is offline: exporting needs the RAW file",
-                            source_path_str
-                        ));
-                    }
-                    // A queued export may outlive an editor image switch. Reuse
-                    // only the pristine pixels of this export's actual source
-                    // (not an offline photograph's 1:1 preview proxy).
-                    let offline_source = state
-                        .offline_source
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .clone();
-                    let cached_source = if is_current_edit {
-                        state
-                            .original_image
-                            .lock()
-                            .unwrap()
-                            .as_ref()
-                            .filter(|loaded| parse_virtual_path(&loaded.path).0 == source_path)
-                            .filter(|loaded| {
-                                offline_source.as_deref() != Some(loaded.path.as_str())
-                            })
-                            // Developed for the colour noise filter exported.
-                            .filter(|loaded| {
-                                loaded.multiscale
-                                    == Some(rawtonic_engine::color_noise::multiscale(
-                                        &js_adjustments,
-                                        is_raw,
-                                    ))
-                            })
-                            .map(|loaded| Arc::clone(&loaded.image))
-                    } else {
-                        None
-                    };
-                    #[cfg(feature = "performance-profiling")]
-                    let source_stage =
-                        crate::performance::PerformanceStage::new("export_load_source");
-                    let pristine_source = if let Some(source) = cached_source {
-                        source
-                    } else {
-                        // AI Denoise takes up to a minute per photo without a
-                        // GPU; the Export button says what it waits for.
-                        if is_raw
-                            && rawtonic_engine::image_loader::ai_denoise_settings(&js_adjustments)
-                                .is_some()
-                        {
-                            let _ = app_handle_clone.emit("export-denoising", &image_path_str);
-                        }
-                        Arc::new(load_export_base_image(
-                            &state,
-                            &source_path_str,
-                            is_raw,
-                            &js_adjustments,
-                            &settings,
-                        )?)
-                    };
-                    #[cfg(feature = "performance-profiling")]
-                    drop(source_stage);
-                    let source =
-                        prepare_export_source(&source_path_str, pristine_source, &js_adjustments)?;
-                    // Only separate mask files need source pixels after rendering.
-                    let mask_source = export_settings.export_masks.then(|| source.clone());
-                    ensure_export_not_cancelled(&cancellation_token_clone)?;
-
-                    let tonemapper_override =
-                        |is_raw| resolve_tonemapper_override_from_handle(&app_handle_clone, is_raw);
-                    let load_lut = |path: &str| get_or_load_lut(&state, path).ok();
-                    let env = RenderEnv {
-                        context: &context_clone,
-                        processor: &state.gpu_processor,
-                        image_cache: &state.gpu_image_cache,
-                        tonemapper_override: &tonemapper_override,
-                        load_lut: &load_lut,
-                    };
-                    let source_file = Path::new(&source_path_str);
-                    let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
-                    let catalog = || crate::session_bridge::catalog_metadata(source_file);
-                    render_and_save(
-                        &source_path_str,
-                        source,
-                        &js_adjustments,
-                        &export_settings,
-                        &env,
-                        is_raw,
-                        &ExportOutput {
-                            path: &output_path,
-                            format: output_format.as_str(),
-                            exif_sidecar: &exif_sidecar,
-                            catalog: &catalog,
-                            write: &write_export_bytes,
-                        },
-                        &|| ensure_export_not_cancelled(&cancellation_token_clone),
-                    )?;
-
-                    // The photo's file is published: its other outputs are
-                    // finished too, cancelled or not, so the photo is either
-                    // complete or not exported (a resume would otherwise
-                    // export it again under a new name or miss its masks).
-                    let finish_photo = AtomicBool::new(false);
-                    if export_settings.preserve_timestamps {
-                        set_timestamps_from_exif(Path::new(&source_path_str), &output_path);
-                    }
-
-                    if let Some(source) = mask_source.as_ref() {
-                        export_masks_for_image(
-                            source.base(),
-                            &source.pristine,
-                            &js_adjustments,
-                            &export_settings,
-                            &output_path,
-                            &source_path_str,
-                            &context_clone,
-                            &state,
-                            is_raw,
-                            &app_handle_clone,
-                            &finish_photo,
-                        )?;
-                    }
-
-                    Ok(())
-                })();
-
-                if !cancellation_token_clone.load(Ordering::SeqCst) {
-                    let current_progress =
-                        progress_counter_clone.fetch_add(1, Ordering::SeqCst) + 1;
-                    let _ = app_handle_clone.emit(
-                        "batch-export-progress",
-                        serde_json::json!({
-                            "current": current_progress,
-                            "total": total_paths,
-                            "path": &image_path_str
-                        }),
-                    );
                 }
 
                 drop(permit);
-                let cancelled = cancellation_token_clone.load(Ordering::SeqCst);
                 // A photo completed before the cancel is recorded as done;
                 // an unfinished one stays for a resume.
-                if let Some(tracking) = &tracking_clone
-                    && (result.is_ok() || !cancelled)
-                {
-                    tracking.finished(global_index, &result);
-                }
-                if cancelled {
-                    Err("Export cancelled".to_string())
-                } else {
-                    result
-                }
+                results
+                    .into_iter()
+                    .map(|(target, result)| {
+                        if let Some(tracking) = &targets[target].tracking
+                            && (result.is_ok() || !cancelled)
+                        {
+                            tracking.finished(global_index, &result);
+                        }
+                        if cancelled {
+                            Err("Export cancelled".to_string())
+                        } else {
+                            result
+                        }
+                    })
+                    .collect::<Vec<_>>()
             });
 
             join_handles.push(handle);
@@ -876,7 +696,7 @@ pub(crate) async fn export_images_impl(
         let mut results = Vec::new();
         for handle in join_handles {
             match handle.await {
-                Ok(res) => results.push(res),
+                Ok(res) => results.extend(res),
                 Err(e) => results.push(Err(format!("Thread crashed: {}", e))),
             }
         }
@@ -885,10 +705,10 @@ pub(crate) async fn export_images_impl(
         crate::allocator::release_freed_memory();
         let errors: Vec<String> = results.into_iter().filter_map(Result::err).collect();
         let error_count = errors.len();
-        if let Some(tracking) = &tracking
-            && cancellation_token.load(Ordering::SeqCst)
-        {
-            tracking.cancelled.store(true, Ordering::SeqCst);
+        if cancellation_token.load(Ordering::SeqCst) {
+            for tracking in targets.iter().filter_map(|target| target.tracking.as_ref()) {
+                tracking.cancelled.store(true, Ordering::SeqCst);
+            }
         }
         let export_state = app_handle.state::<AppState>();
         let finalized = finish_export_task(
@@ -903,20 +723,20 @@ pub(crate) async fn export_images_impl(
 
                 for error in &errors {
                     log::error!("Export error: {}", error);
-                    if total_paths == 1 {
+                    if total_outputs == 1 {
                         let _ = app_handle.emit("export-error", error.clone());
                     }
                 }
 
-                if error_count > 0 && total_paths > 1 {
+                if error_count > 0 && total_outputs > 1 {
                     let _ = app_handle.emit(
                         "export-error",
-                        format!("{error_count} of {total_paths} exports failed"),
+                        format!("{error_count} of {total_outputs} exports failed"),
                     );
                 } else if error_count == 0 {
                     let _ = app_handle.emit(
                         "batch-export-progress",
-                        serde_json::json!({ "current": total_paths, "total": total_paths, "path": "" }),
+                        serde_json::json!({ "current": total_outputs, "total": total_outputs, "path": "" }),
                     );
                     let _ = app_handle.emit("export-complete", ());
                 }
@@ -937,6 +757,371 @@ pub(crate) async fn export_images_impl(
     });
 
     Ok(())
+}
+
+/// A photo of an export run and its place in it.
+struct PhotoItem<'a> {
+    global_index: usize,
+    image_path_str: &'a str,
+    appearance_count: usize,
+    explicit_vc: Option<u32>,
+    total_paths: usize,
+}
+
+/// The file a recipe writes for a photo: its name from the recipe's
+/// template, in the recipe's folder, never over an existing file or another
+/// output of this run.
+fn plan_output_path(
+    target: &ExportTarget,
+    item: &PhotoItem,
+    source_path: &Path,
+    file_date: &chrono::DateTime<chrono::Utc>,
+    used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
+) -> Result<std::path::PathBuf, String> {
+    let export_settings = &target.export_settings;
+    let output_folder_path = Path::new(&target.output_folder_or_file);
+    let total_paths = item.total_paths;
+    let filename_template = export_settings
+        .filename_template
+        .as_deref()
+        .unwrap_or("{original_filename}_edited");
+
+    let (sequence, last_sequence) =
+        export_settings.filename_counter(item.global_index, total_paths);
+    let new_stem = rawtonic_export::sidecars::export_stem(
+        filename_template,
+        source_path,
+        sequence,
+        last_sequence,
+        file_date,
+        item.appearance_count,
+        item.explicit_vc,
+    );
+
+    let new_filename = format!("{}.{}", new_stem, target.output_format);
+
+    let beside_original = export_settings.destination_type.as_deref() == Some("originalFolder");
+    let mut output_path = if !beside_original && target.is_explicit_file_path && total_paths == 1 {
+        output_folder_path.to_path_buf()
+    } else {
+        let dir = export_directory(
+            source_path,
+            output_folder_path,
+            export_settings,
+            &target.base_origin_folders,
+        )?;
+        if dir != output_folder_path
+            && let Err(e) = std::fs::create_dir_all(&dir)
+        {
+            return Err(format!(
+                "Failed to create export subdirectory '{}': {}",
+                dir.display(),
+                e
+            ));
+        }
+        dir.join(&new_filename)
+    };
+
+    let extension = target.output_format.to_lowercase();
+
+    if !(target.is_explicit_file_path && total_paths == 1) {
+        let mut used = used_paths.lock().unwrap();
+        let parent_dir = output_path
+            .parent()
+            .unwrap_or(std::path::Path::new(""))
+            .to_path_buf();
+        let mut counter = 1;
+
+        while output_path.exists() || used.contains(&output_path) {
+            let incremented_filename = format!("{}_{}.{}", new_stem, counter, extension);
+            output_path = parent_dir.join(&incremented_filename);
+            counter += 1;
+        }
+        used.insert(output_path.clone());
+    }
+    Ok(output_path)
+}
+
+/// Exports one photo with the recipes `wanted` (indices into `targets`):
+/// the source is loaded once and developed once per kind of main file (with
+/// or without its mask layers), then each recipe renders and writes its
+/// file. Returns each recipe's result.
+#[allow(clippy::too_many_arguments)]
+fn export_photo(
+    app_handle: &tauri::AppHandle,
+    context: &Arc<GpuContext>,
+    settings: &crate::app_settings::AppSettings,
+    targets: &[ExportTarget],
+    wanted: &[usize],
+    adjustments_mode: &ExportAdjustmentsMode,
+    used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
+    cancellation_token: &AtomicBool,
+    item: PhotoItem,
+) -> Vec<(usize, Result<(), String>)> {
+    let fail_all = |error: String| {
+        wanted
+            .iter()
+            .map(|&target| (target, Err(error.clone())))
+            .collect::<Vec<_>>()
+    };
+    if let Err(e) = ensure_export_not_cancelled(cancellation_token) {
+        return fail_all(e);
+    }
+
+    let state = app_handle.state::<AppState>();
+    let image_path_str = item.image_path_str;
+    let (source_path, sidecar_path) = parse_virtual_path(image_path_str);
+    let source_path_str = source_path.to_string_lossy().to_string();
+
+    let is_current_edit = match adjustments_mode {
+        ExportAdjustmentsMode::UseSidecars { active_path, .. } => {
+            is_open_edit(image_path_str, active_path.as_deref())
+        }
+        ExportAdjustmentsMode::GlobalOverride(_) => false,
+    };
+
+    let mut js_adjustments = match adjustments_mode {
+        ExportAdjustmentsMode::UseSidecars {
+            active_adjustments, ..
+        } => {
+            if is_current_edit {
+                if let Some(adj) = active_adjustments {
+                    adj.clone()
+                } else {
+                    crate::exif_processing::load_sidecar(&sidecar_path).adjustments
+                }
+            } else {
+                crate::exif_processing::load_sidecar(&sidecar_path).adjustments
+            }
+        }
+        ExportAdjustmentsMode::GlobalOverride(adj) => adj.clone(),
+    };
+
+    hydrate_adjustments(&state, &mut js_adjustments);
+    // A never-edited photo exports with the camera's lens data,
+    // as Develop shows it (profile corrections on by default).
+    if let Err(e) =
+        rawtonic_export::exif_processing::prepare_recipe_lens(&mut js_adjustments, &source_path)
+    {
+        return fail_all(e);
+    }
+    let is_raw = is_raw_file(&source_path_str);
+    let original_path = std::path::Path::new(&source_path_str);
+    let file_date = exif_processing::get_creation_date_from_path(original_path);
+
+    // Each recipe's file, recorded before anything renders.
+    let mut results: Vec<(usize, Result<(), String>)> = Vec::with_capacity(wanted.len());
+    let mut planned: Vec<(usize, std::path::PathBuf)> = Vec::with_capacity(wanted.len());
+    for &target in wanted {
+        match plan_output_path(
+            &targets[target],
+            &item,
+            original_path,
+            &file_date,
+            used_paths,
+        ) {
+            Ok(output_path) => {
+                if let Some(tracking) = &targets[target].tracking {
+                    tracking.started(item.global_index, &output_path);
+                }
+                planned.push((target, output_path));
+            }
+            Err(e) => results.push((target, Err(e))),
+        }
+    }
+
+    let is_cube = |target: usize| targets[target].output_format.to_lowercase() == "cube";
+    for &(target, ref output_path) in planned.iter().filter(|(t, _)| is_cube(*t)) {
+        let result = export_adjustments_as_lut(
+            &js_adjustments,
+            &source_path_str,
+            context,
+            &state,
+            app_handle,
+            cancellation_token,
+        )
+        .and_then(|cube_bytes| {
+            ensure_export_not_cancelled(cancellation_token)?;
+            crate::session_bridge::write_new_output(output_path, cube_bytes)
+                .map_err(|e| e.to_string())
+        });
+        results.push((target, result));
+    }
+    let images: Vec<(usize, std::path::PathBuf)> =
+        planned.into_iter().filter(|(t, _)| !is_cube(*t)).collect();
+    if images.is_empty() {
+        return results;
+    }
+
+    let source = (|| {
+        // An offline RAW is shown from its preview proxy; exports
+        // are made from the RAW only, never from preview data.
+        // (A cloud file not downloaded yet is read, which
+        // downloads it.)
+        if is_raw && !crate::preview_proxy::source_readable(&source_path) {
+            return Err(format!(
+                "{} is offline: exporting needs the RAW file",
+                source_path_str
+            ));
+        }
+        // A queued export may outlive an editor image switch. Reuse
+        // only the pristine pixels of this export's actual source
+        // (not an offline photograph's 1:1 preview proxy).
+        let offline_source = state
+            .offline_source
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let cached_source = if is_current_edit {
+            state
+                .original_image
+                .lock()
+                .unwrap()
+                .as_ref()
+                .filter(|loaded| parse_virtual_path(&loaded.path).0 == source_path)
+                .filter(|loaded| offline_source.as_deref() != Some(loaded.path.as_str()))
+                // Developed for the colour noise filter exported.
+                .filter(|loaded| {
+                    loaded.multiscale
+                        == Some(rawtonic_engine::color_noise::multiscale(
+                            &js_adjustments,
+                            is_raw,
+                        ))
+                })
+                .map(|loaded| Arc::clone(&loaded.image))
+        } else {
+            None
+        };
+        #[cfg(feature = "performance-profiling")]
+        let source_stage = crate::performance::PerformanceStage::new("export_load_source");
+        let pristine_source = if let Some(source) = cached_source {
+            source
+        } else {
+            // AI Denoise takes up to a minute per photo without a
+            // GPU; the Export button says what it waits for.
+            if is_raw
+                && rawtonic_engine::image_loader::ai_denoise_settings(&js_adjustments).is_some()
+            {
+                let _ = app_handle.emit("export-denoising", image_path_str);
+            }
+            Arc::new(load_export_base_image(
+                &state,
+                &source_path_str,
+                is_raw,
+                &js_adjustments,
+                settings,
+            )?)
+        };
+        #[cfg(feature = "performance-profiling")]
+        drop(source_stage);
+        let source = prepare_export_source(&source_path_str, pristine_source, &js_adjustments)?;
+        ensure_export_not_cancelled(cancellation_token)?;
+        Ok(source)
+    })();
+    let source = match source {
+        Ok(source) => source,
+        Err(e) => {
+            results.extend(
+                images
+                    .into_iter()
+                    .map(|(target, _)| (target, Err(e.clone()))),
+            );
+            return results;
+        }
+    };
+
+    let tonemapper_override = |is_raw| resolve_tonemapper_override_from_handle(app_handle, is_raw);
+    let load_lut = |path: &str| get_or_load_lut(&state, path).ok();
+    let env = RenderEnv {
+        context,
+        processor: &state.gpu_processor,
+        image_cache: &state.gpu_image_cache,
+        tonemapper_override: &tonemapper_override,
+        load_lut: &load_lut,
+    };
+    // The develop of each kind of main file the recipes want: with its
+    // mask layers, or without them when they go to separate files.
+    let with_mask_files = |target: usize| targets[target].export_settings.export_masks;
+    let mut prepared: [Option<Result<PreparedExport, String>>; 2] = [None, None];
+    for (target, _) in &images {
+        let masks = with_mask_files(*target);
+        if prepared[masks as usize].is_none() {
+            #[cfg(feature = "performance-profiling")]
+            let _stage = crate::performance::PerformanceStage::new("export_prepare");
+            prepared[masks as usize] = Some(prepare_export_render(
+                &source_path_str,
+                source.clone(),
+                &main_export_adjustments(&js_adjustments, &targets[*target].export_settings),
+                &env,
+                is_raw,
+            ));
+        }
+    }
+    // Only separate mask files need source pixels after rendering.
+    let mask_source = images
+        .iter()
+        .any(|(target, _)| with_mask_files(*target))
+        .then_some(source);
+
+    let source_file = Path::new(&source_path_str);
+    let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
+    let catalog = || crate::session_bridge::catalog_metadata(source_file);
+    for (target, output_path) in images {
+        let export_settings = &targets[target].export_settings;
+        let result = (|| {
+            let prepared = prepared[export_settings.export_masks as usize]
+                .as_ref()
+                .expect("prepared for every wanted recipe")
+                .as_ref()
+                .map_err(Clone::clone)?;
+            ensure_export_not_cancelled(cancellation_token)?;
+            render_prepared_and_save(
+                &source_path_str,
+                prepared,
+                &js_adjustments,
+                export_settings,
+                &env,
+                &ExportOutput {
+                    path: &output_path,
+                    format: targets[target].output_format.as_str(),
+                    exif_sidecar: &exif_sidecar,
+                    catalog: &catalog,
+                    write: &write_export_bytes,
+                },
+                &|| ensure_export_not_cancelled(cancellation_token),
+            )?;
+
+            // The photo's file is published: its other outputs are
+            // finished too, cancelled or not, so the photo is either
+            // complete or not exported (a resume would otherwise
+            // export it again under a new name or miss its masks).
+            let finish_photo = AtomicBool::new(false);
+            if export_settings.preserve_timestamps {
+                set_timestamps_from_exif(Path::new(&source_path_str), &output_path);
+            }
+
+            if export_settings.export_masks
+                && let Some(source) = mask_source.as_ref()
+            {
+                export_masks_for_image(
+                    source.base(),
+                    &source.pristine,
+                    &js_adjustments,
+                    export_settings,
+                    &output_path,
+                    &source_path_str,
+                    context,
+                    &state,
+                    is_raw,
+                    app_handle,
+                    &finish_photo,
+                )?;
+            }
+            Ok(())
+        })();
+        results.push((target, result));
+    }
+    results
 }
 
 /// The installed font families for text watermarks.
@@ -977,6 +1162,19 @@ pub async fn export_images(
             current_edit_adjustments,
         },
     )
+}
+
+/// The exports of a photo set's ticked recipes, queued together so they run
+/// as one: each photo is developed once for all of them.
+#[tauri::command]
+pub async fn export_images_batch(
+    requests: Vec<crate::export_queue::ExportRequest>,
+    app_handle: tauri::AppHandle,
+) -> Result<Vec<String>, String> {
+    if requests.iter().any(|request| request.paths.is_empty()) || requests.is_empty() {
+        return Err("Nothing to export.".to_string());
+    }
+    crate::export_queue::enqueue_all(&app_handle, requests)
 }
 
 pub async fn run_headless_export(
@@ -1068,17 +1266,19 @@ pub async fn run_headless_export(
 
     export_images_impl(
         paths,
-        session.output,
-        is_explicit_file_path,
-        vec![session.source],
-        export_settings,
-        session.format,
+        vec![ExportTarget {
+            output_folder_or_file: session.output,
+            is_explicit_file_path,
+            base_origin_folders: vec![session.source],
+            export_settings,
+            output_format: session.format,
+            tracking: None,
+        }],
         mode,
         state.clone(),
         app_handle.clone(),
         Some(tx),
         session.max_jobs,
-        None,
     )
     .await?;
 

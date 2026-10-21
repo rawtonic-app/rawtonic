@@ -31,6 +31,13 @@ vi.mock("react-toastify", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
 }));
 
+/** The exports the form queued: one request per recipe, queued together. */
+const exported = () =>
+  vi
+    .mocked(invoke)
+    .mock.calls.filter((c) => c[0] === "export_images_batch")
+    .flatMap((c) => (c[1] as { requests: Record<string, unknown>[] }).requests);
+
 const job = (part: Partial<ExportJob>): ExportJob => ({
   id: "j1",
   label: "30 photos as JPG",
@@ -137,9 +144,7 @@ it("queues another export while one runs instead of refusing it", async () => {
   expect(screen.getByRole("button", { name: "Cancel export" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Add to queue" }));
   await vi.waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith(
-      "export_images",
-      expect.objectContaining({ paths: ["/p/a.RAF", "/p/b.RAF"] }),
+    expect(exported()).toContainEqual(expect.objectContaining({ paths: ["/p/a.RAF", "/p/b.RAF"] }),
     ),
   );
   // The running export's progress stays on screen.
@@ -154,9 +159,7 @@ it("exports a session into its Output folder without asking, like Capture One", 
   render(<StudioExport />);
   fireEvent.click(screen.getByRole("button", { name: "Export" }));
   await vi.waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith(
-      "export_images",
-      expect.objectContaining({
+    expect(exported()).toContainEqual(expect.objectContaining({
         outputFolderOrFile: "/job/Output",
         isExplicitFilePath: false,
       }),
@@ -179,9 +182,7 @@ it("sends the open photograph's recipe only once it is that photograph's", async
     render(<StudioExport />);
     fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
     await vi.waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith(
-        "export_images",
-        expect.objectContaining({ currentEditPath: null, currentEditAdjustments: null }),
+      expect(exported()).toContainEqual(expect.objectContaining({ currentEditPath: null, currentEditAdjustments: null }),
       ),
     );
     cleanup();
@@ -190,9 +191,7 @@ it("sends the open photograph's recipe only once it is that photograph's", async
     render(<StudioExport />);
     fireEvent.click(document.querySelector(".studio-export-submit") as HTMLButtonElement);
     await vi.waitFor(() =>
-      expect(invoke).toHaveBeenCalledWith(
-        "export_images",
-        expect.objectContaining({ currentEditPath: "/p/b.RAF", currentEditAdjustments: { exposure: 1.5 } }),
+      expect(exported()).toContainEqual(expect.objectContaining({ currentEditPath: "/p/b.RAF", currentEditAdjustments: { exposure: 1.5 } }),
       ),
     );
   } finally {
@@ -206,7 +205,7 @@ it("closes once the export is queued, the progress staying on the top bar", asyn
   render(<StudioExport onStarted={onStarted} />);
   fireEvent.click(screen.getByRole("button", { name: "Export" }));
   await vi.waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
-  expect(invoke).toHaveBeenCalledWith("export_images", expect.anything());
+  expect(exported()).not.toHaveLength(0);
 });
 
 it("stays open when no destination was chosen", async () => {
@@ -220,7 +219,7 @@ it("stays open when no destination was chosen", async () => {
     await vi.waitFor(() => expect(open).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 0));
     expect(onStarted).not.toHaveBeenCalled();
-    expect(invoke).not.toHaveBeenCalledWith("export_images", expect.anything());
+    expect(exported()).toHaveLength(0);
   } finally {
     vi.mocked(open).mockImplementation(() => Promise.resolve("/out"));
   }
@@ -284,13 +283,14 @@ it("exports once per ticked recipe, each with its own settings and place", async
   );
   await vi.waitFor(() =>
     expect(
-      vi.mocked(invoke).mock.calls.filter((c) => c[0] === "export_images"),
+      exported(),
     ).toHaveLength(2),
   );
-  const calls = vi
-    .mocked(invoke)
-    .mock.calls.filter((c) => c[0] === "export_images")
-    .map((c) => c[1] as Record<string, unknown>);
+  // Queued in one call, so they run together: each photo developed once.
+  expect(
+    vi.mocked(invoke).mock.calls.filter((c) => c[0] === "export_images_batch"),
+  ).toHaveLength(1);
+  const calls = exported();
   expect(calls[0]).toMatchObject({
     outputFolderOrFile: "/job/Output",
     outputFormat: "jpg",
@@ -335,7 +335,7 @@ it("remembers the folder chosen for each of several recipes", async () => {
   );
   await vi.waitFor(() =>
     expect(
-      vi.mocked(invoke).mock.calls.filter((c) => c[0] === "export_images"),
+      exported(),
     ).toHaveLength(2),
   );
   const saved = useSettingsStore.getState().appSettings?.exportPresets ?? [];
@@ -433,9 +433,7 @@ it("exports with every setting of the former advanced panel", async () => {
     screen.getByRole("button", { name: "Choose destination & export" }),
   );
   await vi.waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith(
-      "export_images",
-      expect.objectContaining({
+    expect(exported()).toContainEqual(expect.objectContaining({
         outputFolderOrFile: "/out",
         isExplicitFilePath: false,
         outputFormat: "webp",
@@ -496,9 +494,7 @@ it("saves every setting in a recipe and exports it again from the recipe", async
   fireEvent.click(screen.getByRole("checkbox", { name: "Export with Web" }));
   fireEvent.click(screen.getByRole("button", { name: "Export with Web" }));
   await vi.waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith(
-      "export_images",
-      expect.objectContaining({
+    expect(exported()).toContainEqual(expect.objectContaining({
         outputFormat: "webp",
         exportSettings: expect.objectContaining(everyExportSetting),
       }),
@@ -615,9 +611,7 @@ it("resizes by long edge, short edge, width, height, megapixels or percentage", 
     screen.getByRole("button", { name: "Choose destination & export" }),
   );
   await vi.waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith(
-      "export_images",
-      expect.objectContaining({
+    expect(exported()).toContainEqual(expect.objectContaining({
         exportSettings: expect.objectContaining({
           resize: { mode: "percentage", value: 50, dontEnlarge: true },
         }),
@@ -749,9 +743,7 @@ it("exports into a wide colour space in every image format", async () => {
   expect(screen.getByText(/ProPhoto RGB needs 16-bit TIFF/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Export" }));
   await vi.waitFor(() =>
-    expect(invoke).toHaveBeenCalledWith(
-      "export_images",
-      expect.objectContaining({
+    expect(exported()).toContainEqual(expect.objectContaining({
         exportSettings: expect.objectContaining({ colorSpace: "proPhoto" }),
       }),
     ),
@@ -768,7 +760,7 @@ it("resolves date naming presets through the export engine even for a single pho
   render(<StudioExport />);
   fireEvent.change(screen.getByLabelText("Naming preset"), { target: { value: "builtin:1" } });
   fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("export_images", expect.objectContaining({
+  await vi.waitFor(() => expect(exported()).toContainEqual(expect.objectContaining({
     isExplicitFilePath: false,
     exportSettings: expect.objectContaining({ filenameTemplate: "{YYYY}{MM}{DD}_{original_filename}" }),
   })));
@@ -781,7 +773,7 @@ it("sends a custom counter start to batch exports and uses it in the single-file
   fireEvent.change(screen.getByLabelText("Filename template"), { target: { value: "Image_{sequence}" } });
   fireEvent.change(screen.getByLabelText("Counter starts at"), { target: { value: "98" } });
   fireEvent.click(screen.getByRole("button", { name: "Choose destination & export" }));
-  await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("export_images", expect.objectContaining({
+  await vi.waitFor(() => expect(exported()).toContainEqual(expect.objectContaining({
     exportSettings: expect.objectContaining({ sequenceStart: 98 }),
   })));
   cleanup();

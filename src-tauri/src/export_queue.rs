@@ -5,7 +5,9 @@
 //! Cancelling stops the running job and holds the queue until the next
 //! export or resume.
 use crate::app_state::AppState;
-use crate::export_processing::{ExportAdjustmentsMode, ExportSettings, export_images_impl};
+use crate::export_processing::{
+    ExportAdjustmentsMode, ExportSettings, ExportTarget, export_images_impl,
+};
 use rawtonic_export::queue::{ExportQueue, ItemState, Job, JobState};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -130,14 +132,33 @@ fn label_for(request: &ExportRequest) -> String {
 
 /// Adds an export to the queue and starts the queue if it is idle.
 pub fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String> {
-    let value = serde_json::to_value(&request).map_err(|e| e.to_string())?;
-    let label = label_for(&request);
-    let id = with_queue(|q| q.enqueue(&label, &value, &request.paths))
-        .ok_or("The export queue is not available.")?;
+    enqueue_all(app, vec![request]).map(|mut ids| ids.remove(0))
+}
+
+/// Adds exports to the queue together (a photo set's ticked recipes, which
+/// then run as one: each photo is developed once for all of them) and
+/// starts the queue if it is idle.
+pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<String>, String> {
+    let mut ids = Vec::with_capacity(requests.len());
+    for request in &requests {
+        let value = serde_json::to_value(request).map_err(|e| e.to_string())?;
+        let label = label_for(request);
+        let id = with_queue(|q| q.enqueue(&label, &value, &request.paths))
+            .ok_or("The export queue is not available.")?;
+        ids.push(id);
+    }
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);
-    Ok(id)
+    Ok(ids)
+}
+
+/// Whether two queued exports render the same photos with the same recipes
+/// (develop settings) and so can share each photo's develop.
+fn same_photos(a: &Value, b: &Value) -> bool {
+    ["paths", "currentEditPath", "currentEditAdjustments"]
+        .iter()
+        .all(|key| a.get(key) == b.get(key))
 }
 
 /// Requeues what a failed, cancelled or interrupted job did not export.
@@ -185,10 +206,13 @@ fn kick(app: &AppHandle) {
             if HOLD.load(Ordering::SeqCst) {
                 break;
             }
-            let Some(Some(job)) = with_queue(|q| q.start_next()) else {
+            let Some(jobs) =
+                with_queue(|q| q.start_next_with(|a, b| same_photos(&a.request, &b.request)))
+                    .filter(|jobs| !jobs.is_empty())
+            else {
                 break;
             };
-            run_job(&app, &job).await;
+            run_jobs(&app, &jobs).await;
             with_queue(|q| q.prune_done(KEEP_DONE));
             notify(&app);
         }
@@ -204,48 +228,63 @@ fn kick(app: &AppHandle) {
     });
 }
 
-async fn run_job(app: &AppHandle, job: &Job) {
-    let request: ExportRequest = match serde_json::from_value(job.request.clone()) {
-        Ok(request) => request,
-        Err(e) => {
-            log::error!("Export '{}' has an unreadable request: {e}", job.label);
-            for index in 0..job.total {
-                with_queue(|q| q.item_failed(&job.id, index, "Unreadable export request"));
+/// Runs queued jobs over the same photos as one export (`same_photos`).
+async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
+    let mut targets = Vec::with_capacity(jobs.len());
+    let mut trackings: Vec<(&str, Tracking)> = Vec::with_capacity(jobs.len());
+    let mut first: Option<ExportRequest> = None;
+    for job in jobs {
+        let request: ExportRequest = match serde_json::from_value(job.request.clone()) {
+            Ok(request) => request,
+            Err(e) => {
+                log::error!("Export '{}' has an unreadable request: {e}", job.label);
+                for index in 0..job.total {
+                    with_queue(|q| q.item_failed(&job.id, index, "Unreadable export request"));
+                }
+                with_queue(|q| q.finish(&job.id, false));
+                continue;
             }
-            with_queue(|q| q.finish(&job.id, false));
-            return;
-        }
-    };
-    let items = with_queue(|q| q.items(&job.id)).unwrap_or_default();
-    let pending: HashSet<usize> = items
-        .iter()
-        .filter(|i| i.state != ItemState::Done)
-        .map(|i| i.index)
-        .collect();
-    let tracking = Tracking {
-        job: job.id.clone(),
-        already_done: items.len() - pending.len(),
-        pending: Arc::new(pending),
-        cancelled: Arc::new(AtomicBool::new(false)),
+        };
+        let items = with_queue(|q| q.items(&job.id)).unwrap_or_default();
+        let pending: HashSet<usize> = items
+            .iter()
+            .filter(|i| i.state != ItemState::Done)
+            .map(|i| i.index)
+            .collect();
+        let tracking = Tracking {
+            job: job.id.clone(),
+            already_done: items.len() - pending.len(),
+            pending: Arc::new(pending),
+            cancelled: Arc::new(AtomicBool::new(false)),
+        };
+        trackings.push((&job.label, tracking.clone()));
+        targets.push(ExportTarget {
+            output_folder_or_file: request.output_folder_or_file.clone(),
+            is_explicit_file_path: request.is_explicit_file_path,
+            base_origin_folders: request.base_origin_folders.clone(),
+            export_settings: request.export_settings.clone(),
+            output_format: request.output_format.clone(),
+            tracking: Some(tracking),
+        });
+        first.get_or_insert(request);
+    }
+    let Some(request) = first else {
+        return;
     };
     let _ = app.emit(
         "export-job-started",
         serde_json::json!({
-            "id": job.id,
-            "label": job.label,
-            "current": tracking.already_done,
-            "total": job.total,
+            "id": jobs[0].id,
+            "label": jobs[0].label,
+            "current": trackings.iter().map(|(_, t)| t.already_done).sum::<usize>(),
+            "total": request.paths.len() * trackings.len(),
         }),
     );
     let (tx, rx) = tokio::sync::oneshot::channel();
     let state = app.state::<AppState>();
     let started = export_images_impl(
         request.paths,
-        request.output_folder_or_file,
-        request.is_explicit_file_path,
-        request.base_origin_folders,
-        request.export_settings,
-        request.output_format,
+        targets,
         ExportAdjustmentsMode::UseSidecars {
             active_path: request.current_edit_path,
             active_adjustments: request.current_edit_adjustments,
@@ -254,23 +293,26 @@ async fn run_job(app: &AppHandle, job: &Job) {
         app.clone(),
         Some(tx),
         None,
-        Some(tracking.clone()),
     )
     .await;
     if let Err(e) = started {
-        log::error!("Export '{}' could not start: {e}", job.label);
         let _ = app.emit("export-error", e.clone());
-        for index in tracking.pending.iter() {
-            with_queue(|q| q.item_failed(&job.id, *index, &e));
+        for (label, tracking) in &trackings {
+            log::error!("Export '{label}' could not start: {e}");
+            for index in tracking.pending.iter() {
+                with_queue(|q| q.item_failed(&tracking.job, *index, &e));
+            }
         }
     } else {
         let _ = rx.await;
     }
-    let cancelled = tracking.cancelled.load(Ordering::SeqCst);
-    if cancelled {
-        hold();
+    for (_, tracking) in &trackings {
+        let cancelled = tracking.cancelled.load(Ordering::SeqCst);
+        if cancelled {
+            hold();
+        }
+        with_queue(|q| q.finish(&tracking.job, cancelled));
     }
-    with_queue(|q| q.finish(&job.id, cancelled));
 }
 
 #[tauri::command]
@@ -286,4 +328,28 @@ pub fn export_queue_resume(job: String, app: AppHandle) -> Result<usize, String>
 #[tauri::command]
 pub fn export_queue_remove(job: String, app: AppHandle) -> Result<(), String> {
     remove(&app, &job)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::same_photos;
+    use serde_json::json;
+
+    #[test]
+    fn only_exports_of_the_same_photos_and_edits_share_a_develop() {
+        let web = json!({"paths": ["/a.NEF", "/b.NEF"], "outputFormat": "jpg",
+            "currentEditPath": "/a.NEF", "currentEditAdjustments": {"exposure": 1}});
+        let mut print = web.clone();
+        print["outputFormat"] = json!("tiff");
+        assert!(same_photos(&web, &print));
+        let mut fewer = print.clone();
+        fewer["paths"] = json!(["/a.NEF"]);
+        assert!(!same_photos(&web, &fewer));
+        let mut edited = print.clone();
+        edited["currentEditAdjustments"] = json!({"exposure": 2});
+        assert!(
+            !same_photos(&web, &edited),
+            "the open photo's unsaved edit differs"
+        );
+    }
 }
