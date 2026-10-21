@@ -320,6 +320,19 @@ describe("targeted adjustment", () => {
         startTargetedAdjustment(target, peak, null, [shown, shown, shown]),
       ).toBeNull();
     }
+    // An asymmetric peak: the falling side passes 180 between whole levels.
+    const asymmetric = base();
+    asymmetric.curves = {
+      ...asymmetric.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 127, y: 255 },
+        { x: 255, y: 0 },
+      ],
+    };
+    expect(
+      startTargetedAdjustment("regionCurve", asymmetric, null, [180, 180, 180]),
+    ).toBeNull();
   });
 
   it("declines tones a flat stretch hides and legacy long layer curves", () => {

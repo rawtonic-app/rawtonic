@@ -296,13 +296,15 @@ function invertCurve(
   curve: (x: number) => number,
   displayed: number,
 ): number | null {
-  const errors = Array.from({ length: 256 }, (_, x) =>
-    Math.abs(curve(x) - displayed),
-  );
+  const offsets = Array.from({ length: 256 }, (_, x) => curve(x) - displayed);
+  const errors = offsets.map(Math.abs);
   const best = errors.indexOf(Math.min(...errors));
-  const alike = errors.every(
-    (error, x) => error > errors[best] + 1 || Math.abs(x - best) <= 4,
-  );
+  // Inputs that show the tone: within a level of the best match, or where
+  // the curve passes it between two whole levels.
+  const shows = (x: number) =>
+    errors[x] <= errors[best] + 1 ||
+    (x < 255 && Math.sign(offsets[x]) * Math.sign(offsets[x + 1]) < 0);
+  const alike = offsets.every((_, x) => !shows(x) || Math.abs(x - best) <= 4);
   return alike ? best : null;
 }
 
