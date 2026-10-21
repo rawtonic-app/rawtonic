@@ -1356,15 +1356,18 @@ export const withSharpenVersion = <T extends Partial<Adjustments>>(
   source?: Partial<Adjustments>,
 ): T & Pick<Partial<Adjustments>, 'sharpenVersion'> =>
   // Every path that carries the sharpening response carries the curve version too.
-  withCurveVersion(sharpenVersionOf(picked, source));
+  withCurveVersion(sharpenVersionOf(picked, source), source);
 
 /** Point curves mean what the recipe's `curveVersion` makes of them (more
  * than 16 points: whole from 2, cut after the 16th before): the version
- * goes along exactly when curves do — their own, else 1 (a missing key would
- * vanish in JSON and the target would keep its own) — and never on its own
- * (it would change the target's own long curves). Copies take the key with
- * the curves (ADJUSTMENT_GROUPS, StudioToolCopy). */
-export const withCurveVersion = <T extends Partial<Adjustments>>(picked: T): T => {
+ * goes along exactly when curves do — their own, else the source's (a curve
+ * edit synced from a photo whose key did not change), else 1 (a missing key
+ * would vanish in JSON and the target would keep its own) — and never on
+ * its own (it would change the target's own long curves). */
+export const withCurveVersion = <T extends Partial<Adjustments>>(
+  picked: T,
+  source?: Partial<Adjustments>,
+): T => {
   if (picked.curves === undefined) {
     if (!Object.prototype.hasOwnProperty.call(picked, 'curveVersion')) return picked;
     const rest = { ...picked };
@@ -1372,7 +1375,7 @@ export const withCurveVersion = <T extends Partial<Adjustments>>(picked: T): T =
     return rest;
   }
   if (picked.curveVersion !== undefined && picked.curveVersion !== null) return picked;
-  return { ...picked, curveVersion: 1 };
+  return { ...picked, curveVersion: source?.curveVersion ?? 1 };
 };
 
 const sharpenVersionOf = <T extends Partial<Adjustments>>(

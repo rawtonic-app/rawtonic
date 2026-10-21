@@ -3582,6 +3582,29 @@ fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+/// A display sample (0–255, encoded in `space`) as sRGB display values, the
+/// encoding the develop tools work in (curves, colour ranges); colours
+/// outside sRGB clip.
+fn display_to_srgb(
+    space: rawtonic_engine::output_color_space::OutputColorSpace,
+    rgb: [f64; 3],
+) -> [f64; 3] {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    if space == OutputColorSpace::Srgb {
+        return rgb;
+    }
+    let transfer = space.transfer();
+    let linear = rgb.map(|v| transfer.to_linear(v / 255.0));
+    let m = space.to_linear_srgb();
+    std::array::from_fn(|r| {
+        let v = (0..3)
+            .map(|c| m[r][c] * linear[c])
+            .sum::<f64>()
+            .clamp(0.0, 1.0);
+        OutputColorSpace::Srgb.transfer().from_linear(v) * 255.0
+    })
+}
+
 /// Larger frames (a zoomed full-resolution window) use the per-layer loop.
 const LAYER_SUMS_BYTES: u64 = 256 << 20;
 
@@ -5160,7 +5183,7 @@ impl GpuProcessor {
             },
             4,
         )?;
-        Ok(mean_rgb8(&pixels))
+        Ok(mean_rgb8(&pixels).map(|rgb| display_to_srgb(self.context.display_space, rgb)))
     }
 
     fn high_precision_tile(&self) -> &HighPrecisionTile {
@@ -5336,9 +5359,17 @@ impl GpuProcessor {
     ) -> Option<Result<&wgpu::ComputePipeline, String>> {
         let edge = edge_noise_reduction(adjustments);
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
-        let with_pass = if adjustments.global.region_curve_active[1] != 0 {
-            Some(&self.long_curve_pipelines[0][usize::from(profile)][usize::from(edge)])
-        } else if profile {
+        if adjustments.global.region_curve_active[1] != 0 {
+            // Only the curve-table pipeline renders this recipe (or reports
+            // that it failed); never the plain one.
+            return match self.long_curve_pipelines[0][usize::from(profile)][usize::from(edge)].get()
+            {
+                Some(Some(pipeline)) => Some(Ok(pipeline)),
+                Some(None) => Some(Err("Curve table pipeline unavailable".to_string())),
+                None => None,
+            };
+        }
+        let with_pass = if profile {
             Some(&self.profile_pipelines[0][usize::from(edge)])
         } else if edge {
             Some(&self.edge_pipelines[0])
@@ -5534,7 +5565,7 @@ impl GpuProcessor {
             &self.main_pipeline
         };
         if adjustments.global.region_curve_active[1] != 0 {
-            return self.long_curve_pipeline(adjustments, high_precision, plain);
+            return self.long_curve_pipeline(adjustments, high_precision);
         }
         #[cfg(test)]
         if self
@@ -5639,7 +5670,6 @@ impl GpuProcessor {
         &'a self,
         adjustments: &AllAdjustments,
         high_precision: bool,
-        plain: &'a BackgroundPipeline,
     ) -> Result<&'a wgpu::ComputePipeline, String> {
         let edge = edge_noise_reduction(adjustments);
         let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
@@ -5680,7 +5710,8 @@ impl GpuProcessor {
         .as_ref()
         {
             Some(pipeline) => Ok(pipeline),
-            None => plain.wait(),
+            // The plain pipeline would render only the first 16 points.
+            None => Err("Curve table pipeline unavailable".to_string()),
         }
     }
 

@@ -287,6 +287,9 @@ describe('RAW detail defaults', () => {
     expect('curveVersion' in pastedAdjustments(exposure, all, PasteMode.Merge)).toBe(false);
     expect(withCurveVersion<Partial<Adjustments>>({ curves: old.curves }).curveVersion).toBe(1);
     expect('curveVersion' in withCurveVersion({ exposure: 1, curveVersion: 2 })).toBe(false);
+    // Edit all selected: a curve-only change from a version-2 photo.
+    const source = { ...old, curveVersion: 2 } as Adjustments;
+    expect(withSharpenVersion<Partial<Adjustments>>({ curves: old.curves }, source).curveVersion).toBe(2);
   });
 
   it('carry the luminance noise reduction version with luminance values', () => {

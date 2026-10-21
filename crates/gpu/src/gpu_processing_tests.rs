@@ -3155,6 +3155,36 @@ fn twenty_point_curve() -> Vec<serde_json::Value> {
 }
 
 #[test]
+fn display_samples_come_back_as_srgb_values() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let p3 = OutputColorSpace::DisplayP3;
+    // sRGB red and a mid grey encoded for a Display P3 layer.
+    for srgb in [
+        [255.0, 0.0, 0.0],
+        [128.0, 128.0, 128.0],
+        [30.0, 160.0, 90.0],
+    ] {
+        let linear = srgb.map(|v: f64| OutputColorSpace::Srgb.transfer().to_linear(v / 255.0));
+        let m = p3.from_linear_srgb();
+        let encoded: [f64; 3] = std::array::from_fn(|r| {
+            p3.transfer()
+                .from_linear((0..3).map(|c| m[r][c] * linear[c]).sum::<f64>())
+                * 255.0
+        });
+        // Greys encode alike; colours differ.
+        assert_eq!(encoded.map(f64::round) == srgb, srgb[0] == srgb[1], "{srgb:?}");
+        let back = display_to_srgb(p3, encoded);
+        for c in 0..3 {
+            assert!((back[c] - srgb[c]).abs() < 0.01, "{srgb:?}: {back:?}");
+        }
+    }
+    assert_eq!(
+        display_to_srgb(OutputColorSpace::Srgb, [1.0, 2.0, 3.0]),
+        [1.0, 2.0, 3.0]
+    );
+}
+
+#[test]
 fn long_curves_use_the_curve_table() {
     let long = twenty_point_curve();
     let a = get_all_adjustments_from_json(
