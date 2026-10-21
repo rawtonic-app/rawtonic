@@ -112,7 +112,8 @@ fn natural_spline(knots: &[(f64, f64)], x: f64) -> f64 {
 
 /// A Lightroom point curve as Rawtonic's: its points, plus knots on
 /// Lightroom's spline wherever the renderer's curve through the points
-/// would leave it by more than a quarter level.
+/// would leave it by more than a quarter level (checked every eighth of an
+/// input level).
 fn lightroom_curve(points: &[Value]) -> Vec<Value> {
     let mut knots: Vec<(f64, f64)> = points
         .iter()
@@ -127,9 +128,10 @@ fn lightroom_curve(points: &[Value]) -> Vec<Value> {
     let target = |x: f64| natural_spline(&lightroom, x).clamp(0.0, 255.0);
     for _ in 0..256 {
         let ours: Vec<(f32, f32)> = knots.iter().map(|&(x, y)| (x as f32, y as f32)).collect();
-        let worst = (0..=255)
+        // Eighth levels: the renderer's input is continuous.
+        let worst = (0..=255 * 8)
             .map(|x| {
-                let x = x as f64;
+                let x = x as f64 / 8.0;
                 let got =
                     rawtonic_engine::point_curve::curve_value(&ours, (x / 255.0) as f32) as f64;
                 (x, (got * 255.0 - target(x)).abs())
@@ -689,6 +691,16 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         if let Some(points) = extract_tone_curve_points(xmp_content, xmp_curve) {
             curves_map.insert(rr_curve.to_string(), Value::Array(points));
         }
+    }
+    if curves_map.values().any(|points| {
+        points
+            .as_array()
+            .is_some_and(|p| p.len() > rawtonic_engine::point_curve::SHADER_CURVE_POINTS)
+    }) {
+        adjustments.insert(
+            "curveVersion".to_string(),
+            json!(rawtonic_engine::point_curve::CURVE_VERSION),
+        );
     }
     if !curves_map.is_empty() {
         adjustments.insert("curves".to_string(), Value::Object(curves_map));
@@ -1722,6 +1734,8 @@ mod tests {
             (vec![(0, 0), (128, 160), (255, 255)], 96.0, 125.3),
             (vec![(0, 0), (64, 128), (128, 128), (255, 255)], 96.0, 135.2),
             (vec![(32, 0), (128, 128), (224, 255)], 16.0, 0.0),
+            // A jump within one level: right at integers, off between them.
+            (vec![(0, 0), (127, 0), (128, 255), (255, 255)], 64.0, -1.0),
         ] {
             let curve = super::extract_tone_curve_points(&seq(&pts), "ToneCurvePV2012").unwrap();
             for &(px, py) in &pts {
@@ -1732,8 +1746,11 @@ mod tests {
                     "{pts:?}"
                 );
             }
-            for k in 0..=255 {
-                let x = k as f64;
+            // Within a quarter level at every eighth input level (where the
+            // import checks); between them a near-vertical spline can differ
+            // by its rise over an eighth of a level.
+            for k in 0..=255 * 8 {
+                let x = k as f64 / 8.0;
                 let spline = super::natural_spline(
                     &pts.iter()
                         .map(|&(a, b)| (a as f64, b as f64))

@@ -36,6 +36,8 @@ const COPIED_ALONG: Partial<Record<string, string[]>> = {
   sharpenDetail: ["sharpenVersion"],
   sharpenMasking: ["sharpenVersion"],
   sharpnessFalloff: ["sharpenVersion"],
+  // Curves mean what the recipe's curve version makes of them.
+  curves: ["curveVersion"],
   // AI Denoise means what the recipe's AI Denoise version makes of it.
   aiDenoise: ["aiDenoiseVersion"],
 };

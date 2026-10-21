@@ -602,6 +602,10 @@ export interface Adjustments {
    * response (1 and 2 are the same at Amount 40 with Radius, Detail and
    * Masking at their defaults). Photo-wide (layers follow it). */
   sharpenVersion?: number;
+  /** Point curves (crates/engine/src/point_curve.rs): 2 = curves with more
+   * than 16 points render whole; missing on older recipes, which render
+   * only their first 16 points. Written by every curve edit. */
+  curveVersion?: number;
   /** Luminance noise reduction (crates/engine/src/image_processing.rs
    * `LUMA_NOISE_VERSION`): 2 = noisy photos also lose isolated luminance
    * specks (single pixels darker or brighter than all their neighbours,
@@ -1645,7 +1649,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
     {
       label: 'modals.copyPaste.groups.curves',
-      keys: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve'],
+      keys: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'curveVersion', 'levels', 'regionCurve'],
     },
   ],
   color: [
@@ -1838,7 +1842,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     'baseCurve',
     'cameraProfile',
   ],
-  curves: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve'],
+  curves: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'curveVersion', 'levels', 'regionCurve'],
   color: [
     ColorAdjustment.Saturation,
     ColorAdjustment.Temperature,
@@ -1966,3 +1970,6 @@ export const getAdjustmentSectionToolIds = (section: string): string[] =>
 
 export const getAdjustmentToolOrder = (section: string, toolOrder?: Record<string, string[]>): string[] =>
   reconcileOrder(getAdjustmentSectionToolIds(section), toolOrder?.[section]);
+
+/** Point curves render whole beyond 16 points (`curveVersion`). */
+export const CURVE_VERSION = 2;

@@ -115,6 +115,22 @@ describe("targeted adjustment", () => {
     const patch = targetedPatch(start, 25.4);
     expect(patch.regionCurve).toMatchObject({ lights: 35, darks: 0 });
     expect(targetedPatch(start, 500).regionCurve!.lights).toBe(100);
+    // Channel curves count too: neutral 100 shown as 200 is still Darks.
+    const lifted = base();
+    const up = [
+      { x: 0, y: 0 },
+      { x: 100, y: 200 },
+      { x: 255, y: 255 },
+    ];
+    lifted.curves = { ...lifted.curves, red: up, green: up, blue: up };
+    const dark = startTargetedAdjustment(
+      "regionCurve",
+      lifted,
+      null,
+      [200, 200, 200],
+    )!;
+    expect(dark.curveX).toBe(100);
+    expect(targetedPatch(dark, 5).regionCurve!.darks).toBe(5);
     const shadow = startTargetedAdjustment(
       "regionCurve",
       base(),

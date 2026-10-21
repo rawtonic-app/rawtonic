@@ -27,6 +27,7 @@ import {
   BRIGHTNESS_CONTROL,
   MAX_CURVE_POINTS,
   INITIAL_REGION_CURVE,
+  CURVE_VERSION,
   type Adjustments,
   type Curves,
   type GrainStructure,
@@ -1147,6 +1148,7 @@ export default function StudioDevelop() {
                     INITIAL_ADJUSTMENTS.parametricCurve,
                   ),
                   curveMode: "point",
+                  curveVersion: CURVE_VERSION,
                   ...(layer ? {} : { regionCurve: { ...INITIAL_REGION_CURVE } }),
                 })
               }
@@ -1164,7 +1166,12 @@ export default function StudioDevelop() {
                 disabled={!panelsReady}
                 onInteraction={onInteraction}
                 onChange={(curves) =>
-                  change({ curves, pointCurves: curves, curveMode: "point" })
+                  change({
+                    curves,
+                    pointCurves: curves,
+                    curveMode: "point",
+                    curveVersion: CURVE_VERSION,
+                  })
                 }
               />
               {!layer && (

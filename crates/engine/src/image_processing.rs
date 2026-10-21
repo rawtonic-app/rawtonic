@@ -4964,8 +4964,13 @@ fn get_mask_adjustments_from_json(
 }
 
 /// The photo's point curves as a table when one has more than 16 points
-/// (point_curve.rs); hidden curves count as none, as for the uniforms.
+/// (point_curve.rs) and the recipe's `curveVersion` is 2 or more (earlier
+/// recipes render their first 16 points); hidden curves count as none, as
+/// for the uniforms.
 fn global_curve_table(js_adjustments: &serde_json::Value) -> Option<std::sync::Arc<Vec<[f32; 4]>>> {
+    if js_adjustments["curveVersion"].as_u64().unwrap_or(1) < crate::point_curve::CURVE_VERSION {
+        return None;
+    }
     let visible = js_adjustments
         .get("sectionVisibility")
         .and_then(|v| v.get("curves"))

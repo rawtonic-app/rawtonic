@@ -1,4 +1,5 @@
 import {
+  CURVE_VERSION,
   INITIAL_GRAY_MIXER,
   INITIAL_REGION_CURVE,
   MAX_CURVE_POINTS,
@@ -121,14 +122,19 @@ export function startTargetedAdjustment(
     const region = regionOf(base);
     // The point curve acts on the region curve's output: the region target
     // needs the level before both, the point curve the level between.
-    const before = invertCurve(
-      (x) =>
-        pointCurveValue(
-          base.curves?.luma,
-          regionCurveValue(region, x / 255) * 255,
-        ),
-      displayed,
-    );
+    // The displayed tone went through the region, luma and channel curves.
+    const curves = base.curves;
+    const before = invertCurve((x) => {
+      const y = pointCurveValue(
+        curves?.luma,
+        regionCurveValue(region, x / 255) * 255,
+      );
+      return (
+        0.2126 * pointCurveValue(curves?.red, y) +
+        0.7152 * pointCurveValue(curves?.green, y) +
+        0.0722 * pointCurveValue(curves?.blue, y)
+      );
+    }, displayed);
     return {
       target,
       base,
@@ -187,6 +193,7 @@ export function targetedPatch(
         luma: moveCurve(base.curves.luma, start.curveX ?? 128, delta),
       },
       curveMode: "point",
+      curveVersion: CURVE_VERSION,
     };
   }
   const weights = start.weights ?? [];
