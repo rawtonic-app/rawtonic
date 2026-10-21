@@ -424,3 +424,38 @@ it("pastes three times onto the open photo with the editor's autosave running, w
   expect([shown.exposure, shown.contrast, shown.saturation]).toEqual([1, 20, -10]);
   expect([disk.exposure, disk.contrast, disk.saturation]).toEqual([1, 20, -10]);
 });
+
+it("drops a save queued behind a paste onto the open photo, which writes that edit with the paste", async () => {
+  const { debouncedSave } = await import("../../hooks/useEditorActions");
+  let disk: Record<string, unknown> = { ...structuredClone(INITIAL_ADJUSTMENTS) };
+  let releaseFirst = () => {};
+  let saves = 0;
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { adjustments?: Record<string, unknown> };
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail) {
+      // The first save is slow.
+      if (++saves === 1) await new Promise<void>((resolve) => (releaseFirst = resolve));
+      disk = { ...a.adjustments };
+    }
+    if (name === Invokes.ApplyAdjustmentsToPaths) disk = { ...disk, ...a.adjustments };
+    if (name === Invokes.LoadMetadata) return { adjustments: structuredClone(disk) };
+    return undefined;
+  });
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+  const { result } = renderHook(useEditorActions);
+  // A save of B still under way.
+  debouncedSave("/s/B.ARW", { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 5 });
+  debouncedSave.flush();
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  // An edit while the paste waits; its autosave fires and queues behind it.
+  const edited = { ...useEditorStore.getState().adjustments, contrast: 30 };
+  useEditorStore.setState({ adjustments: edited });
+  debouncedSave("/s/B.ARW", edited);
+  debouncedSave.flush();
+  await act(async () => releaseFirst());
+  for (let i = 0; i < 12; i++) await act(async () => {});
+  expect([disk.exposure, disk.contrast]).toEqual([2, 30]);
+  const shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.contrast]).toEqual([2, 30]);
+});

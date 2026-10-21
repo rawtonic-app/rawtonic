@@ -56,8 +56,23 @@ const isIdentityCurve = (points?: Array<Coord>) =>
   !points ||
   (points.length === 2 && points[0].x === 0 && points[0].y === 0 && points[1].x === 255 && points[1].y === 255);
 
+/** The latest write meant for each photograph's recipe: a save queued
+ * behind other writes is dropped when a later one superseded it (a paste
+ * that wrote its edit with the pasted settings). */
+const latestWrites = new Map<string, number>();
+let writes = 0;
+/** Supersedes the saves of `path` queued so far. */
+function supersedeSaves(path: string) {
+  latestWrites.set(path, ++writes);
+}
+
 export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustments) => {
-  const save = () => invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave });
+  const write = ++writes;
+  latestWrites.set(path, write);
+  const save = () =>
+    latestWrites.get(path) === write
+      ? invoke<void>(Invokes.SaveMetadataAndUpdateThumbnail, { path, adjustments: adjustmentsToSave })
+      : Promise.resolve();
   // A returned-to photograph must read its recipe after its flushed save, and
   // multiple writes to that photograph must retain the user's edit order.
   const previous = pendingMetadataSaves.get(path);
@@ -741,6 +756,9 @@ export function useEditorActions() {
         // autosave dropped.
         flushSliderDraft();
         const before = useEditorStore.getState().adjustments;
+        // Saves of it still queued (behind this paste) are superseded: this
+        // writes its edit as it is now, with the paste.
+        supersedeSaves(open!.path);
         if (before !== atCall && isCurrentEditorImage(open!.path)) {
           await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path: open!.path, adjustments: before });
           const scheduled = readScheduledRecipe?.();
