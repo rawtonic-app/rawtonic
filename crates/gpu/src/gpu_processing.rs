@@ -6912,6 +6912,27 @@ impl UploadedImage {
     pub fn with_masks(self, masks: UploadedMasks) -> Self {
         Self(self.0, Some(Box::new(masks)))
     }
+
+    /// Keeps the upload for several renders ([`RenderSource::Kept`]).
+    pub fn keep(self) -> KeptUpload {
+        let Self(cache, masks) = self;
+        KeptUpload {
+            width: cache.width,
+            height: cache.height,
+            cache: Mutex::new(Some(cache)),
+            masks,
+        }
+    }
+}
+
+/// An uploaded source rendered more than once, as a photo exported with
+/// several recipes: what the first render builds for it (the colour noise
+/// textures) serves the next ones, and nothing is uploaded again.
+pub struct KeptUpload {
+    width: u32,
+    height: u32,
+    cache: Mutex<Option<GpuImageCache>>,
+    masks: Option<Box<UploadedMasks>>,
 }
 
 /// Uploads a CPU-readback source for [`process_and_get_dynamic_image_inner`].
@@ -7413,6 +7434,7 @@ pub enum RenderSource<'a> {
         transform_hash: u64,
     },
     Uploaded(UploadedImage),
+    Kept(&'a KeptUpload),
 }
 
 /// Renders on the GPU with the caller's processor slot and uploaded-source
@@ -7508,6 +7530,7 @@ fn render_dynamic_image(
     let (width, height) = match &source {
         RenderSource::Image { image, .. } => image.dimensions(),
         RenderSource::Uploaded(UploadedImage(input, _)) => (input.width, input.height),
+        RenderSource::Kept(kept) => (kept.width, kept.height),
     };
     let device = &context.device;
     let queue = &context.queue;
@@ -7535,7 +7558,8 @@ fn render_dynamic_image(
     // CPU-readback jobs (thumbnails, exports) use a transient input. Otherwise
     // each saved thumbnail forces the next slider frame to re-upload its RAW
     // preview and rebuild every blur, even though the source did not change.
-    let (base_image, transform_hash, uploaded, uploaded_masks) = match source {
+    let mut kept = None;
+    let (base_image, transform_hash, uploaded, owned_masks) = match source {
         RenderSource::Image {
             image,
             transform_hash,
@@ -7543,13 +7567,22 @@ fn render_dynamic_image(
         RenderSource::Uploaded(UploadedImage(input, masks)) => {
             (None, input.transform_hash, Some(input), masks)
         }
+        RenderSource::Kept(source) => {
+            kept = Some(source);
+            (None, 0, None, None)
+        }
     };
-    let preuploaded = uploaded.is_some();
+    let uploaded_masks = owned_masks
+        .as_deref()
+        .or_else(|| kept.and_then(|kept| kept.masks.as_deref()));
+    let preuploaded = uploaded.is_some() || kept.is_some();
     let background_image_cache = Mutex::new(uploaded);
     // The JPEG preview fallback (e.g. Linux) is also foreground work, and so
     // are tone targets' samples of the shown preview's base.
     let foreground = matches!(caller_id, "apply_adjustments" | "sample_curve_input");
-    let image_cache = if !preuploaded && (output_to_display || foreground) {
+    let image_cache = if let Some(kept) = kept {
+        &kept.cache
+    } else if !preuploaded && (output_to_display || foreground) {
         image_cache
     } else {
         &background_image_cache
@@ -7659,7 +7692,7 @@ fn render_dynamic_image(
         readback_shader,
         chroma.as_ref().map(|(packed, energy)| (packed, energy)),
         None,
-        uploaded_masks.as_deref(),
+        uploaded_masks,
     )?;
     #[cfg(feature = "performance-profiling")]
     drop(run_stage);

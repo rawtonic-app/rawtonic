@@ -22,7 +22,8 @@ use crate::gpu_processing::{
     upload_render_source,
 };
 use crate::image_processing::{
-    AllAdjustments, MAX_MASKS, get_all_adjustments_with_masks, mask_definitions_from_json,
+    AllAdjustments, MAX_MASKS, PreparedAdjustments, get_all_adjustments_with_masks,
+    mask_definitions_from_json,
 };
 use crate::lut::Lut;
 use crate::mask_generation::{
@@ -1078,13 +1079,56 @@ pub fn render_and_save(
     output: &ExportOutput,
     cancelled: &dyn Fn() -> Result<(), String>,
 ) -> Result<(), String> {
-    let mut main_export_adjustments = js_adjustments.clone();
-    if export_settings.export_masks
-        && let Some(obj) = main_export_adjustments.as_object_mut()
-    {
+    #[cfg(feature = "performance-profiling")]
+    let render_stage = crate::performance::PerformanceStage::new("export_render");
+    let prepared = prepare_export_render(
+        source_path_str,
+        source,
+        &main_export_adjustments(js_adjustments, export_settings),
+        env,
+        is_raw,
+    )?;
+    #[cfg(feature = "performance-profiling")]
+    drop(render_stage);
+    render_prepared_and_save(
+        source_path_str,
+        &prepared,
+        js_adjustments,
+        export_settings,
+        env,
+        output,
+        cancelled,
+    )
+}
+
+/// The recipe a photo's main export file renders: without its mask layers
+/// when they go to separate mask files.
+pub fn main_export_adjustments<'a>(
+    js_adjustments: &'a Value,
+    export_settings: &ExportSettings,
+) -> Cow<'a, Value> {
+    if !export_settings.export_masks || !js_adjustments.is_object() {
+        return Cow::Borrowed(js_adjustments);
+    }
+    let mut adjustments = js_adjustments.clone();
+    if let Some(obj) = adjustments.as_object_mut() {
         obj.insert("masks".to_string(), serde_json::json!([]));
     }
+    Cow::Owned(adjustments)
+}
 
+/// Renders one recipe's main export file from a photo prepared with
+/// [`main_export_adjustments`] and saves it. `cancelled` runs between the
+/// render and the write.
+pub fn render_prepared_and_save(
+    source_path_str: &str,
+    prepared: &PreparedExport,
+    js_adjustments: &Value,
+    export_settings: &ExportSettings,
+    env: &RenderEnv,
+    output: &ExportOutput,
+    cancelled: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
     let actual_output_format = output
         .path
         .extension()
@@ -1093,15 +1137,15 @@ pub fn render_and_save(
 
     #[cfg(feature = "performance-profiling")]
     let render_stage = crate::performance::PerformanceStage::new("export_render");
-    let final_image = process_image_for_export(
-        source_path_str,
-        source,
-        &main_export_adjustments,
-        export_settings,
+    let processed = render_prepared_export(
+        prepared,
         env,
-        is_raw,
-        actual_output_format,
+        "process_image_for_export",
+        render_output_precision(actual_output_format, export_settings),
+        export_settings.color_space,
     )?;
+    let final_image =
+        apply_export_geometry_and_watermark(processed, export_settings).map(|(image, _)| image)?;
     #[cfg(feature = "performance-profiling")]
     drop(render_stage);
     cancelled()?;
@@ -1141,6 +1185,40 @@ pub fn process_image_for_export_pipeline(
     output_precision: RenderOutputPrecision,
     color_space: OutputColorSpace,
 ) -> Result<DynamicImage, String> {
+    let prepared = prepare_export_render(path, source, js_adjustments, env, is_raw)?;
+    render_prepared_export(&prepared, env, debug_tag, output_precision, color_space)
+}
+
+/// A photo developed for its exports up to the GPU render: transformed,
+/// uploaded with its mask layers and its adjustments resolved. Each recipe
+/// renders from it in its own colour space and precision
+/// ([`render_prepared_export`]), so a photo exported with several recipes is
+/// loaded, transformed and uploaded once (notes: parity-gaps/G43, F10).
+pub struct PreparedExport {
+    target: PreparedTarget,
+    /// Before the output colour space, which each render sets.
+    adjustments: PreparedAdjustments,
+    lut: Option<Arc<Lut>>,
+}
+
+enum PreparedTarget {
+    Gpu(crate::gpu_processing::KeptUpload),
+    /// Too large for one texture: rendered in windows from CPU masks.
+    Windows {
+        image: DynamicImage,
+        transform_hash: u64,
+        mask_bitmaps: Vec<Arc<MaskBitmap>>,
+    },
+}
+
+/// Prepares `source` with `js_adjustments` for [`render_prepared_export`].
+pub fn prepare_export_render(
+    path: &str,
+    source: ExportSource,
+    js_adjustments: &Value,
+    env: &RenderEnv,
+    is_raw: bool,
+) -> Result<PreparedExport, String> {
     let context = env.context;
     #[cfg(feature = "performance-profiling")]
     let transform_stage = crate::performance::PerformanceStage::new("export_transform");
@@ -1183,7 +1261,6 @@ pub fn process_image_for_export_pipeline(
         get_all_adjustments_with_masks(js_adjustments, is_raw, tm_override, &mask_definitions);
     crate::baseline_exposure::apply_base_look(&mut all_adjustments.global, path);
     all_adjustments.global.show_clipping = 0;
-    set_output_color_space(&mut all_adjustments, color_space);
 
     let lut_path = js_adjustments["lutPath"].as_str();
     let lut = lut_path.and_then(|p| (env.load_lut)(p));
@@ -1206,7 +1283,6 @@ pub fn process_image_for_export_pipeline(
     let Some(uploaded) =
         upload_render_source(context, &transformed_image, unique_hash, color_noise)?
     else {
-        // Too large for one texture: rendered in windows from CPU masks.
         #[cfg(feature = "performance-profiling")]
         let masks_stage = crate::performance::PerformanceStage::new("export_masks");
         let mask_bitmaps: Vec<Arc<MaskBitmap>> = layers
@@ -1216,27 +1292,15 @@ pub fn process_image_for_export_pipeline(
         drop(warped_image);
         #[cfg(feature = "performance-profiling")]
         drop(masks_stage);
-        return process_and_get_dynamic_image_inner(
-            context,
-            env.processor,
-            env.image_cache,
-            RenderSource::Image {
-                image: transformed_image.as_ref(),
+        return Ok(PreparedExport {
+            target: PreparedTarget::Windows {
+                image: transformed_image.into_owned(),
                 transform_hash: unique_hash,
+                mask_bitmaps,
             },
-            RenderRequest {
-                adjustments: all_adjustments,
-                mask_bitmaps: &mask_bitmaps,
-                lut,
-                roi: None,
-            },
-            debug_tag,
-            output_precision,
-            false,
-            None,
-            None,
-            ReadbackShader::Export,
-        );
+            adjustments: all_adjustments,
+            lut,
+        });
     };
     // The GPU holds the pixels now. A source shared with the editor stays
     // alive there; a source loaded for this export is freed (0.6 GB at 50 MP).
@@ -1293,15 +1357,46 @@ pub fn process_image_for_export_pipeline(
     #[cfg(feature = "performance-profiling")]
     drop(masks_stage);
 
+    Ok(PreparedExport {
+        target: PreparedTarget::Gpu(uploaded.keep()),
+        adjustments: all_adjustments,
+        lut,
+    })
+}
+
+/// Renders a prepared photo into `color_space` at `output_precision`.
+pub fn render_prepared_export(
+    prepared: &PreparedExport,
+    env: &RenderEnv,
+    debug_tag: &str,
+    output_precision: RenderOutputPrecision,
+    color_space: OutputColorSpace,
+) -> Result<DynamicImage, String> {
+    let mut adjustments = prepared.adjustments.clone();
+    set_output_color_space(&mut adjustments, color_space);
+    let (source, mask_bitmaps) = match &prepared.target {
+        PreparedTarget::Gpu(kept) => (RenderSource::Kept(kept), &[][..]),
+        PreparedTarget::Windows {
+            image,
+            transform_hash,
+            mask_bitmaps,
+        } => (
+            RenderSource::Image {
+                image,
+                transform_hash: *transform_hash,
+            },
+            &mask_bitmaps[..],
+        ),
+    };
     process_and_get_dynamic_image_inner(
-        context,
+        env.context,
         env.processor,
         env.image_cache,
-        RenderSource::Uploaded(uploaded),
+        source,
         RenderRequest {
-            adjustments: all_adjustments,
-            mask_bitmaps: &[],
-            lut,
+            adjustments,
+            mask_bitmaps,
+            lut: prepared.lut.clone(),
             roi: None,
         },
         debug_tag,

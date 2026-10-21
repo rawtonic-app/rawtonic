@@ -356,7 +356,9 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
     const queued = busy;
     setChoosing(true);
     try {
-      let started = 0;
+      // Queued together, the recipes run as one export: each photograph is
+      // developed once for all of them.
+      const requests: Record<string, unknown>[] = [];
       for (const job of planned) {
         const destination = await destinationFor(
           job.draft,
@@ -374,13 +376,7 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
             ),
           );
         }
-        if (!queued && started === 0)
-          useProcessStore.getState().setExportState({
-            status: Status.Exporting,
-            errorMessage: "",
-            progress: { current: 0, total: paths.length },
-          });
-        await invoke(Invokes.ExportImages, {
+        requests.push({
           paths,
           outputFolderOrFile: destination.path,
           isExplicitFilePath: destination.isFile,
@@ -389,7 +385,16 @@ export default function StudioExport({ onStarted }: { onStarted?: () => void } =
           outputFormat: job.outputFormat,
           ...currentEditForExport(useEditorStore.getState()),
         });
-        started++;
+      }
+      const started = requests.length;
+      if (started) {
+        if (!queued)
+          useProcessStore.getState().setExportState({
+            status: Status.Exporting,
+            errorMessage: "",
+            progress: { current: 0, total: paths.length * started },
+          });
+        await invoke(Invokes.ExportImagesBatch, { requests });
       }
       if (started) onStarted?.();
       if (started && (queued || started > 1))

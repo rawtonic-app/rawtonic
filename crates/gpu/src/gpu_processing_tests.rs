@@ -9010,6 +9010,87 @@ fn chunk_test_profiles() -> Vec<(&'static str, serde_json::Value)> {
     ]
 }
 
+/// A photo exported with several recipes renders each from one kept upload
+/// ([`KeptUpload`]): byte for byte what a fresh upload renders, in every
+/// colour space and precision, also once an earlier render from it built
+/// its colour noise textures.
+#[test]
+#[ignore = "requires a native GPU"]
+fn renders_from_a_kept_upload_match_fresh_uploads() {
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+    let context = context();
+    let source = DynamicImage::ImageRgba32F(ImageBuffer::from_fn(700, 460, |x, y| {
+        let n = ((x * 7919 + y * 104_729) % 251) as f32 / 251.0;
+        Rgba([
+            0.2 + 0.5 * x as f32 / 700.0 + 0.05 * n,
+            0.3 + 0.2 * n,
+            0.6 * y as f32 / 460.0 + 0.1 * (1.0 - n),
+            1.0,
+        ])
+    }));
+    let recipe = json!({"exposure":0.4,"contrast":15,"sharpness":40,
+        "lumaNoiseReduction":20,"colorNoiseReduction":25,"colorNoiseVersion":2});
+    let adjustments = |space: OutputColorSpace| {
+        let mut all = get_all_adjustments_from_json(&recipe, true, Some(2));
+        all.global.output_space = [space.shader_code(), 0, 0, 0];
+        all.global.output_matrix =
+            crate::image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        all
+    };
+    let global = adjustments(OutputColorSpace::Srgb).global;
+    assert!(
+        global.color_noise[0] > 0.0,
+        "the recipe uses the multi-scale colour noise"
+    );
+    let color_noise = Some((true, color_noise_tuning(&global).1));
+    let processor = Mutex::new(None);
+    let cache = Mutex::new(None);
+    let render = |source: RenderSource, space, precision| {
+        process_and_get_dynamic_image_inner(
+            &context,
+            &processor,
+            &cache,
+            source,
+            RenderRequest {
+                adjustments: adjustments(space),
+                mask_bitmaps: &[],
+                lut: None,
+                roi: None,
+            },
+            "kept_upload_test",
+            precision,
+            false,
+            None,
+            None,
+            ReadbackShader::Export,
+        )
+        .expect("renders")
+    };
+    let upload = || {
+        upload_render_source(&context, &source, 11, color_noise)
+            .unwrap()
+            .unwrap()
+    };
+    let recipes = [
+        (OutputColorSpace::Srgb, RenderOutputPrecision::EightBit),
+        (
+            OutputColorSpace::AdobeRgb,
+            RenderOutputPrecision::SixteenBit,
+        ),
+        (OutputColorSpace::DisplayP3, RenderOutputPrecision::EightBit),
+        (OutputColorSpace::Srgb, RenderOutputPrecision::EightBit),
+    ];
+    let kept = upload().keep();
+    for (space, precision) in recipes {
+        let fresh = render(RenderSource::Uploaded(upload()), space, precision);
+        let from_kept = render(RenderSource::Kept(&kept), space, precision);
+        assert!(
+            fresh.as_bytes() == from_kept.as_bytes(),
+            "{space:?} {precision:?} differs from a fresh upload"
+        );
+    }
+}
+
 /// A CPU-readback render the GPU fails (here: a source texture destroyed,
 /// as an out-of-memory upload leaves an invalid one) is an error, not a
 /// black image an export would write as its file.
