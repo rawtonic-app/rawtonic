@@ -437,7 +437,16 @@ export function useImageProcessing(
   useEffect(() => registerDiagnosticQueue('preview', previewQueue), [previewQueue]);
   // Quitting saves the recipe of a slider still being dragged (its save is
   // scheduled only when the drag ends).
-  useEffect(() => registerScheduledRecipe(() => prevAdjustmentsRef.current), [prevAdjustmentsRef]);
+  useEffect(
+    () =>
+      registerScheduledRecipe(
+        () => prevAdjustmentsRef.current,
+        (recipe) => {
+          prevAdjustmentsRef.current = recipe;
+        },
+      ),
+    [prevAdjustmentsRef],
+  );
   useLayoutEffect(() => {
     nativeDisplayRef.current = false;
   }, [selectedImage?.path]);

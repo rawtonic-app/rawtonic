@@ -83,14 +83,21 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
 
 type ScheduledRecipe = { path: string; adjustments: Adjustments };
 let readScheduledRecipe: (() => ScheduledRecipe | null) | null = null;
+let markScheduledRecipe: ((recipe: ScheduledRecipe) => void) | null = null;
 
 /** Tells the quit flush which recipe of the open photograph was last handed
- * to `debouncedSave` (useImageProcessing's `prevAdjustmentsRef`); returns
- * its unregistration. */
-export function registerScheduledRecipe(read: () => ScheduledRecipe | null): () => void {
+ * to `debouncedSave` (useImageProcessing's `prevAdjustmentsRef`), and lets a
+ * recipe already on disk be marked as handed over (`mark`: no autosave of
+ * it); returns its unregistration. */
+export function registerScheduledRecipe(
+  read: () => ScheduledRecipe | null,
+  mark?: (recipe: ScheduledRecipe) => void,
+): () => void {
   readScheduledRecipe = read;
+  markScheduledRecipe = mark ?? null;
   return () => {
     if (readScheduledRecipe === read) readScheduledRecipe = null;
+    if (markScheduledRecipe === mark) markScheduledRecipe = null;
   };
 }
 
@@ -176,6 +183,9 @@ async function showPasted(path: string, isRaw: boolean, before: Adjustments) {
   debouncedSetHistory.flush();
   updateAdjustments(() => pasted);
   debouncedSetHistory.flush();
+  // What the backend wrote is on disk: no autosave of it (it would be
+  // queued behind this paste, and later ones behind it).
+  markScheduledRecipe?.({ path, adjustments: useEditorStore.getState().adjustments });
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -724,15 +734,19 @@ export function useEditorActions() {
           'paste adjustments',
         );
       const others = reloadOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
+      const atCall = useEditorStore.getState().adjustments;
       const pasteOpen = async () => {
-        // Only a save this starts is waited for (earlier ones were, before
-        // this paste's turn; later pastes wait for this one).
-        const earlier = pendingMetadataSaves.get(open!.path);
-        saveOpenEdit();
-        const started = pendingMetadataSaves.get(open!.path);
-        if (started && started !== earlier) await started;
-        // Shown when its write starts: an earlier paste's result counts.
+        // Edited since the paste was asked for: that edit is written now,
+        // directly (a queued save would wait for this paste), and its
+        // autosave dropped.
+        flushSliderDraft();
         const before = useEditorStore.getState().adjustments;
+        if (before !== atCall && isCurrentEditorImage(open!.path)) {
+          await invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path: open!.path, adjustments: before });
+          const scheduled = readScheduledRecipe?.();
+          if (scheduled?.path === open!.path && scheduled.adjustments === before) debouncedSave.cancel();
+          markScheduledRecipe?.({ path: open!.path, adjustments: before });
+        }
         const failed = await batch([open!.path]);
         // Showing it failing does not stop the others.
         if (failed.length === 0)

@@ -384,3 +384,43 @@ it("pastes three times onto the open photo, each onto the result of the one befo
   expect([shown.exposure, shown.contrast, shown.saturation]).toEqual([1, 20, -10]);
   expect([disk.exposure, disk.contrast, disk.saturation]).toEqual([1, 20, -10]);
 });
+
+it("pastes three times onto the open photo with the editor's autosave running, without waiting on itself", async () => {
+  const { debouncedSave, registerScheduledRecipe } = await import("../../hooks/useEditorActions");
+  let disk: Record<string, unknown> = { ...structuredClone(INITIAL_ADJUSTMENTS) };
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { adjustments?: Record<string, unknown> };
+    if (name === Invokes.ApplyAdjustmentsToPaths) disk = { ...disk, ...a.adjustments };
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail) disk = { ...a.adjustments };
+    if (name === Invokes.LoadMetadata) return { adjustments: structuredClone(disk) };
+    return undefined;
+  });
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+  // The editor's autosave (useImageProcessing): each new recipe handed to the
+  // debounced save unless marked as handed over.
+  let scheduled = { path: "/s/B.ARW", adjustments: useEditorStore.getState().adjustments };
+  const unregister = registerScheduledRecipe(() => scheduled, (recipe) => (scheduled = recipe));
+  const unsubscribe = useEditorStore.subscribe((state) => {
+    queueMicrotask(() => {
+      const now = useEditorStore.getState().adjustments;
+      if (scheduled.adjustments !== now) {
+        scheduled = { path: "/s/B.ARW", adjustments: now };
+        debouncedSave("/s/B.ARW", now);
+      }
+    });
+    void state;
+  });
+  const { result } = renderHook(useEditorActions);
+  for (const copied of [{ exposure: 1 }, { contrast: 20 }, { saturation: -10 }]) {
+    useEditorStore.setState({ copiedAdjustments: copied as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  }
+  for (let i = 0; i < 20; i++) await act(async () => {});
+  debouncedSave.flush();
+  for (let i = 0; i < 5; i++) await act(async () => {});
+  unsubscribe();
+  unregister();
+  const shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.contrast, shown.saturation]).toEqual([1, 20, -10]);
+  expect([disk.exposure, disk.contrast, disk.saturation]).toEqual([1, 20, -10]);
+});
