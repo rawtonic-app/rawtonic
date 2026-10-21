@@ -1456,14 +1456,28 @@ export const colorNoiseMultiscale = (
 
 /** Deep equality of adjustment values regardless of object key order (stored
  * recipes come back with sorted keys, so JSON strings of equal values differ). */
+const CURVE_CHANNELS = ['luma', 'red', 'green', 'blue'];
+const isCurves = (value: Record<string, unknown>) => Array.isArray(value.luma) && 'red' in value;
+const versionMatters = (curves: Record<string, unknown>) =>
+  CURVE_CHANNELS.some((channel) => {
+    const points = curves[channel];
+    return Array.isArray(points) && points.length > MAX_CURVE_POINTS;
+  });
+
 export function sameAdjustmentValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
   if (Array.isArray(a) && Array.isArray(b))
     return a.length === b.length && a.every((value, i) => sameAdjustmentValue(value, b[i]));
-  const left = a as Record<string, unknown>;
-  const right = b as Record<string, unknown>;
+  let left = a as Record<string, unknown>;
+  let right = b as Record<string, unknown>;
+  // A curves version matters only for channels beyond 16 points
+  // (`Curves.version`): neutral curves saved before it equal new ones.
+  if (isCurves(left) && isCurves(right) && !versionMatters(left) && !versionMatters(right)) {
+    left = { ...left, version: undefined };
+    right = { ...right, version: undefined };
+  }
   const keys = Object.keys(left).filter((key) => left[key] !== undefined);
   return (
     keys.length === Object.keys(right).filter((key) => right[key] !== undefined).length &&
