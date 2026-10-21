@@ -595,11 +595,12 @@ export interface Adjustments {
    * it = every colour in range near an edge loses chroma. Photo-wide. */
   defringeVersion?: number;
   /** Sharpening response (crates/engine/src/image_processing.rs
-   * `SHARPEN_VERSION`): 2 = halos nearly constant over the amount, gain and
-   * Detail tilt after Camera Raw at high amounts; 1 or missing on recipes
-   * that sharpened differently before it = the earlier response (both are
-   * the same at Amount 40 with Radius, Detail and Masking at their
-   * defaults). Photo-wide (layers follow it). */
+   * `SHARPEN_VERSION`): 3 = 2 weighted by lightness (little sharpening in
+   * the shadows, more in the highlights, as Camera Raw's); 2 = halos nearly
+   * constant over the amount, gain and Detail tilt after Camera Raw at high
+   * amounts; 1 or missing on recipes that sharpened before 3 = the earliest
+   * response (1 and 2 are the same at Amount 40 with Radius, Detail and
+   * Masking at their defaults). Photo-wide (layers follow it). */
   sharpenVersion?: number;
   /** Luminance noise reduction (crates/engine/src/image_processing.rs
    * `LUMA_NOISE_VERSION`): 2 = noisy photos also lose isolated luminance
@@ -1187,7 +1188,7 @@ export const FRINGE_VERSION = 4;
 export const DEFRINGE_VERSION = 2;
 
 /** The sharpening response new edits start with (notes: reference/detail.md). */
-export const SHARPEN_VERSION = 2;
+export const SHARPEN_VERSION = 3;
 
 /** The luminance noise reduction new edits start with (notes: reference/luma-noise-reference.md). */
 export const LUMA_NOISE_VERSION = 2;
@@ -1280,21 +1281,15 @@ const loadedDefringeVersion = (loaded: Partial<Adjustments>): number | undefined
   return used ? undefined : DEFRINGE_VERSION;
 };
 
-/** Whether a recipe renders the same with either sharpening response: no
- * sharpening, or Amount 40 with Radius, Detail, Masking and Falloff at their
- * defaults, and no layer that changes the amount. */
-const sharpensAlikeInBothVersions = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
+/** Whether a recipe renders the same with every sharpening response: no
+ * sharpening (photo or layer); response 3 differs from 1 at every amount. */
+const sharpensAlikeInEveryVersion = (values: Partial<Adjustments>, isRaw: boolean): boolean => {
   // RAW recipes without an amount sharpen at the RAW default (40).
   const amount = values.sharpness ?? (isRaw ? RAW_DETAIL_DEFAULTS.sharpness : 0);
-  const atDefaults =
-    (values.sharpenRadius ?? 1) === 1 &&
-    (values.sharpenDetail ?? 25) === 25 &&
-    (values.sharpenMasking ?? 0) === 0 &&
-    (values.sharpnessFalloff ?? 0) === 0;
   const layerSharpens = (values.masks ?? []).some(
     (mask) => ((mask?.adjustments?.sharpness as number | undefined) ?? 0) !== 0,
   );
-  return (amount <= 0 || (amount === 40 && atDefaults)) && !layerSharpens;
+  return amount <= 0 && !layerSharpens;
 };
 
 /** The sharpening response of a saved recipe: its own; else the current one
@@ -1303,7 +1298,7 @@ const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): num
   if (loaded.sharpenVersion !== undefined && loaded.sharpenVersion !== null) {
     return loaded.sharpenVersion;
   }
-  return sharpensAlikeInBothVersions(loaded, isRaw) ? SHARPEN_VERSION : undefined;
+  return sharpensAlikeInEveryVersion(loaded, isRaw) ? SHARPEN_VERSION : undefined;
 };
 
 /** What a paste applies from the clipboard: the included keys, in Merge mode
