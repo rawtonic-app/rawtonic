@@ -85,7 +85,47 @@ pub struct Tracking {
     pub cancelled: Arc<AtomicBool>,
     /// Set by Pause: no further photo starts, those in progress finish.
     pub paused: Arc<AtomicBool>,
+    /// Its photos in progress, so a job stopped on its own settles once
+    /// they are done while the other jobs of its run go on.
+    run: Arc<RunCount>,
     app: AppHandle,
+}
+
+/// Photos of a job in progress, and whether the job was settled.
+#[derive(Default)]
+struct RunCount {
+    in_flight: std::sync::atomic::AtomicUsize,
+    settled: AtomicBool,
+}
+
+/// How a job stopped on its own ends, once its last photo in progress is
+/// done; `None` while it goes on, has photos in progress or was settled.
+fn settle_now(paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) -> Option<RunEnd> {
+    let cancelled = cancelled.load(Ordering::SeqCst);
+    if !(cancelled || paused.load(Ordering::SeqCst))
+        || run.in_flight.load(Ordering::SeqCst) != 0
+        || run.settled.swap(true, Ordering::SeqCst)
+    {
+        return None;
+    }
+    Some(if cancelled {
+        RunEnd::Cancelled
+    } else {
+        RunEnd::Paused
+    })
+}
+
+/// Ends a job stopped on its own (see `settle_now`): it leaves the running
+/// jobs and can be resumed while the others of its run go on.
+fn settle(app: &AppHandle, job: &str, paused: &AtomicBool, cancelled: &AtomicBool, run: &RunCount) {
+    if let Some(end) = settle_now(paused, cancelled, run) {
+        with_queue(|q| q.finish(job, end));
+        CURRENT
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|running| running.id != job);
+        notify(app);
+    }
 }
 
 impl Tracking {
@@ -102,6 +142,7 @@ impl Tracking {
     }
     /// A photo's attempt begins: its source is read next.
     pub fn began(&self, index: usize) {
+        self.run.in_flight.fetch_add(1, Ordering::SeqCst);
         with_queue(|q| q.item_began(&self.job, index));
         self.report(index, Some(Stage::Loading), None);
     }
@@ -119,6 +160,17 @@ impl Tracking {
             Err(e) => with_queue(|q| q.item_failed(&self.job, index, e)),
         };
         self.report(index, None, None);
+        let _ = self
+            .run
+            .in_flight
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+        settle(
+            &self.app,
+            &self.job,
+            &self.paused,
+            &self.cancelled,
+            &self.run,
+        );
     }
     fn report(&self, index: usize, stage: Option<Stage>, fraction: Option<f32>) {
         if let Some(item) = with_queue(|q| q.item(&self.job, index)) {
@@ -163,6 +215,7 @@ struct RunningJob {
     id: String,
     paused: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
+    run: Arc<RunCount>,
 }
 
 /// The jobs of the running export. The runner sets them before their export
@@ -325,8 +378,15 @@ pub fn pause(app: &AppHandle, job: &str) -> Result<(), String> {
     let pausing = with_running(&CURRENT, job, |running, _| {
         running.paused.store(true, Ordering::SeqCst);
         let _ = app.emit("export-job-pausing", job);
+        (
+            Arc::clone(&running.paused),
+            Arc::clone(&running.cancelled),
+            Arc::clone(&running.run),
+        )
     });
-    if pausing.is_some() {
+    if let Some((paused, cancelled, run)) = pausing {
+        // No photo of it in progress: it ends now (outside the lock).
+        settle(app, job, &paused, &cancelled, &run);
         return Ok(());
     }
     with_queue(|q| q.pause(job)).ok_or("This export cannot be paused.")?;
@@ -342,15 +402,25 @@ pub fn cancel(app: &AppHandle, job: &str) -> Result<(), String> {
     // Under the lock: the runner cannot move on to another export
     // meanwhile, which the cancel would otherwise stop.
     let cancelled = with_running(&CURRENT, job, |running, alone| {
+        // Recorded first: also a run that stops before its first photo
+        // ends the job as cancelled.
+        running.cancelled.store(true, Ordering::SeqCst);
+        let switches = (
+            Arc::clone(&running.paused),
+            Arc::clone(&running.cancelled),
+            Arc::clone(&running.run),
+        );
         if alone {
-            crate::export_processing::cancel_running_export(app)
+            crate::export_processing::cancel_running_export(app).map(|()| None)
         } else {
-            running.cancelled.store(true, Ordering::SeqCst);
-            Ok(())
+            Ok(Some(switches))
         }
     });
     if let Some(result) = cancelled {
-        return result;
+        if let Some((paused, cancelled, run)) = result? {
+            settle(app, job, &paused, &cancelled, &run);
+        }
+        return Ok(());
     }
     with_queue(|q| q.cancel(job)).ok_or("This export cannot be cancelled.")?;
     notify(app);
@@ -445,6 +515,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             pending: Arc::new(pending),
             cancelled: Arc::new(AtomicBool::new(false)),
             paused: Arc::new(AtomicBool::new(false)),
+            run: Arc::default(),
             app: app.clone(),
         };
         trackings.push((&job.label, tracking.clone()));
@@ -467,6 +538,7 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
             id: t.job.clone(),
             paused: Arc::clone(&t.paused),
             cancelled: Arc::clone(&t.cancelled),
+            run: Arc::clone(&t.run),
         })
         .collect();
     let _ = app.emit(
@@ -510,6 +582,10 @@ async fn run_jobs(app: &AppHandle, jobs: &[Job]) {
     // (Cancel in the Export dialog holds the queue itself; a job cancelled
     // in the queue panel lets it go on.)
     for (_, tracking) in &trackings {
+        // Settled already: stopped on its own while the others went on.
+        if tracking.run.settled.swap(true, Ordering::SeqCst) {
+            continue;
+        }
         let end = if tracking.cancelled.load(Ordering::SeqCst) {
             RunEnd::Cancelled
         } else if tracking.is_paused() {
@@ -570,6 +646,7 @@ mod tests {
                     id: id.to_string(),
                     paused: Arc::default(),
                     cancelled: Arc::default(),
+                    run: Arc::default(),
                 })
                 .collect(),
         ))
@@ -624,6 +701,33 @@ mod tests {
         assert!(
             !same_photos(&web, &edited),
             "the open photo's unsaved edit differs"
+        );
+    }
+
+    #[test]
+    fn a_job_stopped_on_its_own_settles_once_its_photos_in_progress_are_done() {
+        let (paused, cancelled, run) = (
+            AtomicBool::new(false),
+            AtomicBool::new(false),
+            RunCount::default(),
+        );
+        run.in_flight.store(1, Ordering::SeqCst);
+        assert_eq!(settle_now(&paused, &cancelled, &run), None, "it goes on");
+        paused.store(true, Ordering::SeqCst);
+        assert_eq!(
+            settle_now(&paused, &cancelled, &run),
+            None,
+            "a photo in progress"
+        );
+        run.in_flight.store(0, Ordering::SeqCst);
+        assert_eq!(settle_now(&paused, &cancelled, &run), Some(RunEnd::Paused));
+        assert_eq!(settle_now(&paused, &cancelled, &run), None, "settled once");
+        let run = RunCount::default();
+        cancelled.store(true, Ordering::SeqCst);
+        assert_eq!(
+            settle_now(&paused, &cancelled, &run),
+            Some(RunEnd::Cancelled),
+            "cancel wins"
         );
     }
 }
