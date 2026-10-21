@@ -1264,6 +1264,7 @@
         "open_settings": "설정 열기",
         "paste_adjustments": "복사한 조정값 붙여넣기",
         "paste_files": "현재 폴더에 파일 붙여넣기",
+        "paste_from_previous": "이전 사진에서 설정 붙여넣기",
         "pin_reference": "기본 사진을 기준으로 고정",
         "preview_next": "다음 이미지",
         "preview_prev": "이전 이미지",
@@ -1279,6 +1280,7 @@
         "rotate_right": "90° 시계 방향 회전",
         "select_all": "모든 이미지 선택",
         "show_original": "누르고 있기: 사진 전체 보정 전",
+        "sync_settings": "선택한 사진에 설정 동기화",
         "tether_capture": "테더 카메라 촬영",
         "toggle_adjustments": "조정 패널 전환",
         "toggle_all_panels": "모든 패널과 막대 숨기기/표시",
@@ -1594,6 +1596,38 @@
         "title": "드래그하여 색조와 채도 조정 · Shift 미세 조정 · Alt 색조 유지 · 두 번 클릭하여 재설정",
         "valueText": "색조 {{hue}}°, 채도 {{saturation}}"
       }
+    },
+    "copySettings": {
+      "all": "모두",
+      "cancel": "취소",
+      "changed": "이 사진에서 변경됨",
+      "changedMeanwhile": "설정을 붙여 넣는 동안 열린 사진이 변경되었습니다. 그 변경은 유지됩니다. 적용하려면 다시 붙여 넣으세요.",
+      "copy": "복사",
+      "copyTitle": "설정 복사",
+      "detectedHere": "AI 선택은 사진마다 감지됩니다",
+      "layers": "로컬 레이어",
+      "lensNotPasted": "렌즈 보정은 아직 복사하거나 동기화하지 않습니다. 각 사진은 자체 보정을 유지합니다.",
+      "modified": "변경된 항목",
+      "modifiedTitle": "이 사진에서 변경한 도구만",
+      "noLayers": "이 사진에는 레이어가 없습니다.",
+      "none": "없음",
+      "pending": "AI 감지 대기 중: 사진을 열면 실행됩니다",
+      "pendingObject": "개체를 다시 지정하세요: 개체 선택은 해당 사진에 속합니다",
+      "pendingObjectShort": "다시 선택",
+      "pendingShort": "AI 감지 대기 중",
+      "rules": "붙여 넣은 레이어는 각 사진의 레이어에 추가됩니다(이전에 붙여 넣은 레이어는 교체됨). AI 선택(하늘, 피사체, 깊이, 인물)은 사진마다 감지되고 개체 선택은 그 사진에서 다시 지정합니다. 이 사진에서 가져오지 않습니다. 리터칭, AI 패치, 렌즈 흐림은 해당 사진에 남습니다.",
+      "sections": {
+        "basic": "빛",
+        "color": "색상",
+        "details": "디테일",
+        "effects": "효과",
+        "geometry": "자르기, 기하 및 렌즈"
+      },
+      "sync": "동기화 ({{n}})",
+      "syncTitle": "선택한 다른 사진에 설정 동기화 ({{n}})",
+      "versions": "처리 버전",
+      "versionsChoice": "이 사진의 처리 버전",
+      "versionsNote": "끄기: 각 사진은 자신의 처리 버전을 유지하고 붙여 넣은 값은 그 버전으로 렌더링됩니다. 켜기: 이 사진의 버전이 옮겨지며, 해당 사진의 다른 설정이 다르게 보일 수 있습니다."
     },
     "crop": {
       "add": "추가",
@@ -3291,12 +3325,16 @@
         "noPhotograph": "사진 없음",
         "paste": "붙여넣기",
         "pasteAdjustments": "조정 붙여넣기",
+        "pasteFromPrevious": "이전에 연 사진의 설정 붙여넣기 (지난번 선택대로)",
         "photographs_other": "사진 {{n}}장",
         "previous": "이전 사진",
+        "previousSettings": "이전",
         "rate_other": "별 {{count}}개로 평가",
         "selected_other": "{{n}}장 선택됨",
         "showFilmstrip": "필름스트립 표시",
-        "stars_other": "별 {{count}}개"
+        "stars_other": "별 {{count}}개",
+        "sync": "동기화",
+        "syncSettings": "선택한 사진에 설정 동기화 (Option: 지난번 선택대로)"
       },
       "grid": {
         "anyRating": "모든 별점",

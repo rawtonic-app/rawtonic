@@ -1,5 +1,6 @@
 import type { MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { detectionPending } from "../../utils/settingsClipboard";
 import type { TFunction } from "i18next";
 import { Check, Eye, EyeOff, FlipHorizontal2, Minus, Plus, SquaresIntersect, Trash2, type LucideIcon } from "lucide-react";
 import { useEditorStore } from "../../store/useEditorStore";
@@ -180,6 +181,14 @@ export default function StudioMaskComponents() {
                 <MaskThumb kind="component" url={thumbnails[sub.id]} icon={Icon} busy={busy(sub)} />
                 <span className="studio-mask-component-label">{componentLabel(sub)}</span>
                 {busy(sub) && <span className="studio-mask-busy">· {t("studio.masks.computing")}</span>}
+                {!busy(sub) && detectionPending(sub) && (
+                  <span
+                    className="studio-mask-pending"
+                    title={sub.type === "ai-subject" ? t("studio.copySettings.pendingObject") : t("studio.copySettings.pending")}
+                  >
+                    · {sub.type === "ai-subject" ? t("studio.copySettings.pendingObjectShort") : t("studio.copySettings.pendingShort")}
+                  </span>
+                )}
               </button>
               <button
                 className="studio-row-icon"

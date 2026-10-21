@@ -7,9 +7,10 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
+import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { withLumaNoiseVersion, withSharpenVersion, type Adjustments } from '../utils/adjustments';
+import { sameAdjustmentValue, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
  * other photographs (a slider drag writes once it pauses or ends). */
@@ -102,7 +103,13 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
       const write = ++writes;
       // Written at the switch to another primary (see below): that one may
       // be one of the others, still opening.
-      const done = applyRef.current(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), others, { openingNow: true });
+      // The others get the primary's layers, with their AI detections made
+      // on each of them (never the primary's bitmaps).
+      const done = applyRef.current(withLumaNoiseVersion(withSharpenVersion(changes, from.adjustments), from.adjustments), others, {
+        openingNow: true,
+        pasteFrom: from.path,
+        replaceLayers: true,
+      });
       if (!done) {
         // Nothing was written: the cells show their recipes again.
         if (write === writes) inflight = shownBefore;
@@ -135,6 +142,31 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         return;
       }
       const changed = changedCopyableKeys(previous.adjustments, state.adjustments);
+      // A setting the primary no longer has (As Shot over a custom white
+      // balance) is taken away from the others too: `null` reaches them.
+      for (const key of Object.keys(changed) as (keyof Adjustments)[]) {
+        if (changed[key] === undefined) (changed as Record<string, unknown>)[key] = null;
+      }
+      // An AI detection on the primary is no edit of it: the other
+      // photographs detect their own (sent, it would make them wait again,
+      // and back). Its virtual copies share its pixels and take it.
+      if (
+        changed.masks &&
+        sameAdjustmentValue(withoutDetections(previous.adjustments.masks), withoutDetections(state.adjustments.masks))
+      ) {
+        delete changed.masks;
+        const copies = selectionRef.current.filter((path) => path !== image.path && samePhotograph(path, image.path));
+        if (copies.length > 0) {
+          copies.forEach((path) => globalImageCache.delete(path));
+          // Framed by the primary, as every sync is (legacy unframed shapes).
+          const masks = frameDrawnMasks(state.adjustments.masks, state.adjustments, image.width, image.height);
+          void applyRef.current({ masks }, copies, {
+            openingNow: true,
+            pasteFrom: image.path,
+            replaceLayers: true,
+          });
+        }
+      }
       if (Object.keys(changed).length === 0) return;
       if (source && source.path !== image.path) flush.flush();
       source = { path: image.path, adjustments: state.adjustments, width: image.width, height: image.height };

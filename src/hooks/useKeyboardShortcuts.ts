@@ -80,6 +80,8 @@ export const useKeyboardShortcuts = ({
     handleRotate,
     handleCopyAdjustments,
     handlePasteAdjustments,
+    handlePasteFromPrevious,
+    handleSyncSettings,
     toggleSplitView,
     handleAutoAdjustments,
     handleAutoWhiteBalance,
@@ -227,6 +229,20 @@ export const useKeyboardShortcuts = ({
         execute: (e) => {
           e.preventDefault();
           handlePasteAdjustments();
+        },
+      },
+      paste_from_previous: {
+        shouldFire: (s) => !!s.editor.previousPhoto,
+        execute: (e) => {
+          e.preventDefault();
+          void handlePasteFromPrevious();
+        },
+      },
+      sync_settings: {
+        shouldFire: (s) => s.ui.activeView === 'editor' && !!s.editor.selectedImage?.isReady && s.library.multiSelectedPaths.length > 1,
+        execute: (e) => {
+          e.preventDefault();
+          void handleSyncSettings();
         },
       },
       copy_image_path: {
@@ -987,6 +1003,8 @@ export const useKeyboardShortcuts = ({
     handleCopyAdjustments,
     handleCopyImagePaths,
     handlePasteAdjustments,
+    handlePasteFromPrevious,
+    handleSyncSettings,
     handleRate,
     handleSetColorLabel,
     toggleSplitView,

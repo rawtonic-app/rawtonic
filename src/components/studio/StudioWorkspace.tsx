@@ -38,6 +38,8 @@ import {
   ChevronUp,
   Flag,
   FlagOff,
+  History,
+  RefreshCw,
 } from "lucide-react";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
 import { useLibraryStore } from "../../store/useLibraryStore";
@@ -86,6 +88,7 @@ import { openMaskingTools, useAiModelLifecycle } from "../../hooks/useAiMasking"
 import "./studio.css";
 import StudioMetadataFilter from "./StudioMetadataFilter";
 import { SmartAlbumEditorHost } from "./SmartAlbumEditor";
+import { CopySettingsDialogHost } from "./CopySettingsDialog";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import { clearLibrarySelection, focusWorkspaceControl, reselectForDevelop } from "./workspaceInteractions";
 
@@ -104,7 +107,8 @@ interface Props {
   onRate(rating: number, paths?: string[]): void;
   onContextMenu(event: MouseEvent, path: string): void;
   onEditorContextMenu(event: MouseEvent): void;
-  onCopy(): void;
+  /** Copy settings: the picker, or (`quick`) the choice of last time. */
+  onCopy(path?: string, options?: { quick?: boolean }): void;
   onPaste(paths?: string[]): void;
   onReset(paths?: string[]): void;
   onZoom(value: number, fit?: boolean): void;
@@ -177,14 +181,20 @@ export default function StudioWorkspace(props: Props) {
     transformWrapperRef,
   } = props;
   const { t } = useTranslation();
-  const { selectedImage, historyIndex, historyPending, history, splitView } = useEditorStore(
+  const { selectedImage, historyIndex, historyPending, history, splitView, previousPhoto } = useEditorStore(
     useShallow((s) => ({
       selectedImage: s.selectedImage,
       historyIndex: s.historyIndex,
       historyPending: s.historyPending,
       history: s.history,
       splitView: s.splitView,
+      previousPhoto: s.previousPhoto,
     })),
+  );
+  const { handleSyncSettings: syncSettings, handlePasteFromPrevious: pasteFromPrevious } = useEditorActions();
+  // Sync settings: the other selected photographs.
+  const syncTargets = useLibraryStore(
+    (s) => s.multiSelectedPaths.filter((path) => path !== selectedImage?.path).length,
   );
   const splitAvailable = useSettingsStore((s) =>
     splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
@@ -645,6 +655,7 @@ export default function StudioWorkspace(props: Props) {
     >
       {/* Library and Develop both show the Albums tool (it opens the editor). */}
       <SmartAlbumEditorHost />
+      <CopySettingsDialogHost />
       {sessionBar.center && sessionBar.end ? (
         <>
           {createPortal(modules, sessionBar.center)}
@@ -969,7 +980,7 @@ export default function StudioWorkspace(props: Props) {
                   <button
                     title={withShortcut(t("studio.workspace.footer.copyAdjustments"), "⇧⌘C")}
                     aria-label={t("studio.workspace.footer.copyAdjustments")}
-                    onClick={() => readyNow() && onCopy()}
+                    onClick={(e) => readyNow() && onCopy(undefined, { quick: e.altKey })}
                     disabled={!panelsReady}
                   >
                     <Copy size={13} />
@@ -986,6 +997,28 @@ export default function StudioWorkspace(props: Props) {
                     <ClipboardPaste size={13} />
                     <span className="optional-label">{t("studio.workspace.footer.paste")}</span>
                   </button>
+                  <button
+                    title={withShortcut(t("studio.workspace.footer.pasteFromPrevious"), "⌥⌘V")}
+                    aria-label={t("studio.workspace.footer.pasteFromPrevious")}
+                    disabled={!panelsReady || !previousPhoto}
+                    onClick={() =>
+                      readyNow() && void pasteFromPrevious(selectedImage ? [selectedImage.path] : [])
+                    }
+                  >
+                    <History size={13} />
+                    <span className="optional-label">{t("studio.workspace.footer.previousSettings")}</span>
+                  </button>
+                  {syncTargets > 0 && (
+                    <button
+                      title={withShortcut(t("studio.workspace.footer.syncSettings"), "⇧⌘S")}
+                      aria-label={t("studio.workspace.footer.syncSettings")}
+                      disabled={!panelsReady}
+                      onClick={(e) => readyNow() && void syncSettings({ quick: e.altKey })}
+                    >
+                      <RefreshCw size={13} />
+                      <span className="optional-label">{t("studio.workspace.footer.sync")}</span>
+                    </button>
+                  )}
                   <div className="studio-toolbar-divider" />
                   <button
                     aria-expanded={film}

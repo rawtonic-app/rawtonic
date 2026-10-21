@@ -1008,6 +1008,14 @@ pub fn prepare_export_source(
 ) -> Result<ExportSource, String> {
     rawtonic_engine::image_loader::ensure_raw_developed(source_path_str)
         .map_err(|e| e.to_string())?;
+    // Never exported with another photograph's mask or without one.
+    let pending = rawtonic_engine::masks::pending_detections(js_adjustments);
+    if !pending.is_empty() {
+        return Err(format!(
+            "{source_path_str}: not exported, a pasted or synced AI selection waits for this photograph: {}",
+            rawtonic_engine::masks::pending_detections_message(&pending)
+        ));
+    }
     let patched = match rawtonic_engine::image_loader::composite_patches_for_render(
         &pristine_source,
         js_adjustments,
@@ -2388,5 +2396,34 @@ mod naming_counter_tests {
         );
         settings.sequence_start = Some(0);
         assert_eq!(settings.filename_counter(0, 1), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod detection_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_photograph_waiting_for_its_ai_detection_is_not_exported() {
+        let image = Arc::new(DynamicImage::new_rgb32f(4, 4));
+        let layer = |parameters: Value| {
+            json!({"masks": [{"id": "l", "visible": true, "subMasks": [
+                {"id": "s", "type": "ai-sky", "visible": true, "mode": "additive", "parameters": parameters}]}]})
+        };
+        let pending = layer(json!({"maskDataBase64": null, "detectPending": true}));
+        let error = prepare_export_source("/qa/a.jpg", image.clone(), &pending)
+            .err()
+            .expect("refused");
+        assert!(error.contains("/qa/a.jpg"), "{error}");
+        assert!(
+            error.contains("open the photograph in Develop to detect its Sky selection"),
+            "{error}"
+        );
+        // Detected on it (or never pasted): exported.
+        let detected =
+            layer(json!({"maskDataBase64": "data:image/png;base64,AAAA", "detectPending": true}));
+        assert!(prepare_export_source("/qa/a.jpg", image.clone(), &detected).is_ok());
+        assert!(prepare_export_source("/qa/a.jpg", image, &json!({"exposure": 1})).is_ok());
     }
 }

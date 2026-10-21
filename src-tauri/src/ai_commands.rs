@@ -297,6 +297,7 @@ pub async fn generate_ai_subject_mask(
         &js_adjustments,
         generation,
         cancel_flag,
+        Some(&path),
     )
     .await?;
     let ready = started.elapsed().as_millis();
@@ -466,12 +467,17 @@ async fn sam_embeddings(
     js_adjustments: &serde_json::Value,
     generation: u64,
     cancel: Option<&Arc<AiTaskToken>>,
+    asked: Option<&str>,
 ) -> Result<(ImageEmbeddings, Arc<image::DynamicImage>, bool), String> {
     let _encode = wait_turn(&SAM_ENCODE_LOCK, cancel).await?;
     // Keyed by the photo actually loaded, not the caller's path: a
     // background encode that outlives a photo switch cannot file the new
-    // photo's embedding under the old one.
+    // photo's embedding under the old one. A selection asked for one photo
+    // is never made on another (`PHOTO_CHANGED`).
     let loaded = crate::image_loader::original_image(state).await?;
+    if let Some(asked) = asked {
+        ensure_photo(&loaded.path, asked)?;
+    }
     let path_hash = geometry_key(&loaded, js_adjustments);
     let (mask_source, source_is_raw) = (loaded.image, loaded.is_raw);
     let cached = || {
@@ -595,6 +601,7 @@ pub async fn precompute_ai_subject_mask(
         &js_adjustments,
         generation,
         cancel,
+        Some(&path),
     )
     .await
     {

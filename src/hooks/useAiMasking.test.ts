@@ -335,6 +335,47 @@ describe("automatic AI masks from imported presets", () => {
     await waitFor(() => expect(pending).toHaveLength(2));
   });
 
+  it("computes a pasted component again when a later paste clears its data", async () => {
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true } as never,
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        masks: [layer("ai-sky", { maskDataBase64: null, detectPending: true })] as never,
+      },
+    });
+    const generated = () => invoke.mock.calls.filter((c) => c[0] === "generate_ai_sky_mask");
+    renderHook(() => useAiMasking());
+    await waitFor(() => expect(subOf("sub-ai-sky")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,AAAA" }));
+    // Detected here: no longer waiting.
+    expect(subOf("sub-ai-sky")?.parameters).not.toHaveProperty("detectPending");
+    // The same layer pasted again: the data is cleared, it is detected again.
+    act(() =>
+      useEditorStore.setState({
+        adjustments: {
+          ...structuredClone(INITIAL_ADJUSTMENTS),
+          masks: [layer("ai-sky", { maskDataBase64: null, detectPending: true })] as never,
+        },
+      }),
+    );
+    await waitFor(() => expect(generated()).toHaveLength(2));
+  });
+
+  it("leaves a pasted Object selection to be pointed at again, and ends its wait when it is", async () => {
+    const object = layer("ai-subject", { startX: 600, startY: 400, endX: 1200, endY: 800, maskDataBase64: null, detectPending: true });
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [object] as never },
+    });
+    const { result } = renderHook(() => useAiMasking());
+    await act(async () => {});
+    expect(invoke.mock.calls.some((c) => c[0] === "generate_ai_subject_mask")).toBe(false);
+    // The user points at the object again.
+    invoke.mockResolvedValue({ maskDataBase64: "data:image/png;base64,BBBB", startX: 10, startY: 10, endX: 50, endY: 50 });
+    await act(() => result.current.handleGenerateAiMask("sub-ai-subject", { x: 10, y: 10 }, { x: 50, y: 50 }));
+    expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" });
+    expect(subOf("sub-ai-subject")?.parameters).not.toHaveProperty("detectPending");
+  });
+
   it("clears the busy state and says so in a toast when the AI runtime cannot be loaded", async () => {
     toast.error.mockReset();
     useProcessStore.setState({ activeAiTasks: {} });

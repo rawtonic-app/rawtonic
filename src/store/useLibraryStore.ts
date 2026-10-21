@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { useSettingsStore } from './useSettingsStore';
 import {
   FilterCriteria,
   ImageFile,
@@ -151,3 +152,12 @@ export const useLibraryStore = create<LibraryState>((set) => ({
  * normalizes with the RAW defaults, as the backend reads it). */
 export const isRawInLibrary = (path: string): boolean =>
   useLibraryStore.getState().imageList.find((image) => image.path === path)?.is_raw ?? false;
+
+/** Whether `path` (a photograph or virtual copy) is a RAW file: as the
+ * Library lists it, else by its extension (also outside the shown list). */
+export const isRawPhoto = (path: string): boolean => {
+  const listed = useLibraryStore.getState().imageList.find((image) => image.path === path);
+  if (listed) return listed.is_raw;
+  const extension = path.split('?vc=')[0].split('.').pop()?.toLowerCase() ?? '';
+  return (useSettingsStore.getState().supportedTypes?.raw ?? []).some((raw) => raw.toLowerCase() === extension);
+};

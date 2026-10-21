@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
+import { DETECT_PENDING } from '../utils/settingsClipboard';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
@@ -291,7 +292,10 @@ export function useAiMasking() {
             const own = Object.fromEntries(
               keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
             );
-            return { ...sm, parameters: { ...parameters, ...result, ...own } };
+            // Detected on this photograph: no longer waiting (pasted ones;
+            // an Object selection when the object is pointed at again).
+            const { [DETECT_PENDING]: _pending, ...rest } = { ...parameters, ...result, ...own } as Record<string, unknown>;
+            return { ...sm, parameters: rest };
           }),
         })),
       };
@@ -299,9 +303,11 @@ export function useAiMasking() {
     return true;
   };
 
-  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord) => {
+  /** An Object selection by its box; resolves to whether the result was
+   * dropped because the photo changed (here, or in the backend). */
+  const handleGenerateAiMask = async (subMaskId: string, startPoint: Coord, endPoint: Coord): Promise<boolean> => {
     const { selectedImage, adjustments } = useEditorStore.getState();
-    if (!selectedImage?.path) return;
+    if (!selectedImage?.path) return false;
     registerAiTask(subMaskId, 'subject');
 
     try {
@@ -318,9 +324,11 @@ export function useAiMasking() {
         taskId: subMaskId,
       });
 
-      applyAiResult(selectedImage.path, subMaskId, newParameters);
+      return !applyAiResult(selectedImage.path, subMaskId, newParameters);
     } catch (error) {
+      if (isPhotoChanged(error)) return true;
       toastAiError(error, `AI Mask Failed: ${error}`);
+      return false;
     } finally {
       unregisterAiTask(subMaskId);
     }
@@ -466,6 +474,13 @@ export function useAiMasking() {
   // pixels by the backend, which knows the photo's EXIF orientation.
   const selectedImageReady = useEditorStore((s) => !!s.selectedImage?.isReady);
   const masksKey = useEditorStore((s) => s.adjustments.masks);
+  /** Whether the open photograph's component `id` holds its bitmap now. */
+  const componentHasData = (id: string) => {
+    const sub = (useEditorStore.getState().adjustments.masks ?? [])
+      .flatMap((m: MaskContainer) => m.subMasks)
+      .find((sm: SubMask) => sm.id === id);
+    return Boolean((sub?.parameters as { maskDataBase64?: string | null } | undefined)?.maskDataBase64);
+  };
   const requestedAutoMasks = useRef(new Set<string>());
   const [askAgain, setAskAgain] = useState(0);
   const requestedPlacements = useRef(new Set<string>());
@@ -538,7 +553,13 @@ export function useAiMasking() {
       // the photo opens again, or now when it is open again already.
       const asked = selectedImage?.path;
       void run.then((dropped) => {
-        if (!dropped) return;
+        if (!dropped) {
+          // Computed: asked again only when its data is cleared again (a
+          // paste of the same layer). A failure stays asked until the photo
+          // opens again.
+          if (componentHasData(sub.id)) requestedAutoMasks.current.delete(key);
+          return;
+        }
         requestedAutoMasks.current.delete(key);
         const now = useEditorStore.getState().selectedImage;
         if (now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
