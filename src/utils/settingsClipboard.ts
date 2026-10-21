@@ -55,20 +55,29 @@ export function groupModified(group: SettingsGroup, adjustments: Adjustments, is
 
 /** What a copy, sync or Previous takes from `source`: the settings of the
  * chosen groups (`keys`), and the chosen local layers (`layerIds`; none:
- * no layers). Processing versions only when chosen (`RESPONSE_KEYS` among
- * `keys`): each as the source has it, a missing one as `null` (so it
- * travels as missing). */
+ * no layers). A chosen setting the source does not have (As Shot white
+ * balance has no custom one) is `null`: the destination loses its own too
+ * (`removedWhenNull`). Processing versions only when chosen (`RESPONSE_KEYS`
+ * among `keys`), each as the source has it. */
 export function chosenSettings(source: Adjustments, keys: string[], layerIds: string[]): Partial<Adjustments> {
   const chosen: Record<string, unknown> = {};
   const values = source as unknown as Record<string, unknown>;
   for (const key of keys) {
-    if (RESPONSE_KEYS.includes(key)) chosen[key] = values[key] ?? null;
-    else if (key !== 'masks' && Object.prototype.hasOwnProperty.call(values, key)) chosen[key] = structuredClone(values[key]);
+    if (key !== 'masks') chosen[key] = values[key] === undefined ? null : structuredClone(values[key]);
   }
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));
   if (layers.length > 0) chosen.masks = structuredClone(layers);
   return chosen as Partial<Adjustments>;
+}
+
+/** `base` with `pasted` applied as a copy, sync or Previous applies it: a
+ * `null` setting is removed (the source does not have it), as the backend
+ * does (`pasted_metadata`). */
+export function removedWhenNull<T extends object>(base: T, pasted: Partial<T>): T {
+  const next = { ...base, ...pasted } as Record<string, unknown>;
+  for (const [key, value] of Object.entries(pasted)) if (value === null) delete next[key];
+  return next as T;
 }
 
 /** The processing versions a new edit gets (`initialAdjustmentsFor`), RAW

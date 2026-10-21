@@ -411,6 +411,12 @@ fn pasted_metadata(
         (new_adjustments.as_object_mut(), adjustments.as_object())
     {
         for (k, v) in pasted_map {
+            // Copied or synced: a setting the source does not have is
+            // removed here too (As Shot white balance over a custom one).
+            if paste.is_some() && v.is_null() {
+                new_map.remove(k);
+                continue;
+            }
             let v = match paste {
                 Some(from) if k == "masks" => rawtonic_engine::masks::paste_layers(
                     new_map.get("masks").unwrap_or(&Value::Null),
@@ -1007,6 +1013,33 @@ mod tests {
         let (_, edited) = parse_virtual_path(&paths[0]);
         let old = crate::exif_processing::load_sidecar(&edited).adjustments;
         assert!(old.get("toneVersion").is_none());
+    }
+
+    #[test]
+    fn a_setting_the_source_does_not_have_is_taken_away() {
+        let (_temp, paths) = session_with_photos(1);
+        let (_, sidecar) = parse_virtual_path(&paths[0]);
+        crate::session_bridge::write_editor_sidecar(
+            &sidecar,
+            br#"{"version":1,"rating":0,"tags":[],"adjustments":{"whiteBalance":"custom","wbTemperature":2850,"temperature":5}}"#,
+        )
+        .unwrap();
+        let paste = PasteFrom {
+            source: "/elsewhere/B.ARW".into(),
+            replace_layers: false,
+            new_edit: None,
+        };
+        // As Shot: no custom balance.
+        let pasted =
+            serde_json::json!({"whiteBalance": null, "wbTemperature": null, "temperature": 0});
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+        });
+        assert!(failed.is_empty(), "{failed:?}");
+        let saved = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert!(saved.get("whiteBalance").is_none());
+        assert!(saved.get("wbTemperature").is_none());
+        assert_eq!(saved["temperature"], 0);
     }
 
     #[test]

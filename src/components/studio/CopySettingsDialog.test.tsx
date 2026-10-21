@@ -197,6 +197,25 @@ it("takes the keyboard while open and gives it back", async () => {
   expect(document.activeElement).toBe(control);
 });
 
+it("remembers the layers chosen on a photograph and None clears the versions too", async () => {
+  render(<CopySettingsDialogHost />);
+  const { result } = renderHook(useEditorActions);
+  await act(() => result.current.handleCopyAdjustments());
+  fireEvent.click(screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "This photo's processing versions" }));
+  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  // Again on the same photo: Sky only, not Dodge.
+  await act(() => result.current.handleCopyAdjustments());
+  expect((screen.getByRole("checkbox", { name: "Sky AI selections are detected on each photo" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("checkbox", { name: "Dodge" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "None" }));
+  expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  // Option-copy honours the same layers.
+  await act(() => result.current.handleCopyAdjustments(undefined, { quick: true }));
+  expect(useEditorStore.getState().copiedAdjustments!.masks!.map((layer) => layer.id)).toEqual(["sky"]);
+});
+
 it("takes the processing versions only when they are chosen", async () => {
   render(<CopySettingsDialogHost />);
   const { result } = renderHook(useEditorActions);

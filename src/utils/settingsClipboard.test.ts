@@ -8,6 +8,7 @@ import {
   detectionPending,
   groupModified,
   pasteLayers,
+  removedWhenNull,
   samePhotograph,
 } from './settingsClipboard';
 
@@ -42,6 +43,19 @@ describe('settings clipboard', () => {
     const withVersions = chosenSettings(source, [...group('tone').keys, ...RESPONSE_KEYS], []) as Record<string, unknown>;
     expect(withVersions.toneVersion).toBe(2);
     expect(withVersions.defringeVersion).toBeNull();
+  });
+
+  it('takes away what the source does not have: As Shot over a custom white balance', () => {
+    const asShot = recipe({ temperature: 0, tint: 0 });
+    delete (asShot as Partial<Adjustments>).whiteBalance;
+    delete (asShot as Partial<Adjustments>).wbTemperature;
+    const chosen = chosenSettings(asShot, group('whiteBalance').keys, []);
+    expect(chosen.whiteBalance).toBeNull();
+    const custom = recipe({ whiteBalance: 'custom', wbTemperature: 2850 } as Partial<Adjustments>);
+    const pasted = removedWhenNull(custom, chosen);
+    expect('whiteBalance' in pasted).toBe(false);
+    expect('wbTemperature' in pasted).toBe(false);
+    expect(pasted.temperature).toBe(0);
   });
 
   it('offers no group of processing versions among the tools', () => {

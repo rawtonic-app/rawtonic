@@ -34,6 +34,7 @@ import {
   chosenSettings,
   newEditResponses,
   pasteLayers,
+  removedWhenNull,
   samePhotograph,
 } from '../utils/settingsClipboard';
 import { keepWithinLayerLimit } from '../utils/layerLimit';
@@ -196,19 +197,32 @@ function rememberedKeys(): string[] {
   return useSettingsStore.getState().appSettings?.copyPasteSettings?.includedAdjustments ?? COPYABLE_ADJUSTMENT_KEYS;
 }
 
-/** The remembered choice for `adjustments`: its keys (processing versions
- * only when they were chosen, `RESPONSES_CHOSEN`: preferences from before
- * the picker list them without it), and all its layers when layers were
- * chosen last time. */
-function rememberedChoice(adjustments: Adjustments): SettingsChoice {
+/** The layers chosen last time and on which photograph (layer ids belong
+ * to their photograph). */
+let lastLayers: { path: string; ids: string[] } | null = null;
+
+/** The layers remembered for `source`: those chosen on it last time, else
+ * all of them when layers were chosen. */
+function rememberedLayers(source: { path: string; adjustments: Adjustments }, keys: string[]): string[] {
+  const ids = (source.adjustments.masks ?? []).map((layer) => layer.id);
+  if (!keys.includes('masks')) return [];
+  if (lastLayers?.path === source.path) return ids.filter((id) => lastLayers!.ids.includes(id));
+  return ids;
+}
+
+/** The remembered choice for `source`: its keys (processing versions only
+ * when they were chosen, `RESPONSES_CHOSEN`: preferences from before the
+ * picker list them without it) and its layers (`rememberedLayers`). */
+function rememberedChoice(source: { path: string; adjustments: Adjustments }): SettingsChoice {
   const remembered = rememberedKeys();
   const keys = remembered.includes(RESPONSES_CHOSEN)
     ? remembered
     : remembered.filter((key) => !RESPONSE_KEYS.includes(key));
-  return { keys, layerIds: keys.includes('masks') ? (adjustments.masks ?? []).map((layer) => layer.id) : [] };
+  return { keys, layerIds: rememberedLayers(source, keys) };
 }
 
-function rememberChoice(choice: SettingsChoice) {
+function rememberChoice(choice: SettingsChoice, source: string) {
+  lastLayers = { path: source, ids: choice.layerIds };
   const { appSettings, handleSettingsChange } = useSettingsStore.getState();
   if (!appSettings?.copyPasteSettings) return;
   void handleSettingsChange({
@@ -645,7 +659,7 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        const next = { ...adjustments, ...adjustmentsToApply };
+        const next = pasteFrom ? removedWhenNull(adjustments, adjustmentsToApply) : { ...adjustments, ...adjustmentsToApply };
         if (pasteFrom && adjustmentsToApply.masks) {
           next.masks = pasteLayers(
             adjustments.masks,
@@ -723,18 +737,19 @@ export function useEditorActions() {
       const source = await settingsSource(pathOverride);
       if (!source) return;
       const copy = (choice: SettingsChoice) => {
-        rememberChoice(choice);
+        rememberChoice(choice, source.path);
         const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
         useEditorStore.getState().setEditor({ copiedAdjustments: chosen as Adjustments, copiedFrom: source.path });
         useProcessStore.getState().setProcess({ isCopied: true });
       };
-      if (quick) copy(rememberedChoice(source.adjustments));
+      if (quick) copy(rememberedChoice(source));
       else
         useCopySettingsDialog.getState().open({
           mode: 'copy',
           source,
           targets: [],
           remembered: rememberedKeys(),
+          rememberedLayers: rememberedChoice(source).layerIds,
           onChoose: copy,
         });
     },
@@ -767,18 +782,19 @@ export function useEditorActions() {
       const source = await settingsSource(open.path);
       if (!source) return;
       const sync = (choice: SettingsChoice) => {
-        rememberChoice(choice);
+        rememberChoice(choice, source.path);
         const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
         const applied = settingsToApply(chosen);
         if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path, asChosen: true });
       };
-      if (quick) sync(rememberedChoice(source.adjustments));
+      if (quick) sync(rememberedChoice(source));
       else
         useCopySettingsDialog.getState().open({
           mode: 'sync',
           source,
           targets,
           remembered: rememberedKeys(),
+          rememberedLayers: rememberedChoice(source).layerIds,
           onChoose: sync,
         });
     },
@@ -798,7 +814,7 @@ export function useEditorActions() {
         paths ?? (multiSelectedPaths.length > 0 ? multiSelectedPaths : selectedImage ? [selectedImage.path] : []);
       const source = await settingsSource(previousPhoto);
       if (!source) return;
-      const choice = rememberedChoice(source.adjustments);
+      const choice = rememberedChoice(source);
       const applied = settingsToApply(withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source));
       if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path, asChosen: true });
     },

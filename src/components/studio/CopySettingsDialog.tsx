@@ -34,6 +34,8 @@ interface PickerRequest {
   targets: string[];
   /** The keys chosen last time (remembered in the preferences). */
   remembered: string[];
+  /** The source's layers chosen last time. */
+  rememberedLayers: string[];
   onChoose(choice: SettingsChoice): void;
 }
 
@@ -96,9 +98,7 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
     [source],
   );
   const [groups, setGroups] = useState<Set<string>>(() => chosenGroups(request.remembered));
-  const [layerIds, setLayerIds] = useState<Set<string>>(
-    () => new Set(request.remembered.includes("masks") ? layers.map((layer) => layer.id) : []),
-  );
+  const [layerIds, setLayerIds] = useState<Set<string>>(() => new Set(request.rememberedLayers));
   // Off unless chosen last time (Lightroom's Process Version).
   const [responses, setResponses] = useState(() => request.remembered.includes(RESPONSES_CHOSEN));
   const toggle = (set: Set<string>, value: string, on: boolean) => {
@@ -156,7 +156,7 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
           >
             {t("studio.copySettings.all")}
           </button>
-          <button type="button" onClick={() => (setGroups(new Set()), setLayerIds(new Set()))}>
+          <button type="button" onClick={() => (setGroups(new Set()), setLayerIds(new Set()), setResponses(false))}>
             {t("studio.copySettings.none")}
           </button>
           <button
