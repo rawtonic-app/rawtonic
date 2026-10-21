@@ -81,6 +81,12 @@ export function newEditResponses(): { raw: Record<string, unknown>; other: Recor
   return { raw: pick(true), other: pick(false) };
 }
 
+/** Whether two photograph paths are one file (virtual copies share it). */
+export function samePhotograph(a: string, b: string): boolean {
+  const file = (path: string) => path.split('?vc=')[0];
+  return file(a) === file(b);
+}
+
 /** What an AI detection writes into a component's parameters (its bitmap,
  * the geometry it was made in, the end of its wait). */
 const DETECTION_RESULT_KEYS = [

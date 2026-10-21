@@ -196,10 +196,15 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
     const unsaved = await waitForPendingMetadataSave(from);
     if (unsaved) return { path: from, adjustments: unsaved, isRaw };
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: from });
-    const adjustments =
+    // As the editor shows it: a never-edited RAW with its camera's lens data.
+    const adjustments = await withNeverEditedDefaults(
       meta?.adjustments && !meta.adjustments.is_null
         ? normalizeLoadedAdjustments(meta.adjustments, isRaw)
-        : initialAdjustmentsFor(isRaw);
+        : initialAdjustmentsFor(isRaw),
+      meta?.adjustments,
+      isRaw,
+      () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: from }).catch(() => null),
+    );
     return { path: from, adjustments, isRaw };
   } catch (err) {
     toast.error(`Failed to load metadata for copying: ${err}`);

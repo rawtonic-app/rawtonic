@@ -7,7 +7,7 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
-import { withoutDetections } from '../utils/settingsClipboard';
+import { samePhotograph, withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { sameAdjustmentValue, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from '../utils/adjustments';
@@ -142,13 +142,23 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         return;
       }
       const changed = changedCopyableKeys(previous.adjustments, state.adjustments);
-      // An AI detection on the primary is no edit of it: the others detect
-      // their own (sent, it would make them wait again, and back).
+      // An AI detection on the primary is no edit of it: the other
+      // photographs detect their own (sent, it would make them wait again,
+      // and back). Its virtual copies share its pixels and take it.
       if (
         changed.masks &&
         sameAdjustmentValue(withoutDetections(previous.adjustments.masks), withoutDetections(state.adjustments.masks))
       ) {
         delete changed.masks;
+        const copies = selectionRef.current.filter((path) => path !== image.path && samePhotograph(path, image.path));
+        if (copies.length > 0) {
+          copies.forEach((path) => globalImageCache.delete(path));
+          void applyRef.current({ masks: state.adjustments.masks }, copies, {
+            openingNow: true,
+            pasteFrom: image.path,
+            replaceLayers: true,
+          });
+        }
       }
       if (Object.keys(changed).length === 0) return;
       if (source && source.path !== image.path) flush.flush();

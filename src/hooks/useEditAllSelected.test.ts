@@ -96,6 +96,19 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([]);
   });
 
+  it("sends an AI detection made on the primary to its virtual copies, which share its pixels", () => {
+    const sky = (data: string | null) => ({
+      id: 'l', name: 'Sky', visible: true, invert: false, opacity: 100, adjustments: {},
+      subMasks: [{ id: 's', type: 'ai-sky', visible: true, invert: false, opacity: 100, mode: 'additive',
+        parameters: { maskDataBase64: data } }],
+    });
+    act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, masks: [sky(null)] as never } }));
+    renderHook(() => useEditAllSelected(true, [...selection, '/s/b.CR3?vc=c0ffee']));
+    edit({ masks: [sky('data:own')] as never });
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    expect(pasted()).toEqual([{ paths: ['/s/b.CR3?vc=c0ffee'], adjustments: { masks: [sky('data:own')] } }]);
+  });
+
   it('has the other cells developed again once their recipes are written', async () => {
     const before = useMultiViewStore.getState().recipeRevision;
     renderHook(() => useEditAllSelected(true, selection));

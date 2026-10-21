@@ -343,3 +343,21 @@ it("keeps the ids of the open photo's bitmaps a paste did not change", async () 
   expect(shown.exposure).toBe(2);
   expect(shown.masks[0].subMasks[0].id).toBe("sky-c");
 });
+
+it("Previous takes a never-edited RAW's settings as the editor showed them", async () => {
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) return { adjustments: null };
+    if (name === Invokes.GetCameraLensProfile) return { params: { k1: 0.2 } };
+    return undefined;
+  });
+  useSettingsStore.setState({
+    appSettings: { copyPasteSettings: { mode: PasteMode.Merge, includedAdjustments: ["lensCorrectionMode", "lensDistortionParams"], knownAdjustments: [], autoSync: false } } as unknown as AppSettings,
+    // A RAW by its extension (A is not in the shown list).
+    supportedTypes: { raw: ["arw"], nonRaw: ["jpg"] },
+  });
+  const { result } = renderHook(useEditorActions);
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never }));
+  await act(() => result.current.handlePasteFromPrevious(["/s/C.ARW"]));
+  await act(async () => {});
+  expect(applied()[0].adjustments).toMatchObject({ lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.2 } });
+});
