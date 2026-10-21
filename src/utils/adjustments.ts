@@ -773,15 +773,19 @@ export interface Curves {
   green: Array<Coord>;
   luma: Array<Coord>;
   red: Array<Coord>;
-  /** crates/engine/src/point_curve.rs `CURVE_VERSION`: 2 = the photo's
-   * curves with more than 16 points render whole; missing on curves saved
-   * before, which render their first 16 points. Part of the curves, so it
-   * travels wherever they do; every curve edit writes the current one. */
+  /** crates/engine/src/point_curve.rs: 2 (`LONG_CURVE_VERSION`) = the
+   * photo's curves with more than 16 points render whole; 3
+   * (`WIDE_CURVE_VERSION`) = the curves act in the wide working space, as
+   * Camera Raw's do. Missing on curves saved before 2, which render their
+   * first 16 points on display values. Part of the curves, so it travels
+   * wherever they do; a curve edit writes `editedCurvesVersion`. */
   version?: number;
 }
 
 /** Point curves render whole beyond 16 points (`Curves.version`). */
-export const CURVE_VERSION = 2;
+export const LONG_CURVE_VERSION = 2;
+/** The current curves version: whole curves in the wide working space. */
+export const CURVE_VERSION = 3;
 
 export interface HueSatLum {
   hue: number;
@@ -1458,11 +1462,38 @@ export const colorNoiseMultiscale = (
  * recipes come back with sorted keys, so JSON strings of equal values differ). */
 const CURVE_CHANNELS = ['luma', 'red', 'green', 'blue'];
 const isCurves = (value: Record<string, unknown>) => Array.isArray(value.luma) && 'red' in value;
-const versionMatters = (curves: Record<string, unknown>) =>
-  CURVE_CHANNELS.some((channel) => {
+const changesTone = (points: unknown) =>
+  Array.isArray(points) &&
+  points.length >= 2 &&
+  !(
+    (points as Coord[]).every((p) => Math.abs(p.x - p.y) <= 0.5) &&
+    Math.abs(points[0].x) < 0.1 &&
+    Math.abs(points[0].y) < 0.1 &&
+    Math.abs(points[points.length - 1].x - 255) < 0.1 &&
+    Math.abs(points[points.length - 1].y - 255) < 0.1
+  );
+/** How the curves' version renders them: whole beyond 16 points (2), in the
+ * wide working space (3, point_curve.rs `curve_space`), or neither. */
+const renderedVersion = (curves: Record<string, unknown>) => {
+  const version = typeof curves.version === 'number' ? curves.version : 1;
+  const long = CURVE_CHANNELS.some((channel) => {
     const points = curves[channel];
     return Array.isArray(points) && points.length > MAX_CURVE_POINTS;
   });
+  const wide = CURVE_CHANNELS.some((channel) => changesTone(curves[channel]));
+  return `${long && version >= LONG_CURVE_VERSION}${wide && version >= CURVE_VERSION}`;
+};
+
+/**
+ * The version an edit of `previous` writes: curves that already change the
+ * tone keep the space they render in (an old curve does not shift colours
+ * when a point moves), at least whole beyond 16 points; neutral or missing
+ * curves start in the current one.
+ */
+export const editedCurvesVersion = (previous: Partial<Curves> | undefined) =>
+  previous && CURVE_CHANNELS.some((channel) => changesTone(previous[channel]))
+    ? Math.max(previous.version ?? 1, LONG_CURVE_VERSION)
+    : CURVE_VERSION;
 
 export function sameAdjustmentValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -1472,9 +1503,9 @@ export function sameAdjustmentValue(a: unknown, b: unknown): boolean {
     return a.length === b.length && a.every((value, i) => sameAdjustmentValue(value, b[i]));
   let left = a as Record<string, unknown>;
   let right = b as Record<string, unknown>;
-  // A curves version matters only for channels beyond 16 points
+  // A curves version matters only where it renders differently
   // (`Curves.version`): neutral curves saved before it equal new ones.
-  if (isCurves(left) && isCurves(right) && !versionMatters(left) && !versionMatters(right)) {
+  if (isCurves(left) && isCurves(right) && renderedVersion(left) === renderedVersion(right)) {
     left = { ...left, version: undefined };
     right = { ...right, version: undefined };
   }

@@ -109,7 +109,8 @@ struct GlobalAdjustments {
     // 1: the luminance noise reduction also takes out isolated luminance
     // specks (`lumaNoiseVersion` 2, luma_speck).
     luma_speck: f32,
-    _pad_color3: f32,
+    // 1: the point curves act in the wide working space (wide_curve_input).
+    curve_space: u32,
 
     sharpness: f32,
     luma_noise_reduction: f32,
@@ -282,7 +283,7 @@ struct MaskAdjustments {
     red_curve_count: u32,
     green_curve_count: u32,
     blue_curve_count: u32,
-    _pad_end4: f32,
+    curve_space: u32,
     _pad_end5: f32,
     _pad_end6: f32,
     _pad_end7: f32,
@@ -479,6 +480,19 @@ fn carry_beyond_srgb(original: vec3<f32>, clipped: vec3<f32>, result: vec3<f32>)
     let r = decode_signed(result);
     let ratio = get_luma(max(r, vec3<f32>(0.0))) / max(get_luma(s), 1e-5);
     return display_unit(encode_signed(r + (o - s) * min(ratio, 4.0)));
+}
+
+// Point curves of `curves.version` 3 act in the wide working space, as
+// Camera Raw's do (notes: reference/point-curve.md): ProPhoto primaries
+// encoded with the sRGB curve. Its cube holds the whole working gamut, so
+// nothing is carried beyond it. Display values in, curve values out.
+fn wide_curve_input(display: vec3<f32>) -> vec3<f32> {
+    return linear_to_srgb(srgb_to_prophoto(decode_signed(display)));
+}
+
+// Curve values back to display values.
+fn wide_curve_output(curved: vec3<f32>) -> vec3<f32> {
+    return display_unit(encode_signed(prophoto_to_srgb(srgb_to_linear(curved))));
 }
 
 // The same for scene-linear per-channel tone operations: `clipped` is the
@@ -6587,7 +6601,11 @@ fn main(
     }
 
     let display = display_unit(base_srgb);
-    let curve_input = clamp(display, vec3<f32>(0.0), vec3<f32>(1.0));
+    let wide_curves = adjustments.global.curve_space != 0u;
+    var curve_input = clamp(display, vec3<f32>(0.0), vec3<f32>(1.0));
+    if (wide_curves) {
+        curve_input = wide_curve_input(display);
+    }
     var final_rgb = curve_input;
     if (ENABLE_CURVES) {
         if (LONG_CURVES || (PREPARED_LAYERS && (prepared_layers[0].flags.x & 8u) != 0u)) {
@@ -6605,14 +6623,22 @@ fn main(
             );
         }
     }
-    final_rgb = carry_beyond_srgb(display, curve_input, final_rgb);
+    if (wide_curves) {
+        final_rgb = wide_curve_output(final_rgb);
+    } else {
+        final_rgb = carry_beyond_srgb(display, curve_input, final_rgb);
+    }
 
     for (var i = 0u; ENABLE_MASKS && any_layer_has(4u) && ENABLE_CURVES && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 4u) == 0u) { continue; }
         let influence = get_mask_influence(i, absolute_coord);
         if (influence > 0.001) {
             var mask_curved_srgb: vec3<f32>;
-            let mask_input = clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+            let mask_wide = adjustments.mask_adjustments[i].curve_space != 0u;
+            var mask_input = clamp(final_rgb, vec3<f32>(0.0), vec3<f32>(1.0));
+            if (mask_wide) {
+                mask_input = wide_curve_input(final_rgb);
+            }
             if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 8u) != 0u) {
                 mask_curved_srgb = apply_curve_lut(mask_input, i + 1u);
             } else if (PREPARED_LAYERS) {
@@ -6628,7 +6654,11 @@ fn main(
                     m.blue_curve, m.blue_curve_count
                 );
             }
-            mask_curved_srgb = carry_beyond_srgb(final_rgb, mask_input, mask_curved_srgb);
+            if (mask_wide) {
+                mask_curved_srgb = wide_curve_output(mask_curved_srgb);
+            } else {
+                mask_curved_srgb = carry_beyond_srgb(final_rgb, mask_input, mask_curved_srgb);
+            }
             final_rgb = mix(final_rgb, mask_curved_srgb, influence);
         }
     }

@@ -286,6 +286,35 @@ pub fn process_and_get_dynamic_image_with_display_shader(
     )
 }
 
+/// CPU readback with the display arithmetic and the foreground preview's
+/// retained intermediates (blurs, masks); see [`ReadbackShader::Preview`].
+/// For small samples of the shown preview's base, never for exports.
+pub fn process_and_get_dynamic_image_with_preview_shader(
+    context: &GpuContext,
+    state: &tauri::State<AppState>,
+    base_image: &DynamicImage,
+    transform_hash: u64,
+    request: RenderRequest,
+    caller_id: &str,
+) -> Result<DynamicImage, String> {
+    process_and_get_dynamic_image_inner(
+        context,
+        &state.gpu_processor,
+        &state.gpu_image_cache,
+        RenderSource::Image {
+            image: base_image,
+            transform_hash,
+        },
+        request,
+        caller_id,
+        RenderOutputPrecision::EightBit,
+        false,
+        None,
+        None,
+        ReadbackShader::Preview,
+    )
+}
+
 pub fn process_and_get_dynamic_image_with_precision(
     context: &GpuContext,
     state: &tauri::State<AppState>,

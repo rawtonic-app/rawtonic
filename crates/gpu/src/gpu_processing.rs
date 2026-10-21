@@ -7546,8 +7546,10 @@ fn render_dynamic_image(
     };
     let preuploaded = uploaded.is_some();
     let background_image_cache = Mutex::new(uploaded);
-    // The JPEG preview fallback (e.g. Linux) is also foreground work.
-    let image_cache = if !preuploaded && (output_to_display || caller_id == "apply_adjustments") {
+    // The JPEG preview fallback (e.g. Linux) is also foreground work, and so
+    // are tone targets' samples of the shown preview's base.
+    let foreground = matches!(caller_id, "apply_adjustments" | "sample_curve_input");
+    let image_cache = if !preuploaded && (output_to_display || foreground) {
         image_cache
     } else {
         &background_image_cache

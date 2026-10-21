@@ -3107,7 +3107,9 @@ pub struct GlobalAdjustments {
     /// 1 when the recipe's luminance noise reduction also takes out
     /// isolated luminance specks (`lumaNoiseVersion` 2), else 0.
     pub luma_speck: f32,
-    _pad_color3: f32,
+    /// 1 when the point curves act in the wide working space
+    /// (`point_curve::WIDE_CURVE_VERSION`), else 0 (display values).
+    curve_space: u32,
 
     pub sharpness: f32,
     pub luma_noise_reduction: f32,
@@ -3365,7 +3367,8 @@ pub struct MaskAdjustments {
     pub red_curve_count: u32,
     pub green_curve_count: u32,
     pub blue_curve_count: u32,
-    _pad_end4: f32,
+    /// The layer's `GlobalAdjustments::curve_space`.
+    curve_space: u32,
     _pad_end5: f32,
     _pad_end6: f32,
     _pad_end7: f32,
@@ -4094,7 +4097,11 @@ fn get_global_adjustments_from_json(
         } else {
             0.0
         },
-        _pad_color3: 0.0,
+        curve_space: if is_visible("curves") {
+            crate::point_curve::curve_space(&curves_obj)
+        } else {
+            0
+        },
 
         sharpness: raw_detail_default("sharpness", RAW_DEFAULT_SHARPNESS, SCALES.sharpness),
         luma_noise_reduction: raw_detail_default(
@@ -4933,7 +4940,11 @@ fn get_mask_adjustments_from_json(
         red_curve_count: red_points.len().min(16) as u32,
         green_curve_count: green_points.len().min(16) as u32,
         blue_curve_count: blue_points.len().min(16) as u32,
-        _pad_end4: 0.0,
+        curve_space: if is_visible("curves") {
+            crate::point_curve::curve_space(&curves_obj)
+        } else {
+            0
+        },
         _pad_end5: 0.0,
         _pad_end6: 0.0,
         _pad_end7: 0.0,
@@ -4968,7 +4979,8 @@ fn get_mask_adjustments_from_json(
 /// before render their first 16 points); hidden curves count as none, as
 /// for the uniforms.
 fn global_curve_table(js_adjustments: &serde_json::Value) -> Option<std::sync::Arc<Vec<[f32; 4]>>> {
-    if js_adjustments["curves"]["version"].as_u64().unwrap_or(1) < crate::point_curve::CURVE_VERSION
+    if js_adjustments["curves"]["version"].as_u64().unwrap_or(1)
+        < crate::point_curve::LONG_CURVE_VERSION
     {
         return None;
     }
