@@ -113,8 +113,10 @@ fn natural_spline(knots: &[(f64, f64)], x: f64) -> f64 {
 /// A Lightroom point curve as Rawtonic's: its points, plus knots on
 /// Lightroom's spline wherever the renderer's curve through the points
 /// would leave it by more than a quarter level (checked every eighth of an
-/// input level), on whole levels: a jump within one level cannot be
-/// followed closer, and the remaining error is logged.
+/// input level), on whole levels. Next to steep transitions (a rise of
+/// many levels within a few input levels) whole-level points cannot follow
+/// the spline closer — 2–12 levels left in the tests — and the remaining
+/// error is logged.
 fn lightroom_curve(points: &[Value]) -> Vec<Value> {
     let mut knots: Vec<(f64, f64)> = points
         .iter()
@@ -1747,6 +1749,10 @@ mod tests {
             (vec![(32, 0), (128, 128), (224, 255)], 16.0, 0.0),
             // A jump within one level: right at integers, off between them.
             (vec![(0, 0), (127, 0), (128, 255), (255, 255)], 64.0, -1.0),
+            // Steep transitions over a few levels: no closer fit on whole
+            // levels (2.3 and 12.3 levels left, logged); still sorted.
+            (vec![(0, 0), (120, 30), (130, 200), (255, 255)], 64.0, -1.0),
+            (vec![(0, 0), (126, 0), (129, 255), (255, 255)], 64.0, -1.0),
         ] {
             let curve = super::extract_tone_curve_points(&seq(&pts), "ToneCurvePV2012").unwrap();
             for &(px, py) in &pts {

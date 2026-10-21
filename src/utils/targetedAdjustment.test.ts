@@ -177,7 +177,13 @@ describe("targeted adjustment", () => {
     ];
     const layered = {
       ...base(),
-      masks: [{ visible: true, adjustments: { curves: { luma: lifted } } }],
+      masks: [
+        {
+          visible: true,
+          subMasks: [{}],
+          adjustments: { curves: { luma: lifted } },
+        },
+      ],
     } as never;
     for (const target of ["curve", "regionCurve"] as const) {
       expect(
@@ -200,8 +206,32 @@ describe("targeted adjustment", () => {
     expect(
       startTargetedAdjustment("regionCurve", hidden, null, [100, 100, 100]),
     ).not.toBeNull();
-    // A LUT that is off or at zero does not count.
+    // Layers that cannot reach a pixel do not count.
+    for (const mask of [
+      {
+        visible: true,
+        subMasks: [],
+        adjustments: { curves: { luma: lifted } },
+      },
+      {
+        visible: true,
+        opacity: 0,
+        subMasks: [{}],
+        adjustments: { curves: { luma: lifted } },
+      },
+    ]) {
+      expect(
+        startTargetedAdjustment(
+          "regionCurve",
+          { ...base(), masks: [mask] } as never,
+          null,
+          [100, 100, 100],
+        ),
+      ).not.toBeNull();
+    }
+    // A LUT that is off, at zero or scene-referred (before the curves) does not count.
     for (const off of [
+      { lutPath: "/l.cube", lutIsSceneReferred: true },
       { lutPath: "/l.cube", lutIntensity: 0 },
       {
         lutPath: "/l.cube",

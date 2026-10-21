@@ -251,8 +251,13 @@ const isIdentity = (points: Coord[] | undefined) =>
 function hasToneAfterCurves(a: Adjustments) {
   const layerCurves = (a.masks ?? []).some((mask) => {
     const adjustments = mask.adjustments as Partial<Adjustments> | undefined;
+    // Layers that cannot reach a pixel: hidden, empty or at zero opacity.
+    const inert =
+      mask.visible === false ||
+      !mask.subMasks?.length ||
+      (mask.opacity ?? 100) <= 0;
     const curves =
-      mask.visible === false || adjustments?.sectionVisibility?.curves === false
+      inert || adjustments?.sectionVisibility?.curves === false
         ? undefined
         : adjustments?.curves;
     return (
@@ -262,8 +267,10 @@ function hasToneAfterCurves(a: Adjustments) {
       )
     );
   });
+  // Scene-referred LUTs apply before the curves.
   const lut =
     !!a.lutPath &&
+    !a.lutIsSceneReferred &&
     a.sectionVisibility?.effects !== false &&
     (a.lutIntensity ?? 100) > 0;
   return layerCurves || lut;
