@@ -22,8 +22,8 @@ interface Rect {
 /**
  * The Targeted Adjustment Tool's surface over the displayed photo: press
  * on a colour or tone and drag up or down (Shift: finer). Colour targets
- * read the photo's colour before adjustments, the curve the displayed
- * level, at the pressed point.
+ * read the photo's colour before adjustments, the curves the colour they
+ * receive, at the pressed point.
  */
 export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
   const drag = useRef<{
@@ -49,16 +49,6 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const view = useEditorStore.getState();
     const { selectedImage, adjustments, tatTarget, setEditor } = view;
     if (!selectedImage?.isReady || !tatTarget) return;
-    // The displayed tone is the photo's only without view overlays
-    // (clipping warnings, soft proofing, colour-range and layer solo views).
-    if (
-      isToneTarget(tatTarget) &&
-      (view.clippingWarnings ||
-        view.softProof ||
-        view.colorRangeShow ||
-        view.layerSolo)
-    )
-      return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {
@@ -77,7 +67,9 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     drag.current = record;
     const path = selectedImage.path;
     const point = { path, normalizedX, normalizedY };
-    const [linear, display] = await Promise.all([
+    // Tone targets read the colour the curves receive, rendered from the
+    // recipe without them and what follows (layer curves, LUTs, overlays).
+    const [linear, curveInput] = await Promise.all([
       isToneTarget(tatTarget)
         ? Promise.resolve(null)
         : invoke<[number, number, number] | null>(
@@ -85,21 +77,21 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
             point,
           ).catch(() => null),
       isToneTarget(tatTarget)
-        ? invoke<[number, number, number] | null>(
-            Invokes.SamplePreviewColor,
-            point,
-          ).catch(() => null)
+        ? invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
+            ...point,
+            adjustments,
+          }).catch(() => null)
         : Promise.resolve(null),
     ]);
     if (useEditorStore.getState().selectedImage?.path !== path) return;
-    // Drag mode (interactive previews) only after sampling: a new preview
-    // generation would make the displayed frame the curve samples stale.
+    // Drag mode (interactive previews) only after sampling: the sample
+    // renders from the preview base the shown frame was built from.
     if (!record.released) setEditor({ isSliderDragging: true });
     record.start = startTargetedAdjustment(
       tatTarget,
       adjustments,
       linear,
-      display,
+      curveInput,
     );
     if (record.start) setEditor({ tatFocus: dominantChannel(record.start) });
     // A quick flick can end before the sample arrives: apply where it ended.

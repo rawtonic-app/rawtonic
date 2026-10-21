@@ -7,7 +7,12 @@ use std::sync::Arc;
 
 /// The curves' `version` from which curves with more than 16 points render
 /// whole; before, the renderer used their first 16 points.
-pub const CURVE_VERSION: u64 = 2;
+pub const LONG_CURVE_VERSION: u64 = 2;
+/// The curves' `version` from which the curves act in the wide working space
+/// (ProPhoto primaries with the sRGB tone curve, where Camera Raw evaluates
+/// its point curves; notes: reference/point-curve.md) instead of on display
+/// values clipped to sRGB.
+pub const WIDE_CURVE_VERSION: u64 = 3;
 /// Control points one curve channel holds in the uniforms (shader `Point` arrays).
 pub const SHADER_CURVE_POINTS: usize = 16;
 /// Samples per channel in a curve table (1,024 intervals, shader `apply_curve_lut`).
@@ -105,6 +110,58 @@ fn is_identity(points: &[(f32, f32)]) -> bool {
         && (last.1 - 255.0).abs() < 0.1
 }
 
+/// The uniforms' `curve_space` for a recipe's (or a layer's) `curves`: 1 when
+/// they act in the wide working space, which needs `WIDE_CURVE_VERSION` and a
+/// channel that changes something (neutral curves skip the conversion).
+pub fn curve_space(curves: &Value) -> u32 {
+    if curves["version"].as_u64().unwrap_or(1) < WIDE_CURVE_VERSION {
+        return 0;
+    }
+    let changes = ["luma", "red", "green", "blue"].iter().any(|key| {
+        let points = curve_points(curves[*key].as_array().map_or(&[], Vec::as_slice));
+        points.len() >= 2 && !is_identity(&points)
+    });
+    u32::from(changes)
+}
+
+/// The recipe whose render shows, at every pixel, the colour the photo's
+/// region and point curves receive (tone targets sample it): those curves,
+/// and everything the shader applies after them (layer curves, a
+/// display-referred LUT, grain, view states such as clipping warnings, soft
+/// proofing, the colour-range view), left out. Steps before them stay.
+pub fn curve_input_probe(adjustments: &Value) -> Value {
+    let mut probe = adjustments.clone();
+    let Some(recipe) = probe.as_object_mut() else {
+        return probe;
+    };
+    for key in [
+        "curves",
+        "regionCurve",
+        "grainAmount",
+        "showClipping",
+        "softProof",
+        "softProofWarning",
+        "colorRangeShow",
+    ] {
+        recipe.remove(key);
+    }
+    if !recipe
+        .get("lutIsSceneReferred")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        recipe.remove("lutPath");
+    }
+    if let Some(masks) = recipe.get_mut("masks").and_then(Value::as_array_mut) {
+        for mask in masks {
+            if let Some(layer) = mask.get_mut("adjustments").and_then(Value::as_object_mut) {
+                layer.remove("curves");
+            }
+        }
+    }
+    probe
+}
+
 /// The shader's `apply_all_curves` for one value in 0–1: the luma (RGB)
 /// curve on every channel, then each channel's own curve.
 pub fn curves_value(channels: &[Vec<(f32, f32)>; 4], value: f32) -> [f32; 3] {
@@ -176,6 +233,48 @@ mod tests {
                 (x as f32, y as f32)
             })
             .collect()
+    }
+
+    #[test]
+    fn curves_act_in_the_wide_space_from_version_three_when_they_change_something() {
+        let neutral = serde_json::json!([{"x": 0, "y": 0}, {"x": 255, "y": 255}]);
+        let red = serde_json::json!([{"x": 0, "y": 0}, {"x": 128, "y": 160}, {"x": 255, "y": 255}]);
+        let curves = |version: Option<u64>, red: &Value| {
+            let mut c =
+                serde_json::json!({"luma": neutral, "red": red, "green": neutral, "blue": neutral});
+            if let Some(v) = version {
+                c["version"] = v.into();
+            }
+            c
+        };
+        assert_eq!(curve_space(&curves(None, &red)), 0);
+        assert_eq!(curve_space(&curves(Some(2), &red)), 0);
+        assert_eq!(curve_space(&curves(Some(3), &red)), 1);
+        assert_eq!(curve_space(&curves(Some(3), &neutral)), 0);
+        assert_eq!(curve_space(&serde_json::json!({"version": 3})), 0);
+    }
+
+    #[test]
+    fn the_curve_input_probe_leaves_out_the_curves_and_what_follows_them() {
+        let curve =
+            serde_json::json!([{"x": 0, "y": 0}, {"x": 128, "y": 160}, {"x": 255, "y": 255}]);
+        let recipe = serde_json::json!({
+            "exposure": 0.5, "levels": {"rgb": {"inBlack": 5}}, "curves": {"luma": curve},
+            "regionCurve": {"darks": 30}, "grainAmount": 20, "showClipping": true,
+            "softProof": "proPhoto", "colorRangeShow": "r1", "lutPath": "/look.cube",
+            "masks": [{"id": "m", "adjustments": {"exposure": 0.3, "curves": {"red": curve}}}],
+        });
+        let probe = curve_input_probe(&recipe);
+        assert_eq!(
+            probe,
+            serde_json::json!({
+                "exposure": 0.5, "levels": {"rgb": {"inBlack": 5}},
+                "masks": [{"id": "m", "adjustments": {"exposure": 0.3}}],
+            })
+        );
+        // A scene-referred LUT acts before the curves and stays.
+        let scene = serde_json::json!({"lutPath": "/log.cube", "lutIsSceneReferred": true});
+        assert_eq!(curve_input_probe(&scene), scene);
     }
 
     #[test]

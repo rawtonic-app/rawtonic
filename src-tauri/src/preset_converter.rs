@@ -706,10 +706,11 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
         }
     }
     if !curves_map.is_empty() {
-        // Imported curves render whole, however many points they have.
+        // Imported curves render whole, however many points they have, in
+        // Camera Raw's working space (`WIDE_CURVE_VERSION`).
         curves_map.insert(
             "version".to_string(),
-            json!(rawtonic_engine::point_curve::CURVE_VERSION),
+            json!(rawtonic_engine::point_curve::WIDE_CURVE_VERSION),
         );
         adjustments.insert("curves".to_string(), Value::Object(curves_map));
     }
@@ -1788,6 +1789,23 @@ mod tests {
             );
             assert!(curve.len() <= 16, "{pts:?}: {} points", curve.len());
         }
+    }
+
+    #[test]
+    fn lightroom_channel_curves_import_in_camera_raws_working_space() {
+        // Camera Raw evaluates every point curve in ProPhoto primaries with
+        // the sRGB curve (red 128 -> 160 shows grey 128 as R 186 / G 119;
+        // notes: reference/point-curve.md): imports render there.
+        let xmp = r#"<rdf:Description crs:ProcessVersion="15.4"><crs:ToneCurvePV2012Red><rdf:Seq>
+            <rdf:li>0, 0</rdf:li><rdf:li>128, 160</rdf:li><rdf:li>255, 255</rdf:li>
+            </rdf:Seq></crs:ToneCurvePV2012Red></rdf:Description>"#;
+        let curves = &super::convert_xmp_to_preset(xmp).unwrap().adjustments["curves"];
+        assert_eq!(
+            curves["version"],
+            rawtonic_engine::point_curve::WIDE_CURVE_VERSION
+        );
+        assert_eq!(rawtonic_engine::point_curve::curve_space(curves), 1);
+        assert!((rendered(curves["red"].as_array().unwrap(), 128.0) - 160.0).abs() < 0.3);
     }
 
     #[test]

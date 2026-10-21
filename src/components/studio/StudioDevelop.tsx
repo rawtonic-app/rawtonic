@@ -27,7 +27,8 @@ import {
   BRIGHTNESS_CONTROL,
   MAX_CURVE_POINTS,
   INITIAL_REGION_CURVE,
-  CURVE_VERSION,
+  LONG_CURVE_VERSION,
+  editedCurvesVersion,
   type Adjustments,
   type Curves,
   type GrainStructure,
@@ -1160,7 +1161,7 @@ export default function StudioDevelop() {
                 curves={values.curves}
                 wholeCurves={
                   !layer &&
-                  (values.curves.version ?? 1) >= CURVE_VERSION
+                  (values.curves.version ?? 1) >= LONG_CURVE_VERSION
                 }
                 region={
                   layer
@@ -1175,7 +1176,10 @@ export default function StudioDevelop() {
                 onChange={(curves) =>
                   change({
                     // An edit renders the whole curve (curves.version).
-                    curves: { ...curves, version: CURVE_VERSION },
+                    curves: {
+                      ...curves,
+                      version: editedCurvesVersion(values.curves),
+                    },
                     pointCurves: curves,
                     curveMode: "point",
                   })

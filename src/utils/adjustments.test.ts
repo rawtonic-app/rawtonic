@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { blendPreset } from './presetAmount';
 import {
   CURVE_VERSION,
+  LONG_CURVE_VERSION,
+  editedCurvesVersion,
   ADJUSTMENT_GROUPS,
   COLOR_NOISE_VERSION,
   COPYABLE_ADJUSTMENT_KEYS,
@@ -287,6 +289,27 @@ describe('RAW detail defaults', () => {
     expect('curves' in pastedAdjustments({ curves: neutral } as Adjustments, ['curves'], PasteMode.Merge)).toBe(false);
     expect(sameAdjustmentValue(neutral, INITIAL_ADJUSTMENTS.curves)).toBe(true);
     expect(sameAdjustmentValue(legacy.curves, saved.curves)).toBe(false);
+  });
+
+  it('render changed curves in the wide working space from version 3 only', () => {
+    const neutral = { ...INITIAL_ADJUSTMENTS.curves };
+    const red = [
+      { x: 0, y: 0 },
+      { x: 128, y: 160 },
+      { x: 255, y: 255 },
+    ];
+    // Neutral curves render alike in every version; changed ones differ
+    // between display values (before 3) and the wide working space.
+    expect(sameAdjustmentValue({ ...neutral, version: 2 }, { ...neutral, version: 3 })).toBe(true);
+    expect(sameAdjustmentValue({ ...neutral, red, version: 2 }, { ...neutral, red, version: undefined })).toBe(true);
+    expect(sameAdjustmentValue({ ...neutral, red, version: 2 }, { ...neutral, red, version: 3 })).toBe(false);
+    // An edit keeps the space changed curves render in (at least whole
+    // beyond 16 points); neutral or missing curves start in the current one.
+    expect(editedCurvesVersion(undefined)).toBe(CURVE_VERSION);
+    expect(editedCurvesVersion({ ...neutral, version: 1 })).toBe(CURVE_VERSION);
+    expect(editedCurvesVersion({ ...neutral, red, version: undefined })).toBe(LONG_CURVE_VERSION);
+    expect(editedCurvesVersion({ ...neutral, red, version: 2 })).toBe(LONG_CURVE_VERSION);
+    expect(editedCurvesVersion({ ...neutral, red, version: 3 })).toBe(CURVE_VERSION);
   });
 
   it('carry the luminance noise reduction version with luminance values', () => {

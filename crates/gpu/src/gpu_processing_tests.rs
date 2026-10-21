@@ -3316,6 +3316,164 @@ fn long_curves_render_every_point() {
     println!("export worst {worst:.3} levels over {compared} pixels; display {display_delta}");
 }
 
+/// The shader's `wide_curve_input` / `wide_curve_output` around the exact
+/// curves: ProPhoto primaries with the sRGB tone curve.
+fn wide_curves_value(channels: &[Vec<(f32, f32)>; 4], display: [f32; 3]) -> [f32; 3] {
+    const TO_PROPHOTO: [[f32; 3]; 3] = [
+        [0.5293458, 0.3300728, 0.1405812],
+        [0.0983744, 0.8734611, 0.0281647],
+        [0.0168832, 0.1176725, 0.8654443],
+    ];
+    const TO_SRGB: [[f32; 3]; 3] = [
+        [2.0340763, -0.7273343, -0.3067417],
+        [-0.2288135, 1.2317302, -0.0029169],
+        [-0.0085698, -0.1532866, 1.1618565],
+    ];
+    let decode = |v: f32| {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let encode = |v: f32| {
+        let v = v.clamp(0.0, 1.0);
+        if v <= 0.0031308 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
+    let apply = |m: &[[f32; 3]; 3], c: [f32; 3]| -> [f32; 3] {
+        std::array::from_fn(|i| m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2])
+    };
+    let wide = apply(&TO_PROPHOTO, display.map(decode)).map(encode);
+    let curved: [f32; 3] =
+        std::array::from_fn(|c| rawtonic_engine::point_curve::curves_value(channels, wide[c])[c]);
+    apply(&TO_SRGB, curved.map(decode)).map(|v| v.signum() * encode(v.abs()))
+}
+
+#[test]
+fn wide_curves_reproduce_camera_raws_red_curve_on_grey() {
+    // Measured in Camera Raw (notes: reference/point-curve.md): a red curve
+    // 128 -> 160 shows neutral 128 as R 186 / G 119.
+    let identity = vec![(0.0, 0.0), (255.0, 255.0)];
+    let red = vec![(0.0, 0.0), (128.0, 160.0), (255.0, 255.0)];
+    let out = wide_curves_value(
+        &[identity.clone(), red, identity.clone(), identity],
+        [128.0 / 255.0; 3],
+    )
+    .map(|v| v * 255.0);
+    assert!(
+        (out[0] - 186.0).abs() < 1.0 && (out[1] - 119.0).abs() < 1.0,
+        "{out:?}"
+    );
+}
+
+#[test]
+#[ignore = "requires a native GPU; curves.version 3 acts in the wide working space"]
+fn wide_curves_act_in_the_working_space() {
+    let context = context();
+    let (width, height) = (257, 64);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 5);
+    let luma = json!([{"x":0,"y":0},{"x":64,"y":48},{"x":128,"y":128},{"x":192,"y":208},{"x":255,"y":255}]);
+    let red = json!([{"x":0,"y":0},{"x":128,"y":160},{"x":255,"y":255}]);
+    let channels: [Vec<(f32, f32)>; 4] = [
+        rawtonic_engine::point_curve::curve_points(luma.as_array().unwrap()),
+        rawtonic_engine::point_curve::curve_points(red.as_array().unwrap()),
+        vec![(0.0, 0.0), (255.0, 255.0)],
+        vec![(0.0, 0.0), (255.0, 255.0)],
+    ];
+    let curves = json!({"version":3,"luma":luma,"red":red});
+    let all = masked(ImageBuffer::from_pixel(width, height, Luma([255u8])));
+    let render = |profile: &serde_json::Value, display: bool, precision| -> Vec<f32> {
+        let adjustments = get_all_adjustments_from_json(profile, false, Some(0));
+        let bitmaps = vec![all.clone(); adjustments.mask_count as usize];
+        if display {
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        }
+        let (pixels, w, h, x, y) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &bitmaps,
+                    lut: None,
+                    roi: None,
+                },
+                display,
+                precision,
+            )
+            .unwrap();
+        if display {
+            return read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d { x, y, z: 0 },
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+            .iter()
+            .map(|&v| v as f32 / 255.0)
+            .collect();
+        }
+        match pixels {
+            RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
+            RenderedPixels::U8(bytes) => bytes.iter().map(|&v| v as f32 / 255.0).collect(),
+        }
+    };
+    let before = render(&json!({}), false, RenderOutputPrecision::SixteenBit);
+    // The photo's curves, and the same curves in a layer over the whole photo.
+    for profile in [
+        json!({"curves":curves}),
+        json!({"masks":[local_mask("wide", json!({"curves":curves}))]}),
+    ] {
+        let after = render(&profile, false, RenderOutputPrecision::SixteenBit);
+        let (mut worst, mut compared, mut moved) = (0.0f32, 0, 0.0f32);
+        for (pixel, out) in before.chunks(4).zip(after.chunks(4)) {
+            if pixel[..3].iter().any(|&v| !(0.001..=0.999).contains(&v)) {
+                continue;
+            }
+            let expected = wide_curves_value(&channels, [pixel[0], pixel[1], pixel[2]]);
+            if expected.iter().any(|&v| !(0.001..=0.999).contains(&v)) {
+                continue;
+            }
+            let display = rawtonic_engine::point_curve::curves_value(&channels, pixel[0]);
+            moved = moved.max((expected[1] - display[1]).abs() * 255.0);
+            for c in 0..3 {
+                worst = worst.max((out[c] - expected[c]).abs() * 255.0);
+            }
+            compared += 1;
+        }
+        assert!(compared > 3_000, "{profile}: {compared} pixels compared");
+        assert!(worst <= 0.3, "{profile}: worst {worst} levels");
+        // Not the display-value curves: a red curve moves green there.
+        assert!(moved > 5.0, "{profile}: {moved}");
+        let export = render(&profile, false, RenderOutputPrecision::EightBit);
+        let display = render(&profile, true, RenderOutputPrecision::EightBit);
+        let delta = export
+            .iter()
+            .zip(&display)
+            .map(|(a, b)| ((a - b).abs() * 255.0).round() as u32)
+            .max()
+            .unwrap();
+        assert!(
+            delta <= 1,
+            "{profile}: display against export {delta} levels"
+        );
+        println!("{profile}: worst {worst:.3} levels over {compared} pixels; display {delta}");
+    }
+}
+
 #[test]
 #[ignore = "requires a native GPU; display curve tables against exact curve evaluation"]
 fn curve_tables_match_exact_display_curves() {

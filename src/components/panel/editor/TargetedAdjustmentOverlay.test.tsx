@@ -119,9 +119,9 @@ describe("targeted adjustment surface", () => {
     );
   });
 
-  it("reads the displayed level for the tone curve", async () => {
+  it("reads the level the tone curve receives", async () => {
     useEditorStore.setState({ tatTarget: "curve" });
-    invoke.mockResolvedValue([100, 100, 100]);
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await act(async () => {
       fireEvent.pointerDown(el, {
@@ -131,10 +131,12 @@ describe("targeted adjustment surface", () => {
         pointerId: 1,
       });
     });
-    expect(invoke).toHaveBeenCalledWith(
-      "sample_preview_color",
-      expect.anything(),
-    );
+    expect(invoke).toHaveBeenCalledWith("sample_curve_input", {
+      path: "/s/a.NEF",
+      normalizedX: 10 / 400,
+      normalizedY: 100 / 300,
+      adjustments: useEditorStore.getState().adjustments,
+    });
     fireEvent.pointerMove(el, { clientX: 10, clientY: 80, pointerId: 1 });
     fireEvent.pointerUp(el, { pointerId: 1 });
     expect(useEditorStore.getState().adjustments.curves.luma).toContainEqual({
@@ -143,12 +145,12 @@ describe("targeted adjustment surface", () => {
     });
   });
 
-  it("does not read tones through view overlays", async () => {
+  it("reads tones under view overlays from the recipe", async () => {
     useEditorStore.setState({
       tatTarget: "regionCurve",
       clippingWarnings: true,
     });
-    invoke.mockResolvedValue([255, 0, 0]);
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await act(async () => {
       fireEvent.pointerDown(el, {
@@ -158,7 +160,11 @@ describe("targeted adjustment surface", () => {
         pointerId: 1,
       });
     });
-    expect(invoke).not.toHaveBeenCalled();
+    fireEvent.pointerMove(el, { clientX: 10, clientY: 90, pointerId: 1 });
+    fireEvent.pointerUp(el, { pointerId: 1 });
+    // The sample renders without view states: the recipe alone is sent.
+    expect(invoke.mock.calls[0][1].adjustments.showClipping).not.toBe(true);
+    expect(useEditorStore.getState().adjustments.regionCurve!.darks).toBe(5);
     useEditorStore.setState({ clippingWarnings: false });
   });
 });

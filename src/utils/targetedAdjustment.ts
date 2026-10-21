@@ -7,8 +7,9 @@ import {
   type Coord,
   type GrayMixer,
   type RegionCurve,
+  editedCurvesVersion,
 } from "./adjustments";
-import { pointCurveValue, renderedPoints } from "./pointCurve";
+import { pointCurveValue } from "./pointCurve";
 import { regionAt, regionCurveValue } from "./regionCurve";
 
 /**
@@ -105,65 +106,27 @@ export interface TatStart {
 
 /**
  * Prepares a drag from the colour under the pointer: `linearRgb` is the
- * photo's colour before adjustments (colour targets), `displayRgb` the
- * displayed colour in 0–255 (curve). Returns null for grey under a colour
- * target or a missing sample.
+ * photo's colour before adjustments (colour targets), `curveInput` the
+ * colours the region and point curves receive in the pixels there, linear
+ * sRGB that may reach beyond 0–1 (tone targets; editor_preview.rs
+ * `sample_curve_input`, rendered without the curves and what follows
+ * them), averaged here in the curve's own input levels. Returns null for
+ * grey under a colour target or a missing sample.
  */
 export function startTargetedAdjustment(
   target: TatTarget,
   base: Adjustments,
   linearRgb: [number, number, number] | null,
-  displayRgb: [number, number, number] | null,
+  curveInput: [number, number, number][] | null,
 ): TatStart | null {
   if (isToneTarget(target)) {
-    // The displayed sample can be traced back through the photo's curves
-    // only: layer curves and a LUT after them would mislead it.
-    if (!displayRgb || hasToneAfterCurves(base)) return null;
-    // The curves as the renderer applies them (curve tool on, legacy
-    // recipes cut after the 16th point).
-    const shown = base.sectionVisibility?.curves !== false;
-    const region = shown ? regionOf(base) : INITIAL_REGION_CURVE;
-    const cut = (points: Coord[] | undefined) =>
-      !shown
-        ? undefined
-        : renderedPoints(points, (base.curves?.version ?? 1) >= CURVE_VERSION);
-    const curves = base.curves && {
-      luma: cut(base.curves.luma),
-      red: cut(base.curves.red),
-      green: cut(base.curves.green),
-      blue: cut(base.curves.blue),
-    };
-    const channelCurves = [curves?.red, curves?.green, curves?.blue];
-    // Each channel went through the region, luma and its own curve: recover
-    // its level before them, then weigh the channels into one tone.
-    const before = displayRgb.map((shown, c) =>
-      invertCurve(
-        (x) =>
-          pointCurveValue(
-            channelCurves[c],
-            pointCurveValue(
-              curves?.luma,
-              regionCurveValue(region, x / 255) * 255,
-            ),
-          ),
-        shown,
-      ),
-    );
-    if (before.some((x) => x === null)) return null;
-    const levels = before as number[];
-    const weights = [0.2126, 0.7152, 0.0722];
-    const tone = (levels: number[]) =>
-      levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
-    // The point curve acts on the region curve's output.
-    return {
-      target,
-      base,
-      curveX: Math.round(
-        target === "regionCurve"
-          ? tone(levels)
-          : tone(levels.map((x) => regionCurveValue(region, x / 255) * 255)),
-      ),
-    };
+    if (!curveInput?.length) return null;
+    const level = (pixel: [number, number, number]) =>
+      curveInputLevel(target, base, pixel);
+    const mean =
+      curveInput.reduce((sum, pixel) => sum + level(pixel), 0) /
+      curveInput.length;
+    return { target, base, curveX: Math.round(mean) };
   }
   if (!linearRgb) return null;
   const { chroma, hue } = oklch(linearRgb);
@@ -173,6 +136,45 @@ export function startTargetedAdjustment(
       ? channelWeights(hue, BW_CENTRES, BW_REACH)
       : channelWeights(hue, HSL_CENTRES, HSL_REACH);
   return { target, base, weights };
+}
+
+/**
+ * The level (0–255) a pixel's colour (linear sRGB, beyond 0–1 outside sRGB)
+ * has on the curve a tone target moves: the region curve's input, or the
+ * point curve's input in the space the edited curves render in.
+ */
+function curveInputLevel(
+  target: TatTarget,
+  base: Adjustments,
+  pixel: [number, number, number],
+): number {
+  // The region curve and curves on display values see the colour clipped
+  // to sRGB.
+  const display = pixel.map((v) => toEncoded(v) * 255);
+  if (target === "regionCurve") return tone(display, false);
+  // The point curve acts on the region curve's output (when the curve tool
+  // is on).
+  const region =
+    base.sectionVisibility?.curves !== false
+      ? regionOf(base)
+      : INITIAL_REGION_CURVE;
+  const regioned = display.map((v) => regionCurveValue(region, v / 255) * 255);
+  if (editedCurvesVersion(base.curves) < CURVE_VERSION)
+    return tone(regioned, false);
+  // The wide curves also see the part beyond sRGB, carried past the region
+  // curve at its luminance ratio (shader `carry_beyond_srgb`).
+  const clipped = display.map((v) => toLinear(v / 255));
+  const shown = regioned.map((v) => toLinear(v / 255));
+  const ratio = Math.min(
+    luminance(shown) / Math.max(luminance(clipped), 1e-5),
+    4,
+  );
+  const carried = shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio) as [
+    number,
+    number,
+    number,
+  ];
+  return tone(wideCurveLevels(carried), true);
 }
 
 /** The colour mixer channel a drag acts on most (for the panel to show). */
@@ -211,7 +213,7 @@ export function targetedPatch(
       curves: {
         ...base.curves,
         luma: moveCurve(base.curves.luma, start.curveX ?? 128, delta),
-        version: CURVE_VERSION,
+        version: editedCurvesVersion(base.curves),
       },
       curveMode: "point",
     };
@@ -241,43 +243,6 @@ export function targetedPatch(
   return { hsl };
 }
 
-const isIdentity = (points: Coord[] | undefined) =>
-  !points ||
-  points.length < 2 ||
-  (points.every((p) => p.x === p.y) &&
-    points[0].x === 0 &&
-    points[points.length - 1].x === 255);
-
-/** A visible layer with curves, or a LUT: tones changed after the photo's
- * curves, which the displayed sample cannot be traced back through. */
-function hasToneAfterCurves(a: Adjustments) {
-  const layerCurves = (a.masks ?? []).some((mask) => {
-    const adjustments = mask.adjustments as Partial<Adjustments> | undefined;
-    // Layers that cannot reach a pixel: hidden, empty or at zero opacity.
-    const inert =
-      mask.visible === false ||
-      !mask.subMasks?.length ||
-      (mask.opacity ?? 100) <= 0;
-    const curves =
-      inert || adjustments?.sectionVisibility?.curves === false
-        ? undefined
-        : adjustments?.curves;
-    return (
-      !!curves &&
-      [curves.luma, curves.red, curves.green, curves.blue].some(
-        (c) => !isIdentity(renderedPoints(c as Coord[] | undefined, false)),
-      )
-    );
-  });
-  // Scene-referred LUTs apply before the curves.
-  const lut =
-    !!a.lutPath &&
-    !a.lutIsSceneReferred &&
-    a.sectionVisibility?.effects !== false &&
-    (a.lutIntensity ?? 100) > 0;
-  return layerCurves || lut;
-}
-
 const regionOf = (a: Adjustments): RegionCurve => ({
   ...INITIAL_REGION_CURVE,
   ...a.regionCurve,
@@ -286,31 +251,42 @@ const regionOf = (a: Adjustments): RegionCurve => ({
 /** The renderer's luma point curve at `x` (0–255). */
 export const curveValue = pointCurveValue;
 
-/**
- * The input level `curve` maps to `displayed`, or null when the displayed
- * tone does not say which input is under the pointer: the curve falls
- * somewhere (checked every sixteenth of a level), or inputs more than a few
- * levels apart show the tone alike (a flat stretch).
- */
-function invertCurve(
-  curve: (x: number) => number,
-  displayed: number,
-): number | null {
-  let previous = curve(0);
-  for (let i = 1; i <= 255 * 16; i += 1) {
-    const value = curve(i / 16);
-    if (value < previous - 1e-6) return null;
-    previous = value;
-  }
-  const errors = Array.from({ length: 256 }, (_, x) =>
-    Math.abs(curve(x) - displayed),
-  );
-  const best = errors.indexOf(Math.min(...errors));
-  const alike = errors.every(
-    (error, x) => error > errors[best] + 1 || Math.abs(x - best) <= 4,
-  );
-  return alike ? best : null;
+const toEncoded = (v: number) => {
+  const c = Math.min(Math.max(v, 0), 1);
+  return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
+};
+// Linear sRGB to linear ProPhoto (Bradford D65 to D50), the shader's
+// `srgb_to_prophoto`.
+const TO_PROPHOTO = [
+  [0.5293458, 0.3300728, 0.1405812],
+  [0.0983744, 0.8734611, 0.0281647],
+  [0.0168832, 0.1176725, 0.8654443],
+];
+
+const luminance = (linear: number[]) =>
+  0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+
+/** Linear sRGB (beyond 0–1 for colours outside sRGB) as the wide curves
+ * receive it, in levels 0–255: ProPhoto primaries with the sRGB curve
+ * (shader `wide_curve_input`). */
+export function wideCurveLevels(
+  linear: [number, number, number],
+): [number, number, number] {
+  return TO_PROPHOTO.map(
+    (row) =>
+      toEncoded(row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]) *
+      255,
+  ) as [number, number, number];
 }
+
+/** The tone of curve levels: their luminance-weighted mean, with the
+ * luminance of the space the curves act in. */
+const tone = (levels: number[], wide: boolean) => {
+  const weights = wide
+    ? [0.2880402, 0.7118741, 0.0000857]
+    : [0.2126, 0.7152, 0.0722];
+  return levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
+};
 
 /** Moves the curve at `x` by `delta`: the point there, or a new one. */
 function moveCurve(

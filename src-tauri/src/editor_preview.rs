@@ -1071,6 +1071,136 @@ fn preview_base(
     Ok(preview)
 }
 
+/// Tone targets' sample: the colours (linear sRGB, signed: the working gamut
+/// reaches beyond sRGB) the photo's region and point curves receive in the
+/// pixels around a point of the shown preview (`preview_sample_roi`), each
+/// on its own so the frontend averages them in the curve's input space,
+/// rendered from the preview base with those curves and everything after
+/// them left out
+/// (`point_curve::curve_input_probe`), so layer curves, LUTs and view states
+/// do not hide it. Rendered in ProPhoto, whose cube holds the working gamut,
+/// so nothing beyond sRGB is clipped. `adjustments` is the recipe (without
+/// view states). None while no preview base of the current recipe's
+/// geometry is cached.
+#[tauri::command]
+pub async fn sample_curve_input(
+    path: String,
+    normalized_x: f64,
+    normalized_y: f64,
+    adjustments: serde_json::Value,
+    app_handle: tauri::AppHandle,
+) -> Result<Option<Vec<[f64; 3]>>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let context = get_or_init_gpu_context(&state, &app_handle)?;
+        let mut recipe = rawtonic_engine::point_curve::curve_input_probe(&adjustments);
+        hydrate_adjustments(&state, &mut recipe);
+        let (loaded_image, source_scale, full_dims) = preview_source(&state)?;
+        if loaded_image.path != path {
+            return Ok(None);
+        }
+        let transform_hash = calculate_transform_hash(&recipe);
+        let Some((base, scale, unscaled_crop_offset)) = state
+            .cached_preview
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .filter(|c| c.source.ptr_eq(&Arc::downgrade(&loaded_image.image)))
+            .filter(|c| c.transform_hash == transform_hash)
+            .map(|c| (Arc::clone(&c.image), c.scale, c.unscaled_crop_offset))
+        else {
+            return Ok(None);
+        };
+        let (width, height) = base.dimensions();
+        let Some(roi) =
+            gpu_processing::preview_sample_roi(width, height, normalized_x, normalized_y)
+        else {
+            return Ok(None);
+        };
+        // The layers' masks as the preview frame draws them.
+        let mask_definitions = mask_definitions_from_json(&recipe);
+        let warped_image = resolve_warped_image_for_masks(
+            &state,
+            &loaded_image.image,
+            loaded_image.is_raw,
+            source_scale,
+            &recipe,
+            &mask_definitions,
+        )?;
+        let mask_geometry = PhotoGeometry::from_adjustments(&recipe)
+            .with_photo_size(full_dims.0 as f64, full_dims.1 as f64);
+        let crop_offset = (
+            unscaled_crop_offset.0 * scale,
+            unscaled_crop_offset.1 * scale,
+        );
+        let mask_bitmaps: Vec<Arc<MaskBitmap>> = mask_definitions
+            .iter()
+            .filter_map(|def| {
+                get_cached_or_generate_mask(
+                    &state,
+                    def,
+                    width,
+                    height,
+                    scale,
+                    crop_offset,
+                    &mask_geometry,
+                    warped_image.as_ref(),
+                )
+                .transpose()
+            })
+            .collect::<Result<_, _>>()?;
+        let tm_override = resolve_tonemapper_override_from_handle(&app_handle, loaded_image.is_raw);
+        let mut probe = get_all_adjustments_with_masks(
+            &recipe,
+            loaded_image.is_raw,
+            tm_override,
+            &mask_definitions,
+        );
+        crate::baseline_exposure::apply_base_look(&mut probe.global, &loaded_image.path);
+        probe.global.detail_scale = scale;
+        let space = rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto;
+        probe.global.output_space[0] = space.shader_code();
+        probe.global.output_matrix =
+            image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
+        let lut = recipe["lutPath"]
+            .as_str()
+            .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
+        let image = gpu_processing::process_and_get_dynamic_image_with_preview_shader(
+            &context,
+            &state,
+            &base,
+            transform_hash,
+            RenderRequest {
+                adjustments: probe,
+                mask_bitmaps: &mask_bitmaps,
+                lut,
+                roi: Some(roi),
+            },
+            "sample_curve_input",
+        )?;
+        Ok(Some(prophoto_pixels(image.to_rgba8().as_raw())))
+    })
+    .await
+    .map_err(|error| format!("Curve input sampling task failed: {error}"))?
+}
+
+/// RGBA8 ProPhoto pixels as signed linear sRGB, one colour per pixel.
+fn prophoto_pixels(rgba: &[u8]) -> Vec<[f64; 3]> {
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| prophoto_to_linear_srgb([p[0], p[1], p[2]].map(f64::from)))
+        .collect()
+}
+
+/// An 8-bit ProPhoto colour (0–255) as signed linear sRGB.
+fn prophoto_to_linear_srgb(rgb: [f64; 3]) -> [f64; 3] {
+    let space = rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto;
+    let linear = rgb.map(|v| space.transfer().to_linear(v / 255.0));
+    let m = space.to_linear_srgb();
+    std::array::from_fn(|r| (0..3).map(|c| m[r][c] * linear[c]).sum())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn process_preview_job(
     app_handle: &tauri::AppHandle,
@@ -3075,5 +3205,38 @@ mod mask_source_build_tests {
         };
         assert!(failed.join().is_err());
         assert_eq!(editor.get((1, 0), false, None), Some((1, 0)));
+    }
+}
+
+#[cfg(test)]
+mod curve_input_tests {
+    use super::{prophoto_pixels, prophoto_to_linear_srgb};
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+
+    #[test]
+    fn the_curve_input_keeps_colours_beyond_srgb() {
+        let space = OutputColorSpace::ProPhoto;
+        let encoded = |linear: [f64; 3]| linear.map(|v| space.transfer().from_linear(v) * 255.0);
+        // A deep red beyond sRGB: its green is negative in sRGB, which an
+        // sRGB sample would have clipped to zero.
+        let srgb = prophoto_to_linear_srgb(encoded([0.4, 0.05, 0.02]));
+        assert!(srgb[1] < -0.02, "{srgb:?}");
+        let back = space.from_linear_srgb();
+        for (r, row) in back.iter().enumerate() {
+            let v: f64 = (0..3).map(|c| row[c] * srgb[c]).sum();
+            assert!((v - [0.4, 0.05, 0.02][r]).abs() < 1e-9, "{r}: {v}");
+        }
+        // Grey stays grey.
+        let grey = prophoto_to_linear_srgb([128.0; 3]);
+        assert!((grey[0] - grey[1]).abs() < 1e-6 && (grey[1] - grey[2]).abs() < 1e-6);
+        // Each pixel on its own (averaged by the frontend in the curve's
+        // input space), black and white apart.
+        let pixels = prophoto_pixels(&[255, 255, 255, 255, 0, 0, 0, 255]);
+        assert_eq!(pixels.len(), 2);
+        assert!(
+            pixels[0].iter().all(|v| (v - 1.0).abs() < 1e-6),
+            "{pixels:?}"
+        );
+        assert!(pixels[1].iter().all(|v| v.abs() < 1e-9), "{pixels:?}");
     }
 }
