@@ -52,7 +52,8 @@
       "channels": {
         "blue": "ブルー",
         "green": "グリーン",
-        "luma": "ルミナンス",
+        "luma": "RGB",
+        "luminance": "輝度",
         "red": "レッド"
       },
       "channelTitle": "{{channel}} チャンネル",
@@ -1724,7 +1725,8 @@
         "ariaChannels": {
           "blue": "ブルー",
           "green": "グリーン",
-          "luma": "輝度",
+          "luma": "RGB",
+          "luminance": "輝度",
           "red": "レッド"
         },
         "channel": "カーブのチャンネル",
@@ -2986,6 +2988,7 @@
         "calibration": "キャリブレーション",
         "colorEditor": "Color Editor",
         "crop": "切り抜き",
+        "curves": "カーブ（近似、数レベルの差）",
         "filmCurve": "フィルムカーブ",
         "lens": "レンズとキーストーン",
         "lensProfile": "レンズプロファイル",

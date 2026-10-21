@@ -3475,6 +3475,147 @@ fn wide_curves_act_in_the_working_space() {
 }
 
 #[test]
+#[ignore = "requires a native GPU; the Luminance curve keeps chromaticity"]
+fn luminance_curve_changes_tone_and_keeps_colour() {
+    let context = context();
+    let (width, height) = (257, 64);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 5);
+    let s_curve = json!([{"x":0,"y":0},{"x":64,"y":40},{"x":128,"y":128},{"x":192,"y":215},{"x":255,"y":255}]);
+    let points = rawtonic_engine::point_curve::curve_points(s_curve.as_array().unwrap());
+    let decode = |v: f32| {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    let encode = |v: f32| {
+        let v = v.clamp(0.0, 1.0);
+        if v <= 0.0031308 {
+            v * 12.92
+        } else {
+            1.055 * v.powf(1.0 / 2.4) - 0.055
+        }
+    };
+    // The shader's `apply_luminance_curve` on an sRGB colour inside the cube.
+    let expected = |display: [f32; 3]| -> [f32; 3] {
+        let linear = display.map(decode);
+        let y = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+        let target = decode(rawtonic_engine::point_curve::curve_value(
+            &points,
+            encode(y),
+        ));
+        linear.map(|v| encode(v * target / y))
+    };
+    let all = masked(ImageBuffer::from_pixel(width, height, Luma([255u8])));
+    let render = |profile: &serde_json::Value, display: bool, precision| -> Vec<f32> {
+        let adjustments = get_all_adjustments_from_json(profile, false, Some(0));
+        let bitmaps = vec![all.clone(); adjustments.mask_count as usize];
+        if display {
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        }
+        let (pixels, w, h, x, y) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &bitmaps,
+                    lut: None,
+                    roi: None,
+                },
+                display,
+                precision,
+            )
+            .unwrap();
+        if display {
+            return read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d { x, y, z: 0 },
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+            .iter()
+            .map(|&v| v as f32 / 255.0)
+            .collect();
+        }
+        match pixels {
+            RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
+            RenderedPixels::U8(bytes) => bytes.iter().map(|&v| v as f32 / 255.0).collect(),
+        }
+    };
+    let before = render(&json!({}), false, RenderOutputPrecision::SixteenBit);
+    // Neutral luminance curves change nothing.
+    let neutral = json!({"curves":{"luminance":[{"x":0,"y":0},{"x":255,"y":255}]}});
+    assert_eq!(
+        render(&neutral, false, RenderOutputPrecision::SixteenBit),
+        before
+    );
+    for profile in [
+        json!({"curves":{"luminance":s_curve}}),
+        json!({"masks":[local_mask("lum", json!({"curves":{"luminance":s_curve}}))]}),
+    ] {
+        let after = render(&profile, false, RenderOutputPrecision::SixteenBit);
+        let (mut worst, mut compared, mut moved) = (0.0f32, 0, 0.0f32);
+        for (pixel, out) in before.chunks(4).zip(after.chunks(4)) {
+            if pixel[..3].iter().any(|&v| !(0.001..=0.999).contains(&v)) {
+                continue;
+            }
+            let want = expected([pixel[0], pixel[1], pixel[2]]);
+            if want.iter().any(|&v| !(0.001..=0.999).contains(&v)) {
+                continue;
+            }
+            for c in 0..3 {
+                worst = worst.max((out[c] - want[c]).abs() * 255.0);
+                moved = moved.max((out[c] - pixel[c]).abs() * 255.0);
+            }
+            // Chromaticity kept: the linear channels keep their proportions.
+            let (a, b) = (
+                pixel[..3].iter().map(|&v| decode(v)),
+                out[..3].iter().map(|&v| decode(v)),
+            );
+            let (a, b): (Vec<f32>, Vec<f32>) = (a.collect(), b.collect());
+            let (sa, sb) = (a.iter().sum::<f32>(), b.iter().sum::<f32>());
+            for c in 0..3 {
+                assert!(
+                    (a[c] / sa - b[c] / sb).abs() < 0.003,
+                    "{pixel:?} -> {out:?}"
+                );
+            }
+            compared += 1;
+        }
+        assert!(compared > 3_000, "{profile}: {compared} pixels compared");
+        assert!(worst <= 0.3, "{profile}: worst {worst} levels");
+        assert!(
+            moved > 10.0,
+            "{profile}: the curve moved {moved} levels at most"
+        );
+        let export = render(&profile, false, RenderOutputPrecision::EightBit);
+        let display = render(&profile, true, RenderOutputPrecision::EightBit);
+        let delta = export
+            .iter()
+            .zip(&display)
+            .map(|(a, b)| ((a - b).abs() * 255.0).round() as u32)
+            .max()
+            .unwrap();
+        assert!(
+            delta <= 1,
+            "{profile}: display against export {delta} levels"
+        );
+        println!("{profile}: worst {worst:.3} levels over {compared} pixels; display {delta}");
+    }
+}
+
+#[test]
 #[ignore = "requires a native GPU; display curve tables against exact curve evaluation"]
 fn curve_tables_match_exact_display_curves() {
     let context = context();

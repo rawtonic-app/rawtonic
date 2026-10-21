@@ -52,7 +52,8 @@
       "channels": {
         "blue": "藍色",
         "green": "綠色",
-        "luma": "亮度",
+        "luma": "RGB",
+        "luminance": "明亮度",
         "red": "紅色"
       },
       "channelTitle": "{{channel}} 通道",
@@ -1724,7 +1725,8 @@
         "ariaChannels": {
           "blue": "藍色",
           "green": "綠色",
-          "luma": "明亮度",
+          "luma": "RGB",
+          "luminance": "明亮度",
           "red": "紅色"
         },
         "channel": "曲線色版",
@@ -2986,6 +2988,7 @@
         "calibration": "校準",
         "colorEditor": "Color Editor",
         "crop": "裁切",
+        "curves": "曲線（近似，相差幾個色階）",
         "filmCurve": "底片曲線",
         "lens": "鏡頭與梯形校正",
         "lensProfile": "鏡頭描述檔",

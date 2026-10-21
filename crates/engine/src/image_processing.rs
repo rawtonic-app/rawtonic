@@ -3314,6 +3314,13 @@ pub struct GlobalAdjustments {
     /// A version-five Relight subject: the photo's own lighting on its
     /// people, flags and the subject's depth (`relight::source_uniforms`).
     pub relight_source: [[f32; 4]; 4],
+    /// The Luminance curve (`curves.luminance`, point_curve.rs
+    /// `luminance_points`): the colour's luminance through it and the colour
+    /// scaled by the ratio, after the other curves; count 0 when it changes
+    /// nothing.
+    pub luminance_curve: [Point; 16],
+    pub luminance_curve_count: u32,
+    _pad_luminance: [u32; 3],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, Pod, Zeroable, Default)]
@@ -3377,6 +3384,10 @@ pub struct MaskAdjustments {
     pub color_ranges: [[f32; 4]; 16],
     /// Moiré of the layer, like the photo's (`moire_settings`).
     pub moire: [f32; 4],
+    /// The layer's Luminance curve, like the photo's.
+    pub luminance_curve: [Point; 16],
+    pub luminance_curve_count: u32,
+    _pad_luminance: [u32; 3],
 }
 
 pub const MAX_MASKS: usize = 32;
@@ -3972,6 +3983,11 @@ fn get_global_adjustments_from_json(
 
     let default_curve = serde_json::json!([{"x": 0.0, "y": 0.0}, {"x": 255.0, "y": 255.0}]);
     let curves_obj = js_adjustments.get("curves").cloned().unwrap_or_default();
+    let luminance_points = if is_visible("curves") {
+        crate::point_curve::luminance_points(&curves_obj)
+    } else {
+        Vec::new()
+    };
 
     let luma_points: Vec<serde_json::Value> = if is_visible("curves") {
         curves_obj
@@ -4348,6 +4364,9 @@ fn get_global_adjustments_from_json(
         color_noise_window: [0; 4],
         luma_noise_profile: [[0.0; 4]; 2],
         relight_source: crate::relight::source_uniforms(js_adjustments),
+        luminance_curve: convert_points_to_aligned(luminance_points.clone()),
+        luminance_curve_count: luminance_points.len().min(16) as u32,
+        _pad_luminance: [0; 3],
         relight_surface: [
             (js_adjustments["relightDepthAmount"]
                 .as_f64()
@@ -4838,6 +4857,11 @@ fn get_mask_adjustments_from_json(
     };
 
     let curves_obj = adj.get("curves").cloned().unwrap_or_default();
+    let luminance_points = if is_visible("curves") {
+        crate::point_curve::luminance_points(&curves_obj)
+    } else {
+        Vec::new()
+    };
     let luma_points: Vec<serde_json::Value> = if is_visible("curves") {
         curves_obj["luma"].as_array().cloned().unwrap_or_default()
     } else {
@@ -4955,6 +4979,9 @@ fn get_mask_adjustments_from_json(
         } else {
             [0.0; 4]
         },
+        luminance_curve: convert_points_to_aligned(luminance_points.clone()),
+        luminance_curve_count: luminance_points.len().min(16) as u32,
+        _pad_luminance: [0; 3],
     };
     if is_visible("color") && tool_on("colorRanges") {
         let ranges = pack_color_ranges(&adj["colorRanges"], 4);

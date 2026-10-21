@@ -618,18 +618,14 @@ pub fn convert_costyle_to_preset(content: &str, fallback_name: &str) -> Result<P
     if let Some(levels) = levels(&s) {
         adjustments.insert("levels".into(), levels);
     }
-    // Capture One's RGB curve is Rawtonic's main (Lightroom-style composite)
-    // curve; its Luma curve, which keeps saturation, is used only when the
-    // RGB curve is unchanged.
+    // Capture One's RGB curve is Rawtonic's RGB curve and its Luma curve,
+    // which keeps saturation, the Luminance curve. Capture One applies its
+    // curves to gamma-1.8 values (notes: reference/point-curve.md), so they
+    // come over close, not exactly (`untranslated_settings` says so).
     let mut curves = Map::new();
-    if let Some(points) = s
-        .get("GradationCurve")
-        .and_then(|v| curve(v))
-        .or_else(|| s.get("GradationCurveY").and_then(|v| curve(v)))
-    {
-        curves.insert("luma".into(), points);
-    }
     for (key, channel) in [
+        ("GradationCurve", "luma"),
+        ("GradationCurveY", "luminance"),
         ("GradationCurveRed", "red"),
         ("GradationCurveGreen", "green"),
         ("GradationCurveBlue", "blue"),
@@ -705,7 +701,9 @@ fn default_curves() -> Value {
 
 /// Settings in a style that `convert_costyle_to_preset` does not translate
 /// (see the module comment), as codes the import report names: `profile`,
-/// `filmCurve`, `colorEditor`, `whiteBalance`, `noiseReduction`, `lens`.
+/// `filmCurve`, `colorEditor`, `whiteBalance`, `noiseReduction`, `lens`,
+/// and `curves` for curves that come over only approximately (measured: a
+/// few levels off Capture One's renders).
 /// Only settings that change something are listed, so a `.cos` file's
 /// defaults (ICC `EMBEDDED`, an `Auto` film curve, white balance `1;1;1`,
 /// zero amounts) report nothing.
@@ -765,6 +763,18 @@ pub fn untranslated_settings(content: &str) -> Vec<&'static str> {
             .is_some_and(|v| v != *default)
     }) {
         out.push("noiseReduction");
+    }
+    if [
+        "GradationCurve",
+        "GradationCurveY",
+        "GradationCurveRed",
+        "GradationCurveGreen",
+        "GradationCurveBlue",
+    ]
+    .iter()
+    .any(|k| s.get(*k).is_some_and(|v| curve(v).is_some()))
+    {
+        out.push("curves");
     }
     if [
         "GeometryKeystoneTiltX",
@@ -959,6 +969,32 @@ mod tests {
         assert!(a["levels"]["rgb"]["gamma"].as_f64().unwrap() > 1.3);
         assert_eq!(a["curves"]["luma"][1], json!({"x": 128.0, "y": 140.0}));
         assert_eq!(a["curves"]["red"].as_array().unwrap().len(), 2);
+        assert!(a["curves"].get("luminance").is_none());
+    }
+
+    #[test]
+    fn the_luma_curve_becomes_the_luminance_curve() {
+        // Capture One's Luma curve keeps saturation (measured), as the
+        // Luminance curve does; it no longer lands on the RGB curve.
+        let style =
+            r#"<SL><E K="GradationCurveY" V="0,0;0.251,0.188;0.502,0.502;0.753,0.816;1,1"/></SL>"#;
+        let a = convert_costyle_to_preset(style, "luma")
+            .unwrap()
+            .adjustments;
+        assert_eq!(a["curves"]["luminance"].as_array().unwrap().len(), 5);
+        assert_eq!(a["curves"]["luminance"][1], json!({"x": 64.0, "y": 48.0}));
+        assert_eq!(a["curves"]["luma"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            rawtonic_engine::point_curve::luminance_points(&a["curves"]).len(),
+            5
+        );
+        // The import report says the curves come over only approximately;
+        // neutral curves report nothing.
+        assert_eq!(super::untranslated_settings(style), vec!["curves"]);
+        assert!(
+            super::untranslated_settings(r#"<SL><E K="GradationCurve" V="0,0;1,1"/></SL>"#)
+                .is_empty()
+        );
     }
 
     #[test]

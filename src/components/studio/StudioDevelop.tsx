@@ -199,11 +199,15 @@ function PointCurve({
   wholeCurves?: boolean;
 }) {
   const { t } = useTranslation();
-  const [channel, setChannel] = useState<"luma" | "red" | "green" | "blue">(
-    "luma",
-  );
+  const [channel, setChannel] = useState<
+    "luma" | "luminance" | "red" | "green" | "blue"
+  >("luma");
   const [selected, setSelected] = useState<number | null>(null);
-  const points = curves[channel];
+  // Curves without a Luminance curve start it neutral.
+  const points = curves[channel] ?? [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ];
   const dragging = useRef(false);
   const interaction = useRef(onInteraction);
   interaction.current = onInteraction;
@@ -239,6 +243,7 @@ function PointCurve({
         {(
           [
             ["luma", t("adjustments.curves.channels.luma")],
+            ["luminance", t("adjustments.curves.channels.luminance")],
             ["red", "R"],
             ["green", "G"],
             ["blue", "B"],

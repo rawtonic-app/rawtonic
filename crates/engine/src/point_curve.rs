@@ -124,6 +124,20 @@ pub fn curve_space(curves: &Value) -> u32 {
     u32::from(changes)
 }
 
+/// The points of the Luminance curve (`curves.luminance`) as the uniforms
+/// take them; none when it is missing or changes nothing, so the shader
+/// skips it.
+pub fn luminance_points(curves: &Value) -> Vec<Value> {
+    let Some(points) = curves["luminance"].as_array() else {
+        return Vec::new();
+    };
+    let parsed = curve_points(points);
+    if parsed.len() < 2 || is_identity(&parsed) {
+        return Vec::new();
+    }
+    points.clone()
+}
+
 /// The recipe whose render shows, at every pixel, the colour the photo's
 /// region and point curves receive (tone targets sample it): those curves,
 /// and everything the shader applies after them (layer curves, a
@@ -275,6 +289,23 @@ mod tests {
         // A scene-referred LUT acts before the curves and stays.
         let scene = serde_json::json!({"lutPath": "/log.cube", "lutIsSceneReferred": true});
         assert_eq!(curve_input_probe(&scene), scene);
+    }
+
+    #[test]
+    fn the_luminance_curve_reaches_the_uniforms_only_when_it_changes_something() {
+        let lift =
+            serde_json::json!([{"x": 0, "y": 0}, {"x": 128, "y": 160}, {"x": 255, "y": 255}]);
+        assert_eq!(
+            luminance_points(&serde_json::json!({"luminance": lift})).len(),
+            3
+        );
+        for curves in [
+            serde_json::json!({}),
+            serde_json::json!({"luminance": [{"x": 0, "y": 0}, {"x": 255, "y": 255}]}),
+            serde_json::json!({"luminance": [{"x": 0, "y": 0}]}),
+        ] {
+            assert!(luminance_points(&curves).is_empty(), "{curves}");
+        }
     }
 
     #[test]

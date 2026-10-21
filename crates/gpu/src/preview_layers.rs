@@ -319,7 +319,9 @@ pub(super) fn prepare_layers(a: &AllAdjustments) -> Vec<PreparedLayer> {
                 && m.luma_curve[0].y == 0.0
                 && m.luma_curve[1].x == 255.0
                 && m.luma_curve[1].y == 255.0);
-        let has_curves = !luma_identity || layer.curves[1..].iter().any(|c| c.bypass == 0);
+        let has_curves = !luma_identity
+            || layer.curves[1..].iter().any(|c| c.bypass == 0)
+            || m.luminance_curve_count >= 2;
         layer.flags[0] = u32::from(has_scalars(m))
             | (u32::from(has_grade([
                 m.color_grading_shadows,

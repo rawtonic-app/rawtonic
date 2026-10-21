@@ -52,7 +52,8 @@
       "channels": {
         "blue": "파랑",
         "green": "초록",
-        "luma": "루마",
+        "luma": "RGB",
+        "luminance": "휘도",
         "red": "빨강"
       },
       "channelTitle": "{{channel}} 채널",
@@ -1724,7 +1725,8 @@
         "ariaChannels": {
           "blue": "블루",
           "green": "그린",
-          "luma": "휘도",
+          "luma": "RGB",
+          "luminance": "휘도",
           "red": "레드"
         },
         "channel": "커브 채널",
@@ -2986,6 +2988,7 @@
         "calibration": "보정",
         "colorEditor": "Color Editor",
         "crop": "자르기",
+        "curves": "커브(근사치, 몇 단계 차이)",
         "filmCurve": "필름 커브",
         "lens": "렌즈 및 키스톤",
         "lensProfile": "렌즈 프로필",

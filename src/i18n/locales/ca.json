@@ -52,7 +52,8 @@
       "channels": {
         "blue": "Blau",
         "green": "Verd",
-        "luma": "Luma",
+        "luma": "RGB",
+        "luminance": "Luminància",
         "red": "Vermell"
       },
       "channelTitle": "Canal {{channel}}",
@@ -1819,7 +1820,8 @@
         "ariaChannels": {
           "blue": "blau",
           "green": "verd",
-          "luma": "luma",
+          "luma": "RGB",
+          "luminance": "luminància",
           "red": "vermell"
         },
         "channel": "Canal de la corba",
@@ -3155,6 +3157,7 @@
         "calibration": "calibratge",
         "colorEditor": "Color Editor",
         "crop": "retall",
+        "curves": "corbes (aproximades, uns quants nivells de diferència)",
         "filmCurve": "corba de pel·lícula",
         "lens": "objectiu i keystone",
         "lensProfile": "perfil d’objectiu",

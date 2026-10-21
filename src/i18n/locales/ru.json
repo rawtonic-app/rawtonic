@@ -52,7 +52,8 @@
       "channels": {
         "blue": "Синий",
         "green": "Зеленый",
-        "luma": "Яркость",
+        "luma": "RGB",
+        "luminance": "Яркость",
         "red": "Красный"
       },
       "channelTitle": "Канал {{channel}}",
@@ -1877,7 +1878,8 @@
         "ariaChannels": {
           "blue": "синего канала",
           "green": "зелёного канала",
-          "luma": "яркости",
+          "luma": "RGB",
+          "luminance": "яркости",
           "red": "красного канала"
         },
         "channel": "Канал кривой",
@@ -3250,6 +3252,7 @@
         "calibration": "калибровка",
         "colorEditor": "Color Editor",
         "crop": "кадрирование",
+        "curves": "кривые (приблизительно, расхождение в несколько уровней)",
         "filmCurve": "плёночная кривая",
         "lens": "объектив и keystone",
         "lensProfile": "профиль объектива",
