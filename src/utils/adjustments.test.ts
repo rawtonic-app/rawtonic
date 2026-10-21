@@ -236,8 +236,12 @@ describe('RAW detail defaults', () => {
     expect(load({ sharpnessFalloff: 50 })).toBeUndefined();
     expect(load({ sharpness: 0, masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] })).toBeUndefined();
     // Response 3 weights Amount 40 by lightness too (1 and 2 rendered it alike).
-    expect(load({})).toBeUndefined();
     expect(load({ sharpness: 40 })).toBeUndefined();
+    expect(load({ exposure: 1 })).toBeUndefined();
+    // A new or reset recipe (Library Reset saves {}) renders as a new edit,
+    // as the backend gives it (`apply_render_default`).
+    expect(load({})).toBe(SHARPEN_VERSION);
+    expect(load({ lensProfileFor: '["manual"]' })).toBe(SHARPEN_VERSION);
     // No sharpening renders the same with every response: the current one.
     expect(load({ sharpness: 0 })).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: 0, sharpenDetail: 100 })).toBe(SHARPEN_VERSION);

@@ -1256,15 +1256,19 @@ export const initialAdjustmentsFor = (isRaw: boolean): Adjustments =>
         renderVersion: RENDER_VERSION,
       };
 
-/** The render version of a saved recipe: its own; the current one for an
- * empty recipe (Library Reset saves `{}`; loading adds only
- * `lensProfileFor`), which renders as a new edit, as the backend does
- * (`embedded_lens::apply_default`); else the first (missing key). */
+/** Whether a saved recipe is new: empty (Library Reset saves `{}`; loading
+ * adds only `lensProfileFor`). It renders as a new edit, as the backend does
+ * (`image_processing::is_new_recipe`, `embedded_lens::apply_default`). */
+const isNewRecipe = (loaded: Partial<Adjustments>): boolean =>
+  Object.keys(loaded).every((key) => key === 'lensProfileFor');
+
+/** The render version of a saved recipe: its own; the current one for a new
+ * recipe; else the first (missing key). */
 const loadedRenderVersion = (loaded: Partial<Adjustments>): number | undefined => {
   if (loaded.renderVersion !== undefined && loaded.renderVersion !== null) {
     return loaded.renderVersion;
   }
-  return Object.keys(loaded).every((key) => key === 'lensProfileFor') ? RENDER_VERSION : undefined;
+  return isNewRecipe(loaded) ? RENDER_VERSION : undefined;
 };
 
 /** The Defringe detector of a saved recipe: its own; else the current one
@@ -1293,12 +1297,13 @@ const sharpensAlikeInEveryVersion = (values: Partial<Adjustments>, isRaw: boolea
 };
 
 /** The sharpening response of a saved recipe: its own; else the current one
- * when it renders the same with it, the earlier one otherwise (missing key). */
+ * when it is new (as the backend's `apply_render_default`) or renders the
+ * same with it, the earliest one otherwise (missing key). */
 const loadedSharpenVersion = (loaded: Partial<Adjustments>, isRaw: boolean): number | undefined => {
   if (loaded.sharpenVersion !== undefined && loaded.sharpenVersion !== null) {
     return loaded.sharpenVersion;
   }
-  return sharpensAlikeInEveryVersion(loaded, isRaw) ? SHARPEN_VERSION : undefined;
+  return isNewRecipe(loaded) || sharpensAlikeInEveryVersion(loaded, isRaw) ? SHARPEN_VERSION : undefined;
 };
 
 /** What a paste applies from the clipboard: the included keys, in Merge mode

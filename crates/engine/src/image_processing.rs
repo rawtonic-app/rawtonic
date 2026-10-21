@@ -4736,10 +4736,11 @@ pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
         })
 }
 
-/// Sets the current render version on a new recipe (`is_new_recipe`), as
-/// the editor does for new edits (RAW or not): before a never-edited photo
-/// renders, and before a batch edit (paste, preset, Auto) fills one. Saved
-/// recipes, partial ones included, keep the version they were made with.
+/// Sets the current render version and sharpening response on a new recipe
+/// (`is_new_recipe`), as the editor does for new edits (RAW or not): before
+/// a never-edited photo renders, and before a batch edit (paste, preset,
+/// Auto) fills one. Saved recipes, partial ones included, keep the versions
+/// they were made with.
 pub fn apply_render_default(adjustments: &mut serde_json::Value) {
     if !is_new_recipe(adjustments) {
         return;
@@ -4751,6 +4752,10 @@ pub fn apply_render_default(adjustments: &mut serde_json::Value) {
         map.insert(
             RENDER_VERSION_KEY.to_string(),
             serde_json::json!(RENDER_VERSION),
+        );
+        map.insert(
+            SHARPEN_VERSION_KEY.to_string(),
+            serde_json::json!(SHARPEN_VERSION),
         );
     }
 }
@@ -7591,6 +7596,10 @@ mod render_version_tests {
             let mut recipe = new.clone();
             apply_render_default(&mut recipe);
             assert_eq!(recipe[RENDER_VERSION_KEY], RENDER_VERSION, "{new}");
+            // The sharpening response too: response 3 differs from 1 at the
+            // RAW default Amount 40, so a never-edited or reset RAW would
+            // otherwise render with 1 outside the editor.
+            assert_eq!(recipe[SHARPEN_VERSION_KEY], SHARPEN_VERSION, "{new}");
         }
         for saved in [
             json!({"clarity": 30}),
