@@ -3136,6 +3136,142 @@ fn layer_preview_timing_probe() {
         .store(false, Ordering::Relaxed);
 }
 
+/// A Lightroom-style curve with 20 points (zig-zag of ±10 levels).
+fn twenty_point_curve() -> Vec<serde_json::Value> {
+    let xs = [
+        0, 13, 27, 40, 54, 67, 81, 94, 107, 121, 134, 148, 161, 174, 188, 201, 215, 228, 242, 255,
+    ];
+    xs.iter()
+        .enumerate()
+        .map(|(i, &x)| {
+            let y = match i {
+                0 | 19 => x,
+                _ if i % 2 == 1 => x + 10,
+                _ => x - 10,
+            };
+            json!({"x":x,"y":y})
+        })
+        .collect()
+}
+
+#[test]
+fn long_curves_use_the_curve_table() {
+    let long = twenty_point_curve();
+    let a = get_all_adjustments_from_json(&json!({"curves":{"red":long}}), true, Some(1));
+    assert_eq!(a.global.region_curve_active[1], 1);
+    assert_eq!(a.curve_table.as_ref().unwrap().len(), CURVE_LUT_SAMPLES);
+    // Even when the first 16 points alone would be identity.
+    let identity_start: Vec<_> = (0..20).map(|i| json!({"x":i * 10,"y":i * 10})).collect();
+    let mut tail = identity_start.clone();
+    tail[18] = json!({"x":180,"y":200});
+    let a = get_all_adjustments_from_json(&json!({"curves":{"luma":tail}}), true, Some(1));
+    assert_ne!(preview_features(&a) & 4, 0);
+    // Hidden curves and short ones keep the uniforms' evaluator.
+    for profile in [
+        json!({"curves":{"luma":long},"sectionVisibility":{"curves":false}}),
+        json!({"curves":custom_curve()}),
+    ] {
+        let a = get_all_adjustments_from_json(&profile, true, Some(1));
+        assert_eq!(a.global.region_curve_active[1], 0, "{profile}");
+        assert!(a.curve_table.is_none(), "{profile}");
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; curves with more than 16 points against their exact values"]
+fn long_curves_render_every_point() {
+    let context = context();
+    let (width, height) = (257, 64);
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input(&context, width, height, 5);
+    let long = twenty_point_curve();
+    let channels: [Vec<(f32, f32)>; 4] = [
+        rawtonic_engine::point_curve::curve_points(&long),
+        vec![(0.0, 0.0), (128.0, 150.0), (255.0, 255.0)],
+        vec![(0.0, 0.0), (255.0, 255.0)],
+        vec![(0.0, 0.0), (255.0, 255.0)],
+    ];
+    let curved = json!({"curves":{"luma":long,
+        "red":[{"x":0,"y":0},{"x":128,"y":150},{"x":255,"y":255}]}});
+    let render = |profile: &serde_json::Value, display: bool, precision| -> Vec<f32> {
+        let adjustments = get_all_adjustments_from_json(profile, false, Some(0));
+        if display {
+            prepare_preview_pipeline(&processor, preview_features(&adjustments));
+        }
+        let (pixels, w, h, x, y) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                display,
+                precision,
+            )
+            .unwrap();
+        if display {
+            return read_texture_data_roi(
+                &context.device,
+                &context.queue,
+                &processor.test_working_texture(),
+                wgpu::Origin3d { x, y, z: 0 },
+                wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                4,
+            )
+            .unwrap()
+            .iter()
+            .map(|&v| v as f32 / 255.0)
+            .collect();
+        }
+        match pixels {
+            RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
+            RenderedPixels::U8(bytes) => bytes.iter().map(|&v| v as f32 / 255.0).collect(),
+        }
+    };
+    // Export (16-bit) against the exact curves of the uncurved render; pixels
+    // clipped there carry their excess past the curve (`carry_beyond_srgb`).
+    let before = render(&json!({}), false, RenderOutputPrecision::SixteenBit);
+    let after = render(&curved, false, RenderOutputPrecision::SixteenBit);
+    let mut worst = 0.0f32;
+    let mut compared = 0;
+    for (pixel, out) in before.chunks(4).zip(after.chunks(4)) {
+        if pixel[..3].iter().any(|&v| v >= 0.999) {
+            continue;
+        }
+        let expected: [f32; 3] = std::array::from_fn(|c| {
+            rawtonic_engine::point_curve::curves_value(&channels, pixel[c])[c]
+        });
+        for c in 0..3 {
+            worst = worst.max((out[c] - expected[c]).abs() * 255.0);
+        }
+        compared += 1;
+    }
+    assert!(compared > 5_000, "{compared} pixels compared");
+    assert!(worst <= 0.3, "export: worst {worst} levels");
+    // The display variants read the same table as the export.
+    let export = render(&curved, false, RenderOutputPrecision::EightBit);
+    let display = render(&curved, true, RenderOutputPrecision::EightBit);
+    let display_delta = export
+        .iter()
+        .zip(&display)
+        .map(|(a, b)| ((a - b).abs() * 255.0).round() as u32)
+        .max()
+        .unwrap();
+    assert!(
+        display_delta <= 1,
+        "display against export: {display_delta} levels"
+    );
+    println!("export worst {worst:.3} levels over {compared} pixels; display {display_delta}");
+}
+
 #[test]
 #[ignore = "requires a native GPU; display curve tables against exact curve evaluation"]
 fn curve_tables_match_exact_display_curves() {

@@ -29,6 +29,10 @@ override DIRECT_CURVES: bool = false;
 // Prepare curve polynomials and active-layer flags once per preview recipe;
 // read scalar and grading values without per-pixel mask-struct copies.
 override PREPARED_LAYERS: bool = false;
+// Exports of recipes whose global point curves have more than 16 points:
+// the curves come from the table in `curve_luts` (layer 0, point_curve.rs).
+// Display variants read the same table when the global layer's flags hold 8u.
+override LONG_CURVES: bool = false;
 // Display frames whose layer slider sums come from one pass (layer_sums.wgsl)
 // instead of the per-layer loop (gpu_processing.rs `layer_sums_buffer`).
 override LAYER_SUMS: bool = false;
@@ -5129,8 +5133,8 @@ fn apply_curves_prepared(color: vec3<f32>, layer: u32) -> vec3<f32> {
     return clamp(vec3<f32>(apply_curve_prepared(r, layer, 1u), apply_curve_prepared(g, layer, 2u), apply_curve_prepared(b, layer, 3u)), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-// Mask-layer curve inputs are already within [0, 1]; each channel reads its
-// own sampled composite of the luma and channel curves.
+// Curve inputs are already within [0, 1]; each channel reads its own
+// sampled composite of the luma and channel curves (layer 0: the photo's).
 fn apply_curve_lut(color: vec3<f32>, layer: u32) -> vec3<f32> {
     let position = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)) * 1024.0;
     let index = min(vec3<u32>(position), vec3<u32>(1023u));
@@ -6586,7 +6590,9 @@ fn main(
     let curve_input = clamp(display, vec3<f32>(0.0), vec3<f32>(1.0));
     var final_rgb = curve_input;
     if (ENABLE_CURVES) {
-        if (PREPARED_LAYERS) {
+        if (LONG_CURVES || (PREPARED_LAYERS && (prepared_layers[0].flags.x & 8u) != 0u)) {
+            final_rgb = apply_curve_lut(curve_input, 0u);
+        } else if (PREPARED_LAYERS) {
             final_rgb = apply_curves_prepared(curve_input, 0u);
         } else if (DIRECT_CURVES) {
             final_rgb = apply_all_curves_direct(curve_input, 0u);

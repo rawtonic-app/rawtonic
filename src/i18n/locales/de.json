@@ -1980,6 +1980,7 @@
         "hue": "Gezielter Farbton",
         "label": "Gezielt",
         "luminance": "Gezielte Luminanz",
+        "regionCurve": "Gezielte Bereichskurve",
         "saturation": "Gezielte Sättigung",
         "toneCurve": "Gezielte Gradationskurve"
       },

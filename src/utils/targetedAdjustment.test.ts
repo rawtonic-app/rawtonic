@@ -8,6 +8,7 @@ import {
   startTargetedAdjustment,
   targetedPatch,
 } from "./targetedAdjustment";
+import { regionCurveValue } from "./regionCurve";
 
 const base = () => structuredClone(INITIAL_ADJUSTMENTS);
 const sky = linearFromSrgb([90, 140, 220]);
@@ -88,7 +89,45 @@ describe("targeted adjustment", () => {
     });
   });
 
-  it("evaluates the curve as the panel draws it", () => {
+  it("reads the point curve's level behind the region curve", () => {
+    const adjustments = base();
+    adjustments.regionCurve = { ...adjustments.regionCurve!, darks: 60 };
+    const lifted = regionCurveValue(adjustments.regionCurve, 80 / 255) * 255;
+    const start = startTargetedAdjustment("curve", adjustments, null, [
+      lifted,
+      lifted,
+      lifted,
+    ])!;
+    // The point curve sees the region curve's output, not the photo's level.
+    expect(start.curveX).toBe(Math.round(lifted));
+  });
+
+  it("moves the region of the tone under the pointer", () => {
+    const adjustments = base();
+    adjustments.regionCurve = { ...adjustments.regionCurve!, lights: 10 };
+    const shown = regionCurveValue(adjustments.regionCurve, 150 / 255) * 255;
+    const start = startTargetedAdjustment("regionCurve", adjustments, null, [
+      shown,
+      shown,
+      shown,
+    ])!;
+    expect(start.curveX).toBe(150);
+    const patch = targetedPatch(start, 25.4);
+    expect(patch.regionCurve).toMatchObject({ lights: 35, darks: 0 });
+    expect(targetedPatch(start, 500).regionCurve!.lights).toBe(100);
+    const shadow = startTargetedAdjustment(
+      "regionCurve",
+      base(),
+      null,
+      [20, 20, 20],
+    )!;
+    expect(targetedPatch(shadow, -10).regionCurve).toMatchObject({
+      shadows: -10,
+      lights: 0,
+    });
+  });
+
+  it("evaluates the curve as the renderer does", () => {
     expect(
       curveValue(
         [
@@ -98,7 +137,7 @@ describe("targeted adjustment", () => {
         ],
         64,
       ),
-    ).toBe(80);
+    ).toBeCloseTo(84.02, 2);
     expect(oklch([1, 1, 1]).chroma).toBeLessThan(1e-3);
   });
 });

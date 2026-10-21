@@ -36,6 +36,7 @@ pub mod mask_thumbnail;
 pub mod masks;
 pub mod output_color_space;
 pub mod patch_fill;
+pub mod point_curve;
 pub mod proxy_codec;
 pub mod region_curve;
 pub mod relight;

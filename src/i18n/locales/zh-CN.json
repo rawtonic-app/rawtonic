@@ -1943,6 +1943,7 @@
         "hue": "目标色相",
         "label": "目标",
         "luminance": "目标亮度",
+        "regionCurve": "定向区域曲线",
         "saturation": "目标饱和度",
         "toneCurve": "目标色调曲线"
       },

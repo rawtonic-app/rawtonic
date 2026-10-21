@@ -5,6 +5,7 @@ import { useEditorStore } from "../../../store/useEditorStore";
 import {
   TAT_UNITS_PER_PIXEL,
   dominantChannel,
+  isToneTarget,
   startTargetedAdjustment,
   targetedPatch,
   type TatStart,
@@ -67,13 +68,13 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
     const path = selectedImage.path;
     const point = { path, normalizedX, normalizedY };
     const [linear, display] = await Promise.all([
-      tatTarget === "curve"
+      isToneTarget(tatTarget)
         ? Promise.resolve(null)
         : invoke<[number, number, number] | null>(
             Invokes.SamplePreviewWhiteBalance,
             point,
           ).catch(() => null),
-      tatTarget === "curve"
+      isToneTarget(tatTarget)
         ? invoke<[number, number, number] | null>(
             Invokes.SamplePreviewColor,
             point,

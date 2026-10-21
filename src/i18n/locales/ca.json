@@ -2038,6 +2038,7 @@
         "hue": "To selectiu",
         "label": "Selectiu",
         "luminance": "Luminància selectiva",
+        "regionCurve": "Corba de regions dirigida",
         "saturation": "Saturació selectiva",
         "toneCurve": "Corba de tons selectiva"
       },

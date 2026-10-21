@@ -2038,6 +2038,7 @@
         "hue": "Teinte ciblée",
         "label": "Ciblé",
         "luminance": "Luminance ciblée",
+        "regionCurve": "Courbe paramétrique ciblée",
         "saturation": "Saturation ciblée",
         "toneCurve": "Courbe des tonalités ciblée"
       },

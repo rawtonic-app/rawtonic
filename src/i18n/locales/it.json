@@ -2038,6 +2038,7 @@
         "hue": "Tonalità mirata",
         "label": "Mirato",
         "luminance": "Luminanza mirata",
+        "regionCurve": "Curva per aree mirata",
         "saturation": "Saturazione mirata",
         "toneCurve": "Curva di viraggio mirata"
       },

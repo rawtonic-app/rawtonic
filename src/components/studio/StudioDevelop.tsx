@@ -52,6 +52,7 @@ import AdjustmentControl from "./AdjustmentControl";
 import StudioCameraProfile from "./StudioCameraProfile";
 import StudioWhiteBalance from "./StudioWhiteBalance";
 import type { TatTarget } from "../../utils/targetedAdjustment";
+import { pointCurveValue } from "../../utils/pointCurve";
 import StudioHistogram from "./StudioHistogram";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
@@ -320,7 +321,10 @@ function PointCurve({
           />
         )}
         <polyline
-          points={points.map((p) => `${p.x},${255 - p.y}`).join(" ")}
+          points={Array.from({ length: 129 }, (_, i) => {
+            const x = i * (255 / 128);
+            return `${x},${255 - pointCurveValue(points, x)}`;
+          }).join(" ")}
           fill="none"
           className={`curve-line curve-${channel}`}
         />
@@ -1165,6 +1169,10 @@ export default function StudioDevelop() {
               />
               {!layer && (
                 <RegionCurveControls
+                  targeted={targetToggle(
+                    "regionCurve",
+                    t("studio.develop.targeted.regionCurve"),
+                  )}
                   value={{
                     ...INITIAL_REGION_CURVE,
                     ...(values.regionCurve as RegionCurve | undefined),

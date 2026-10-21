@@ -2096,6 +2096,7 @@
         "hue": "Celowany odcień",
         "label": "Celowane",
         "luminance": "Celowana luminancja",
+        "regionCurve": "Celowana krzywa obszarów",
         "saturation": "Celowane nasycenie",
         "toneCurve": "Celowana krzywa tonalna"
       },

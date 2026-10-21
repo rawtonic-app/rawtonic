@@ -2393,6 +2393,12 @@ pub struct GpuProcessor {
     /// the others are compiled without it (`LUMA_PROFILE` false) so earlier
     /// recipes' exports stay bit-exact.
     profile_pipelines: [[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2],
+    /// General pipelines reading the global curves from their table
+    /// (`LONG_CURVES`, curves with more than 16 points), by [high
+    /// precision][luminance noise profile][edge pass].
+    long_curve_pipelines: [[[std::sync::OnceLock<Option<wgpu::ComputePipeline>>; 2]; 2]; 2],
+    /// The global curve table in `curve_luts_buffer`'s first slot.
+    curve_table_loaded: Mutex<Option<Arc<Vec<[f32; 4]>>>>,
     detail_bgl: wgpu::BindGroupLayout,
     detail_layout: wgpu::PipelineLayout,
     /// Compiled off the render worker on first use; `None` if it failed.
@@ -3314,12 +3320,14 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let g = &adjustments.global;
     let mut sharpen = g.sharpness != 0.0;
     let mut highlights = g.highlights != 0.0;
-    let mut curves = !curves_are_identity([
-        (&g.luma_curve, g.luma_curve_count),
-        (&g.red_curve, g.red_curve_count),
-        (&g.green_curve, g.green_curve_count),
-        (&g.blue_curve, g.blue_curve_count),
-    ]);
+    // More than 16 points (`region_curve_active` y): the curve table.
+    let mut curves = g.region_curve_active[1] != 0
+        || !curves_are_identity([
+            (&g.luma_curve, g.luma_curve_count),
+            (&g.red_curve, g.red_curve_count),
+            (&g.green_curve, g.green_curve_count),
+            (&g.blue_curve, g.blue_curve_count),
+        ]);
     let mut noise_reduction = g.luma_noise_reduction != 0.0 || g.color_noise_reduction != 0.0;
     let tone_of = |contrast: f32, shadows: f32, whites: f32, blacks: f32| {
         contrast != 0.0 || shadows != 0.0 || whites != 0.0 || blacks != 0.0
@@ -4355,6 +4363,8 @@ impl GpuProcessor {
             start_gate,
             edge_pipelines: Default::default(),
             profile_pipelines: Default::default(),
+            long_curve_pipelines: Default::default(),
+            curve_table_loaded: Mutex::new(None),
             detail_bgl,
             detail_layout,
             detail_pipeline: Arc::new(std::sync::OnceLock::new()),
@@ -5321,7 +5331,10 @@ impl GpuProcessor {
         adjustments: &AllAdjustments,
     ) -> Option<Result<&wgpu::ComputePipeline, String>> {
         let edge = edge_noise_reduction(adjustments);
-        let with_pass = if adjustments.global.luma_noise_profile[0][0] > 0.0 {
+        let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
+        let with_pass = if adjustments.global.region_curve_active[1] != 0 {
+            Some(&self.long_curve_pipelines[0][usize::from(profile)][usize::from(edge)])
+        } else if profile {
             Some(&self.profile_pipelines[0][usize::from(edge)])
         } else if edge {
             Some(&self.edge_pipelines[0])
@@ -5454,7 +5467,10 @@ impl GpuProcessor {
         // Metal may reassociate active neighbourhood operations when unrelated
         // branches are removed. Their full general pipeline preserves exact
         // 8/16-bit exports; specialize only recipes without those operations.
-        if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0 {
+        // Curve tables have no specialized export variant.
+        if features & ((1 << 0) | (1 << 1) | (1 << 4)) != 0
+            || adjustments.global.region_curve_active[1] != 0
+        {
             return self.general_pipeline(adjustments, high_precision);
         }
         let (pipelines, shader, layout) = if high_precision {
@@ -5513,6 +5529,9 @@ impl GpuProcessor {
         } else {
             &self.main_pipeline
         };
+        if adjustments.global.region_curve_active[1] != 0 {
+            return self.long_curve_pipeline(adjustments, high_precision, plain);
+        }
         #[cfg(test)]
         if self
             .force_plain_noise_reduction
@@ -5607,6 +5626,77 @@ impl GpuProcessor {
             Some(pipeline) => Ok(pipeline),
             None => plain.wait(),
         }
+    }
+
+    /// `general_pipeline` for recipes whose global curves come from their
+    /// table (`LONG_CURVES`); separate pipelines, so the others' exports
+    /// keep their bits.
+    fn long_curve_pipeline<'a>(
+        &'a self,
+        adjustments: &AllAdjustments,
+        high_precision: bool,
+        plain: &'a BackgroundPipeline,
+    ) -> Result<&'a wgpu::ComputePipeline, String> {
+        let edge = edge_noise_reduction(adjustments);
+        let profile = adjustments.global.luma_noise_profile[0][0] > 0.0;
+        match self.long_curve_pipelines[usize::from(high_precision)][usize::from(profile)]
+            [usize::from(edge)]
+        .get_or_init(|| {
+            let (shader, layout) = if high_precision {
+                (&self.high_precision_shader, &self.high_precision_layout)
+            } else {
+                (&self.preview_shader, &self.preview_layout)
+            };
+            let on = |enabled: bool| if enabled { 1.0 } else { 0.0 };
+            let mut constants = vec![
+                ("EDGE_NR", on(edge)),
+                ("LUMA_PROFILE", on(profile)),
+                ("LONG_CURVES", 1.0),
+            ];
+            if high_precision {
+                constants.push(("HIGH_PRECISION_OUTPUT", 1.0));
+            }
+            create_compute_pipeline(
+                &self.context.device,
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some("Compute Pipeline (curve table)"),
+                    layout: Some(layout),
+                    module: shader,
+                    entry_point: Some("main"),
+                    compilation_options: wgpu::PipelineCompilationOptions {
+                        constants: &constants,
+                        ..Default::default()
+                    },
+                    cache: None,
+                },
+            )
+            .inspect_err(|error| log::error!("Curve table pipeline unavailable: {error}"))
+            .ok()
+        })
+        .as_ref()
+        {
+            Some(pipeline) => Ok(pipeline),
+            None => plain.wait(),
+        }
+    }
+
+    /// Writes the global curve table into `curve_luts_buffer`'s first slot
+    /// unless it is there already.
+    fn update_curve_table(&self, table: &Arc<Vec<[f32; 4]>>) {
+        let mut loaded = self
+            .curve_table_loaded
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if loaded
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, table) || current == table)
+        {
+            return;
+        }
+        self.context
+            .queue
+            .write_buffer(&self.curve_luts_buffer, 0, bytemuck::cast_slice(table));
+        *loaded = Some(Arc::clone(table));
     }
 
     /// Test shorthand for the exact export shader on readback jobs.
@@ -5958,10 +6048,14 @@ impl GpuProcessor {
 
         let adjustments = request.adjustments.uniforms;
         self.update_camera_profile_tables(&adjustments.global);
+        if let Some(table) = &request.adjustments.curve_table {
+            self.update_curve_table(table);
+        }
         let mut layer_sums_buffer = self.layer_sums_off.clone();
         if display_shader {
             let mut layers = prepare_layers(&adjustments);
             self.update_curve_luts(&mut layers, adjustments.mask_count as usize);
+            layers[0].set_curve_lut(request.adjustments.curve_table.is_some());
             queue.write_buffer(
                 &self.prepared_layers_buffer,
                 0,

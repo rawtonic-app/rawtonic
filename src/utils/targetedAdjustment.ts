@@ -1,19 +1,29 @@
 import {
   INITIAL_GRAY_MIXER,
+  INITIAL_REGION_CURVE,
   MAX_CURVE_POINTS,
   type Adjustments,
   type Coord,
   type GrayMixer,
+  type RegionCurve,
 } from "./adjustments";
+import { pointCurveValue } from "./pointCurve";
+import { regionAt, regionCurveValue } from "./regionCurve";
 
 /**
  * Lightroom's Targeted Adjustment Tool (Capture One's curve and colour
  * pickers): drag up or down in the photo and the sliders that act on the
  * colour or tone under the pointer move. Hue, Saturation and Luminance of
- * the colour mixer, the black & white mix and the luma tone curve.
+ * the colour mixer, the black & white mix, the luma tone curve and the
+ * region curve (the region of the tone under the pointer, as Lightroom's
+ * parametric curve).
  */
 export type TatTarget =
-  "hue" | "saturation" | "luminance" | "grayMixer" | "curve";
+  "hue" | "saturation" | "luminance" | "grayMixer" | "curve" | "regionCurve";
+
+/** Targets that act on the displayed tone rather than the photo's colour. */
+export const isToneTarget = (target: TatTarget) =>
+  target === "curve" || target === "regionCurve";
 
 export const HSL_CHANNELS = [
   "reds",
@@ -104,14 +114,29 @@ export function startTargetedAdjustment(
   linearRgb: [number, number, number] | null,
   displayRgb: [number, number, number] | null,
 ): TatStart | null {
-  if (target === "curve") {
+  if (isToneTarget(target)) {
     if (!displayRgb) return null;
     const displayed =
       0.2126 * displayRgb[0] + 0.7152 * displayRgb[1] + 0.0722 * displayRgb[2];
+    const region = regionOf(base);
+    // The point curve acts on the region curve's output: the region target
+    // needs the level before both, the point curve the level between.
+    const before = invertCurve(
+      (x) =>
+        pointCurveValue(
+          base.curves?.luma,
+          regionCurveValue(region, x / 255) * 255,
+        ),
+      displayed,
+    );
     return {
       target,
       base,
-      curveX: Math.round(invertCurve(base.curves?.luma, displayed)),
+      curveX: Math.round(
+        target === "regionCurve"
+          ? before
+          : regionCurveValue(region, before / 255) * 255,
+      ),
     };
   }
   if (!linearRgb) return null;
@@ -129,7 +154,7 @@ export function dominantChannel(start: TatStart): string | null {
   if (
     !start.weights ||
     start.target === "grayMixer" ||
-    start.target === "curve"
+    isToneTarget(start.target)
   )
     return null;
   return HSL_CHANNELS[start.weights.indexOf(Math.max(...start.weights))];
@@ -145,6 +170,16 @@ export function targetedPatch(
   delta: number,
 ): Partial<Adjustments> {
   const { base, target } = start;
+  if (target === "regionCurve") {
+    const region = regionOf(base);
+    const key = regionAt(region, (start.curveX ?? 128) / 255);
+    return {
+      regionCurve: {
+        ...region,
+        [key]: Math.round(clamp(region[key] + delta, -100, 100)),
+      },
+    };
+  }
   if (target === "curve") {
     return {
       curves: {
@@ -179,31 +214,20 @@ export function targetedPatch(
   return { hsl };
 }
 
-/** Curve value at `x` with the panel's piecewise-linear drawing. */
-export function curveValue(points: Coord[] | undefined, x: number): number {
-  const p =
-    points && points.length >= 2
-      ? points
-      : [
-          { x: 0, y: 0 },
-          { x: 255, y: 255 },
-        ];
-  if (x <= p[0].x) return p[0].y;
-  for (let i = 1; i < p.length; i += 1) {
-    if (x <= p[i].x) {
-      const t = (x - p[i - 1].x) / Math.max(p[i].x - p[i - 1].x, 1e-6);
-      return p[i - 1].y + t * (p[i].y - p[i - 1].y);
-    }
-  }
-  return p[p.length - 1].y;
-}
+const regionOf = (a: Adjustments): RegionCurve => ({
+  ...INITIAL_REGION_CURVE,
+  ...a.regionCurve,
+});
 
-/** The input level the curve maps to `displayed` (nearest for flat parts). */
-function invertCurve(points: Coord[] | undefined, displayed: number): number {
+/** The renderer's luma point curve at `x` (0–255). */
+export const curveValue = pointCurveValue;
+
+/** The input level `curve` maps to `displayed` (nearest for flat parts). */
+function invertCurve(curve: (x: number) => number, displayed: number): number {
   let best = 0;
   let error = Infinity;
   for (let x = 0; x <= 255; x += 1) {
-    const e = Math.abs(curveValue(points, x) - displayed);
+    const e = Math.abs(curve(x) - displayed);
     if (e < error) {
       error = e;
       best = x;
