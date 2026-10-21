@@ -245,27 +245,39 @@ async function lensDataFor(
   return { lensDistortionParams: maker && model ? await profile(maker, model) : null };
 }
 
-/** Applies the lens data `lens` resolved for a lens choice pasted onto the
- * open photograph `path` (its paste's step `pastedStep`) as a step of its
- * own, as the Lens Correction tool does: only its lens fields, onto the
- * recipe shown now, and only while that paste is not undone and the photo
- * still has the pasted lens choice (its save resolves it on disk anyway). */
+/** Puts the lens data `lens` resolved for a lens choice pasted onto the
+ * open photograph `path` into its paste's step `pastedStep`, so undo and
+ * redo show that step with its correction as its save has it: that step
+ * and the steps after it (undone ones included) that still have its lens
+ * choice without data. Nothing while that step is gone from the history (a
+ * new edit after undoing it; its save resolves it on disk anyway). */
 function showPastedLens(path: string, pastedStep: Adjustments, lens: Partial<Adjustments>) {
   if (!isCurrentEditorImage(path)) return;
+  debouncedSetHistory.flush();
   const { history, historyIndex, adjustments } = useEditorStore.getState();
   const at = history.indexOf(pastedStep);
-  if (at < 0 || at > historyIndex) return;
+  if (at < 0) return;
   const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
   // The lens choice the data was resolved for (a camera choice with its
-  // camera CA version): a later paste of another one supersedes it.
+  // camera CA version), still without its data: a later lens edit or
+  // paste of another one supersedes it.
   const choice = (recipe: Adjustments) =>
     field(recipe, 'lensCorrectionMode') === 'manual'
-      ? ['manual', field(recipe, 'lensMaker'), field(recipe, 'lensModel')]
-      : [field(recipe, 'lensCorrectionMode'), field(recipe, 'cameraCaVersion')];
-  if (!sameAdjustmentValue(choice(adjustments), choice(pastedStep))) return;
-  debouncedSetHistory.flush();
-  updateAdjustments((prev: Adjustments) => ({ ...prev, ...lens }));
-  debouncedSetHistory.flush();
+      ? ['manual', field(recipe, 'lensMaker'), field(recipe, 'lensModel'), field(recipe, 'lensDistortionParams')]
+      : [field(recipe, 'lensCorrectionMode'), field(recipe, 'cameraCaVersion'), field(recipe, 'lensDistortionParams')];
+  const unresolved = choice(pastedStep);
+  const patched = history.map((step, index) =>
+    index >= at && sameAdjustmentValue(choice(step), unresolved) ? { ...step, ...lens } : step,
+  );
+  // The recipe shown: its step's, or (a drag's moves not yet a step) with
+  // the same data.
+  const shown =
+    historyIndex < at || !sameAdjustmentValue(choice(adjustments), unresolved)
+      ? adjustments
+      : history[historyIndex] === adjustments
+        ? patched[historyIndex]
+        : { ...adjustments, ...lens };
+  useEditorStore.setState({ history: patched, ...(shown !== adjustments ? { adjustments: shown } : {}) });
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
