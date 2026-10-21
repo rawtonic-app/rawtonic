@@ -119,8 +119,22 @@ export function startTargetedAdjustment(
     // The displayed sample can be traced back through the photo's curves
     // only: layer curves and a LUT after them would mislead it.
     if (!displayRgb || hasToneAfterCurves(base)) return null;
-    const region = regionOf(base);
-    const curves = base.curves;
+    // The curves as the renderer applies them (curve tool on, legacy
+    // recipes cut after the 16th point).
+    const shown = base.sectionVisibility?.curves !== false;
+    const region = shown ? regionOf(base) : INITIAL_REGION_CURVE;
+    const cut = (points: Coord[] | undefined) =>
+      !shown
+        ? undefined
+        : (base.curveVersion ?? 1) < CURVE_VERSION
+          ? points?.slice(0, MAX_CURVE_POINTS)
+          : points;
+    const curves = base.curves && {
+      luma: cut(base.curves.luma),
+      red: cut(base.curves.red),
+      green: cut(base.curves.green),
+      blue: cut(base.curves.blue),
+    };
     const channelCurves = [curves?.red, curves?.green, curves?.blue];
     // Each channel went through the region, luma and its own curve: recover
     // its level before them, then weigh the channels into one tone.
@@ -238,8 +252,11 @@ const isIdentity = (points: Coord[] | undefined) =>
  * curves, which the displayed sample cannot be traced back through. */
 function hasToneAfterCurves(a: Adjustments) {
   const layerCurves = (a.masks ?? []).some((mask) => {
+    const adjustments = mask.adjustments as Partial<Adjustments> | undefined;
     const curves =
-      mask.visible === false ? undefined : mask.adjustments?.curves;
+      mask.visible === false || adjustments?.sectionVisibility?.curves === false
+        ? undefined
+        : adjustments?.curves;
     return (
       !!curves &&
       [curves.luma, curves.red, curves.green, curves.blue].some(

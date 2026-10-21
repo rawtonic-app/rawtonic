@@ -9,6 +9,7 @@ import {
   targetedPatch,
 } from "./targetedAdjustment";
 import { regionCurveValue } from "./regionCurve";
+import { pointCurveValue } from "./pointCurve";
 
 const base = () => structuredClone(INITIAL_ADJUSTMENTS);
 const sky = linearFromSrgb([90, 140, 220]);
@@ -199,6 +200,59 @@ describe("targeted adjustment", () => {
     expect(
       startTargetedAdjustment("regionCurve", hidden, null, [100, 100, 100]),
     ).not.toBeNull();
+    const switchedOff = {
+      ...base(),
+      masks: [
+        {
+          visible: true,
+          adjustments: {
+            curves: { luma: lifted },
+            sectionVisibility: { curves: false },
+          },
+        },
+      ],
+    } as never;
+    expect(
+      startTargetedAdjustment(
+        "regionCurve",
+        switchedOff,
+        null,
+        [100, 100, 100],
+      ),
+    ).not.toBeNull();
+  });
+
+  it("traces legacy long curves as the renderer cuts them", () => {
+    const xs = Array.from({ length: 15 }, (_, i) => i * 7);
+    const luma = [
+      ...xs.map((x) => ({ x, y: x })),
+      { x: 220, y: 240 },
+      { x: 230, y: 240 },
+      { x: 240, y: 245 },
+      { x: 250, y: 250 },
+      { x: 255, y: 255 },
+    ];
+    const legacy = { ...base(), curves: { ...base().curves, luma } };
+    delete (legacy as { curveVersion?: number }).curveVersion;
+    // Rendered with its first 16 points.
+    const cutAt200 = pointCurveValue(luma.slice(0, 16), 200);
+    const start = startTargetedAdjustment("regionCurve", legacy, null, [
+      cutAt200,
+      cutAt200,
+      cutAt200,
+    ])!;
+    expect(Math.abs(start.curveX! - 200)).toBeLessThanOrEqual(1);
+    const moved = targetedPatch(start, 5).regionCurve!;
+    expect(moved.highlights).toBe(5);
+    // With curveVersion 2 the whole curve counts.
+    const wholeAt200 = pointCurveValue(luma, 200);
+    const whole = startTargetedAdjustment(
+      "regionCurve",
+      { ...legacy, curveVersion: 2 },
+      null,
+      [wholeAt200, wholeAt200, wholeAt200],
+    )!;
+    expect(Math.abs(whole.curveX! - 200)).toBeLessThanOrEqual(1);
   });
 
   it("evaluates the curve as the renderer does", () => {
