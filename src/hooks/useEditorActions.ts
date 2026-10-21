@@ -206,7 +206,14 @@ async function showResolvedLens(path: string, pasted: Adjustments) {
   const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path }).catch(() => null);
   const saved = meta?.adjustments;
   if (!saved || !isCurrentEditorImage(path)) return;
-  const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key];
+  const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
+  // Resolved for this lens choice (a later paste of another lens may have
+  // been saved since): the same mode, and for a chosen lens the same lens.
+  const choice = (recipe: Adjustments) =>
+    field(recipe, 'lensCorrectionMode') === 'manual'
+      ? ['manual', field(recipe, 'lensMaker'), field(recipe, 'lensModel')]
+      : [field(recipe, 'lensCorrectionMode')];
+  if (!sameAdjustmentValue(choice(saved), choice(pasted))) return;
   const unresolved = (recipe: Adjustments) =>
     ['lensCorrectionMode', 'lensMaker', 'lensModel'].every((key) => field(recipe, key) === field(pasted, key)) &&
     sameAdjustmentValue(recipe.lensDistortionParams ?? null, pasted.lensDistortionParams ?? null);

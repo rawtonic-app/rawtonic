@@ -424,3 +424,37 @@ it("does not bring a resolved lens back after Undo", async () => {
   expect(useEditorStore.getState().history[2].lensDistortionParams).toEqual({ k1: 0.3 });
 });
 
+it("puts a lens resolved for one lens paste only where that lens was pasted", async () => {
+  let disk: Record<string, unknown> = {};
+  const releases: (() => void)[] = [];
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { adjustments?: Record<string, unknown> };
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail)
+      disk = { ...a.adjustments, lensDistortionParams: { k1: a.adjustments?.lensModel === "B" ? 2 : 1 } };
+    if (name === Invokes.LoadMetadata) {
+      await new Promise<void>((resolve) => releases.push(resolve));
+      return { adjustments: structuredClone(disk) };
+    }
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1 } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  for (const model of ["A", "B"]) {
+    useEditorStore.setState({
+      copiedAdjustments: { lensCorrectionMode: "manual", lensMaker: "Maker", lensModel: model } as unknown as Adjustments,
+      copiedFrom: "/s/A.ARW",
+    });
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+    for (let i = 0; i < 3; i++) await act(async () => {});
+  }
+  // Both reads answer with what is on disk now: lens B's.
+  for (const release of releases) await act(async () => release());
+  for (let i = 0; i < 4; i++) await act(async () => {});
+  const { history, adjustments } = useEditorStore.getState();
+  expect(history[2].lensModel).toBe("A");
+  expect(history[2].lensDistortionParams).not.toEqual({ k1: 2 });
+  expect([adjustments.lensModel, adjustments.lensDistortionParams]).toEqual(["B", { k1: 2 }]);
+});
+
