@@ -641,6 +641,14 @@ pub(crate) async fn export_images_impl(
                 drop(permit);
                 break;
             }
+            // A job paused or cancelled while this photo waited starts it not.
+            let wanted = still_wanted(wanted, |i| {
+                targets[i].tracking.as_ref().is_none_or(|t| t.goes_on())
+            });
+            if wanted.is_empty() {
+                drop(permit);
+                continue;
+            }
 
             let app_handle_clone = app_handle.clone();
             let context_clone = Arc::clone(&context);
@@ -726,10 +734,14 @@ pub(crate) async fn export_images_impl(
                 tracking.cancelled.store(true, Ordering::SeqCst);
             }
         }
-        let paused = targets
-            .iter()
-            .filter_map(|target| target.tracking.as_ref())
-            .any(|t| t.is_paused());
+        // A job paused or cancelled on its own leaves photos unexported:
+        // the run did not complete.
+        let paused = stopped_short(
+            targets
+                .iter()
+                .filter_map(|target| target.tracking.as_ref())
+                .map(|t| t.goes_on()),
+        );
         let export_state = app_handle.state::<AppState>();
         let finalized = finish_export_task(
             &export_state.export_task_token,
@@ -782,6 +794,17 @@ pub(crate) async fn export_images_impl(
     });
 
     Ok(())
+}
+
+/// The recipes of `wanted` whose jobs still take further photos.
+fn still_wanted(wanted: Vec<usize>, goes_on: impl Fn(usize) -> bool) -> Vec<usize> {
+    wanted.into_iter().filter(|&i| goes_on(i)).collect()
+}
+
+/// Whether a run ended short of its photos without being cancelled as a
+/// whole: some job was paused or cancelled on its own (not "complete").
+fn stopped_short(jobs_going_on: impl IntoIterator<Item = bool>) -> bool {
+    jobs_going_on.into_iter().any(|goes_on| !goes_on)
 }
 
 /// A photo of an export run and its place in it.
@@ -1741,6 +1764,25 @@ fn estimate_sizes(
 #[cfg(test)]
 mod tests {
     use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+
+    #[test]
+    fn a_job_paused_or_cancelled_while_its_photo_waited_does_not_start_it() {
+        // Recipes 0 and 2 were wanted when the photo began to wait; job 2
+        // was paused meanwhile.
+        let going_on = [true, true, false];
+        assert_eq!(super::still_wanted(vec![0, 2], |i| going_on[i]), vec![0]);
+        assert!(super::still_wanted(vec![2], |i| going_on[i]).is_empty());
+    }
+
+    #[test]
+    fn a_run_with_a_job_stopped_on_its_own_is_not_complete() {
+        assert!(!super::stopped_short([true, true]));
+        assert!(
+            super::stopped_short([true, false]),
+            "one recipe cancelled alone"
+        );
+        assert!(!super::stopped_short([]));
+    }
     use std::path::Path;
 
     /// A later recipe of the same photo names its file after the earlier
