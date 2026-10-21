@@ -95,6 +95,17 @@ describe('settings clipboard', () => {
     const source = recipe({ contrast: 20 });
     expect(groupModified(group('tone'), source, true)).toBe(true);
     expect(groupModified(group('vignette'), source, true)).toBe(false);
+    // A neutral Luminance curve (a point added and deleted) is no change.
+    const neutral = [
+      { x: 0, y: 0 },
+      { x: 255, y: 255 },
+    ];
+    const cleared = recipe({ curves: { ...INITIAL_ADJUSTMENTS.curves, luminance: neutral } });
+    expect(groupModified(group('curves'), cleared, true)).toBe(false);
+    const lifted = recipe({
+      curves: { ...INITIAL_ADJUSTMENTS.curves, luminance: [neutral[0], { x: 128, y: 150 }, neutral[1]] },
+    });
+    expect(groupModified(group('curves'), lifted, true)).toBe(true);
   });
 
 

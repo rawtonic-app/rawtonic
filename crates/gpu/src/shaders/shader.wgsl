@@ -235,6 +235,13 @@ struct GlobalAdjustments {
     // binding 18, [10] lighting fitted, [11] version five, [12] the
     // subject's median inverse depth.
     relight_source: array<vec4<f32>, 4>,
+    // The Luminance curve (apply_luminance_curve); count 0 when it changes
+    // nothing.
+    luminance_curve: array<Point, 16>,
+    luminance_curve_count: u32,
+    _pad_luminance1: u32,
+    _pad_luminance2: u32,
+    _pad_luminance3: u32,
 }
 
 struct MaskAdjustments {
@@ -290,6 +297,11 @@ struct MaskAdjustments {
     grading_lut: array<vec4<f32>, 32>,
     color_ranges: array<vec4<f32>, 16>,
     moire: vec4<f32>,
+    luminance_curve: array<Point, 16>,
+    luminance_curve_count: u32,
+    _pad_luminance1: u32,
+    _pad_luminance2: u32,
+    _pad_luminance3: u32,
 }
 
 struct AllAdjustments {
@@ -4960,6 +4972,74 @@ fn apply_all_curves(
     return clamp(vec3<f32>(r, g, b), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// The Luminance curve (`curves.luminance`) of layer `layer` (0: the photo),
+// after the other curves: the colour's luminance through the curve on its
+// sRGB encoding (the axis of the other channels, so grey moves as under the
+// RGB curve), the linear colour scaled by the ratio, so its chromaticity —
+// saturation and hue — stays, as Capture One's Luma curve keeps them
+// (notes: reference/point-curve.md). Display values in and out; the points
+// are read from storage, not copied per pixel.
+fn luminance_point(layer: u32, index: u32) -> Point {
+    if (layer == 0u) {
+        return adjustments.global.luminance_curve[index];
+    }
+    return adjustments.mask_adjustments[layer - 1u].luminance_curve[index];
+}
+
+fn luminance_curve_value(val: f32, layer: u32, count: u32) -> f32 {
+    let x = val * 255.0;
+    let first = luminance_point(layer, 0u);
+    let last = luminance_point(layer, count - 1u);
+    if (x <= first.x) { return first.y / 255.0; }
+    if (x >= last.x) { return last.y / 255.0; }
+    for (var i = 0u; i < 15u; i = i + 1u) {
+        if (i >= count - 1u) { break; }
+        let p1 = luminance_point(layer, i);
+        let p2 = luminance_point(layer, i + 1u);
+        if (x <= p2.x) {
+            let p0 = luminance_point(layer, max(1u, i) - 1u);
+            let p3 = luminance_point(layer, min(count - 1u, i + 2u));
+            let delta_before = (p1.y - p0.y) / max(0.001, p1.x - p0.x);
+            let delta_current = (p2.y - p1.y) / max(0.001, p2.x - p1.x);
+            let delta_after = (p3.y - p2.y) / max(0.001, p3.x - p2.x);
+            var tangent_at_p1: f32;
+            var tangent_at_p2: f32;
+            if (i == 0u) { tangent_at_p1 = delta_current; } else {
+                if (delta_before * delta_current <= 0.0) { tangent_at_p1 = 0.0; } else { tangent_at_p1 = (delta_before + delta_current) / 2.0; }
+            }
+            if (i + 1u == count - 1u) { tangent_at_p2 = delta_current; } else {
+                if (delta_current * delta_after <= 0.0) { tangent_at_p2 = 0.0; } else { tangent_at_p2 = (delta_current + delta_after) / 2.0; }
+            }
+            if (delta_current != 0.0) {
+                let alpha = tangent_at_p1 / delta_current;
+                let beta = tangent_at_p2 / delta_current;
+                if (alpha * alpha + beta * beta > 9.0) {
+                    let tau = 3.0 / sqrt(alpha * alpha + beta * beta);
+                    tangent_at_p1 = tangent_at_p1 * tau;
+                    tangent_at_p2 = tangent_at_p2 * tau;
+                }
+            }
+            let result_y = interpolate_cubic_hermite(x, p1, p2, tangent_at_p1, tangent_at_p2);
+            return clamp(result_y / 255.0, 0.0, 1.0);
+        }
+    }
+    return last.y / 255.0;
+}
+
+fn apply_luminance_curve(display: vec3<f32>, layer: u32, count: u32) -> vec3<f32> {
+    let linear = decode_signed(display);
+    let y = max(get_luma(linear), 0.0);
+    // The sRGB curve on the luminance alone (scalar: two powers per pixel).
+    let encoded = select(1.055 * pow(min(y, 1.0), 1.0 / 2.4) - 0.055, y * 12.92, y <= 0.0031308);
+    let curved = luminance_curve_value(encoded, layer, count);
+    let target_y = select(pow((curved + 0.055) / 1.055, 2.4), curved / 12.92, curved <= 0.04045);
+    // The colour scaled by the luminance ratio, at most 4× (as
+    // carry_beyond_srgb); the rest of the change is grey, so a lifted black
+    // end lifts black, which scaling cannot, and the darks beside it alike.
+    let ratio = min(target_y / max(y, 1e-9), 4.0);
+    return display_unit(encode_signed(linear * ratio + vec3<f32>(target_y - y * ratio)));
+}
+
 // Layer zero is global; the following layers are mask indices plus one. Read
 // individual points so curve evaluation does not copy four 16-point arrays (or
 // a complete MaskAdjustments value) into each pixel invocation's local memory.
@@ -6628,6 +6708,9 @@ fn main(
     } else {
         final_rgb = carry_beyond_srgb(display, curve_input, final_rgb);
     }
+    if (ENABLE_CURVES && adjustments.global.luminance_curve_count >= 2u) {
+        final_rgb = apply_luminance_curve(final_rgb, 0u, adjustments.global.luminance_curve_count);
+    }
 
     for (var i = 0u; ENABLE_MASKS && any_layer_has(4u) && ENABLE_CURVES && i < adjustments.mask_count; i = i + 1u) {
         if (PREPARED_LAYERS && (prepared_layers[i + 1u].flags.x & 4u) == 0u) { continue; }
@@ -6658,6 +6741,10 @@ fn main(
                 mask_curved_srgb = wide_curve_output(mask_curved_srgb);
             } else {
                 mask_curved_srgb = carry_beyond_srgb(final_rgb, mask_input, mask_curved_srgb);
+            }
+            let luminance_count = adjustments.mask_adjustments[i].luminance_curve_count;
+            if (luminance_count >= 2u) {
+                mask_curved_srgb = apply_luminance_curve(mask_curved_srgb, i + 1u, luminance_count);
             }
             final_rgb = mix(final_rgb, mask_curved_srgb, influence);
         }

@@ -52,7 +52,8 @@
       "channels": {
         "blue": "Bleu",
         "green": "Vert",
-        "luma": "Luma",
+        "luma": "RGB",
+        "luminance": "Luminance",
         "red": "Rouge"
       },
       "channelTitle": "Canal {{channel}}",
@@ -1819,7 +1820,8 @@
         "ariaChannels": {
           "blue": "bleu",
           "green": "vert",
-          "luma": "luma",
+          "luma": "RGB",
+          "luminance": "luminance",
           "red": "rouge"
         },
         "channel": "Canal de la courbe",
@@ -3155,6 +3157,7 @@
         "calibration": "étalonnage",
         "colorEditor": "Color Editor",
         "crop": "recadrage",
+        "curves": "courbes (approchées, quelques niveaux d’écart)",
         "filmCurve": "courbe film",
         "lens": "objectif et keystone",
         "lensProfile": "profil d’objectif",

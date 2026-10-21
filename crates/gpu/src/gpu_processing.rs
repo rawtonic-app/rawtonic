@@ -3326,6 +3326,7 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     let mut highlights = g.highlights != 0.0;
     // More than 16 points (`region_curve_active` y): the curve table.
     let mut curves = g.region_curve_active[1] != 0
+        || g.luminance_curve_count >= 2
         || !curves_are_identity([
             (&g.luma_curve, g.luma_curve_count),
             (&g.red_curve, g.red_curve_count),
@@ -3348,12 +3349,13 @@ fn preview_features(adjustments: &AllAdjustments) -> usize {
     {
         sharpen |= m.sharpness != 0.0;
         highlights |= m.highlights != 0.0;
-        curves |= !curves_are_identity([
-            (&m.luma_curve, m.luma_curve_count),
-            (&m.red_curve, m.red_curve_count),
-            (&m.green_curve, m.green_curve_count),
-            (&m.blue_curve, m.blue_curve_count),
-        ]);
+        curves |= m.luminance_curve_count >= 2
+            || !curves_are_identity([
+                (&m.luma_curve, m.luma_curve_count),
+                (&m.red_curve, m.red_curve_count),
+                (&m.green_curve, m.green_curve_count),
+                (&m.blue_curve, m.blue_curve_count),
+            ]);
         noise_reduction |= m.luma_noise_reduction != 0.0 || m.color_noise_reduction != 0.0;
         tone |= tone_of(m.contrast, m.shadows, m.whites, m.blacks);
     }

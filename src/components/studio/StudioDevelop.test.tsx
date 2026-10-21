@@ -317,7 +317,7 @@ describe("Develop tool contracts", () => {
     });
     mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^luma point curve/ });
+    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
     vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
       left: 0,
       top: 0,
@@ -329,10 +329,34 @@ describe("Develop tool contracts", () => {
     expect(useEditorStore.getState().isSliderDragging).toBe(false);
   });
 
+  it("edits the Luminance curve in its own channel", () => {
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
+    const curve = screen.getByRole("img", { name: /^luminance point curve/ });
+    vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 255,
+      height: 255,
+    } as DOMRect);
+    curve.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(curve, { button: 0, clientX: 100, clientY: 135 });
+    const { curves } = useEditorStore.getState().adjustments;
+    // A new point on a neutral Luminance curve; the RGB curve stays.
+    expect(curves.luminance).toEqual([
+      { x: 0, y: 0 },
+      { x: 100, y: 120 },
+      { x: 255, y: 255 },
+    ]);
+    expect(curves.luma).toEqual(INITIAL_ADJUSTMENTS.curves.luma);
+    fireEvent.pointerCancel(curve);
+  });
+
   it("ends a curve drag on cancellation and unmount", () => {
     const view = mount();
     openGroups();
-    const curve = screen.getByRole("img", { name: /^luma point curve/ });
+    const curve = screen.getByRole("img", { name: /^RGB point curve/ });
     vi.spyOn(curve, "getBoundingClientRect").mockReturnValue({
       left: 0,
       top: 0,
