@@ -149,6 +149,8 @@ export function startTargetedAdjustment(
         shown,
       ),
     );
+    if (before.some((x) => x === null)) return null;
+    const levels = before as number[];
     const weights = [0.2126, 0.7152, 0.0722];
     const tone = (levels: number[]) =>
       levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
@@ -158,8 +160,8 @@ export function startTargetedAdjustment(
       base,
       curveX: Math.round(
         target === "regionCurve"
-          ? tone(before)
-          : tone(before.map((x) => regionCurveValue(region, x / 255) * 255)),
+          ? tone(levels)
+          : tone(levels.map((x) => regionCurveValue(region, x / 255) * 255)),
       ),
     };
   }
@@ -284,18 +286,26 @@ const regionOf = (a: Adjustments): RegionCurve => ({
 /** The renderer's luma point curve at `x` (0–255). */
 export const curveValue = pointCurveValue;
 
-/** The input level `curve` maps to `displayed` (nearest for flat parts). */
-function invertCurve(curve: (x: number) => number, displayed: number): number {
-  let best = 0;
-  let error = Infinity;
-  for (let x = 0; x <= 255; x += 1) {
-    const e = Math.abs(curve(x) - displayed);
-    if (e < error) {
-      error = e;
-      best = x;
-    }
-  }
-  return best;
+/**
+ * The input level `curve` maps to `displayed` (nearest for flat parts), or
+ * null when inputs far apart show it alike (a curve that turns back): the
+ * displayed tone does not say which one is under the pointer.
+ */
+function invertCurve(
+  curve: (x: number) => number,
+  displayed: number,
+): number | null {
+  const errors = Array.from({ length: 256 }, (_, x) =>
+    Math.abs(curve(x) - displayed),
+  );
+  const best = errors.indexOf(Math.min(...errors));
+  const near = (x: number) => errors[x] <= errors[best] + 1;
+  // Every input within a level of the best match must lie next to it.
+  let lo = best;
+  let hi = best;
+  while (lo > 0 && near(lo - 1)) lo -= 1;
+  while (hi < 255 && near(hi + 1)) hi += 1;
+  return errors.every((_, x) => !near(x) || (x >= lo && x <= hi)) ? best : null;
 }
 
 /** Moves the curve at `x` by `delta`: the point there, or a new one. */

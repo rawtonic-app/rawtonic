@@ -4,7 +4,8 @@
  * applied. Numbers move part of the way; nested settings (HSL, grading)
  * blend per value; other settings (curves, masks, profiles, switches, and
  * the `…Version` keys that say how a recipe reads its values) take the
- * preset's value from half strength on.
+ * preset's value from half strength on. Curves go whole, with the version
+ * inside them that says how they render (`Curves.version`).
  */
 export function blendPreset(
   base: Record<string, unknown>,
@@ -26,7 +27,7 @@ export function blendPreset(
   return Object.fromEntries(
     Object.entries(preset).map(([key, value]) => [
       key,
-      key.endsWith('Version') ? (a >= 0.5 ? value : base[key]) : blend(base[key], value),
+      key.endsWith('Version') || key === 'curves' ? (a >= 0.5 ? value : base[key]) : blend(base[key], value),
     ]),
   );
 }

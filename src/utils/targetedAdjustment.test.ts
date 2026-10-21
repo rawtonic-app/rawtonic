@@ -304,6 +304,24 @@ describe("targeted adjustment", () => {
     expect(Math.abs(whole.curveX! - 200)).toBeLessThanOrEqual(1);
   });
 
+  it("declines tones a curve that turns back cannot tell apart", () => {
+    const peak = base();
+    peak.curves = {
+      ...peak.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 127.5, y: 255 },
+        { x: 255, y: 0 },
+      ],
+    };
+    const shown = pointCurveValue(peak.curves.luma, 200);
+    for (const target of ["curve", "regionCurve"] as const) {
+      expect(
+        startTargetedAdjustment(target, peak, null, [shown, shown, shown]),
+      ).toBeNull();
+    }
+  });
+
   it("evaluates the curve as the renderer does", () => {
     expect(
       curveValue(
