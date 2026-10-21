@@ -13,11 +13,11 @@ import {
   Adjustments,
   AdjustmentsUpdate,
   Coord,
+  CAMERA_CA_VERSION,
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   normalizeLoadedAdjustments,
-  sameAdjustmentValue,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -191,52 +191,44 @@ function pastedOpen(
   return withOwnBitmapIds(shown, current);
 }
 
-/** The settings that choose a lens correction (its data is resolved for
- * each photograph when its recipe is saved: `resolve_lens_params_in_adjustments`). */
+/** The settings that choose a lens correction: its data is this
+ * photograph's own (for its camera, focal length…). */
 const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
 
-/** Saves the open photograph's pasted recipe `pasted` now and puts the
- * lens data its save resolved for it into every recipe that still has the
- * pasted lens choice unresolved: the paste's history step, the edits made
- * on it since and the one shown (no new step; Undo stays where it is). */
-async function showResolvedLens(path: string, pasted: Adjustments) {
-  debouncedSave(path, pasted);
-  debouncedSave.flush();
-  if ((await waitForPendingMetadataSave(path)) !== undefined) return;
-  const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path }).catch(() => null);
-  const saved = meta?.adjustments;
-  if (!saved || !isCurrentEditorImage(path)) return;
-  const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
-  // Resolved for this lens choice (a later paste of another lens may have
-  // been saved since): the same mode, and for a chosen lens the same lens.
-  const choice = (recipe: Adjustments) =>
-    field(recipe, 'lensCorrectionMode') === 'manual'
-      ? ['manual', field(recipe, 'lensMaker'), field(recipe, 'lensModel')]
-      : [field(recipe, 'lensCorrectionMode')];
-  if (!sameAdjustmentValue(choice(saved), choice(pasted))) return;
-  const unresolved = (recipe: Adjustments) =>
-    ['lensCorrectionMode', 'lensMaker', 'lensModel'].every((key) => field(recipe, key) === field(pasted, key)) &&
-    sameAdjustmentValue(recipe.lensDistortionParams ?? null, pasted.lensDistortionParams ?? null);
-  const done = new Map<Adjustments, Adjustments>();
-  const resolve = (recipe: Adjustments): Adjustments => {
-    if (!unresolved(recipe)) return recipe;
-    let resolved = done.get(recipe);
-    if (!resolved) {
-      resolved = {
-        ...recipe,
-        lensMaker: saved.lensMaker,
-        lensModel: saved.lensModel,
-        lensDistortionParams: saved.lensDistortionParams,
-        ...(saved.cameraCaVersion !== undefined ? { cameraCaVersion: saved.cameraCaVersion } : {}),
-      };
-      done.set(recipe, resolved);
-    }
-    return resolved;
-  };
-  useEditorStore.getState().setEditor((state) => {
-    if (!isCurrentEditorImage(path)) return state;
-    return { history: state.history.map(resolve), adjustments: resolve(state.adjustments) };
-  });
+/** The lens data a pasted lens choice means for the open photograph
+ * `open`, resolved as the Lens Correction tool resolves it: the camera's own
+ * data, the chosen lens's profile for its EXIF, or the detected lens's. */
+async function lensDataFor(
+  open: { path: string; exif: Record<string, string> | null },
+  current: Adjustments,
+  pasted: Partial<Adjustments>,
+): Promise<Partial<Adjustments>> {
+  const mode = pasted.lensCorrectionMode ?? current.lensCorrectionMode;
+  const exif = open.exif ?? {};
+  const profile = (maker: string, model: string) =>
+    invoke<Adjustments['lensDistortionParams']>(Invokes.GetLensDistortionParams, { maker, model, exif }).catch(() => null);
+  if (mode === 'camera') {
+    const camera = await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: open.path }).catch(() => null);
+    return {
+      lensMaker: null,
+      lensModel: null,
+      lensDistortionParams: camera?.params ?? null,
+      cameraCaVersion: pasted.cameraCaVersion ?? CAMERA_CA_VERSION,
+    };
+  }
+  if (mode === 'auto') {
+    if (!exif.Make) return { lensDistortionParams: null };
+    const found = await invoke<[string, string] | null>(Invokes.AutodetectLens, {
+      maker: exif.Make,
+      model: exif.LensModel ?? '',
+      cameraModel: exif.Model ?? '',
+    }).catch(() => null);
+    if (!found) return { lensMaker: null, lensModel: null, lensDistortionParams: null };
+    return { lensMaker: found[0], lensModel: found[1], lensDistortionParams: await profile(found[0], found[1]) };
+  }
+  const maker = 'lensMaker' in pasted ? pasted.lensMaker : current.lensMaker;
+  const model = 'lensModel' in pasted ? pasted.lensModel : current.lensModel;
+  return { lensDistortionParams: maker && model ? await profile(maker, model) : null };
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -762,18 +754,34 @@ export function useEditorActions() {
         : null;
       const pastedOntoOpen = Boolean(paste && open);
       if (open && paste) {
-        // A drag's moves since the last commit are part of the edit.
-        flushSliderDraft();
-        const current = useEditorStore.getState().adjustments;
-        const next = pastedOpen(open, current, adjustmentsToApply, paste);
-        if (next) {
+        // At once, as one step: a drag's moves since the last commit are
+        // part of the edit it is pasted onto.
+        const applyOpen = (pasted: Partial<Adjustments>) => {
+          flushSliderDraft();
+          const next = pastedOpen(open, useEditorStore.getState().adjustments, pasted, paste);
+          if (!next) return;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           debouncedSetHistory.flush();
-          // A lens choice is resolved for this photograph when it is saved
-          // (its lens data, as for the others): shown once that is done.
-          if (LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply))
-            void showResolvedLens(open.path, useEditorStore.getState().adjustments);
+        };
+        if (LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply)) {
+          // A lens choice: its data for this photograph first, then the
+          // whole paste (left meanwhile: pasted as onto a closed one).
+          void lensDataFor(open, adjustments, adjustmentsToApply).then(async (lens) => {
+            if (isCurrentEditorImage(open.path)) {
+              applyOpen({ ...adjustmentsToApply, ...lens });
+              return;
+            }
+            await afterRecipeSaves([open.path], () =>
+              savedBatch(
+                invoke(Invokes.ApplyAdjustmentsToPaths, { paths: [open.path], adjustments: adjustmentsToApply, paste }),
+                [open.path],
+                'paste adjustments',
+              ),
+            );
+          });
+        } else {
+          applyOpen(adjustmentsToApply);
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
