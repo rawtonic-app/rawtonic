@@ -353,6 +353,35 @@ describe("Develop tool contracts", () => {
     fireEvent.pointerCancel(curve);
   });
 
+  it("draws a long Luminance curve as it renders, cut after 16 points", () => {
+    // Twenty points (an import); the renderer takes the first 16, ending
+    // at (150, 150), so the drawn curve holds 150 from there.
+    const luminance = [
+      ...Array.from({ length: 16 }, (_, i) => ({ x: i * 10, y: i * 10 })),
+      { x: 200, y: 240 },
+      { x: 220, y: 250 },
+      { x: 240, y: 252 },
+      { x: 255, y: 255 },
+    ];
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        curves: { ...INITIAL_ADJUSTMENTS.curves, luminance, version: 3 },
+      },
+    });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
+    const curve = screen.getByRole("img", { name: /^luminance point curve/ });
+    const line = curve.querySelector("polyline.curve-line")!;
+    const drawn = line
+      .getAttribute("points")!
+      .split(" ")
+      .map((p) => p.split(",").map(Number));
+    const [, y] = drawn[drawn.length - 1];
+    expect(255 - y).toBeCloseTo(150, 5);
+  });
+
   it("ends a curve drag on cancellation and unmount", () => {
     const view = mount();
     openGroups();

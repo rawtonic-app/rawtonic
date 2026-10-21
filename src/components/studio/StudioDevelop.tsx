@@ -333,7 +333,11 @@ function PointCurve({
         <polyline
           points={Array.from({ length: 129 }, (_, i) => {
             const x = i * (255 / 128);
-            const drawn = renderedPoints(points, wholeCurves);
+            // The Luminance curve always renders its first 16 points.
+            const drawn = renderedPoints(
+              points,
+              wholeCurves && channel !== "luminance",
+            );
             return `${x},${255 - pointCurveValue(drawn, x)}`;
           }).join(" ")}
           fill="none"
