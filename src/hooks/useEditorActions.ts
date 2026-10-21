@@ -18,6 +18,7 @@ import {
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   normalizeLoadedAdjustments,
+  sameAdjustmentValue,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -115,8 +116,6 @@ function scheduleUnsavedEditorRecipe() {
  * is still not saved (quitting, utils/quit.ts).
  */
 export async function flushRecipeSaves(): Promise<string[]> {
-  // Pastes onto the open photograph waiting for lens data.
-  while (lensPastes) await lensPastes.catch(() => undefined);
   // A drag's moves since the last store commit are only a draft.
   flushSliderDraft();
   scheduleUnsavedEditorRecipe();
@@ -193,10 +192,6 @@ function pastedOpen(
   return withOwnBitmapIds(shown, current);
 }
 
-/** Pastes onto the open photograph waiting for a pasted lens choice's data,
- * one after another (quitting waits for them). */
-let lensPastes: Promise<void> | null = null;
-
 /** The settings that choose a lens correction: its data is this
  * photograph's own (for its camera, focal length…). */
 const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
@@ -248,6 +243,27 @@ async function lensDataFor(
   const maker = 'lensMaker' in pasted ? pasted.lensMaker : current.lensMaker;
   const model = 'lensModel' in pasted ? pasted.lensModel : current.lensModel;
   return { lensDistortionParams: maker && model ? await profile(maker, model) : null };
+}
+
+/** Applies the lens data `lens` resolved for a lens choice pasted onto the
+ * open photograph `path` (its paste's step `pastedStep`) as a step of its
+ * own, as the Lens Correction tool does: only its lens fields, onto the
+ * recipe shown now, and only while that paste is not undone and the photo
+ * still has the pasted lens choice (its save resolves it on disk anyway). */
+function showPastedLens(path: string, pastedStep: Adjustments, lens: Partial<Adjustments>) {
+  if (!isCurrentEditorImage(path)) return;
+  const { history, historyIndex, adjustments } = useEditorStore.getState();
+  const at = history.indexOf(pastedStep);
+  if (at < 0 || at > historyIndex) return;
+  const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
+  const choice = (recipe: Adjustments) =>
+    field(recipe, 'lensCorrectionMode') === 'manual'
+      ? ['manual', field(recipe, 'lensMaker'), field(recipe, 'lensModel')]
+      : [field(recipe, 'lensCorrectionMode')];
+  if (!sameAdjustmentValue(choice(adjustments), choice(pastedStep))) return;
+  debouncedSetHistory.flush();
+  updateAdjustments((prev: Adjustments) => ({ ...prev, ...lens }));
+  debouncedSetHistory.flush();
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -778,37 +794,19 @@ export function useEditorActions() {
         const applyOpen = (pasted: Partial<Adjustments>) => {
           flushSliderDraft();
           const next = pastedOpen(open, useEditorStore.getState().adjustments, pasted, paste);
-          if (!next) return;
+          if (!next) return false;
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           debouncedSetHistory.flush();
+          return true;
         };
         const lensChosen = LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply);
-        if (lensChosen || lensPastes) {
-          // A lens choice: its data for this photograph first, then the
-          // whole paste (left meanwhile: pasted as onto a closed one); later
-          // pastes onto it wait for it, and so does quitting.
-          const run = async () => {
-            const lens = lensChosen ? await lensDataFor(open, adjustments, adjustmentsToApply) : {};
-            if (isCurrentEditorImage(open.path)) {
-              applyOpen({ ...adjustmentsToApply, ...lens });
-              return;
-            }
-            await afterRecipeSaves([open.path], () =>
-              savedBatch(
-                invoke(Invokes.ApplyAdjustmentsToPaths, { paths: [open.path], adjustments: adjustmentsToApply, paste }),
-                [open.path],
-                'paste adjustments',
-              ),
-            );
-          };
-          const op: Promise<void> = (lensPastes ?? Promise.resolve()).then(run, run);
-          lensPastes = op;
-          void op.finally(() => {
-            if (lensPastes === op) lensPastes = null;
-          });
-        } else {
-          applyOpen(adjustmentsToApply);
+        // A lens choice: its data is this photograph's own, resolved below
+        // (the source's would be wrong here); none until then.
+        const applied = applyOpen(lensChosen ? { ...adjustmentsToApply, lensDistortionParams: null } : adjustmentsToApply);
+        if (applied && lensChosen) {
+          const pastedStep = useEditorStore.getState().adjustments;
+          void lensDataFor(open, pastedStep, adjustmentsToApply).then((lens) => showPastedLens(open.path, pastedStep, lens));
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
