@@ -170,7 +170,9 @@ async function showPasted(path: string, isRaw: boolean, before: Adjustments) {
     () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path }).catch(() => null),
   );
   if (!isCurrentEditorImage(path) || useEditorStore.getState().adjustments !== before) return;
-  const pasted = withOwnBitmapIds(loaded);
+  // Unchanged bitmaps keep their ids (no layer change: Edit all selected
+  // sends none on).
+  const pasted = withOwnBitmapIds(loaded, before);
   debouncedSetHistory.flush();
   updateAdjustments(() => pasted);
   debouncedSetHistory.flush();

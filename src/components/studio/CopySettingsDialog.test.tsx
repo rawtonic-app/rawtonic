@@ -326,3 +326,20 @@ it("pastes onto the open photo's edit as it is now, and writes the others when s
   await act(async () => {});
   expect(order).toEqual(["save:30", "paste:/s/B.ARW", "paste:/s/C.ARW"]);
 });
+
+it("keeps the ids of the open photo's bitmaps a paste did not change", async () => {
+  const own = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [sky] } as unknown as Adjustments;
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(own), exposure: 2, lensCorrectionMode: "manual" } };
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own });
+  await act(async () => {
+    await result.current.handlePasteAdjustments(["/s/B.ARW"]);
+  });
+  const shown = useEditorStore.getState().adjustments;
+  expect(shown.exposure).toBe(2);
+  expect(shown.masks[0].subMasks[0].id).toBe("sky-c");
+});
