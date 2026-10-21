@@ -709,7 +709,6 @@ export function useEditorActions() {
         debouncedSave.flush();
       };
       if (reloadOpen) saveOpenEdit();
-      let settled: Promise<Adjustments | undefined> | null = null;
 
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
@@ -726,9 +725,12 @@ export function useEditorActions() {
         );
       const others = reloadOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       const pasteOpen = async () => {
+        // Only a save this starts is waited for (earlier ones were, before
+        // this paste's turn; later pastes wait for this one).
+        const earlier = pendingMetadataSaves.get(open!.path);
         saveOpenEdit();
-        const saving = pendingMetadataSaves.get(open!.path);
-        if (saving && saving !== settled) await saving;
+        const started = pendingMetadataSaves.get(open!.path);
+        if (started && started !== earlier) await started;
         // Shown when its write starts: an earlier paste's result counts.
         const before = useEditorStore.getState().adjustments;
         const failed = await batch([open!.path]);
@@ -741,10 +743,10 @@ export function useEditorActions() {
       };
       const written = afterRecipeSaves(pathsToUpdate, () => (reloadOpen ? pasteOpen() : batch(pathsToUpdate)));
       // A photograph opened meanwhile reads its recipe after this write.
-      settled = written.then(() => undefined, () => undefined);
+      const settled = written.then(() => undefined, () => undefined);
       pathsToUpdate.forEach((path) => {
-        pendingMetadataSaves.set(path, settled!);
-        void settled!.then(() => {
+        pendingMetadataSaves.set(path, settled);
+        void settled.then(() => {
           if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
         });
       });

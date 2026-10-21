@@ -362,7 +362,7 @@ it("Previous takes a never-edited RAW's settings as the editor showed them", asy
   expect(applied()[0].adjustments).toMatchObject({ lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.2 } });
 });
 
-it("pastes twice onto the open photo, each onto the result of the one before", async () => {
+it("pastes three times onto the open photo, each onto the result of the one before", async () => {
   let disk: Record<string, unknown> = { ...structuredClone(INITIAL_ADJUSTMENTS) };
   vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
     const a = args as { adjustments?: Record<string, unknown> };
@@ -377,8 +377,10 @@ it("pastes twice onto the open photo, each onto the result of the one before", a
   act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
   useEditorStore.setState({ copiedAdjustments: { contrast: 20 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  for (let i = 0; i < 6; i++) await act(async () => {});
+  useEditorStore.setState({ copiedAdjustments: { saturation: -10 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 12; i++) await act(async () => {});
   const shown = useEditorStore.getState().adjustments;
-  expect([shown.exposure, shown.contrast]).toEqual([1, 20]);
-  expect([disk.exposure, disk.contrast]).toEqual([1, 20]);
+  expect([shown.exposure, shown.contrast, shown.saturation]).toEqual([1, 20, -10]);
+  expect([disk.exposure, disk.contrast, disk.saturation]).toEqual([1, 20, -10]);
 });
