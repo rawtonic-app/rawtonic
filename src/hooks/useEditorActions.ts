@@ -670,19 +670,29 @@ export function useEditorActions() {
         }
         // More layers than the renderer applies: refused here as the
         // backend refuses it (it says which photo).
-        if (keepWithinLayerLimit(adjustments, next) === next) setAdjustments(next);
+        // The whole recipe (an update object would bring removed settings back).
+        if (keepWithinLayerLimit(adjustments, next) === next) setAdjustments(() => next);
       }
 
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
+      // Settings chosen in the picker keep the open photograph's processing
+      // versions: its recipe is saved first as the editor holds it (versions
+      // a recipe from before them lacks are resolved there on loading), so
+      // the backend pastes onto what the editor shows.
+      const open = asChosen && selectedImage?.isReady && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
+      const apply = () =>
+        invoke(Invokes.ApplyAdjustmentsToPaths, {
+          paths: pathsToUpdate,
+          adjustments: adjustmentsToApply,
+          ...(paste ? { paste } : {}),
+        });
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
-          invoke(Invokes.ApplyAdjustmentsToPaths, {
-            paths: pathsToUpdate,
-            adjustments: adjustmentsToApply,
-            ...(paste ? { paste } : {}),
-          }),
+          open
+            ? invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path: open, adjustments }).then(apply)
+            : apply(),
           pathsToUpdate,
           'paste adjustments',
         ),

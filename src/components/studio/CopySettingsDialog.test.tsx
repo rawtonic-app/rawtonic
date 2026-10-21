@@ -152,8 +152,10 @@ it("pastes the previous photograph's settings, as last chosen", async () => {
 it("Previous reads the previous photograph's edit after its save, and pastes where it was asked", async () => {
   const { debouncedSave } = await import("../../hooks/useEditorActions");
   let failSave = () => {};
+  let saves = 0;
   vi.mocked(invoke).mockImplementation(async (name: string) => {
-    if (name === Invokes.SaveMetadataAndUpdateThumbnail)
+    // A's save fails; B's (saved as shown before the paste) goes through.
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail && ++saves === 1)
       return new Promise((_, reject) => (failSave = () => reject(new Error("disk full"))));
     if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: -1 } };
     return undefined;
@@ -172,6 +174,7 @@ it("Previous reads the previous photograph's edit after its save, and pastes whe
   useLibraryStore.setState({ multiSelectedPaths: ["/s/C.ARW"] });
   await act(async () => failSave());
   await act(() => done);
+  await act(async () => {});
   await act(async () => {});
   const [paste] = applied();
   expect(paste.paths).toEqual(["/s/B.ARW"]);
@@ -250,4 +253,28 @@ it("remembers the previous photograph across a closed editor", () => {
   act(() => useEditorStore.setState({ selectedImage: null }));
   act(() => useEditorStore.setState({ selectedImage: photo("/s/C.ARW") as never }));
   expect(useEditorStore.getState().previousPhoto).toBe("/s/B.ARW");
+});
+
+it("pastes onto the open photo what the editor shows, cleared settings included", async () => {
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({
+    copiedAdjustments: { whiteBalance: null, wbTemperature: null, temperature: 0 } as unknown as Adjustments,
+    copiedFrom: "/s/A.ARW",
+  });
+  useEditorStore.setState({
+    selectedImage: photo("/s/B.ARW") as never,
+    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), whiteBalance: "custom", wbTemperature: 2850 } as unknown as Adjustments,
+  });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  const shown = useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
+  expect("whiteBalance" in shown).toBe(false);
+  expect("wbTemperature" in shown).toBe(false);
+  await act(async () => {});
+  await act(async () => {});
+  // Its recipe as shown is saved before the backend pastes onto it.
+  const order = vi
+    .mocked(invoke)
+    .mock.calls.map(([name]) => name)
+    .filter((name) => name === Invokes.SaveMetadataAndUpdateThumbnail || name === Invokes.ApplyAdjustmentsToPaths);
+  expect(order).toEqual([Invokes.SaveMetadataAndUpdateThumbnail, Invokes.ApplyAdjustmentsToPaths]);
 });
