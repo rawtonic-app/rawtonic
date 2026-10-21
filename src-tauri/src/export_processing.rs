@@ -330,11 +330,6 @@ fn export_masks_for_image(
         let lut_path = js_adjustments["lutPath"].as_str();
         let lut = lut_path.and_then(|p| get_or_load_lut(state, p).ok());
         let unique_hash = calculate_full_job_hash(source_path_str, js_adjustments);
-        let output_dir = output_path_obj.parent().unwrap_or(output_path_obj);
-        let stem = output_path_obj
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("export");
         let extension = output_path_obj
             .extension()
             .and_then(|s| s.to_str())
@@ -379,9 +374,7 @@ fn export_masks_for_image(
             };
             ensure_export_not_cancelled(cancellation_token)?;
 
-            let mask_image_path =
-                output_dir.join(format!("{}_mask_{}_image.{}", stem, i, extension));
-            let mask_alpha_path = output_dir.join(format!("{}_mask_{}_alpha.png", stem, i));
+            let [mask_image_path, mask_alpha_path] = mask_file_paths(output_path_obj, i);
 
             save_image_with_metadata(
                 with_options,
@@ -405,6 +398,24 @@ fn export_masks_for_image(
         }
     }
     Ok(())
+}
+
+/// The separate files of mask layer `layer` beside a main export file:
+/// the layer's rendered image and its alpha.
+fn mask_file_paths(output_path: &Path, layer: usize) -> [std::path::PathBuf; 2] {
+    let output_dir = output_path.parent().unwrap_or(output_path);
+    let stem = output_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("export");
+    let extension = output_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("jpg");
+    [
+        output_dir.join(format!("{}_mask_{}_image.{}", stem, layer, extension)),
+        output_dir.join(format!("{}_mask_{}_alpha.png", stem, layer)),
+    ]
 }
 
 fn export_adjustments_as_lut(
@@ -770,12 +781,16 @@ struct PhotoItem<'a> {
 
 /// The file a recipe writes for a photo: its name from the recipe's
 /// template, in the recipe's folder, never over an existing file or another
-/// output of this run.
+/// output of this run. With separate mask files the name holds for its
+/// `mask_layers` layers' files too, which are reserved with it: recipes of
+/// photos exported side by side would otherwise take the name of a mask
+/// file not written yet.
 fn plan_output_path(
     target: &ExportTarget,
     item: &PhotoItem,
     source_path: &Path,
     file_date: &chrono::DateTime<chrono::Utc>,
+    mask_layers: usize,
     used_paths: &Mutex<std::collections::HashSet<std::path::PathBuf>>,
 ) -> Result<std::path::PathBuf, String> {
     let export_settings = &target.export_settings;
@@ -831,13 +846,26 @@ fn plan_output_path(
             .unwrap_or(std::path::Path::new(""))
             .to_path_buf();
         let mut counter = 1;
+        let mask_layers = if export_settings.export_masks {
+            mask_layers
+        } else {
+            0
+        };
+        let family = |output_path: &Path| {
+            std::iter::once(output_path.to_path_buf())
+                .chain((0..mask_layers).flat_map(|layer| mask_file_paths(output_path, layer)))
+                .collect::<Vec<_>>()
+        };
 
-        while output_path.exists() || used.contains(&output_path) {
+        while family(&output_path)
+            .iter()
+            .any(|path| path.exists() || used.contains(path))
+        {
             let incremented_filename = format!("{}_{}.{}", new_stem, counter, extension);
             output_path = parent_dir.join(&incremented_filename);
             counter += 1;
         }
-        used.insert(output_path.clone());
+        used.extend(family(&output_path));
     }
     Ok(output_path)
 }
@@ -925,12 +953,19 @@ fn export_photo(
 
     // Each recipe's file is named (and recorded) right before it is
     // written, as when each recipe was its own export.
+    let mask_layers =
+        rawtonic_engine::image_processing::mask_definitions_from_json(&js_adjustments)
+            .iter()
+            .filter(|definition| definition.produces_bitmap())
+            .take(crate::image_processing::MAX_MASKS)
+            .count();
     let plan = |target: usize| {
         let output_path = plan_output_path(
             &targets[target],
             &item,
             original_path,
             &file_date,
+            mask_layers,
             used_paths,
         )?;
         if let Some(tracking) = &targets[target].tracking {
@@ -1719,6 +1754,7 @@ mod tests {
                     &item,
                     Path::new("/photos/foo.NEF"),
                     &date,
+                    1,
                     &used,
                 )
             },
@@ -1742,6 +1778,63 @@ mod tests {
         assert_eq!(
             written,
             ["foo.jpg", "foo_mask_0_image.jpg", "foo_mask_0_image_1.jpg"]
+        );
+    }
+
+    /// Photos export side by side: a recipe of a later photo may be named
+    /// before an earlier photo's recipe wrote its mask files. Their names are
+    /// reserved with the main file, so neither takes the other's (review of
+    /// F10: recipe B's `Photo_2_mask_0_image` against recipe A's `Photo_2`
+    /// with separate masks).
+    #[test]
+    fn mask_file_names_are_reserved_with_their_main_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = |template: &str, start: u32, masks: bool| ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "filenameTemplate": template, "sequenceStart": start, "exportMasks": masks,
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let a = target("Photo_{sequence}", 2, true);
+        let b = target("Photo_{sequence}_mask_0_image", 1, false);
+        fn item(global_index: usize, path: &str) -> PhotoItem<'_> {
+            PhotoItem {
+                global_index,
+                image_path_str: path,
+                appearance_count: 1,
+                explicit_vc: None,
+                total_paths: 2,
+            }
+        }
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let date = chrono::Utc::now();
+        let plan = |t: &ExportTarget, index, path: &str| {
+            let planned =
+                plan_output_path(t, &item(index, path), Path::new(path), &date, 2, &used).unwrap();
+            planned.file_name().unwrap().to_string_lossy().into_owned()
+        };
+        // Photo 2 reaches recipe B first; then photo 1, recipe A (2 layers).
+        assert_eq!(plan(&b, 1, "/p/2.NEF"), "Photo_2_mask_0_image.jpg");
+        assert_eq!(plan(&a, 0, "/p/1.NEF"), "Photo_2_1.jpg");
+        assert_eq!(
+            used.lock().unwrap().len(),
+            6,
+            "B's file, A's file and A's 2 × 2 mask files"
+        );
+        // The other way round: A's mask files are reserved before B names.
+        used.lock().unwrap().clear();
+        assert_eq!(plan(&a, 0, "/p/1.NEF"), "Photo_2.jpg");
+        assert_eq!(plan(&b, 1, "/p/2.NEF"), "Photo_2_mask_0_image_1.jpg");
+        assert!(
+            used.lock()
+                .unwrap()
+                .contains(&dir.path().join("Photo_2_mask_1_alpha.png"))
         );
     }
 
