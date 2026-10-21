@@ -142,6 +142,11 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         return;
       }
       const changed = changedCopyableKeys(previous.adjustments, state.adjustments);
+      // A setting the primary no longer has (As Shot over a custom white
+      // balance) is taken away from the others too: `null` reaches them.
+      for (const key of Object.keys(changed) as (keyof Adjustments)[]) {
+        if (changed[key] === undefined) (changed as Record<string, unknown>)[key] = null;
+      }
       // An AI detection on the primary is no edit of it: the other
       // photographs detect their own (sent, it would make them wait again,
       // and back). Its virtual copies share its pixels and take it.

@@ -109,6 +109,21 @@ describe('Edit all selected', () => {
     expect(pasted()).toEqual([{ paths: ['/s/b.CR3?vc=c0ffee'], adjustments: { masks: [sky('data:own')] } }]);
   });
 
+  it('takes away from the others a setting the primary no longer has', () => {
+    act(() =>
+      useEditorStore.setState({
+        adjustments: { ...useEditorStore.getState().adjustments, whiteBalance: 'custom', wbTemperature: 2850 } as never,
+      }),
+    );
+    renderHook(() => useEditAllSelected(true, selection));
+    const asShot = { ...useEditorStore.getState().adjustments } as Record<string, unknown>;
+    delete asShot.whiteBalance;
+    delete asShot.wbTemperature;
+    act(() => useEditorStore.setState({ adjustments: asShot as never }));
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    expect(pasted()[0].adjustments).toMatchObject({ whiteBalance: null, wbTemperature: null });
+  });
+
   it('has the other cells developed again once their recipes are written', async () => {
     const before = useMultiViewStore.getState().recipeRevision;
     renderHook(() => useEditAllSelected(true, selection));

@@ -256,10 +256,12 @@ function showPastedLens(path: string, pastedStep: Adjustments, lens: Partial<Adj
   const at = history.indexOf(pastedStep);
   if (at < 0 || at > historyIndex) return;
   const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key] ?? null;
+  // The lens choice the data was resolved for (a camera choice with its
+  // camera CA version): a later paste of another one supersedes it.
   const choice = (recipe: Adjustments) =>
     field(recipe, 'lensCorrectionMode') === 'manual'
       ? ['manual', field(recipe, 'lensMaker'), field(recipe, 'lensModel')]
-      : [field(recipe, 'lensCorrectionMode')];
+      : [field(recipe, 'lensCorrectionMode'), field(recipe, 'cameraCaVersion')];
   if (!sameAdjustmentValue(choice(adjustments), choice(pastedStep))) return;
   debouncedSetHistory.flush();
   updateAdjustments((prev: Adjustments) => ({ ...prev, ...lens }));
