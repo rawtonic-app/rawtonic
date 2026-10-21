@@ -361,3 +361,24 @@ it("Previous takes a never-edited RAW's settings as the editor showed them", asy
   await act(async () => {});
   expect(applied()[0].adjustments).toMatchObject({ lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.2 } });
 });
+
+it("pastes twice onto the open photo, each onto the result of the one before", async () => {
+  let disk: Record<string, unknown> = { ...structuredClone(INITIAL_ADJUSTMENTS) };
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { adjustments?: Record<string, unknown> };
+    if (name === Invokes.ApplyAdjustmentsToPaths) disk = { ...disk, ...a.adjustments };
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail) disk = { ...a.adjustments };
+    if (name === Invokes.LoadMetadata) return { adjustments: structuredClone(disk) };
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+  useEditorStore.setState({ copiedAdjustments: { exposure: 1 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  useEditorStore.setState({ copiedAdjustments: { contrast: 20 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 6; i++) await act(async () => {});
+  const shown = useEditorStore.getState().adjustments;
+  expect([shown.exposure, shown.contrast]).toEqual([1, 20]);
+  expect([disk.exposure, disk.contrast]).toEqual([1, 20]);
+});

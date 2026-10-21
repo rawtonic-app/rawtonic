@@ -153,7 +153,9 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         const copies = selectionRef.current.filter((path) => path !== image.path && samePhotograph(path, image.path));
         if (copies.length > 0) {
           copies.forEach((path) => globalImageCache.delete(path));
-          void applyRef.current({ masks: state.adjustments.masks }, copies, {
+          // Framed by the primary, as every sync is (legacy unframed shapes).
+          const masks = frameDrawnMasks(state.adjustments.masks, state.adjustments, image.width, image.height);
+          void applyRef.current({ masks }, copies, {
             openingNow: true,
             pasteFrom: image.path,
             replaceLayers: true,

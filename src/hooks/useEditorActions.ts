@@ -700,14 +700,16 @@ export function useEditorActions() {
       if (open && !reloadOpen) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
-      if (reloadOpen) {
-        // Its edit as it is now, a drag's draft included, is saved first:
-        // the backend pastes onto it.
+      // Its edit as it is now, a drag's draft included, is saved first: the
+      // backend pastes onto it (again when its turn comes after an earlier
+      // paste, whose shown result is then saved too).
+      const saveOpenEdit = () => {
         flushSliderDraft();
         scheduleUnsavedEditorRecipe();
         debouncedSave.flush();
-      }
-      const before = useEditorStore.getState().adjustments;
+      };
+      if (reloadOpen) saveOpenEdit();
+      let settled: Promise<Adjustments | undefined> | null = null;
 
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
@@ -723,23 +725,26 @@ export function useEditorActions() {
           'paste adjustments',
         );
       const others = reloadOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
-      const written = afterRecipeSaves(pathsToUpdate, () =>
-        reloadOpen
-          ? batch([open!.path]).then(async (failed) => {
-              // Showing it failing does not stop the others.
-              if (failed.length === 0)
-                await showPasted(open!.path, open!.isRaw, before).catch((err) =>
-                  console.error('Showing the pasted settings failed:', err),
-                );
-              return others.length > 0 ? [...failed, ...(await batch(others))] : failed;
-            })
-          : batch(pathsToUpdate),
-      );
+      const pasteOpen = async () => {
+        saveOpenEdit();
+        const saving = pendingMetadataSaves.get(open!.path);
+        if (saving && saving !== settled) await saving;
+        // Shown when its write starts: an earlier paste's result counts.
+        const before = useEditorStore.getState().adjustments;
+        const failed = await batch([open!.path]);
+        // Showing it failing does not stop the others.
+        if (failed.length === 0)
+          await showPasted(open!.path, open!.isRaw, before).catch((err) =>
+            console.error('Showing the pasted settings failed:', err),
+          );
+        return others.length > 0 ? [...failed, ...(await batch(others))] : failed;
+      };
+      const written = afterRecipeSaves(pathsToUpdate, () => (reloadOpen ? pasteOpen() : batch(pathsToUpdate)));
       // A photograph opened meanwhile reads its recipe after this write.
-      const settled = written.then(() => undefined, () => undefined);
+      settled = written.then(() => undefined, () => undefined);
       pathsToUpdate.forEach((path) => {
-        pendingMetadataSaves.set(path, settled);
-        void settled.then(() => {
+        pendingMetadataSaves.set(path, settled!);
+        void settled!.then(() => {
           if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
         });
       });
