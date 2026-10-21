@@ -312,6 +312,29 @@ describe('RAW detail defaults', () => {
     expect(editedCurvesVersion({ ...neutral, red, version: 3 })).toBe(CURVE_VERSION);
   });
 
+  it('take a neutral Luminance curve for none', () => {
+    const neutral = [
+      { x: 0, y: 0 },
+      { x: 255, y: 255 },
+    ];
+    // A Luminance point added and deleted again leaves a neutral channel.
+    const cleared = { ...INITIAL_ADJUSTMENTS.curves, luminance: neutral };
+    expect(sameAdjustmentValue(cleared, INITIAL_ADJUSTMENTS.curves)).toBe(true);
+    expect('curves' in pastedAdjustments({ curves: cleared } as Adjustments, ['curves'], PasteMode.Merge)).toBe(false);
+    // Pasted onto a photo with an edited red curve, Merge keeps that edit.
+    const red = [
+      { x: 0, y: 0 },
+      { x: 128, y: 160 },
+      { x: 255, y: 255 },
+    ];
+    const target = { ...INITIAL_ADJUSTMENTS, curves: { ...INITIAL_ADJUSTMENTS.curves, red } } as Adjustments;
+    const merged = { ...target, ...pastedAdjustments({ ...target, curves: cleared } as Adjustments, ['curves'], PasteMode.Merge) };
+    expect(merged.curves.red).toEqual(red);
+    // A Luminance curve that changes something counts.
+    const lifted = { ...INITIAL_ADJUSTMENTS.curves, luminance: red };
+    expect(sameAdjustmentValue(lifted, INITIAL_ADJUSTMENTS.curves)).toBe(false);
+  });
+
   it('carry the luminance noise reduction version with luminance values', () => {
     const all = COPYABLE_ADJUSTMENT_KEYS;
     // A recipe from before the key (version 1 on load): its luminance values

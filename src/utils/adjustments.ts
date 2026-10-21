@@ -1509,11 +1509,16 @@ export function sameAdjustmentValue(a: unknown, b: unknown): boolean {
     return a.length === b.length && a.every((value, i) => sameAdjustmentValue(value, b[i]));
   let left = a as Record<string, unknown>;
   let right = b as Record<string, unknown>;
-  // A curves version matters only where it renders differently
-  // (`Curves.version`): neutral curves saved before it equal new ones.
-  if (isCurves(left) && isCurves(right) && renderedVersion(left) === renderedVersion(right)) {
-    left = { ...left, version: undefined };
-    right = { ...right, version: undefined };
+  if (isCurves(left) && isCurves(right)) {
+    // A neutral Luminance curve renders as none (curves without one).
+    if (!changesTone(left.luminance)) left = { ...left, luminance: undefined };
+    if (!changesTone(right.luminance)) right = { ...right, luminance: undefined };
+    // A curves version matters only where it renders differently
+    // (`Curves.version`): neutral curves saved before it equal new ones.
+    if (renderedVersion(left) === renderedVersion(right)) {
+      left = { ...left, version: undefined };
+      right = { ...right, version: undefined };
+    }
   }
   const keys = Object.keys(left).filter((key) => left[key] !== undefined);
   return (
