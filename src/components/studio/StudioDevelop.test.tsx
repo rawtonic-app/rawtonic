@@ -380,6 +380,26 @@ describe("Develop tool contracts", () => {
       .map((p) => p.split(",").map(Number));
     const [, y] = drawn[drawn.length - 1];
     expect(255 - y).toBeCloseTo(150, 5);
+    cleanup();
+    // A long curve that changes nothing renders as none: drawn neutral,
+    // not cut after its 16th point.
+    const identity = Array.from({ length: 20 }, (_, i) => ({ x: (i * 255) / 19, y: (i * 255) / 19 }));
+    useEditorStore.setState({
+      adjustments: {
+        ...structuredClone(INITIAL_ADJUSTMENTS),
+        curves: { ...INITIAL_ADJUSTMENTS.curves, luminance: identity, version: 3 },
+      },
+    });
+    mount();
+    openGroups();
+    fireEvent.click(screen.getByRole("button", { name: "Luminance" }));
+    const neutral = screen
+      .getByRole("img", { name: /^luminance point curve/ })
+      .querySelector("polyline.curve-line")!
+      .getAttribute("points")!
+      .split(" ")
+      .map((p) => p.split(",").map(Number));
+    for (const [x, py] of neutral) expect(255 - py).toBeCloseTo(x, 5);
   });
 
   it("ends a curve drag on cancellation and unmount", () => {

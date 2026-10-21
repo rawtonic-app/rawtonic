@@ -70,3 +70,27 @@ export const renderedPoints = (
   points: Coord[] | undefined,
   whole: boolean,
 ): Coord[] | undefined => (whole ? points : points?.slice(0, MAX_CURVE_POINTS));
+
+/**
+ * The points the renderer uses for a Luminance curve (point_curve.rs
+ * `luminance_points`): none (drawn neutral) when the whole curve changes
+ * nothing, else the first 16, whatever the curves' version.
+ */
+export const renderedLuminancePoints = (
+  points: Coord[] | undefined,
+): Coord[] => {
+  const neutral = [
+    { x: 0, y: 0 },
+    { x: 255, y: 255 },
+  ];
+  if (!points || points.length < 2) return neutral;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const identity =
+    points.every((p) => Math.abs(p.x - p.y) <= 0.5) &&
+    Math.abs(first.x) < 0.1 &&
+    Math.abs(first.y) < 0.1 &&
+    Math.abs(last.x - 255) < 0.1 &&
+    Math.abs(last.y - 255) < 0.1;
+  return identity ? neutral : points.slice(0, MAX_CURVE_POINTS);
+};

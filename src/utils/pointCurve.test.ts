@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { pointCurveValue, renderedPoints } from "./pointCurve";
+import {
+  pointCurveValue,
+  renderedLuminancePoints,
+  renderedPoints,
+} from "./pointCurve";
 
 // A Lightroom-style curve with 20 points (zig-zag of ±10 levels).
 const xs = [
@@ -28,5 +32,25 @@ describe("point curve", () => {
     expect(pointCurveValue(moved, 10)).toBe(0);
     expect(pointCurveValue(moved, 240)).toBe(255);
     expect(pointCurveValue(moved, 128)).toBe(128);
+  });
+
+  it("takes a Luminance curve as the renderer does", () => {
+    // The first 16 of a long curve that changes something.
+    const lifted = [
+      ...Array.from({ length: 16 }, (_, i) => ({ x: i * 10, y: i * 10 + 5 })),
+      { x: 200, y: 240 },
+      { x: 255, y: 255 },
+    ];
+    expect(renderedLuminancePoints(lifted)).toHaveLength(16);
+    // A long curve that changes nothing renders as none, not cut.
+    const identity = Array.from({ length: 20 }, (_, i) => ({
+      x: (i * 255) / 19,
+      y: (i * 255) / 19,
+    }));
+    expect(renderedLuminancePoints(identity)).toEqual([
+      { x: 0, y: 0 },
+      { x: 255, y: 255 },
+    ]);
+    expect(renderedLuminancePoints(undefined)).toHaveLength(2);
   });
 });
