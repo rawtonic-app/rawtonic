@@ -17,6 +17,7 @@ import {
   type Adjustments,
 } from '../utils/adjustments';
 import { waitForPendingMetadataSave } from './useEditorActions';
+import { RESPONSE_KEYS } from '../utils/settingsClipboard';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -166,9 +167,15 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           const cameraRequest = invoke<{ params: Adjustments['lensDistortionParams'] } | null>(
             Invokes.GetCameraLensProfile, { path: selectedImage.path },
           ).catch(() => null);
+          let storedLacks: string[] = [];
           // The recipe to render: saved, or the defaults for a never-edited photo.
           const recipeFor = async (metadata: ImageMetadata | null, isRaw: boolean, width: number, height: number) => {
             const savedAdjustments = unsavedAdjustments ?? metadata?.adjustments;
+            // Versions a saved recipe lacks are resolved here, not in it.
+            storedLacks =
+              savedAdjustments && !savedAdjustments.is_null && !unsavedAdjustments
+                ? RESPONSE_KEYS.filter((key) => (savedAdjustments as Record<string, unknown>)[key] == null)
+                : [];
             const initialAdjusts = savedAdjustments && !savedAdjustments.is_null
               ? normalizeLoadedAdjustments(savedAdjustments, isRaw)
               : initialAdjustmentsFor(isRaw);
@@ -210,6 +217,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
               if (state.selectedImage?.path !== selectedImage.path) return state;
               return {
                 adjustments: initialAdjusts,
+                storedLacksResponses: storedLacks,
                 history: [initialAdjusts],
                 historyIndex: 0,
                 panelsHeld: false,

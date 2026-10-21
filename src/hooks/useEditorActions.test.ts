@@ -92,8 +92,6 @@ it.each(['lens', 'paste'] as const)('ignores delayed %s metadata when the user s
     if (kind === 'lens') result.current.handleAutoLensCorrection(['/first.dng']);
     else result.current.handlePasteAdjustments(['/first.dng']);
   });
-  // A paste onto the open photo saves its recipe as shown first.
-  if (kind === 'paste') await finish(Invokes.SaveMetadataAndUpdateThumbnail, undefined);
   await finish(kind === 'lens' ? 'apply_auto_lens_correction_to_paths' : Invokes.ApplyAdjustmentsToPaths, undefined);
   expect(pending.at(-1)?.command).toBe(Invokes.LoadMetadata);
   act(() => select('/second.dng'));

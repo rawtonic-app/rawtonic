@@ -269,12 +269,26 @@ it("pastes onto the open photo what the editor shows, cleared settings included"
   const shown = useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
   expect("whiteBalance" in shown).toBe(false);
   expect("wbTemperature" in shown).toBe(false);
-  await act(async () => {});
-  await act(async () => {});
-  // Its recipe as shown is saved before the backend pastes onto it.
-  const order = vi
-    .mocked(invoke)
-    .mock.calls.map(([name]) => name)
-    .filter((name) => name === Invokes.SaveMetadataAndUpdateThumbnail || name === Invokes.ApplyAdjustmentsToPaths);
-  expect(order).toEqual([Invokes.SaveMetadataAndUpdateThumbnail, Invokes.ApplyAdjustmentsToPaths]);
+});
+
+it("resolves the versions the open photo's saved recipe lacks as its closed recipe would be", () => {
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ copiedAdjustments: { shadows: 80 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  const opened = (lacks: string[]) =>
+    useEditorStore.setState({
+      selectedImage: photo("/s/B.ARW") as never,
+      // Resolved on loading: its saved recipe renders alike with either.
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), shadows: 0, toneVersion: 2 } as unknown as Adjustments,
+      storedLacksResponses: lacks,
+    });
+  // Saved without the version (a recipe from before it): Shadows 80 renders
+  // with the earlier response there, so here too.
+  opened(["toneVersion"]);
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  expect(useEditorStore.getState().adjustments.shadows).toBe(80);
+  expect(useEditorStore.getState().adjustments.toneVersion).toBeUndefined();
+  // Saved with it: its own.
+  opened([]);
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  expect(useEditorStore.getState().adjustments.toneVersion).toBe(2);
 });

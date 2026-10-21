@@ -66,6 +66,10 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   const pending = (previous ? previous.then(save) : save())
     .then(() => {
       unsavedRecipes.delete(path);
+      // The saved recipe now has the versions the editor resolved.
+      const editor = useEditorStore.getState();
+      if (editor.selectedImage?.path === path && editor.storedLacksResponses.length > 0)
+        editor.setEditor({ storedLacksResponses: [] });
       return undefined;
     })
     .catch((err) => {
@@ -190,6 +194,23 @@ function withSourceFrames(
 ): Partial<Adjustments> {
   if (!chosen.masks) return chosen;
   return { ...chosen, masks: frameDrawnMasks(chosen.masks, source.adjustments, source.width, source.height) ?? chosen.masks };
+}
+
+/** `next` (the open photograph after a paste of `pasted`) with the
+ * processing versions its saved recipe lacks resolved as loading that
+ * recipe after the paste resolves them (`storedLacksResponses`). */
+function withStoredResponses(next: Adjustments, pasted: Partial<Adjustments>, isRaw: boolean): Adjustments {
+  const lacks = useEditorStore.getState().storedLacksResponses.filter((key) => !(key in pasted));
+  if (lacks.length === 0) return next;
+  const stored = { ...next } as Record<string, unknown>;
+  for (const key of lacks) delete stored[key];
+  const resolved = normalizeLoadedAdjustments(stored as unknown as Adjustments, isRaw) as unknown as Record<string, unknown>;
+  const out = { ...next } as Record<string, unknown>;
+  for (const key of lacks) {
+    if (resolved[key] == null) delete out[key];
+    else out[key] = resolved[key];
+  }
+  return out as unknown as Adjustments;
 }
 
 /** The picker's remembered choice (the preferences' copied keys). */
@@ -659,7 +680,11 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        const next = pasteFrom ? removedWhenNull(adjustments, adjustmentsToApply) : { ...adjustments, ...adjustmentsToApply };
+        let next = pasteFrom ? removedWhenNull(adjustments, adjustmentsToApply) : { ...adjustments, ...adjustmentsToApply };
+        // Processing versions its saved recipe lacks (resolved on loading)
+        // are resolved again for the pasted values, as the backend's recipe
+        // will be when it is opened: the same paste open or closed.
+        if (asChosen) next = withStoredResponses(next, adjustmentsToApply, selectedImage.isRaw);
         if (pasteFrom && adjustmentsToApply.masks) {
           next.masks = pasteLayers(
             adjustments.masks,
@@ -677,22 +702,13 @@ export function useEditorActions() {
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
-      // Settings chosen in the picker keep the open photograph's processing
-      // versions: its recipe is saved first as the editor holds it (versions
-      // a recipe from before them lacks are resolved there on loading), so
-      // the backend pastes onto what the editor shows.
-      const open = asChosen && selectedImage?.isReady && pathsToUpdate.includes(selectedImage.path) ? selectedImage.path : null;
-      const apply = () =>
-        invoke(Invokes.ApplyAdjustmentsToPaths, {
-          paths: pathsToUpdate,
-          adjustments: adjustmentsToApply,
-          ...(paste ? { paste } : {}),
-        });
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
-          open
-            ? invoke(Invokes.SaveMetadataAndUpdateThumbnail, { path: open, adjustments }).then(apply)
-            : apply(),
+          invoke(Invokes.ApplyAdjustmentsToPaths, {
+            paths: pathsToUpdate,
+            adjustments: adjustmentsToApply,
+            ...(paste ? { paste } : {}),
+          }),
           pathsToUpdate,
           'paste adjustments',
         ),

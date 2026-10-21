@@ -7,9 +7,10 @@ import { useMultiViewStore } from '../store/useMultiViewStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useEditorActions } from './useEditorActions';
 import { changedCopyableKeys } from '../utils/multiView';
+import { withoutDetections } from '../utils/settingsClipboard';
 import { frameDrawnMasks } from '../utils/maskGeometry';
 import { globalImageCache } from '../utils/ImageLRUCache';
-import { withLumaNoiseVersion, withSharpenVersion, type Adjustments } from '../utils/adjustments';
+import { sameAdjustmentValue, withLumaNoiseVersion, withSharpenVersion, type Adjustments } from '../utils/adjustments';
 
 /** How long edits of the primary gather before they are written to the
  * other photographs (a slider drag writes once it pauses or ends). */
@@ -141,6 +142,14 @@ export function useEditAllSelected(enabled: boolean, selection: string[]) {
         return;
       }
       const changed = changedCopyableKeys(previous.adjustments, state.adjustments);
+      // An AI detection on the primary is no edit of it: the others detect
+      // their own (sent, it would make them wait again, and back).
+      if (
+        changed.masks &&
+        sameAdjustmentValue(withoutDetections(previous.adjustments.masks), withoutDetections(state.adjustments.masks))
+      ) {
+        delete changed.masks;
+      }
       if (Object.keys(changed).length === 0) return;
       if (source && source.path !== image.path) flush.flush();
       source = { path: image.path, adjustments: state.adjustments, width: image.width, height: image.height };

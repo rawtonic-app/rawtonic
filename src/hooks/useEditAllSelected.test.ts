@@ -83,6 +83,19 @@ describe('Edit all selected', () => {
     expect(pastedFrom()).toEqual([{ source: '/s/b.CR3', replaceLayers: true }]);
   });
 
+  it('does not send an AI detection made on the primary to the others', () => {
+    const sky = (data: string | null, pending: boolean) => ({
+      id: 'l', name: 'Sky', visible: true, invert: false, opacity: 100, adjustments: {},
+      subMasks: [{ id: 's', type: 'ai-sky', visible: true, invert: false, opacity: 100, mode: 'additive',
+        parameters: { maskDataBase64: data, ...(pending ? { detectPending: true } : {}) } }],
+    });
+    act(() => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, masks: [sky(null, true)] as never } }));
+    renderHook(() => useEditAllSelected(true, selection));
+    edit({ masks: [sky('data:own', false)] as never });
+    act(() => vi.advanceTimersByTime(EDIT_ALL_SETTLE_MS + 10));
+    expect(pasted()).toEqual([]);
+  });
+
   it('has the other cells developed again once their recipes are written', async () => {
     const before = useMultiViewStore.getState().recipeRevision;
     renderHook(() => useEditAllSelected(true, selection));

@@ -128,6 +128,33 @@ function withPendingDetections(layer: MaskContainer): MaskContainer {
   };
 }
 
+/** What an AI detection writes into a component's parameters (its bitmap,
+ * the geometry it was made in, the end of its wait). */
+const DETECTION_RESULT_KEYS = [
+  'maskDataBase64',
+  'mask_data_base64',
+  DETECT_PENDING,
+  'rotation',
+  'flipHorizontal',
+  'flipVertical',
+  'orientationSteps',
+  'warp',
+];
+
+/** `masks` without what AI detections wrote: two recipes whose layers
+ * differ only there differ by a detection on that photograph, no edit. */
+export function withoutDetections(masks: MaskContainer[] | undefined): unknown {
+  return (masks ?? []).map((layer) => ({
+    ...layer,
+    subMasks: layer.subMasks.map((sub: SubMask) => {
+      if (!DETECTED_TYPES.has(sub.type)) return sub;
+      const parameters = { ...((sub.parameters ?? {}) as Record<string, unknown>) };
+      for (const key of DETECTION_RESULT_KEYS) delete parameters[key];
+      return { ...sub, parameters };
+    }),
+  }));
+}
+
 /** Whether a component waits for its AI detection on this photograph (an
  * Object selection: for the user to point at the object again). */
 export function detectionPending(sub: SubMask): boolean {
