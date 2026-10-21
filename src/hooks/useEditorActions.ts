@@ -111,6 +111,8 @@ function scheduleUnsavedEditorRecipe() {
  * is still not saved (quitting, utils/quit.ts).
  */
 export async function flushRecipeSaves(): Promise<string[]> {
+  // Pastes onto the open photograph still being made.
+  while (pastesInFlight.size > 0) await Promise.allSettled([...pastesInFlight]);
   // A drag's moves since the last store commit are only a draft.
   flushSliderDraft();
   scheduleUnsavedEditorRecipe();
@@ -159,7 +161,8 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
  * loading would. An edit made meanwhile is pasted onto again. */
 async function pasteOntoOpen(open: { path: string; isRaw: boolean }, pasted: Partial<Adjustments>, paste: object) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (!isCurrentEditorImage(open.path)) return;
+    // Left before it was applied: pasted as onto a closed photograph.
+    if (!isCurrentEditorImage(open.path)) return pasteClosed(open.path, pasted, paste);
     // A drag's moves since the last commit are part of the edit.
     flushSliderDraft();
     const { adjustments: before, history, historyPending } = useEditorStore.getState();
@@ -176,7 +179,8 @@ async function pasteOntoOpen(open: { path: string; isRaw: boolean }, pasted: Par
       toast.error(`Failed to paste adjustments: ${err}`);
       return;
     }
-    if (!result || !isCurrentEditorImage(open.path)) return;
+    if (!result) return;
+    if (!isCurrentEditorImage(open.path)) continue;
     // As loading makes it: a never-edited RAW's defaults (its lens data), and
     // AI bitmaps it changed under ids of their own (the renderer keeps
     // bitmaps by id; unchanged ones keep theirs).
@@ -186,8 +190,7 @@ async function pasteOntoOpen(open: { path: string; isRaw: boolean }, pasted: Par
       open.isRaw,
       () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: open.path }).catch(() => null),
     );
-    if (!isCurrentEditorImage(open.path)) return;
-    if (useEditorStore.getState().adjustments !== before) continue;
+    if (!isCurrentEditorImage(open.path) || useEditorStore.getState().adjustments !== before) continue;
     const shown = withOwnBitmapIds(loaded, before);
     debouncedSetHistory.flush();
     updateAdjustments(() => shown);
@@ -195,6 +198,31 @@ async function pasteOntoOpen(open: { path: string; isRaw: boolean }, pasted: Par
     return;
   }
   toast.error(i18next.t('studio.copySettings.changedMeanwhile'));
+}
+
+/** Pastes onto `path` in the backend, after its saves under way. */
+async function pasteClosed(path: string, pasted: Partial<Adjustments>, paste: object) {
+  const written = afterRecipeSaves([path], () =>
+    savedBatch(invoke(Invokes.ApplyAdjustmentsToPaths, { paths: [path], adjustments: pasted, paste }), [path], 'paste adjustments'),
+  );
+  // Opened again meanwhile, it reads its recipe after this write.
+  const settled = written.then(() => undefined, () => undefined);
+  pendingMetadataSaves.set(path, settled);
+  void settled.then(() => {
+    if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
+  });
+  await written;
+}
+
+/** Pastes onto the open photograph, one after another in the order they
+ * were asked for (`pasteOntoOpen`); quitting waits for them. */
+let openPastes: Promise<unknown> = Promise.resolve();
+const pastesInFlight = new Set<Promise<unknown>>();
+function queueOpenPaste(run: () => Promise<unknown>) {
+  const paste = openPastes.then(run, run);
+  openPastes = paste.catch(() => undefined);
+  pastesInFlight.add(paste);
+  void paste.finally(() => pastesInFlight.delete(paste)).catch(() => undefined);
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -719,7 +747,7 @@ export function useEditorActions() {
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
-      if (pastedOpen) void pasteOntoOpen(open!, adjustmentsToApply, paste!);
+      if (pastedOpen) queueOpenPaste(() => pasteOntoOpen(open!, adjustmentsToApply, paste!));
       const others = pastedOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve();
       const written = afterRecipeSaves(others, () =>

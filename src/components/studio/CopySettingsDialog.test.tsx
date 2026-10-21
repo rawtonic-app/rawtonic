@@ -375,3 +375,60 @@ it("pastes three times quickly onto the open photo, each onto the one before", a
   expect([shown.exposure, shown.contrast, shown.saturation, shown.clarity]).toEqual([1, 20, -10, 1]);
 });
 
+it("applies quick pastes onto the open photo in the order they were asked for, whatever answers first", async () => {
+  const answers: (() => void)[] = [];
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    if (name === Invokes.PastePreview) {
+      const merged = previewMerge(args);
+      await new Promise<void>((resolve) => answers.push(resolve));
+      return merged;
+    }
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const edited = { ...opened, clarity: 1 };
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
+  for (const exposure of [1, 2]) {
+    useEditorStore.setState({ copiedAdjustments: { exposure } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  }
+  for (let i = 0; i < 4; i++) await act(async () => {});
+  // One at a time: the second is asked for only after the first is applied.
+  expect(answers).toHaveLength(1);
+  await act(async () => answers[0]());
+  for (let i = 0; i < 4; i++) await act(async () => {});
+  await act(async () => answers[1]());
+  for (let i = 0; i < 4; i++) await act(async () => {});
+  expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+});
+
+it("pastes onto the photo it was asked for when another is opened before it is applied, and quitting waits", async () => {
+  const { flushRecipeSaves } = await import("../../hooks/useEditorActions");
+  let answer = () => {};
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    if (name === Invokes.PastePreview) {
+      const merged = previewMerge(args);
+      await new Promise<void>((resolve) => (answer = resolve));
+      return merged;
+    }
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const edited = { ...opened, clarity: 1 };
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { exposure: 3 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 3; i++) await act(async () => {});
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/C.ARW") as never }));
+  let quit = false;
+  void flushRecipeSaves().then(() => (quit = true));
+  await act(async () => {});
+  expect(quit).toBe(false);
+  await act(async () => answer());
+  for (let i = 0; i < 6; i++) await act(async () => {});
+  expect(applied()).toEqual([expect.objectContaining({ paths: ["/s/B.ARW"], adjustments: { exposure: 3 } })]);
+  expect(quit).toBe(true);
+});
+
