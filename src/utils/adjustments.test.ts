@@ -290,6 +290,9 @@ describe('RAW detail defaults', () => {
     // Edit all selected: a curve-only change from a version-2 photo.
     const source = { ...old, curveVersion: 2 } as Adjustments;
     expect(withSharpenVersion<Partial<Adjustments>>({ curves: old.curves }, source).curveVersion).toBe(2);
+    // Edit all selected: a version-only change (curve points unchanged) takes the curves along.
+    const upgraded = withSharpenVersion<Partial<Adjustments>>({ curveVersion: 2 }, source);
+    expect(upgraded).toMatchObject({ curveVersion: 2, curves: old.curves });
   });
 
   it('carry the luminance noise reduction version with luminance values', () => {

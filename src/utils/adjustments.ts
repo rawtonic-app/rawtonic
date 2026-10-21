@@ -1332,6 +1332,8 @@ export const pastedAdjustments = (
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
+  // The curve version goes along only with curves that survived the filter.
+  if (picked.curves === undefined) delete picked.curveVersion;
   return withLumaNoiseVersion(withSharpenVersion(picked, copied), copied);
 };
 
@@ -1363,13 +1365,19 @@ export const withSharpenVersion = <T extends Partial<Adjustments>>(
  * goes along exactly when curves do — their own, else the source's (a curve
  * edit synced from a photo whose key did not change), else 1 (a missing key
  * would vanish in JSON and the target would keep its own) — and never on
- * its own (it would change the target's own long curves). */
+ * its own (it would change the target's own long curves): a version change
+ * alone takes the source's curves along. */
 export const withCurveVersion = <T extends Partial<Adjustments>>(
   picked: T,
   source?: Partial<Adjustments>,
 ): T => {
   if (picked.curves === undefined) {
     if (!Object.prototype.hasOwnProperty.call(picked, 'curveVersion')) return picked;
+    // A version change alone (a legacy curve edited back to the same points)
+    // means the source's curves at that version: they go along.
+    if (source?.curves !== undefined && picked.curveVersion != null) {
+      return { ...picked, curves: structuredClone(source.curves) };
+    }
     const rest = { ...picked };
     delete rest.curveVersion;
     return rest;
