@@ -54,7 +54,11 @@ import AdjustmentControl from "./AdjustmentControl";
 import StudioCameraProfile from "./StudioCameraProfile";
 import StudioWhiteBalance from "./StudioWhiteBalance";
 import type { TatTarget } from "../../utils/targetedAdjustment";
-import { pointCurveValue, renderedPoints } from "../../utils/pointCurve";
+import {
+  pointCurveValue,
+  renderedLuminancePoints,
+  renderedPoints,
+} from "../../utils/pointCurve";
 import StudioHistogram from "./StudioHistogram";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
@@ -333,7 +337,10 @@ function PointCurve({
         <polyline
           points={Array.from({ length: 129 }, (_, i) => {
             const x = i * (255 / 128);
-            const drawn = renderedPoints(points, wholeCurves);
+            const drawn =
+              channel === "luminance"
+                ? renderedLuminancePoints(points)
+                : renderedPoints(points, wholeCurves);
             return `${x},${255 - pointCurveValue(drawn, x)}`;
           }).join(" ")}
           fill="none"
