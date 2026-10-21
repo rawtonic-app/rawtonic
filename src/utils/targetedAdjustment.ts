@@ -116,7 +116,9 @@ export function startTargetedAdjustment(
   displayRgb: [number, number, number] | null,
 ): TatStart | null {
   if (isToneTarget(target)) {
-    if (!displayRgb) return null;
+    // The displayed sample can be traced back through the photo's curves
+    // only: layer curves and a LUT after them would mislead it.
+    if (!displayRgb || hasToneAfterCurves(base)) return null;
     const region = regionOf(base);
     const curves = base.curves;
     const channelCurves = [curves?.red, curves?.green, curves?.blue];
@@ -223,6 +225,29 @@ export function targetedPatch(
     }
   });
   return { hsl };
+}
+
+const isIdentity = (points: Coord[] | undefined) =>
+  !points ||
+  points.length < 2 ||
+  (points.every((p) => p.x === p.y) &&
+    points[0].x === 0 &&
+    points[points.length - 1].x === 255);
+
+/** A visible layer with curves, or a LUT: tones changed after the photo's
+ * curves, which the displayed sample cannot be traced back through. */
+function hasToneAfterCurves(a: Adjustments) {
+  const layerCurves = (a.masks ?? []).some((mask) => {
+    const curves =
+      mask.visible === false ? undefined : mask.adjustments?.curves;
+    return (
+      !!curves &&
+      [curves.luma, curves.red, curves.green, curves.blue].some(
+        (c) => !isIdentity(c as Coord[] | undefined),
+      )
+    );
+  });
+  return layerCurves || !!a.lutPath;
 }
 
 const regionOf = (a: Adjustments): RegionCurve => ({

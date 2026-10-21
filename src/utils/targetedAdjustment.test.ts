@@ -168,6 +168,39 @@ describe("targeted adjustment", () => {
     });
   });
 
+  it("declines tone targets when layer curves or a LUT follow", () => {
+    const lifted = [
+      { x: 0, y: 0 },
+      { x: 100, y: 220 },
+      { x: 255, y: 255 },
+    ];
+    const layered = {
+      ...base(),
+      masks: [{ visible: true, adjustments: { curves: { luma: lifted } } }],
+    } as never;
+    for (const target of ["curve", "regionCurve"] as const) {
+      expect(
+        startTargetedAdjustment(target, layered, null, [220, 220, 220]),
+      ).toBeNull();
+      expect(
+        startTargetedAdjustment(
+          target,
+          { ...base(), lutPath: "/l.cube" },
+          null,
+          [100, 100, 100],
+        ),
+      ).toBeNull();
+    }
+    // A hidden layer or identity layer curves do not count.
+    const hidden = {
+      ...base(),
+      masks: [{ visible: false, adjustments: { curves: { luma: lifted } } }],
+    } as never;
+    expect(
+      startTargetedAdjustment("regionCurve", hidden, null, [100, 100, 100]),
+    ).not.toBeNull();
+  });
+
   it("evaluates the curve as the renderer does", () => {
     expect(
       curveValue(
