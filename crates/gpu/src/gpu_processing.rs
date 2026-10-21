@@ -3119,6 +3119,9 @@ struct DisplayRenderState {
     dimensions: (u32, u32),
     bounds: Roi,
     adjustments: AllAdjustments,
+    /// The global curve table (`PreparedAdjustments::curve_table`): curves
+    /// that differ only after their 16th point have equal uniforms.
+    curve_table: Option<Arc<Vec<[f32; 4]>>>,
     lut: Option<std::sync::Weak<Lut>>,
     pipeline: wgpu::ComputePipeline,
     mask_layers: usize,
@@ -3131,6 +3134,7 @@ impl DisplayRenderState {
             && self.dimensions == other.dimensions
             && self.bounds == other.bounds
             && bytemuck::bytes_of(&self.adjustments) == bytemuck::bytes_of(&other.adjustments)
+            && self.curve_table == other.curve_table
             && match (&self.lut, &other.lut) {
                 (None, None) => true,
                 (Some(a), Some(b)) => a.ptr_eq(b),
@@ -5959,6 +5963,7 @@ impl GpuProcessor {
                     dimensions: (width, height),
                     bounds,
                     adjustments: request.adjustments.uniforms,
+                    curve_table: request.adjustments.curve_table.clone(),
                     lut: request.lut.as_ref().map(Arc::downgrade),
                     pipeline: output_pipeline.clone(),
                     mask_layers: request.mask_bitmaps.len().min(MAX_MASKS),

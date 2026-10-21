@@ -3269,6 +3269,12 @@ fn long_curves_render_every_point() {
         display_delta <= 1,
         "display against export: {display_delta} levels"
     );
+    // A change after the 16th point alone leaves the uniforms equal: the
+    // next display frame must still render it.
+    let mut moved = curved.clone();
+    moved["curves"]["luma"][18]["y"] = json!(200);
+    let changed = render(&moved, true, RenderOutputPrecision::EightBit);
+    assert_ne!(display, changed, "a tail-only curve change must re-render");
     println!("export worst {worst:.3} levels over {compared} pixels; display {display_delta}");
 }
 
