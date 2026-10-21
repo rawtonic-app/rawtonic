@@ -9,14 +9,12 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
 import {
-  FRINGE_VERSION,
-  CAMERA_CA_VERSION,
-  AUTO_CA_VERSION,
   initialAdjustmentsFor,
   normalizeLoadedAdjustments,
   type Adjustments,
 } from '../utils/adjustments';
 import { waitForPendingMetadataSave } from './useEditorActions';
+import { withNeverEditedDefaults } from '../utils/neverEdited';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -177,22 +175,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             }
             // Profile corrections are on by default: a never-edited RAW (its
             // recipe has no lens mode at all) starts with the camera's own lens
-            // data, as its export does (embedded_lens.rs).
-            const neverEdited = !savedAdjustments || savedAdjustments.is_null
-              || (savedAdjustments as Partial<Adjustments>).lensCorrectionMode === undefined;
-            if (neverEdited && isRaw) {
-              // And with the edge-fringe pass, as its export (edge_fringe.rs).
-              initialAdjusts.fringeVersion = FRINGE_VERSION;
-              // And with the automatic lateral CA (lateral_ca.rs).
-              initialAdjusts.autoCaVersion = AUTO_CA_VERSION;
-              const camera = await cameraRequest;
-              if (camera?.params) {
-                initialAdjusts.lensCorrectionMode = 'camera';
-                initialAdjusts.lensDistortionParams = camera.params;
-                initialAdjusts.cameraCaVersion = CAMERA_CA_VERSION;
-              }
-            }
-            return initialAdjusts;
+            // data, the edge-fringe pass and the automatic lateral CA, as its
+            // export does.
+            return withNeverEditedDefaults(initialAdjusts, savedAdjustments, isRaw, () => cameraRequest);
           };
           const publishSource = (
             initialAdjusts: Adjustments,

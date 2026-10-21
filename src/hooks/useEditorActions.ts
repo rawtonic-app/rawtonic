@@ -35,6 +35,8 @@ import {
   newEditResponses,
 } from '../utils/settingsClipboard';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
+import { withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
 import { registerQuitFlush } from '../utils/quit';
@@ -158,7 +160,17 @@ async function showPasted(path: string, isRaw: boolean, before: Adjustments) {
     toast.error(i18next.t('studio.copySettings.changedMeanwhile'));
     return;
   }
-  const pasted = normalizeLoadedAdjustments(meta.adjustments, isRaw);
+  // As loading makes it: a never-edited RAW's defaults (its lens data), and
+  // its AI bitmaps under ids of their own (the renderer keeps bitmaps by id
+  // and may hold another one under a pasted id).
+  const loaded = await withNeverEditedDefaults(
+    normalizeLoadedAdjustments(meta.adjustments, isRaw),
+    meta.adjustments,
+    isRaw,
+    () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path }).catch(() => null),
+  );
+  if (!isCurrentEditorImage(path) || useEditorStore.getState().adjustments !== before) return;
+  const pasted = withOwnBitmapIds(loaded);
   debouncedSetHistory.flush();
   updateAdjustments(() => pasted);
   debouncedSetHistory.flush();

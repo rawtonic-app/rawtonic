@@ -279,3 +279,26 @@ it("keeps an edit made on the open photo while the paste was written, and says s
   expect(useEditorStore.getState().adjustments).toBe(mine);
   expect(toast.error).toHaveBeenCalled();
 });
+
+it("gives the open photo what loading gives it: a never-edited RAW's lens data, AI bitmaps under own ids", async () => {
+  const written = { exposure: 2, masks: [sky] };
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) return { adjustments: structuredClone(written) };
+    if (name === Invokes.GetCameraLensProfile) return { params: { k1: 0.1 } };
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2, masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/A.ARW?vc=c0ffee" });
+  useEditorStore.setState({ selectedImage: photo("/s/A.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+  await act(async () => {
+    await result.current.handlePasteAdjustments(["/s/A.ARW"]);
+  });
+  const shown = useEditorStore.getState().adjustments;
+  expect(shown.exposure).toBe(2);
+  // Its recipe has no lens mode (never edited): the camera's lens data.
+  expect(shown.lensCorrectionMode).toBe("camera");
+  expect(shown.lensDistortionParams).toEqual({ k1: 0.1 });
+  // The bitmap kept (same photograph), under an id the renderer has no other bitmap for.
+  expect(shown.masks[0].subMasks[0].id).not.toBe("sky-c");
+  expect(shown.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
+});
