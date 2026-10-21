@@ -2039,6 +2039,8 @@
         "whites": "Blancos"
       },
       "snapshots": {
+        "compare": "Comparar {{name}} con la edición actual (el antes de Antes/Después)",
+        "compareEnd": "Volver a comparar con la foto sin editar en lugar de {{name}}",
         "create": "Nueva instantánea de la edición actual",
         "delete": "Eliminar la instantánea {{name}}",
         "empty": "Aún no hay instantáneas: + guarda la edición actual con un nombre, la cámara del historial guarda cualquier paso.",
@@ -3578,6 +3580,7 @@
         "showPanels": "Mostrar paneles",
         "splitAfter": "Después",
         "splitBefore": "Antes",
+        "splitBeforeSnapshot": "Antes: {{name}}",
         "splitDivider": "Divisor antes/después",
         "togglePanels": "Mostrar u ocultar paneles",
         "undo": "Deshacer",

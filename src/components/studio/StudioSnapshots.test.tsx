@@ -288,3 +288,37 @@ it("restores AI bitmaps under ids of their own, also while the renderer is still
   expect(restored.aiPatches[0].id).not.toBe("patch");
   expect(restored.aiPatches[0].patchData).toMatchObject({ color: "c" });
 });
+
+it("is open from the start and compares a snapshot with the current edit in Before/After", async () => {
+  kept[PHOTO] = [
+    { id: "a", name: "Bright", createdAt: "2026-10-20T10:00:00.000Z", adjustments: recipe(2) },
+    { id: "b", name: "Dark", createdAt: "2026-10-20T10:01:00.000Z", adjustments: recipe(-1) },
+  ];
+  useEditorStore.setState({ adjustments: { ...recipe(0.5), crop: { x: 1, y: 2, width: 30, height: 20 } } as Adjustments });
+  render(<StudioSnapshots />);
+  await screen.findByText("Bright");
+  expect(document.querySelector<HTMLDetailsElement>('[data-tool-title="Snapshots"]')!.open).toBe(true);
+  const compare = screen.getByRole("button", { name: "Compare Bright with the current edit (Before/After's before)" });
+  fireEvent.click(compare);
+  // The split comes on, its before is the snapshot with the edit's framing.
+  expect(useEditorStore.getState().splitView).toBe(true);
+  expect(useEditorStore.getState().beforeSnapshot).toEqual({ path: PHOTO, id: "a" });
+  expect(compare.getAttribute("aria-pressed")).toBe("true");
+  const { originalPreviewAdjustments } = await import("../../utils/beforeAfter");
+  const { beforeSnapshotAdjustments } = await import("../../utils/beforeSnapshot");
+  const before = originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments());
+  expect(before.exposure).toBe(2);
+  expect(before.crop).toEqual({ x: 1, y: 2, width: 30, height: 20 });
+  // Another one replaces it; the same one again goes back to the unedited before.
+  fireEvent.click(screen.getByRole("button", { name: "Compare Dark with the current edit (Before/After's before)" }));
+  expect(useEditorStore.getState().beforeSnapshot?.id).toBe("b");
+  fireEvent.click(screen.getByRole("button", { name: "Compare Dark with the current edit (Before/After's before)" }));
+  expect(useEditorStore.getState().beforeSnapshot).toBeNull();
+  expect(useEditorStore.getState().splitView).toBe(true);
+  expect(originalPreviewAdjustments(useEditorStore.getState().adjustments, beforeSnapshotAdjustments()).exposure).toBe(0);
+  // A compared snapshot deleted, or another photograph: the unedited before.
+  fireEvent.click(screen.getByRole("button", { name: "Compare Bright with the current edit (Before/After's before)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete snapshot Bright" }));
+  await waitFor(() => expect(kept[PHOTO]).toHaveLength(1));
+  await waitFor(() => expect(beforeSnapshotAdjustments()).toBeNull());
+});

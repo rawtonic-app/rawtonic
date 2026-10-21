@@ -1944,6 +1944,8 @@
         "whites": "白色色階"
       },
       "snapshots": {
+        "compare": "將 {{name}} 與目前編輯比較（前後對比中的「之前」）",
+        "compareEnd": "改回與未編輯的相片比較，而非 {{name}}",
         "create": "目前編輯的新快照",
         "delete": "刪除快照 {{name}}",
         "empty": "尚無快照：+ 以名稱保存目前編輯，記錄中的相機可保存任一步驟。",
@@ -3397,6 +3399,7 @@
         "showPanels": "顯示面板",
         "splitAfter": "之後",
         "splitBefore": "之前",
+        "splitBeforeSnapshot": "之前：{{name}}",
         "splitDivider": "前後對比分割線",
         "togglePanels": "顯示/隱藏面板",
         "undo": "復原",

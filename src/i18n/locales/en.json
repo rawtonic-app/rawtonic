@@ -1981,6 +1981,8 @@
         "whites": "Whites"
       },
       "snapshots": {
+        "compare": "Compare {{name}} with the current edit (Before/After's before)",
+        "compareEnd": "Compare with the unedited photograph again instead of {{name}}",
         "create": "New snapshot of the current edit",
         "delete": "Delete snapshot {{name}}",
         "empty": "No snapshots yet: + keeps the current edit under a name, the camera in History keeps any step.",
@@ -3477,6 +3479,7 @@
         "showPanels": "Show panels",
         "splitAfter": "After",
         "splitBefore": "Before",
+        "splitBeforeSnapshot": "Before: {{name}}",
         "splitDivider": "Before/after divider",
         "togglePanels": "Toggle panels",
         "undo": "Undo",

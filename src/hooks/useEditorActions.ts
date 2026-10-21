@@ -27,6 +27,7 @@ import { calculateCenteredCrop, reframingInputs } from '../utils/cropUtils';
 import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
+import { beforeSnapshotAdjustments } from '../utils/beforeSnapshot';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
 import {
   RESPONSES_CHOSEN,
@@ -364,7 +365,10 @@ export function startBeforePeek(): boolean {
   useEditorStore.getState().setEditor((state) => {
     if (!state.selectedImage?.isReady || state.showOriginal) return state;
     started = true;
-    return { showOriginal: true, previewOverride: originalPreviewAdjustments(state.adjustments) };
+    return {
+      showOriginal: true,
+      previewOverride: originalPreviewAdjustments(state.adjustments, beforeSnapshotAdjustments()),
+    };
   });
   return started;
 }

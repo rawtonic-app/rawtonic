@@ -1944,6 +1944,8 @@
         "whites": "白色色阶"
       },
       "snapshots": {
+        "compare": "将 {{name}} 与当前编辑比较（前后对比中的“之前”）",
+        "compareEnd": "改回与未编辑的照片比较，而不是 {{name}}",
         "create": "当前编辑的新快照",
         "delete": "删除快照 {{name}}",
         "empty": "尚无快照：+ 以名称保存当前编辑，历史记录中的相机可保存任意步骤。",
@@ -3397,6 +3399,7 @@
         "showPanels": "显示面板",
         "splitAfter": "之后",
         "splitBefore": "之前",
+        "splitBeforeSnapshot": "之前：{{name}}",
         "splitDivider": "前后对比分割线",
         "togglePanels": "显示/隐藏面板",
         "undo": "撤销",

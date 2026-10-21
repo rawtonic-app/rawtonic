@@ -2039,6 +2039,8 @@
         "whites": "Bianchi"
       },
       "snapshots": {
+        "compare": "Confronta {{name}} con la modifica attuale (il prima di Prima/Dopo)",
+        "compareEnd": "Confronta di nuovo con la foto non modificata invece di {{name}}",
         "create": "Nuova istantanea della modifica attuale",
         "delete": "Elimina l’istantanea {{name}}",
         "empty": "Ancora nessuna istantanea: + conserva la modifica attuale con un nome, la fotocamera nella cronologia conserva qualsiasi passaggio.",
@@ -3578,6 +3580,7 @@
         "showPanels": "Mostra i pannelli",
         "splitAfter": "Dopo",
         "splitBefore": "Prima",
+        "splitBeforeSnapshot": "Prima: {{name}}",
         "splitDivider": "Divisore prima/dopo",
         "togglePanels": "Mostra/nascondi i pannelli",
         "undo": "Annulla",

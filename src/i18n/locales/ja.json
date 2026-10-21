@@ -1944,6 +1944,8 @@
         "whites": "白レベル"
       },
       "snapshots": {
+        "compare": "{{name}} を現在の編集と比較（補正前/補正後の補正前）",
+        "compareEnd": "{{name}} ではなく未編集の写真と再び比較",
         "create": "現在の編集の新しいスナップショット",
         "delete": "スナップショット {{name}} を削除",
         "empty": "スナップショットはまだありません。+ で現在の編集に名前を付けて保存し、履歴のカメラで任意のステップを保存します。",
@@ -3397,6 +3399,7 @@
         "showPanels": "パネルを表示",
         "splitAfter": "補正後",
         "splitBefore": "補正前",
+        "splitBeforeSnapshot": "補正前：{{name}}",
         "splitDivider": "補正前/補正後の境界線",
         "togglePanels": "パネルの表示/非表示",
         "undo": "取り消し",

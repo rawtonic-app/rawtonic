@@ -2,6 +2,8 @@ import { useRef, type KeyboardEvent, type PointerEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useEditorStore } from '../../../store/useEditorStore';
+import { useSnapshotStore } from '../../../store/useSnapshotStore';
+import { beforeSnapshot } from '../../../utils/beforeSnapshot';
 import { DEFAULT_SPLIT_POSITION, nudgeSplitPosition, splitPositionAt } from '../../../utils/beforeAfter';
 
 /**
@@ -17,6 +19,10 @@ export default function SplitViewOverlay() {
   const position = useEditorStore((state) => state.splitPosition);
   // While \ is held the whole photograph shows before: no divider, no labels.
   const peeking = useEditorStore((state) => state.showOriginal);
+  // The snapshot compared with names the before side.
+  useEditorStore((state) => state.beforeSnapshot);
+  useSnapshotStore((state) => state.snapshots);
+  const compared = beforeSnapshot();
   const rootRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
@@ -60,7 +66,11 @@ export default function SplitViewOverlay() {
 
   return (
     <div ref={rootRef} className="absolute inset-0 pointer-events-none z-[60]" data-testid="split-view-overlay">
-      <span className={`${label} left-2`}>{t('studio.workspace.viewer.splitBefore')}</span>
+      <span className={`${label} left-2`}>
+        {compared
+          ? t('studio.workspace.viewer.splitBeforeSnapshot', { name: compared.name })
+          : t('studio.workspace.viewer.splitBefore')}
+      </span>
       <span className={`${label} right-2`}>{t('studio.workspace.viewer.splitAfter')}</span>
       <div
         role="slider"

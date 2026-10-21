@@ -1806,6 +1806,16 @@ export default function StudioDevelop() {
               />
             </ToolGroup>
           )}
+        </ToolColumn>
+      </div>
+      {/* Snapshots and History stay in reach in every tab, under the tools
+          that scroll (Lightroom keeps them in Develop's left column; the UT
+          use test found them folded at the end of a long tab). */}
+      <div
+        className="studio-develop-dock"
+        inert={Boolean(selectedImage && !selectedImage.isReady)}
+      >
+        <ToolColumn scope="develop:dock">
           <StudioSnapshots key="snapshots" />
           <StudioHistory key="history" />
         </ToolColumn>

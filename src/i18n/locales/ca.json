@@ -2039,6 +2039,8 @@
         "whites": "Blancs"
       },
       "snapshots": {
+        "compare": "Compara {{name}} amb l'edició actual (l'abans d'Abans/Després)",
+        "compareEnd": "Torna a comparar amb la foto sense editar en lloc de {{name}}",
         "create": "Nova instantània de l’edició actual",
         "delete": "Suprimeix la instantània {{name}}",
         "empty": "Encara no hi ha instantànies: + desa l’edició actual amb un nom, la càmera de l’historial desa qualsevol pas.",
@@ -3578,6 +3580,7 @@
         "showPanels": "Mostra els taulers",
         "splitAfter": "Després",
         "splitBefore": "Abans",
+        "splitBeforeSnapshot": "Abans: {{name}}",
         "splitDivider": "Divisor abans/després",
         "togglePanels": "Mostra o amaga els taulers",
         "undo": "Desfés",

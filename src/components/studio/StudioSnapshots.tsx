@@ -1,18 +1,24 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Camera, ImageOff, Pencil, Plus, RefreshCw, X } from "lucide-react";
+import { Camera, Columns2, ImageOff, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { panelsShowReady, useEditorStore } from "../../store/useEditorStore";
+import { useSettingsStore } from "../../store/useSettingsStore";
 import { useSnapshotStore, type Snapshot } from "../../store/useSnapshotStore";
+import { useEditorActions } from "../../hooks/useEditorActions";
+import { splitViewAvailable } from "../../utils/beforeAfter";
+import { beforeSnapshot, compareWithSnapshot } from "../../utils/beforeSnapshot";
 import { defaultSnapshotName, restoreSnapshot, takeSnapshot } from "../../utils/snapshots";
 import { ToolGroup } from "./StudioDevelop";
 
 /** Lightroom's snapshots, with Capture One's variant thumbnails: named
  * states of the open photograph's development. A click restores one as a
  * history step (undoable); + takes one of the current edit (the history
- * takes one of any step); the pencil renames, the arrows update one with
- * the current edit. Kept by the library (the
- * editor sidecar for a photograph in none). */
+ * takes one of any step); the split compares one with the current edit
+ * (Before/After's before becomes it: Lightroom's snapshot copied to
+ * Before); the pencil renames, the arrows update one with the current
+ * edit. Open from the start, in the dock under the tools. Kept by the
+ * library (the editor sidecar for a photograph in none). */
 export default function StudioSnapshots() {
   const { t, i18n } = useTranslation();
   const image = useEditorStore((s) => s.selectedImage);
@@ -22,6 +28,19 @@ export default function StudioSnapshots() {
   const listed = useSnapshotStore((s) => s.path);
   const [editing, setEditing] = useState<string | null>(null);
   const path = image?.isReady ? image.path : null;
+  const { toggleSplitView } = useEditorActions();
+  useEditorStore((s) => s.beforeSnapshot);
+  const compared = beforeSnapshot();
+  const splitAvailable = useSettingsStore((s) =>
+    splitViewAvailable(s.appSettings?.useWgpuRenderer, s.osPlatform),
+  );
+  /** Compares with `snapshot` in the split (turned on for it), or, when it
+   * is compared with already, with the unedited photograph again. */
+  const compare = (snapshot: Snapshot) => {
+    if (compared?.id === snapshot.id) return compareWithSnapshot(null);
+    compareWithSnapshot(snapshot);
+    if (!useEditorStore.getState().splitView) toggleSplitView();
+  };
 
   useEffect(() => {
     // The list follows the open photograph once it is ready.
@@ -46,7 +65,6 @@ export default function StudioSnapshots() {
     <ToolGroup
       title="Snapshots"
       label={t("studio.develop.snapshots.title")}
-      open={false}
       actions={
         <button
           type="button"
@@ -75,6 +93,9 @@ export default function StudioSnapshots() {
               disabled={!panelsReady}
               editing={editing === snapshot.id}
               onEdit={(on) => setEditing(on ? snapshot.id : null)}
+              compared={compared?.id === snapshot.id}
+              canCompare={splitAvailable}
+              onCompare={() => compare(snapshot)}
             />
           ))}
         </ul>
@@ -94,6 +115,9 @@ function SnapshotRow({
   disabled,
   editing,
   onEdit,
+  compared,
+  canCompare,
+  onCompare,
 }: {
   snapshot: Snapshot;
   path: string;
@@ -102,6 +126,11 @@ function SnapshotRow({
   disabled: boolean;
   editing: boolean;
   onEdit(on: boolean): void;
+  /** Before/After's before is this snapshot. */
+  compared: boolean;
+  /** The split can show (`splitViewAvailable`). */
+  canCompare: boolean;
+  onCompare(): void;
 }) {
   const { t, i18n } = useTranslation();
   const input = useRef<HTMLInputElement>(null);
@@ -174,6 +203,19 @@ function SnapshotRow({
           </span>
         </button>
       )}
+      <button
+        type="button"
+        className="studio-snapshot-compare"
+        disabled={disabled || !canCompare}
+        aria-pressed={compared}
+        title={t(compared ? "studio.develop.snapshots.compareEnd" : "studio.develop.snapshots.compare", {
+          name: snapshot.name,
+        })}
+        aria-label={t("studio.develop.snapshots.compare", { name: snapshot.name })}
+        onClick={onCompare}
+      >
+        <Columns2 size={12} />
+      </button>
       <button
         type="button"
         className="studio-snapshot-rename"
