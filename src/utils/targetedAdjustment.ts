@@ -265,7 +265,7 @@ function hasToneAfterCurves(a: Adjustments) {
     return (
       !!curves &&
       [curves.luma, curves.red, curves.green, curves.blue].some(
-        (c) => !isIdentity(c as Coord[] | undefined),
+        (c) => !isIdentity(renderedPoints(c as Coord[] | undefined, false)),
       )
     );
   });
@@ -287,9 +287,10 @@ const regionOf = (a: Adjustments): RegionCurve => ({
 export const curveValue = pointCurveValue;
 
 /**
- * The input level `curve` maps to `displayed` (nearest for flat parts), or
- * null when inputs far apart show it alike (a curve that turns back): the
- * displayed tone does not say which one is under the pointer.
+ * The input level `curve` maps to `displayed`, or null when inputs more
+ * than a few levels apart show it alike (a flat stretch or a curve that
+ * turns back): the displayed tone does not say which one is under the
+ * pointer.
  */
 function invertCurve(
   curve: (x: number) => number,
@@ -299,13 +300,10 @@ function invertCurve(
     Math.abs(curve(x) - displayed),
   );
   const best = errors.indexOf(Math.min(...errors));
-  const near = (x: number) => errors[x] <= errors[best] + 1;
-  // Every input within a level of the best match must lie next to it.
-  let lo = best;
-  let hi = best;
-  while (lo > 0 && near(lo - 1)) lo -= 1;
-  while (hi < 255 && near(hi + 1)) hi += 1;
-  return errors.every((_, x) => !near(x) || (x >= lo && x <= hi)) ? best : null;
+  const alike = errors.every(
+    (error, x) => error > errors[best] + 1 || Math.abs(x - best) <= 4,
+  );
+  return alike ? best : null;
 }
 
 /** Moves the curve at `x` by `delta`: the point there, or a new one. */

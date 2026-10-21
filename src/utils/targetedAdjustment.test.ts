@@ -322,6 +322,40 @@ describe("targeted adjustment", () => {
     }
   });
 
+  it("declines tones a flat stretch hides and legacy long layer curves", () => {
+    const flat = base();
+    flat.curves = {
+      ...flat.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 80, y: 128 },
+        { x: 220, y: 128 },
+        { x: 255, y: 255 },
+      ],
+    };
+    expect(
+      startTargetedAdjustment("regionCurve", flat, null, [128, 128, 128]),
+    ).toBeNull();
+    // A layer's 20-point diagonal renders its first 16 points: point 16 at
+    // 120 clamps brighter tones, so the layer counts.
+    const luma = [
+      ...Array.from({ length: 16 }, (_, i) => ({ x: i * 8, y: i * 8 })),
+      { x: 200, y: 200 },
+      { x: 220, y: 220 },
+      { x: 240, y: 240 },
+      { x: 255, y: 255 },
+    ];
+    const layered = {
+      ...base(),
+      masks: [
+        { visible: true, subMasks: [{}], adjustments: { curves: { luma } } },
+      ],
+    } as never;
+    expect(
+      startTargetedAdjustment("regionCurve", layered, null, [100, 100, 100]),
+    ).toBeNull();
+  });
+
   it("evaluates the curve as the renderer does", () => {
     expect(
       curveValue(
