@@ -17,6 +17,7 @@ import {
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
   normalizeLoadedAdjustments,
+  sameAdjustmentValue,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -194,9 +195,10 @@ function pastedOpen(
  * each photograph when its recipe is saved: `resolve_lens_params_in_adjustments`). */
 const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
 
-/** Saves the open photograph's pasted recipe `pasted` (the paste's history
- * step) now and puts the lens data its save resolved for it into that step,
- * while it is still the one shown (no Undo, edit or other paste since). */
+/** Saves the open photograph's pasted recipe `pasted` now and puts the
+ * lens data its save resolved for it into every recipe that still has the
+ * pasted lens choice unresolved: the paste's history step, the edits made
+ * on it since and the one shown (no new step; Undo stays where it is). */
 async function showResolvedLens(path: string, pasted: Adjustments) {
   debouncedSave(path, pasted);
   debouncedSave.flush();
@@ -204,18 +206,29 @@ async function showResolvedLens(path: string, pasted: Adjustments) {
   const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path }).catch(() => null);
   const saved = meta?.adjustments;
   if (!saved || !isCurrentEditorImage(path)) return;
+  const field = (recipe: Adjustments, key: string) => (recipe as unknown as Record<string, unknown>)[key];
+  const unresolved = (recipe: Adjustments) =>
+    ['lensCorrectionMode', 'lensMaker', 'lensModel'].every((key) => field(recipe, key) === field(pasted, key)) &&
+    sameAdjustmentValue(recipe.lensDistortionParams ?? null, pasted.lensDistortionParams ?? null);
+  const done = new Map<Adjustments, Adjustments>();
+  const resolve = (recipe: Adjustments): Adjustments => {
+    if (!unresolved(recipe)) return recipe;
+    let resolved = done.get(recipe);
+    if (!resolved) {
+      resolved = {
+        ...recipe,
+        lensMaker: saved.lensMaker,
+        lensModel: saved.lensModel,
+        lensDistortionParams: saved.lensDistortionParams,
+        ...(saved.cameraCaVersion !== undefined ? { cameraCaVersion: saved.cameraCaVersion } : {}),
+      };
+      done.set(recipe, resolved);
+    }
+    return resolved;
+  };
   useEditorStore.getState().setEditor((state) => {
-    if (state.adjustments !== pasted || state.history[state.historyIndex] !== pasted || state.historyPending) return state;
-    const resolved: Adjustments = {
-      ...pasted,
-      lensMaker: saved.lensMaker,
-      lensModel: saved.lensModel,
-      lensDistortionParams: saved.lensDistortionParams,
-      ...(saved.cameraCaVersion !== undefined ? { cameraCaVersion: saved.cameraCaVersion } : {}),
-    };
-    const history = [...state.history];
-    history[state.historyIndex] = resolved;
-    return { adjustments: resolved, history };
+    if (!isCurrentEditorImage(path)) return state;
+    return { history: state.history.map(resolve), adjustments: resolve(state.adjustments) };
   });
 }
 

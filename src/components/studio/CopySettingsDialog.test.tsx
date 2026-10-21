@@ -372,6 +372,33 @@ it("shows the lens data resolved for the open photo when a lens choice is pasted
   expect(useEditorStore.getState().adjustments).toBe(own);
 });
 
+it("puts a resolved lens into the paste's step and the edits made on it since, keeping Undo where it is", async () => {
+  let release = () => {};
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) {
+      await new Promise<void>((resolve) => (release = resolve));
+      return { adjustments: { lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.3 } } };
+    }
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1 } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 3; i++) await act(async () => {});
+  // An edit on the paste while its lens data is resolved.
+  const later = { ...useEditorStore.getState().adjustments, exposure: 1 };
+  useEditorStore.setState({ adjustments: later, history: [...useEditorStore.getState().history, later], historyIndex: 3 });
+  await act(async () => release());
+  for (let i = 0; i < 3; i++) await act(async () => {});
+  const { adjustments, history, historyIndex } = useEditorStore.getState();
+  expect([adjustments.exposure, adjustments.lensDistortionParams]).toEqual([1, { k1: 0.3 }]);
+  expect(history[2].lensDistortionParams).toEqual({ k1: 0.3 });
+  expect([history.length, historyIndex]).toEqual([4, 3]);
+});
+
 it("does not bring a resolved lens back after Undo", async () => {
   let release = () => {};
   vi.mocked(invoke).mockImplementation(async (name: string) => {
@@ -392,7 +419,8 @@ it("does not bring a resolved lens back after Undo", async () => {
   await act(async () => release());
   for (let i = 0; i < 3; i++) await act(async () => {});
   expect(useEditorStore.getState().adjustments).toBe(own);
-  // The redo branch is still there.
+  // The redo branch is still there, resolved.
   expect(useEditorStore.getState().history).toHaveLength(3);
+  expect(useEditorStore.getState().history[2].lensDistortionParams).toEqual({ k1: 0.3 });
 });
 
