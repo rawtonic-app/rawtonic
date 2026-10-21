@@ -1071,12 +1071,15 @@ fn preview_base(
     Ok(preview)
 }
 
-/// Tone targets' sample: the mean sRGB colour (0–255) the photo's region and
-/// point curves receive around a point of the shown preview, rendered from
-/// the preview base with those curves and everything after them left out
+/// Tone targets' sample: the mean colour (linear sRGB, signed: the working
+/// gamut reaches beyond sRGB) the photo's region and point curves receive
+/// around a point of the shown preview, rendered from the preview base with
+/// those curves and everything after them left out
 /// (`point_curve::curve_input_probe`), so layer curves, LUTs and view states
-/// do not hide it. `adjustments` is the recipe (without view states). None
-/// while no preview base of the current recipe's geometry is cached.
+/// do not hide it. Rendered in ProPhoto, whose cube holds the working gamut,
+/// so nothing beyond sRGB is clipped. `adjustments` is the recipe (without
+/// view states). None while no preview base of the current recipe's
+/// geometry is cached.
 #[tauri::command]
 pub async fn sample_curve_input(
     path: String,
@@ -1153,6 +1156,10 @@ pub async fn sample_curve_input(
         );
         crate::baseline_exposure::apply_base_look(&mut probe.global, &loaded_image.path);
         probe.global.detail_scale = scale;
+        let space = rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto;
+        probe.global.output_space[0] = space.shader_code();
+        probe.global.output_matrix =
+            image_processing::gpu_mat3_from_rows(space.from_linear_srgb_f32());
         let lut = recipe["lutPath"]
             .as_str()
             .and_then(|p| lut_processing::get_or_load_lut(&state, p).ok());
@@ -1169,10 +1176,18 @@ pub async fn sample_curve_input(
             },
             "sample_curve_input",
         )?;
-        Ok(gpu_processing::mean_rgb8(image.to_rgba8().as_raw()))
+        Ok(gpu_processing::mean_rgb8(image.to_rgba8().as_raw()).map(prophoto_to_linear_srgb))
     })
     .await
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
+}
+
+/// An 8-bit ProPhoto colour (0–255) as signed linear sRGB.
+fn prophoto_to_linear_srgb(rgb: [f64; 3]) -> [f64; 3] {
+    let space = rawtonic_engine::output_color_space::OutputColorSpace::ProPhoto;
+    let linear = rgb.map(|v| space.transfer().to_linear(v / 255.0));
+    let m = space.to_linear_srgb();
+    std::array::from_fn(|r| (0..3).map(|c| m[r][c] * linear[c]).sum())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3179,5 +3194,29 @@ mod mask_source_build_tests {
         };
         assert!(failed.join().is_err());
         assert_eq!(editor.get((1, 0), false, None), Some((1, 0)));
+    }
+}
+
+#[cfg(test)]
+mod curve_input_tests {
+    use super::prophoto_to_linear_srgb;
+    use rawtonic_engine::output_color_space::OutputColorSpace;
+
+    #[test]
+    fn the_curve_input_keeps_colours_beyond_srgb() {
+        let space = OutputColorSpace::ProPhoto;
+        let encoded = |linear: [f64; 3]| linear.map(|v| space.transfer().from_linear(v) * 255.0);
+        // A deep red beyond sRGB: its green is negative in sRGB, which an
+        // sRGB sample would have clipped to zero.
+        let srgb = prophoto_to_linear_srgb(encoded([0.4, 0.05, 0.02]));
+        assert!(srgb[1] < -0.02, "{srgb:?}");
+        let back = space.from_linear_srgb();
+        for (r, row) in back.iter().enumerate() {
+            let v: f64 = (0..3).map(|c| row[c] * srgb[c]).sum();
+            assert!((v - [0.4, 0.05, 0.02][r]).abs() < 1e-9, "{r}: {v}");
+        }
+        // Grey stays grey.
+        let grey = prophoto_to_linear_srgb([128.0; 3]);
+        assert!((grey[0] - grey[1]).abs() < 1e-6 && (grey[1] - grey[2]).abs() < 1e-6);
     }
 }

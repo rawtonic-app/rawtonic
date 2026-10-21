@@ -107,10 +107,10 @@ export interface TatStart {
 /**
  * Prepares a drag from the colour under the pointer: `linearRgb` is the
  * photo's colour before adjustments (colour targets), `curveInput` the
- * colour in 0–255 the region and point curves receive there (tone targets;
- * editor_preview.rs `sample_curve_input`, rendered without the curves and
- * what follows them). Returns null for grey under a colour target or a
- * missing sample.
+ * colour the region and point curves receive there, linear sRGB that may
+ * reach beyond 0–1 (tone targets; editor_preview.rs `sample_curve_input`,
+ * rendered without the curves and what follows them). Returns null for
+ * grey under a colour target or a missing sample.
  */
 export function startTargetedAdjustment(
   target: TatTarget,
@@ -120,22 +120,41 @@ export function startTargetedAdjustment(
 ): TatStart | null {
   if (isToneTarget(target)) {
     if (!curveInput) return null;
+    // The region curve and curves on display values see the colour
+    // clipped to sRGB.
+    const display = curveInput.map((v) => toEncoded(v) * 255) as [
+      number,
+      number,
+      number,
+    ];
     if (target === "regionCurve")
-      return { target, base, curveX: Math.round(tone(curveInput, false)) };
+      return { target, base, curveX: Math.round(tone(display, false)) };
     // The point curve acts on the region curve's output (when the curve
     // tool is on), in the space the edited curves render in.
     const region =
       base.sectionVisibility?.curves !== false
         ? regionOf(base)
         : INITIAL_REGION_CURVE;
-    const levels = curveInput.map(
+    const regioned = display.map(
       (v) => regionCurveValue(region, v / 255) * 255,
     ) as [number, number, number];
-    const wide = editedCurvesVersion(base.curves) >= CURVE_VERSION;
+    if (editedCurvesVersion(base.curves) < CURVE_VERSION)
+      return { target, base, curveX: Math.round(tone(regioned, false)) };
+    // The wide curves also see the part beyond sRGB, carried past the
+    // region curve at its luminance ratio (shader `carry_beyond_srgb`).
+    const clipped = display.map((v) => toLinear(v / 255));
+    const shown = regioned.map((v) => toLinear(v / 255));
+    const ratio = Math.min(
+      luminance(shown) / Math.max(luminance(clipped), 1e-5),
+      4,
+    );
+    const carried = shown.map(
+      (v, c) => v + (curveInput[c] - clipped[c]) * ratio,
+    ) as [number, number, number];
     return {
       target,
       base,
-      curveX: Math.round(tone(wide ? wideCurveLevels(levels) : levels, wide)),
+      curveX: Math.round(tone(wideCurveLevels(carried), true)),
     };
   }
   if (!linearRgb) return null;
@@ -234,21 +253,28 @@ const TO_PROPHOTO = [
   [0.0168832, 0.1176725, 0.8654443],
 ];
 
-/** Display levels (0–255) as the wide curves receive them: ProPhoto
- * primaries with the sRGB curve (shader `wide_curve_input`). */
+const luminance = (linear: number[]) =>
+  0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+
+/** Linear sRGB (beyond 0–1 for colours outside sRGB) as the wide curves
+ * receive it, in levels 0–255: ProPhoto primaries with the sRGB curve
+ * (shader `wide_curve_input`). */
 export function wideCurveLevels(
-  levels: [number, number, number],
+  linear: [number, number, number],
 ): [number, number, number] {
-  const linear = levels.map((v) => toLinear(Math.max(v, 0) / 255));
   return TO_PROPHOTO.map(
-    (row) => toEncoded(row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]) * 255,
+    (row) =>
+      toEncoded(row[0] * linear[0] + row[1] * linear[1] + row[2] * linear[2]) *
+      255,
   ) as [number, number, number];
 }
 
 /** The tone of curve levels: their luminance-weighted mean, with the
  * luminance of the space the curves act in. */
 const tone = (levels: number[], wide: boolean) => {
-  const weights = wide ? [0.2880402, 0.7118741, 0.0000857] : [0.2126, 0.7152, 0.0722];
+  const weights = wide
+    ? [0.2880402, 0.7118741, 0.0000857]
+    : [0.2126, 0.7152, 0.0722];
   return levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
 };
 
