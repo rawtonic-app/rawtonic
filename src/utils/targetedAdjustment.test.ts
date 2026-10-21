@@ -333,6 +333,30 @@ describe("targeted adjustment", () => {
     expect(
       startTargetedAdjustment("regionCurve", asymmetric, null, [180, 180, 180]),
     ).toBeNull();
+    // A turn inside one level: the composed luma and channel curves.
+    const composed = base();
+    const channel = [
+      { x: 0, y: 0 },
+      { x: 50, y: 50 },
+      { x: 120, y: 255 },
+      { x: 200, y: 50 },
+      { x: 255, y: 255 },
+    ];
+    composed.curves = {
+      ...composed.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 100, y: 50 },
+        { x: 101, y: 200 },
+        { x: 255, y: 255 },
+      ],
+      red: channel,
+      green: channel,
+      blue: channel,
+    };
+    expect(
+      startTargetedAdjustment("regionCurve", composed, null, [180, 180, 180]),
+    ).toBeNull();
   });
 
   it("declines tones a flat stretch hides and legacy long layer curves", () => {

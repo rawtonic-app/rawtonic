@@ -287,24 +287,28 @@ const regionOf = (a: Adjustments): RegionCurve => ({
 export const curveValue = pointCurveValue;
 
 /**
- * The input level `curve` maps to `displayed`, or null when inputs more
- * than a few levels apart show it alike (a flat stretch or a curve that
- * turns back): the displayed tone does not say which one is under the
- * pointer.
+ * The input level `curve` maps to `displayed`, or null when the displayed
+ * tone does not say which input is under the pointer: the curve falls
+ * somewhere (checked every sixteenth of a level), or inputs more than a few
+ * levels apart show the tone alike (a flat stretch).
  */
 function invertCurve(
   curve: (x: number) => number,
   displayed: number,
 ): number | null {
-  const offsets = Array.from({ length: 256 }, (_, x) => curve(x) - displayed);
-  const errors = offsets.map(Math.abs);
+  let previous = curve(0);
+  for (let i = 1; i <= 255 * 16; i += 1) {
+    const value = curve(i / 16);
+    if (value < previous - 1e-6) return null;
+    previous = value;
+  }
+  const errors = Array.from({ length: 256 }, (_, x) =>
+    Math.abs(curve(x) - displayed),
+  );
   const best = errors.indexOf(Math.min(...errors));
-  // Inputs that show the tone: within a level of the best match, or where
-  // the curve passes it between two whole levels.
-  const shows = (x: number) =>
-    errors[x] <= errors[best] + 1 ||
-    (x < 255 && Math.sign(offsets[x]) * Math.sign(offsets[x + 1]) < 0);
-  const alike = offsets.every((_, x) => !shows(x) || Math.abs(x - best) <= 4);
+  const alike = errors.every(
+    (error, x) => error > errors[best] + 1 || Math.abs(x - best) <= 4,
+  );
   return alike ? best : null;
 }
 
