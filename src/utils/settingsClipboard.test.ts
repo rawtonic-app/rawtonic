@@ -68,6 +68,9 @@ describe('settings clipboard', () => {
   it('offers no group of processing versions among the tools', () => {
     for (const g of SETTINGS_GROUPS) for (const key of g.keys) expect(RESPONSE_KEYS).not.toContain(key);
     expect(RESPONSE_KEYS).toContain('toneVersion');
+    // The camera CA version goes with the camera's lens data.
+    expect(RESPONSE_KEYS).not.toContain('cameraCaVersion');
+    expect(SETTINGS_GROUPS.find((g) => g.keys.includes('cameraCaVersion'))?.keys).toContain('lensCorrectionMode');
   });
 
   it('gives a never-edited photo the versions of a new edit', () => {

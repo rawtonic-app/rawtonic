@@ -25,12 +25,21 @@ export interface SettingsGroup {
   keys: string[];
 }
 
+/** Versions that belong to one tool's data rather than to the processing:
+ * the camera CA version goes with the camera's lens data (Lens Correction),
+ * which a never-edited photograph gets with the current one. */
+const TOOL_VERSIONS = new Set(['cameraCaVersion']);
+
 /** The photo-wide processing versions (responses) settings are rendered
  * with: Lightroom's Process Version, an entry of its own in the picker, off
  * by default. Unchosen, a photograph keeps its own and pasted values render
  * with them; chosen, the source's travel (also missing ones, as `null`). */
 export const RESPONSE_KEYS: string[] = [
-  ...new Set(Object.values(ADJUSTMENT_GROUPS).flatMap((groups) => groups.flatMap((g) => g.keys)).filter((key) => /Version$/.test(key))),
+  ...new Set(
+    Object.values(ADJUSTMENT_GROUPS)
+      .flatMap((groups) => groups.flatMap((g) => g.keys))
+      .filter((key) => /Version$/.test(key) && !TOOL_VERSIONS.has(key)),
+  ),
 ];
 /** What the renderer reads for a missing processing version that a
  * never-edited RAW starts with otherwise (edge_fringe.rs: none; lateral_ca.rs:

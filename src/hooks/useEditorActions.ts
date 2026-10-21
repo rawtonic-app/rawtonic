@@ -260,7 +260,8 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
     // Its recipe as last edited: after its save still under way, or the
     // edit a failed save kept.
     debouncedSave.flush();
-    const unsaved = await waitForPendingMetadataSave(from);
+    // A paste onto it still being made first (it may have been left).
+    const unsaved = await waitForRecipe(from);
     if (unsaved) return { path: from, adjustments: unsaved, isRaw };
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: from });
     // As the editor shows it: a never-edited RAW with its camera's lens data.
