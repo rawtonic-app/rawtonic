@@ -39,14 +39,19 @@ export const BEFORE_FRAMING_KEYS: Array<keyof Adjustments> = [
   'guidedPerspective',
 ];
 
-/** The unedited recipe shown as "before": the defaults with the edit's framing. */
-export function originalPreviewAdjustments(adjustments: Adjustments): Adjustments {
-  const original: Adjustments = { ...INITIAL_ADJUSTMENTS };
+/**
+ * The recipe shown as "before": the defaults, or a snapshot compared with
+ * (`snapshot`, as a restore loads it), with the edit's framing either way,
+ * so both sides show the same part of the photograph.
+ */
+export function originalPreviewAdjustments(adjustments: Adjustments, snapshot?: Adjustments | null): Adjustments {
+  const original: Adjustments = { ...(snapshot ?? INITIAL_ADJUSTMENTS) };
   const target = original as unknown as Record<string, unknown>;
   for (const key of BEFORE_FRAMING_KEYS) target[key] = adjustments[key];
-  // The photo's render pipeline (warps keep wide-gamut colour from 2), so
-  // before and after differ by the edit only.
-  original.renderVersion = adjustments.renderVersion;
+  // The unedited photograph through the photo's render pipeline (warps keep
+  // wide-gamut colour from 2), so before and after differ by the edit only;
+  // a snapshot keeps its own, as it looked.
+  if (!snapshot) original.renderVersion = adjustments.renderVersion;
   return original;
 }
 

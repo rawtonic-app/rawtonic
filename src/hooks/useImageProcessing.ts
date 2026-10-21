@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/useEditorStore';
 import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useRelightStore } from '../store/useRelightStore';
+import { useSnapshotStore } from '../store/useSnapshotStore';
 import { stripSentRelightData } from '../utils/relight';
 import { Adjustments, AiPatch, MaskContainer } from '../utils/adjustments';
 import { Invokes, Panel, canRenderSource } from '../components/ui/AppProperties';
@@ -18,6 +19,7 @@ import { epochOf, latestPointerDispatchTime, latestPointerInputTime, performance
 import { LatestPreviewQueue } from '../utils/latestPreviewQueue';
 import { sourceDevelopToApply } from '../utils/aiDenoise';
 import { originalPreviewAdjustments } from '../utils/beforeAfter';
+import { beforeSnapshotAdjustments } from '../utils/beforeSnapshot';
 import { toastAiError } from '../utils/aiErrors';
 
 // Matches PREVIEW_RENDER_FAILED in src-tauri/src/lib.rs.
@@ -822,13 +824,16 @@ export function useImageProcessing(
     isWaveformVisible,
   ]);
 
-  // Turning the split on renders its before beside the frame on screen.
+  // Turning the split on, or comparing with another snapshot (or one
+  // updated), renders its before beside the frame on screen.
   const splitView = useEditorStore((state) => state.splitView);
+  const comparedWith = useEditorStore((state) => state.beforeSnapshot?.id);
+  const snapshots = useSnapshotStore((state) => state.snapshots);
   useEffect(() => {
     if (!splitView || !nativeDisplayRef.current) return;
     requestSplitBefore(currentResRef.current || calculateTargetRes());
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only turning the split on triggers; the resolution is read now
-  }, [splitView]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these trigger; the resolution is read now
+  }, [splitView, comparedWith, comparedWith ? snapshots : null]);
 
   // Entering or leaving crop changes which frame the display needs.
   const isCropping = activeView === 'editor' && activePanel === Panel.Crop;
@@ -894,7 +899,7 @@ export function requestSplitBefore(targetRes: number) {
   splitBeforeInFlight = true;
   invoke<boolean>(Invokes.RenderSplitBefore, {
     path: image.path,
-    jsAdjustments: withViewStates(originalPreviewAdjustments(editor.adjustments)),
+    jsAdjustments: withViewStates(originalPreviewAdjustments(editor.adjustments, beforeSnapshotAdjustments())),
     targetResolution: targetRes || null,
   })
     .catch((err) => {

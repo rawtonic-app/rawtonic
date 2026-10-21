@@ -2039,6 +2039,8 @@
         "whites": "Blancs"
       },
       "snapshots": {
+        "compare": "Comparer {{name}} à la retouche actuelle (l'avant d'Avant/Après)",
+        "compareEnd": "Comparer de nouveau à la photo non retouchée au lieu de {{name}}",
         "create": "Nouvel instantané de la retouche actuelle",
         "delete": "Supprimer l’instantané {{name}}",
         "empty": "Aucun instantané : + conserve la retouche actuelle sous un nom, l’appareil photo de l’historique conserve n’importe quelle étape.",
@@ -3620,6 +3622,7 @@
         "showPanels": "Afficher les panneaux",
         "splitAfter": "Après",
         "splitBefore": "Avant",
+        "splitBeforeSnapshot": "Avant : {{name}}",
         "splitDivider": "Séparateur avant/après",
         "togglePanels": "Afficher/masquer les panneaux",
         "undo": "Annuler",
