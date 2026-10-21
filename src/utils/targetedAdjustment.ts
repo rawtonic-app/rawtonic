@@ -126,7 +126,7 @@ export function startTargetedAdjustment(
     const cut = (points: Coord[] | undefined) =>
       !shown
         ? undefined
-        : renderedPoints(points, (base.curveVersion ?? 1) >= CURVE_VERSION);
+        : renderedPoints(points, (base.curves?.version ?? 1) >= CURVE_VERSION);
     const curves = base.curves && {
       luma: cut(base.curves.luma),
       red: cut(base.curves.red),
@@ -209,9 +209,9 @@ export function targetedPatch(
       curves: {
         ...base.curves,
         luma: moveCurve(base.curves.luma, start.curveX ?? 128, delta),
+        version: CURVE_VERSION,
       },
       curveMode: "point",
-      curveVersion: CURVE_VERSION,
     };
   }
   const weights = start.weights ?? [];

@@ -71,6 +71,8 @@ describe("targeted adjustment", () => {
     )!;
     expect(start.curveX).toBe(100);
     const patch = targetedPatch(start, 15);
+    // A curve edit renders the whole curve.
+    expect(patch.curves!.version).toBe(2);
     expect(patch.curves!.luma).toEqual([
       { x: 0, y: 0 },
       { x: 100, y: 115 },
@@ -280,7 +282,7 @@ describe("targeted adjustment", () => {
       { x: 255, y: 255 },
     ];
     const legacy = { ...base(), curves: { ...base().curves, luma } };
-    delete (legacy as { curveVersion?: number }).curveVersion;
+    delete legacy.curves.version;
     // Rendered with its first 16 points.
     const cutAt200 = pointCurveValue(luma.slice(0, 16), 200);
     const start = startTargetedAdjustment("regionCurve", legacy, null, [
@@ -291,11 +293,11 @@ describe("targeted adjustment", () => {
     expect(Math.abs(start.curveX! - 200)).toBeLessThanOrEqual(1);
     const moved = targetedPatch(start, 5).regionCurve!;
     expect(moved.highlights).toBe(5);
-    // With curveVersion 2 the whole curve counts.
+    // At version 2 the whole curve counts.
     const wholeAt200 = pointCurveValue(luma, 200);
     const whole = startTargetedAdjustment(
       "regionCurve",
-      { ...legacy, curveVersion: 2 },
+      { ...legacy, curves: { ...legacy.curves, version: 2 } },
       null,
       [wholeAt200, wholeAt200, wholeAt200],
     )!;

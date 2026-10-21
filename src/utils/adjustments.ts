@@ -602,10 +602,6 @@ export interface Adjustments {
    * response (1 and 2 are the same at Amount 40 with Radius, Detail and
    * Masking at their defaults). Photo-wide (layers follow it). */
   sharpenVersion?: number;
-  /** Point curves (crates/engine/src/point_curve.rs): 2 = curves with more
-   * than 16 points render whole; missing on older recipes, which render
-   * only their first 16 points. Written by every curve edit. */
-  curveVersion?: number;
   /** Luminance noise reduction (crates/engine/src/image_processing.rs
    * `LUMA_NOISE_VERSION`): 2 = noisy photos also lose isolated luminance
    * specks (single pixels darker or brighter than all their neighbours,
@@ -772,12 +768,20 @@ export interface Coord {
 }
 
 export interface Curves {
-  [index: string]: Array<Coord>;
+  [index: string]: Array<Coord> | number | undefined;
   blue: Array<Coord>;
   green: Array<Coord>;
   luma: Array<Coord>;
   red: Array<Coord>;
+  /** crates/engine/src/point_curve.rs `CURVE_VERSION`: 2 = the photo's
+   * curves with more than 16 points render whole; missing on curves saved
+   * before, which render their first 16 points. Part of the curves, so it
+   * travels wherever they do; every curve edit writes the current one. */
+  version?: number;
 }
+
+/** Point curves render whole beyond 16 points (`Curves.version`). */
+export const CURVE_VERSION = 2;
 
 export interface HueSatLum {
   hue: number;
@@ -932,6 +936,7 @@ export const getDefaultCurves = (): Curves => ({
     { x: 0, y: 0 },
     { x: 255, y: 255 },
   ],
+  version: CURVE_VERSION,
 });
 
 export const DEFAULT_PARAMETRIC_CURVE = getDefaultParametricCurve();
@@ -1147,6 +1152,7 @@ const deepCloneCurves = (curves: Partial<Curves> | undefined): Curves => ({
     { x: 0, y: 0 },
     { x: 255, y: 255 },
   ],
+  ...(curves?.version !== undefined ? { version: curves.version } : {}),
 });
 
 const deepCloneParametric = (pCurve: Partial<ParametricCurve> | undefined): ParametricCurve => ({
@@ -1321,19 +1327,13 @@ export const pastedAdjustments = (
 ): Partial<Adjustments> => {
   const picked: Partial<Adjustments> = {};
   for (const key of includedAdjustments) {
-    if (
-      key === 'sharpenVersion' ||
-      key === 'lumaNoiseVersion' ||
-      !Object.prototype.hasOwnProperty.call(copied, key)
-    ) {
+    if (key === 'sharpenVersion' || key === 'lumaNoiseVersion' || !Object.prototype.hasOwnProperty.call(copied, key)) {
       continue;
     }
     const value = copied[key as keyof Adjustments];
     if (mode === PasteMode.Merge && sameAdjustmentValue(value, INITIAL_ADJUSTMENTS[key as keyof Adjustments])) continue;
     (picked as Record<string, unknown>)[key] = value;
   }
-  // The curve version goes along only with curves that survived the filter.
-  if (picked.curves === undefined) delete picked.curveVersion;
   return withLumaNoiseVersion(withSharpenVersion(picked, copied), copied);
 };
 
@@ -1354,39 +1354,6 @@ const SHARPEN_RESPONSE_KEYS = [
  * partial values cannot tell whether the target would render the same).
  * Layers count when their sharpening amount is set. */
 export const withSharpenVersion = <T extends Partial<Adjustments>>(
-  picked: T,
-  source?: Partial<Adjustments>,
-): T & Pick<Partial<Adjustments>, 'sharpenVersion'> =>
-  // Every path that carries the sharpening response carries the curve version too.
-  withCurveVersion(sharpenVersionOf(picked, source), source);
-
-/** Point curves mean what the recipe's `curveVersion` makes of them (more
- * than 16 points: whole from 2, cut after the 16th before): the version
- * goes along exactly when curves do — their own, else the source's (a curve
- * edit synced from a photo whose key did not change), else 1 (a missing key
- * would vanish in JSON and the target would keep its own) — and never on
- * its own (it would change the target's own long curves): a version change
- * alone takes the source's curves along. */
-export const withCurveVersion = <T extends Partial<Adjustments>>(
-  picked: T,
-  source?: Partial<Adjustments>,
-): T => {
-  if (picked.curves === undefined) {
-    if (!Object.prototype.hasOwnProperty.call(picked, 'curveVersion')) return picked;
-    // A version change alone (a legacy curve edited back to the same points)
-    // means the source's curves at that version: they go along.
-    if (source?.curves !== undefined && picked.curveVersion != null) {
-      return { ...picked, curves: structuredClone(source.curves) };
-    }
-    const rest = { ...picked };
-    delete rest.curveVersion;
-    return rest;
-  }
-  if (picked.curveVersion !== undefined && picked.curveVersion !== null) return picked;
-  return { ...picked, curveVersion: source?.curveVersion ?? 1 };
-};
-
-const sharpenVersionOf = <T extends Partial<Adjustments>>(
   picked: T,
   source?: Partial<Adjustments>,
 ): T & Pick<Partial<Adjustments>, 'sharpenVersion'> => {
@@ -1688,7 +1655,7 @@ export const ADJUSTMENT_GROUPS: Record<string, AdjustmentGroup[]> = {
     },
     {
       label: 'modals.copyPaste.groups.curves',
-      keys: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'curveVersion', 'levels', 'regionCurve'],
+      keys: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve'],
     },
   ],
   color: [
@@ -1881,7 +1848,7 @@ export const ADJUSTMENT_SECTIONS: Sections = {
     'baseCurve',
     'cameraProfile',
   ],
-  curves: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'curveVersion', 'levels', 'regionCurve'],
+  curves: ['curves', 'pointCurves', 'parametricCurve', 'curveMode', 'levels', 'regionCurve'],
   color: [
     ColorAdjustment.Saturation,
     ColorAdjustment.Temperature,
@@ -2009,6 +1976,3 @@ export const getAdjustmentSectionToolIds = (section: string): string[] =>
 
 export const getAdjustmentToolOrder = (section: string, toolOrder?: Record<string, string[]>): string[] =>
   reconcileOrder(getAdjustmentSectionToolIds(section), toolOrder?.[section]);
-
-/** Point curves render whole beyond 16 points (`curveVersion`). */
-export const CURVE_VERSION = 2;

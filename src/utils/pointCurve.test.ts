@@ -13,7 +13,7 @@ const long = xs.map((x, i) => ({
 
 describe("point curve", () => {
   it("draws legacy long curves as rendered: cut after the 16th point", () => {
-    // Recipes before curveVersion 2 hold the 16th point's level beyond it.
+    // Curves saved before version 2 hold the 16th point's level beyond it.
     expect(pointCurveValue(renderedPoints(long, false), 242)).toBe(211);
     expect(pointCurveValue(renderedPoints(long, true), 242)).toBe(232);
     expect(renderedPoints(long.slice(0, 5), false)).toHaveLength(5);

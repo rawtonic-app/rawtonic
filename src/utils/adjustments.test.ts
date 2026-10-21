@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blendPreset } from './presetAmount';
 import {
+  CURVE_VERSION,
   ADJUSTMENT_GROUPS,
   COLOR_NOISE_VERSION,
   COPYABLE_ADJUSTMENT_KEYS,
@@ -19,7 +20,6 @@ import {
   withSharpenVersion,
   withLumaNoiseVersion,
   pastedAdjustments,
-  withCurveVersion,
   PasteMode,
   AUTO_CA_VERSION,
   autoCaOn,
@@ -272,27 +272,14 @@ describe('RAW detail defaults', () => {
     expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 2 })).toBe(2);
   });
 
-  it('carry the curve version exactly with the curves', () => {
-    const all = COPYABLE_ADJUSTMENT_KEYS;
-    const long = Array.from({ length: 20 }, (_, i) => ({ x: i * 13, y: i * 13 + (i % 2) }));
-    // A recipe from before the key: its curves paste with version 1, explicitly.
-    const old = { ...INITIAL_ADJUSTMENTS, curves: { ...INITIAL_ADJUSTMENTS.curves, luma: long } } as Adjustments;
-    delete (old as Partial<Adjustments>).curveVersion;
-    for (const mode of [PasteMode.Merge, PasteMode.Replace]) {
-      expect(JSON.parse(JSON.stringify(pastedAdjustments(old, all, mode))).curveVersion).toBe(1);
-    }
-    expect(pastedAdjustments({ ...old, curveVersion: 2 }, all, PasteMode.Merge).curveVersion).toBe(2);
-    // Default curves filtered out in Merge mode: no version on its own.
-    const exposure = { ...INITIAL_ADJUSTMENTS, exposure: 0.5, curveVersion: 2 } as Adjustments;
-    expect('curveVersion' in pastedAdjustments(exposure, all, PasteMode.Merge)).toBe(false);
-    expect(withCurveVersion<Partial<Adjustments>>({ curves: old.curves }).curveVersion).toBe(1);
-    expect('curveVersion' in withCurveVersion({ exposure: 1, curveVersion: 2 })).toBe(false);
-    // Edit all selected: a curve-only change from a version-2 photo.
-    const source = { ...old, curveVersion: 2 } as Adjustments;
-    expect(withSharpenVersion<Partial<Adjustments>>({ curves: old.curves }, source).curveVersion).toBe(2);
-    // Edit all selected: a version-only change (curve points unchanged) takes the curves along.
-    const upgraded = withSharpenVersion<Partial<Adjustments>>({ curveVersion: 2 }, source);
-    expect(upgraded).toMatchObject({ curveVersion: 2, curves: old.curves });
+  it('keep the curves version with the curves', () => {
+    // New edits render long curves whole; curves saved before keep no version.
+    expect(INITIAL_ADJUSTMENTS.curves.version).toBe(CURVE_VERSION);
+    const luma = Array.from({ length: 20 }, (_, i) => ({ x: i * 13, y: i * 13 }));
+    const legacy = normalizeLoadedAdjustments({ curves: { luma } } as unknown as Adjustments, true);
+    expect(legacy.curves.version).toBeUndefined();
+    const saved = normalizeLoadedAdjustments({ curves: { luma, version: 2 } } as unknown as Adjustments, true);
+    expect(saved.curves.version).toBe(2);
   });
 
   it('carry the luminance noise reduction version with luminance values', () => {

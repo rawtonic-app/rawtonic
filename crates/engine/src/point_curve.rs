@@ -5,7 +5,7 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-/// Recipe `curveVersion` from which curves with more than 16 points render
+/// The curves' `version` from which curves with more than 16 points render
 /// whole; before, the renderer used their first 16 points.
 pub const CURVE_VERSION: u64 = 2;
 /// Control points one curve channel holds in the uniforms (shader `Point` arrays).

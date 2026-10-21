@@ -194,7 +194,7 @@ function PointCurve({
   onChange(curves: Curves): void;
   disabled: boolean;
   onInteraction(active: boolean): void;
-  /** Curves beyond 16 points render whole (the photo at `curveVersion` 2). */
+  /** Curves beyond 16 points render whole (the photo's curves at version 2). */
   wholeCurves?: boolean;
 }) {
   const { t } = useTranslation();
@@ -1152,7 +1152,6 @@ export default function StudioDevelop() {
                     INITIAL_ADJUSTMENTS.parametricCurve,
                   ),
                   curveMode: "point",
-                  curveVersion: CURVE_VERSION,
                   ...(layer ? {} : { regionCurve: { ...INITIAL_REGION_CURVE } }),
                 })
               }
@@ -1161,8 +1160,7 @@ export default function StudioDevelop() {
                 curves={values.curves}
                 wholeCurves={
                   !layer &&
-                  ((values.curveVersion as number | undefined) ?? 1) >=
-                    CURVE_VERSION
+                  (values.curves.version ?? 1) >= CURVE_VERSION
                 }
                 region={
                   layer
@@ -1176,10 +1174,10 @@ export default function StudioDevelop() {
                 onInteraction={onInteraction}
                 onChange={(curves) =>
                   change({
-                    curves,
+                    // An edit renders the whole curve (curves.version).
+                    curves: { ...curves, version: CURVE_VERSION },
                     pointCurves: curves,
                     curveMode: "point",
-                    curveVersion: CURVE_VERSION,
                   })
                 }
               />

@@ -64,7 +64,7 @@ export function pointCurveValue(
 
 /**
  * The points the renderer uses: all of them with `whole` (the photo's
- * curves at `curveVersion` 2), else the first 16 (earlier recipes, layers).
+ * curves at `Curves.version` 2), else the first 16 (curves saved before, layers).
  */
 export const renderedPoints = (
   points: Coord[] | undefined,

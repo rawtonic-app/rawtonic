@@ -3191,27 +3191,21 @@ fn display_samples_come_back_as_srgb_values() {
 #[test]
 fn long_curves_use_the_curve_table() {
     let long = twenty_point_curve();
-    let a = get_all_adjustments_from_json(
-        &json!({"curveVersion":2,"curves":{"red":long}}),
-        true,
-        Some(1),
-    );
+    let a =
+        get_all_adjustments_from_json(&json!({"curves":{"red":long,"version":2}}), true, Some(1));
     assert_eq!(a.global.region_curve_active[1], 1);
     assert_eq!(a.curve_table.as_ref().unwrap().len(), CURVE_LUT_SAMPLES);
     // Even when the first 16 points alone would be identity.
     let identity_start: Vec<_> = (0..20).map(|i| json!({"x":i * 10,"y":i * 10})).collect();
     let mut tail = identity_start.clone();
     tail[18] = json!({"x":180,"y":200});
-    let a = get_all_adjustments_from_json(
-        &json!({"curveVersion":2,"curves":{"luma":tail}}),
-        true,
-        Some(1),
-    );
+    let a =
+        get_all_adjustments_from_json(&json!({"curves":{"luma":tail,"version":2}}), true, Some(1));
     assert_ne!(preview_features(&a) & 4, 0);
     // Hidden curves and short ones keep the uniforms' evaluator.
     for profile in [
-        json!({"curveVersion":2,"curves":{"luma":long},"sectionVisibility":{"curves":false}}),
-        // Recipes from before curveVersion 2 keep their first 16 points.
+        json!({"curves":{"luma":long,"version":2},"sectionVisibility":{"curves":false}}),
+        // Curves saved before version 2 keep their first 16 points.
         json!({"curves":{"luma":long}}),
         json!({"curves":custom_curve()}),
     ] {
@@ -3235,7 +3229,7 @@ fn long_curves_render_every_point() {
         vec![(0.0, 0.0), (255.0, 255.0)],
         vec![(0.0, 0.0), (255.0, 255.0)],
     ];
-    let curved = json!({"curveVersion":2,"curves":{"luma":long,
+    let curved = json!({"curves":{"version":2,"luma":long,
         "red":[{"x":0,"y":0},{"x":128,"y":150},{"x":255,"y":255}]}});
     let render = |profile: &serde_json::Value, display: bool, precision| -> Vec<f32> {
         let adjustments = get_all_adjustments_from_json(profile, false, Some(0));

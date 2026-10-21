@@ -705,17 +705,12 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
             curves_map.insert(rr_curve.to_string(), Value::Array(points));
         }
     }
-    if curves_map.values().any(|points| {
-        points
-            .as_array()
-            .is_some_and(|p| p.len() > rawtonic_engine::point_curve::SHADER_CURVE_POINTS)
-    }) {
-        adjustments.insert(
-            "curveVersion".to_string(),
+    if !curves_map.is_empty() {
+        // Imported curves render whole, however many points they have.
+        curves_map.insert(
+            "version".to_string(),
             json!(rawtonic_engine::point_curve::CURVE_VERSION),
         );
-    }
-    if !curves_map.is_empty() {
         adjustments.insert("curves".to_string(), Value::Object(curves_map));
     }
 
