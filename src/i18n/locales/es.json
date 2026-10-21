@@ -1701,6 +1701,7 @@
       "copyTitle": "Copiar ajustes",
       "detectedHere": "Las selecciones de IA se detectan en cada foto",
       "layers": "Capas locales",
+      "lensNotPasted": "La corrección de lente aún no se copia ni se sincroniza: cada foto conserva la suya.",
       "modified": "Cambiados",
       "modifiedTitle": "Solo las herramientas cambiadas en esta foto",
       "noLayers": "Esta foto no tiene capas.",

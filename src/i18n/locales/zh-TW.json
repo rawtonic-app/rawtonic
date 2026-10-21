@@ -1606,6 +1606,7 @@
       "copyTitle": "複製設定",
       "detectedHere": "AI 選取會在每張照片上偵測",
       "layers": "局部圖層",
+      "lensNotPasted": "鏡頭校正暫不複製或同步：每張照片保留自己的校正。",
       "modified": "已變更",
       "modifiedTitle": "僅此照片中變更過的工具",
       "noLayers": "此照片沒有圖層。",

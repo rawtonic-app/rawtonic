@@ -1701,6 +1701,7 @@
       "copyTitle": "Copia els ajustos",
       "detectedHere": "Les seleccions d’IA es detecten a cada foto",
       "layers": "Capes locals",
+      "lensNotPasted": "La correcció d’objectiu encara no es copia ni se sincronitza: cada foto conserva la seva.",
       "modified": "Canviats",
       "modifiedTitle": "Només les eines canviades en aquesta foto",
       "noLayers": "Aquesta foto no té capes.",

@@ -1643,6 +1643,7 @@
       "copyTitle": "Einstellungen kopieren",
       "detectedHere": "KI-Auswahlen werden auf jedem Foto erkannt",
       "layers": "Lokale Ebenen",
+      "lensNotPasted": "Objektivkorrektur wird noch nicht kopiert oder synchronisiert: Jedes Foto behält seine eigene.",
       "modified": "Geänderte",
       "modifiedTitle": "Nur die auf diesem Foto geänderten Werkzeuge",
       "noLayers": "Dieses Foto hat keine Ebenen.",
