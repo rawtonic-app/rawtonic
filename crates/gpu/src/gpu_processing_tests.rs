@@ -3172,7 +3172,11 @@ fn display_samples_come_back_as_srgb_values() {
                 * 255.0
         });
         // Greys encode alike; colours differ.
-        assert_eq!(encoded.map(f64::round) == srgb, srgb[0] == srgb[1], "{srgb:?}");
+        assert_eq!(
+            encoded.map(f64::round) == srgb,
+            srgb[0] == srgb[1],
+            "{srgb:?}"
+        );
         let back = display_to_srgb(p3, encoded);
         for c in 0..3 {
             assert!((back[c] - srgb[c]).abs() < 0.01, "{srgb:?}: {back:?}");
