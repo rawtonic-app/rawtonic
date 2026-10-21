@@ -3499,15 +3499,14 @@ fn luminance_curve_changes_tone_and_keeps_colour() {
         }
     };
     // The shader's `apply_luminance_curve` on an sRGB colour inside the cube.
-    let expected = |display: [f32; 3]| -> [f32; 3] {
+    let luminance = |points: &[(f32, f32)], display: [f32; 3]| -> [f32; 3] {
         let linear = display.map(decode);
-        let y = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
-        let target = decode(rawtonic_engine::point_curve::curve_value(
-            &points,
-            encode(y),
-        ));
-        linear.map(|v| encode(v * target / y))
+        let y = (0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]).max(0.0);
+        let target = decode(rawtonic_engine::point_curve::curve_value(points, encode(y)));
+        let ratio = (target / y.max(1e-9)).min(4.0);
+        linear.map(|v| encode(v * ratio + target - y * ratio))
     };
+    let expected = |display: [f32; 3]| luminance(&points, display);
     let all = masked(ImageBuffer::from_pixel(width, height, Luma([255u8])));
     let render = |profile: &serde_json::Value, display: bool, precision| -> Vec<f32> {
         let adjustments = get_all_adjustments_from_json(profile, false, Some(0));
@@ -3612,6 +3611,67 @@ fn luminance_curve_changes_tone_and_keeps_colour() {
             "{profile}: display against export {delta} levels"
         );
         println!("{profile}: worst {worst:.3} levels over {compared} pixels; display {delta}");
+    }
+    // A lifted black end lifts black too, and the darks beside it
+    // continuously: a dark ramp from black (first row), then black rows.
+    let ramp: Vec<f16> = (0..width)
+        .flat_map(|x| {
+            let v = (x as f32 / width as f32).powi(3) * 0.02;
+            [v, v * 0.5, v * 0.2, 1.0].map(f16::from_f32)
+        })
+        .chain((0..width * (height - 1)).flat_map(|_| [f16::ZERO, f16::ZERO, f16::ZERO, f16::ONE]))
+        .collect();
+    let dark = input_from(&context, width, height, &ramp);
+    let lift = json!({"curves":{"luminance":[{"x":0,"y":32},{"x":255,"y":255}]}});
+    let lift_points = vec![(0.0, 32.0), (255.0, 255.0)];
+    let render_dark = |profile: &serde_json::Value| -> Vec<f32> {
+        let adjustments = get_all_adjustments_from_json(profile, false, Some(0));
+        match processor
+            .run(
+                &dark,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap()
+            .0
+        {
+            RenderedPixels::U16(words) => words.iter().map(|&v| v as f32 / 65535.0).collect(),
+            RenderedPixels::U8(_) => unreachable!(),
+        }
+    };
+    let (before, after) = (render_dark(&json!({})), render_dark(&lift));
+    let at = |image: &[f32], x: usize| [image[x * 4], image[x * 4 + 1], image[x * 4 + 2]];
+    // Black (the rows below the ramp) shows the curve's level, 32.
+    let black_pixel = width as usize * 2;
+    assert_eq!(at(&before, black_pixel), [0.0; 3]);
+    let black = at(&after, black_pixel);
+    for v in black {
+        assert!((v * 255.0 - 32.0).abs() < 0.6, "black shown as {black:?}");
+    }
+    let mut previous = black;
+    for x in 0..width as usize {
+        let (input, out) = (at(&before, x), at(&after, x));
+        let want = luminance(&lift_points, input);
+        for c in 0..3 {
+            assert!(
+                (out[c] - want[c]).abs() * 255.0 < 0.3,
+                "x {x}: {out:?} against {want:?}"
+            );
+            // No step between neighbours of the ramp.
+            assert!(
+                (out[c] - previous[c]).abs() * 255.0 < 1.0,
+                "x {x}: {out:?} after {previous:?}"
+            );
+        }
+        previous = out;
     }
 }
 

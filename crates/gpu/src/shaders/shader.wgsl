@@ -5028,15 +5028,16 @@ fn luminance_curve_value(val: f32, layer: u32, count: u32) -> f32 {
 
 fn apply_luminance_curve(display: vec3<f32>, layer: u32, count: u32) -> vec3<f32> {
     let linear = decode_signed(display);
-    let y = get_luma(linear);
-    if (y <= 1e-6) {
-        return display;
-    }
+    let y = max(get_luma(linear), 0.0);
     // The sRGB curve on the luminance alone (scalar: two powers per pixel).
     let encoded = select(1.055 * pow(min(y, 1.0), 1.0 / 2.4) - 0.055, y * 12.92, y <= 0.0031308);
     let curved = luminance_curve_value(encoded, layer, count);
     let target_y = select(pow((curved + 0.055) / 1.055, 2.4), curved / 12.92, curved <= 0.04045);
-    return display_unit(encode_signed(linear * (target_y / y)));
+    // The colour scaled by the luminance ratio, at most 4× (as
+    // carry_beyond_srgb); the rest of the change is grey, so a lifted black
+    // end lifts black, which scaling cannot, and the darks beside it alike.
+    let ratio = min(target_y / max(y, 1e-9), 4.0);
+    return display_unit(encode_signed(linear * ratio + vec3<f32>(target_y - y * ratio)));
 }
 
 // Layer zero is global; the following layers are mask indices plus one. Read
