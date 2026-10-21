@@ -66,10 +66,6 @@ export const debouncedSave = debounce((path: string, adjustmentsToSave: Adjustme
   const pending = (previous ? previous.then(save) : save())
     .then(() => {
       unsavedRecipes.delete(path);
-      // The saved recipe now has the versions the editor resolved.
-      const editor = useEditorStore.getState();
-      if (editor.selectedImage?.path === path && editor.storedLacksResponses.length > 0)
-        editor.setEditor({ storedLacksResponses: [] });
       return undefined;
     })
     .catch((err) => {
@@ -196,20 +192,17 @@ function withSourceFrames(
   return { ...chosen, masks: frameDrawnMasks(chosen.masks, source.adjustments, source.width, source.height) ?? chosen.masks };
 }
 
-/** `next` (the open photograph after a paste of `pasted`) with the
- * processing versions its saved recipe lacks resolved as loading that
- * recipe after the paste resolves them (`storedLacksResponses`). */
-function withStoredResponses(next: Adjustments, pasted: Partial<Adjustments>, isRaw: boolean): Adjustments {
-  const lacks = useEditorStore.getState().storedLacksResponses.filter((key) => !(key in pasted));
+/** `next` (the open photograph after a paste of `pasted`) without the
+ * processing versions its saved recipe lacks (`storedLacksResponses`) while
+ * it is not edited since it was opened (its history holds only the opening
+ * step): the backend pastes onto that recipe, which keeps them missing. */
+function withStoredResponses(next: Adjustments, pasted: Partial<Adjustments>): Adjustments {
+  const { storedLacksResponses, history, historyPending } = useEditorStore.getState();
+  if (history.length > 1 || historyPending) return next;
+  const lacks = storedLacksResponses.filter((key) => !(key in pasted));
   if (lacks.length === 0) return next;
-  const stored = { ...next } as Record<string, unknown>;
-  for (const key of lacks) delete stored[key];
-  const resolved = normalizeLoadedAdjustments(stored as unknown as Adjustments, isRaw) as unknown as Record<string, unknown>;
   const out = { ...next } as Record<string, unknown>;
-  for (const key of lacks) {
-    if (resolved[key] == null) delete out[key];
-    else out[key] = resolved[key];
-  }
+  for (const key of lacks) delete out[key];
   return out as unknown as Adjustments;
 }
 
@@ -681,10 +674,11 @@ export function useEditorActions() {
 
       if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
         let next = pasteFrom ? removedWhenNull(adjustments, adjustmentsToApply) : { ...adjustments, ...adjustmentsToApply };
-        // Processing versions its saved recipe lacks (resolved on loading)
-        // are resolved again for the pasted values, as the backend's recipe
-        // will be when it is opened: the same paste open or closed.
-        if (asChosen) next = withStoredResponses(next, adjustmentsToApply, selectedImage.isRaw);
+        // Not edited since it was opened: processing versions its saved
+        // recipe lacks (the editor resolved them on loading) stay missing,
+        // as in that recipe, which the backend pastes onto: the same paste
+        // open or closed. Edited: its versions are saved with the edit.
+        if (asChosen) next = withStoredResponses(next, adjustmentsToApply);
         if (pasteFrom && adjustmentsToApply.masks) {
           next.masks = pasteLayers(
             adjustments.masks,

@@ -26,6 +26,16 @@ pub fn hydrate_sub_masks(
             .get_mut("parameters")
             .and_then(|p| p.as_object_mut())
         {
+            // Pasted from another photograph and waiting for its own
+            // detection: never filled with a bitmap cached under its id
+            // (the source's, which shares the id).
+            if params
+                .get(crate::masks::DETECT_PENDING)
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            {
+                continue;
+            }
             let keys_to_check = ["mask_data_base64", "maskDataBase64"];
             for key in keys_to_check {
                 if params.contains_key(key) {
@@ -205,6 +215,22 @@ pub fn apply_all_transformations<'a, I: IntoCowImage<'a>>(
 
 #[cfg(test)]
 mod relight_hydration_tests {
+    #[test]
+    fn a_pasted_selection_waiting_for_its_detection_takes_no_cached_bitmap() {
+        let mut cache = HashMap::new();
+        cache.insert("sky-c".to_string(), serde_json::json!("data:source"));
+        let mut subs = vec![
+            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": null, "detectPending": true}}),
+            serde_json::json!({"id": "sky-c", "parameters": {"maskDataBase64": null}}),
+        ];
+        hydrate_sub_masks(&mut subs, &mut cache);
+        assert_eq!(
+            subs[0]["parameters"]["maskDataBase64"],
+            serde_json::Value::Null
+        );
+        assert_eq!(subs[1]["parameters"]["maskDataBase64"], "data:source");
+    }
+
     use super::*;
     use serde_json::json;
 

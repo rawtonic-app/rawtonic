@@ -271,7 +271,7 @@ it("pastes onto the open photo what the editor shows, cleared settings included"
   expect("wbTemperature" in shown).toBe(false);
 });
 
-it("resolves the versions the open photo's saved recipe lacks as its closed recipe would be", () => {
+it("keeps the versions the open photo's saved recipe lacks missing until it is edited", () => {
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ copiedAdjustments: { shadows: 80 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   const opened = (lacks: string[]) =>
@@ -289,6 +289,14 @@ it("resolves the versions the open photo's saved recipe lacks as its closed reci
   expect(useEditorStore.getState().adjustments.toneVersion).toBeUndefined();
   // Saved with it: its own.
   opened([]);
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  expect(useEditorStore.getState().adjustments.toneVersion).toBe(2);
+  // Edited since it was opened (Shadows +80 under the resolved version):
+  // its versions are saved with that edit and stay.
+  opened(["toneVersion"]);
+  const edited = { ...useEditorStore.getState().adjustments, shadows: 80 };
+  useEditorStore.setState({ adjustments: edited, history: [useEditorStore.getState().adjustments, edited], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { exposure: 1 } as unknown as Adjustments });
   act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
   expect(useEditorStore.getState().adjustments.toneVersion).toBe(2);
 });
