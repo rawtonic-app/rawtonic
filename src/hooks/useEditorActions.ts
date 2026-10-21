@@ -194,8 +194,9 @@ function pastedOpen(
  * each photograph when its recipe is saved: `resolve_lens_params_in_adjustments`). */
 const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
 
-/** Saves the open photograph's recipe `pasted` now and shows the lens data
- * its save resolved for it, unless its lens choice changed meanwhile. */
+/** Saves the open photograph's pasted recipe `pasted` (the paste's history
+ * step) now and puts the lens data its save resolved for it into that step,
+ * while it is still the one shown (no Undo, edit or other paste since). */
 async function showResolvedLens(path: string, pasted: Adjustments) {
   debouncedSave(path, pasted);
   debouncedSave.flush();
@@ -203,18 +204,19 @@ async function showResolvedLens(path: string, pasted: Adjustments) {
   const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path }).catch(() => null);
   const saved = meta?.adjustments;
   if (!saved || !isCurrentEditorImage(path)) return;
-  const now = useEditorStore.getState().adjustments;
-  const sameChoice = ['lensCorrectionMode', 'lensMaker', 'lensModel'].every(
-    (key) => (now as unknown as Record<string, unknown>)[key] === (pasted as unknown as Record<string, unknown>)[key],
-  );
-  if (!sameChoice) return;
-  updateAdjustments((prev: Adjustments) => ({
-    ...prev,
-    lensMaker: saved.lensMaker,
-    lensModel: saved.lensModel,
-    lensDistortionParams: saved.lensDistortionParams,
-    ...(saved.cameraCaVersion !== undefined ? { cameraCaVersion: saved.cameraCaVersion } : {}),
-  }));
+  useEditorStore.getState().setEditor((state) => {
+    if (state.adjustments !== pasted || state.history[state.historyIndex] !== pasted || state.historyPending) return state;
+    const resolved: Adjustments = {
+      ...pasted,
+      lensMaker: saved.lensMaker,
+      lensModel: saved.lensModel,
+      lensDistortionParams: saved.lensDistortionParams,
+      ...(saved.cameraCaVersion !== undefined ? { cameraCaVersion: saved.cameraCaVersion } : {}),
+    };
+    const history = [...state.history];
+    history[state.historyIndex] = resolved;
+    return { adjustments: resolved, history };
+  });
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -750,7 +752,8 @@ export function useEditorActions() {
           debouncedSetHistory.flush();
           // A lens choice is resolved for this photograph when it is saved
           // (its lens data, as for the others): shown once that is done.
-          if (LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply)) void showResolvedLens(open.path, next);
+          if (LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply))
+            void showResolvedLens(open.path, useEditorStore.getState().adjustments);
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });

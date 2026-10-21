@@ -365,7 +365,34 @@ it("shows the lens data resolved for the open photo when a lens choice is pasted
   for (let i = 0; i < 6; i++) await act(async () => {});
   const shown = useEditorStore.getState().adjustments;
   expect(shown.lensCorrectionMode).toBe("camera");
-  // Resolved for B by its save, shown in the editor.
+  // Resolved for B by its save, shown in the editor, in the paste's step.
   expect(shown.lensDistortionParams).toEqual({ k1: 0.3 });
+  expect(useEditorStore.getState().history).toHaveLength(3);
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments).toBe(own);
+});
+
+it("does not bring a resolved lens back after Undo", async () => {
+  let release = () => {};
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) {
+      await new Promise<void>((resolve) => (release = resolve));
+      return { adjustments: { lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.3 } } };
+    }
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1 } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { lensCorrectionMode: "camera" } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 3; i++) await act(async () => {});
+  act(() => useEditorStore.getState().undo());
+  await act(async () => release());
+  for (let i = 0; i < 3; i++) await act(async () => {});
+  expect(useEditorStore.getState().adjustments).toBe(own);
+  // The redo branch is still there.
+  expect(useEditorStore.getState().history).toHaveLength(3);
 });
 
