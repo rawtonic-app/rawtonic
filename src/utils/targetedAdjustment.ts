@@ -325,9 +325,13 @@ function moveCurve(
           { x: 0, y: 0 },
           { x: 255, y: 255 },
         ];
-  const near = p.findIndex(
-    (q, i) => i > 0 && i < p.length - 1 && Math.abs(q.x - x) <= 6,
-  );
+  // The nearest inner point within reach (imported curves can hold points
+  // a level apart).
+  let near = -1;
+  p.forEach((q, i) => {
+    if (i === 0 || i === p.length - 1 || Math.abs(q.x - x) > 6) return;
+    if (near === -1 || Math.abs(q.x - x) < Math.abs(p[near].x - x)) near = i;
+  });
   if (near !== -1) {
     p[near].y = clamp(Math.round(p[near].y + delta), 0, 255);
     return p;

@@ -393,6 +393,31 @@ describe("targeted adjustment", () => {
     ).toBeNull();
   });
 
+  it("moves the nearest of dense imported points", () => {
+    const dense = base();
+    dense.curves = {
+      ...dense.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 118, y: 0 },
+        { x: 119, y: 13.9 },
+        { x: 120, y: 30 },
+        { x: 255, y: 255 },
+      ],
+    };
+    const start = startTargetedAdjustment(
+      "curve",
+      dense,
+      null,
+      [13.9, 13.9, 13.9],
+    )!;
+    expect(start.curveX).toBe(119);
+    const luma = targetedPatch(start, 15).curves!.luma;
+    expect(luma[1]).toEqual({ x: 118, y: 0 });
+    expect(luma[2].x).toBe(119);
+    expect(luma[2].y).toBeCloseTo(29, 0);
+  });
+
   it("evaluates the curve as the renderer does", () => {
     expect(
       curveValue(
