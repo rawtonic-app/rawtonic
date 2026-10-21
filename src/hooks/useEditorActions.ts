@@ -210,7 +210,14 @@ async function lensDataFor(
   pasted: Partial<Adjustments>,
 ): Promise<Partial<Adjustments>> {
   const mode = pasted.lensCorrectionMode ?? current.lensCorrectionMode;
-  const exif = open.exif ?? {};
+  // Its own EXIF (focal length, aperture…), also before its decode has
+  // brought it to the editor (shown from its preview proxy).
+  const exif =
+    open.exif && Object.keys(open.exif).length > 0
+      ? open.exif
+      : ((await invoke<Record<string, Record<string, string>>>(Invokes.ReadExifForPaths, { paths: [open.path] }).catch(
+          () => null,
+        ))?.[open.path] ?? {});
   const profile = (maker: string, model: string) =>
     invoke<Adjustments['lensDistortionParams']>(Invokes.GetLensDistortionParams, { maker, model, exif }).catch(() => null);
   if (mode === 'camera') {

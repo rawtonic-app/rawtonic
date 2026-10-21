@@ -438,3 +438,23 @@ it("keeps pastes onto the open photo in order behind a lens lookup, and quitting
   expect(quit).toBe(true);
 });
 
+it("resolves a pasted lens with the open photo's EXIF also before its decode brought it", async () => {
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    if (name === Invokes.ReadExifForPaths) return { "/s/B.ARW": { Make: "Maker", FocalLength: "85" } };
+    if (name === Invokes.GetLensDistortionParams) return { k1: Number((args as { exif: Record<string, string> }).exif.FocalLength) };
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1 } as unknown as Adjustments;
+  // Shown from its preview proxy: no EXIF in the editor yet.
+  useEditorStore.setState({ selectedImage: { ...photo("/s/B.ARW"), exif: null } as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({
+    copiedAdjustments: { lensCorrectionMode: "manual", lensMaker: "Maker", lensModel: "85mm" } as unknown as Adjustments,
+    copiedFrom: "/s/A.ARW",
+  });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 6; i++) await act(async () => {});
+  expect(useEditorStore.getState().adjustments.lensDistortionParams).toEqual({ k1: 85 });
+});
+
