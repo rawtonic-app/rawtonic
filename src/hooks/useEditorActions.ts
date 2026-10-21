@@ -693,7 +693,13 @@ export function useEditorActions() {
       if (open && !reloadOpen) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
-      if (reloadOpen) debouncedSave.flush();
+      if (reloadOpen) {
+        // Its edit as it is now, a drag's draft included, is saved first:
+        // the backend pastes onto it.
+        flushSliderDraft();
+        scheduleUnsavedEditorRecipe();
+        debouncedSave.flush();
+      }
       const before = useEditorStore.getState().adjustments;
 
       const paste = pasteFrom
@@ -713,7 +719,11 @@ export function useEditorActions() {
       const written = afterRecipeSaves(pathsToUpdate, () =>
         reloadOpen
           ? batch([open!.path]).then(async (failed) => {
-              if (failed.length === 0) await showPasted(open!.path, open!.isRaw, before);
+              // Showing it failing does not stop the others.
+              if (failed.length === 0)
+                await showPasted(open!.path, open!.isRaw, before).catch((err) =>
+                  console.error('Showing the pasted settings failed:', err),
+                );
               return others.length > 0 ? [...failed, ...(await batch(others))] : failed;
             })
           : batch(pathsToUpdate),

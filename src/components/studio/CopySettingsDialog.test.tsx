@@ -302,3 +302,27 @@ it("gives the open photo what loading gives it: a never-edited RAW's lens data, 
   expect(shown.masks[0].subMasks[0].id).not.toBe("sky-c");
   expect(shown.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
 });
+
+it("pastes onto the open photo's edit as it is now, and writes the others when showing it fails", async () => {
+  const { debouncedSave } = await import("../../hooks/useEditorActions");
+  const order: string[] = [];
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { paths?: string[]; adjustments?: Adjustments };
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail) order.push(`save:${a.adjustments?.contrast}`);
+    if (name === Invokes.ApplyAdjustmentsToPaths) order.push(`paste:${a.paths?.join(",")}`);
+    if (name === Invokes.LoadMetadata) throw new Error("gone");
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+  // An edit not yet saved (its save still waits for the debounce).
+  const edited = { ...structuredClone(INITIAL_ADJUSTMENTS), contrast: 30 };
+  useEditorStore.setState({ adjustments: edited });
+  debouncedSave("/s/B.ARW", edited);
+  await act(async () => {
+    await result.current.handlePasteAdjustments(["/s/B.ARW", "/s/C.ARW"]);
+  });
+  await act(async () => {});
+  expect(order).toEqual(["save:30", "paste:/s/B.ARW", "paste:/s/C.ARW"]);
+});
