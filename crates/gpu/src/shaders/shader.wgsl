@@ -2810,8 +2810,10 @@ fn apply_sharpen(
         || adjustments.global.sharpen_detail_offset != 0.0
         || adjustments.global.sharpen_masking > 0.0;
     // Response 2 (`sharpen_falloff.w`) away from Amount 40 with the other
-    // controls at their defaults, where it equals the default path below.
-    if (adjustments.global.sharpen_falloff.w >= 2.0 && (extended || abs(amount - 0.8) > 1e-6)) {
+    // controls at their defaults, where it equals the default path below;
+    // response 3 at every amount (its lightness weight differs there too).
+    let response = adjustments.global.sharpen_falloff.w;
+    if (response >= 3.0 || (response >= 2.0 && (extended || abs(amount - 0.8) > 1e-6))) {
         return apply_sharpen_v2(color, coords_i, amount, threshold, is_raw);
     }
     // Lightroom's Radius / Detail / Masking away from their defaults
@@ -3021,6 +3023,23 @@ const SHARPEN_V2_EDGE_AMOUNT: f32 = 1.0;
 // and 0.08 / (1 + 0.8 · 0.8) times that gain.
 const SHARPEN_V2_GAIN_40: f32 = 1.5744;
 const SHARPEN_V2_HALO_40: f32 = 0.0768;
+// Response 3 (`sharpenVersion` 3, notes: reference/detail.md "Sharpening
+// response 3"): response 2 weighted by lightness. Camera Raw's sharpening
+// gain on flat and textured areas alike falls towards the shadows (output
+// Oklab L 10–20: about a fifth of its mid-tone gain, 20–30 half) and holds
+// up in the highlights, at every Amount and Detail; response 2's was the
+// same at every lightness, so it sharpened shadow noise up to five times
+// as strongly as Camera Raw and drew dark rims around bright detail in
+// shadows. The weight rises from 0 to 1 over the shadow range of the
+// perceptual luminance `l` (0.03–0.27 lands at output L 15–45 through the
+// default tone curve) and lifts the highlights (from l 0.4, about output
+// L 70) by up to 1 + lift, where Rawtonic's gain had fallen below Camera
+// Raw's after the tone curve's shoulder.
+const SHARPEN_V3_SHADOW_LO: f32 = 0.03;
+const SHARPEN_V3_SHADOW_HI: f32 = 0.27;
+const SHARPEN_V3_HIGHLIGHT_LO: f32 = 0.4;
+const SHARPEN_V3_HIGHLIGHT_HI: f32 = 0.65;
+const SHARPEN_V3_HIGHLIGHT_LIFT: f32 = 1.0;
 
 fn apply_sharpen_v2(
     color: vec3<f32>,
@@ -3117,7 +3136,12 @@ fn apply_sharpen_v2(
     let knee = 1.0 + (SHARPEN_DETAIL_KNEE - 1.0) * detail_up;
     let x = gain * d;
     let delta = x / pow(1.0 + pow(abs(x) / ceiling, knee), 1.0 / knee);
-    let l_sharp = max(l + delta * gate, l * 0.4);
+    var weighted = delta * gate;
+    if (adjustments.global.sharpen_falloff.w >= 3.0) {
+        weighted *= smoothstep(SHARPEN_V3_SHADOW_LO, SHARPEN_V3_SHADOW_HI, l)
+            * (1.0 + SHARPEN_V3_HIGHLIGHT_LIFT * smoothstep(SHARPEN_V3_HIGHLIGHT_LO, SHARPEN_V3_HIGHLIGHT_HI, l));
+    }
+    let l_sharp = max(l + weighted, l * 0.4);
     let shadow_floor_lr = select(0.03, 0.10, is_raw == 1u);
     let protect = smoothstep(0.0, shadow_floor_lr, l) * (1.0 - smoothstep(0.92, 1.0, l));
     let l_out = max(mix(l, l_sharp, protect), 0.0);

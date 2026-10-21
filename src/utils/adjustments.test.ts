@@ -227,7 +227,7 @@ describe('RAW detail defaults', () => {
     expect(initialAdjustmentsFor(false).sharpenVersion).toBe(SHARPEN_VERSION);
     const load = (recipe: object, isRaw = true) =>
       normalizeLoadedAdjustments(recipe as unknown as Adjustments, isRaw).sharpenVersion;
-    // Renders differently with response 2: the earlier response, key absent.
+    // Renders differently with the current response: the earliest response, key absent.
     expect(load({ sharpness: 80 })).toBeUndefined();
     expect('sharpenVersion' in JSON.parse(JSON.stringify(normalizeLoadedAdjustments({ sharpness: 80 } as unknown as Adjustments, true)))).toBe(false);
     expect(load({ sharpness: 40, sharpenDetail: 100 })).toBeUndefined();
@@ -235,14 +235,22 @@ describe('RAW detail defaults', () => {
     expect(load({ sharpenMasking: 30 })).toBeUndefined();
     expect(load({ sharpnessFalloff: 50 })).toBeUndefined();
     expect(load({ sharpness: 0, masks: [{ adjustments: { sharpness: 30 }, subMasks: [] }] })).toBeUndefined();
-    // The same with either response: the current one.
+    // Response 3 weights Amount 40 by lightness too (1 and 2 rendered it alike).
+    expect(load({ sharpness: 40 })).toBeUndefined();
+    expect(load({ exposure: 1 })).toBeUndefined();
+    // A new or reset recipe (Library Reset saves {}) renders as a new edit,
+    // as the backend gives it (`apply_render_default`).
     expect(load({})).toBe(SHARPEN_VERSION);
-    expect(load({ sharpness: 40 })).toBe(SHARPEN_VERSION);
+    expect(load({ lensProfileFor: '["manual"]' })).toBe(SHARPEN_VERSION);
+    // No sharpening renders the same with every response: the current one.
+    expect(load({ sharpness: 0 })).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: 0, sharpenDetail: 100 })).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: -20 })).toBe(SHARPEN_VERSION);
     expect(load({}, false)).toBe(SHARPEN_VERSION);
     expect(load({ sharpness: 80, sharpenVersion: 1 })).toBe(1);
     expect(load({ sharpness: 80, sharpenVersion: 2 })).toBe(2);
+    expect(load({ sharpness: 40, sharpenVersion: 2 })).toBe(2);
+    expect(load({ sharpness: 80, sharpenVersion: 3 })).toBe(3);
   });
 
   it('keep the luminance noise reduction a saved recipe rendered with', () => {

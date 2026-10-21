@@ -657,8 +657,9 @@ pub fn convert_xmp_to_preset(xmp_content: &str) -> Result<Preset, String> {
     }
 
     // Lightroom's sharpening sliders map 1:1 onto the response fitted to
-    // Camera Raw at every amount (notes: reference/detail.md "Sharpening
-    // response 2"); without the key the photo would read them with response 1.
+    // Camera Raw at every amount and lightness (notes: reference/detail.md
+    // "Sharpening response 3"); without the key the photo would read them
+    // with response 1.
     // Layers' sharpening adds to the photo's amount, so it counts too.
     let layer_sharpens = adjustments
         .get("masks")

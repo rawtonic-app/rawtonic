@@ -1249,6 +1249,81 @@ fn sharpen_version_2_keeps_amount_40_and_caps_halos() {
     );
 }
 
+#[test]
+#[ignore = "requires a native GPU; compares sharpening responses 2 and 3"]
+fn sharpen_version_3_spares_the_shadows() {
+    // Grey texture (±25 %) around a shadow level on the left half and a
+    // mid-tone level on the right half.
+    let (width, height) = (256u32, 128u32);
+    let data: Vec<f16> = (0..width * height)
+        .flat_map(|i| {
+            let base = if i % width < width / 2 { 0.004 } else { 0.15 };
+            let v = f16::from_f32(base * (0.75 + 0.5 * ((i * 7919 + 13) % 101) as f32 / 100.0));
+            [v, v, v, f16::ONE]
+        })
+        .collect();
+    let context = context();
+    let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
+    let view = input_from(&context, width, height, &data);
+    let render = |amount: f64, version: u64| {
+        let profile = json!({"sharpness": amount, "lumaNoiseReduction": 0, "colorNoiseReduction": 0,
+            "sharpenVersion": version});
+        let adjustments = get_all_adjustments_from_json(&profile, true, Some(1));
+        let (pixels, ..) = processor
+            .run(
+                &view,
+                width,
+                height,
+                RenderRequest {
+                    adjustments,
+                    mask_bitmaps: &[],
+                    lut: None,
+                    roi: None,
+                },
+                false,
+                RenderOutputPrecision::SixteenBit,
+            )
+            .unwrap();
+        match pixels {
+            RenderedPixels::U16(pixels) => pixels,
+            _ => unreachable!(),
+        }
+    };
+    let flat = render(0., 3);
+    // Mean absolute change of the first channel per half, away from the
+    // border between them and the image edges.
+    let change = |pixels: &[u16], left: bool| {
+        let (mut sum, mut n) = (0.0f64, 0.0f64);
+        for y in 8..height - 8 {
+            let xs = if left {
+                8..width / 2 - 8
+            } else {
+                width / 2 + 8..width - 8
+            };
+            for x in xs {
+                let i = ((y * width + x) * 4) as usize;
+                sum += (pixels[i] as f64 - flat[i] as f64).abs();
+                n += 1.0;
+            }
+        }
+        sum / n
+    };
+    for amount in [40., 80.] {
+        let (v2, v3) = (render(amount, 2), render(amount, 3));
+        let (dark2, dark3) = (change(&v2, true), change(&v3, true));
+        let (mid2, mid3) = (change(&v2, false), change(&v3, false));
+        assert!(dark2 > 0.0 && mid2 > 0.0, "response 2 sharpens both halves");
+        assert!(
+            dark3 < 0.2 * dark2,
+            "Amount {amount}: shadows {dark3} not below a fifth of response 2's {dark2}"
+        );
+        assert!(
+            (mid3 / mid2 - 1.0).abs() < 0.15,
+            "Amount {amount}: mid-tones {mid3} against response 2's {mid2}"
+        );
+    }
+}
+
 fn context() -> GpuContext {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter =
@@ -1282,6 +1357,11 @@ fn input(context: &GpuContext, width: u32, height: u32, seed: u32) -> wgpu::Text
             ]
         })
         .collect();
+    input_from(context, width, height, &data)
+}
+
+/// An RGBA16F input texture holding `data`.
+fn input_from(context: &GpuContext, width: u32, height: u32, data: &[f16]) -> wgpu::TextureView {
     context
         .device
         .create_texture_with_data(
@@ -1301,7 +1381,7 @@ fn input(context: &GpuContext, width: u32, height: u32, seed: u32) -> wgpu::Text
                 view_formats: &[],
             },
             TextureDataOrder::MipMajor,
-            bytemuck::cast_slice(&data),
+            bytemuck::cast_slice(data),
         )
         .create_view(&Default::default())
 }
@@ -1869,8 +1949,8 @@ fn sharpen_version_timing_probe() {
     let context = context();
     // Warm display frames at preview size and full-resolution 16-bit
     // readbacks; the amount moves a little every frame so the detail stage
-    // is computed again, as during a slider drag. Responses 1 and 2
-    // alternate within one process (response 1's path is unchanged).
+    // is computed again, as during a slider drag. The previous and the
+    // newest response alternate within one process.
     for (width, height, display, frames) in [(2304, 1728, true, 24), (6000, 4000, false, 6)] {
         let processor = GpuProcessor::new(context.clone(), width, height).unwrap();
         let view = input(&context, width, height, 3);
@@ -1887,10 +1967,11 @@ fn sharpen_version_timing_probe() {
         ] {
             let mut times = [Vec::new(), Vec::new()];
             for frame in 0..frames + 2 {
-                for version in [1, 2] {
+                let newest = rawtonic_engine::image_processing::SHARPEN_VERSION;
+                for (slot, version) in [newest - 1, newest].into_iter().enumerate() {
                     let mut profile = base.clone();
                     let amount = profile["sharpness"].as_f64().unwrap();
-                    // Amount 40 stays exact (both responses share its path).
+                    // Amount 40 stays exact (responses 1 and 2 share its path).
                     if amount != 40.0 {
                         profile["sharpness"] = json!(amount + 0.01 * frame as f64);
                     } else {
@@ -1923,7 +2004,7 @@ fn sharpen_version_timing_probe() {
                         .unwrap();
                     // The first two frames warm shaders and caches.
                     if frame >= 2 {
-                        times[version - 1].push(start.elapsed().as_secs_f64() * 1000.0);
+                        times[slot].push(start.elapsed().as_secs_f64() * 1000.0);
                     }
                 }
             }
@@ -1931,11 +2012,11 @@ fn sharpen_version_timing_probe() {
                 t.sort_by(f64::total_cmp);
                 t[t.len() / 2]
             };
-            let (v1, v2) = (median(&mut times[0]), median(&mut times[1]));
+            let (previous, newest) = (median(&mut times[0]), median(&mut times[1]));
             println!(
                 "{}",
-                json!({"size":format!("{width}x{height}"),"setting":name,"v1_ms":v1,"v2_ms":v2,
-                    "change_pct":(v2 / v1 - 1.0) * 100.0,"frames":frames})
+                json!({"size":format!("{width}x{height}"),"setting":name,"previous_ms":previous,
+                    "newest_ms":newest,"change_pct":(newest / previous - 1.0) * 100.0,"frames":frames})
             );
         }
     }

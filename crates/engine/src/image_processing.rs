@@ -3252,7 +3252,7 @@ pub struct GlobalAdjustments {
     /// x: Capture One's Sharpness Falloff (0–1): extra sharpening towards
     /// the corners, up to twice the amount there. y, z: diffraction
     /// correction radius (original pixels) and amount (diffraction.rs).
-    /// w: the recipe's sharpening response (`sharpenVersion`, 1 or 2).
+    /// w: the recipe's sharpening response (`sharpenVersion`, 1 to 3).
     pub sharpen_falloff: [f32; 4],
     /// Camera profile (camera_profile.rs). Before the base look: x = key of
     /// the recipe's `cameraProfile`. After it: x = 1 when applied, y = key
@@ -4655,15 +4655,19 @@ fn defringe_settings(adjustments: &serde_json::Value) -> [[f32; 4]; 2] {
 
 /// The recipe key naming the sharpening response a recipe was made with.
 pub const SHARPEN_VERSION_KEY: &str = "sharpenVersion";
-/// The newest response: 2 (2026-10-19) keeps the halo ceiling nearly
-/// constant over the amount, grows the small-signal gain as Camera Raw's
-/// does and bounds the Detail tilt, so high amounts follow Camera Raw's
-/// band gains with halos that grow far less than version 1's (at most 2.7
-/// Oklab L ×100 above Camera Raw's on the measured frames, version 1 up to
-/// 21; notes: reference/detail.md "Sharpening response 2"); at Amount 40 with Radius, Detail and Masking
-/// at their defaults it renders as 1. Photo-wide: layers' sharpening amounts
-/// follow it. Recipes without the key keep version 1.
-pub const SHARPEN_VERSION: u64 = 2;
+/// The newest response: 3 (2026-10-21) is 2 weighted by lightness, as
+/// Camera Raw's is: little sharpening in the shadows, more in the
+/// highlights, so shadow noise and dark rims around bright detail in
+/// shadows are no longer sharpened up to five times as strongly as in
+/// Camera Raw (notes: reference/detail.md "Sharpening response 3"); it
+/// differs from 1 and 2 at every amount. 2 (2026-10-19) keeps the halo
+/// ceiling nearly constant over the amount, grows the small-signal gain as
+/// Camera Raw's does and bounds the Detail tilt, so high amounts follow
+/// Camera Raw's band gains with halos that grow far less than version 1's;
+/// at Amount 40 with Radius, Detail and Masking at their defaults it renders
+/// as 1. Photo-wide: layers' sharpening amounts follow it. Recipes without
+/// the key keep version 1.
+pub const SHARPEN_VERSION: u64 = 3;
 
 /// The recipe's sharpening response, 1 when missing, never newer than this
 /// renderer knows.
@@ -4732,10 +4736,11 @@ pub fn is_new_recipe(adjustments: &serde_json::Value) -> bool {
         })
 }
 
-/// Sets the current render version on a new recipe (`is_new_recipe`), as
-/// the editor does for new edits (RAW or not): before a never-edited photo
-/// renders, and before a batch edit (paste, preset, Auto) fills one. Saved
-/// recipes, partial ones included, keep the version they were made with.
+/// Sets the current render version and sharpening response on a new recipe
+/// (`is_new_recipe`), as the editor does for new edits (RAW or not): before
+/// a never-edited photo renders, and before a batch edit (paste, preset,
+/// Auto) fills one. Saved recipes, partial ones included, keep the versions
+/// they were made with.
 pub fn apply_render_default(adjustments: &mut serde_json::Value) {
     if !is_new_recipe(adjustments) {
         return;
@@ -4747,6 +4752,10 @@ pub fn apply_render_default(adjustments: &mut serde_json::Value) {
         map.insert(
             RENDER_VERSION_KEY.to_string(),
             serde_json::json!(RENDER_VERSION),
+        );
+        map.insert(
+            SHARPEN_VERSION_KEY.to_string(),
+            serde_json::json!(SHARPEN_VERSION),
         );
     }
 }
@@ -6792,6 +6801,7 @@ mod editing_tool_tests {
         // Recipes without the key keep the first response.
         assert_eq!(version(json!({"sharpness": 80})), 1.0);
         assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 2})), 2.0);
+        assert_eq!(version(json!({"sharpness": 80, "sharpenVersion": 3})), 3.0);
         assert_eq!(
             version(json!({"sharpenVersion": 9})),
             SHARPEN_VERSION as f32
@@ -7586,6 +7596,10 @@ mod render_version_tests {
             let mut recipe = new.clone();
             apply_render_default(&mut recipe);
             assert_eq!(recipe[RENDER_VERSION_KEY], RENDER_VERSION, "{new}");
+            // The sharpening response too: response 3 differs from 1 at the
+            // RAW default Amount 40, so a never-edited or reset RAW would
+            // otherwise render with 1 outside the editor.
+            assert_eq!(recipe[SHARPEN_VERSION_KEY], SHARPEN_VERSION, "{new}");
         }
         for saved in [
             json!({"clarity": 30}),
