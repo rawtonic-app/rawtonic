@@ -1601,6 +1601,7 @@
       "all": "全部",
       "cancel": "取消",
       "changed": "此照片中已變更",
+      "changedMeanwhile": "貼上設定時開啟的照片已變更；它會保留該變更。請再次貼上以套用設定。",
       "copy": "複製",
       "copyTitle": "複製設定",
       "detectedHere": "AI 選取會在每張照片上偵測",

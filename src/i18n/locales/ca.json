@@ -1696,6 +1696,7 @@
       "all": "Tot",
       "cancel": "Cancel·la",
       "changed": "Canviat en aquesta foto",
+      "changedMeanwhile": "La foto oberta ha canviat mentre s’enganxaven els ajustos; conserva aquest canvi. Torna a enganxar per aplicar-los.",
       "copy": "Copia",
       "copyTitle": "Copia els ajustos",
       "detectedHere": "Les seleccions d’IA es detecten a cada foto",

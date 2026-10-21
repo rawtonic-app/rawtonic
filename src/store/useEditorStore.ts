@@ -168,10 +168,6 @@ interface EditorState {
   copiedFrom: string | null;
   /** The photograph open before this one (Lightroom's Previous). */
   previousPhoto: string | null;
-  /** The processing versions the open photograph's saved recipe lacks (it
-   * is from before them): the editor resolved them on loading, until the
-   * next save writes them. */
-  storedLacksResponses: string[];
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
@@ -258,7 +254,6 @@ export const useEditorStore = create<EditorState>((set) => ({
   copiedAdjustments: null,
   copiedFrom: null,
   previousPhoto: null,
-  storedLacksResponses: [],
 
   isGeneratingAiMask: false,
   isMaskControlHovered: false,

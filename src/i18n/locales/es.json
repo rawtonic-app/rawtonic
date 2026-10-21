@@ -1696,6 +1696,7 @@
       "all": "Todo",
       "cancel": "Cancelar",
       "changed": "Cambiado en esta foto",
+      "changedMeanwhile": "La foto abierta cambió mientras se pegaban los ajustes; conserva ese cambio. Vuelve a pegar para aplicarlos.",
       "copy": "Copiar",
       "copyTitle": "Copiar ajustes",
       "detectedHere": "Las selecciones de IA se detectan en cada foto",

@@ -94,24 +94,6 @@ it("copies exactly the chosen tools and layers and remembers the choice", async 
   expect(paste.adjustments.masks?.[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
 });
 
-it("pastes onto the open photo with its own layers kept and the AI detection its own", async () => {
-  const { result } = renderHook(useEditorActions);
-  useEditorStore.setState({ copiedAdjustments: { exposure: 2, masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-  useEditorStore.setState({
-    selectedImage: photo("/s/B.ARW") as never,
-    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [dodge] } as unknown as Adjustments,
-  });
-  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  const { adjustments } = useEditorStore.getState();
-  expect(adjustments.exposure).toBe(2);
-  expect(adjustments.masks.map((layer) => layer.id)).toEqual(["dodge", "sky"]);
-  expect(adjustments.masks[1].subMasks[0].parameters).toMatchObject({ maskDataBase64: null, detectPending: true });
-  // On a virtual copy of the same photograph the bitmap is its own.
-  useEditorStore.setState({ selectedImage: photo("/s/A.ARW?vc=c0ffee") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
-  act(() => result.current.handlePasteAdjustments(["/s/A.ARW?vc=c0ffee"]));
-  expect(useEditorStore.getState().adjustments.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
-});
-
 it("syncs the open photo's chosen settings to the other selected photographs", async () => {
   useLibraryStore.setState({ multiSelectedPaths: ["/s/A.ARW", "/s/B.ARW", "/s/C.ARW"] });
   render(<CopySettingsDialogHost />);
@@ -255,48 +237,45 @@ it("remembers the previous photograph across a closed editor", () => {
   expect(useEditorStore.getState().previousPhoto).toBe("/s/B.ARW");
 });
 
-it("pastes onto the open photo what the editor shows, cleared settings included", async () => {
+
+it("shows on the open photo what the backend wrote for it, as one undoable step", async () => {
+  const written = { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 2, masks: [dodge] };
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) return { adjustments: written };
+    return undefined;
+  });
   const { result } = renderHook(useEditorActions);
-  useEditorStore.setState({
-    copiedAdjustments: { whiteBalance: null, wbTemperature: null, temperature: 0 } as unknown as Adjustments,
-    copiedFrom: "/s/A.ARW",
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2, masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  const own = { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [dodge] } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [own], historyIndex: 0 });
+  useLibraryStore.setState({ multiSelectedPaths: ["/s/B.ARW", "/s/C.ARW"] });
+  await act(async () => {
+    await result.current.handlePasteAdjustments();
   });
-  useEditorStore.setState({
-    selectedImage: photo("/s/B.ARW") as never,
-    adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), whiteBalance: "custom", wbTemperature: 2850 } as unknown as Adjustments,
-  });
-  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  const shown = useEditorStore.getState().adjustments as unknown as Record<string, unknown>;
-  expect("whiteBalance" in shown).toBe(false);
-  expect("wbTemperature" in shown).toBe(false);
+  // The open photo first, alone; then the others.
+  expect(applied().map((call) => call.paths)).toEqual([["/s/B.ARW"], ["/s/C.ARW"]]);
+  expect(useEditorStore.getState().adjustments.exposure).toBe(2);
+  expect(useEditorStore.getState().history).toHaveLength(2);
+  act(() => useEditorStore.getState().undo());
+  expect(useEditorStore.getState().adjustments).toBe(own);
 });
 
-it("keeps the versions the open photo's saved recipe lacks missing until it is edited", () => {
+it("keeps an edit made on the open photo while the paste was written, and says so", async () => {
+  let edit = () => {};
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.ApplyAdjustmentsToPaths) edit();
+    if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: 2 } };
+    return undefined;
+  });
+  const { toast } = await import("react-toastify");
   const { result } = renderHook(useEditorActions);
-  useEditorStore.setState({ copiedAdjustments: { shadows: 80 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-  const opened = (lacks: string[]) =>
-    useEditorStore.setState({
-      selectedImage: photo("/s/B.ARW") as never,
-      // Resolved on loading: its saved recipe renders alike with either.
-      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), shadows: 0, toneVersion: 2 } as unknown as Adjustments,
-      storedLacksResponses: lacks,
-    });
-  // Saved without the version (a recipe from before it): Shadows 80 renders
-  // with the earlier response there, so here too.
-  opened(["toneVersion"]);
-  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  expect(useEditorStore.getState().adjustments.shadows).toBe(80);
-  expect(useEditorStore.getState().adjustments.toneVersion).toBeUndefined();
-  // Saved with it: its own.
-  opened([]);
-  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  expect(useEditorStore.getState().adjustments.toneVersion).toBe(2);
-  // Edited since it was opened (Shadows +80 under the resolved version):
-  // its versions are saved with that edit and stay.
-  opened(["toneVersion"]);
-  const edited = { ...useEditorStore.getState().adjustments, shadows: 80 };
-  useEditorStore.setState({ adjustments: edited, history: [useEditorStore.getState().adjustments, edited], historyIndex: 1 });
-  useEditorStore.setState({ copiedAdjustments: { exposure: 1 } as unknown as Adjustments });
-  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  expect(useEditorStore.getState().adjustments.toneVersion).toBe(2);
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
+  const mine = { ...structuredClone(INITIAL_ADJUSTMENTS), contrast: 30 };
+  edit = () => useEditorStore.setState({ adjustments: mine });
+  await act(async () => {
+    await result.current.handlePasteAdjustments(["/s/B.ARW"]);
+  });
+  expect(useEditorStore.getState().adjustments).toBe(mine);
+  expect(toast.error).toHaveBeenCalled();
 });

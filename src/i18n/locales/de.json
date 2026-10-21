@@ -1638,6 +1638,7 @@
       "all": "Alle",
       "cancel": "Abbrechen",
       "changed": "Auf diesem Foto geändert",
+      "changedMeanwhile": "Das geöffnete Foto wurde während des Einfügens geändert; es behält diese Änderung. Erneut einfügen, um die Einstellungen anzuwenden.",
       "copy": "Kopieren",
       "copyTitle": "Einstellungen kopieren",
       "detectedHere": "KI-Auswahlen werden auf jedem Foto erkannt",

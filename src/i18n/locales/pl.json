@@ -1754,6 +1754,7 @@
       "all": "Wszystko",
       "cancel": "Anuluj",
       "changed": "Zmienione na tym zdjęciu",
+      "changedMeanwhile": "Otwarte zdjęcie zmieniło się podczas wklejania; zachowuje tę zmianę. Wklej ponownie, aby zastosować ustawienia.",
       "copy": "Kopiuj",
       "copyTitle": "Kopiuj ustawienia",
       "detectedHere": "Zaznaczenia AI są wykrywane na każdym zdjęciu",

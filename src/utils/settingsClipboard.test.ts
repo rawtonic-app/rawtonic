@@ -4,12 +4,9 @@ import {
   RESPONSE_KEYS,
   SETTINGS_GROUPS,
   chosenSettings,
-  newEditResponses,
   detectionPending,
+  newEditResponses,
   groupModified,
-  pasteLayers,
-  removedWhenNull,
-  samePhotograph,
 } from './settingsClipboard';
 
 const layer = (id: string, type = 'linear', parameters: Record<string, unknown> = {}): MaskContainer =>
@@ -50,12 +47,16 @@ describe('settings clipboard', () => {
     delete (asShot as Partial<Adjustments>).whiteBalance;
     delete (asShot as Partial<Adjustments>).wbTemperature;
     const chosen = chosenSettings(asShot, group('whiteBalance').keys, []);
+    // Null: the destination loses its own (the backend removes it).
     expect(chosen.whiteBalance).toBeNull();
-    const custom = recipe({ whiteBalance: 'custom', wbTemperature: 2850 } as Partial<Adjustments>);
-    const pasted = removedWhenNull(custom, chosen);
-    expect('whiteBalance' in pasted).toBe(false);
-    expect('wbTemperature' in pasted).toBe(false);
-    expect(pasted.temperature).toBe(0);
+    expect(chosen.wbTemperature).toBeNull();
+    expect(chosen.temperature).toBe(0);
+  });
+
+  it('knows a component waiting for its detection', () => {
+    const sub = layer('sky', 'ai-sky', { maskDataBase64: null, detectPending: true }).subMasks[0];
+    expect(detectionPending(sub)).toBe(true);
+    expect(detectionPending({ ...sub, parameters: { maskDataBase64: 'data:own', detectPending: true } })).toBe(false);
   });
 
   it('offers no group of processing versions among the tools', () => {
@@ -75,34 +76,4 @@ describe('settings clipboard', () => {
     expect(groupModified(group('vignette'), source, true)).toBe(false);
   });
 
-  it('adds pasted layers, replaces one pasted before, keeps the photo’s own', () => {
-    const own = [layer('dodge'), { ...layer('sky'), name: 'old sky' }];
-    const merged = pasteLayers(own, [layer('sky'), layer('vignette')], false);
-    expect(merged.map((l) => [l.id, l.name])).toEqual([
-      ['dodge', 'dodge'],
-      ['sky', 'sky'],
-      ['vignette', 'vignette'],
-    ]);
-    // Edit all selected: the primary's layers only.
-    expect(pasteLayers(own, [layer('sky')], false, true).map((l) => l.id)).toEqual(['sky']);
-  });
-
-  it('never pastes another photo’s AI bitmap; a virtual copy of the same keeps it', () => {
-    const pasted = [layer('sky', 'ai-sky', { maskDataBase64: 'data:source', grow: 10 }), layer('people', 'ai-people', { parts: [] })];
-    const onOther = pasteLayers([], pasted, false);
-    expect(onOther[0].subMasks[0].parameters).toEqual({ maskDataBase64: null, grow: 10, detectPending: true });
-    expect(detectionPending(onOther[0].subMasks[0])).toBe(true);
-    // A People component without parts has nothing to detect.
-    expect(detectionPending(onOther[1].subMasks[0])).toBe(false);
-    const onCopy = pasteLayers([], pasted, true);
-    expect(onCopy[0].subMasks[0].parameters).toEqual({ maskDataBase64: 'data:source', grow: 10 });
-    // Detected there: no longer pending.
-    expect(detectionPending({ ...onOther[0].subMasks[0], parameters: { maskDataBase64: 'data:own', detectPending: true } })).toBe(false);
-  });
-
-  it('knows virtual copies of one photograph', () => {
-    expect(samePhotograph('/a/B.ARW', '/a/B.ARW?vc=c0ffee')).toBe(true);
-    expect(samePhotograph('/a/B.ARW', '/a/C.ARW')).toBe(false);
-    expect(samePhotograph(null, '/a/B.ARW')).toBe(false);
-  });
 });

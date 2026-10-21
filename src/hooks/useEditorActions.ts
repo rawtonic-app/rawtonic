@@ -5,7 +5,7 @@ import i18next from 'i18next';
 import { toast } from 'react-toastify';
 import { useEditorStore, debouncedSetHistory } from '../store/useEditorStore';
 export { debouncedSetHistory } from '../store/useEditorStore';
-import { isRawInLibrary, useLibraryStore } from '../store/useLibraryStore';
+import { isRawInLibrary, isRawPhoto, useLibraryStore } from '../store/useLibraryStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useMultiViewStore } from '../store/useMultiViewStore';
@@ -33,11 +33,7 @@ import {
   RESPONSE_KEYS,
   chosenSettings,
   newEditResponses,
-  pasteLayers,
-  removedWhenNull,
-  samePhotograph,
 } from '../utils/settingsClipboard';
-import { keepWithinLayerLimit } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -152,6 +148,22 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
   );
 }
 
+/** Shows on the open photograph `path` the recipe a paste wrote for it, as
+ * one history step: unless it changed meanwhile (an edit made while the
+ * paste was written stays, and is said). */
+async function showPasted(path: string, isRaw: boolean, before: Adjustments) {
+  const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path });
+  if (!isCurrentEditorImage(path) || !meta?.adjustments) return;
+  if (useEditorStore.getState().adjustments !== before) {
+    toast.error(i18next.t('studio.copySettings.changedMeanwhile'));
+    return;
+  }
+  const pasted = normalizeLoadedAdjustments(meta.adjustments, isRaw);
+  debouncedSetHistory.flush();
+  updateAdjustments(() => pasted);
+  debouncedSetHistory.flush();
+}
+
 /** The settings a copy, sync or Previous takes from: the open photograph's
  * (its size known) or `path`'s saved recipe. */
 async function settingsSource(path?: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
@@ -162,7 +174,7 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
   if (selectedImage?.isReady && from === selectedImage.path) {
     return { path: from, adjustments, isRaw: selectedImage.isRaw, width: selectedImage.width, height: selectedImage.height };
   }
-  const isRaw = isRawInLibrary(from);
+  const isRaw = isRawPhoto(from);
   try {
     // Its recipe as last edited: after its save still under way, or the
     // edit a failed save kept.
@@ -190,20 +202,6 @@ function withSourceFrames(
 ): Partial<Adjustments> {
   if (!chosen.masks) return chosen;
   return { ...chosen, masks: frameDrawnMasks(chosen.masks, source.adjustments, source.width, source.height) ?? chosen.masks };
-}
-
-/** `next` (the open photograph after a paste of `pasted`) without the
- * processing versions its saved recipe lacks (`storedLacksResponses`) while
- * it is not edited since it was opened (its history holds only the opening
- * step): the backend pastes onto that recipe, which keeps them missing. */
-function withStoredResponses(next: Adjustments, pasted: Partial<Adjustments>): Adjustments {
-  const { storedLacksResponses, history, historyPending } = useEditorStore.getState();
-  if (history.length > 1 || historyPending) return next;
-  const lacks = storedLacksResponses.filter((key) => !(key in pasted));
-  if (lacks.length === 0) return next;
-  const out = { ...next } as Record<string, unknown>;
-  for (const key of lacks) delete out[key];
-  return out as unknown as Adjustments;
 }
 
 /** The picker's remembered choice (the preferences' copied keys). */
@@ -641,7 +639,7 @@ export function useEditorActions() {
    * loader has not read its recipe yet), so it may be written too; it then
    * reads its recipe after this write. `pasteFrom`: copied or synced from
    * that photograph, so the layers join each photograph's own and their AI
-   * detections wait for each photograph (`settingsClipboard.pasteLayers`);
+   * detections wait for each photograph (`masks::paste_layers`);
    * `replaceLayers`: they replace them (Edit all selected). */
   const applyAdjustmentsToPaths = useCallback(
     (
@@ -672,40 +670,41 @@ export function useEditorActions() {
 
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
-      if (selectedImage && pathsToUpdate.includes(selectedImage.path)) {
-        let next = pasteFrom ? removedWhenNull(adjustments, adjustmentsToApply) : { ...adjustments, ...adjustmentsToApply };
-        // Not edited since it was opened: processing versions its saved
-        // recipe lacks (the editor resolved them on loading) stay missing,
-        // as in that recipe, which the backend pastes onto: the same paste
-        // open or closed. Edited: its versions are saved with the edit.
-        if (asChosen) next = withStoredResponses(next, adjustmentsToApply);
-        if (pasteFrom && adjustmentsToApply.masks) {
-          next.masks = pasteLayers(
-            adjustments.masks,
-            adjustmentsToApply.masks,
-            samePhotograph(pasteFrom, selectedImage.path),
-            replaceLayers,
-          );
-        }
-        // More layers than the renderer applies: refused here as the
-        // backend refuses it (it says which photo).
-        // The whole recipe (an update object would bring removed settings back).
-        if (keepWithinLayerLimit(adjustments, next) === next) setAdjustments(() => next);
+      // Copied or synced settings (`pasteFrom`): the open photograph gets
+      // what the backend writes for it, loaded back as a new history step,
+      // so its result is the same as a closed photograph's (layers, AI
+      // detections, removed settings, processing versions: one set of rules,
+      // `pasted_metadata`). Its own edits are saved first; written first, so
+      // it shows soon.
+      const open = selectedImage?.isReady && pathsToUpdate.includes(selectedImage.path) ? selectedImage : null;
+      const reloadOpen = Boolean(pasteFrom && open);
+      if (open && !reloadOpen) {
+        setAdjustments({ ...adjustments, ...adjustmentsToApply });
       }
+      if (reloadOpen) debouncedSave.flush();
+      const before = useEditorStore.getState().adjustments;
 
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
-      const written = afterRecipeSaves(pathsToUpdate, () =>
+      const batch = (paths: string[]) =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, {
-            paths: pathsToUpdate,
+            paths,
             adjustments: adjustmentsToApply,
             ...(paste ? { paste } : {}),
           }),
-          pathsToUpdate,
+          paths,
           'paste adjustments',
-        ),
+        );
+      const others = reloadOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
+      const written = afterRecipeSaves(pathsToUpdate, () =>
+        reloadOpen
+          ? batch([open!.path]).then(async (failed) => {
+              if (failed.length === 0) await showPasted(open!.path, open!.isRaw, before);
+              return others.length > 0 ? [...failed, ...(await batch(others))] : failed;
+            })
+          : batch(pathsToUpdate),
       );
       // A photograph opened meanwhile reads its recipe after this write.
       const settled = written.then(() => undefined, () => undefined);
@@ -719,7 +718,7 @@ export function useEditorActions() {
         .then((failed) => {
           const updated = pathsToUpdate.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
-          if (selectedImage && updated.includes(selectedImage.path)
+          if (!reloadOpen && selectedImage && updated.includes(selectedImage.path)
             && isCurrentEditorImage(selectedImage.path)) {
             invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path }).then((meta) => {
               if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {

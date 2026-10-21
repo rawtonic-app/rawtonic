@@ -57,7 +57,7 @@ export function groupModified(group: SettingsGroup, adjustments: Adjustments, is
  * chosen groups (`keys`), and the chosen local layers (`layerIds`; none:
  * no layers). A chosen setting the source does not have (As Shot white
  * balance has no custom one) is `null`: the destination loses its own too
- * (`removedWhenNull`). Processing versions only when chosen (`RESPONSE_KEYS`
+ * (`pasted_metadata`). Processing versions only when chosen (`RESPONSE_KEYS`
  * among `keys`), each as the source has it. */
 export function chosenSettings(source: Adjustments, keys: string[], layerIds: string[]): Partial<Adjustments> {
   const chosen: Record<string, unknown> = {};
@@ -71,15 +71,6 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
   return chosen as Partial<Adjustments>;
 }
 
-/** `base` with `pasted` applied as a copy, sync or Previous applies it: a
- * `null` setting is removed (the source does not have it), as the backend
- * does (`pasted_metadata`). */
-export function removedWhenNull<T extends object>(base: T, pasted: Partial<T>): T {
-  const next = { ...base, ...pasted } as Record<string, unknown>;
-  for (const [key, value] of Object.entries(pasted)) if (value === null) delete next[key];
-  return next as T;
-}
-
 /** The processing versions a new edit gets (`initialAdjustmentsFor`), RAW
  * and other: a photograph never edited is pasted on with these as its own. */
 export function newEditResponses(): { raw: Record<string, unknown>; other: Record<string, unknown> } {
@@ -88,44 +79,6 @@ export function newEditResponses(): { raw: Record<string, unknown>; other: Recor
     return Object.fromEntries(RESPONSE_KEYS.filter((key) => values[key] !== undefined).map((key) => [key, values[key]]));
   };
   return { raw: pick(true), other: pick(false) };
-}
-
-/** Layers pasted (`pasted`) into a photograph's own (`own`), as the backend
- * does for the other photographs (`masks::paste_layers`): a pasted layer
- * replaces the layer of the same id (pasted before), the others are added on
- * top, the photograph's own stay. Onto another photograph than the source
- * (`samePhoto` false) the AI detections drop the source's bitmap and wait
- * for this photograph's own (`DETECT_PENDING`). */
-export function pasteLayers(
-  own: MaskContainer[] | undefined,
-  pasted: MaskContainer[],
-  samePhoto: boolean,
-  replace = false,
-): MaskContainer[] {
-  const incoming = samePhoto ? pasted : pasted.map(withPendingDetections);
-  // Edit all selected: every photograph has the primary's layers.
-  if (replace) return incoming;
-  const layers = [...(own ?? [])];
-  for (const layer of incoming) {
-    const at = layers.findIndex((mine) => mine.id === layer.id);
-    if (at >= 0) layers[at] = layer;
-    else layers.push(layer);
-  }
-  return layers;
-}
-
-function withPendingDetections(layer: MaskContainer): MaskContainer {
-  return {
-    ...layer,
-    subMasks: layer.subMasks.map((sub: SubMask) => {
-      const parameters = (sub.parameters ?? {}) as Record<string, unknown>;
-      const nothingToDetect = Array.isArray(parameters.parts) && parameters.parts.length === 0;
-      if (!DETECTED_TYPES.has(sub.type) || nothingToDetect) return sub;
-      const next: Record<string, unknown> = { ...parameters, maskDataBase64: null, [DETECT_PENDING]: true };
-      if ('mask_data_base64' in next) next.mask_data_base64 = null;
-      return { ...sub, parameters: next };
-    }),
-  };
 }
 
 /** What an AI detection writes into a component's parameters (its bitmap,
@@ -162,8 +115,3 @@ export function detectionPending(sub: SubMask): boolean {
   return Boolean(parameters?.[DETECT_PENDING]) && !parameters?.maskDataBase64 && !parameters?.mask_data_base64;
 }
 
-/** Whether two photograph paths are one file (virtual copies share it). */
-export function samePhotograph(a: string | null | undefined, b: string | null | undefined): boolean {
-  const file = (path: string) => path.split('?vc=')[0];
-  return Boolean(a && b && file(a) === file(b));
-}

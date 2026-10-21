@@ -1638,6 +1638,7 @@
       "all": "All",
       "cancel": "Cancel",
       "changed": "Changed on this photo",
+      "changedMeanwhile": "The open photo changed while the settings were pasted; it keeps that edit. Paste again to apply them.",
       "copy": "Copy",
       "copyTitle": "Copy settings",
       "detectedHere": "AI selections are detected on each photo",

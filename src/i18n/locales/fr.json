@@ -1696,6 +1696,7 @@
       "all": "Tout",
       "cancel": "Annuler",
       "changed": "Modifié sur cette photo",
+      "changedMeanwhile": "La photo ouverte a changé pendant le collage ; elle garde cette modification. Collez à nouveau pour appliquer les réglages.",
       "copy": "Copier",
       "copyTitle": "Copier les réglages",
       "detectedHere": "Les sélections IA sont détectées sur chaque photo",

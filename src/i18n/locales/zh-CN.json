@@ -1601,6 +1601,7 @@
       "all": "全部",
       "cancel": "取消",
       "changed": "此照片中已更改",
+      "changedMeanwhile": "粘贴设置时打开的照片已更改；它保留该更改。请再次粘贴以应用设置。",
       "copy": "复制",
       "copyTitle": "复制设置",
       "detectedHere": "AI 选区会在每张照片上检测",

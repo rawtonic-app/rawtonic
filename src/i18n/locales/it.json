@@ -1696,6 +1696,7 @@
       "all": "Tutto",
       "cancel": "Annulla",
       "changed": "Modificato in questa foto",
+      "changedMeanwhile": "La foto aperta è cambiata durante l’incolla; mantiene quella modifica. Incolla di nuovo per applicare le impostazioni.",
       "copy": "Copia",
       "copyTitle": "Copia impostazioni",
       "detectedHere": "Le selezioni IA vengono rilevate su ogni foto",
