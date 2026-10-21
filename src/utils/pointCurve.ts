@@ -1,4 +1,4 @@
-import type { Coord } from "./adjustments";
+import { MAX_CURVE_POINTS, type Coord } from "./adjustments";
 
 /**
  * The renderer's point curve (shader `apply_curve`, point_curve.rs):
@@ -61,3 +61,12 @@ export function pointCurveValue(
   }
   return p[n - 1].y;
 }
+
+/**
+ * The points the renderer uses: all of them with `whole` (the photo's
+ * curves at `curveVersion` 2), else the first 16 (earlier recipes, layers).
+ */
+export const renderedPoints = (
+  points: Coord[] | undefined,
+  whole: boolean,
+): Coord[] | undefined => (whole ? points : points?.slice(0, MAX_CURVE_POINTS));

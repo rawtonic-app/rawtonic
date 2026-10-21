@@ -53,7 +53,7 @@ import AdjustmentControl from "./AdjustmentControl";
 import StudioCameraProfile from "./StudioCameraProfile";
 import StudioWhiteBalance from "./StudioWhiteBalance";
 import type { TatTarget } from "../../utils/targetedAdjustment";
-import { pointCurveValue } from "../../utils/pointCurve";
+import { pointCurveValue, renderedPoints } from "../../utils/pointCurve";
 import StudioHistogram from "./StudioHistogram";
 import { PerfProfiler } from "../../hooks/usePerformanceDiagnostics";
 import StudioLayers, { NewLayerButton } from "./StudioLayers";
@@ -186,6 +186,7 @@ function PointCurve({
   onChange,
   disabled,
   onInteraction,
+  wholeCurves = false,
 }: {
   curves: Curves;
   /** Lightroom's region curve, drawn under the luma curve when set. */
@@ -193,6 +194,8 @@ function PointCurve({
   onChange(curves: Curves): void;
   disabled: boolean;
   onInteraction(active: boolean): void;
+  /** Curves beyond 16 points render whole (the photo at `curveVersion` 2). */
+  wholeCurves?: boolean;
 }) {
   const { t } = useTranslation();
   const [channel, setChannel] = useState<"luma" | "red" | "green" | "blue">(
@@ -324,7 +327,8 @@ function PointCurve({
         <polyline
           points={Array.from({ length: 129 }, (_, i) => {
             const x = i * (255 / 128);
-            return `${x},${255 - pointCurveValue(points, x)}`;
+            const drawn = renderedPoints(points, wholeCurves);
+            return `${x},${255 - pointCurveValue(drawn, x)}`;
           }).join(" ")}
           fill="none"
           className={`curve-line curve-${channel}`}
@@ -1155,6 +1159,11 @@ export default function StudioDevelop() {
             >
               <PointCurve
                 curves={values.curves}
+                wholeCurves={
+                  !layer &&
+                  ((values.curveVersion as number | undefined) ?? 1) >=
+                    CURVE_VERSION
+                }
                 region={
                   layer
                     ? undefined

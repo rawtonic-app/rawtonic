@@ -8,7 +8,7 @@ import {
   type GrayMixer,
   type RegionCurve,
 } from "./adjustments";
-import { pointCurveValue } from "./pointCurve";
+import { pointCurveValue, renderedPoints } from "./pointCurve";
 import { regionAt, regionCurveValue } from "./regionCurve";
 
 /**
@@ -126,9 +126,7 @@ export function startTargetedAdjustment(
     const cut = (points: Coord[] | undefined) =>
       !shown
         ? undefined
-        : (base.curveVersion ?? 1) < CURVE_VERSION
-          ? points?.slice(0, MAX_CURVE_POINTS)
-          : points;
+        : renderedPoints(points, (base.curveVersion ?? 1) >= CURVE_VERSION);
     const curves = base.curves && {
       luma: cut(base.curves.luma),
       red: cut(base.curves.red),
