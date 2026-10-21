@@ -117,31 +117,35 @@ export function startTargetedAdjustment(
 ): TatStart | null {
   if (isToneTarget(target)) {
     if (!displayRgb) return null;
-    const displayed =
-      0.2126 * displayRgb[0] + 0.7152 * displayRgb[1] + 0.0722 * displayRgb[2];
     const region = regionOf(base);
-    // The point curve acts on the region curve's output: the region target
-    // needs the level before both, the point curve the level between.
-    // The displayed tone went through the region, luma and channel curves.
     const curves = base.curves;
-    const before = invertCurve((x) => {
-      const y = pointCurveValue(
-        curves?.luma,
-        regionCurveValue(region, x / 255) * 255,
-      );
-      return (
-        0.2126 * pointCurveValue(curves?.red, y) +
-        0.7152 * pointCurveValue(curves?.green, y) +
-        0.0722 * pointCurveValue(curves?.blue, y)
-      );
-    }, displayed);
+    const channelCurves = [curves?.red, curves?.green, curves?.blue];
+    // Each channel went through the region, luma and its own curve: recover
+    // its level before them, then weigh the channels into one tone.
+    const before = displayRgb.map((shown, c) =>
+      invertCurve(
+        (x) =>
+          pointCurveValue(
+            channelCurves[c],
+            pointCurveValue(
+              curves?.luma,
+              regionCurveValue(region, x / 255) * 255,
+            ),
+          ),
+        shown,
+      ),
+    );
+    const weights = [0.2126, 0.7152, 0.0722];
+    const tone = (levels: number[]) =>
+      levels.reduce((sum, level, c) => sum + weights[c] * level, 0);
+    // The point curve acts on the region curve's output.
     return {
       target,
       base,
       curveX: Math.round(
         target === "regionCurve"
-          ? before
-          : regionCurveValue(region, before / 255) * 255,
+          ? tone(before)
+          : tone(before.map((x) => regionCurveValue(region, x / 255) * 255)),
       ),
     };
   }

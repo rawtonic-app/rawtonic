@@ -19,6 +19,7 @@ import {
   withSharpenVersion,
   withLumaNoiseVersion,
   pastedAdjustments,
+  withCurveVersion,
   PasteMode,
   AUTO_CA_VERSION,
   autoCaOn,
@@ -269,6 +270,23 @@ describe('RAW detail defaults', () => {
     expect(load({}, false)).toBe(LUMA_NOISE_VERSION);
     expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 1 })).toBe(1);
     expect(load({ lumaNoiseReduction: 30, lumaNoiseVersion: 2 })).toBe(2);
+  });
+
+  it('carry the curve version exactly with the curves', () => {
+    const all = COPYABLE_ADJUSTMENT_KEYS;
+    const long = Array.from({ length: 20 }, (_, i) => ({ x: i * 13, y: i * 13 + (i % 2) }));
+    // A recipe from before the key: its curves paste with version 1, explicitly.
+    const old = { ...INITIAL_ADJUSTMENTS, curves: { ...INITIAL_ADJUSTMENTS.curves, luma: long } } as Adjustments;
+    delete (old as Partial<Adjustments>).curveVersion;
+    for (const mode of [PasteMode.Merge, PasteMode.Replace]) {
+      expect(JSON.parse(JSON.stringify(pastedAdjustments(old, all, mode))).curveVersion).toBe(1);
+    }
+    expect(pastedAdjustments({ ...old, curveVersion: 2 }, all, PasteMode.Merge).curveVersion).toBe(2);
+    // Default curves filtered out in Merge mode: no version on its own.
+    const exposure = { ...INITIAL_ADJUSTMENTS, exposure: 0.5, curveVersion: 2 } as Adjustments;
+    expect('curveVersion' in pastedAdjustments(exposure, all, PasteMode.Merge)).toBe(false);
+    expect(withCurveVersion<Partial<Adjustments>>({ curves: old.curves }).curveVersion).toBe(1);
+    expect('curveVersion' in withCurveVersion({ exposure: 1, curveVersion: 2 })).toBe(false);
   });
 
   it('carry the luminance noise reduction version with luminance values', () => {

@@ -131,6 +131,31 @@ describe("targeted adjustment", () => {
     )!;
     expect(dark.curveX).toBe(100);
     expect(targetedPatch(dark, 5).regionCurve!.darks).toBe(5);
+    // Coloured pixels: each channel is recovered on its own. Green shown
+    // unchanged through an RGB curve lifting 128 to 200 is a light tone.
+    const rgb = base();
+    rgb.curves = {
+      ...rgb.curves,
+      luma: [
+        { x: 0, y: 0 },
+        { x: 128, y: 200 },
+        { x: 255, y: 255 },
+      ],
+    };
+    const green = startTargetedAdjustment(
+      "regionCurve",
+      rgb,
+      null,
+      [0, 255, 0],
+    )!;
+    expect(green.curveX).toBe(182);
+    expect(
+      Object.keys(targetedPatch(green, 5).regionCurve!).filter(
+        (k) =>
+          targetedPatch(green, 5).regionCurve![k as "lights"] !==
+          rgb.regionCurve![k as "lights"],
+      ),
+    ).toEqual(["lights"]);
     const shadow = startTargetedAdjustment(
       "regionCurve",
       base(),
