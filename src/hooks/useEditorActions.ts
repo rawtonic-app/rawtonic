@@ -115,6 +115,8 @@ function scheduleUnsavedEditorRecipe() {
  * is still not saved (quitting, utils/quit.ts).
  */
 export async function flushRecipeSaves(): Promise<string[]> {
+  // Pastes onto the open photograph waiting for lens data.
+  while (lensPastes) await lensPastes.catch(() => undefined);
   // A drag's moves since the last store commit are only a draft.
   flushSliderDraft();
   scheduleUnsavedEditorRecipe();
@@ -191,6 +193,10 @@ function pastedOpen(
   return withOwnBitmapIds(shown, current);
 }
 
+/** Pastes onto the open photograph waiting for a pasted lens choice's data,
+ * one after another (quitting waits for them). */
+let lensPastes: Promise<void> | null = null;
+
 /** The settings that choose a lens correction: its data is this
  * photograph's own (for its camera, focal length…). */
 const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
@@ -208,12 +214,18 @@ async function lensDataFor(
   const profile = (maker: string, model: string) =>
     invoke<Adjustments['lensDistortionParams']>(Invokes.GetLensDistortionParams, { maker, model, exif }).catch(() => null);
   if (mode === 'camera') {
-    const camera = await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: open.path }).catch(() => null);
+    // Its camera CA version as pasted (missing: as the renderer reads it
+    // missing, 0), else the current one, with the data for that version.
+    const version =
+      'cameraCaVersion' in pasted ? (pasted.cameraCaVersion ?? 0) : (current.cameraCaVersion ?? CAMERA_CA_VERSION);
+    const camera = await invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: open.path, caVersion: version }).catch(
+      () => null,
+    );
     return {
       lensMaker: null,
       lensModel: null,
       lensDistortionParams: camera?.params ?? null,
-      cameraCaVersion: pasted.cameraCaVersion ?? CAMERA_CA_VERSION,
+      ...('cameraCaVersion' in pasted ? {} : { cameraCaVersion: version }),
     };
   }
   if (mode === 'auto') {
@@ -764,10 +776,13 @@ export function useEditorActions() {
           setAdjustments(() => next);
           debouncedSetHistory.flush();
         };
-        if (LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply)) {
+        const lensChosen = LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply);
+        if (lensChosen || lensPastes) {
           // A lens choice: its data for this photograph first, then the
-          // whole paste (left meanwhile: pasted as onto a closed one).
-          void lensDataFor(open, adjustments, adjustmentsToApply).then(async (lens) => {
+          // whole paste (left meanwhile: pasted as onto a closed one); later
+          // pastes onto it wait for it, and so does quitting.
+          const run = async () => {
+            const lens = lensChosen ? await lensDataFor(open, adjustments, adjustmentsToApply) : {};
             if (isCurrentEditorImage(open.path)) {
               applyOpen({ ...adjustmentsToApply, ...lens });
               return;
@@ -779,6 +794,11 @@ export function useEditorActions() {
                 'paste adjustments',
               ),
             );
+          };
+          const op: Promise<void> = (lensPastes ?? Promise.resolve()).then(run, run);
+          lensPastes = op;
+          void op.finally(() => {
+            if (lensPastes === op) lensPastes = null;
           });
         } else {
           applyOpen(adjustmentsToApply);
