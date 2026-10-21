@@ -154,9 +154,10 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
 }
 
 /** The saved recipe the open photograph was opened from (with the camera
- * lens data and size its editor recipe was made with): a paste onto it
- * while it is not edited pastes onto this, as onto a closed photograph. */
-type OpenedRecipe = { saved: unknown; camera: CameraLens; width: number; height: number };
+ * lens data and size its editor recipe was made with, and that recipe,
+ * `shown`): a paste onto it while it still shows that recipe pastes onto
+ * this, as onto a closed photograph. */
+type OpenedRecipe = { saved: unknown; camera: CameraLens; width: number; height: number; shown: Adjustments };
 let openedRecipe: ({ path: string } & OpenedRecipe) | null = null;
 export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
   openedRecipe = { path, ...opened };
@@ -175,7 +176,12 @@ function pastedOpen(
   paste: { source: string; replaceLayers: boolean; newEdit?: ReturnType<typeof newEditResponses> },
 ): Adjustments | null {
   const { history, historyPending } = useEditorStore.getState();
-  const opened = history.length === 1 && !historyPending && openedRecipe?.path === open.path ? openedRecipe : null;
+  // Not edited since loading: its only step is the recipe loading made (a
+  // Reset or Auto starts a history of their own).
+  const opened =
+    history.length === 1 && !historyPending && openedRecipe?.path === open.path && history[0] === openedRecipe.shown
+      ? openedRecipe
+      : null;
   const base = opened ? (opened.saved as Adjustments | null) : current;
   const merged = pasteInto(base && !(base as { is_null?: boolean }).is_null ? base : null, pasted, {
     samePhoto: samePhotograph(paste.source, open.path),

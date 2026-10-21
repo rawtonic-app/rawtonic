@@ -172,8 +172,9 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
             const camera = isRaw && neverEdited(savedAdjustments) ? await cameraRequest : null;
             // Kept for a paste onto it while it is not edited (it pastes onto
             // this saved recipe, as onto a closed photograph).
-            rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height });
-            return editorRecipe(savedAdjustments, isRaw, width, height, camera);
+            const shown = editorRecipe(savedAdjustments, isRaw, width, height, camera);
+            rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height, shown });
+            return shown;
           };
           const publishSource = (
             initialAdjusts: Adjustments,

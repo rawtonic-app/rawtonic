@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, initialAdjustmentsFor, type Adjustments, type MaskContainer } from './adjustments';
+import { Mask } from '../components/panel/right/Masks';
 import {
   RESPONSE_KEYS,
   SETTINGS_GROUPS,
@@ -64,6 +65,8 @@ describe('settings clipboard', () => {
     const sub = layer('sky', 'ai-sky', { maskDataBase64: null, detectPending: true }).subMasks[0];
     expect(detectionPending(sub)).toBe(true);
     expect(detectionPending({ ...sub, parameters: { maskDataBase64: 'data:own', detectPending: true } })).toBe(false);
+    // A People selection with all its parts deselected: nothing to detect.
+    expect(detectionPending({ ...sub, type: Mask.AiPeople, parameters: { maskDataBase64: null, detectPending: true, parts: [] } })).toBe(false);
   });
 
   it('offers no group of processing versions among the tools', () => {

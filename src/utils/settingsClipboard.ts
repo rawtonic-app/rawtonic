@@ -154,11 +154,22 @@ export function withoutDetections(masks: MaskContainer[] | undefined): unknown {
   }));
 }
 
+/** Whether a component's parameters leave nothing to detect: a People
+ * selection without parts (`masks::nothing_to_detect`). */
+function nothingToDetect(parameters: Record<string, unknown>): boolean {
+  return Array.isArray(parameters.parts) && parameters.parts.length === 0;
+}
+
 /** Whether a component waits for its AI detection on this photograph (an
  * Object selection: for the user to point at the object again). */
 export function detectionPending(sub: SubMask): boolean {
   const parameters = sub.parameters as Record<string, unknown> | undefined;
-  return Boolean(parameters?.[DETECT_PENDING]) && !parameters?.maskDataBase64 && !parameters?.mask_data_base64;
+  return (
+    Boolean(parameters?.[DETECT_PENDING]) &&
+    !parameters?.maskDataBase64 &&
+    !parameters?.mask_data_base64 &&
+    !nothingToDetect(parameters ?? {})
+  );
 }
 
 
@@ -210,8 +221,7 @@ function withPendingDetections(layer: MaskContainer): MaskContainer {
     ...layer,
     subMasks: layer.subMasks.map((sub: SubMask) => {
       const parameters = (sub.parameters ?? {}) as Record<string, unknown>;
-      const nothingToDetect = Array.isArray(parameters.parts) && parameters.parts.length === 0;
-      if (!DETECTED_TYPES.has(sub.type) || nothingToDetect) return sub;
+      if (!DETECTED_TYPES.has(sub.type) || nothingToDetect(parameters)) return sub;
       const next: Record<string, unknown> = { ...parameters, maskDataBase64: null, [DETECT_PENDING]: true };
       if ('mask_data_base64' in next) next.mask_data_base64 = null;
       return { ...sub, id: crypto.randomUUID(), parameters: next };

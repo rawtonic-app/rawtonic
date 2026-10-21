@@ -311,8 +311,8 @@ it("pastes onto the open photo's saved recipe while it is not edited, as loading
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   // A never-edited RAW with camera lens data, as it was opened.
-  rememberOpenedRecipe("/s/F.ARW", { saved: null, camera: { params: { k1: 0.1 } as never }, width: 6000, height: 4000 });
   const own = structuredClone(INITIAL_ADJUSTMENTS);
+  rememberOpenedRecipe("/s/F.ARW", { saved: null, camera: { params: { k1: 0.1 } as never }, width: 6000, height: 4000, shown: own });
   useEditorStore.setState({ selectedImage: photo("/s/F.ARW") as never, adjustments: own, history: [own], historyIndex: 0, historyPending: false });
   act(() => result.current.handlePasteAdjustments(["/s/F.ARW"]));
   const shown = useEditorStore.getState().adjustments;
@@ -320,6 +320,24 @@ it("pastes onto the open photo's saved recipe while it is not edited, as loading
   expect(shown.lensCorrectionMode).toBe("camera");
   expect(shown.lensDistortionParams).toEqual({ k1: 0.1 });
   expect(shown.aspectRatio).toBe(1.5);
+});
+
+it("pastes onto the open photo's current recipe after a Reset started its history again", async () => {
+  const { rememberOpenedRecipe } = await import("../../hooks/useEditorActions");
+  const { result } = renderHook(useEditorActions);
+  // Opened with a saved crop and layer, then reset (one step again).
+  const saved = { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 30, masks: [dodge] } as unknown as Adjustments;
+  const loaded = structuredClone(saved);
+  rememberOpenedRecipe("/s/G.ARW", { saved, camera: null, width: 6000, height: 4000, shown: loaded });
+  useEditorStore.setState({ selectedImage: photo("/s/G.ARW") as never, adjustments: loaded, history: [loaded], historyIndex: 0, historyPending: false });
+  const reset = structuredClone(INITIAL_ADJUSTMENTS);
+  act(() => useEditorStore.getState().resetHistory(reset));
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/G.ARW"]));
+  const shown = useEditorStore.getState().adjustments;
+  expect(shown.exposure).toBe(2);
+  // The discarded settings stay discarded.
+  expect([shown.clarity, shown.masks.length]).toEqual([0, 0]);
 });
 
 it("keeps the ids of the open photo's bitmaps a paste did not change, and its own bitmap on a virtual copy", () => {

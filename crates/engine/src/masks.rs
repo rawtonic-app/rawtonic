@@ -222,6 +222,15 @@ fn has_bitmap(parameters: &Value) -> bool {
         .any(|key| parameters.get(key).is_some_and(|v| !v.is_null()))
 }
 
+/// Whether a component's parameters leave nothing to detect: a People
+/// selection without parts (renders nothing on any photograph).
+fn nothing_to_detect(parameters: &Value) -> bool {
+    parameters
+        .get("parts")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+}
+
 /// How many layers of `masks` the renderer applies (shown, with a
 /// component: `MaskDefinition::produces_bitmap`); it applies at most
 /// `image_processing::MAX_MASKS`.
@@ -241,8 +250,8 @@ pub fn rendered_layers(masks: &Value) -> usize {
 }
 
 /// A component of a shown layer waiting for its AI detection on this
-/// photograph (`DETECT_PENDING` without a bitmap): its layer's name and its
-/// type. Rendered without it, the layer would apply its adjustments to the
+/// photograph (`DETECT_PENDING` without a bitmap, something to detect): its
+/// layer's name and its type. Rendered without it, the layer would apply its adjustments to the
 /// wrong part of the photograph, or nowhere.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PendingDetection {
@@ -277,6 +286,7 @@ pub fn pending_detections(adjustments: &Value) -> Vec<PendingDetection> {
                         && sub.get("parameters").is_some_and(|p| {
                             p.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true)
                                 && !has_bitmap(p)
+                                && !nothing_to_detect(p)
                         })
                 })
                 .map(move |sub| PendingDetection {
@@ -340,17 +350,15 @@ pub fn paste_layers(
                     .get("type")
                     .and_then(Value::as_str)
                     .is_some_and(|t| DETECTED_TYPES.contains(&t));
-                let Some(parameters) = sub.get_mut("parameters").and_then(Value::as_object_mut)
-                else {
+                let Some(parameters) = sub.get_mut("parameters") else {
                     continue;
                 };
-                let nothing_to_detect = parameters
-                    .get("parts")
-                    .and_then(Value::as_array)
-                    .is_some_and(Vec::is_empty);
-                if !detected || nothing_to_detect {
+                if !detected || nothing_to_detect(parameters) {
                     continue;
                 }
+                let Some(parameters) = parameters.as_object_mut() else {
+                    continue;
+                };
                 for key in ["maskDataBase64", "mask_data_base64"] {
                     if parameters.contains_key(key) {
                         parameters.insert(key.into(), Value::Null);
@@ -489,6 +497,14 @@ mod paste_tests {
         assert_eq!(pending_detections(&pending(true, Value::Null)).len(), 1);
         assert!(pending_detections(&pending(false, Value::Null)).is_empty());
         assert!(pending_detections(&pending(true, json!("data:own"))).is_empty());
+        // A pasted People selection whose parts were all deselected before
+        // its detection ran: nothing left to detect, so nothing waits.
+        assert!(
+            pending_detections(&json!({"masks": [{"id": "l", "visible": true, "subMasks": [
+                {"id": "s", "type": "ai-people", "visible": true,
+                 "parameters": {"maskDataBase64": null, "detectPending": true, "parts": []}}]}]}))
+            .is_empty()
+        );
         // A layer imported from a Lightroom preset waits without the mark
         // (computed when opened) and is not counted.
         assert!(
