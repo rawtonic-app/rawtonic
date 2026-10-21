@@ -842,6 +842,20 @@ fn plan_output_path(
     Ok(output_path)
 }
 
+/// Each of `targets` in turn: its file is planned right before it is
+/// exported, so it sees the files the recipes before it wrote (their mask
+/// files too), as when each recipe was an export of its own.
+fn export_in_turn(
+    targets: impl IntoIterator<Item = usize>,
+    mut plan: impl FnMut(usize) -> Result<std::path::PathBuf, String>,
+    mut export: impl FnMut(usize, &Path) -> Result<(), String>,
+) -> Vec<(usize, Result<(), String>)> {
+    targets
+        .into_iter()
+        .map(|target| (target, plan(target).and_then(|path| export(target, &path))))
+        .collect()
+}
+
 /// Exports one photo with the recipes `wanted` (indices into `targets`):
 /// the source is loaded once and developed once per kind of main file (with
 /// or without its mask layers), then each recipe renders and writes its
@@ -909,46 +923,40 @@ fn export_photo(
     let original_path = std::path::Path::new(&source_path_str);
     let file_date = exif_processing::get_creation_date_from_path(original_path);
 
-    // Each recipe's file, recorded before anything renders.
-    let mut results: Vec<(usize, Result<(), String>)> = Vec::with_capacity(wanted.len());
-    let mut planned: Vec<(usize, std::path::PathBuf)> = Vec::with_capacity(wanted.len());
-    for &target in wanted {
-        match plan_output_path(
+    // Each recipe's file is named (and recorded) right before it is
+    // written, as when each recipe was its own export.
+    let plan = |target: usize| {
+        let output_path = plan_output_path(
             &targets[target],
             &item,
             original_path,
             &file_date,
             used_paths,
-        ) {
-            Ok(output_path) => {
-                if let Some(tracking) = &targets[target].tracking {
-                    tracking.started(item.global_index, &output_path);
-                }
-                planned.push((target, output_path));
-            }
-            Err(e) => results.push((target, Err(e))),
+        )?;
+        if let Some(tracking) = &targets[target].tracking {
+            tracking.started(item.global_index, &output_path);
         }
-    }
-
+        Ok(output_path)
+    };
     let is_cube = |target: usize| targets[target].output_format.to_lowercase() == "cube";
-    for &(target, ref output_path) in planned.iter().filter(|(t, _)| is_cube(*t)) {
-        let result = export_adjustments_as_lut(
-            &js_adjustments,
-            &source_path_str,
-            context,
-            &state,
-            app_handle,
-            cancellation_token,
-        )
-        .and_then(|cube_bytes| {
+    let mut results = export_in_turn(
+        wanted.iter().copied().filter(|&t| is_cube(t)),
+        plan,
+        |_, output_path| {
+            let cube_bytes = export_adjustments_as_lut(
+                &js_adjustments,
+                &source_path_str,
+                context,
+                &state,
+                app_handle,
+                cancellation_token,
+            )?;
             ensure_export_not_cancelled(cancellation_token)?;
             crate::session_bridge::write_new_output(output_path, cube_bytes)
                 .map_err(|e| e.to_string())
-        });
-        results.push((target, result));
-    }
-    let images: Vec<(usize, std::path::PathBuf)> =
-        planned.into_iter().filter(|(t, _)| !is_cube(*t)).collect();
+        },
+    );
+    let images: Vec<usize> = wanted.iter().copied().filter(|&t| !is_cube(t)).collect();
     if images.is_empty() {
         return results;
     }
@@ -1021,11 +1029,7 @@ fn export_photo(
     let source = match source {
         Ok(source) => source,
         Err(e) => {
-            results.extend(
-                images
-                    .into_iter()
-                    .map(|(target, _)| (target, Err(e.clone()))),
-            );
+            results.extend(images.into_iter().map(|target| (target, Err(e.clone()))));
             return results;
         }
     };
@@ -1043,15 +1047,15 @@ fn export_photo(
     // mask layers, or without them when they go to separate files.
     let with_mask_files = |target: usize| targets[target].export_settings.export_masks;
     let mut prepared: [Option<Result<PreparedExport, String>>; 2] = [None, None];
-    for (target, _) in &images {
-        let masks = with_mask_files(*target);
+    for &target in &images {
+        let masks = with_mask_files(target);
         if prepared[masks as usize].is_none() {
             #[cfg(feature = "performance-profiling")]
             let _stage = crate::performance::PerformanceStage::new("export_prepare");
             prepared[masks as usize] = Some(prepare_export_render(
                 &source_path_str,
                 source.clone(),
-                &main_export_adjustments(&js_adjustments, &targets[*target].export_settings),
+                &main_export_adjustments(&js_adjustments, &targets[target].export_settings),
                 &env,
                 is_raw,
             ));
@@ -1060,15 +1064,15 @@ fn export_photo(
     // Only separate mask files need source pixels after rendering.
     let mask_source = images
         .iter()
-        .any(|(target, _)| with_mask_files(*target))
+        .any(|&target| with_mask_files(target))
         .then_some(source);
 
     let source_file = Path::new(&source_path_str);
     let exif_sidecar = || exif_processing::read_rrexif_sidecar(source_file);
     let catalog = || crate::session_bridge::catalog_metadata(source_file);
-    for (target, output_path) in images {
+    results.extend(export_in_turn(images, plan, |target, output_path| {
         let export_settings = &targets[target].export_settings;
-        let result = (|| {
+        {
             let prepared = prepared[export_settings.export_masks as usize]
                 .as_ref()
                 .expect("prepared for every wanted recipe")
@@ -1082,7 +1086,7 @@ fn export_photo(
                 export_settings,
                 &env,
                 &ExportOutput {
-                    path: &output_path,
+                    path: output_path,
                     format: targets[target].output_format.as_str(),
                     exif_sidecar: &exif_sidecar,
                     catalog: &catalog,
@@ -1097,7 +1101,7 @@ fn export_photo(
             // export it again under a new name or miss its masks).
             let finish_photo = AtomicBool::new(false);
             if export_settings.preserve_timestamps {
-                set_timestamps_from_exif(Path::new(&source_path_str), &output_path);
+                set_timestamps_from_exif(Path::new(&source_path_str), output_path);
             }
 
             if export_settings.export_masks
@@ -1108,7 +1112,7 @@ fn export_photo(
                     &source.pristine,
                     &js_adjustments,
                     export_settings,
-                    &output_path,
+                    output_path,
                     &source_path_str,
                     context,
                     &state,
@@ -1118,9 +1122,8 @@ fn export_photo(
                 )?;
             }
             Ok(())
-        })();
-        results.push((target, result));
-    }
+        }
+    }));
     results
 }
 
@@ -1672,7 +1675,75 @@ fn estimate_sizes(
 
 #[cfg(test)]
 mod tests {
-    use super::is_open_edit;
+    use super::{ExportTarget, PhotoItem, export_in_turn, is_open_edit, plan_output_path};
+    use std::path::Path;
+
+    /// A later recipe of the same photo names its file after the earlier
+    /// ones wrote theirs, mask files included (UT batch export, F10 review):
+    /// planned all at once, the second recipe took the name of the first
+    /// one's mask file and failed its no-clobber write.
+    #[test]
+    fn each_recipe_is_named_after_the_files_of_the_recipes_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = |template: &str| ExportTarget {
+            output_folder_or_file: dir.path().to_string_lossy().into_owned(),
+            is_explicit_file_path: false,
+            base_origin_folders: Vec::new(),
+            export_settings: serde_json::from_value(serde_json::json!({
+                "jpegQuality": 90, "keepMetadata": false, "stripGps": false,
+                "filenameTemplate": template, "exportMasks": true,
+            }))
+            .unwrap(),
+            output_format: "jpg".to_string(),
+            tracking: None,
+        };
+        let targets = [
+            target("{original_filename}"),
+            target("{original_filename}_mask_0_image"),
+        ];
+        let item = PhotoItem {
+            global_index: 0,
+            image_path_str: "/photos/foo.NEF",
+            appearance_count: 1,
+            explicit_vc: None,
+            total_paths: 2,
+        };
+        let used = std::sync::Mutex::new(std::collections::HashSet::new());
+        let date = chrono::Utc::now();
+        let mut written = Vec::new();
+        let results = export_in_turn(
+            [0, 1],
+            |t| {
+                plan_output_path(
+                    &targets[t],
+                    &item,
+                    Path::new("/photos/foo.NEF"),
+                    &date,
+                    &used,
+                )
+            },
+            |t, path| {
+                let mut files = vec![path.to_path_buf()];
+                if t == 0 {
+                    files.push(dir.path().join("foo_mask_0_image.jpg"));
+                }
+                for file in files {
+                    std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&file)
+                        .map_err(|e| format!("{}: {e}", file.display()))?;
+                    written.push(file.file_name().unwrap().to_string_lossy().into_owned());
+                }
+                Ok(())
+            },
+        );
+        assert!(results.iter().all(|(_, r)| r.is_ok()), "{results:?}");
+        assert_eq!(
+            written,
+            ["foo.jpg", "foo_mask_0_image.jpg", "foo_mask_0_image_1.jpg"]
+        );
+    }
 
     #[test]
     fn a_virtual_copy_is_not_its_open_master_nor_the_reverse() {

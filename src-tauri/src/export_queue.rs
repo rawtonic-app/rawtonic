@@ -139,14 +139,19 @@ pub fn enqueue(app: &AppHandle, request: ExportRequest) -> Result<String, String
 /// then run as one: each photo is developed once for all of them) and
 /// starts the queue if it is idle.
 pub fn enqueue_all(app: &AppHandle, requests: Vec<ExportRequest>) -> Result<Vec<String>, String> {
-    let mut ids = Vec::with_capacity(requests.len());
-    for request in &requests {
-        let value = serde_json::to_value(request).map_err(|e| e.to_string())?;
-        let label = label_for(request);
-        let id = with_queue(|q| q.enqueue(&label, &value, &request.paths))
-            .ok_or("The export queue is not available.")?;
-        ids.push(id);
-    }
+    let requests = requests
+        .iter()
+        .map(|request| Ok((label_for(request), serde_json::to_value(request)?, request)))
+        .collect::<Result<Vec<_>, serde_json::Error>>()
+        .map_err(|e| e.to_string())?;
+    // Under one lock, so the runner sees all of them or none.
+    let ids = with_queue(|q| {
+        requests
+            .iter()
+            .map(|(label, value, request)| q.enqueue(label, value, &request.paths))
+            .collect::<anyhow::Result<Vec<_>>>()
+    })
+    .ok_or("The export queue is not available.")?;
     HOLD.store(false, Ordering::SeqCst);
     notify(app);
     kick(app);
