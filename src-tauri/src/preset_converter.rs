@@ -113,7 +113,8 @@ fn natural_spline(knots: &[(f64, f64)], x: f64) -> f64 {
 /// A Lightroom point curve as Rawtonic's: its points, plus knots on
 /// Lightroom's spline wherever the renderer's curve through the points
 /// would leave it by more than a quarter level (checked every eighth of an
-/// input level).
+/// input level), on whole levels: a jump within one level cannot be
+/// followed closer, and the remaining error is logged.
 fn lightroom_curve(points: &[Value]) -> Vec<Value> {
     let mut knots: Vec<(f64, f64)> = points
         .iter()
@@ -126,26 +127,36 @@ fn lightroom_curve(points: &[Value]) -> Vec<Value> {
     }
     let lightroom = knots.clone();
     let target = |x: f64| natural_spline(&lightroom, x).clamp(0.0, 255.0);
-    for _ in 0..256 {
+    // Errors every eighth of a level (the renderer's input is continuous),
+    // largest first; new knots sit on whole levels, at least one apart, as
+    // the curve editor keeps its points.
+    let errors = |knots: &[(f64, f64)]| {
         let ours: Vec<(f32, f32)> = knots.iter().map(|&(x, y)| (x as f32, y as f32)).collect();
-        // Eighth levels: the renderer's input is continuous.
-        let worst = (0..=255 * 8)
-            .map(|x| {
-                let x = x as f64 / 8.0;
-                let got =
-                    rawtonic_engine::point_curve::curve_value(&ours, (x / 255.0) as f32) as f64;
-                (x, (got * 255.0 - target(x)).abs())
+        let mut errors: Vec<(f64, f64)> = (0..=255 * 8)
+            .map(|i| {
+                let x = i as f64 / 8.0;
+                let got = rawtonic_engine::point_curve::curve_value(&ours, (x / 255.0) as f32);
+                (x, (got as f64 * 255.0 - target(x)).abs())
             })
-            .filter(|(x, _)| !knots.iter().any(|k| k.0 == *x))
-            .max_by(|a, b| a.1.total_cmp(&b.1));
-        match worst {
-            Some((x, error)) if error > 0.25 => {
-                let y = (target(x) * 100.0).round() / 100.0;
-                let at = knots.partition_point(|k| k.0 < x);
-                knots.insert(at, (x, y));
-            }
-            _ => break,
-        }
+            .filter(|&(_, error)| error > 0.25)
+            .collect();
+        errors.sort_by(|a, b| b.1.total_cmp(&a.1));
+        errors
+    };
+    loop {
+        let free = |x: f64| knots.iter().all(|k| (k.0 - x).abs() >= 1.0);
+        let next = errors(&knots)
+            .into_iter()
+            .flat_map(|(x, _)| [x.round(), x.floor(), x.ceil()])
+            .find(|&x| free(x));
+        let Some(x) = next else { break };
+        let at = knots.partition_point(|k| k.0 < x);
+        knots.insert(at, (x, (target(x) * 100.0).round() / 100.0));
+    }
+    if let Some(&(x, error)) = errors(&knots).first() {
+        log::info!(
+            "Lightroom curve import: {error:.2} levels from Lightroom's curve at input {x} (no whole-level point left to add)"
+        );
     }
     knots
         .into_iter()
@@ -1746,9 +1757,15 @@ mod tests {
                     "{pts:?}"
                 );
             }
-            // Within a quarter level at every eighth input level (where the
-            // import checks); between them a near-vertical spline can differ
-            // by its rise over an eighth of a level.
+            // Whole-level knots, sorted and at least one level apart, as the
+            // curve editor keeps them.
+            let xs: Vec<f64> = curve.iter().map(|p| p["x"].as_f64().unwrap()).collect();
+            assert!(xs.iter().all(|x| x.fract() == 0.0), "{xs:?}");
+            assert!(xs.windows(2).all(|w| w[1] - w[0] >= 1.0), "{xs:?}");
+            if camera_raw < 0.0 {
+                continue; // a jump within one level: no closer fit exists
+            }
+            // Within a quarter level at every eighth input level.
             for k in 0..=255 * 8 {
                 let x = k as f64 / 8.0;
                 let spline = super::natural_spline(
