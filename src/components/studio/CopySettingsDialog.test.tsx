@@ -345,3 +345,27 @@ it("refuses a paste onto the open photo beyond the layers the renderer applies",
   expect(toast.error).toHaveBeenCalled();
 });
 
+it("shows the lens data resolved for the open photo when a lens choice is pasted", async () => {
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    const a = args as { adjustments?: Record<string, unknown> };
+    if (name === Invokes.SaveMetadataAndUpdateThumbnail) saved = { ...a.adjustments, lensDistortionParams: { k1: 0.3 } };
+    if (name === Invokes.LoadMetadata) return { adjustments: saved };
+    return undefined;
+  });
+  let saved: Record<string, unknown> = {};
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 1, lensCorrectionMode: "manual", lensDistortionParams: { k1: 0.9 } } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({
+    copiedAdjustments: { lensCorrectionMode: "camera", lensDistortionParams: null } as unknown as Adjustments,
+    copiedFrom: "/s/A.ARW",
+  });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  for (let i = 0; i < 6; i++) await act(async () => {});
+  const shown = useEditorStore.getState().adjustments;
+  expect(shown.lensCorrectionMode).toBe("camera");
+  // Resolved for B by its save, shown in the editor.
+  expect(shown.lensDistortionParams).toEqual({ k1: 0.3 });
+});
+

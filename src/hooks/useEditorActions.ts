@@ -190,6 +190,33 @@ function pastedOpen(
   return withOwnBitmapIds(shown, current);
 }
 
+/** The settings that choose a lens correction (its data is resolved for
+ * each photograph when its recipe is saved: `resolve_lens_params_in_adjustments`). */
+const LENS_CHOICE_KEYS = ['lensCorrectionMode', 'lensMaker', 'lensModel', 'lensDistortionParams'];
+
+/** Saves the open photograph's recipe `pasted` now and shows the lens data
+ * its save resolved for it, unless its lens choice changed meanwhile. */
+async function showResolvedLens(path: string, pasted: Adjustments) {
+  debouncedSave(path, pasted);
+  debouncedSave.flush();
+  if ((await waitForPendingMetadataSave(path)) !== undefined) return;
+  const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path }).catch(() => null);
+  const saved = meta?.adjustments;
+  if (!saved || !isCurrentEditorImage(path)) return;
+  const now = useEditorStore.getState().adjustments;
+  const sameChoice = ['lensCorrectionMode', 'lensMaker', 'lensModel'].every(
+    (key) => (now as unknown as Record<string, unknown>)[key] === (pasted as unknown as Record<string, unknown>)[key],
+  );
+  if (!sameChoice) return;
+  updateAdjustments((prev: Adjustments) => ({
+    ...prev,
+    lensMaker: saved.lensMaker,
+    lensModel: saved.lensModel,
+    lensDistortionParams: saved.lensDistortionParams,
+    ...(saved.cameraCaVersion !== undefined ? { cameraCaVersion: saved.cameraCaVersion } : {}),
+  }));
+}
+
 /** The settings a copy, sync or Previous takes from: the open photograph's
  * (its size known) or `path`'s saved recipe. */
 async function settingsSource(path?: string): Promise<(SettingsSource & { width?: number; height?: number }) | null> {
@@ -721,6 +748,9 @@ export function useEditorActions() {
           debouncedSetHistory.flush();
           setAdjustments(() => next);
           debouncedSetHistory.flush();
+          // A lens choice is resolved for this photograph when it is saved
+          // (its lens data, as for the others): shown once that is done.
+          if (LENS_CHOICE_KEYS.some((key) => key in adjustmentsToApply)) void showResolvedLens(open.path, next);
         }
       } else if (open) {
         setAdjustments({ ...adjustments, ...adjustmentsToApply });
