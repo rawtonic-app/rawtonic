@@ -40,6 +40,12 @@ describe('settings clipboard', () => {
     const withVersions = chosenSettings(source, [...group('tone').keys, ...RESPONSE_KEYS], []) as Record<string, unknown>;
     expect(withVersions.toneVersion).toBe(2);
     expect(withVersions.defringeVersion).toBeNull();
+    // Missing ones a never-edited RAW would get anyway are stated as the
+    // renderer reads them missing (no edge-fringe pass, the first CA estimate).
+    delete (source as Partial<Adjustments>).fringeVersion;
+    delete (source as Partial<Adjustments>).autoCaVersion;
+    const stated = chosenSettings(source, RESPONSE_KEYS, []) as Record<string, unknown>;
+    expect([stated.fringeVersion, stated.autoCaVersion]).toEqual([0, 1]);
   });
 
   it('takes away what the source does not have: As Shot over a custom white balance', () => {

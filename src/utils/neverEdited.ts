@@ -26,7 +26,8 @@ export async function withNeverEditedDefaults(
   if (lens?.params) {
     recipe.lensCorrectionMode = 'camera';
     recipe.lensDistortionParams = lens.params;
-    recipe.cameraCaVersion ??= CAMERA_CA_VERSION;
+    // With the camera's data its current CA version, as embedded_lens.rs.
+    recipe.cameraCaVersion = CAMERA_CA_VERSION;
   }
   return recipe;
 }

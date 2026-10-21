@@ -13,7 +13,7 @@ import {
   normalizeLoadedAdjustments,
   type Adjustments,
 } from '../utils/adjustments';
-import { waitForPendingMetadataSave } from './useEditorActions';
+import { waitForRecipe } from './useEditorActions';
 import { withNeverEditedDefaults } from '../utils/neverEdited';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
@@ -116,7 +116,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           // Native load_image already clears source-dependent caches. Metadata
           // loading does not depend on decoding, so do both in the same round.
           const readMetadata = () => invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
-          const pendingSave = waitForPendingMetadataSave(selectedImage.path);
+          const pendingSave = waitForRecipe(selectedImage.path);
           let unsavedAdjustments: Adjustments | undefined;
           const metadataRequest = (pendingSave
             ? pendingSave.then((unsaved) => {

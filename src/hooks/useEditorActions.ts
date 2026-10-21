@@ -215,14 +215,34 @@ async function pasteClosed(path: string, pasted: Partial<Adjustments>, paste: ob
 }
 
 /** Pastes onto the open photograph, one after another in the order they
- * were asked for (`pasteOntoOpen`); quitting waits for them. */
+ * were asked for (`pasteOntoOpen`); quitting waits for them, and so does
+ * opening that photograph again (`waitForRecipe`). */
 let openPastes: Promise<unknown> = Promise.resolve();
 const pastesInFlight = new Set<Promise<unknown>>();
-function queueOpenPaste(run: () => Promise<unknown>) {
+const pastesOnto = new Map<string, Promise<unknown>>();
+function queueOpenPaste(path: string, run: () => Promise<unknown>) {
   const paste = openPastes.then(run, run);
   openPastes = paste.catch(() => undefined);
   pastesInFlight.add(paste);
-  void paste.finally(() => pastesInFlight.delete(paste)).catch(() => undefined);
+  pastesOnto.set(path, paste);
+  void paste
+    .finally(() => {
+      pastesInFlight.delete(paste);
+      if (pastesOnto.get(path) === paste) pastesOnto.delete(path);
+    })
+    .catch(() => undefined);
+}
+
+/** What opening `path` waits for before it reads its recipe: a paste onto
+ * it still being made, then its save under way (`waitForPendingMetadataSave`:
+ * the recipe a failed save kept, if any). */
+export function waitForRecipe(path: string): Promise<Adjustments | undefined> | undefined {
+  const paste = pastesOnto.get(path);
+  if (!paste) return waitForPendingMetadataSave(path);
+  return paste.then(
+    () => waitForPendingMetadataSave(path),
+    () => waitForPendingMetadataSave(path),
+  );
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -747,7 +767,7 @@ export function useEditorActions() {
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
-      if (pastedOpen) queueOpenPaste(() => pasteOntoOpen(open!, adjustmentsToApply, paste!));
+      if (pastedOpen) queueOpenPaste(open!.path, () => pasteOntoOpen(open!, adjustmentsToApply, paste!));
       const others = pastedOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve();
       const written = afterRecipeSaves(others, () =>

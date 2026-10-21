@@ -32,6 +32,11 @@ export interface SettingsGroup {
 export const RESPONSE_KEYS: string[] = [
   ...new Set(Object.values(ADJUSTMENT_GROUPS).flatMap((groups) => groups.flatMap((g) => g.keys)).filter((key) => /Version$/.test(key))),
 ];
+/** What the renderer reads for a missing processing version that a
+ * never-edited RAW starts with otherwise (edge_fringe.rs: none; lateral_ca.rs:
+ * the first estimate): stated, so those defaults do not replace it. */
+const MISSING_RESPONSES: Record<string, number> = { fringeVersion: 0, autoCaVersion: 1 };
+
 /** Remembered with the chosen keys when the processing versions are chosen. */
 export const RESPONSES_CHOSEN = 'processingVersions';
 
@@ -63,7 +68,12 @@ export function chosenSettings(source: Adjustments, keys: string[], layerIds: st
   const chosen: Record<string, unknown> = {};
   const values = source as unknown as Record<string, unknown>;
   for (const key of keys) {
-    if (key !== 'masks') chosen[key] = values[key] === undefined ? null : structuredClone(values[key]);
+    if (key === 'masks') continue;
+    if (values[key] !== undefined && values[key] !== null) chosen[key] = structuredClone(values[key]);
+    // A processing version the source lacks, which a never-edited
+    // photograph would get anyway: what the renderer reads for it missing.
+    else if (key in MISSING_RESPONSES) chosen[key] = MISSING_RESPONSES[key];
+    else chosen[key] = null;
   }
   const ids = new Set(layerIds);
   const layers = (source.masks ?? []).filter((layer: MaskContainer) => ids.has(layer.id));

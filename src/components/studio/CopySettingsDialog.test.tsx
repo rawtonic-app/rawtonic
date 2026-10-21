@@ -432,3 +432,35 @@ it("pastes onto the photo it was asked for when another is opened before it is a
   expect(quit).toBe(true);
 });
 
+it("makes opening the photo again wait for a paste onto it still being made", async () => {
+  const { waitForRecipe } = await import("../../hooks/useEditorActions");
+  let answer = () => {};
+  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
+    if (name === Invokes.PastePreview) {
+      const merged = previewMerge(args);
+      await new Promise<void>((resolve) => (answer = resolve));
+      return merged;
+    }
+    return undefined;
+  });
+  const { result } = renderHook(useEditorActions);
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const edited = { ...opened, clarity: 1 };
+  useEditorStore.setState({ selectedImage: photo("/s/G.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { exposure: 3 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/G.ARW"]));
+  for (let i = 0; i < 3; i++) await act(async () => {});
+  // G is left and opened again (still loading) before the paste is applied.
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/H.ARW") as never }));
+  act(() => useEditorStore.setState({ selectedImage: { ...photo("/s/G.ARW"), isReady: false } as never }));
+  let read = false;
+  void Promise.resolve(waitForRecipe("/s/G.ARW")).then(() => (read = true));
+  await act(async () => {});
+  expect(read).toBe(false);
+  await act(async () => answer());
+  for (let i = 0; i < 6; i++) await act(async () => {});
+  // Written as onto a closed photo, then read.
+  expect(applied()).toEqual([expect.objectContaining({ paths: ["/s/G.ARW"] })]);
+  expect(read).toBe(true);
+});
+
