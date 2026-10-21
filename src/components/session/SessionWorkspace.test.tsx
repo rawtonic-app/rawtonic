@@ -1,5 +1,5 @@
 import "../../i18n";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SessionWorkspace, { countHotFolderCapture, leavesTetheredLibrary, restoreLastSession, SLOW_RESTORE_MS, type SessionSummary } from "./SessionWorkspace";
@@ -39,6 +39,9 @@ const summary: SessionSummary = {
   rated: 0,
   xmp_pending: 0,
 };
+// The last test's tree too: a menu's hover timer firing after the test
+// environment is gone threw "window is not defined" (flaky check.sh runs).
+afterEach(() => cleanup());
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
