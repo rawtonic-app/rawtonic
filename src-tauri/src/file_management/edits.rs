@@ -397,7 +397,8 @@ fn pasted_metadata(
 }
 
 /// `base` (a photograph's recipe) with `adjustments` pasted as
-/// `apply_adjustments_to_paths` pastes them (`pasted_metadata`).
+/// `apply_adjustments_to_paths` pastes them (`pasted_metadata`); the editor's
+/// `pasteInto` pastes onto the open photograph by the same rules.
 #[allow(clippy::too_many_arguments)]
 fn pasted_into(
     base: Value,
@@ -479,36 +480,6 @@ fn pasted_into(
         source_path,
     );
     Ok(new_adjustments)
-}
-
-/// The recipe a copy or sync makes of `base` (the open photograph's, as the
-/// editor holds it) with `adjustments` pasted from `paste`, by the same
-/// rules as `apply_adjustments_to_paths`, without writing anything: the
-/// editor applies it as an edit and saves it as every edit.
-#[tauri::command]
-pub async fn paste_preview(
-    path: String,
-    base: Value,
-    adjustments: Value,
-    paste: PasteFrom,
-) -> Result<Value, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let (source_path, sidecar_path) = parse_virtual_path(&path);
-        let exif = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path).exif;
-        let lens_db = crate::lens_correction::global_lens_db();
-        pasted_into(
-            base,
-            &exif,
-            &path,
-            &source_path,
-            &adjustments,
-            Some(&paste),
-            None,
-            lens_db.as_deref(),
-        )
-    })
-    .await
-    .map_err(|e| e.to_string())?
 }
 
 /// Whether two photograph paths (virtual copies included) are of one file.

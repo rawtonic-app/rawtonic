@@ -258,245 +258,90 @@ it("Previous takes a never-edited RAW's settings as the editor showed them", asy
   expect(applied()[0].adjustments).toMatchObject({ lensCorrectionMode: "camera", lensDistortionParams: { k1: 0.2 } });
 });
 
-/** The backend's paste onto a base recipe (`paste_preview`): here a plain merge. */
-const previewMerge = (args: unknown) => {
-  const a = args as { base: Record<string, unknown> | null; adjustments: Record<string, unknown> };
-  return { ...(a.base ?? {}), ...a.adjustments };
-};
-const previews = () =>
-  vi
-    .mocked(invoke)
-    .mock.calls.filter(([name]) => name === Invokes.PastePreview)
-    .map(([, args]) => args as { path: string; base: Record<string, unknown> | null });
-
-it("pastes onto the open photo as one undoable edit, the others in the backend", async () => {
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) return previewMerge(args);
-    if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 7 } };
+it("Previous frames drawn masks with the size the previous photo was shown at", async () => {
+  const radial = {
+    ...structuredClone(INITIAL_MASK_CONTAINER),
+    id: "vignette",
+    name: "Vignette",
+    subMasks: [{ id: "r", type: "radial", visible: true, invert: false, opacity: 100, mode: "additive", parameters: { centerX: 3000, centerY: 2000 } }],
+  };
+  vi.mocked(invoke).mockImplementation(async (name: string) => {
+    if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [radial] } };
     return undefined;
   });
+  useSettingsStore.setState({
+    appSettings: { copyPasteSettings: { mode: PasteMode.Merge, includedAdjustments: ["masks"], knownAdjustments: [], autoSync: false } } as unknown as AppSettings,
+  });
   const { result } = renderHook(useEditorActions);
-  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-  const own = { ...structuredClone(INITIAL_ADJUSTMENTS), clarity: 7 } as unknown as Adjustments;
-  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [own], historyIndex: 0, historyPending: false });
+  // P shown at 6000 × 4000, then Q.
+  act(() => useEditorStore.setState({ selectedImage: photo("/s/P.ARW") as never }));
+  act(() => useEditorStore.setState({ selectedImage: { ...photo("/s/Q.ARW"), width: 3000, height: 2000 } as never }));
+  await act(() => result.current.handlePasteFromPrevious(["/s/R.ARW"]));
+  await act(async () => {});
+  const frame = (applied()[0].adjustments.masks?.[0].subMasks[0].parameters as { frame?: { width?: number; height?: number } }).frame;
+  expect([frame?.width, frame?.height]).toEqual([6000, 4000]);
+});
+
+it("pastes onto the open photo at once, as one undoable edit, the others in the backend", () => {
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2, masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  const opened = structuredClone(INITIAL_ADJUSTMENTS);
+  const own = { ...opened, clarity: 7, masks: [dodge] } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
   useLibraryStore.setState({ multiSelectedPaths: ["/s/B.ARW", "/s/C.ARW"] });
   act(() => result.current.handlePasteAdjustments());
-  for (let i = 0; i < 6; i++) await act(async () => {});
   expect(applied().map((call) => call.paths)).toEqual([["/s/C.ARW"]]);
-  // Not edited since opening: pasted onto its saved recipe.
-  expect(previews()[0].base).toMatchObject({ clarity: 7 });
   const shown = useEditorStore.getState().adjustments;
   expect([shown.exposure, shown.clarity]).toEqual([2, 7]);
-  expect(useEditorStore.getState().history).toHaveLength(2);
+  // Its own layer kept, the pasted one added, its detection its own.
+  expect(shown.masks.map((layer) => layer.id)).toEqual(["dodge", "sky"]);
+  expect(shown.masks[1].subMasks[0].parameters).toMatchObject({ maskDataBase64: null, detectPending: true });
+  expect(shown.masks[1].subMasks[0].id).not.toBe("sky-c");
+  expect(useEditorStore.getState().history).toHaveLength(3);
   act(() => useEditorStore.getState().undo());
   expect(useEditorStore.getState().adjustments).toBe(own);
 });
 
-it("pastes onto the open photo's edit as it is now, and again when it is edited meanwhile", async () => {
-  let editMeanwhile: (() => void) | null = null;
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) {
-      const merged = previewMerge(args);
-      editMeanwhile?.();
-      editMeanwhile = null;
-      return merged;
-    }
-    return undefined;
-  });
+it("pastes onto the open photo's saved recipe while it is not edited, as loading makes it", async () => {
+  const { rememberOpenedRecipe } = await import("../../hooks/useEditorActions");
   const { result } = renderHook(useEditorActions);
   useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-  const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const edited = { ...opened, contrast: 30 };
-  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
-  editMeanwhile = () => useEditorStore.setState({ adjustments: { ...useEditorStore.getState().adjustments, saturation: -5 } });
-  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  for (let i = 0; i < 8; i++) await act(async () => {});
-  // Edited since opening: pasted onto that edit, and onto the next one.
-  expect(previews().map((p) => p.base?.contrast)).toEqual([30, 30]);
-  expect(previews()[1].base?.saturation).toBe(-5);
-  const shown = useEditorStore.getState().adjustments;
-  expect([shown.exposure, shown.contrast, shown.saturation]).toEqual([2, 30, -5]);
-});
-
-it("gives the open photo what loading gives it: a never-edited RAW's lens data, changed AI bitmaps under own ids", async () => {
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) return { ...previewMerge({ ...(args as object), base: {} }), masks: [sky] };
-    if (name === Invokes.LoadMetadata) return { adjustments: null };
-    if (name === Invokes.GetCameraLensProfile) return { params: { k1: 0.1 } };
-    return undefined;
-  });
-  const { result } = renderHook(useEditorActions);
-  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/F.ARW?vc=c0ffee" });
+  // A never-edited RAW with camera lens data, as it was opened.
+  rememberOpenedRecipe("/s/F.ARW", { saved: null, camera: { params: { k1: 0.1 } as never }, width: 6000, height: 4000 });
   const own = structuredClone(INITIAL_ADJUSTMENTS);
   useEditorStore.setState({ selectedImage: photo("/s/F.ARW") as never, adjustments: own, history: [own], historyIndex: 0, historyPending: false });
   act(() => result.current.handlePasteAdjustments(["/s/F.ARW"]));
-  for (let i = 0; i < 6; i++) await act(async () => {});
-  expect(previews()[0].base).toBeNull();
   const shown = useEditorStore.getState().adjustments;
   expect(shown.exposure).toBe(2);
   expect(shown.lensCorrectionMode).toBe("camera");
   expect(shown.lensDistortionParams).toEqual({ k1: 0.1 });
-  expect(shown.masks[0].subMasks[0].id).not.toBe("sky-c");
-  expect(shown.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
+  expect(shown.aspectRatio).toBe(1.5);
 });
 
-it("keeps the ids of the open photo's bitmaps a paste did not change", async () => {
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) return previewMerge(args);
-    return undefined;
-  });
+it("keeps the ids of the open photo's bitmaps a paste did not change, and its own bitmap on a virtual copy", () => {
   const { result } = renderHook(useEditorActions);
-  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const own = { ...opened, lensCorrectionMode: "manual", masks: [sky] } as unknown as Adjustments;
+  const own = { ...opened, masks: [sky] } as unknown as Adjustments;
   useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { exposure: 2 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
   act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  for (let i = 0; i < 6; i++) await act(async () => {});
-  const shown = useEditorStore.getState().adjustments;
-  expect(shown.exposure).toBe(2);
-  expect(shown.masks[0].subMasks[0].id).toBe("sky-c");
-});
-
-it("pastes three times quickly onto the open photo, each onto the one before", async () => {
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) return previewMerge(args);
-    return undefined;
-  });
-  const { result } = renderHook(useEditorActions);
-  const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const edited = { ...opened, clarity: 1 };
-  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
-  for (const copied of [{ exposure: 1 }, { contrast: 20 }, { saturation: -10 }]) {
-    useEditorStore.setState({ copiedAdjustments: copied as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  }
-  for (let i = 0; i < 20; i++) await act(async () => {});
-  const shown = useEditorStore.getState().adjustments;
-  expect([shown.exposure, shown.contrast, shown.saturation, shown.clarity]).toEqual([1, 20, -10, 1]);
-});
-
-it("applies quick pastes onto the open photo in the order they were asked for, whatever answers first", async () => {
-  const answers: (() => void)[] = [];
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) {
-      const merged = previewMerge(args);
-      await new Promise<void>((resolve) => answers.push(resolve));
-      return merged;
-    }
-    return undefined;
-  });
-  const { result } = renderHook(useEditorActions);
-  const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const edited = { ...opened, clarity: 1 };
-  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
-  for (const exposure of [1, 2]) {
-    useEditorStore.setState({ copiedAdjustments: { exposure } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-    act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  }
-  for (let i = 0; i < 4; i++) await act(async () => {});
-  // One at a time: the second is asked for only after the first is applied.
-  expect(answers).toHaveLength(1);
-  await act(async () => answers[0]());
-  for (let i = 0; i < 4; i++) await act(async () => {});
-  await act(async () => answers[1]());
-  for (let i = 0; i < 4; i++) await act(async () => {});
-  expect(useEditorStore.getState().adjustments.exposure).toBe(2);
-});
-
-it("pastes onto the photo it was asked for when another is opened before it is applied, and quitting waits", async () => {
-  const { flushRecipeSaves } = await import("../../hooks/useEditorActions");
-  let answer = () => {};
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) {
-      const merged = previewMerge(args);
-      await new Promise<void>((resolve) => (answer = resolve));
-      return merged;
-    }
-    return undefined;
-  });
-  const { result } = renderHook(useEditorActions);
-  const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const edited = { ...opened, clarity: 1 };
-  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
-  useEditorStore.setState({ copiedAdjustments: { exposure: 3 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  expect(useEditorStore.getState().adjustments.masks[0].subMasks[0].id).toBe("sky-c");
+  // Pasted from its virtual copy: the same pixels, the bitmap stays.
+  useEditorStore.setState({ copiedAdjustments: { masks: [sky] } as unknown as Adjustments, copiedFrom: "/s/B.ARW?vc=c0ffee" });
   act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
-  for (let i = 0; i < 3; i++) await act(async () => {});
-  act(() => useEditorStore.setState({ selectedImage: photo("/s/C.ARW") as never }));
-  let quit = false;
-  void flushRecipeSaves().then(() => (quit = true));
-  await act(async () => {});
-  expect(quit).toBe(false);
-  await act(async () => answer());
-  for (let i = 0; i < 6; i++) await act(async () => {});
-  expect(applied()).toEqual([expect.objectContaining({ paths: ["/s/B.ARW"], adjustments: { exposure: 3 } })]);
-  expect(quit).toBe(true);
+  expect(useEditorStore.getState().adjustments.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
 });
 
-it("makes opening the photo again wait for a paste onto it still being made", async () => {
-  const { waitForRecipe } = await import("../../hooks/useEditorActions");
-  let answer = () => {};
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) {
-      const merged = previewMerge(args);
-      await new Promise<void>((resolve) => (answer = resolve));
-      return merged;
-    }
-    return undefined;
-  });
+it("refuses a paste onto the open photo beyond the layers the renderer applies", async () => {
+  const { toast } = await import("react-toastify");
   const { result } = renderHook(useEditorActions);
+  const many = Array.from({ length: 32 }, (_, i) => ({ ...dodge, id: `l${i}`, subMasks: [{ ...sky.subMasks[0], id: `c${i}`, type: "radial" }] }));
   const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const edited = { ...opened, clarity: 1 };
-  useEditorStore.setState({ selectedImage: photo("/s/G.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
-  useEditorStore.setState({ copiedAdjustments: { exposure: 3 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-  act(() => result.current.handlePasteAdjustments(["/s/G.ARW"]));
-  for (let i = 0; i < 3; i++) await act(async () => {});
-  // G is left and opened again (still loading) before the paste is applied.
-  act(() => useEditorStore.setState({ selectedImage: photo("/s/H.ARW") as never }));
-  act(() => useEditorStore.setState({ selectedImage: { ...photo("/s/G.ARW"), isReady: false } as never }));
-  let read = false;
-  void Promise.resolve(waitForRecipe("/s/G.ARW")).then(() => (read = true));
-  await act(async () => {});
-  expect(read).toBe(false);
-  await act(async () => answer());
-  for (let i = 0; i < 6; i++) await act(async () => {});
-  // Written as onto a closed photo, then read.
-  expect(applied()).toEqual([expect.objectContaining({ paths: ["/s/G.ARW"] })]);
-  expect(read).toBe(true);
-});
-
-it("Previous takes a photo left while a paste onto it was made with that paste", async () => {
-  let answer = () => {};
-  vi.mocked(invoke).mockImplementation(async (name: string, args?: unknown) => {
-    if (name === Invokes.PastePreview) {
-      const merged = previewMerge(args);
-      await new Promise<void>((resolve) => (answer = resolve));
-      return merged;
-    }
-    if (name === Invokes.LoadMetadata) return { adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), exposure: pastedYet ? 3 : 0 } };
-    if (name === Invokes.ApplyAdjustmentsToPaths) pastedYet = true;
-    return undefined;
-  });
-  let pastedYet = false;
-  useSettingsStore.setState({
-    appSettings: { copyPasteSettings: { mode: PasteMode.Merge, includedAdjustments: ["exposure"], knownAdjustments: [], autoSync: false } } as unknown as AppSettings,
-  });
-  const { result } = renderHook(useEditorActions);
-  const opened = structuredClone(INITIAL_ADJUSTMENTS);
-  const edited = { ...opened, clarity: 1 };
-  useEditorStore.setState({ selectedImage: photo("/s/J.ARW") as never, adjustments: edited, history: [opened, edited], historyIndex: 1 });
-  useEditorStore.setState({ copiedAdjustments: { exposure: 3 } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
-  act(() => result.current.handlePasteAdjustments(["/s/J.ARW"]));
-  for (let i = 0; i < 3; i++) await act(async () => {});
-  // J left before the paste is applied; then Previous (J) onto K.
-  act(() => useEditorStore.setState({ selectedImage: photo("/s/K.ARW") as never }));
-  let done!: Promise<void>;
-  act(() => {
-    done = result.current.handlePasteFromPrevious(["/s/L.ARW"]);
-  });
-  await act(async () => answer());
-  await act(() => done);
-  for (let i = 0; i < 4; i++) await act(async () => {});
-  const ontoL = applied().find((call) => call.paths[0] === "/s/L.ARW");
-  expect(ontoL?.adjustments.exposure).toBe(3);
+  const own = { ...opened, masks: [many[0]] } as unknown as Adjustments;
+  useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: own, history: [opened, own], historyIndex: 1 });
+  useEditorStore.setState({ copiedAdjustments: { masks: many.slice(1).concat([{ ...many[0], id: "extra" }]) } as unknown as Adjustments, copiedFrom: "/s/A.ARW" });
+  act(() => result.current.handlePasteAdjustments(["/s/B.ARW"]));
+  expect(useEditorStore.getState().adjustments).toBe(own);
+  expect(toast.error).toHaveBeenCalled();
 });
 

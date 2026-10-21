@@ -33,9 +33,12 @@ import {
   RESPONSE_KEYS,
   chosenSettings,
   newEditResponses,
+  pasteInto,
+  samePhotograph,
 } from '../utils/settingsClipboard';
+import { MAX_RENDERED_LAYERS } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
-import { withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
+import { editorRecipe, withNeverEditedDefaults, type CameraLens } from '../utils/neverEdited';
 import { withOwnBitmapIds } from '../utils/bitmapIds';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
 import { globalImageCache } from '../utils/ImageLRUCache';
@@ -111,8 +114,6 @@ function scheduleUnsavedEditorRecipe() {
  * is still not saved (quitting, utils/quit.ts).
  */
 export async function flushRecipeSaves(): Promise<string[]> {
-  // Pastes onto the open photograph still being made.
-  while (pastesInFlight.size > 0) await Promise.allSettled([...pastesInFlight]);
   // A drag's moves since the last store commit are only a draft.
   flushSliderDraft();
   scheduleUnsavedEditorRecipe();
@@ -152,97 +153,41 @@ function savedBatch(command: Promise<unknown>, paths: string[], what: string): P
   );
 }
 
-/** Pastes `pasted` (from `paste`) onto the open photograph `open` as an
- * edit of it, one history step that its saves persist as every edit: the
- * backend makes the recipe by the rules it pastes onto the other
- * photographs with (`paste_preview`), from the recipe its edits are made on
- * (its saved one while it is not edited since it was opened, so the same
- * paste gives the same result open or closed), and the editor takes it as
- * loading would. An edit made meanwhile is pasted onto again. */
-async function pasteOntoOpen(open: { path: string; isRaw: boolean }, pasted: Partial<Adjustments>, paste: object) {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    // Left before it was applied: pasted as onto a closed photograph.
-    if (!isCurrentEditorImage(open.path)) return pasteClosed(open.path, pasted, paste);
-    // A drag's moves since the last commit are part of the edit.
-    flushSliderDraft();
-    const { adjustments: before, history, historyPending } = useEditorStore.getState();
-    let base: unknown = before;
-    if (history.length === 1 && !historyPending) {
-      const unsaved = await waitForPendingMetadataSave(open.path);
-      base = unsaved ?? (await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: open.path }))?.adjustments ?? null;
-      if ((base as { is_null?: boolean } | null)?.is_null) base = null;
-    }
-    let result: Adjustments;
-    try {
-      result = await invoke<Adjustments>(Invokes.PastePreview, { path: open.path, base, adjustments: pasted, paste });
-    } catch (err) {
-      toast.error(`Failed to paste adjustments: ${err}`);
-      return;
-    }
-    if (!result) return;
-    if (!isCurrentEditorImage(open.path)) continue;
-    // As loading makes it: a never-edited RAW's defaults (its lens data), and
-    // AI bitmaps it changed under ids of their own (the renderer keeps
-    // bitmaps by id; unchanged ones keep theirs).
-    const loaded = await withNeverEditedDefaults(
-      normalizeLoadedAdjustments(result, open.isRaw),
-      result,
-      open.isRaw,
-      () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: open.path }).catch(() => null),
-    );
-    if (!isCurrentEditorImage(open.path) || useEditorStore.getState().adjustments !== before) continue;
-    const shown = withOwnBitmapIds(loaded, before);
-    debouncedSetHistory.flush();
-    updateAdjustments(() => shown);
-    debouncedSetHistory.flush();
-    return;
-  }
-  toast.error(i18next.t('studio.copySettings.changedMeanwhile'));
+/** The saved recipe the open photograph was opened from (with the camera
+ * lens data and size its editor recipe was made with): a paste onto it
+ * while it is not edited pastes onto this, as onto a closed photograph. */
+type OpenedRecipe = { saved: unknown; camera: CameraLens; width: number; height: number };
+let openedRecipe: ({ path: string } & OpenedRecipe) | null = null;
+export function rememberOpenedRecipe(path: string, opened: OpenedRecipe) {
+  openedRecipe = { path, ...opened };
 }
 
-/** Pastes onto `path` in the backend, after its saves under way. */
-async function pasteClosed(path: string, pasted: Partial<Adjustments>, paste: object) {
-  const written = afterRecipeSaves([path], () =>
-    savedBatch(invoke(Invokes.ApplyAdjustmentsToPaths, { paths: [path], adjustments: pasted, paste }), [path], 'paste adjustments'),
-  );
-  // Opened again meanwhile, it reads its recipe after this write.
-  const settled = written.then(() => undefined, () => undefined);
-  pendingMetadataSaves.set(path, settled);
-  void settled.then(() => {
-    if (pendingMetadataSaves.get(path) === settled) pendingMetadataSaves.delete(path);
+/** The open photograph `open` with `pasted` (from `paste`), as the backend
+ * pastes onto a closed photograph (`pasteInto`, `masks::paste_layers`): onto
+ * its saved recipe while it is not edited since it was opened (then made
+ * into the editor's recipe as loading does), else onto its edit. Its AI
+ * bitmaps a paste changed get ids of their own (the renderer keeps bitmaps
+ * by id). Null with a message when it would exceed the layers applied. */
+function pastedOpen(
+  open: { path: string; isRaw: boolean },
+  current: Adjustments,
+  pasted: Partial<Adjustments>,
+  paste: { source: string; replaceLayers: boolean; newEdit?: ReturnType<typeof newEditResponses> },
+): Adjustments | null {
+  const { history, historyPending } = useEditorStore.getState();
+  const opened = history.length === 1 && !historyPending && openedRecipe?.path === open.path ? openedRecipe : null;
+  const base = opened ? (opened.saved as Adjustments | null) : current;
+  const merged = pasteInto(base && !(base as { is_null?: boolean }).is_null ? base : null, pasted, {
+    samePhoto: samePhotograph(paste.source, open.path),
+    replaceLayers: paste.replaceLayers,
+    newEdit: paste.newEdit ? (open.isRaw ? paste.newEdit.raw : paste.newEdit.other) : undefined,
   });
-  await written;
-}
-
-/** Pastes onto the open photograph, one after another in the order they
- * were asked for (`pasteOntoOpen`); quitting waits for them, and so does
- * opening that photograph again (`waitForRecipe`). */
-let openPastes: Promise<unknown> = Promise.resolve();
-const pastesInFlight = new Set<Promise<unknown>>();
-const pastesOnto = new Map<string, Promise<unknown>>();
-function queueOpenPaste(path: string, run: () => Promise<unknown>) {
-  const paste = openPastes.then(run, run);
-  openPastes = paste.catch(() => undefined);
-  pastesInFlight.add(paste);
-  pastesOnto.set(path, paste);
-  void paste
-    .finally(() => {
-      pastesInFlight.delete(paste);
-      if (pastesOnto.get(path) === paste) pastesOnto.delete(path);
-    })
-    .catch(() => undefined);
-}
-
-/** What opening `path` waits for before it reads its recipe: a paste onto
- * it still being made, then its save under way (`waitForPendingMetadataSave`:
- * the recipe a failed save kept, if any). */
-export function waitForRecipe(path: string): Promise<Adjustments | undefined> | undefined {
-  const paste = pastesOnto.get(path);
-  if (!paste) return waitForPendingMetadataSave(path);
-  return paste.then(
-    () => waitForPendingMetadataSave(path),
-    () => waitForPendingMetadataSave(path),
-  );
+  if (!merged) {
+    toast.error(i18next.t('studio.develop.layers.limitReached', { limit: MAX_RENDERED_LAYERS }));
+    return null;
+  }
+  const shown = opened ? editorRecipe(merged, open.isRaw, opened.width, opened.height, opened.camera) : merged;
+  return withOwnBitmapIds(shown, current);
 }
 
 /** The settings a copy, sync or Previous takes from: the open photograph's
@@ -256,13 +201,15 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
     return { path: from, adjustments, isRaw: selectedImage.isRaw, width: selectedImage.width, height: selectedImage.height };
   }
   const isRaw = isRawPhoto(from);
+  // The photograph open before: its size as it was shown.
+  const { previousPhoto, previousPhotoSize } = useEditorStore.getState();
+  const size = from === previousPhoto && previousPhotoSize ? previousPhotoSize : {};
   try {
     // Its recipe as last edited: after its save still under way, or the
     // edit a failed save kept.
     debouncedSave.flush();
-    // A paste onto it still being made first (it may have been left).
-    const unsaved = await waitForRecipe(from);
-    if (unsaved) return { path: from, adjustments: unsaved, isRaw };
+    const unsaved = await waitForPendingMetadataSave(from);
+    if (unsaved) return { path: from, adjustments: unsaved, isRaw, ...size };
     const meta = await invoke<ImageMetadata>(Invokes.LoadMetadata, { path: from });
     // As the editor shows it: a never-edited RAW with its camera's lens data.
     const adjustments = await withNeverEditedDefaults(
@@ -273,7 +220,7 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
       isRaw,
       () => invoke<CameraLens>(Invokes.GetCameraLensProfile, { path: from }).catch(() => null),
     );
-    return { path: from, adjustments, isRaw };
+    return { path: from, adjustments, isRaw, ...size };
   } catch (err) {
     toast.error(`Failed to load metadata for copying: ${err}`);
     return null;
@@ -758,18 +705,27 @@ export function useEditorActions() {
       pathsToUpdate.forEach((p) => globalImageCache.delete(p));
 
       // Copied or synced settings (`pasteFrom`): the open photograph gets
-      // them as an edit (`pasteOntoOpen`), the others from the backend.
+      // them as an edit at once, made by the rules the backend pastes onto
+      // the others with (`pastedOpen`), saved as every edit.
       const open = selectedImage?.isReady && pathsToUpdate.includes(selectedImage.path) ? selectedImage : null;
-      const pastedOpen = Boolean(pasteFrom && open);
-      if (open && !pastedOpen) {
-        setAdjustments({ ...adjustments, ...adjustmentsToApply });
-      }
-
       const paste = pasteFrom
         ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
         : null;
-      if (pastedOpen) queueOpenPaste(open!.path, () => pasteOntoOpen(open!, adjustmentsToApply, paste!));
-      const others = pastedOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
+      const pastedOntoOpen = Boolean(paste && open);
+      if (open && paste) {
+        // A drag's moves since the last commit are part of the edit.
+        flushSliderDraft();
+        const current = useEditorStore.getState().adjustments;
+        const next = pastedOpen(open, current, adjustmentsToApply, paste);
+        if (next) {
+          debouncedSetHistory.flush();
+          setAdjustments(() => next);
+          debouncedSetHistory.flush();
+        }
+      } else if (open) {
+        setAdjustments({ ...adjustments, ...adjustmentsToApply });
+      }
+      const others = pastedOntoOpen ? pathsToUpdate.filter((path) => path !== open!.path) : pathsToUpdate;
       if (others.length === 0) return Promise.resolve();
       const written = afterRecipeSaves(others, () =>
         savedBatch(
@@ -794,7 +750,7 @@ export function useEditorActions() {
         .then((failed) => {
           const updated = others.filter((path) => !failed.includes(path));
           updated.forEach((path) => unsavedRecipes.delete(path));
-          if (!pastedOpen && selectedImage && updated.includes(selectedImage.path)
+          if (!pastedOntoOpen && selectedImage && updated.includes(selectedImage.path)
             && isCurrentEditorImage(selectedImage.path)) {
             invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path }).then((meta) => {
               if (isCurrentEditorImage(selectedImage.path) && meta.adjustments) {

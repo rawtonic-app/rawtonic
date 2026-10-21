@@ -168,6 +168,8 @@ interface EditorState {
   copiedFrom: string | null;
   /** The photograph open before this one (Lightroom's Previous). */
   previousPhoto: string | null;
+  /** Its size as it was shown (drawn masks leave a photo with its frame). */
+  previousPhotoSize: { width: number; height: number } | null;
 
   // Actions
   setEditor: (updater: Partial<EditorState> | ((state: EditorState) => Partial<EditorState>)) => void;
@@ -254,6 +256,7 @@ export const useEditorStore = create<EditorState>((set) => ({
   copiedAdjustments: null,
   copiedFrom: null,
   previousPhoto: null,
+  previousPhotoSize: null,
 
   isGeneratingAiMask: false,
   isMaskControlHovered: false,
@@ -370,8 +373,8 @@ export const debouncedSetHistory = Object.assign(
   },
 );
 
-/** The photograph open last (`previousPhoto`). */
-let lastOpened: string | null = null;
+/** The photograph open last (`previousPhoto`) and its size. */
+let lastOpened: { path: string; size: { width: number; height: number } | null } | null = null;
 
 // View state that follows the edits (one place, so every way of editing a
 // layer counts: sliders, typed values, presets, undo).
@@ -382,14 +385,27 @@ useEditorStore.subscribe((state, previous) => {
     // Previous: the photograph open last before this one, also across a
     // closed editor (another folder or album shown in between).
     const opened = state.selectedImage?.path;
-    if (opened && lastOpened && lastOpened !== opened) patch.previousPhoto = lastOpened;
-    if (opened) lastOpened = opened;
+    if (opened && lastOpened && lastOpened.path !== opened) {
+      patch.previousPhoto = lastOpened.path;
+      patch.previousPhotoSize = lastOpened.size;
+    }
+    if (opened) lastOpened = { path: opened, size: null };
   } else if (previous.isSliderDragging && !state.isSliderDragging && heldHistory) {
     // The drag ended: its last edit becomes one step (a final value sent
     // just after the release still joins it).
     const held = heldHistory;
     heldHistory = null;
     scheduledHistory(held);
+  }
+  // The open photograph's size once it is known (Previous frames its
+  // drawn masks with it).
+  if (
+    lastOpened &&
+    state.selectedImage?.path === lastOpened.path &&
+    state.selectedImage.width > 0 &&
+    state.selectedImage.height > 0
+  ) {
+    lastOpened.size = { width: state.selectedImage.width, height: state.selectedImage.height };
   }
   // Lightroom's automatic overlay (notes: reference/layers-panel-c1-lr.md):
   // shown while a mask is made or painted, off at the layer's first

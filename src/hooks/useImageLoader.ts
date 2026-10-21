@@ -9,12 +9,10 @@ import { useUIStore } from '../store/useUIStore';
 import { useSettingsStore } from '../store/useSettingsStore';
 import { Invokes, type ImageMetadata, type LoadImageResult } from '../components/ui/AppProperties';
 import {
-  initialAdjustmentsFor,
-  normalizeLoadedAdjustments,
   type Adjustments,
 } from '../utils/adjustments';
-import { waitForRecipe } from './useEditorActions';
-import { withNeverEditedDefaults } from '../utils/neverEdited';
+import { rememberOpenedRecipe, waitForPendingMetadataSave } from './useEditorActions';
+import { editorRecipe, neverEdited } from '../utils/neverEdited';
 import { globalImageCache, type ImageCacheEntry } from '../utils/ImageLRUCache';
 import { performanceDiagnosticsEnabled, reportPerformance } from './usePerformanceDiagnostics';
 
@@ -116,7 +114,7 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           // Native load_image already clears source-dependent caches. Metadata
           // loading does not depend on decoding, so do both in the same round.
           const readMetadata = () => invoke<ImageMetadata>(Invokes.LoadMetadata, { path: selectedImage.path });
-          const pendingSave = waitForRecipe(selectedImage.path);
+          const pendingSave = waitForPendingMetadataSave(selectedImage.path);
           let unsavedAdjustments: Adjustments | undefined;
           const metadataRequest = (pendingSave
             ? pendingSave.then((unsaved) => {
@@ -167,17 +165,15 @@ export function useImageLoader(cachedEditStateRef: React.RefObject<ImageCacheEnt
           // The recipe to render: saved, or the defaults for a never-edited photo.
           const recipeFor = async (metadata: ImageMetadata | null, isRaw: boolean, width: number, height: number) => {
             const savedAdjustments = unsavedAdjustments ?? metadata?.adjustments;
-            const initialAdjusts = savedAdjustments && !savedAdjustments.is_null
-              ? normalizeLoadedAdjustments(savedAdjustments, isRaw)
-              : initialAdjustmentsFor(isRaw);
-            if (!initialAdjusts.aspectRatio && !initialAdjusts.crop) {
-              initialAdjusts.aspectRatio = width / height;
-            }
             // Profile corrections are on by default: a never-edited RAW (its
             // recipe has no lens mode at all) starts with the camera's own lens
             // data, the edge-fringe pass and the automatic lateral CA, as its
             // export does.
-            return withNeverEditedDefaults(initialAdjusts, savedAdjustments, isRaw, () => cameraRequest);
+            const camera = isRaw && neverEdited(savedAdjustments) ? await cameraRequest : null;
+            // Kept for a paste onto it while it is not edited (it pastes onto
+            // this saved recipe, as onto a closed photograph).
+            rememberOpenedRecipe(selectedImage.path, { saved: savedAdjustments ?? null, camera, width, height });
+            return editorRecipe(savedAdjustments, isRaw, width, height, camera);
           };
           const publishSource = (
             initialAdjusts: Adjustments,

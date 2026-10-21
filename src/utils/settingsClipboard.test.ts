@@ -6,6 +6,7 @@ import {
   chosenSettings,
   detectionPending,
   newEditResponses,
+  pasteInto,
   groupModified,
 } from './settingsClipboard';
 
@@ -85,4 +86,33 @@ describe('settings clipboard', () => {
     expect(groupModified(group('vignette'), source, true)).toBe(false);
   });
 
+
+  // The same cases as the backend's `masks::paste_tests` and `edits` tests.
+  it('pastes onto a recipe as the backend does', () => {
+    const own = recipe({ exposure: 0.1, whiteBalance: 'custom', masks: [layer('dodge'), { ...layer('sky'), name: 'old sky' }] } as Partial<Adjustments>);
+    const pasted = { exposure: 1, whiteBalance: null, masks: [layer('sky'), layer('vignette')] } as unknown as Partial<Adjustments>;
+    const merged = pasteInto(own, pasted, { samePhoto: false, replaceLayers: false })!;
+    expect(merged.exposure).toBe(1);
+    expect('whiteBalance' in merged).toBe(false);
+    expect(merged.masks.map((l) => [l.id, l.name])).toEqual([['dodge', 'dodge'], ['sky', 'sky'], ['vignette', 'vignette']]);
+    expect(pasteInto(own, pasted, { samePhoto: false, replaceLayers: true })!.masks.map((l) => l.id)).toEqual(['sky', 'vignette']);
+  });
+
+  it('never pastes another photo’s AI bitmap; a virtual copy of the same keeps it', () => {
+    const pasted = { masks: [layer('sky', 'ai-sky', { maskDataBase64: 'data:source', grow: 10 }), layer('people', 'ai-people', { parts: [] })] } as unknown as Partial<Adjustments>;
+    const onOther = pasteInto(recipe({}), pasted, { samePhoto: false, replaceLayers: false })!;
+    expect(onOther.masks[0].subMasks[0].parameters).toEqual({ maskDataBase64: null, grow: 10, detectPending: true });
+    expect(onOther.masks[0].subMasks[0].id).not.toBe('sky-c');
+    expect(onOther.masks[1].subMasks[0].id).toBe('people-c');
+    const onCopy = pasteInto(recipe({}), pasted, { samePhoto: true, replaceLayers: false })!;
+    expect(onCopy.masks[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: 'data:source' });
+  });
+
+  it('starts a never-edited recipe as a new edit and refuses more layers than applied', () => {
+    const fresh = pasteInto(null, { exposure: 1 } as Partial<Adjustments>, { samePhoto: false, replaceLayers: false, newEdit: { toneVersion: 2 } })!;
+    expect(fresh).toMatchObject({ exposure: 1, toneVersion: 2, renderVersion: expect.any(Number) });
+    const many = Array.from({ length: 33 }, (_, i) => layer(`l${i}`));
+    expect(pasteInto(recipe({}), { masks: many } as unknown as Partial<Adjustments>, { samePhoto: false, replaceLayers: false })).toBeNull();
+    expect(pasteInto(recipe({}), { masks: many.slice(0, 32) } as unknown as Partial<Adjustments>, { samePhoto: false, replaceLayers: false })).not.toBeNull();
+  });
 });

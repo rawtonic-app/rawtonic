@@ -1,10 +1,12 @@
 import {
   ADJUSTMENT_GROUPS,
+  RENDER_VERSION,
   initialAdjustmentsFor,
   sameAdjustmentValue,
   type Adjustments,
   type MaskContainer,
 } from './adjustments';
+import { MAX_RENDERED_LAYERS, isRenderedLayer } from './layerLimit';
 import type { SubMask } from '../components/panel/right/Masks';
 
 /** Mask component types the AI detects on each photograph (Subject, Sky,
@@ -140,3 +142,60 @@ export function detectionPending(sub: SubMask): boolean {
   return Boolean(parameters?.[DETECT_PENDING]) && !parameters?.maskDataBase64 && !parameters?.mask_data_base64;
 }
 
+
+/** `base` (a photograph's recipe; none: never edited) with `pasted` pasted
+ * onto it as the backend pastes onto a closed photograph (`pasted_into`,
+ * `masks::paste_layers`), for the open one: a new recipe starts as a new
+ * edit (render version, `newEdit`: a new edit's processing versions); a
+ * `null` setting is removed; pasted layers replace the layer of the same id
+ * and join the others (`replaceLayers`: replace them all), their AI
+ * detections waiting, under ids of their own, for this photograph's unless
+ * it is the source's (`samePhoto`). Null when the layers would exceed what
+ * the renderer applies. */
+export function pasteInto(
+  base: Adjustments | null,
+  pasted: Partial<Adjustments>,
+  { samePhoto, replaceLayers, newEdit }: { samePhoto: boolean; replaceLayers: boolean; newEdit?: Record<string, unknown> },
+): Adjustments | null {
+  const out: Record<string, unknown> = { ...(base ?? {}) };
+  if (Object.keys(out).every((key) => key === 'lensProfileFor')) {
+    out.renderVersion = RENDER_VERSION;
+    for (const [key, value] of Object.entries(newEdit ?? {})) if (!(key in out)) out[key] = value;
+  }
+  const rendered = (masks: unknown) => ((masks as MaskContainer[] | undefined) ?? []).filter(isRenderedLayer).length;
+  const before = rendered(out.masks);
+  for (const [key, value] of Object.entries(pasted)) {
+    if (value === null) delete out[key];
+    else if (key === 'masks') out.masks = pastedLayers(out.masks as MaskContainer[] | undefined, value as MaskContainer[], samePhoto, replaceLayers);
+    else out[key] = value;
+  }
+  const after = rendered(out.masks);
+  if (after > MAX_RENDERED_LAYERS && after > before) return null;
+  return out as unknown as Adjustments;
+}
+
+function pastedLayers(own: MaskContainer[] | undefined, pasted: MaskContainer[], samePhoto: boolean, replace: boolean): MaskContainer[] {
+  const incoming = samePhoto ? pasted : pasted.map(withPendingDetections);
+  if (replace) return incoming;
+  const layers = [...(own ?? [])];
+  for (const layer of incoming) {
+    const at = layers.findIndex((mine) => mine.id === layer.id);
+    if (at >= 0) layers[at] = layer;
+    else layers.push(layer);
+  }
+  return layers;
+}
+
+function withPendingDetections(layer: MaskContainer): MaskContainer {
+  return {
+    ...layer,
+    subMasks: layer.subMasks.map((sub: SubMask) => {
+      const parameters = (sub.parameters ?? {}) as Record<string, unknown>;
+      const nothingToDetect = Array.isArray(parameters.parts) && parameters.parts.length === 0;
+      if (!DETECTED_TYPES.has(sub.type) || nothingToDetect) return sub;
+      const next: Record<string, unknown> = { ...parameters, maskDataBase64: null, [DETECT_PENDING]: true };
+      if ('mask_data_base64' in next) next.mask_data_base64 = null;
+      return { ...sub, id: crypto.randomUUID(), parameters: next };
+    }),
+  };
+}
