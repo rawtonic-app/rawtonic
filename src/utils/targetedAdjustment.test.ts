@@ -200,6 +200,23 @@ describe("targeted adjustment", () => {
     expect(
       startTargetedAdjustment("regionCurve", hidden, null, [100, 100, 100]),
     ).not.toBeNull();
+    // A LUT that is off or at zero does not count.
+    for (const off of [
+      { lutPath: "/l.cube", lutIntensity: 0 },
+      {
+        lutPath: "/l.cube",
+        sectionVisibility: { ...base().sectionVisibility, effects: false },
+      },
+    ]) {
+      expect(
+        startTargetedAdjustment(
+          "regionCurve",
+          { ...base(), ...off },
+          null,
+          [100, 100, 100],
+        ),
+      ).not.toBeNull();
+    }
     const switchedOff = {
       ...base(),
       masks: [

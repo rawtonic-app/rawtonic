@@ -46,9 +46,19 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
 
   const onPointerDown = async (e: PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
-    const { selectedImage, adjustments, tatTarget, setEditor } =
-      useEditorStore.getState();
+    const view = useEditorStore.getState();
+    const { selectedImage, adjustments, tatTarget, setEditor } = view;
     if (!selectedImage?.isReady || !tatTarget) return;
+    // The displayed tone is the photo's only without view overlays
+    // (clipping warnings, soft proofing, colour-range and layer solo views).
+    if (
+      isToneTarget(tatTarget) &&
+      (view.clippingWarnings ||
+        view.softProof ||
+        view.colorRangeShow ||
+        view.layerSolo)
+    )
+      return;
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch {

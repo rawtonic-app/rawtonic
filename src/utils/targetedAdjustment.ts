@@ -264,7 +264,11 @@ function hasToneAfterCurves(a: Adjustments) {
       )
     );
   });
-  return layerCurves || !!a.lutPath;
+  const lut =
+    !!a.lutPath &&
+    a.sectionVisibility?.effects !== false &&
+    (a.lutIntensity ?? 100) > 0;
+  return layerCurves || lut;
 }
 
 const regionOf = (a: Adjustments): RegionCurve => ({

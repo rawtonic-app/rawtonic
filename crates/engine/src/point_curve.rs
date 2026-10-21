@@ -124,9 +124,10 @@ pub fn curves_value(channels: &[Vec<(f32, f32)>; 4], value: f32) -> [f32; 3] {
 /// than the uniforms hold (`None` otherwise): `channels` are the luma, red,
 /// green and blue points as the recipe stores them. The table holds the exact
 /// curves every 1/1024 of the input and is read linearly between, so a read
-/// lies between the exact curves' values within a quarter input level: on
-/// smooth curves within 0.01 of an output level, while a near-vertical
-/// segment (a jump within one input level) is spread over that quarter level.
+/// lies between the exact curves' values within a quarter input level. On
+/// the 20-point test curves the reads stay within 0.01–0.11 of an output
+/// level (under a quarter level, tested); a near-vertical segment (a jump
+/// within one input level) is spread over that quarter input level.
 pub fn curve_table(channels: &[Vec<(f32, f32)>; 4]) -> Option<Arc<Vec<[f32; 4]>>> {
     if channels.iter().all(|c| c.len() <= SHADER_CURVE_POINTS) {
         return None;
