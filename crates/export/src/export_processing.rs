@@ -1010,9 +1010,10 @@ pub fn prepare_export_source(
         .map_err(|e| e.to_string())?;
     // Never exported with another photograph's mask or without one.
     let pending = rawtonic_engine::masks::pending_detections(js_adjustments);
-    if pending > 0 {
+    if !pending.is_empty() {
         return Err(format!(
-            "{source_path_str}: {pending} pasted or synced mask selection(s) wait for their AI detection on this photograph; open it in Develop to detect them"
+            "{source_path_str}: not exported, a pasted or synced AI selection waits for this photograph: {}",
+            rawtonic_engine::masks::pending_detections_message(&pending)
         ));
     }
     let patched = match rawtonic_engine::image_loader::composite_patches_for_render(
@@ -2414,7 +2415,11 @@ mod detection_tests {
         let error = prepare_export_source("/qa/a.jpg", image.clone(), &pending)
             .err()
             .expect("refused");
-        assert!(error.contains("wait for their AI detection"), "{error}");
+        assert!(error.contains("/qa/a.jpg"), "{error}");
+        assert!(
+            error.contains("open the photograph in Develop to detect its Sky selection"),
+            "{error}"
+        );
         // Detected on it (or never pasted): exported.
         let detected =
             layer(json!({"maskDataBase64": "data:image/png;base64,AAAA", "detectPending": true}));

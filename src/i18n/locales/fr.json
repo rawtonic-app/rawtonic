@@ -1705,8 +1705,10 @@
       "noLayers": "Cette photo n’a pas de calques.",
       "none": "Aucun",
       "pending": "Détection IA en attente : elle s’exécute à l’ouverture de la photo",
+      "pendingObject": "Désignez à nouveau l’objet : une sélection d’objet appartient à sa photo",
+      "pendingObjectShort": "À resélectionner",
       "pendingShort": "Détection IA en attente",
-      "rules": "Les calques collés s’ajoutent à ceux de chaque photo (un calque déjà collé est remplacé). Les sélections IA (ciel, sujet, objets, profondeur, personnes) sont détectées sur chaque photo, jamais reprises de celle-ci. Les retouches, correctifs IA et flou d’objectif restent avec leur photo.",
+      "rules": "Les calques collés s’ajoutent à ceux de chaque photo (un calque déjà collé est remplacé). Les sélections IA (ciel, sujet, profondeur, personnes) sont détectées sur chaque photo et les sélections d’objet y sont à nouveau désignées : jamais reprises de celle-ci. Les retouches, correctifs IA et flou d’objectif restent avec leur photo.",
       "sections": {
         "basic": "Lumière",
         "color": "Couleur",
@@ -1715,7 +1717,10 @@
         "geometry": "Recadrage, géométrie et objectif"
       },
       "sync": "Synchroniser ({{n}})",
-      "syncTitle": "Synchroniser les réglages avec les autres photos sélectionnées ({{n}})"
+      "syncTitle": "Synchroniser les réglages avec les autres photos sélectionnées ({{n}})",
+      "versions": "Versions de traitement",
+      "versionsChoice": "Les versions de traitement de cette photo",
+      "versionsNote": "Désactivé : chaque photo garde les siennes et les valeurs collées sont rendues avec elles. Activé : celles de cette photo sont reprises, ce qui peut changer l’aspect des autres réglages de ces photos."
     },
     "crop": {
       "add": "Ajouter",

@@ -360,32 +360,19 @@ describe("automatic AI masks from imported presets", () => {
     await waitFor(() => expect(generated()).toHaveLength(2));
   });
 
-  it("detects a pasted Object selection by its box, scaled from the photo it was pointed on", async () => {
-    const pending = deferredMasks();
-    const object = () =>
-      layer("ai-subject", {
-        startX: 600, startY: 400, endX: 1200, endY: 800,
-        maskDataBase64: null, detectPending: true, sourceSize: { width: 6000, height: 4000 },
-      });
-    const on = (path: string) => ({
-      selectedImage: { path, isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
-      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [object()] as never },
+  it("leaves a pasted Object selection to be pointed at again, and ends its wait when it is", async () => {
+    const object = layer("ai-subject", { startX: 600, startY: 400, endX: 1200, endY: 800, maskDataBase64: null, detectPending: true });
+    useEditorStore.setState({
+      selectedImage: { path: "/s/a.NEF", isReady: true, isRaw: true, width: 3000, height: 2000 } as never,
+      adjustments: { ...structuredClone(INITIAL_ADJUSTMENTS), masks: [object] as never },
     });
-    useEditorStore.setState(on("/s/a.NEF"));
-    renderHook(() => useAiMasking());
-    const subjectCalls = () => invoke.mock.calls.filter((c) => c[0] === "generate_ai_subject_mask");
-    await waitFor(() => expect(subjectCalls()).toHaveLength(1));
-    expect(subjectCalls()[0][1]).toMatchObject({ startPoint: [300, 200], endPoint: [600, 400] });
-    // Left before it answered: asked again on returning to the photo.
-    act(() => useEditorStore.setState(on("/s/b.NEF")));
-    await act(async () => pending[0]({ maskDataBase64: "data:image/png;base64,AAAA", startX: 300, startY: 200, endX: 600, endY: 400 }));
-    act(() => useEditorStore.setState(on("/s/a.NEF")));
-    await waitFor(() => expect(subjectCalls().filter((c) => (c[1] as { path: string }).path === "/s/a.NEF")).toHaveLength(2));
-    const asked = pending.length;
-    await act(async () => pending[asked - 1]({ maskDataBase64: "data:image/png;base64,BBBB", startX: 300, startY: 200, endX: 600, endY: 400 }));
-    // Detected: its box is this photo's now, with this photo's size.
-    await waitFor(() => expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" }));
-    expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ sourceSize: { width: 3000, height: 2000 } });
+    const { result } = renderHook(() => useAiMasking());
+    await act(async () => {});
+    expect(invoke.mock.calls.some((c) => c[0] === "generate_ai_subject_mask")).toBe(false);
+    // The user points at the object again.
+    invoke.mockResolvedValue({ maskDataBase64: "data:image/png;base64,BBBB", startX: 10, startY: 10, endX: 50, endY: 50 });
+    await act(() => result.current.handleGenerateAiMask("sub-ai-subject", { x: 10, y: 10 }, { x: 50, y: 50 }));
+    expect(subOf("sub-ai-subject")?.parameters).toMatchObject({ maskDataBase64: "data:image/png;base64,BBBB" });
     expect(subOf("sub-ai-subject")?.parameters).not.toHaveProperty("detectPending");
   });
 

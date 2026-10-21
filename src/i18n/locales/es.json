@@ -1705,8 +1705,10 @@
       "noLayers": "Esta foto no tiene capas.",
       "none": "Nada",
       "pending": "Detección de IA pendiente: se ejecuta al abrir la foto",
+      "pendingObject": "Vuelve a señalar el objeto: una selección de objeto pertenece a su foto",
+      "pendingObjectShort": "Volver a seleccionar",
       "pendingShort": "Detección de IA pendiente",
-      "rules": "Las capas pegadas se suman a las de cada foto (una capa ya pegada se reemplaza). Las selecciones de IA (cielo, sujeto, objetos, profundidad, personas) se detectan en cada foto, nunca se toman de esta. El retoque, los parches de IA y el desenfoque de lente se quedan con su foto.",
+      "rules": "Las capas pegadas se suman a las de cada foto (una capa ya pegada se reemplaza). Las selecciones de IA (cielo, sujeto, profundidad, personas) se detectan en cada foto y las selecciones de objeto se vuelven a señalar allí: nunca se toman de esta. El retoque, los parches de IA y el desenfoque de lente se quedan con su foto.",
       "sections": {
         "basic": "Luz",
         "color": "Color",
@@ -1715,7 +1717,10 @@
         "geometry": "Recorte, geometría y lente"
       },
       "sync": "Sincronizar ({{n}})",
-      "syncTitle": "Sincronizar ajustes con las otras fotos seleccionadas ({{n}})"
+      "syncTitle": "Sincronizar ajustes con las otras fotos seleccionadas ({{n}})",
+      "versions": "Versiones de procesamiento",
+      "versionsChoice": "Las versiones de procesamiento de esta foto",
+      "versionsNote": "Desactivado: cada foto conserva las suyas y los valores pegados se procesan con ellas. Activado: se toman las de esta foto, lo que puede cambiar el aspecto de los demás ajustes de esas fotos."
     },
     "crop": {
       "add": "Añadir",

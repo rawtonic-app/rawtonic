@@ -1647,8 +1647,10 @@
       "noLayers": "Dieses Foto hat keine Ebenen.",
       "none": "Keine",
       "pending": "KI-Erkennung ausstehend: läuft beim Öffnen des Fotos",
+      "pendingObject": "Objekt erneut anklicken: Eine Objektauswahl gehört zu ihrem Foto",
+      "pendingObjectShort": "Erneut auswählen",
       "pendingShort": "KI-Erkennung ausstehend",
-      "rules": "Eingefügte Ebenen kommen zu den eigenen jedes Fotos hinzu (eine schon einmal eingefügte wird ersetzt). KI-Auswahlen (Himmel, Motiv, Objekte, Tiefe, Personen) werden auf jedem Foto erkannt, nie von diesem übernommen. Retusche, KI-Flicken und Objektivunschärfe bleiben bei ihrem Foto.",
+      "rules": "Eingefügte Ebenen kommen zu den eigenen jedes Fotos hinzu (eine schon einmal eingefügte wird ersetzt). KI-Auswahlen (Himmel, Motiv, Tiefe, Personen) werden auf jedem Foto erkannt, Objektauswahlen dort erneut angeklickt: nie von diesem übernommen. Retusche, KI-Flicken und Objektivunschärfe bleiben bei ihrem Foto.",
       "sections": {
         "basic": "Licht",
         "color": "Farbe",
@@ -1657,7 +1659,10 @@
         "geometry": "Freistellen, Geometrie & Objektiv"
       },
       "sync": "Synchronisieren ({{n}})",
-      "syncTitle": "Einstellungen mit den anderen ausgewählten Fotos synchronisieren ({{n}})"
+      "syncTitle": "Einstellungen mit den anderen ausgewählten Fotos synchronisieren ({{n}})",
+      "versions": "Verarbeitungsversionen",
+      "versionsChoice": "Die Verarbeitungsversionen dieses Fotos",
+      "versionsNote": "Aus: Jedes Foto behält seine eigenen, eingefügte Werte werden damit berechnet. Ein: Die dieses Fotos werden übernommen, das kann das Aussehen der übrigen Einstellungen jener Fotos ändern."
     },
     "crop": {
       "add": "Hinzufügen",

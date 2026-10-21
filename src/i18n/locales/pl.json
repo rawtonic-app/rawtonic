@@ -1763,8 +1763,10 @@
       "noLayers": "To zdjęcie nie ma warstw.",
       "none": "Nic",
       "pending": "Wykrywanie AI oczekuje: uruchomi się po otwarciu zdjęcia",
+      "pendingObject": "Wskaż obiekt ponownie: zaznaczenie obiektu należy do swojego zdjęcia",
+      "pendingObjectShort": "Zaznacz ponownie",
       "pendingShort": "Wykrywanie AI oczekuje",
-      "rules": "Wklejone warstwy dołączają do warstw każdego zdjęcia (warstwa wklejona wcześniej jest zastępowana). Zaznaczenia AI (niebo, obiekt główny, obiekty, głębia, osoby) są wykrywane na każdym zdjęciu, nigdy nie są brane z tego. Retusz, łatki AI i rozmycie obiektywu zostają przy swoim zdjęciu.",
+      "rules": "Wklejone warstwy dołączają do warstw każdego zdjęcia (warstwa wklejona wcześniej jest zastępowana). Zaznaczenia AI (niebo, obiekt główny, głębia, osoby) są wykrywane na każdym zdjęciu, a zaznaczenia obiektów wskazuje się tam ponownie: nigdy nie są brane z tego. Retusz, łatki AI i rozmycie obiektywu zostają przy swoim zdjęciu.",
       "sections": {
         "basic": "Światło",
         "color": "Kolor",
@@ -1773,7 +1775,10 @@
         "geometry": "Kadrowanie, geometria i obiektyw"
       },
       "sync": "Synchronizuj ({{n}})",
-      "syncTitle": "Synchronizuj ustawienia z innymi zaznaczonymi zdjęciami ({{n}})"
+      "syncTitle": "Synchronizuj ustawienia z innymi zaznaczonymi zdjęciami ({{n}})",
+      "versions": "Wersje przetwarzania",
+      "versionsChoice": "Wersje przetwarzania tego zdjęcia",
+      "versionsNote": "Wyłączone: każde zdjęcie zachowuje własne, a wklejone wartości są renderowane z nimi. Włączone: przenoszone są wersje tego zdjęcia, co może zmienić wygląd pozostałych ustawień tamtych zdjęć."
     },
     "crop": {
       "add": "Dodaj",

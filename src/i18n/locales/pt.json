@@ -1705,8 +1705,10 @@
       "noLayers": "Esta foto não tem camadas.",
       "none": "Nada",
       "pending": "Deteção de IA pendente: corre quando a foto é aberta",
+      "pendingObject": "Aponte de novo para o objeto: uma seleção de objeto pertence à sua foto",
+      "pendingObjectShort": "Selecionar de novo",
       "pendingShort": "Deteção de IA pendente",
-      "rules": "As camadas coladas juntam-se às de cada foto (uma camada já colada é substituída). As seleções de IA (céu, motivo, objetos, profundidade, pessoas) são detetadas em cada foto, nunca tiradas desta. O retoque, os remendos de IA e o desfoque de lente ficam com a sua foto.",
+      "rules": "As camadas coladas juntam-se às de cada foto (uma camada já colada é substituída). As seleções de IA (céu, motivo, profundidade, pessoas) são detetadas em cada foto e as seleções de objeto voltam a ser apontadas lá: nunca tiradas desta. O retoque, os remendos de IA e o desfoque de lente ficam com a sua foto.",
       "sections": {
         "basic": "Luz",
         "color": "Cor",
@@ -1715,7 +1717,10 @@
         "geometry": "Recorte, geometria e lente"
       },
       "sync": "Sincronizar ({{n}})",
-      "syncTitle": "Sincronizar definições com as outras fotos selecionadas ({{n}})"
+      "syncTitle": "Sincronizar definições com as outras fotos selecionadas ({{n}})",
+      "versions": "Versões de processamento",
+      "versionsChoice": "As versões de processamento desta foto",
+      "versionsNote": "Desligado: cada foto mantém as suas e os valores colados são processados com elas. Ligado: são levadas as desta foto, o que pode mudar o aspeto das outras definições dessas fotos."
     },
     "crop": {
       "add": "Adicionar",

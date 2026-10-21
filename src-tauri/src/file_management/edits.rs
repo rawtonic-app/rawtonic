@@ -272,6 +272,18 @@ pub struct PasteFrom {
     /// of joining them.
     #[serde(default)]
     pub replace_layers: bool,
+    /// The processing versions a new edit gets (RAW, other): a photograph
+    /// never edited takes them as its own before the settings are pasted
+    /// (settings chosen in the picker carry versions only when chosen).
+    #[serde(default)]
+    pub new_edit: Option<NewEditResponses>,
+}
+
+/// The processing versions of a new edit (`newEditResponses` in the editor).
+#[derive(serde::Deserialize, Debug, Clone, Default)]
+pub struct NewEditResponses {
+    pub raw: serde_json::Map<String, Value>,
+    pub other: serde_json::Map<String, Value>,
 }
 
 /// Applies `adjustments` to `paths`. With `paste` (copied or synced
@@ -373,9 +385,26 @@ fn pasted_metadata(
         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
 
     let mut new_adjustments = existing_metadata.adjustments;
+    let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
     // A photo without an edit starts one: the current render
     // version, as the editor's new edits.
     crate::image_processing::apply_render_default(&mut new_adjustments);
+    // Its processing versions are a new edit's own.
+    if new_edit
+        && let (Some(responses), Some(map)) = (
+            paste.and_then(|p| p.new_edit.as_ref()),
+            new_adjustments.as_object_mut(),
+        )
+    {
+        let own = if is_raw_file(source_path) {
+            &responses.raw
+        } else {
+            &responses.other
+        };
+        for (key, value) in own {
+            map.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+    }
     let previous = new_adjustments.clone();
 
     if let (Some(new_map), Some(pasted_map)) =
@@ -910,6 +939,7 @@ mod tests {
         let paste = PasteFrom {
             source: paths[0].clone(),
             replace_layers: false,
+            new_edit: None,
         };
         let failed = edit_sidecars(&paths[1..], None, |path, source, sidecar| {
             pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
@@ -946,6 +976,40 @@ mod tests {
     }
 
     #[test]
+    fn a_never_edited_photograph_takes_a_new_edits_versions_as_its_own() {
+        let (_temp, paths) = session_with_photos(2);
+        // The second photograph was never edited.
+        let (_, sidecar) = parse_virtual_path(&paths[1]);
+        crate::session_bridge::write_editor_sidecar(
+            &sidecar,
+            br#"{"version":1,"rating":0,"tags":[],"adjustments":null}"#,
+        )
+        .unwrap();
+        let mut raw = serde_json::Map::new();
+        raw.insert("toneVersion".into(), serde_json::json!(2));
+        let paste = PasteFrom {
+            source: paths[0].clone(),
+            replace_layers: false,
+            new_edit: Some(NewEditResponses {
+                raw,
+                other: serde_json::Map::new(),
+            }),
+        };
+        let pasted = serde_json::json!({"shadows": 80});
+        let failed = edit_sidecars(&paths, None, |path, source, sidecar| {
+            pasted_metadata(path, source, sidecar, &pasted, Some(&paste), None, None)
+        });
+        assert!(failed.is_empty(), "{failed:?}");
+        let new = crate::exif_processing::load_sidecar(&sidecar).adjustments;
+        assert_eq!(new["toneVersion"], 2, "a new edit's versions");
+        assert_eq!(new["shadows"], 80);
+        // An edited photograph keeps its own (here none: an older edit).
+        let (_, edited) = parse_virtual_path(&paths[0]);
+        let old = crate::exif_processing::load_sidecar(&edited).adjustments;
+        assert!(old.get("toneVersion").is_none());
+    }
+
+    #[test]
     fn a_paste_beyond_the_rendered_layer_limit_is_refused() {
         let (_temp, paths) = session_with_photos(1);
         let layers: Vec<Value> = (0..32)
@@ -954,6 +1018,7 @@ mod tests {
         let paste = PasteFrom {
             source: "/elsewhere/B.ARW".into(),
             replace_layers: false,
+            new_edit: None,
         };
         // The photograph has one layer; 32 more would be 33.
         let pasted = serde_json::json!({ "masks": layers });
@@ -1003,6 +1068,7 @@ mod tests {
         let paste = PasteFrom {
             source: paths[0].clone(),
             replace_layers: false,
+            new_edit: None,
         };
         let mut runs = Vec::new();
         for _ in 0..5 {

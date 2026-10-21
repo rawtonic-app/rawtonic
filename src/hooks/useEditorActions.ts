@@ -16,9 +16,7 @@ import {
   INITIAL_ADJUSTMENTS,
   initialAdjustmentsFor,
   COPYABLE_ADJUSTMENT_KEYS,
-  PasteMode,
   normalizeLoadedAdjustments,
-  pastedAdjustments,
   withAiDenoiseVersion,
   withDiffractionVersion,
   withLumaNoiseVersion,
@@ -30,7 +28,7 @@ import { cropGestures } from '../utils/cropGesture';
 import { autoWhiteBalance } from '../utils/whiteBalance';
 import { originalPreviewAdjustments, splitViewAvailable } from '../utils/beforeAfter';
 import { frameDrawnMasks, keepDrawnMasksOnPhoto } from '../utils/maskGeometry';
-import { chosenSettings, pasteLayers, samePhotograph } from '../utils/settingsClipboard';
+import { chosenSettings, newEditResponses, pasteLayers, samePhotograph } from '../utils/settingsClipboard';
 import { keepWithinLayerLimit } from '../utils/layerLimit';
 import { useCopySettingsDialog, type SettingsChoice, type SettingsSource } from '../components/studio/CopySettingsDialog';
 import { ImageMetadata, Invokes } from '../components/ui/AppProperties';
@@ -177,26 +175,13 @@ async function settingsSource(path?: string): Promise<(SettingsSource & { width?
 
 /** Drawn masks leave their photo with its frame (its size when it is the
  * open one), so the photos they are pasted on place them on the same part
- * of themselves; an Object selection's box keeps the size of the photo it
- * was pointed on (`sourceSize`), to be placed alike when detected again. */
+ * of themselves. */
 function withSourceFrames(
   chosen: Partial<Adjustments>,
   source: SettingsSource & { width?: number; height?: number },
 ): Partial<Adjustments> {
   if (!chosen.masks) return chosen;
-  const framed = frameDrawnMasks(chosen.masks, source.adjustments, source.width, source.height) ?? chosen.masks;
-  const size = source.width && source.height ? { width: source.width, height: source.height } : null;
-  return {
-    ...chosen,
-    masks: framed.map((layer) => ({
-      ...layer,
-      subMasks: layer.subMasks.map((sub) =>
-        sub.type === 'ai-subject' && size && !(sub.parameters as Record<string, unknown>)?.sourceSize
-          ? { ...sub, parameters: { ...sub.parameters, sourceSize: size } }
-          : sub,
-      ),
-    })),
-  };
+  return { ...chosen, masks: frameDrawnMasks(chosen.masks, source.adjustments, source.width, source.height) ?? chosen.masks };
 }
 
 /** The picker's remembered choice (the preferences' copied keys). */
@@ -626,11 +611,18 @@ export function useEditorActions() {
         openingNow = false,
         pasteFrom,
         replaceLayers = false,
-      }: { openingNow?: boolean; pasteFrom?: string | null; replaceLayers?: boolean } = {},
+        asChosen = false,
+      }: { openingNow?: boolean; pasteFrom?: string | null; replaceLayers?: boolean; asChosen?: boolean } = {},
     ) => {
       // Grain from before the structure choice (old presets, other photos)
-      // keeps rendering Even on the photos it is applied to.
-      const adjustmentsToApply = withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(withGrainStructure(partial)))));
+      // keeps rendering Even on the photos it is applied to. The processing
+      // versions values mean go along, unless the settings were chosen in the
+      // picker (`asChosen`): those carry them only when chosen there, else
+      // each photograph keeps its own (a never-edited one: a new edit's).
+      const grain = withGrainStructure(partial);
+      const adjustmentsToApply = asChosen
+        ? grain
+        : withDiffractionVersion(withLumaNoiseVersion(withSharpenVersion(withAiDenoiseVersion(grain))));
       const { selectedImage, adjustments } = useEditorStore.getState();
       const { multiSelectedPaths } = useLibraryStore.getState();
       const pathsToUpdate =
@@ -655,7 +647,9 @@ export function useEditorActions() {
         if (keepWithinLayerLimit(adjustments, next) === next) setAdjustments(next);
       }
 
-      const paste = pasteFrom ? { source: pasteFrom, replaceLayers } : null;
+      const paste = pasteFrom
+        ? { source: pasteFrom, replaceLayers, ...(asChosen ? { newEdit: newEditResponses() } : {}) }
+        : null;
       const written = afterRecipeSaves(pathsToUpdate, () =>
         savedBatch(
           invoke(Invokes.ApplyAdjustmentsToPaths, {
@@ -699,12 +693,12 @@ export function useEditorActions() {
   );
 
   /** What a copy, sync or Previous applies of `chosen` (settings taken by
-   * `chosenSettings`): their version keys along, lens data resolved again
-   * when the lens itself is not taken. */
+   * `chosenSettings`): just those, lens data resolved again when the lens
+   * itself is taken without a profile. */
   const settingsToApply = (chosen: Partial<Adjustments>): Partial<Adjustments> => {
-    const applied = pastedAdjustments(chosen, Object.keys(chosen), PasteMode.Replace);
+    const applied = { ...chosen };
     if ('lensMaker' in chosen && !applied.lensMaker) applied.lensDistortionParams = null;
-    return withDiffractionVersion(withAiDenoiseVersion(applied, chosen), chosen);
+    return applied;
   };
 
   /** Lightroom's Copy Settings: the picker (which tools, which layers; the
@@ -743,7 +737,7 @@ export function useEditorActions() {
       const { setProcess } = useProcessStore.getState();
       if (!copiedAdjustments) return;
       const applied = settingsToApply(copiedAdjustments);
-      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, paths, { pasteFrom: copiedFrom });
+      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, paths, { pasteFrom: copiedFrom, asChosen: true });
       setProcess({ isPasted: true });
     },
     [applyAdjustmentsToPaths],
@@ -764,7 +758,7 @@ export function useEditorActions() {
         rememberChoice(choice);
         const chosen = withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source);
         const applied = settingsToApply(chosen);
-        if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path });
+        if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path, asChosen: true });
       };
       if (quick) sync(rememberedChoice(source.adjustments));
       else
@@ -794,7 +788,7 @@ export function useEditorActions() {
       if (!source) return;
       const choice = rememberedChoice(source.adjustments);
       const applied = settingsToApply(withSourceFrames(chosenSettings(source.adjustments, choice.keys, choice.layerIds), source));
-      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path });
+      if (Object.keys(applied).length > 0) applyAdjustmentsToPaths(applied, targets, { pasteFrom: source.path, asChosen: true });
     },
     [applyAdjustmentsToPaths],
   );

@@ -1647,8 +1647,10 @@
       "noLayers": "This photo has no layers.",
       "none": "None",
       "pending": "AI detection pending: runs when the photo is opened",
+      "pendingObject": "Point at the object again: an Object selection is made on its own photo",
+      "pendingObjectShort": "Select again",
       "pendingShort": "AI detection pending",
-      "rules": "Pasted layers join each photo's own (a layer pasted before is replaced). AI selections (sky, subject, objects, depth, people) are detected on each photo, never taken from this one. Retouching, AI patches and lens blur stay with their photo.",
+      "rules": "Pasted layers join each photo's own (a layer pasted before is replaced). AI selections (sky, subject, depth, people) are detected on each photo and Object selections are pointed at again there: never taken from this one. Retouching, AI patches and lens blur stay with their photo.",
       "sections": {
         "basic": "Light",
         "color": "Color",
@@ -1657,7 +1659,10 @@
         "geometry": "Crop, geometry & lens"
       },
       "sync": "Sync ({{n}})",
-      "syncTitle": "Sync settings to the other selected photos ({{n}})"
+      "syncTitle": "Sync settings to the other selected photos ({{n}})",
+      "versions": "Processing versions",
+      "versionsChoice": "This photo's processing versions",
+      "versionsNote": "Off: each photo keeps its own and the pasted values render with them. On: this photo's travel, which can change how the other settings of those photos look."
     },
     "crop": {
       "add": "Add",

@@ -1705,8 +1705,10 @@
       "noLayers": "Aquesta foto no té capes.",
       "none": "Res",
       "pending": "Detecció d’IA pendent: s’executa en obrir la foto",
+      "pendingObject": "Torna a assenyalar l’objecte: una selecció d’objecte pertany a la seva foto",
+      "pendingObjectShort": "Torna a seleccionar",
       "pendingShort": "Detecció d’IA pendent",
-      "rules": "Les capes enganxades s’afegeixen a les de cada foto (una capa ja enganxada es reemplaça). Les seleccions d’IA (cel, subjecte, objectes, profunditat, persones) es detecten a cada foto, mai es prenen d’aquesta. El retoc, els pedaços d’IA i el desenfocament d’objectiu es queden amb la seva foto.",
+      "rules": "Les capes enganxades s’afegeixen a les de cada foto (una capa ja enganxada es reemplaça). Les seleccions d’IA (cel, subjecte, profunditat, persones) es detecten a cada foto i les seleccions d’objecte s’hi tornen a assenyalar: mai es prenen d’aquesta. El retoc, els pedaços d’IA i el desenfocament d’objectiu es queden amb la seva foto.",
       "sections": {
         "basic": "Llum",
         "color": "Color",
@@ -1715,7 +1717,10 @@
         "geometry": "Retall, geometria i objectiu"
       },
       "sync": "Sincronitza ({{n}})",
-      "syncTitle": "Sincronitza els ajustos amb les altres fotos seleccionades ({{n}})"
+      "syncTitle": "Sincronitza els ajustos amb les altres fotos seleccionades ({{n}})",
+      "versions": "Versions de processament",
+      "versionsChoice": "Les versions de processament d’aquesta foto",
+      "versionsNote": "Desactivat: cada foto conserva les seves i els valors enganxats es processen amb elles. Activat: es prenen les d’aquesta foto, cosa que pot canviar l’aspecte dels altres ajustos d’aquelles fotos."
     },
     "crop": {
       "add": "Afegeix",

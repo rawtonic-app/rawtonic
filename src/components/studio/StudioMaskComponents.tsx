@@ -182,8 +182,11 @@ export default function StudioMaskComponents() {
                 <span className="studio-mask-component-label">{componentLabel(sub)}</span>
                 {busy(sub) && <span className="studio-mask-busy">· {t("studio.masks.computing")}</span>}
                 {!busy(sub) && detectionPending(sub) && (
-                  <span className="studio-mask-pending" title={t("studio.copySettings.pending")}>
-                    · {t("studio.copySettings.pendingShort")}
+                  <span
+                    className="studio-mask-pending"
+                    title={sub.type === "ai-subject" ? t("studio.copySettings.pendingObject") : t("studio.copySettings.pending")}
+                  >
+                    · {sub.type === "ai-subject" ? t("studio.copySettings.pendingObjectShort") : t("studio.copySettings.pendingShort")}
                   </span>
                 )}
               </button>

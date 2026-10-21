@@ -79,6 +79,8 @@ it("copies exactly the chosen tools and layers and remembers the choice", async 
   const remembered = useSettingsStore.getState().appSettings!.copyPasteSettings!.includedAdjustments;
   expect(remembered).toContain("contrast");
   expect(remembered).toContain("masks");
+  // Processing versions are off unless chosen: none on the clipboard.
+  expect("toneVersion" in copiedAdjustments!).toBe(false);
 
   // Paste: onto the selection, from that photograph (layers join theirs).
   useEditorStore.setState({ selectedImage: photo("/s/B.ARW") as never, adjustments: structuredClone(INITIAL_ADJUSTMENTS) });
@@ -86,8 +88,9 @@ it("copies exactly the chosen tools and layers and remembers the choice", async 
   await act(async () => {});
   const [paste] = applied();
   expect(paste.paths).toEqual(["/s/C.ARW"]);
-  expect(paste.paste).toEqual({ source: "/s/A.ARW", replaceLayers: false });
+  expect(paste.paste).toMatchObject({ source: "/s/A.ARW", replaceLayers: false, newEdit: { raw: expect.any(Object) } });
   expect(paste.adjustments).toMatchObject({ exposure: 1, contrast: 20 });
+  expect("sharpenVersion" in paste.adjustments).toBe(false);
   expect(paste.adjustments.masks?.[0].subMasks[0].parameters).toMatchObject({ maskDataBase64: "data:a" });
 });
 
@@ -118,7 +121,11 @@ it("syncs the open photo's chosen settings to the other selected photographs", a
   fireEvent.click(screen.getByRole("button", { name: "Sync (2)" }));
   await act(async () => {});
   expect(applied()).toEqual([
-    { paths: ["/s/B.ARW", "/s/C.ARW"], adjustments: expect.objectContaining({ exposure: 1 }), paste: { source: "/s/A.ARW", replaceLayers: false } },
+    {
+      paths: ["/s/B.ARW", "/s/C.ARW"],
+      adjustments: expect.objectContaining({ exposure: 1 }),
+      paste: expect.objectContaining({ source: "/s/A.ARW", replaceLayers: false }),
+    },
   ]);
   expect("contrast" in applied()[0].adjustments).toBe(false);
   // Option: the choice of last time, without the picker.
@@ -139,7 +146,7 @@ it("pastes the previous photograph's settings, as last chosen", async () => {
   const [paste] = applied();
   expect(paste.adjustments).toMatchObject({ exposure: -1 });
   expect("clarity" in paste.adjustments).toBe(false);
-  expect(paste.paste).toEqual({ source: "/s/A.ARW", replaceLayers: false });
+  expect(paste.paste).toMatchObject({ source: "/s/A.ARW", replaceLayers: false });
 });
 
 it("Previous reads the previous photograph's edit after its save, and pastes where it was asked", async () => {
@@ -188,4 +195,19 @@ it("takes the keyboard while open and gives it back", async () => {
   fireEvent.keyDown(document.activeElement!, { key: "Escape" });
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(document.activeElement).toBe(control);
+});
+
+it("takes the processing versions only when they are chosen", async () => {
+  render(<CopySettingsDialogHost />);
+  const { result } = renderHook(useEditorActions);
+  useEditorStore.setState({ adjustments: { ...structuredClone(source), toneVersion: 2 } as Adjustments });
+  await act(() => result.current.handleCopyAdjustments());
+  const versions = screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement;
+  expect(versions.checked).toBe(false);
+  fireEvent.click(versions);
+  fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+  expect(useEditorStore.getState().copiedAdjustments).toMatchObject({ toneVersion: 2, exposure: 1 });
+  // Remembered: on next time.
+  await act(() => result.current.handleCopyAdjustments());
+  expect((screen.getByRole("checkbox", { name: "This photo's processing versions" }) as HTMLInputElement).checked).toBe(true);
 });

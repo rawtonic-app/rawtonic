@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { INITIAL_ADJUSTMENTS, INITIAL_MASK_CONTAINER, type Adjustments, type MaskContainer } from './adjustments';
 import {
+  RESPONSE_KEYS,
   SETTINGS_GROUPS,
   chosenSettings,
+  newEditResponses,
   detectionPending,
   groupModified,
   pasteLayers,
@@ -29,24 +31,28 @@ describe('settings clipboard', () => {
     expect(chosenSettings(source, group('tone').keys, []).masks).toBeUndefined();
   });
 
-  it('carries the responses a chosen layer’s values mean, also without their tools', () => {
-    const sharpLayer = { ...layer('detail'), adjustments: { ...layer('detail').adjustments, sharpness: 30 } };
-    const source = recipe({ sharpenVersion: 2, masks: [sharpLayer] } as Partial<Adjustments>);
-    const chosen = chosenSettings(source, ['masks'], ['detail']);
-    expect(chosen.sharpenVersion).toBe(2);
-    // Nothing chosen that sharpens: no response either.
-    expect('sharpenVersion' in chosenSettings(source, group('tone').keys, [])).toBe(false);
+  it('takes processing versions only when chosen, a missing one as missing', () => {
+    const source = recipe({ toneVersion: 2, sharpenVersion: 2, contrast: 20 } as Partial<Adjustments>);
+    delete (source as Partial<Adjustments>).defringeVersion;
+    // Not chosen: none, also with the tools that use them.
+    const plain = chosenSettings(source, [...group('tone').keys, ...group('sharpness').keys], []);
+    for (const key of RESPONSE_KEYS) expect(key in plain).toBe(false);
+    expect(plain.contrast).toBe(20);
+    // Chosen: every one, a missing one as null (it travels as missing).
+    const withVersions = chosenSettings(source, [...group('tone').keys, ...RESPONSE_KEYS], []) as Record<string, unknown>;
+    expect(withVersions.toneVersion).toBe(2);
+    expect(withVersions.defringeVersion).toBeNull();
   });
 
-  it('carries the tone response a chosen layer’s Shadows follow, 1 from a source from before it', () => {
-    const shadows = { ...layer('lift'), adjustments: { ...layer('lift').adjustments, shadows: 100 } };
-    const current = recipe({ toneVersion: 2, masks: [shadows] } as Partial<Adjustments>);
-    expect(chosenSettings(current, ['masks'], ['lift']).toneVersion).toBe(2);
-    const legacy = recipe({ masks: [shadows] } as Partial<Adjustments>);
-    delete (legacy as Partial<Adjustments>).toneVersion;
-    expect(chosenSettings(legacy, ['masks'], ['lift']).toneVersion).toBe(1);
-    // A layer without tone values carries none.
-    expect('toneVersion' in chosenSettings(current, ['masks'], [])).toBe(false);
+  it('offers no group of processing versions among the tools', () => {
+    for (const g of SETTINGS_GROUPS) for (const key of g.keys) expect(RESPONSE_KEYS).not.toContain(key);
+    expect(RESPONSE_KEYS).toContain('toneVersion');
+  });
+
+  it('gives a never-edited photo the versions of a new edit', () => {
+    const { raw, other } = newEditResponses();
+    expect(raw.toneVersion).toBeGreaterThan(1);
+    expect('fringeVersion' in other).toBe(false);
   });
 
   it('finds the groups a photograph changed', () => {

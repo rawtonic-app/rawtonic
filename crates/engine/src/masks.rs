@@ -199,9 +199,10 @@ pub struct AiDepthMaskParameters {
     pub warp: Option<serde_json::Value>,
 }
 
-/// Mask component types the AI detects on each photograph: an Object
-/// selection (by its box), Subject, Sky, depth range and People. Pasted or
-/// synced onto another photograph they never keep the source's bitmap.
+/// Mask component types the AI detects on each photograph: Subject, Sky,
+/// depth range and People (detected again when the photograph is opened) and
+/// an Object selection (pointed at again by the user). Pasted or synced onto
+/// another photograph they never keep the source's bitmap.
 pub const DETECTED_TYPES: [&str; 5] = [
     "ai-subject",
     "ai-foreground",
@@ -239,12 +240,26 @@ pub fn rendered_layers(masks: &Value) -> usize {
         .count()
 }
 
-/// How many components of shown layers (`masks`) wait for their AI
-/// detection on this photograph (`DETECT_PENDING` without a bitmap).
-/// Rendered without it, such a layer would apply its adjustments to the
+/// A component of a shown layer waiting for its AI detection on this
+/// photograph (`DETECT_PENDING` without a bitmap): its layer's name and its
+/// type. Rendered without it, the layer would apply its adjustments to the
 /// wrong part of the photograph, or nowhere.
-pub fn pending_detections(adjustments: &Value) -> usize {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PendingDetection {
+    pub layer: String,
+    pub kind: String,
+}
+
+/// The components of shown layers waiting for their AI detection.
+pub fn pending_detections(adjustments: &Value) -> Vec<PendingDetection> {
     let shown = |value: &Value| value.get("visible").and_then(Value::as_bool) != Some(false);
+    let text = |value: &Value, key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string()
+    };
     adjustments
         .get("masks")
         .and_then(Value::as_array)
@@ -257,14 +272,41 @@ pub fn pending_detections(adjustments: &Value) -> usize {
                 .and_then(Value::as_array)
                 .into_iter()
                 .flatten()
-        })
-        .filter(|sub| {
-            shown(sub)
-                && sub.get("parameters").is_some_and(|p| {
-                    p.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true) && !has_bitmap(p)
+                .filter(|sub| {
+                    shown(sub)
+                        && sub.get("parameters").is_some_and(|p| {
+                            p.get(DETECT_PENDING).and_then(Value::as_bool) == Some(true)
+                                && !has_bitmap(p)
+                        })
+                })
+                .map(move |sub| PendingDetection {
+                    layer: text(layer, "name"),
+                    kind: text(sub, "type"),
                 })
         })
-        .count()
+        .collect()
+}
+
+/// What to do about `pending` (`pending_detections`), naming each layer.
+pub fn pending_detections_message(pending: &[PendingDetection]) -> String {
+    pending
+        .iter()
+        .map(|p| {
+            let layer = if p.layer.is_empty() { "a layer" } else { p.layer.as_str() };
+            if p.kind == "ai-subject" {
+                format!("layer “{layer}”: point at its object again in Develop (an Object selection belongs to the photograph it was made on)")
+            } else {
+                format!("layer “{layer}”: open the photograph in Develop to detect its {} selection", match p.kind.as_str() {
+                    "ai-sky" => "Sky",
+                    "ai-foreground" => "Subject",
+                    "ai-depth" => "depth range",
+                    "ai-people" => "People",
+                    _ => "AI",
+                })
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 /// Layers pasted or synced (`pasted`, the source's chosen layers) into a
@@ -396,13 +438,19 @@ mod paste_tests {
                 .is_none()
         );
         let adjustments = json!({ "masks": other });
-        assert_eq!(pending_detections(&adjustments), 1);
+        assert_eq!(
+            pending_detections(&adjustments),
+            [PendingDetection {
+                layer: "sky".into(),
+                kind: "ai-sky".into()
+            }]
+        );
         let same = paste_layers(&json!([]), &pasted, true, false);
         assert_eq!(
             same[0]["subMasks"][0]["parameters"]["maskDataBase64"],
             "data:source"
         );
-        assert_eq!(pending_detections(&json!({ "masks": same })), 0);
+        assert!(pending_detections(&json!({ "masks": same })).is_empty());
     }
 
     #[test]
@@ -411,15 +459,31 @@ mod paste_tests {
             json!({"masks": [{"id": "l", "visible": visible, "subMasks": [
                 {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": data, "detectPending": true}}]}]})
         };
-        assert_eq!(pending_detections(&pending(true, Value::Null)), 1);
-        assert_eq!(pending_detections(&pending(false, Value::Null)), 0);
-        assert_eq!(pending_detections(&pending(true, json!("data:own"))), 0);
+        assert_eq!(pending_detections(&pending(true, Value::Null)).len(), 1);
+        assert!(pending_detections(&pending(false, Value::Null)).is_empty());
+        assert!(pending_detections(&pending(true, json!("data:own"))).is_empty());
         // A layer imported from a Lightroom preset waits without the mark
         // (computed when opened) and is not counted.
-        assert_eq!(
+        assert!(
             pending_detections(&json!({"masks": [{"id": "l", "visible": true, "subMasks": [
-                {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": null}}]}]})),
-            0
+                {"id": "s", "type": "ai-sky", "visible": true, "parameters": {"maskDataBase64": null}}]}]}))
+            .is_empty()
         );
+        let message = pending_detections_message(&[
+            PendingDetection {
+                layer: "Sky".into(),
+                kind: "ai-sky".into(),
+            },
+            PendingDetection {
+                layer: "Car".into(),
+                kind: "ai-subject".into(),
+            },
+        ]);
+        assert!(
+            message.contains(
+                "layer “Sky”: open the photograph in Develop to detect its Sky selection"
+            )
+        );
+        assert!(message.contains("layer “Car”: point at its object again"));
     }
 }

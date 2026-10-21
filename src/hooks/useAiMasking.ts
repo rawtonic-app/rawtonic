@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { isPhotoChanged, noteBackgroundAiError, toastAiError } from '../utils/aiErrors';
-import { DETECT_PENDING, detectionPending } from '../utils/settingsClipboard';
+import { DETECT_PENDING } from '../utils/settingsClipboard';
 import { useEditorStore } from '../store/useEditorStore';
 import { useProcessStore } from '../store/useProcessStore';
 import { useUIStore } from '../store/useUIStore';
@@ -292,13 +292,9 @@ export function useAiMasking() {
             const own = Object.fromEntries(
               keep.filter((key) => parameters[key] !== undefined).map((key) => [key, parameters[key]]),
             );
-            // Detected on this photograph: no longer waiting (pasted ones);
-            // an Object box is in this photograph's pixels, kept with its
-            // size so a copy places it alike on another photograph.
+            // Detected on this photograph: no longer waiting (pasted ones;
+            // an Object selection when the object is pointed at again).
             const { [DETECT_PENDING]: _pending, ...rest } = { ...parameters, ...result, ...own } as Record<string, unknown>;
-            if (sm.type === 'ai-subject' && selectedImage.width && selectedImage.height) {
-              rest.sourceSize = { width: selectedImage.width, height: selectedImage.height };
-            }
             return { ...sm, parameters: rest };
           }),
         })),
@@ -520,38 +516,6 @@ export function useAiMasking() {
     }
     for (const sub of masks.flatMap((m: MaskContainer) => m.subMasks)) {
       if ((sub.parameters as { lrNormalized?: unknown } | undefined)?.lrNormalized) continue;
-      // An Object selection pasted from another photograph is detected here
-      // again by its box, scaled from the photograph it was pointed on.
-      if (sub.type === 'ai-subject') {
-        if (!selectedImage || !detectionPending(sub)) continue;
-        const key = `${selectedImage.path}:${sub.id}`;
-        if (requestedAutoMasks.current.has(key)) continue;
-        requestedAutoMasks.current.add(key);
-        const p = (sub.parameters ?? {}) as {
-          startX?: number;
-          startY?: number;
-          endX?: number;
-          endY?: number;
-          sourceSize?: { width?: number; height?: number };
-        };
-        const sx = p.sourceSize?.width ? selectedImage.width / p.sourceSize.width : 1;
-        const sy = p.sourceSize?.height ? selectedImage.height / p.sourceSize.height : 1;
-        const asked = selectedImage.path;
-        void handleGenerateAiMask(
-          sub.id,
-          { x: (p.startX ?? 0) * sx, y: (p.startY ?? 0) * sy },
-          { x: (p.endX ?? 0) * sx, y: (p.endY ?? 0) * sy },
-        ).then((dropped) => {
-          // Detected, or dropped by a photo switch (asked again when it is
-          // shown again, or now); a failure stays asked until the photo
-          // opens again.
-          if (!dropped && !componentHasData(sub.id)) return;
-          requestedAutoMasks.current.delete(key);
-          const now = useEditorStore.getState().selectedImage;
-          if (dropped && now?.path === asked && now?.isReady) setAskAgain((n) => n + 1);
-        });
-        continue;
-      }
       // A People mask computes again whenever its parts or person change
       // (the panel clears its data then).
       if (sub.type === 'ai-people') {

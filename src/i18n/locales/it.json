@@ -1705,8 +1705,10 @@
       "noLayers": "Questa foto non ha livelli.",
       "none": "Nessuno",
       "pending": "Rilevamento IA in sospeso: viene eseguito all’apertura della foto",
+      "pendingObject": "Indica di nuovo l’oggetto: una selezione di oggetto appartiene alla sua foto",
+      "pendingObjectShort": "Da riselezionare",
       "pendingShort": "Rilevamento IA in sospeso",
-      "rules": "I livelli incollati si aggiungono a quelli di ogni foto (un livello già incollato viene sostituito). Le selezioni IA (cielo, soggetto, oggetti, profondità, persone) vengono rilevate su ogni foto, mai prese da questa. Ritocco, patch IA e sfocatura obiettivo restano con la loro foto.",
+      "rules": "I livelli incollati si aggiungono a quelli di ogni foto (un livello già incollato viene sostituito). Le selezioni IA (cielo, soggetto, profondità, persone) vengono rilevate su ogni foto e le selezioni di oggetto vi vanno indicate di nuovo: mai prese da questa. Ritocco, patch IA e sfocatura obiettivo restano con la loro foto.",
       "sections": {
         "basic": "Luce",
         "color": "Colore",
@@ -1715,7 +1717,10 @@
         "geometry": "Ritaglio, geometria e obiettivo"
       },
       "sync": "Sincronizza ({{n}})",
-      "syncTitle": "Sincronizza le impostazioni con le altre foto selezionate ({{n}})"
+      "syncTitle": "Sincronizza le impostazioni con le altre foto selezionate ({{n}})",
+      "versions": "Versioni di elaborazione",
+      "versionsChoice": "Le versioni di elaborazione di questa foto",
+      "versionsNote": "Disattivato: ogni foto mantiene le proprie e i valori incollati vengono resi con esse. Attivato: vengono prese quelle di questa foto, il che può cambiare l’aspetto delle altre impostazioni di quelle foto."
     },
     "crop": {
       "add": "Aggiungi",

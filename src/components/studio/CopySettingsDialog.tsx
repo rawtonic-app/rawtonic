@@ -4,7 +4,14 @@ import { useTranslation } from "react-i18next";
 import type { ParseKeys } from "i18next";
 import { create } from "zustand";
 import type { Adjustments, MaskContainer } from "../../utils/adjustments";
-import { DETECTED_TYPES, SETTINGS_GROUPS, groupModified, type SettingsGroup } from "../../utils/settingsClipboard";
+import {
+  DETECTED_TYPES,
+  RESPONSES_CHOSEN,
+  RESPONSE_KEYS,
+  SETTINGS_GROUPS,
+  groupModified,
+  type SettingsGroup,
+} from "../../utils/settingsClipboard";
 import type { SubMask } from "../panel/right/Masks";
 
 /** What the picker chooses from: the source photograph's settings. */
@@ -50,10 +57,11 @@ export function chosenGroups(keys: string[]): Set<string> {
   return new Set(SETTINGS_GROUPS.filter((group) => group.keys.some((key) => chosen.has(key))).map((g) => g.label));
 }
 
-/** The keys of the chosen groups (and `masks` when layers are chosen). */
-export function keysOf(groups: Set<string>, withLayers: boolean): string[] {
+/** The keys of the chosen groups, `masks` when layers are chosen, the
+ * processing versions (and their mark) when they are. */
+export function keysOf(groups: Set<string>, withLayers: boolean, withResponses = false): string[] {
   const keys = SETTINGS_GROUPS.filter((group) => groups.has(group.label)).flatMap((group) => group.keys);
-  return withLayers ? [...keys, "masks"] : keys;
+  return [...keys, ...(withLayers ? ["masks"] : []), ...(withResponses ? [...RESPONSE_KEYS, RESPONSES_CHOSEN] : [])];
 }
 
 const layerName = (layer: MaskContainer, index: number) => layer.name?.trim() || `#${index + 1}`;
@@ -91,6 +99,8 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
   const [layerIds, setLayerIds] = useState<Set<string>>(
     () => new Set(request.remembered.includes("masks") ? layers.map((layer) => layer.id) : []),
   );
+  // Off unless chosen last time (Lightroom's Process Version).
+  const [responses, setResponses] = useState(() => request.remembered.includes(RESPONSES_CHOSEN));
   const toggle = (set: Set<string>, value: string, on: boolean) => {
     const next = new Set(set);
     if (on) next.add(value);
@@ -99,7 +109,7 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
   };
   const sectionGroups = (section: string) => SETTINGS_GROUPS.filter((group) => group.section === section);
   const choose = () => {
-    request.onChoose({ keys: keysOf(groups, layerIds.size > 0), layerIds: [...layerIds] });
+    request.onChoose({ keys: keysOf(groups, layerIds.size > 0, responses), layerIds: [...layerIds] });
     close();
   };
   const keys = (e: KeyboardEvent) => {
@@ -110,7 +120,7 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
     request.mode === "copy"
       ? t("studio.copySettings.copyTitle")
       : t("studio.copySettings.syncTitle", { n: request.targets.length });
-  const nothing = groups.size === 0 && layerIds.size === 0;
+  const nothing = groups.size === 0 && layerIds.size === 0 && !responses;
   return createPortal(
     <div className="studio-settings studio-smart-album-backdrop" onKeyDown={keys}>
       <div
@@ -201,6 +211,14 @@ function CopySettingsDialog({ request }: { request: PickerRequest }) {
               </fieldset>
             );
           })}
+          <fieldset>
+            <legend>{t("studio.copySettings.versions")}</legend>
+            <label>
+              <input type="checkbox" checked={responses} onChange={(e) => setResponses(e.target.checked)} />
+              {t("studio.copySettings.versionsChoice")}
+            </label>
+            <p className="studio-help">{t("studio.copySettings.versionsNote")}</p>
+          </fieldset>
           <fieldset>
             <legend>{t("studio.copySettings.layers")}</legend>
             {layers.length === 0 && <p className="studio-help">{t("studio.copySettings.noLayers")}</p>}
