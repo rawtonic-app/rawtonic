@@ -169,6 +169,7 @@ pub fn all_available_adjustments() -> HashSet<String> {
         "cameraProfile",
         "levels",
         "regionCurve",
+        "curveVersion",
         "whiteBalance",
         "wbTemperature",
         "wbTint",
