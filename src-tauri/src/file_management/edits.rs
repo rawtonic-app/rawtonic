@@ -383,8 +383,33 @@ fn pasted_metadata(
 ) -> Result<ImageMetadata, String> {
     let mut existing_metadata =
         crate::exif_processing::load_sidecar_with_exif(sidecar_path, source_path);
+    existing_metadata.adjustments = pasted_into(
+        std::mem::take(&mut existing_metadata.adjustments),
+        &existing_metadata.exif,
+        path,
+        source_path,
+        adjustments,
+        paste,
+        size,
+        lens_db,
+    )?;
+    Ok(existing_metadata)
+}
 
-    let mut new_adjustments = existing_metadata.adjustments;
+/// `base` (a photograph's recipe) with `adjustments` pasted as
+/// `apply_adjustments_to_paths` pastes them (`pasted_metadata`).
+#[allow(clippy::too_many_arguments)]
+fn pasted_into(
+    base: Value,
+    exif: &Option<HashMap<String, String>>,
+    path: &str,
+    source_path: &Path,
+    adjustments: &Value,
+    paste: Option<&PasteFrom>,
+    size: Option<(f64, f64)>,
+    lens_db: Option<&rawtonic_engine::lens_correction::LensDatabase>,
+) -> Result<Value, String> {
+    let mut new_adjustments = base;
     let new_edit = crate::image_processing::is_new_recipe(&new_adjustments);
     // A photo without an edit starts one: the current render
     // version, as the editor's new edits.
@@ -449,13 +474,41 @@ fn pasted_metadata(
         LensLookup::Keep {
             previous: Some(&previous),
         },
-        &existing_metadata.exif,
+        exif,
         lens_db,
         source_path,
     );
+    Ok(new_adjustments)
+}
 
-    existing_metadata.adjustments = new_adjustments;
-    Ok(existing_metadata)
+/// The recipe a copy or sync makes of `base` (the open photograph's, as the
+/// editor holds it) with `adjustments` pasted from `paste`, by the same
+/// rules as `apply_adjustments_to_paths`, without writing anything: the
+/// editor applies it as an edit and saves it as every edit.
+#[tauri::command]
+pub async fn paste_preview(
+    path: String,
+    base: Value,
+    adjustments: Value,
+    paste: PasteFrom,
+) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (source_path, sidecar_path) = parse_virtual_path(&path);
+        let exif = crate::exif_processing::load_sidecar_with_exif(&sidecar_path, &source_path).exif;
+        let lens_db = crate::lens_correction::global_lens_db();
+        pasted_into(
+            base,
+            &exif,
+            &path,
+            &source_path,
+            &adjustments,
+            Some(&paste),
+            None,
+            lens_db.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Whether two photograph paths (virtual copies included) are of one file.

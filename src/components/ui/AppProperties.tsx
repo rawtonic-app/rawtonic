@@ -182,6 +182,7 @@ export enum Invokes {
   ResetAdjustmentsForPaths = 'reset_adjustments_for_paths',
   SaveMetadataAndUpdateThumbnail = 'save_metadata_and_update_thumbnail',
   SaveCollage = 'save_collage',
+  PastePreview = 'paste_preview',
   SnapshotsList = 'snapshots_list',
   SnapshotCreate = 'snapshot_create',
   SnapshotRename = 'snapshot_rename',

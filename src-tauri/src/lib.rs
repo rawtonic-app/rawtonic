@@ -825,6 +825,7 @@ pub fn run() {
             file_management::show_in_finder,
             file_management::save_metadata_and_update_thumbnail,
             file_management::apply_adjustments_to_paths,
+            file_management::paste_preview,
             file_management::load_metadata,
             file_management::load_presets,
             file_management::save_presets,
