@@ -63,12 +63,9 @@ describe("targeted adjustment", () => {
   });
 
   it("adds a curve point at the level under the pointer and then moves it", () => {
-    const start = startTargetedAdjustment(
-      "curve",
-      base(),
-      null,
+    const start = startTargetedAdjustment("curve", base(), null, [
       linearFromSrgb([100, 100, 100]),
-    )!;
+    ])!;
     expect(start.curveX).toBe(100);
     const patch = targetedPatch(start, 15);
     // An edit of neutral curves starts them in the current version.
@@ -83,7 +80,7 @@ describe("targeted adjustment", () => {
       "curve",
       { ...base(), curves: patch.curves! },
       null,
-      linearFromSrgb([100, 100, 100]),
+      [linearFromSrgb([100, 100, 100])],
     )!;
     expect(again.curveX).toBe(100);
     expect(targetedPatch(again, -5).curves!.luma[1]).toEqual({
@@ -96,12 +93,9 @@ describe("targeted adjustment", () => {
     const adjustments = base();
     adjustments.regionCurve = { ...adjustments.regionCurve!, darks: 60 };
     const lifted = regionCurveValue(adjustments.regionCurve, 80 / 255) * 255;
-    const start = startTargetedAdjustment(
-      "curve",
-      adjustments,
-      null,
+    const start = startTargetedAdjustment("curve", adjustments, null, [
       linearFromSrgb([80, 80, 80]),
-    )!;
+    ])!;
     // The point curve sees the region curve's output, not the photo's level.
     expect(start.curveX).toBe(Math.round(lifted));
     // With the curve tool off the region curve does not render.
@@ -110,48 +104,36 @@ describe("targeted adjustment", () => {
       curves: false,
     };
     expect(
-      startTargetedAdjustment(
-        "curve",
-        adjustments,
-        null,
+      startTargetedAdjustment("curve", adjustments, null, [
         linearFromSrgb([80, 80, 80]),
-      )!.curveX,
+      ])!.curveX,
     ).toBe(80);
   });
 
   it("moves the region of the tone under the pointer", () => {
     const adjustments = base();
     adjustments.regionCurve = { ...adjustments.regionCurve!, lights: 10 };
-    const start = startTargetedAdjustment(
-      "regionCurve",
-      adjustments,
-      null,
+    const start = startTargetedAdjustment("regionCurve", adjustments, null, [
       linearFromSrgb([150, 150, 150]),
-    )!;
+    ])!;
     expect(start.curveX).toBe(150);
     const patch = targetedPatch(start, 25.4);
     expect(patch.regionCurve).toMatchObject({ lights: 35, darks: 0 });
     expect(targetedPatch(start, 500).regionCurve!.lights).toBe(100);
     // Coloured pixels: the luminance-weighted level. Pure green is a
     // light tone.
-    const green = startTargetedAdjustment(
-      "regionCurve",
-      base(),
-      null,
+    const green = startTargetedAdjustment("regionCurve", base(), null, [
       linearFromSrgb([0, 255, 0]),
-    )!;
+    ])!;
     expect(green.curveX).toBe(182);
     expect(targetedPatch(green, 5).regionCurve).toMatchObject({
       lights: 5,
       darks: 0,
       highlights: 0,
     });
-    const shadow = startTargetedAdjustment(
-      "regionCurve",
-      base(),
-      null,
+    const shadow = startTargetedAdjustment("regionCurve", base(), null, [
       linearFromSrgb([20, 20, 20]),
-    )!;
+    ])!;
     expect(targetedPatch(shadow, -10).regionCurve).toMatchObject({
       shadows: -10,
       lights: 0,
@@ -165,9 +147,9 @@ describe("targeted adjustment", () => {
     const wideTone =
       0.2880402 * wide[0] + 0.7118741 * wide[1] + 0.0000857 * wide[2];
     // Neutral curves: an edit starts them in the wide working space.
-    expect(startTargetedAdjustment("curve", base(), null, orange)!.curveX).toBe(
-      Math.round(wideTone),
-    );
+    expect(
+      startTargetedAdjustment("curve", base(), null, [orange])!.curveX,
+    ).toBe(Math.round(wideTone));
     // Curves of an earlier version that already change the tone keep
     // rendering on display values.
     const old = base();
@@ -180,7 +162,7 @@ describe("targeted adjustment", () => {
         { x: 255, y: 255 },
       ],
     };
-    expect(startTargetedAdjustment("curve", old, null, orange)!.curveX).toBe(
+    expect(startTargetedAdjustment("curve", old, null, [orange])!.curveX).toBe(
       Math.round(display),
     );
     // Grey is the same level in both.
@@ -206,7 +188,7 @@ describe("targeted adjustment", () => {
       0.2880402 * encode(0.4) +
       0.7118741 * encode(0.05) +
       0.0000857 * encode(0.02);
-    expect(startTargetedAdjustment("curve", base(), null, srgb)!.curveX).toBe(
+    expect(startTargetedAdjustment("curve", base(), null, [srgb])!.curveX).toBe(
       Math.round(expected),
     );
     expect(Math.round(expected)).toBe(94);
@@ -214,8 +196,28 @@ describe("targeted adjustment", () => {
     const lifted = base();
     lifted.regionCurve = { ...lifted.regionCurve!, darks: 40 };
     expect(
-      startTargetedAdjustment("curve", lifted, null, srgb)!.curveX,
+      startTargetedAdjustment("curve", lifted, null, [srgb])!.curveX,
     ).toBeGreaterThan(94);
+  });
+
+  it("averages the sampled pixels in the curve's input levels", () => {
+    // A textured patch: 54 white and 67 black pixels. Their mean level on
+    // the curve is 113.8 (Darks at the default splits); averaging encoded
+    // or linear colours first would land elsewhere.
+    const patch = [
+      ...Array.from({ length: 54 }, () => linearFromSrgb([255, 255, 255])),
+      ...Array.from({ length: 67 }, () => linearFromSrgb([0, 0, 0])),
+    ];
+    const region = startTargetedAdjustment("regionCurve", base(), null, patch)!;
+    expect(region.curveX).toBe(114);
+    expect(targetedPatch(region, 5).regionCurve).toMatchObject({
+      darks: 5,
+      lights: 0,
+    });
+    expect(startTargetedAdjustment("curve", base(), null, patch)!.curveX).toBe(
+      114,
+    );
+    expect(startTargetedAdjustment("curve", base(), null, [])).toBeNull();
   });
 
   it("needs the curve input sample for tone targets", () => {
@@ -237,12 +239,9 @@ describe("targeted adjustment", () => {
         { x: 255, y: 255 },
       ],
     };
-    const start = startTargetedAdjustment(
-      "curve",
-      dense,
-      null,
+    const start = startTargetedAdjustment("curve", dense, null, [
       linearFromSrgb([119, 119, 119]),
-    )!;
+    ])!;
     expect(start.curveX).toBe(119);
     const luma = targetedPatch(start, 15).curves!.luma;
     expect(luma[1]).toEqual({ x: 118, y: 0 });

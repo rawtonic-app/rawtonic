@@ -121,7 +121,7 @@ describe("targeted adjustment surface", () => {
 
   it("reads the level the tone curve receives", async () => {
     useEditorStore.setState({ tatTarget: "curve" });
-    invoke.mockResolvedValue(linearFromSrgb([100, 100, 100]));
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await act(async () => {
       fireEvent.pointerDown(el, {
@@ -150,7 +150,7 @@ describe("targeted adjustment surface", () => {
       tatTarget: "regionCurve",
       clippingWarnings: true,
     });
-    invoke.mockResolvedValue(linearFromSrgb([100, 100, 100]));
+    invoke.mockResolvedValue([linearFromSrgb([100, 100, 100])]);
     const el = surface();
     await act(async () => {
       fireEvent.pointerDown(el, {

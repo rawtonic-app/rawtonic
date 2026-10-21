@@ -77,7 +77,7 @@ export default function TargetedAdjustmentOverlay({ rect }: { rect: Rect }) {
             point,
           ).catch(() => null),
       isToneTarget(tatTarget)
-        ? invoke<[number, number, number] | null>(Invokes.SampleCurveInput, {
+        ? invoke<[number, number, number][] | null>(Invokes.SampleCurveInput, {
             ...point,
             adjustments,
           }).catch(() => null)

@@ -107,55 +107,26 @@ export interface TatStart {
 /**
  * Prepares a drag from the colour under the pointer: `linearRgb` is the
  * photo's colour before adjustments (colour targets), `curveInput` the
- * colour the region and point curves receive there, linear sRGB that may
- * reach beyond 0–1 (tone targets; editor_preview.rs `sample_curve_input`,
- * rendered without the curves and what follows them). Returns null for
+ * colours the region and point curves receive in the pixels there, linear
+ * sRGB that may reach beyond 0–1 (tone targets; editor_preview.rs
+ * `sample_curve_input`, rendered without the curves and what follows
+ * them), averaged here in the curve's own input levels. Returns null for
  * grey under a colour target or a missing sample.
  */
 export function startTargetedAdjustment(
   target: TatTarget,
   base: Adjustments,
   linearRgb: [number, number, number] | null,
-  curveInput: [number, number, number] | null,
+  curveInput: [number, number, number][] | null,
 ): TatStart | null {
   if (isToneTarget(target)) {
-    if (!curveInput) return null;
-    // The region curve and curves on display values see the colour
-    // clipped to sRGB.
-    const display = curveInput.map((v) => toEncoded(v) * 255) as [
-      number,
-      number,
-      number,
-    ];
-    if (target === "regionCurve")
-      return { target, base, curveX: Math.round(tone(display, false)) };
-    // The point curve acts on the region curve's output (when the curve
-    // tool is on), in the space the edited curves render in.
-    const region =
-      base.sectionVisibility?.curves !== false
-        ? regionOf(base)
-        : INITIAL_REGION_CURVE;
-    const regioned = display.map(
-      (v) => regionCurveValue(region, v / 255) * 255,
-    ) as [number, number, number];
-    if (editedCurvesVersion(base.curves) < CURVE_VERSION)
-      return { target, base, curveX: Math.round(tone(regioned, false)) };
-    // The wide curves also see the part beyond sRGB, carried past the
-    // region curve at its luminance ratio (shader `carry_beyond_srgb`).
-    const clipped = display.map((v) => toLinear(v / 255));
-    const shown = regioned.map((v) => toLinear(v / 255));
-    const ratio = Math.min(
-      luminance(shown) / Math.max(luminance(clipped), 1e-5),
-      4,
-    );
-    const carried = shown.map(
-      (v, c) => v + (curveInput[c] - clipped[c]) * ratio,
-    ) as [number, number, number];
-    return {
-      target,
-      base,
-      curveX: Math.round(tone(wideCurveLevels(carried), true)),
-    };
+    if (!curveInput?.length) return null;
+    const level = (pixel: [number, number, number]) =>
+      curveInputLevel(target, base, pixel);
+    const mean =
+      curveInput.reduce((sum, pixel) => sum + level(pixel), 0) /
+      curveInput.length;
+    return { target, base, curveX: Math.round(mean) };
   }
   if (!linearRgb) return null;
   const { chroma, hue } = oklch(linearRgb);
@@ -165,6 +136,45 @@ export function startTargetedAdjustment(
       ? channelWeights(hue, BW_CENTRES, BW_REACH)
       : channelWeights(hue, HSL_CENTRES, HSL_REACH);
   return { target, base, weights };
+}
+
+/**
+ * The level (0–255) a pixel's colour (linear sRGB, beyond 0–1 outside sRGB)
+ * has on the curve a tone target moves: the region curve's input, or the
+ * point curve's input in the space the edited curves render in.
+ */
+function curveInputLevel(
+  target: TatTarget,
+  base: Adjustments,
+  pixel: [number, number, number],
+): number {
+  // The region curve and curves on display values see the colour clipped
+  // to sRGB.
+  const display = pixel.map((v) => toEncoded(v) * 255);
+  if (target === "regionCurve") return tone(display, false);
+  // The point curve acts on the region curve's output (when the curve tool
+  // is on).
+  const region =
+    base.sectionVisibility?.curves !== false
+      ? regionOf(base)
+      : INITIAL_REGION_CURVE;
+  const regioned = display.map((v) => regionCurveValue(region, v / 255) * 255);
+  if (editedCurvesVersion(base.curves) < CURVE_VERSION)
+    return tone(regioned, false);
+  // The wide curves also see the part beyond sRGB, carried past the region
+  // curve at its luminance ratio (shader `carry_beyond_srgb`).
+  const clipped = display.map((v) => toLinear(v / 255));
+  const shown = regioned.map((v) => toLinear(v / 255));
+  const ratio = Math.min(
+    luminance(shown) / Math.max(luminance(clipped), 1e-5),
+    4,
+  );
+  const carried = shown.map((v, c) => v + (pixel[c] - clipped[c]) * ratio) as [
+    number,
+    number,
+    number,
+  ];
+  return tone(wideCurveLevels(carried), true);
 }
 
 /** The colour mixer channel a drag acts on most (for the panel to show). */

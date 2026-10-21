@@ -1071,10 +1071,12 @@ fn preview_base(
     Ok(preview)
 }
 
-/// Tone targets' sample: the mean colour (linear sRGB, signed: the working
-/// gamut reaches beyond sRGB) the photo's region and point curves receive
-/// around a point of the shown preview, rendered from the preview base with
-/// those curves and everything after them left out
+/// Tone targets' sample: the colours (linear sRGB, signed: the working gamut
+/// reaches beyond sRGB) the photo's region and point curves receive in the
+/// pixels around a point of the shown preview (`preview_sample_roi`), each
+/// on its own so the frontend averages them in the curve's input space,
+/// rendered from the preview base with those curves and everything after
+/// them left out
 /// (`point_curve::curve_input_probe`), so layer curves, LUTs and view states
 /// do not hide it. Rendered in ProPhoto, whose cube holds the working gamut,
 /// so nothing beyond sRGB is clipped. `adjustments` is the recipe (without
@@ -1087,7 +1089,7 @@ pub async fn sample_curve_input(
     normalized_y: f64,
     adjustments: serde_json::Value,
     app_handle: tauri::AppHandle,
-) -> Result<Option<[f64; 3]>, String> {
+) -> Result<Option<Vec<[f64; 3]>>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app_handle.state::<AppState>();
         let context = get_or_init_gpu_context(&state, &app_handle)?;
@@ -1176,10 +1178,19 @@ pub async fn sample_curve_input(
             },
             "sample_curve_input",
         )?;
-        Ok(gpu_processing::mean_rgb8(image.to_rgba8().as_raw()).map(prophoto_to_linear_srgb))
+        Ok(Some(prophoto_pixels(image.to_rgba8().as_raw())))
     })
     .await
     .map_err(|error| format!("Curve input sampling task failed: {error}"))?
+}
+
+/// RGBA8 ProPhoto pixels as signed linear sRGB, one colour per pixel.
+fn prophoto_pixels(rgba: &[u8]) -> Vec<[f64; 3]> {
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|p| prophoto_to_linear_srgb([p[0], p[1], p[2]].map(f64::from)))
+        .collect()
 }
 
 /// An 8-bit ProPhoto colour (0–255) as signed linear sRGB.
@@ -3199,7 +3210,7 @@ mod mask_source_build_tests {
 
 #[cfg(test)]
 mod curve_input_tests {
-    use super::prophoto_to_linear_srgb;
+    use super::{prophoto_pixels, prophoto_to_linear_srgb};
     use rawtonic_engine::output_color_space::OutputColorSpace;
 
     #[test]
@@ -3218,5 +3229,14 @@ mod curve_input_tests {
         // Grey stays grey.
         let grey = prophoto_to_linear_srgb([128.0; 3]);
         assert!((grey[0] - grey[1]).abs() < 1e-6 && (grey[1] - grey[2]).abs() < 1e-6);
+        // Each pixel on its own (averaged by the frontend in the curve's
+        // input space), black and white apart.
+        let pixels = prophoto_pixels(&[255, 255, 255, 255, 0, 0, 0, 255]);
+        assert_eq!(pixels.len(), 2);
+        assert!(
+            pixels[0].iter().all(|v| (v - 1.0).abs() < 1e-6),
+            "{pixels:?}"
+        );
+        assert!(pixels[1].iter().all(|v| v.abs() < 1e-9), "{pixels:?}");
     }
 }
