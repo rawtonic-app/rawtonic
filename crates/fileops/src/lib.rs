@@ -70,6 +70,10 @@ pub struct CopyState {
     /// a source that changed after that is kept, not trashed.
     #[serde(default)]
     pub stamp: Option<Stamp>,
+    /// The verified copy's own size and modification time: the source goes
+    /// to the Trash only while its copy is still there unchanged.
+    #[serde(default)]
+    pub copy_stamp: Option<Stamp>,
     /// The Trash item of the source the last finished direction trashed.
     #[serde(default)]
     pub trashed: Option<String>,
@@ -416,6 +420,7 @@ impl Journal {
                 &mut payload,
                 Direction::Forward,
                 trash,
+                false,
             )?;
             self.store(&id, State::Done, &payload)?;
         } else {
@@ -435,10 +440,17 @@ impl Journal {
         trash: &dyn SystemTrash,
         observer: &dyn CopyObserver,
     ) -> Result<()> {
+        // The steps that may have changed the file system.
         let mut applied = 0;
         let result = (|| -> Result<()> {
             self.stage_copies(id, state, payload, Direction::Forward, observer)?;
             for index in 0..payload.steps.len() {
+                if matches!(payload.steps[index].to, Target::OtherVolume { .. }) {
+                    // A publish can fail after its rename (syncing the
+                    // folder); taking a copy back checks the file system,
+                    // so it is safe to reverse either way.
+                    applied = index + 1;
+                }
                 apply(&mut payload.steps[index], trash)?;
                 applied = index + 1;
                 if matches!(payload.steps[index].to, Target::SystemTrash { .. }) {
@@ -504,23 +516,30 @@ impl Journal {
                 Direction::Forward => step.from.clone(),
                 Direction::Back => path.clone(),
             };
-            let stamp = copy_verified(&source, &staged, &mut tally)?;
+            let (stamp, copy_stamp) = copy_verified(&source, &staged, &mut tally)?;
             if let Target::OtherVolume { copy, .. } = &mut payload.steps[index].to {
                 copy.copied = true;
                 copy.stamp = Some(stamp);
+                copy.copy_stamp = Some(copy_stamp);
             }
             self.store_keeping_sync(id, state, payload)?;
             #[cfg(test)]
             crash::point("copy recorded");
         }
+        // Stop pressed during the last verification still stops the move.
+        if observer.cancelled() {
+            bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+        }
         Ok(())
     }
 
     /// Phase 3 of a direction: every source of a copy goes to the system
-    /// Trash unless it changed since its copy was verified or its volume
-    /// has no Trash (then it is kept and the note says so). Journals each
-    /// trashed item, removes the staging folders. Also finishes an
-    /// interrupted phase 3 (`recover`).
+    /// Trash, unless it changed since its copy was verified, its copy is not
+    /// there unchanged, or its volume has no Trash: then it is kept and the
+    /// note says so. Journals each trashed item, removes the staging
+    /// folders. Also finishes an interrupted phase 3 (`recover`, with
+    /// `thorough`: each copy is compared byte for byte with its source
+    /// again, since a drive may have been changed or swapped meanwhile).
     fn finish_copies(
         &self,
         id: &str,
@@ -528,6 +547,7 @@ impl Journal {
         payload: &mut Payload,
         direction: Direction,
         trash: &dyn SystemTrash,
+        thorough: bool,
     ) -> Result<()> {
         let mut kept = Vec::new();
         #[cfg(test)]
@@ -540,16 +560,31 @@ impl Journal {
             };
             // The outcome is recorded for a move (an undo needs to know
             // which originals stayed); an undo's own is not needed later.
-            let (source, forward) = match direction {
-                Direction::Forward => (from, true),
-                Direction::Back => (path.clone(), false),
+            let (source, destination, forward) = match direction {
+                Direction::Forward => (from, path.clone(), true),
+                Direction::Back => (path.clone(), from, false),
             };
             if (forward && (copy.trashed.is_some() || copy.kept)) || !exists(&source) {
                 // Done before a crash (an unjournaled trashing included:
                 // the source is gone and its copy is in place).
                 continue;
             }
-            if Stamp::of(&source).ok() != copy.stamp {
+            let copy_there = fs::symlink_metadata(&destination).is_ok_and(|m| m.is_file())
+                && if thorough || copy.staged.is_none() {
+                    // After a crash, and for an original an undo leaves
+                    // in place: the bytes themselves.
+                    same_content(&source, &destination, true, None).unwrap_or(false)
+                } else {
+                    Stamp::of(&destination).ok() == copy.copy_stamp
+                };
+            if !copy_there {
+                copy.kept |= forward;
+                kept.push(format!(
+                    "{} was kept: its copy at {} is not there unchanged",
+                    source.display(),
+                    destination.display()
+                ));
+            } else if Stamp::of(&source).ok() != copy.stamp {
                 copy.kept |= forward;
                 kept.push(format!(
                     "{} changed while it was moved and was kept",
@@ -646,7 +681,7 @@ impl Journal {
                     if copy.kept {
                         // Both copies stayed: only the moved one goes.
                         ensure!(
-                            exists(&step.from) && same_content(&step.from, path, false)?,
+                            exists(&step.from) && same_content(&step.from, path, false, None)?,
                             "{} and {} differ now; nothing was undone",
                             step.from.display(),
                             path.display()
@@ -698,8 +733,15 @@ impl Journal {
         for undone in 0..total {
             let step = &payload.steps[total - 1 - undone];
             if let Err(error) = reverse_for_undo(step, trash) {
-                // Put back what was already undone: the operation stays done.
-                let redo = payload.steps[total - undone..]
+                // Put back what was already undone: the operation stays
+                // done. A copy's publish back may fail after its rename;
+                // taking it back checks the file system, so it is included.
+                let from = if matches!(step.to, Target::OtherVolume { .. }) {
+                    total - 1 - undone
+                } else {
+                    total - undone
+                };
+                let redo = payload.steps[from..]
                     .iter_mut()
                     .try_for_each(|step| reapply_after_undo(step, trash));
                 let cleaned = remove_staging(&payload);
@@ -725,6 +767,7 @@ impl Journal {
                 &mut payload,
                 Direction::Back,
                 trash,
+                false,
             )?;
         }
         remove_created_dirs(&payload.created_dirs);
@@ -801,6 +844,7 @@ impl Journal {
                 &mut payload,
                 Direction::Forward,
                 trash,
+                false,
             )?;
         }
         let tx = self.conn.unchecked_transaction()?;
@@ -976,12 +1020,12 @@ impl Journal {
                 }
                 State::Finishing => {
                     // Every copy is in place: the move finishes.
-                    self.finish_copies(&id, state, &mut payload, Direction::Forward, trash)?;
+                    self.finish_copies(&id, state, &mut payload, Direction::Forward, trash, true)?;
                     self.store(&id, State::Done, &payload)?;
                     continue;
                 }
                 State::UndoFinishing => {
-                    self.finish_copies(&id, state, &mut payload, Direction::Back, trash)?;
+                    self.finish_copies(&id, state, &mut payload, Direction::Back, trash, true)?;
                     remove_created_dirs(&payload.created_dirs);
                     self.store(&id, State::Undone, &payload)?;
                     self.set_redoable(&id, true)?;
@@ -1756,7 +1800,7 @@ fn unpublish(step: &Step, direction: Direction) -> Result<()> {
         destination.display()
     );
     ensure!(
-        same_content(source, destination, false)?,
+        same_content(source, destination, false, None)?,
         "{} differs from {} now; both were kept",
         destination.display(),
         source.display()
@@ -1904,16 +1948,25 @@ pub(crate) mod crash {
     use std::cell::Cell;
     thread_local! {
         static COUNTDOWN: Cell<Option<usize>> = const { Cell::new(None) };
+        static AT_LABEL: Cell<Option<&'static str>> = const { Cell::new(None) };
     }
     /// Crash at the `n`-th point reached from now (0 = the next).
     pub fn arm(n: usize) {
         COUNTDOWN.set(Some(n));
     }
+    /// Crash at the first point named `label`.
+    pub fn arm_at(label: &'static str) {
+        AT_LABEL.set(Some(label));
+    }
     /// Whether the armed crash has not happened (and disarms it).
     pub fn disarm() -> bool {
-        COUNTDOWN.take().is_some()
+        AT_LABEL.take().is_some() | COUNTDOWN.take().is_some()
     }
     pub fn point(label: &str) {
+        if AT_LABEL.get() == Some(label) {
+            AT_LABEL.set(None);
+            panic!("simulated crash at {label}");
+        }
         match COUNTDOWN.get() {
             Some(0) => {
                 COUNTDOWN.set(None);

@@ -324,9 +324,14 @@ pub(crate) const BLOCK: usize = 1 << 20;
 /// Copies `source` into a new file `staged` (never an existing one) with
 /// its permission bits and modification time, syncs it and its folder,
 /// then reads it back from the drive and compares it byte for byte with
-/// `source`. Returns the source's stamp, unchanged through the copy. On
-/// failure the incomplete copy is left for the caller's staging cleanup.
-pub(crate) fn copy_verified(source: &Path, staged: &Path, tally: &mut Tally) -> Result<Stamp> {
+/// `source`. Returns the source's stamp, unchanged through the copy, and
+/// the copy's. Stop is honoured while copying and comparing. On failure
+/// the incomplete copy is left for the caller's staging cleanup.
+pub(crate) fn copy_verified(
+    source: &Path,
+    staged: &Path,
+    tally: &mut Tally,
+) -> Result<(Stamp, Stamp)> {
     let mut input =
         File::open(source).with_context(|| format!("Cannot read {}", source.display()))?;
     let meta = input.metadata()?;
@@ -371,7 +376,7 @@ pub(crate) fn copy_verified(source: &Path, staged: &Path, tally: &mut Tally) -> 
     drop(output);
     sync_folder(staged.parent().context("The copy has no folder")?)?;
     ensure!(
-        same_content(source, staged, true)?,
+        same_content(source, staged, true, Some(tally.observer))?,
         "The copy of {} differs from the original after writing it; nothing was moved",
         source.display()
     );
@@ -381,7 +386,7 @@ pub(crate) fn copy_verified(source: &Path, staged: &Path, tally: &mut Tally) -> 
         "{} changed while it was copied; nothing was moved",
         source.display()
     );
-    Ok(before)
+    Ok((before, Stamp::of(staged)?))
 }
 
 /// Syncs a folder's entries (a new or renamed name in it) to the drive.
@@ -398,8 +403,14 @@ pub(crate) fn sync_folder(folder: &Path) -> Result<()> {
 /// Whether two files hold the same bytes. With `from_drive`, `b`'s cached
 /// pages are dropped first where the system allows (Linux), or it is read
 /// uncached (macOS: pages already cached may still be served), so that a
-/// just-synced copy is read from the drive.
-pub(crate) fn same_content(a: &Path, b: &Path, from_drive: bool) -> Result<bool> {
+/// just-synced copy is read from the drive. Fails with "Stopped" when
+/// `stop` is cancelled meanwhile.
+pub(crate) fn same_content(
+    a: &Path,
+    b: &Path,
+    from_drive: bool,
+    stop: Option<&dyn CopyObserver>,
+) -> Result<bool> {
     let mut a = File::open(a).with_context(|| format!("Cannot read {}", a.display()))?;
     let mut b = File::open(b).with_context(|| format!("Cannot read {}", b.display()))?;
     if a.metadata()?.len() != b.metadata()?.len() {
@@ -410,6 +421,9 @@ pub(crate) fn same_content(a: &Path, b: &Path, from_drive: bool) -> Result<bool>
     }
     let (mut x, mut y) = (vec![0u8; BLOCK], vec![0u8; BLOCK]);
     loop {
+        if stop.is_some_and(|s| s.cancelled()) {
+            bail!(io::Error::new(io::ErrorKind::Interrupted, "Stopped"));
+        }
         let n = read_full(&mut a, &mut x)?;
         let m = read_full(&mut b, &mut y)?;
         if n != m || x[..n] != y[..m] {

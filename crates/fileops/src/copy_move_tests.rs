@@ -751,9 +751,10 @@ fn a_move_to_an_exfat_volume_when_one_is_given() {
 }
 
 /// Throughput of a move to another volume, for the measurement in G40:
-/// `RAWTONIC_MOVE_BENCH_FROM` and `RAWTONIC_MOVE_BENCH_TO` name two empty
-/// folders on different volumes, `RAWTONIC_MOVE_BENCH_MB` the size of
-/// each of 20 files (default 50). Moves them, undoes the move, prints both.
+/// `RAWTONIC_MOVE_BENCH_FROM` and `RAWTONIC_MOVE_BENCH_TO` name two
+/// folders on different volumes (it works in new folders inside them),
+/// `RAWTONIC_MOVE_BENCH_MB` the size of each of 20 files (default 50).
+/// Moves them, undoes the move, prints both.
 #[test]
 #[ignore = "measurement; needs two volumes named by the environment"]
 fn copy_move_timing() {
@@ -767,16 +768,28 @@ fn copy_move_timing() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(50);
-    let (from, to) = (PathBuf::from(from), PathBuf::from(to));
+    // Folders of its own, files created new: nothing there is replaced.
+    let run = format!("rawtonic-move-bench-{}", uuid::Uuid::new_v4());
+    let (from, to) = (PathBuf::from(from).join(&run), PathBuf::from(to).join(&run));
+    fs::create_dir(&from).unwrap();
+    fs::create_dir(&to).unwrap();
+    assert!(
+        !same_volume(&from, &to.join("x")).unwrap(),
+        "two volumes needed"
+    );
     let journal_dir = tempfile::tempdir().unwrap();
     let journal = Journal::open(&journal_dir.path().join("journal.sqlite")).unwrap();
     let trash = FakeTrash::new();
     let source = from.join("Capture");
-    fs::create_dir_all(&source).unwrap();
+    fs::create_dir(&source).unwrap();
     let mut steps = Vec::new();
     for i in 0..20 {
         let name = format!("IMG_{i:04}.RAF");
-        fs::write(source.join(&name), content(&name, mb << 20)).unwrap();
+        use std::io::Write;
+        fs::File::create_new(source.join(&name))
+            .unwrap()
+            .write_all(&content(&name, mb << 20))
+            .unwrap();
         steps.push(Step::moving(source.join(&name), to.join(&name)).unwrap());
     }
     assert!(
@@ -796,4 +809,121 @@ fn copy_move_timing() {
         total / moved,
         total / undone
     );
+}
+
+/// A crash after the copies were published, then the target drive changed
+/// before the next start (a copy gone, another replaced): recovery trashes
+/// only originals whose copy is still there with the same bytes.
+#[test]
+fn recovery_keeps_an_original_whose_copy_is_gone_or_changed() {
+    let world = World::new();
+    crash::arm_at("finishing");
+    let run = catch_unwind(AssertUnwindSafe(|| {
+        world
+            .journal()
+            .execute("move", "Move", world.steps(), &world.trash)
+    }));
+    assert!(!crash::disarm() && run.is_err());
+    fs::remove_file(world.target.join("A.RAF")).unwrap();
+    let xmp = world.target.join("A.xmp");
+    let mut bytes = fs::read(&xmp).unwrap();
+    bytes[0] ^= 1;
+    fs::write(&xmp, bytes).unwrap();
+    let journal = world.journal();
+    journal.recover(&world.trash).unwrap();
+    let op = journal.history(1).unwrap().remove(0);
+    assert_eq!(op.state, State::Done);
+    for (name, len) in [FILES[0], FILES[2]] {
+        assert_eq!(
+            fs::read(world.source.join(name)).unwrap(),
+            content(name, len),
+            "{name} kept"
+        );
+        assert!(op.note.as_deref().unwrap().contains(name), "{:?}", op.note);
+    }
+    assert!(
+        !exists(&world.source.join("A.RAF.rrdata")),
+        "an intact copy's original goes"
+    );
+    assert_eq!(world.trash.items().len(), 1);
+}
+
+/// The same for an undo: a copy back gone before recovery keeps the copy
+/// at the target.
+#[test]
+fn recovery_of_an_undo_keeps_a_copy_whose_copy_back_is_gone() {
+    let world = World::new();
+    let journal = world.journal();
+    let op = journal
+        .execute("move", "Move", world.steps(), &world.trash)
+        .unwrap();
+    drop(journal);
+    crash::arm_at("finishing");
+    let run = catch_unwind(AssertUnwindSafe(|| {
+        world.journal().undo(&op.id, &world.trash)
+    }));
+    assert!(!crash::disarm() && run.is_err());
+    fs::remove_file(world.source.join("A.RAF")).unwrap();
+    let journal = world.journal();
+    journal.recover(&world.trash).unwrap();
+    assert_eq!(journal.operation(&op.id).unwrap().state, State::Undone);
+    assert_eq!(
+        fs::read(world.target.join("A.RAF")).unwrap(),
+        content("A.RAF", FILES[0].1),
+        "the only copy left stays"
+    );
+    assert!(!exists(&world.target.join("A.xmp")));
+}
+
+/// A publish whose rename worked but whose folder could not be synced (a
+/// folder that can be written but not read) is rolled back with the rest.
+#[cfg(unix)]
+#[test]
+fn a_publish_that_fails_after_its_rename_is_rolled_back() {
+    use std::os::unix::fs::PermissionsExt;
+    let world = World::new();
+    fs::set_permissions(&world.target, fs::Permissions::from_mode(0o300)).unwrap();
+    if fs::File::open(&world.target).is_ok() {
+        fs::set_permissions(&world.target, fs::Permissions::from_mode(0o755)).unwrap();
+        eprintln!("SKIP: permissions do not apply (running as root)");
+        return;
+    }
+    let journal = world.journal();
+    let result = journal.execute("move", "Move", world.steps(), &world.trash);
+    fs::set_permissions(&world.target, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(result.is_err());
+    assert_eq!(journal.history(1).unwrap()[0].state, State::RolledBack);
+    world.assert_at(&world.source, &world.target);
+}
+
+/// Stop pressed while the last copy is being verified still stops the move.
+#[test]
+fn stop_during_the_last_verification_rolls_back() {
+    /// Stop arrives after the copy loop's last look (the one that finds
+    /// the end of the last file), i.e. while verifying.
+    struct StopWhenCopied(Cell<bool>, Cell<u32>);
+    impl CopyObserver for StopWhenCopied {
+        fn copied(&self, done: u64, total: u64) {
+            self.0.set(done == total);
+        }
+        fn cancelled(&self) -> bool {
+            if self.0.get() {
+                self.1.set(self.1.get() + 1);
+            }
+            self.1.get() >= 2
+        }
+    }
+    let world = World::new();
+    let journal = world.journal();
+    let error = journal
+        .execute_with(
+            "move",
+            "Move",
+            world.steps(),
+            &world.trash,
+            &StopWhenCopied(Cell::new(false), Cell::new(0)),
+        )
+        .unwrap_err();
+    assert!(format!("{error:#}").contains("Stopped"), "{error:#}");
+    world.assert_at(&world.source, &world.target);
 }
