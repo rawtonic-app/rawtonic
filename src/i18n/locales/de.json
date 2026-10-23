@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "Der Vorgang konnte nicht abgeschlossen werden."
+  },
   "library": {
     "filters": {
       "rating": {

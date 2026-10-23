@@ -393,6 +393,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "Não foi possível concluir a operação."
+  },
   "library": {
     "filters": {
       "rating": {

@@ -407,6 +407,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "Nie udało się ukończyć operacji."
+  },
   "library": {
     "filters": {
       "rating": {

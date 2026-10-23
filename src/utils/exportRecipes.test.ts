@@ -319,3 +319,8 @@ it("persists counter starts in recipes, including zero, and defaults older recip
   delete preset.sequenceStart;
   expect(draftFromPreset(preset).sequenceStart).toBe(1);
 });
+
+it("returns stable subfolder validation kinds", () => {
+  expect(subfolderProblem("../elsewhere")).toBe("outside");
+  expect(subfolderProblem("C:\\Exports")).toBe("fullPath");
+});

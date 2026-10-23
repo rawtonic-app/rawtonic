@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "无法完成操作。"
+  },
   "library": {
     "filters": {
       "rating": {

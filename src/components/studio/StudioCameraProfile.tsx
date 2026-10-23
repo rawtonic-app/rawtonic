@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import OperationError from "../ui/OperationError";
 import { Invokes } from "../ui/AppProperties";
 
 export interface CameraProfileEntry {
@@ -49,12 +50,12 @@ export default function StudioCameraProfile({
 
   const importProfile = async () => {
     if (!imagePath) return;
-    const source = await open({
-      multiple: false,
-      filters: [{ name: t("studio.profile.dcpFilter"), extensions: ["dcp", "DCP"] }],
-    });
-    if (typeof source !== "string") return;
     try {
+      const source = await open({
+        multiple: false,
+        filters: [{ name: t("studio.profile.dcpFilter"), extensions: ["dcp", "DCP"] }],
+      });
+      if (typeof source !== "string") return;
       const entry = await invoke<CameraProfileEntry>(
         Invokes.ImportCameraProfile,
         { source, imagePath },
@@ -101,7 +102,7 @@ export default function StudioCameraProfile({
       )}
       {error && (
         <div className="studio-hint" role="alert">
-          {error}
+          <OperationError detail={error} />
         </div>
       )}
     </>

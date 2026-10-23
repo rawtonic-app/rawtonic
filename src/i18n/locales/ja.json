@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "操作を完了できませんでした。"
+  },
   "library": {
     "filters": {
       "rating": {

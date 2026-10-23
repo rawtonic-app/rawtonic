@@ -379,6 +379,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "작업을 완료하지 못했습니다."
+  },
   "library": {
     "filters": {
       "rating": {

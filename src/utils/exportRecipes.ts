@@ -390,9 +390,9 @@ export function exportSettingsFromPreset(preset: ExportPreset): { settings: Expo
 }
 
 /** Why a subfolder name cannot be used, or null. */
-export function subfolderProblem(subfolder: string): string | null {
+export function subfolderProblem(subfolder: string): "outside" | "fullPath" | null {
   const parts = subfolder.trim().replace(/^[/\\]+/, '').split(/[/\\]/);
-  if (parts.some((part) => part === '..')) return 'The subfolder must stay inside the destination folder.';
-  if (/^[a-zA-Z]:/.test(subfolder.trim())) return 'Use a folder name, not a drive or full path.';
+  if (parts.some((part) => part === '..')) return 'outside';
+  if (/^[a-zA-Z]:/.test(subfolder.trim())) return 'fullPath';
   return null;
 }

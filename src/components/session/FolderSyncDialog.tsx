@@ -3,6 +3,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Check, LoaderCircle, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import OperationError from "../ui/OperationError";
 import { Invokes } from "../ui/AppProperties";
 import {
   SYNC_GROUPS,
@@ -404,12 +405,12 @@ export default function FolderSyncDialog({ directory, folder, onClose, onApplied
         {phase.kind === "done" && done(phase.applied)}
         {phase.kind === "failed" && (
           <p className="session-error" role="alert">
-            {phase.error}
+            <OperationError detail={phase.error} />
           </p>
         )}
         {error && (
           <p className="session-error" role="alert">
-            {error}
+            <OperationError detail={error} />
           </p>
         )}
         <div className="session-dialog-footer">

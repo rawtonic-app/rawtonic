@@ -393,6 +393,9 @@
       }
     }
   },
+  "errors": {
+    "operationFailed": "L’opération n’a pas pu être terminée."
+  },
   "library": {
     "filters": {
       "rating": {
