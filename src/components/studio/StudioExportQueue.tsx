@@ -299,6 +299,12 @@ export function ExportQueuePanel({ onClose }: { onClose: () => void }) {
       className="studio-export-queue-panel"
       aria-labelledby="studio-export-queue-title"
       onKeyDown={(e) => {
+        // A button's Enter and Space press it, not an app shortcut (the
+        // crop tool's Enter would take the press).
+        if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).closest("button")) {
+          e.stopPropagation();
+          return;
+        }
         if (e.key !== "Escape") return;
         // Handled here: the app's shortcuts would also revert a crop or
         // leave Develop.

@@ -162,3 +162,16 @@ it("reveals a finished job's files and closes with Escape", async () => {
   expect(onClose).toHaveBeenCalled();
   expect(reachedShortcuts).toHaveBeenCalledWith(true);
 });
+
+it("leaves Enter and Space on its buttons to the buttons", () => {
+  useProcessStore.setState({ exportQueue: [job({ state: "done", done: 1 })] });
+  render(<ExportQueuePanel onClose={vi.fn()} />);
+  // As the crop tool's Enter does: it takes the key and the button's press with it.
+  const shortcut = vi.fn((e: KeyboardEvent) => e.preventDefault());
+  window.addEventListener("keydown", shortcut);
+  const button = screen.getByRole("button", { name: "Show" });
+  fireEvent.keyDown(button, { key: "Enter", code: "Enter" });
+  fireEvent.keyDown(button, { key: " ", code: "Space" });
+  window.removeEventListener("keydown", shortcut);
+  expect(shortcut).not.toHaveBeenCalled();
+});
